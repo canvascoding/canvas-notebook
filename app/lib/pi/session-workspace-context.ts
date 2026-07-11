@@ -34,6 +34,8 @@ export type WorkspacePermissionRequirement = keyof WorkspacePermissions;
 
 export type PiSessionWorkspaceFields = {
   organizationId: string | null;
+  customerId: string | null;
+  projectId: string | null;
   workspaceId: string;
   workspaceType: WorkspaceType;
   workspaceName: string | null;
@@ -61,6 +63,8 @@ type StoredPiSessionWorkspace = {
 
 type PiSessionWorkspaceSnapshotRow = {
   organizationId: string | null;
+  customerId: string | null;
+  projectId: string | null;
   workspaceId: string | null;
   workspaceType: string | null;
   workspaceName: string | null;
@@ -152,6 +156,8 @@ export function requestedWorkspaceIdFromChatContext(context?: ChatRequestContext
 export function workspaceToPiSessionFields(workspace: WorkspaceContext): PiSessionWorkspaceFields {
   return {
     organizationId: workspace.organizationId ?? null,
+    customerId: workspace.customerId ?? null,
+    projectId: workspace.projectId ?? null,
     workspaceId: workspace.workspaceId,
     workspaceType: workspace.workspaceType,
     workspaceName: workspace.displayName ?? null,
@@ -201,6 +207,8 @@ function piSessionWorkspaceFieldsChanged(
   fields: PiSessionWorkspaceFields,
 ): boolean {
   return session.organizationId !== fields.organizationId ||
+    session.customerId !== fields.customerId ||
+    session.projectId !== fields.projectId ||
     session.workspaceId !== fields.workspaceId ||
     session.workspaceType !== fields.workspaceType ||
     session.workspaceName !== fields.workspaceName ||

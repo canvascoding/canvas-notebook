@@ -16,6 +16,7 @@ export type AgentProfile = {
   iconId: AgentIconId;
   type: string;
   removable: boolean;
+  defaultProviderInstallationId: string | null;
   defaultProvider: string | null;
   defaultModel: string | null;
   defaultThinking: PiThinkingLevel | null;
@@ -47,6 +48,7 @@ function mapAgent(row: typeof agents.$inferSelect): AgentProfile {
     iconId: normalizeAgentIconId(row.iconId),
     type: row.type,
     removable: Boolean(row.removable),
+    defaultProviderInstallationId: row.defaultProviderInstallationId ?? null,
     defaultProvider: row.defaultProvider ?? null,
     defaultModel: row.defaultModel ?? null,
     defaultThinking: normalizeThinking(row.defaultThinking),
@@ -162,6 +164,7 @@ export async function createAgentProfile(input: {
   name: string;
   agentId?: string | null;
   iconId?: AgentIconId | null;
+  defaultProviderInstallationId?: string | null;
   defaultProvider?: string | null;
   defaultModel?: string | null;
   defaultThinking?: PiThinkingLevel | null;
@@ -186,6 +189,7 @@ export async function createAgentProfile(input: {
     iconId: normalizeAgentIconId(input.iconId),
     type: 'special',
     removable: true,
+    defaultProviderInstallationId: input.defaultProviderInstallationId?.trim() || null,
     defaultProvider: input.defaultProvider?.trim() || null,
     defaultModel: input.defaultModel?.trim() || null,
     defaultThinking: normalizeThinking(input.defaultThinking) || null,
@@ -207,6 +211,7 @@ export async function updateAgentProfile(input: {
   agentId: string;
   name?: string | null;
   iconId?: AgentIconId | null;
+  defaultProviderInstallationId?: string | null;
   defaultProvider?: string | null;
   defaultModel?: string | null;
   defaultThinking?: PiThinkingLevel | null;
@@ -229,6 +234,9 @@ export async function updateAgentProfile(input: {
     .set({
       name: nextName,
       iconId: input.iconId === undefined ? existing.iconId : normalizeAgentIconId(input.iconId),
+      defaultProviderInstallationId: input.defaultProviderInstallationId === undefined
+        ? existing.defaultProviderInstallationId
+        : input.defaultProviderInstallationId?.trim() || null,
       defaultProvider: input.defaultProvider === undefined ? existing.defaultProvider : input.defaultProvider?.trim() || null,
       defaultModel: input.defaultModel === undefined ? existing.defaultModel : input.defaultModel?.trim() || null,
       defaultThinking: input.defaultThinking === undefined ? existing.defaultThinking : normalizeThinking(input.defaultThinking) || null,

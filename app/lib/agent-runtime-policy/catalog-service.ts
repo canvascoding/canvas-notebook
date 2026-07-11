@@ -325,7 +325,9 @@ function materializeProviders(params: {
       credentialScope: provider.credentialScope,
       enabled: provider.enabled,
       status: provider.enabled
-        ? (provider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID ? 'ready' : 'unverified')
+        ? (provider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID || provider.credentialScope === 'user'
+            ? 'ready'
+            : 'unverified')
         : 'disabled',
       config: provider.config,
       revision: params.update.expectedRevision + 1,

@@ -507,6 +507,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       icon_id TEXT NOT NULL DEFAULT 'bot',
       type TEXT NOT NULL DEFAULT 'main',
       removable INTEGER NOT NULL DEFAULT 0,
+      default_provider_installation_id TEXT,
       default_provider TEXT,
       default_model TEXT,
       default_thinking TEXT,
@@ -2132,6 +2133,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
   addColumns(sqlite, 'agents', {
     icon_id: "TEXT NOT NULL DEFAULT 'bot'",
+    default_provider_installation_id: 'TEXT',
     default_thinking: 'TEXT',
     enabled_tools_json: 'TEXT',
     relevant_skills_json: 'TEXT',

@@ -59,6 +59,15 @@ export type AiRuntimeSelection = {
   thinkingLevel: PiThinkingLevel;
 };
 
+export type AiModelReference = Pick<AiRuntimeSelection, 'providerInstallationId' | 'modelId'>;
+
+export type AiRuntimeSelectionSource =
+  | 'session'
+  | 'user_preference'
+  | 'agent_default'
+  | 'workspace_default'
+  | 'app_default';
+
 export type AiAppRuntimeCatalog = {
   organizationId: string;
   revision: number;
@@ -102,4 +111,82 @@ export type AiCatalogUpdate = {
   expectedRevision: number;
   providers: AiCatalogProviderUpdate[];
   defaultSelection: AiRuntimeSelection | null;
+};
+
+export type AiWorkspaceModelPolicy = {
+  organizationId: string;
+  workspaceId: string;
+  allowedModels: AiModelReference[] | null;
+  defaultSelection: AiRuntimeSelection | null;
+  allowUserCredentials: boolean;
+  revision: number;
+  updatedByUserId: string | null;
+  updatedAt: string | null;
+};
+
+export type AiUserModelPreference = {
+  organizationId: string;
+  userId: string;
+  workspaceId: string;
+  agentId: string;
+  selection: AiRuntimeSelection;
+  revision: number;
+  updatedAt: string;
+};
+
+export type AiSessionRuntimeSnapshot = {
+  selection: AiRuntimeSelection;
+  catalogRevision: number;
+  policyRevision: number;
+  selectionSource: AiRuntimeSelectionSource;
+};
+
+export type AiResolvedRuntimeSelection = AiSessionRuntimeSnapshot & {
+  credentialScope: AiCredentialScope;
+};
+
+export type AiEffectiveCatalogProvider = {
+  installationId: string;
+  providerId: string;
+  name: string;
+  source: AiProviderSource;
+  credentialScope: AiCredentialScope;
+  credentialAvailable: boolean;
+  selectable: boolean;
+  status: AiProviderStatus;
+  models: AiCatalogModel[];
+};
+
+export type AiRuntimeResolutionIssue = {
+  code:
+    | 'RUNTIME_CATALOG_NOT_CONFIGURED'
+    | 'NO_ALLOWED_MODELS'
+    | 'PROVIDER_INSTALLATION_NOT_ALLOWED'
+    | 'PROVIDER_NOT_READY'
+    | 'CREDENTIAL_NOT_AVAILABLE'
+    | 'MODEL_NOT_ALLOWED'
+    | 'INVALID_INTELLIGENCE'
+    | 'PROVIDER_ID_MISMATCH'
+    | 'AGENT_DEFAULT_AMBIGUOUS';
+  message: string;
+  source: AiRuntimeSelectionSource | null;
+};
+
+export type AiEffectiveRuntimeResolution = {
+  context: {
+    organizationId: string;
+    userId: string;
+    workspaceId: string;
+    workspaceType: 'personal' | 'organization' | 'team' | 'project';
+    agentId: string;
+  };
+  catalogRevision: number;
+  policyRevision: number;
+  providers: AiEffectiveCatalogProvider[];
+  inheritedSelection: AiResolvedRuntimeSelection | null;
+  preference: AiUserModelPreference | null;
+  effectiveSelection: AiResolvedRuntimeSelection | null;
+  source: AiRuntimeSelectionSource | null;
+  valid: boolean;
+  issues: AiRuntimeResolutionIssue[];
 };

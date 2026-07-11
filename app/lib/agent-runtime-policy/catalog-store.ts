@@ -96,17 +96,41 @@ function parseJsonObject<T extends object>(value: string | null, fallback: T): T
   }
 }
 
+function parseStoredProviderConfig(value: string | null): AiProviderInstallation['config'] {
+  if (!value) return {};
+  try {
+    const parsed = JSON.parse(value) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) throw new Error('invalid provider config');
+    return parsed as AiProviderInstallation['config'];
+  } catch {
+    throw new Error('Stored AI runtime provider configuration is invalid.');
+  }
+}
+
 function parseThinkingLevels(value: string): PiThinkingLevel[] {
   try {
     const parsed = JSON.parse(value) as unknown;
-    if (!Array.isArray(parsed)) return ['off'];
+    if (!Array.isArray(parsed)) throw new Error('invalid thinking levels');
     const levels = parsed.filter((entry): entry is PiThinkingLevel => (
       entry === 'off' || entry === 'minimal' || entry === 'low' || entry === 'medium' || entry === 'high' || entry === 'xhigh'
     ));
-    return levels.length > 0 ? Array.from(new Set(levels)) : ['off'];
+    if (levels.length !== parsed.length || levels.length === 0) throw new Error('invalid thinking levels');
+    return Array.from(new Set(levels));
   } catch {
-    return ['off'];
+    throw new Error('Stored AI runtime catalog model capabilities are invalid.');
   }
+}
+
+function parseCredentialScope(value: string): AiProviderInstallation['credentialScope'] {
+  if (value === 'managed' || value === 'system' || value === 'organization' || value === 'user') return value;
+  throw new Error('Stored AI runtime provider credential scope is invalid.');
+}
+
+function parseStoredThinkingLevel(value: string | null): PiThinkingLevel {
+  if (value === 'off' || value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
+    return value;
+  }
+  throw new Error('Stored AI runtime default intelligence is invalid.');
 }
 
 function normalizeMigrationState(value: unknown): AiAppRuntimeCatalog['migrationState'] {
@@ -164,16 +188,12 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
       providerId: row.provider_id,
       name: row.display_name,
       source: row.source === 'managed' || row.source === 'self-hosted' ? row.source : 'built-in',
-      credentialScope: row.credential_scope === 'managed'
-        || row.credential_scope === 'system'
-        || row.credential_scope === 'organization'
-        ? row.credential_scope
-        : 'user',
+      credentialScope: parseCredentialScope(row.credential_scope),
       enabled: booleanValue(row.enabled),
       status: row.status === 'ready' || row.status === 'degraded' || row.status === 'disabled'
         ? row.status
         : 'unverified',
-      config: parseJsonObject(row.config_json, {}),
+      config: parseStoredProviderConfig(row.config_json),
       revision: numberValue(row.revision, 1),
       verifiedAt: isoTimestamp(row.verified_at),
       verifiedByUserId: row.verified_by_user_id,
@@ -184,7 +204,7 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
           providerInstallationId: defaults.provider_installation_id,
           providerId: defaults.provider_id,
           modelId: defaults.model_id,
-          thinkingLevel: (defaults.thinking_level || 'off') as PiThinkingLevel,
+          thinkingLevel: parseStoredThinkingLevel(defaults.thinking_level),
         }
       : null;
 

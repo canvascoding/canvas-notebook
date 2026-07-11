@@ -519,6 +519,7 @@ export const agents = sqliteTable("agents", {
   iconId: text("icon_id").notNull().default("bot"),
   type: text("type").notNull().default('main'),
   removable: integer("removable", { mode: "boolean" }).notNull().default(false),
+  defaultProviderInstallationId: text("default_provider_installation_id"),
   defaultProvider: text("default_provider"),
   defaultModel: text("default_model"),
   defaultThinking: text("default_thinking"),

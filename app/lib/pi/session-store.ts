@@ -17,6 +17,8 @@ import {
   resolveAgentSessionWorkspaceForUser,
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
+import { piSessionRuntimeSnapshotDbFields } from '@/app/lib/agent-runtime-policy/runtime-store';
+import type { AiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/types';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -104,6 +106,7 @@ export async function savePiSession(
     channelThreadKey?: string | null;
     agentId?: string | null;
     workspaceId?: string | null;
+    runtimeSnapshot?: AiSessionRuntimeSnapshot;
     systemPromptSnapshot?: PiSystemPromptSnapshot;
   },
 ): Promise<void> {
@@ -143,6 +146,7 @@ export async function savePiSession(
       agentId,
       provider,
       model,
+      ...(options?.runtimeSnapshot ? piSessionRuntimeSnapshotDbFields(options.runtimeSnapshot) : {}),
       title: resolvedTitle,
       channelId: 'app',
       channelSessionKey: null,
@@ -164,15 +168,17 @@ export async function savePiSession(
     const workspaceFields = session.workspaceId
       ? {}
       : workspaceToPiSessionFields(await resolveAgentSessionWorkspaceForUser({ userId, workspaceId: options?.workspaceId ?? null }));
+    const runtimeFields = session.runtimeProviderInstallationId || !options?.runtimeSnapshot
+      ? {}
+      : piSessionRuntimeSnapshotDbFields(options.runtimeSnapshot);
 
     await db.update(piSessions)
       .set({ 
         updatedAt: new Date(), 
         title: nextTitle, 
-        provider,
-        model,
         lastMessageAt: lastMessageAt,
         ...workspaceFields,
+        ...runtimeFields,
         ...promptSnapshotFields,
         ...summaryFields 
       })
