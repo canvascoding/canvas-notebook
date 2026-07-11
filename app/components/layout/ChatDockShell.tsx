@@ -108,8 +108,8 @@ export function ChatDockShell({
   const tNav = useTranslations('navigation');
   const tChat = useTranslations('chat');
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
-  const [chatVisible, setChatVisible] = useState(() => getStoredBoolean(chatVisibleStorageKey, defaultChatVisible));
-  const [chatWidth, setChatWidth] = useState(() => getStoredChatWidth(chatWidthStorageKey));
+  const [chatVisible, setChatVisible] = useState(defaultChatVisible);
+  const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(DEFAULT_CHAT_WIDTH);
@@ -290,6 +290,7 @@ export function ChatDockShell({
             <div className="flex items-center">
               <Button
                 data-testid="chat-dock-toggle"
+                aria-label={tCommon('aiChat')}
                 variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
                 size="sm"
                 className={cn(

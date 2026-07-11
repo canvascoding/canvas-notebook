@@ -851,6 +851,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         <Button
                           variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
                           size="sm"
+                          aria-label={tCommon('aiChat')}
                           className={cn(
                             'gap-2',
                             isMobileViewport ? 'rounded-full' : 'rounded-l-full rounded-r-none'

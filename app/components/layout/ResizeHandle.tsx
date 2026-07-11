@@ -61,17 +61,29 @@ export const ResizeHandle = forwardRef<HTMLDivElement, ResizeHandleProps>(functi
       data-resizing={resizing ? 'true' : 'false'}
       className={cn(
         'group/resize-handle relative z-[90] flex shrink-0 touch-none select-none items-center justify-center outline-none',
-        'before:absolute before:content-[\'\'] after:pointer-events-none after:absolute after:bg-border after:content-[\'\']',
-        'after:transition-[background-color,box-shadow,opacity] after:duration-150 after:ease-out motion-reduce:after:transition-none',
-        'hover:after:bg-primary/55 focus-visible:after:bg-primary/75 focus-visible:after:shadow-[0_0_0_3px_hsl(var(--primary)/0.16)]',
-        'data-[resizing=true]:after:bg-primary data-[resizing=true]:after:shadow-[0_0_0_3px_hsl(var(--primary)/0.2)]',
+        'before:absolute before:content-[\'\']',
         isVertical
-          ? 'h-full w-px cursor-col-resize before:inset-y-0 before:left-1/2 before:w-3 before:-translate-x-1/2 after:inset-y-0 after:left-1/2 after:w-px after:-translate-x-1/2'
-          : 'h-px w-full cursor-row-resize before:inset-x-0 before:top-1/2 before:h-3 before:-translate-y-1/2 after:inset-x-0 after:top-1/2 after:h-px after:-translate-y-1/2',
+          ? 'h-full w-px cursor-col-resize before:inset-y-0 before:left-1/2 before:w-3 before:-translate-x-1/2'
+          : 'h-px w-full cursor-row-resize before:inset-x-0 before:top-1/2 before:h-3 before:-translate-y-1/2',
         className,
       )}
       {...props}
-    />
+    >
+      <span
+        aria-hidden="true"
+        className={cn(
+          'resize-handle-line pointer-events-none absolute bg-border',
+          'transition-[background-color,box-shadow,opacity] duration-150 ease-out motion-reduce:transition-none',
+          'group-hover/resize-handle:bg-primary/55 group-focus-visible/resize-handle:bg-primary/75',
+          'group-focus-visible/resize-handle:shadow-[0_0_0_3px_hsl(var(--primary)/0.16)]',
+          'group-data-[resizing=true]/resize-handle:bg-primary',
+          'group-data-[resizing=true]/resize-handle:shadow-[0_0_0_3px_hsl(var(--primary)/0.2)]',
+          isVertical
+            ? 'inset-y-0 left-1/2 w-px -translate-x-1/2'
+            : 'inset-x-0 top-1/2 h-px -translate-y-1/2',
+        )}
+      />
+    </div>
   );
 });
 
@@ -151,6 +163,7 @@ export function usePanelResize(options: UsePanelResizeOptions) {
   const dragRef = useRef<DragState | null>(null);
   const pendingValueRef = useRef<number | null>(null);
   const animationFrameRef = useRef<number | null>(null);
+  const keyboardFrameRef = useRef<number | null>(null);
   const handleRef = useRef<HTMLDivElement | null>(null);
   const previousBodyStylesRef = useRef<{ cursor: string; userSelect: string } | null>(null);
   const [isResizing, setIsResizing] = useState(false);
@@ -310,7 +323,15 @@ export function usePanelResize(options: UsePanelResizeOptions) {
 
     if (nextValue === null) return;
     event.preventDefault();
+    if (keyboardFrameRef.current !== null) {
+      cancelAnimationFrame(keyboardFrameRef.current);
+    }
+    setIsResizing(true);
     commitKeyboardValue(nextValue);
+    keyboardFrameRef.current = requestAnimationFrame(() => {
+      keyboardFrameRef.current = null;
+      setIsResizing(false);
+    });
   }, [commitKeyboardValue, getBounds]);
 
   useEffect(() => {
@@ -322,6 +343,9 @@ export function usePanelResize(options: UsePanelResizeOptions) {
   useEffect(() => () => {
     if (animationFrameRef.current !== null) {
       cancelAnimationFrame(animationFrameRef.current);
+    }
+    if (keyboardFrameRef.current !== null) {
+      cancelAnimationFrame(keyboardFrameRef.current);
     }
     restoreDocumentInteraction();
   }, [restoreDocumentInteraction]);
