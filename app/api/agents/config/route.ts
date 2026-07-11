@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import {
@@ -235,10 +236,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function PATCH(request: NextRequest) {
-  const { session, response } = await requireSession(request);
-  if (response || !session) {
-    return response;
-  }
+  const admin = await requireInstanceAdmin(request);
+  if (!admin.ok) return admin.response;
+  const { session } = admin;
 
   const limited = rateLimit(request, {
     limit: 30,
@@ -350,10 +350,9 @@ export async function PATCH(request: NextRequest) {
 }
 
 export async function PUT(request: NextRequest) {
-  const { session, response } = await requireSession(request);
-  if (response || !session) {
-    return response;
-  }
+  const admin = await requireInstanceAdmin(request);
+  if (!admin.ok) return admin.response;
+  const { session } = admin;
 
   const limited = rateLimit(request, {
     limit: 30,

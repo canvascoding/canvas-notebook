@@ -352,6 +352,98 @@ export const organizationUserPermissions = sqliteTable("organization_user_permis
   singleOwnerIdx: uniqueIndex("idx_org_user_permissions_single_owner").on(table.organizationId).where(sql`${table.role} = 'owner'`),
 }));
 
+export const aiProviderInstallations = sqliteTable("ai_provider_installations", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  providerId: text("provider_id").notNull(),
+  displayName: text("display_name").notNull(),
+  source: text("source").notNull(),
+  credentialScope: text("credential_scope").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(false),
+  status: text("status").notNull().default("unverified"),
+  configJson: text("config_json"),
+  revision: integer("revision").notNull().default(1),
+  verifiedAt: integer("verified_at", { mode: "timestamp" }),
+  verifiedByUserId: text("verified_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  organizationBindingIdx: uniqueIndex("idx_ai_provider_installations_org_binding").on(table.organizationId, table.providerId, table.credentialScope),
+  organizationEnabledIdx: index("idx_ai_provider_installations_org_enabled").on(table.organizationId, table.enabled),
+  organizationStatusIdx: index("idx_ai_provider_installations_org_status").on(table.organizationId, table.status),
+}));
+
+export const aiProviderModels = sqliteTable("ai_provider_models", {
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  providerInstallationId: text("provider_installation_id").notNull().references(() => aiProviderInstallations.id, { onDelete: 'cascade' }),
+  modelId: text("model_id").notNull(),
+  displayName: text("display_name").notNull(),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  isProviderDefault: integer("is_provider_default", { mode: "boolean" }).notNull().default(false),
+  reasoning: integer("reasoning", { mode: "boolean" }).notNull().default(false),
+  supportsVision: integer("supports_vision", { mode: "boolean" }).notNull().default(false),
+  thinkingLevelsJson: text("thinking_levels_json").notNull().default('["off"]'),
+  metadataJson: text("metadata_json"),
+  revision: integer("revision").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey(table.providerInstallationId, table.modelId),
+  providerEnabledIdx: index("idx_ai_provider_models_provider_enabled").on(table.organizationId, table.providerInstallationId, table.enabled),
+  providerDefaultIdx: uniqueIndex("idx_ai_provider_models_provider_default")
+    .on(table.providerInstallationId)
+    .where(sql`${table.isProviderDefault} = 1`),
+}));
+
+export const aiRuntimeDefaults = sqliteTable("ai_runtime_defaults", {
+  organizationId: text("organization_id").primaryKey().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  providerInstallationId: text("provider_installation_id").references(() => aiProviderInstallations.id, { onDelete: 'set null' }),
+  providerId: text("provider_id"),
+  modelId: text("model_id"),
+  thinkingLevel: text("thinking_level").notNull().default("off"),
+  catalogRevision: integer("catalog_revision").notNull().default(0),
+  migrationState: text("migration_state").notNull().default("uninitialized"),
+  legacySourceHash: text("legacy_source_hash"),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+});
+
+export const aiWorkspaceModelPolicies = sqliteTable("ai_workspace_model_policies", {
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").primaryKey().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  allowedModelsJson: text("allowed_models_json"),
+  defaultProviderInstallationId: text("default_provider_installation_id"),
+  defaultProviderId: text("default_provider_id"),
+  defaultModelId: text("default_model_id"),
+  defaultThinkingLevel: text("default_thinking_level"),
+  allowUserCredentials: integer("allow_user_credentials", { mode: "boolean" }).notNull().default(false),
+  revision: integer("revision").notNull().default(1),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  organizationIdx: index("idx_ai_workspace_model_policies_org").on(table.organizationId),
+}));
+
+export const aiUserModelPreferences = sqliteTable("ai_user_model_preferences", {
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  agentId: text("agent_id").notNull().default("canvas-agent"),
+  providerInstallationId: text("provider_installation_id").notNull(),
+  providerId: text("provider_id").notNull(),
+  modelId: text("model_id").notNull(),
+  thinkingLevel: text("thinking_level").notNull().default("off"),
+  revision: integer("revision").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey(table.userId, table.workspaceId, table.agentId),
+  organizationUserIdx: index("idx_ai_user_model_preferences_org_user").on(table.organizationId, table.userId),
+  workspaceIdx: index("idx_ai_user_model_preferences_workspace").on(table.workspaceId),
+}));
+
 export const aiSessions = sqliteTable("ai_sessions", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   sessionId: text("session_id").notNull(),
@@ -405,6 +497,10 @@ export const piSessions = sqliteTable("pi_sessions", {
   workspaceType: text("workspace_type"),
   workspaceName: text("workspace_name"),
   workspaceRootRelativePath: text("workspace_root_relative_path"),
+  runtimeProviderInstallationId: text("runtime_provider_installation_id"),
+  runtimeCatalogRevision: integer("runtime_catalog_revision"),
+  runtimePolicyRevision: integer("runtime_policy_revision"),
+  runtimeSelectionSource: text("runtime_selection_source"),
 }, (table) => ({
   channelIdx: index("idx_pi_sessions_channel").on(table.channelId, table.channelSessionKey),
   userCreatedIdx: index("idx_pi_sessions_user_created").on(table.userId, table.createdAt),

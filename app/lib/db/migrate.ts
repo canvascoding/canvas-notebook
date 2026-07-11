@@ -324,6 +324,106 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (offboarded_by_user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS ai_provider_installations (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      source TEXT NOT NULL,
+      credential_scope TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'unverified',
+      config_json TEXT,
+      revision INTEGER NOT NULL DEFAULT 1,
+      verified_at INTEGER,
+      verified_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (verified_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_provider_models (
+      organization_id TEXT NOT NULL,
+      provider_installation_id TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      display_name TEXT NOT NULL,
+      enabled INTEGER NOT NULL DEFAULT 1,
+      is_provider_default INTEGER NOT NULL DEFAULT 0,
+      reasoning INTEGER NOT NULL DEFAULT 0,
+      supports_vision INTEGER NOT NULL DEFAULT 0,
+      thinking_levels_json TEXT NOT NULL DEFAULT '["off"]',
+      metadata_json TEXT,
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (provider_installation_id, model_id),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (provider_installation_id) REFERENCES ai_provider_installations(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_runtime_defaults (
+      organization_id TEXT PRIMARY KEY NOT NULL,
+      provider_installation_id TEXT,
+      provider_id TEXT,
+      model_id TEXT,
+      thinking_level TEXT NOT NULL DEFAULT 'off',
+      catalog_revision INTEGER NOT NULL DEFAULT 0,
+      migration_state TEXT NOT NULL DEFAULT 'uninitialized',
+      legacy_source_hash TEXT,
+      updated_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (provider_installation_id) REFERENCES ai_provider_installations(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_workspace_model_policies (
+      organization_id TEXT NOT NULL,
+      workspace_id TEXT PRIMARY KEY NOT NULL,
+      allowed_models_json TEXT,
+      default_provider_installation_id TEXT,
+      default_provider_id TEXT,
+      default_model_id TEXT,
+      default_thinking_level TEXT,
+      allow_user_credentials INTEGER NOT NULL DEFAULT 0,
+      revision INTEGER NOT NULL DEFAULT 1,
+      updated_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (updated_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS ai_user_model_preferences (
+      organization_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      agent_id TEXT NOT NULL DEFAULT 'canvas-agent',
+      provider_installation_id TEXT NOT NULL,
+      provider_id TEXT NOT NULL,
+      model_id TEXT NOT NULL,
+      thinking_level TEXT NOT NULL DEFAULT 'off',
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, workspace_id, agent_id),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_provider_installations_org_binding ON ai_provider_installations (organization_id, provider_id, credential_scope);
+    CREATE INDEX IF NOT EXISTS idx_ai_provider_installations_org_enabled ON ai_provider_installations (organization_id, enabled);
+    CREATE INDEX IF NOT EXISTS idx_ai_provider_installations_org_status ON ai_provider_installations (organization_id, status);
+    CREATE INDEX IF NOT EXISTS idx_ai_provider_models_provider_enabled ON ai_provider_models (organization_id, provider_installation_id, enabled);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ai_provider_models_provider_default ON ai_provider_models (provider_installation_id) WHERE is_provider_default = 1;
+    CREATE INDEX IF NOT EXISTS idx_ai_workspace_model_policies_org ON ai_workspace_model_policies (organization_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_user_model_preferences_org_user ON ai_user_model_preferences (organization_id, user_id);
+    CREATE INDEX IF NOT EXISTS idx_ai_user_model_preferences_workspace ON ai_user_model_preferences (workspace_id);
+
     CREATE TABLE IF NOT EXISTS pi_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       session_id TEXT NOT NULL,
@@ -353,6 +453,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       workspace_type TEXT,
       workspace_name TEXT,
       workspace_root_relative_path TEXT,
+      runtime_provider_installation_id TEXT,
+      runtime_catalog_revision INTEGER,
+      runtime_policy_revision INTEGER,
+      runtime_selection_source TEXT,
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
@@ -1588,6 +1692,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     last_viewed_at: 'INTEGER',
     thinking_level: 'TEXT',
     summary_through_sequence: 'INTEGER',
+    runtime_provider_installation_id: 'TEXT',
+    runtime_catalog_revision: 'INTEGER',
+    runtime_policy_revision: 'INTEGER',
+    runtime_selection_source: 'TEXT',
   });
 
   addColumns(sqlite, 'pi_messages', {
