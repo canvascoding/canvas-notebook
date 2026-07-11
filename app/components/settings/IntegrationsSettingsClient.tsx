@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, startTransition, typ
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
-import { ChevronDown, Copy, ExternalLink, Eye, EyeOff, Loader2, Mail, Menu, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
+import { ChevronDown, Copy, ExternalLink, Eye, EyeOff, Loader2, Mail, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import {
@@ -19,12 +19,18 @@ import {
   type McpServerDraft,
 } from '@/app/components/settings/McpServerDialog';
 import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
+import {
+  SETTINGS_NAV_GROUPS,
+  SETTINGS_TAB_ITEMS,
+  SETTINGS_TABS,
+  SettingsNavigation,
+  type SettingsTab,
+} from '@/app/components/settings/SettingsNavigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
-import { DropdownMenu, DropdownMenuContent, DropdownMenuRadioGroup, DropdownMenuRadioItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -32,6 +38,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHintContext } from '@/app/components/onboarding/HintProvider';
 import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
+import { cn } from '@/lib/utils';
 
 type EnvScope = 'integrations' | 'agents';
 
@@ -242,27 +249,12 @@ type ScopeCardConfig = {
   keyHint: string;
 };
 
-const SETTINGS_TAB_ITEMS = [
-  { value: 'general', labelKey: 'tabs.general' },
-  { value: 'integrations', labelKey: 'tabs.integrations' },
-  { value: 'agent-settings', labelKey: 'tabs.agentSettings' },
-  { value: 'browser', labelKey: 'tabs.browser' },
-  { value: 'workspace', labelKey: 'tabs.workspace' },
-  { value: 'knowledge', labelKey: 'tabs.knowledge' },
-  { value: 'user-management', labelKey: 'tabs.userManagement' },
-  { value: 'channels', labelKey: 'tabs.channels' },
-  { value: 'usage', labelKey: 'tabs.usage' },
-  { value: 'skills', labelKey: 'tabs.skills' },
-  { value: 'license', labelKey: 'tabs.license' },
-] as const;
-const SETTINGS_TABS = SETTINGS_TAB_ITEMS.map((tab) => tab.value);
 const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
+const SETTINGS_SIDEBAR_COLLAPSED_STORAGE_KEY = 'canvas-settings-sidebar-collapsed';
 const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
 const INTEGRATIONS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-integrations-section-open-state';
-const SETTINGS_TAB_TRIGGER_CLASS = 'min-h-9 min-w-0 border border-border px-2 data-[state=active]:bg-muted';
-const SETTINGS_TAB_CONTENT_CLASS = 'space-y-4 data-[state=inactive]:hidden';
+const SETTINGS_TAB_CONTENT_CLASS = 'space-y-4';
 
-type SettingsTab = (typeof SETTINGS_TAB_ITEMS)[number]['value'];
 type EnvCardOpenState = Record<EnvScope, boolean>;
 type IntegrationsSectionId = 'search' | 'connectedApps' | 'emailAccounts' | 'mcpConfig';
 type IntegrationsSectionOpenState = Record<IntegrationsSectionId, boolean>;
@@ -2244,6 +2236,7 @@ export function IntegrationsSettingsClient({
   const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
+  const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(false);
   const { activeTabOverride } = useHintContext();
   const integrationsInitialLoadStartedRef = useRef(false);
 
@@ -2272,14 +2265,14 @@ export function IntegrationsSettingsClient({
     const shouldRender = shouldRenderTab(tab);
 
     return (
-      <TabsContent
-        value={tab}
+      <section
         className={SETTINGS_TAB_CONTENT_CLASS}
         id={options.id}
-        forceMount={shouldRender ? true : undefined}
+        aria-labelledby={`settings-content-${tab}`}
+        hidden={visibleEffectiveTab !== tab}
       >
         {shouldRender ? children : null}
-      </TabsContent>
+      </section>
     );
   };
   const handleTabChange = (value: string) => {
@@ -2556,6 +2549,11 @@ export function IntegrationsSettingsClient({
     startTransition(() => {
       setEnvCardOpenByScope(getStoredEnvCardOpenState());
       setIntegrationsSectionOpenById(getStoredIntegrationsSectionOpenState());
+      try {
+        setSettingsSidebarCollapsed(window.localStorage.getItem(SETTINGS_SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true');
+      } catch {
+        // The expanded settings navigation remains usable without browser storage.
+      }
     });
   }, []);
 
@@ -2938,131 +2936,141 @@ export function IntegrationsSettingsClient({
   };
 
   const activeSettingsTab = visibleSettingsTabItems.find((tab) => tab.value === visibleEffectiveTab) ?? visibleSettingsTabItems[0] ?? SETTINGS_TAB_ITEMS[0];
+  const activeSettingsGroup = SETTINGS_NAV_GROUPS.find((group) => group.id === activeSettingsTab.group) ?? SETTINGS_NAV_GROUPS[0];
+  const ActiveSettingsIcon = activeSettingsTab.icon;
+
+  const handleSettingsSidebarCollapsedChange = (collapsed: boolean) => {
+    setSettingsSidebarCollapsed(collapsed);
+    try {
+      window.localStorage.setItem(SETTINGS_SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
+    } catch {
+      // The settings navigation still collapses for the current session.
+    }
+  };
 
   return (
-    <div className="mx-auto w-full max-w-6xl overflow-x-hidden px-3 py-4 sm:px-6 sm:py-6">
-      <Tabs
-        value={visibleEffectiveTab}
-        onValueChange={handleTabChange}
-        className="min-w-0 space-y-4"
+    <div className="mx-auto w-full max-w-7xl overflow-x-clip">
+      <div
+        className={cn(
+          'min-w-0 lg:grid lg:transition-[grid-template-columns] lg:duration-200 lg:ease-out',
+          settingsSidebarCollapsed
+            ? 'lg:grid-cols-[4rem_minmax(0,1fr)]'
+            : 'lg:grid-cols-[16rem_minmax(0,1fr)]',
+        )}
       >
-        <div className="lg:hidden">
-          <DropdownMenu modal={false}>
-            <DropdownMenuTrigger asChild>
-              <Button type="button" variant="outline" className="h-11 w-full justify-between px-3">
-                <span className="flex min-w-0 items-center gap-2">
-                  <Menu className="h-4 w-4" aria-hidden="true" />
-                  <span className="min-w-0 truncate">{t(activeSettingsTab.labelKey)}</span>
-                </span>
-                <ChevronDown className="h-4 w-4 text-muted-foreground" aria-hidden="true" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="start" sideOffset={8} className="max-h-[min(26rem,calc(100dvh-8rem))] w-[calc(100vw-1.5rem)] max-w-sm overflow-y-auto">
-              <DropdownMenuRadioGroup value={visibleEffectiveTab} onValueChange={handleTabChange}>
-                {visibleSettingsTabItems.map((tab) => (
-                  <DropdownMenuRadioItem key={tab.value} value={tab.value} className="min-h-10">
-                    {t(tab.labelKey)}
-                  </DropdownMenuRadioItem>
-                ))}
-              </DropdownMenuRadioGroup>
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </div>
+        <SettingsNavigation
+          activeTab={visibleEffectiveTab}
+          visibleTabs={visibleSettingsTabs}
+          collapsed={settingsSidebarCollapsed}
+          onCollapsedChange={handleSettingsSidebarCollapsedChange}
+          onTabChange={handleTabChange}
+        />
 
-        <TabsList className="hidden h-auto w-full grid-cols-[repeat(auto-fit,minmax(0,1fr))] gap-2 bg-transparent p-0 lg:grid">
-          {visibleSettingsTabItems.map((tab) => (
-            <TabsTrigger key={tab.value} value={tab.value} className={SETTINGS_TAB_TRIGGER_CLASS}>
-              <span className="min-w-0 truncate">{t(tab.labelKey)}</span>
-            </TabsTrigger>
-          ))}
-        </TabsList>
+        <div className="min-w-0 px-3 py-4 sm:px-6 sm:py-6 lg:px-8 lg:py-7">
+          <div className="mb-5 flex min-w-0 items-start gap-3 border-b border-border/70 pb-5 sm:gap-4">
+            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-border bg-muted/60 shadow-sm sm:h-11 sm:w-11">
+              <ActiveSettingsIcon className="h-5 w-5 text-primary" aria-hidden="true" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-[0.65rem] font-bold uppercase tracking-[0.18em] text-muted-foreground">
+                {t(activeSettingsGroup.labelKey)}
+              </p>
+              <h2 className="mt-1 text-xl font-semibold tracking-tight sm:text-2xl" id={`settings-content-${activeSettingsTab.value}`}>
+                {t(activeSettingsTab.labelKey)}
+              </h2>
+              <p className="mt-1 max-w-3xl text-sm leading-6 text-muted-foreground">
+                {t(activeSettingsTab.descriptionKey)}
+              </p>
+            </div>
+          </div>
 
-        {renderLazyTabContent('general',
-          <GeneralSettingsPanel
-            userName={userName}
-            userEmail={userEmail}
-            isManagedControlPlane={isManagedControlPlane}
-            isAdmin={isAdmin}
-            initialTimeZone={initialTimeZone}
-          />,
-        )}
+          {renderLazyTabContent('general',
+            <GeneralSettingsPanel
+              userName={userName}
+              userEmail={userEmail}
+              isManagedControlPlane={isManagedControlPlane}
+              isAdmin={isAdmin}
+              initialTimeZone={initialTimeZone}
+            />,
+          )}
 
-        {renderLazyTabContent('integrations',
-          <>
-            <SearchIntegrationCard
-              isOpen={integrationsSectionOpenById.search}
-              onOpenChange={(isOpen) => setIntegrationsSectionOpen('search', isOpen)}
-              onEnvSaved={() => loadState('integrations')}
-            />
-            <ConnectedAppsPanel
-              isOpen={integrationsSectionOpenById.connectedApps}
-              onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}
-            />
-            <EmailAccountsCard
-              isOpen={integrationsSectionOpenById.emailAccounts}
-              onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
-            />
-            <McpConfigCard
-              isOpen={integrationsSectionOpenById.mcpConfig}
-              onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
-              editor={mcpEditor}
-              onLoad={loadMcpConfig}
-              onLoadStatus={loadMcpStatus}
-              onServerAction={runMcpServerAction}
-              onSaveServer={saveMcpServer}
-              onDeleteServer={deleteMcpServer}
-              onRawChange={setMcpRawContent}
-              onSave={saveMcpConfig}
-            />
-            {SCOPE_CARDS.map((card) => (
-              <EnvEditorCard
-                key={card.scope}
-                card={card}
-                editor={editors[card.scope]}
-                isOpen={envCardOpenByScope[card.scope]}
-                onOpenChange={setEnvCardOpen}
-                onActiveTabChange={setActiveTab}
-                onLoad={loadState}
-                onAddEntry={addDraftEntry}
-                onRemoveEntry={removeDraftEntry}
-                onUpdateEntry={updateDraftEntry}
-                onToggleSecret={toggleSecretVisibility}
-                onRawChange={setRawContent}
-                onSaveKeyValue={saveKeyValue}
-                onSaveRaw={saveRaw}
+          {renderLazyTabContent('integrations',
+            <>
+              <SearchIntegrationCard
+                isOpen={integrationsSectionOpenById.search}
+                onOpenChange={(isOpen) => setIntegrationsSectionOpen('search', isOpen)}
+                onEnvSaved={() => loadState('integrations')}
               />
-            ))}
-          </>,
-          { id: 'onboarding-settings-integrations' },
-        )}
+              <ConnectedAppsPanel
+                isOpen={integrationsSectionOpenById.connectedApps}
+                onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}
+              />
+              <EmailAccountsCard
+                isOpen={integrationsSectionOpenById.emailAccounts}
+                onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
+              />
+              <McpConfigCard
+                isOpen={integrationsSectionOpenById.mcpConfig}
+                onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
+                editor={mcpEditor}
+                onLoad={loadMcpConfig}
+                onLoadStatus={loadMcpStatus}
+                onServerAction={runMcpServerAction}
+                onSaveServer={saveMcpServer}
+                onDeleteServer={deleteMcpServer}
+                onRawChange={setMcpRawContent}
+                onSave={saveMcpConfig}
+              />
+              {SCOPE_CARDS.map((card) => (
+                <EnvEditorCard
+                  key={card.scope}
+                  card={card}
+                  editor={editors[card.scope]}
+                  isOpen={envCardOpenByScope[card.scope]}
+                  onOpenChange={setEnvCardOpen}
+                  onActiveTabChange={setActiveTab}
+                  onLoad={loadState}
+                  onAddEntry={addDraftEntry}
+                  onRemoveEntry={removeDraftEntry}
+                  onUpdateEntry={updateDraftEntry}
+                  onToggleSecret={toggleSecretVisibility}
+                  onRawChange={setRawContent}
+                  onSaveKeyValue={saveKeyValue}
+                  onSaveRaw={saveRaw}
+                />
+              ))}
+            </>,
+            { id: 'onboarding-settings-integrations' },
+          )}
 
-        {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
+          {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
 
-        {renderLazyTabContent('browser', <BrowserSettingsPanel isAdmin={isAdmin} />)}
+          {renderLazyTabContent('browser', <BrowserSettingsPanel isAdmin={isAdmin} />)}
 
-        {renderLazyTabContent('workspace', (
-          <WorkspaceSettingsPanel
-            isAdmin={isAdmin}
-            organizationPermission={organizationPermission}
-            workspaceManagementOpen={workspaceManagementOpen}
-            createWorkspaceOpen={createWorkspaceOpen}
-          />
-        ))}
+          {renderLazyTabContent('workspace', (
+            <WorkspaceSettingsPanel
+              isAdmin={isAdmin}
+              organizationPermission={organizationPermission}
+              workspaceManagementOpen={workspaceManagementOpen}
+              createWorkspaceOpen={createWorkspaceOpen}
+            />
+          ))}
 
-        {renderLazyTabContent('knowledge', <KnowledgeSettingsPanel />)}
+          {renderLazyTabContent('knowledge', <KnowledgeSettingsPanel />)}
 
-        {renderLazyTabContent('user-management',
-          <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,
-        )}
+          {renderLazyTabContent('user-management',
+            <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,
+          )}
 
-        {renderLazyTabContent('channels', <ChannelsPanel isAdmin={isAdmin} />)}
+          {renderLazyTabContent('channels', <ChannelsPanel isAdmin={isAdmin} />)}
 
-        {renderLazyTabContent('usage', <UsageAnalyticsClient isAdmin={isAdmin} />, { id: 'onboarding-settings-usage' })}
+          {renderLazyTabContent('usage', <UsageAnalyticsClient isAdmin={isAdmin} />, { id: 'onboarding-settings-usage' })}
 
-        {renderLazyTabContent('skills', <SkillsPanel />)}
+          {renderLazyTabContent('skills', <SkillsPanel />)}
 
-        {renderLazyTabContent('license', <LicenseActivationPanel defaultEmail={userEmail} />)}
-      </Tabs>
+          {renderLazyTabContent('license', <LicenseActivationPanel defaultEmail={userEmail} />)}
+        </div>
+      </div>
     </div>
   );
 }

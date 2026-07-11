@@ -1731,6 +1731,34 @@
       "skills": "Plugins",
       "license": "License"
     },
+    "navigation": {
+      "ariaLabel": "Settings areas",
+      "areas": "Areas",
+      "desktopDescription": "Grouped by task",
+      "mobileDescription": "Choose a settings area",
+      "collapse": "Collapse settings sidebar",
+      "expand": "Expand settings sidebar",
+      "groups": {
+        "account": "Account",
+        "workspace": "Workspace",
+        "agents": "Agents & Tools",
+        "connections": "Connections",
+        "system": "System & Administration"
+      },
+      "descriptions": {
+        "general": "Manage your account, language, and basic instance options.",
+        "workspace": "Manage workspace storage, organization, and migration.",
+        "knowledge": "Configure knowledge processing, resources, and feature gates.",
+        "agentSettings": "Control agent models, capabilities, tools, and runtime behavior.",
+        "browser": "Configure the browser runtime and browser access for agents.",
+        "skills": "Manage plugins, skills, and their connections.",
+        "integrations": "Set up API keys, connected apps, email, and MCP services.",
+        "channels": "Manage external communication channels and user bindings.",
+        "userManagement": "Manage user accounts, roles, permissions, and access.",
+        "usage": "Analyze token usage, cost, and runtime events.",
+        "license": "Manage the license status and activation of this instance."
+      }
+    },
     "sections": {
       "expand": "Expand",
       "collapse": "Collapse"
