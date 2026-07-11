@@ -1730,6 +1730,34 @@
       "skills": "Plugins",
       "license": "Lizenz"
     },
+    "navigation": {
+      "ariaLabel": "Einstellungsbereiche",
+      "areas": "Bereiche",
+      "desktopDescription": "Nach Aufgabe gruppiert",
+      "mobileDescription": "Wähle einen Einstellungsbereich",
+      "collapse": "Settings-Seitenleiste einklappen",
+      "expand": "Settings-Seitenleiste ausklappen",
+      "groups": {
+        "account": "Konto",
+        "workspace": "Workspace",
+        "agents": "Agents & Tools",
+        "connections": "Verbindungen",
+        "system": "System & Verwaltung"
+      },
+      "descriptions": {
+        "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
+        "workspace": "Workspace-Speicher, Organisation und Migration verwalten.",
+        "knowledge": "Knowledge-Verarbeitung, Ressourcen und Feature-Gates konfigurieren.",
+        "agentSettings": "Modelle, Fähigkeiten, Tools und Laufzeitverhalten der Agents steuern.",
+        "browser": "Browser-Laufzeit und Browser-Zugriff für Agents konfigurieren.",
+        "skills": "Plugins, Skills und deren Verbindungen verwalten.",
+        "integrations": "API-Schlüssel, verbundene Apps, E-Mail und MCP-Dienste einrichten.",
+        "channels": "Externe Kommunikationskanäle und Benutzerverknüpfungen verwalten.",
+        "userManagement": "Benutzerkonten, Rollen, Rechte und Zugriff verwalten.",
+        "usage": "Tokenverbrauch, Kosten und Laufzeitereignisse analysieren.",
+        "license": "Lizenzstatus und Aktivierung dieser Instanz verwalten."
+      }
+    },
     "sections": {
       "expand": "Aufklappen",
       "collapse": "Einklappen"
