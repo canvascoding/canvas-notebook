@@ -1,40 +1,56 @@
 #!/usr/bin/env bash
 
 install_manager_config() {
-  local config_json_path="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook-config.json"
+  local config_json_path="${CONFIG_JSON_PATH:-${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook-config.json}"
 
   require_jq
 
   section "Manager config"
-  if [[ ! -f "$config_json_path" ]]; then
-    _ensure_dir_writable "$(dirname "$config_json_path")"
-    local m_tmp
-    m_tmp="$(mktemp)"
-    printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$m_tmp"
-    _write_owned_file "$config_json_path" "$m_tmp"
-    rm -f "$m_tmp"
-  fi
-
-  local install_dir_val data_dir_val
-  install_dir_val="${INSTALL_DIR:-/opt/canvas-notebook}"
+  local data_dir_val swap_enabled_val swap_enabled_raw auto_update_enabled_val
   data_dir_val="${DATA_DIR:-${HOME:-/opt}/canvas-notebook-data}"
+  swap_enabled_raw="$(printf '%s' "${CANVAS_SWAP_ENABLED:-false}" | tr '[:upper:]' '[:lower:]' | xargs)"
+  case "$swap_enabled_raw" in
+    true|1|yes|on) swap_enabled_val=true ;;
+    false|0|no|off|disabled) swap_enabled_val=false ;;
+    *) fail "CANVAS_SWAP_ENABLED must be true or false" ;;
+  esac
+  auto_update_enabled_val=true
+  is_false "${CANVAS_AUTO_UPDATE_ENABLED:-true}" && auto_update_enabled_val=false
 
-  _config_json_raw_write "$config_json_path" "dataDir" "\"$data_dir_val\""
-  _config_json_raw_write "$config_json_path" "swap.enabled" "\"${CANVAS_SWAP_ENABLED:-false}\""
-  _config_json_raw_write "$config_json_path" "swap.size" "\"${CANVAS_SWAP_SIZE:-2G}\""
-  _config_json_raw_write "$config_json_path" "swap.file" "\"${CANVAS_SWAP_FILE:-/swapfile}\""
-  _config_json_raw_write "$config_json_path" "autoUpdate.enabled" "\"${CANVAS_AUTO_UPDATE_ENABLED:-true}\""
-  _config_json_raw_write "$config_json_path" "autoUpdate.schedule" "\"${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}\""
+  with_canvas_swap_lock install_manager_config_unlocked "$config_json_path" "$data_dir_val" "$swap_enabled_val" "$auto_update_enabled_val" || return 1
 
   ok "Wrote ${config_json_path}"
 }
 
 _config_json_raw_write() {
   local file="$1" key="$2" json_value="$3" tmp
-  tmp="$(mktemp)"
-  jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$file" > "$tmp"
-  _write_owned_file "$file" "$tmp"
-  rm -f "$tmp"
+  tmp="$(mktemp)" || return 1
+  if ! jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$file" > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if ! _write_owned_file "$file" "$tmp" 600; then
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp" || true
+}
+
+install_manager_config_unlocked() {
+  local config_json_path="$1" data_dir_val="$2" swap_enabled_val="$3" auto_update_enabled_val="$4" m_tmp
+  if [[ ! -f "$config_json_path" ]]; then
+    _ensure_dir_writable "$(dirname "$config_json_path")" || return 1
+    m_tmp="$(mktemp)" || return 1
+    if ! printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$m_tmp" || ! _write_owned_file "$config_json_path" "$m_tmp" 600; then
+      rm -f "$m_tmp"
+      return 1
+    fi
+    rm -f "$m_tmp" || true
+  fi
+  _config_json_raw_write "$config_json_path" "dataDir" "\"$data_dir_val\"" || return 1
+  config_json_write_swap "$swap_enabled_val" "${CANVAS_SWAP_SIZE:-2G}" "${CANVAS_SWAP_FILE:-/swapfile}" "${CANVAS_SWAP_SWAPPINESS:-10}" || return 1
+  _config_json_raw_write "$config_json_path" "autoUpdate.enabled" "$auto_update_enabled_val" || return 1
+  _config_json_raw_write "$config_json_path" "autoUpdate.schedule" "\"${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}\""
 }
 
 install_management_cli() {

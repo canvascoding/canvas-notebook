@@ -52,9 +52,10 @@ export function createDefaultConfig(paths: CliPaths, platform: HostPlatform): Ca
     },
     paths,
     swap: {
-      enabled: platform === 'linux',
+      enabled: false,
       size: '2G',
       file: '/swapfile',
+      swappiness: 10,
     },
     autoUpdate: {
       enabled: true,
@@ -74,6 +75,12 @@ function asNumber(value: unknown, fallback: number): number {
   return numeric;
 }
 
+function asIntegerWithin(value: unknown, fallback: number, minimum: number, maximum: number): number {
+  const numeric = Number(value);
+  if (!Number.isInteger(numeric) || numeric < minimum || numeric > maximum) return fallback;
+  return numeric;
+}
+
 function asString(value: unknown, fallback = ''): string {
   return typeof value === 'string' ? value : fallback;
 }
@@ -81,7 +88,9 @@ function asString(value: unknown, fallback = ''): string {
 function asBoolean(value: unknown, fallback: boolean): boolean {
   if (typeof value === 'boolean') return value;
   if (typeof value === 'string') {
-    return !['false', '0', 'no', 'off', 'disabled'].includes(value.trim().toLowerCase());
+    const normalized = value.trim().toLowerCase();
+    if (['true', '1', 'yes', 'on'].includes(normalized)) return true;
+    if (['false', '0', 'no', 'off', 'disabled'].includes(normalized)) return false;
   }
   return fallback;
 }
@@ -138,6 +147,7 @@ export function normalizeConfig(
       enabled: asBoolean(isRecord(input.swap) ? input.swap.enabled : undefined, defaults.swap.enabled),
       size: asString(isRecord(input.swap) ? input.swap.size : undefined, defaults.swap.size),
       file: asString(isRecord(input.swap) ? input.swap.file : undefined, defaults.swap.file),
+      swappiness: asIntegerWithin(isRecord(input.swap) ? input.swap.swappiness : undefined, defaults.swap.swappiness, 0, 200),
     },
     autoUpdate: {
       enabled: asBoolean(isRecord(input.autoUpdate) ? input.autoUpdate.enabled : undefined, defaults.autoUpdate.enabled),

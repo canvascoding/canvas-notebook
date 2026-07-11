@@ -39,7 +39,10 @@ cmd_config_set() {
     fail "BOOTSTRAP_ADMIN_PASSWORD is not stored in config.json. Use: canvas-notebook admin reset-password --email <email> --password-stdin"
   fi
 
-  config_json_write "$key" "$value"
+  case "$key" in
+    swap.*) with_canvas_swap_lock config_json_write "$key" "$value" ;;
+    *) config_json_write "$key" "$value" ;;
+  esac
 
   local display_value="$value"
   case "$key" in

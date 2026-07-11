@@ -65,6 +65,7 @@ cmd_env() {
     printf '%-30s %s\n' "swap.enabled" "$(config_json_read swap.enabled)"
     printf '%-30s %s\n' "swap.size" "$(config_json_read swap.size)"
     printf '%-30s %s\n' "swap.file" "$(config_json_read swap.file)"
+    printf '%-30s %s\n' "swap.swappiness" "$(config_json_read swap.swappiness)"
     echo
     printf '%-30s %s\n' "AUTO-UPDATE" "VALUE"
     printf '%-30s %s\n' "-------------------------------" "-----------------------------------"

@@ -16,9 +16,10 @@ CONFIG_JSON_DEFAULTS='{
   "containerPort": 3000,
   "dataDir": "",
   "swap": {
-    "enabled": true,
+    "enabled": false,
     "size": "2G",
-    "file": "/swapfile"
+    "file": "/swapfile",
+    "swappiness": 10
   },
   "autoUpdate": {
     "enabled": true,
@@ -84,14 +85,14 @@ _install_user() {
 }
 
 _write_owned_file() {
-  local dest="$1" src="$2" owner
+  local dest="$1" src="$2" mode="${3:-644}" owner
   owner="$(_install_user)"
   if cp "$src" "$dest" 2>/dev/null; then
-    chmod 644 "$dest" 2>/dev/null || true
+    chmod "$mode" "$dest" 2>/dev/null || return 1
   else
-    run_root cp "$src" "$dest"
+    run_root cp "$src" "$dest" || return 1
     run_root chown "$owner" "$dest" 2>/dev/null || true
-    run_root chmod 644 "$dest"
+    run_root chmod "$mode" "$dest" || return 1
   fi
 }
 
@@ -99,22 +100,24 @@ _ensure_dir_writable() {
   local dir="$1" owner
   owner="$(_install_user)"
   if [[ ! -d "$dir" ]]; then
-    run_root mkdir -p "$dir"
-    run_root chown "$owner" "$dir"
+    run_root mkdir -p "$dir" || return 1
+    run_root chown "$owner" "$dir" || return 1
   elif [[ ! -w "$dir" ]]; then
-    run_root chown "$owner" "$dir"
+    run_root chown "$owner" "$dir" || return 1
   fi
 }
 
 config_json_init() {
-  require_jq
+  require_jq || return 1
   if [[ ! -f "$CONFIG_JSON_PATH" ]]; then
-    _ensure_dir_writable "$(dirname "$CONFIG_JSON_PATH")"
+    _ensure_dir_writable "$(dirname "$CONFIG_JSON_PATH")" || return 1
     local tmp
-    tmp="$(mktemp)"
-    printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$tmp"
-    _write_owned_file "$CONFIG_JSON_PATH" "$tmp"
-    rm -f "$tmp"
+    tmp="$(mktemp)" || return 1
+    if ! printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$tmp" || ! _write_owned_file "$CONFIG_JSON_PATH" "$tmp" 600; then
+      rm -f "$tmp"
+      return 1
+    fi
+    rm -f "$tmp" || true
     if [[ "${OUTPUT_JSON:-false}" != "true" && "${NO_BANNER:-false}" != "true" ]]; then
       ok "Created default config at ${CONFIG_JSON_PATH}"
     fi
@@ -142,21 +145,42 @@ config_json_read_raw() {
 config_json_write() {
   local key="$1" value="$2" tmp
 
-  require_jq
+  require_jq || return 1
 
   case "$key" in
     swap.size)
-      if ! printf '%s' "$value" | grep -qE '^[0-9]+[KMGT]?$'; then
+      if ! printf '%s' "$value" | grep -qE '^[0-9]+[KMGTkmgt]$'; then
         fail "Invalid swap size '${value}'. Expected format: <number>[K|M|G|T] (e.g. 2G, 512M)"
       fi
+      local swap_amount swap_unit swap_number
+      swap_amount="${value%?}"
+      swap_unit="$(printf '%s' "${value: -1}" | tr '[:lower:]' '[:upper:]')"
+      [[ "${#swap_amount}" -le 8 ]] || fail "Swap size must be between 128M and 16G"
+      swap_number=$((10#$swap_amount))
+      case "$swap_unit" in
+        K) [[ "$swap_number" -ge 131072 && "$swap_number" -le 16777216 ]] || fail "Swap size must be between 128M and 16G" ;;
+        M) [[ "$swap_number" -ge 128 && "$swap_number" -le 16384 ]] || fail "Swap size must be between 128M and 16G" ;;
+        G) [[ "$swap_number" -ge 1 && "$swap_number" -le 16 ]] || fail "Swap size must be between 128M and 16G" ;;
+        T) fail "Swap size must be between 128M and 16G" ;;
+      esac
       ;;
     swap.file)
-      if [[ "$value" != /* ]]; then
-        fail "Swap file path must be absolute (e.g. /swapfile)"
+      if [[ "$value" != "${CANVAS_SWAP_MANAGED_FILE:-/swapfile}" ]]; then
+        fail "Canvas-managed swap file path must be ${CANVAS_SWAP_MANAGED_FILE:-/swapfile}"
+      fi
+      ;;
+    swap.swappiness)
+      if ! printf '%s' "$value" | grep -qE '^[0-9]+$' || [[ "$value" -lt 0 || "$value" -gt 200 ]]; then
+        fail "Swap swappiness must be an integer between 0 and 200"
       fi
       ;;
     swap.enabled)
-      value="$(is_false "$value" && printf 'false' || printf 'true')"
+      value="$(printf '%s' "$value" | tr '[:upper:]' '[:lower:]' | xargs)"
+      case "$value" in
+        true|1|yes|on) value=true ;;
+        false|0|no|off|disabled) value=false ;;
+        *) fail "Swap enabled must be true or false" ;;
+      esac
       ;;
     autoUpdate.enabled)
       value="$(is_false "$value" && printf 'false' || printf 'true')"
@@ -177,11 +201,11 @@ config_json_write() {
       if [[ -n "$value" ]]; then
         local extracted_domain
         extracted_domain="$(printf '%s' "$value" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1)"
-        _config_json_write_raw "domain" "\"$extracted_domain\""
+        _config_json_write_raw "domain" "\"$extracted_domain\"" || return 1
         local base_url
         base_url="$value"
-        _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\""
-        _config_json_write_raw "env.BASE_URL" "\"$base_url\""
+        _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\"" || return 1
+        _config_json_write_raw "env.BASE_URL" "\"$base_url\"" || return 1
         return
       fi
       ;;
@@ -189,12 +213,12 @@ config_json_write() {
       if [[ -n "$value" ]]; then
         local extracted_domain
         extracted_domain="$(printf '%s' "$value" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1)"
-        _config_json_write_raw "domain" "\"$extracted_domain\""
-        _config_json_write_raw "env.BASE_URL" "\"$value\""
+        _config_json_write_raw "domain" "\"$extracted_domain\"" || return 1
+        _config_json_write_raw "env.BASE_URL" "\"$value\"" || return 1
         local current_auth_url
         current_auth_url="$(config_json_read env.BETTER_AUTH_BASE_URL)"
         if [[ -z "$current_auth_url" ]]; then
-          _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$value\""
+          _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$value\"" || return 1
         fi
         return
       fi
@@ -218,17 +242,17 @@ config_json_write() {
   esac
 
   if printf '%s' "$value" | grep -qE '^-?[0-9]+$'; then
-    _config_json_write_raw "$key" "$value"
+    _config_json_write_raw "$key" "$value" || return 1
   elif [[ "$value" == "true" || "$value" == "false" ]]; then
-    _config_json_write_raw "$key" "$value"
+    _config_json_write_raw "$key" "$value" || return 1
   else
-    _config_json_write_raw "$key" "\"$value\""
+    _config_json_write_raw "$key" "\"$value\"" || return 1
   fi
 
   if [[ "$key" == "domain" ]] && [[ -n "$value" ]]; then
     local base_url="https://${value}"
-    _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\""
-    _config_json_write_raw "env.BASE_URL" "\"$base_url\""
+    _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\"" || return 1
+    _config_json_write_raw "env.BASE_URL" "\"$base_url\"" || return 1
   fi
 }
 
@@ -408,13 +432,60 @@ _config_json_write_raw() {
   local key="$1" json_value="$2" tmp
 
   if [[ ! -f "$CONFIG_JSON_PATH" ]]; then
-    config_json_init
+    config_json_init || return 1
   fi
 
-  tmp="$(mktemp)"
-  jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$CONFIG_JSON_PATH" > "$tmp"
-  _write_owned_file "$CONFIG_JSON_PATH" "$tmp"
+  tmp="$(mktemp)" || return 1
+  if ! jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$CONFIG_JSON_PATH" > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  if ! _write_owned_file "$CONFIG_JSON_PATH" "$tmp" 600; then
+    rm -f "$tmp"
+    return 1
+  fi
+  rm -f "$tmp" || true
+}
+
+config_json_write_swap() {
+  local enabled="$1" size="$2" file="$3" swappiness="$4" tmp target_tmp mode owner
+  if declare -f swap_validate_config >/dev/null 2>&1; then
+    swap_validate_config "$enabled" "$size" "$file" "$swappiness" || return 1
+  fi
+  config_json_init || return 1
+  tmp="$(mktemp)" || return 1
+  if ! jq \
+    --argjson enabled "$enabled" \
+    --arg size "$size" \
+    --arg file "$file" \
+    --argjson swappiness "$swappiness" \
+    '.swap = { enabled: $enabled, size: $size, file: $file, swappiness: $swappiness }' \
+    "$CONFIG_JSON_PATH" > "$tmp"; then
+    rm -f "$tmp"
+    return 1
+  fi
+  mode=600
+  target_tmp="${CONFIG_JSON_PATH}.swap.$$"
+  if ! run_root install -m "$mode" "$tmp" "$target_tmp"; then
+    rm -f "$tmp"
+    run_root rm -f "$target_tmp" >/dev/null 2>&1 || true
+    return 1
+  fi
   rm -f "$tmp"
+  if [[ -z "${CANVAS_SWAP_TEST_ROOT:-}" ]]; then
+    owner="$(_install_user)" || {
+      run_root rm -f "$target_tmp" >/dev/null 2>&1 || true
+      return 1
+    }
+    if ! run_root chown "$owner" "$target_tmp"; then
+      run_root rm -f "$target_tmp" >/dev/null 2>&1 || true
+      return 1
+    fi
+  fi
+  if ! run_root mv -f "$target_tmp" "$CONFIG_JSON_PATH"; then
+    run_root rm -f "$target_tmp" >/dev/null 2>&1 || true
+    return 1
+  fi
 }
 
 config_json_show() {
@@ -474,7 +545,7 @@ config_json_to_env() {
     printf 'CANVAS_POSTGRES_USER=%s\n' "${postgres_user:-canvas}"
     printf 'CANVAS_POSTGRES_PASSWORD=%s\n' "$postgres_password"
   } >> "$compose_tmp"
-  _write_owned_file "$COMPOSE_ENV_PATH" "$compose_tmp"
+  _write_owned_file "$COMPOSE_ENV_PATH" "$compose_tmp" 600
   rm -f "$compose_tmp"
 
   local env_tmp
@@ -484,7 +555,7 @@ config_json_to_env() {
     printf '# Run: canvas-notebook env --sync to regenerate\n\n'
     jq -r '.env | to_entries[] | "\(.key)=\(.value)"' "$CONFIG_JSON_PATH"
   } > "$env_tmp"
-  _write_owned_file "$CONFIG_ENV_PATH" "$env_tmp"
+  _write_owned_file "$CONFIG_ENV_PATH" "$env_tmp" 600
   rm -f "$env_tmp"
 
   if [[ "${OUTPUT_JSON:-false}" != "true" ]]; then
@@ -495,7 +566,7 @@ config_json_to_env() {
 
 config_json_migrate() {
   local force=false compose_file="${COMPOSE_FILE:-${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}/canvas-notebook-compose.yaml}"
-  local manager_env="/etc/canvas-notebook/manager.env"
+  local manager_env="${CANVAS_MANAGER_ENV_PATH:-/etc/canvas-notebook/manager.env}" target_config_path migration_config_path
 
   for arg in "$@"; do
     if [[ "$arg" == "--force" ]]; then
@@ -510,12 +581,16 @@ config_json_migrate() {
 
   require_jq
 
-  _ensure_dir_writable "$(dirname "$CONFIG_JSON_PATH")"
+  target_config_path="$CONFIG_JSON_PATH"
+  migration_config_path="${target_config_path}.migration.$$"
+  _ensure_dir_writable "$(dirname "$target_config_path")"
+  run_root rm -f "$migration_config_path"
   local mig_tmp
   mig_tmp="$(mktemp)"
   printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$mig_tmp"
-  _write_owned_file "$CONFIG_JSON_PATH" "$mig_tmp"
+  _write_owned_file "$migration_config_path" "$mig_tmp" 600
   rm -f "$mig_tmp"
+  CONFIG_JSON_PATH="$migration_config_path"
 
   if [[ -f "$manager_env" ]]; then
     local key value
@@ -527,6 +602,7 @@ config_json_migrate() {
         CANVAS_SWAP_ENABLED) config_json_write swap.enabled "$value" ;;
         CANVAS_SWAP_SIZE) config_json_write swap.size "$value" ;;
         CANVAS_SWAP_FILE) config_json_write swap.file "$value" ;;
+        CANVAS_SWAP_SWAPPINESS) config_json_write swap.swappiness "$value" ;;
         CANVAS_AUTO_UPDATE_ENABLED) config_json_write autoUpdate.enabled "$value" ;;
         CANVAS_AUTO_UPDATE_SCHEDULE) config_json_write autoUpdate.schedule "$value" ;;
         CANVAS_IMAGE) config_json_write image "$value" ;;
@@ -580,5 +656,10 @@ config_json_migrate() {
     ok "Migrated settings from ${compose_file}"
   fi
 
-  ok "Migration complete — config.json written to ${CONFIG_JSON_PATH}"
+  CONFIG_JSON_PATH="$target_config_path"
+  if ! run_root mv -f "$migration_config_path" "$target_config_path"; then
+    run_root rm -f "$migration_config_path" >/dev/null 2>&1 || true
+    return 1
+  fi
+  ok "Migration complete — config.json written to ${target_config_path}"
 }

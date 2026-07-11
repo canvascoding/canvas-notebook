@@ -5,9 +5,10 @@ CANVAS_CLI_VERSION="2026.7.11.1"
 INSTALL_DIR="${CANVAS_INSTALL_DIR:-/opt/canvas-notebook}"
 COMPOSE_FILE="${CANVAS_COMPOSE_FILE:-${INSTALL_DIR}/canvas-notebook-compose.yaml}"
 DATA_DIR="${CANVAS_DATA_DIR:-${HOME:-/opt}/canvas-notebook-data}"
-CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-true}"
+CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-false}"
 CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
 CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
+CANVAS_SWAP_SWAPPINESS="${CANVAS_SWAP_SWAPPINESS:-10}"
 SERVICE="${CANVAS_SERVICE:-canvas-notebook}"
 IMAGE_REF="${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}"
 INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh"
@@ -175,7 +176,7 @@ cmd_file_for() {
     backup) printf 'backup\n' ;;
     database) printf 'database\n' ;;
     admin) printf 'admin\n' ;;
-    swap|swap-enable|swap-disable) printf 'swap\n' ;;
+    swap|swap-sync|swap-apply|swap-enable|swap-disable) printf 'swap\n' ;;
     caddy|caddy-reload|caddy-fix) printf 'caddy\n' ;;
     auto-update-status|auto-update-enable|auto-update-disable|auto-update-sync) printf 'auto_update\n' ;;
     cli-update) printf 'cli_update\n' ;;

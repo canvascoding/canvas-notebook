@@ -55,10 +55,13 @@ Commands:
              Copy the current SQLite database into the configured Postgres database
   admin reset-password --email <email> [--name <name>] [--password-stdin]
              Reset or create the admin password inside the running container without storing it in env
-  swap       Show swap status
-  swap-enable [--size 2G] [--file /swapfile]
+  swap       Show swap status; use --json for machine-readable output
+  swap-sync  Reconcile the host with swap.* from config.json
+  swap-apply --enabled true --size 2G --file /swapfile --swappiness 10
+               Atomically persist and apply the complete desired swap state
+  swap-enable [--size 2G] [--file /swapfile] [--swappiness 10]
                Enable Canvas-managed swap and persist it
-  swap-disable
+  swap-disable [--secure]
                Disable Canvas-managed swap and persist it
   caddy      Check Caddy status and current Caddyfile
   caddy-reload

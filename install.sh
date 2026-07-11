@@ -17,6 +17,8 @@ INSTALL_USER_HOME="$(getent passwd "$INSTALL_USER" 2>/dev/null | cut -d: -f6 || 
 INSTALL_USER_HOME="${INSTALL_USER_HOME:-${HOME:-/opt}}"
 DATA_DIR="${CANVAS_DATA_DIR:-${INSTALL_USER_HOME}/canvas-notebook-data}"
 CONFIG_JSON_PATH="${CANVAS_CONFIG_JSON:-${INSTALL_DIR}/canvas-notebook-config.json}"
+CONFIG_JSON_WAS_PRESENT=false
+[[ -f "$CONFIG_JSON_PATH" ]] && CONFIG_JSON_WAS_PRESENT=true
 COMPOSE_FILE="${CANVAS_COMPOSE_FILE:-${INSTALL_DIR}/canvas-notebook-compose.yaml}"
 SERVICE="${CANVAS_SERVICE:-canvas-notebook}"
 LOG_DIR="${CANVAS_MANAGER_LOG_DIR:-/var/log/canvas-notebook}"
@@ -25,9 +27,11 @@ DOCKER_COMPOSE="docker compose"
 CANVAS_SWAP_ENABLED_WAS_SET="${CANVAS_SWAP_ENABLED+x}"
 CANVAS_SWAP_SIZE_WAS_SET="${CANVAS_SWAP_SIZE+x}"
 CANVAS_SWAP_FILE_WAS_SET="${CANVAS_SWAP_FILE+x}"
+CANVAS_SWAP_SWAPPINESS_WAS_SET="${CANVAS_SWAP_SWAPPINESS+x}"
 CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-false}"
 CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
 CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
+CANVAS_SWAP_SWAPPINESS="${CANVAS_SWAP_SWAPPINESS:-10}"
 CANVAS_AUTO_UPDATE_ENABLED_WAS_SET="${CANVAS_AUTO_UPDATE_ENABLED+x}"
 CANVAS_AUTO_UPDATE_SCHEDULE_WAS_SET="${CANVAS_AUTO_UPDATE_SCHEDULE+x}"
 CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
@@ -58,9 +62,13 @@ load_existing_manager_config() {
   if [[ -z "$CANVAS_SWAP_FILE_WAS_SET" ]]; then
     CANVAS_SWAP_FILE="$(awk -F= '/^CANVAS_SWAP_FILE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
-CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-true}"
+  if [[ -z "$CANVAS_SWAP_SWAPPINESS_WAS_SET" ]]; then
+    CANVAS_SWAP_SWAPPINESS="$(awk -F= '/^CANVAS_SWAP_SWAPPINESS=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
+  fi
+  CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-false}"
   CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
   CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
+  CANVAS_SWAP_SWAPPINESS="${CANVAS_SWAP_SWAPPINESS:-10}"
   if [[ -z "$CANVAS_AUTO_UPDATE_ENABLED_WAS_SET" ]]; then
     CANVAS_AUTO_UPDATE_ENABLED="$(awk -F= '/^CANVAS_AUTO_UPDATE_ENABLED=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
@@ -69,6 +77,28 @@ CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-true}"
   fi
   CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
   CANVAS_AUTO_UPDATE_SCHEDULE="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
+}
+
+load_existing_swap_config() {
+  [[ -f "$CONFIG_JSON_PATH" ]] || return 0
+  local value
+  if [[ -z "$CANVAS_SWAP_ENABLED_WAS_SET" ]]; then
+    value="$(jq -r '.swap | if type == "object" and has("enabled") then .enabled else empty end' "$CONFIG_JSON_PATH")"
+    [[ -n "$value" ]] && CANVAS_SWAP_ENABLED="$value"
+  fi
+  if [[ -z "$CANVAS_SWAP_SIZE_WAS_SET" ]]; then
+    value="$(jq -r '.swap.size // empty' "$CONFIG_JSON_PATH")"
+    [[ -n "$value" ]] && CANVAS_SWAP_SIZE="$value"
+  fi
+  if [[ -z "$CANVAS_SWAP_FILE_WAS_SET" ]]; then
+    value="$(jq -r '.swap.file // empty' "$CONFIG_JSON_PATH")"
+    [[ -n "$value" ]] && CANVAS_SWAP_FILE="$value"
+  fi
+  if [[ -z "$CANVAS_SWAP_SWAPPINESS_WAS_SET" ]]; then
+    value="$(jq -r '.swap.swappiness // empty' "$CONFIG_JSON_PATH")"
+    [[ -n "$value" ]] && CANVAS_SWAP_SWAPPINESS="$value"
+  fi
+  export CANVAS_SWAP_ENABLED CANVAS_SWAP_SIZE CANVAS_SWAP_FILE CANVAS_SWAP_SWAPPINESS
 }
 
 resolve_support_dir() {
@@ -418,18 +448,18 @@ run_cli_update_only() {
 run_prebuilt_install() {
   ensure_host_install
   prepare_install_dir
+  if [[ "$CONFIG_JSON_WAS_PRESENT" == "false" && -f "/etc/canvas-notebook/manager.env" ]]; then
+    info "Migrating legacy config..."
+    config_json_migrate --force
+  else
+    config_json_init
+  fi
   configure_swap
   install_docker
   stop_legacy_install
   migrate_legacy_data
   install_caddy
   install_compose_file
-
-  config_json_init
-  if [[ -f "/etc/canvas-notebook/manager.env" ]]; then
-    info "Migrating legacy config..."
-    config_json_migrate --force
-  fi
 
   configure_secrets
   configure_compose_values
@@ -503,6 +533,7 @@ resolve_support_dir
 source_libs
 
 require_jq
+load_existing_swap_config
 
 print_banner
 detect_mode

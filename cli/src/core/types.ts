@@ -33,6 +33,7 @@ export interface CanvasCliConfig {
     enabled: boolean;
     size: string;
     file: string;
+    swappiness: number;
   };
   autoUpdate: {
     enabled: boolean;
