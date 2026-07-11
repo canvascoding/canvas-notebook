@@ -38,6 +38,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { useHintContext } from '@/app/components/onboarding/HintProvider';
 import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
+import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
 import { cn } from '@/lib/utils';
 
 type EnvScope = 'integrations' | 'agents';
@@ -250,7 +251,6 @@ type ScopeCardConfig = {
 };
 
 const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
-const SETTINGS_SIDEBAR_COLLAPSED_STORAGE_KEY = 'canvas-settings-sidebar-collapsed';
 const ENV_CARD_OPEN_STORAGE_KEY = 'canvas-settings-env-card-open-state';
 const INTEGRATIONS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-integrations-section-open-state';
 const SETTINGS_TAB_CONTENT_CLASS = 'space-y-4';
@@ -2219,6 +2219,7 @@ export function IntegrationsSettingsClient({
   userEmail = '',
   isManagedControlPlane = false,
   initialTimeZone,
+  initialSettingsSidebarCollapsed = false,
   organizationPermission = null,
 }: {
   isAdmin?: boolean;
@@ -2227,6 +2228,7 @@ export function IntegrationsSettingsClient({
   userEmail?: string;
   isManagedControlPlane?: boolean;
   initialTimeZone?: string;
+  initialSettingsSidebarCollapsed?: boolean;
   organizationPermission?: WorkspaceOrganizationPermission;
 }) {
   const t = useTranslations('settings');
@@ -2236,7 +2238,7 @@ export function IntegrationsSettingsClient({
   const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
-  const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(false);
+  const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(initialSettingsSidebarCollapsed);
   const { activeTabOverride } = useHintContext();
   const integrationsInitialLoadStartedRef = useRef(false);
 
@@ -2549,11 +2551,6 @@ export function IntegrationsSettingsClient({
     startTransition(() => {
       setEnvCardOpenByScope(getStoredEnvCardOpenState());
       setIntegrationsSectionOpenById(getStoredIntegrationsSectionOpenState());
-      try {
-        setSettingsSidebarCollapsed(window.localStorage.getItem(SETTINGS_SIDEBAR_COLLAPSED_STORAGE_KEY) === 'true');
-      } catch {
-        // The expanded settings navigation remains usable without browser storage.
-      }
     });
   }, []);
 
@@ -2942,7 +2939,8 @@ export function IntegrationsSettingsClient({
   const handleSettingsSidebarCollapsedChange = (collapsed: boolean) => {
     setSettingsSidebarCollapsed(collapsed);
     try {
-      window.localStorage.setItem(SETTINGS_SIDEBAR_COLLAPSED_STORAGE_KEY, String(collapsed));
+      const secure = window.location.protocol === 'https:' ? '; Secure' : '';
+      document.cookie = `${SETTINGS_SIDEBAR_COLLAPSED_COOKIE}=${String(collapsed)}; Path=/; Max-Age=31536000; SameSite=Lax${secure}`;
     } catch {
       // The settings navigation still collapses for the current session.
     }

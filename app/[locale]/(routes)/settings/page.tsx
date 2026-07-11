@@ -8,10 +8,13 @@ import { isAdminUser } from '@/app/lib/admin-auth';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
+import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
+import { cookies } from 'next/headers';
 
 export default async function SettingsPage() {
   const session = await requirePageSession({ allowUnlicensed: true });
   const t = await getTranslations('settings');
+  const cookieStore = await cookies();
 
   const isAdmin = isAdminUser(session?.user);
   const currentUserId = session?.user?.id || '';
@@ -19,6 +22,7 @@ export default async function SettingsPage() {
   const userEmail = session?.user?.email || '';
   const isManagedControlPlane = isManagedControlPlaneAvailable();
   const initialTimeZone = await getServerPreferredTimeZone();
+  const initialSettingsSidebarCollapsed = cookieStore.get(SETTINGS_SIDEBAR_COLLAPSED_COOKIE)?.value === 'true';
   const userOnboarding = currentUserId ? await getUserOnboardingState(currentUserId) : null;
   let organizationPermission = null;
   if (currentUserId) {
@@ -38,6 +42,7 @@ export default async function SettingsPage() {
           userEmail={userEmail}
           isManagedControlPlane={isManagedControlPlane}
           initialTimeZone={initialTimeZone}
+          initialSettingsSidebarCollapsed={initialSettingsSidebarCollapsed}
           organizationPermission={organizationPermission}
         />
     </SuitePageLayout>
