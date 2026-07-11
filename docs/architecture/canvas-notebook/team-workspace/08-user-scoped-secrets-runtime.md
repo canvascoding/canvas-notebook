@@ -234,6 +234,54 @@ Invarianten:
 - Tool-Ausfuehrungen nutzen die Runtime- und Secret-Aufloesung des ausloesenden Users.
 - Runtime-Artefakte duerfen fremde Personal Workspaces nicht lesen oder schreiben.
 
+### Provider-, Modell- und Intelligence-Policy
+
+Provider-Installation und persoenliche Runtime-Auswahl sind zwei getrennte Domaenen. Die App-/Organization-Ebene definiert die harte Obergrenze; User, Agenten und Sessions duerfen diese nur weiter einschraenken, niemals erweitern.
+
+Verbindliche Begriffe:
+
+- **Provider Installation**: adminverwaltete, secret-freie Metadaten zu einem technisch nutzbaren Provider inklusive Credential-Scope und Readiness.
+- **Model Allowance**: explizit freigegebenes Modell einer Provider Installation inklusive Capabilities und erlaubten Intelligence-Stufen.
+- **App Default**: app-/organizationweiter Default aus Provider, Modell und Intelligence.
+- **Workspace Policy**: optionale Einschraenkung und Default-Ueberschreibung fuer einen Workspace; der Personal Workspace erbt standardmaessig den App-Katalog, der Team Workspace darf ihn nur einschraenken.
+- **User Preference**: persoenliche Auswahl fuer `userId + workspaceId + agentId` innerhalb des effektiven Katalogs.
+- **Session Override**: revisionsgebundene Auswahl fuer genau eine Session innerhalb des effektiven Katalogs.
+
+Die erlaubte Menge und die Auswahl werden getrennt aufgeloest:
+
+```txt
+EffectiveModels = AppCatalog intersect WorkspacePolicy intersect UserEligibility
+
+Selection = SessionOverride
+  > UserPreference(userId, workspaceId, agentId)
+  > AgentTemplateDefault
+  > WorkspaceDefault
+  > AppDefault
+```
+
+Jede aufgeloeste Runtime-Konfiguration liefert mindestens `catalogRevision`, `policyRevision`, `selectionSource` und die finalen Provider-/Model-/Intelligence-Werte. Eine Session speichert diese Werte als Snapshot. Wird ein Modell spaeter gesperrt, bleibt die Historie lesbar; ein neuer Turn wird mit einem klaren Policy-Fehler blockiert und wechselt niemals still auf ein anderes Modell.
+
+Credential-Regeln:
+
+- `system/managed`: Control-Plane-Instance-Token oder andere Infrastruktur-Credentials; fuer normale User weder sichtbar noch exportierbar.
+- `organization`: explizit geteilte, von Admins freigegebene Credentials; Team-User nutzen sie nur indirekt.
+- `user`: persoenliche API-Keys oder OAuth-Verbindungen; im Personal Workspace nur bei freigegebener Provider Installation nutzbar.
+- Team Workspaces verwenden in V1 standardmaessig nur `system/managed` oder `organization` Credential Bindings. User-owned Credentials fuer Team-Inhalte brauchen eine explizite Organization Policy; es gibt keinen impliziten Fallback.
+
+Managed-/Self-hosted-Regeln:
+
+- Eine vollstaendig konfigurierte Managed-Verbindung installiert `canvas-control-plane`, aktiviert den Provider und setzt den von der Control Plane explizit gelieferten `defaultModelId` als App Default.
+- Die Reihenfolge eines Model-Katalogs ist keine Default-Semantik. Managed Kataloge brauchen eine Revision und einen Last-known-good-Stand; ein Ausfall darf keinen stillen lokalen Provider-Fallback ausloesen.
+- Self-hosted Instanzen zeigen oder aktivieren `canvas-control-plane` ohne vollstaendige Managed-Verbindung nicht.
+- Bereits bewusst gesetzte User Preferences werden bei einem spaeteren Managed-Connect nicht ueberschrieben; nur der App Default wechselt nach expliziter Admin-Bestaetigung oder waehrend des initialen Managed-Onboardings.
+
+API- und Berechtigungsgrenzen:
+
+- Provider Installations, Model Allowances, App Defaults und Team Policies sind Owner-/Admin-only und werden auditiert.
+- User duerfen ausschliesslich die eigene User Preference und eigene Session Overrides innerhalb des effektiven Katalogs schreiben.
+- Provider-/Model-/Intelligence-Werte aus dem Client werden an jeder API-Grenze serverseitig gegen Catalog, Policy, Credential Eligibility und Modell-Capabilities validiert.
+- Der Chat darf weder vor noch nach Session-Erstellung globale Provider-/Model-Defaults veraendern.
+
 ## Settings UI
 
 Die Settings-Oberflaeche muss Scope sichtbar machen:

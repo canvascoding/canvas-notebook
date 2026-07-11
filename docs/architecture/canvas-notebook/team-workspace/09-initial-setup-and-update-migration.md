@@ -231,6 +231,14 @@ Formatregeln:
 - Secrets werden nur als Secret-Refs und Metadaten migriert, wenn der Ziel-Scope nicht eindeutig ist.
 - Token-/OAuth-State wird bei Unsicherheit nicht kopiert, sondern per Reconnect neu aufgebaut.
 
+Fuer `pi-runtime-config.json` gilt zusaetzlich:
+
+- Provider-Keys im Legacy-Objekt sind keine automatische Provider-Allowlist. Insbesondere darf ein in Self-hosted-Konfigurationen vorhandener, aber nicht verbundener `canvas-control-plane`-Eintrag nicht als installierter Provider migriert werden.
+- Eine sichere Single-User-Migration erzeugt aus dem aktiven, verifizierbaren Provider/Modell einen App-Katalog und eine Owner User Preference. Sie kopiert die Auswahl nicht auf spaetere User.
+- Eine Team-/Mehruser-Migration erzeugt einen Admin-Review-State. Die alte Auswahl wird erst nach expliziter Zuordnung zu App Default, Workspace Default oder Owner User Preference aktiv.
+- Managed Fresh Installs erhalten `canvas-control-plane` plus den expliziten Control-Plane-Default. Self-hosted Fresh Installs bleiben blockiert, bis ein Admin mindestens einen Provider, ein Modell und einen App Default verifiziert hat.
+- Die Migration ist versioniert und idempotent. Sie speichert Quellhash, Zielrevision, Zeitpunkt und Actor und setzt die Legacy-Datei erst nach erfolgreicher Verifikation read-only/deprecated.
+
 ## Onboarding nach Migration
 
 Onboarding ist userbezogen.
