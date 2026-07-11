@@ -30,6 +30,8 @@ type ProviderRow = {
   enabled: number | string | boolean;
   status: string;
   config_json: string | null;
+  source_revision: string | null;
+  last_synced_at: number | string | null;
   revision: number | string;
   verified_at: number | string | null;
   verified_by_user_id: string | null;
@@ -48,8 +50,9 @@ type ModelRow = {
   revision: number | string;
 };
 
-export type CatalogStoreProviderInput = Omit<AiProviderInstallation, 'verifiedAt' | 'models'> & {
+export type CatalogStoreProviderInput = Omit<AiProviderInstallation, 'verifiedAt' | 'lastSyncedAt' | 'models'> & {
   verifiedAt: number | null;
+  lastSyncedAt: number | null;
   models: AiCatalogModel[];
 };
 
@@ -60,6 +63,7 @@ export type ReplaceCatalogStoreInput = {
   migrationState: AiAppRuntimeCatalog['migrationState'];
   defaultSelection: AiRuntimeSelection | null;
   providers: CatalogStoreProviderInput[];
+  legacySourceHash?: string | null;
 };
 
 export class CatalogRevisionConflictError extends Error {
@@ -151,7 +155,7 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
     ) as CatalogDefaultsRow | undefined;
     const providerRows = await connection.all(
       `SELECT id, provider_id, display_name, source, credential_scope, enabled, status,
-              config_json, revision, verified_at, verified_by_user_id
+              config_json, source_revision, last_synced_at, revision, verified_at, verified_by_user_id
        FROM ai_provider_installations
        WHERE organization_id = ?
        ORDER BY provider_id ASC`,
@@ -194,6 +198,8 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
         ? row.status
         : 'unverified',
       config: parseStoredProviderConfig(row.config_json),
+      sourceRevision: row.source_revision,
+      lastSyncedAt: isoTimestamp(row.last_synced_at),
       revision: numberValue(row.revision, 1),
       verifiedAt: isoTimestamp(row.verified_at),
       verifiedByUserId: row.verified_by_user_id,
@@ -250,9 +256,9 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
       await connection.run(
         `INSERT INTO ai_provider_installations (
           id, organization_id, provider_id, display_name, source, credential_scope,
-          enabled, status, config_json, revision, verified_at, verified_by_user_id,
-          created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          enabled, status, config_json, source_revision, last_synced_at, revision,
+          verified_at, verified_by_user_id, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         [
           provider.installationId,
           input.organizationId,
@@ -263,6 +269,8 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
           provider.enabled ? 1 : 0,
           provider.status,
           JSON.stringify(provider.config),
+          provider.sourceRevision,
+          provider.lastSyncedAt,
           nextRevision,
           provider.verifiedAt,
           provider.verifiedByUserId,
@@ -318,7 +326,7 @@ export async function replaceAppRuntimeCatalogStore(input: ReplaceCatalogStoreIn
         input.defaultSelection?.thinkingLevel ?? 'off',
         nextRevision,
         input.migrationState,
-        current?.legacy_source_hash ?? null,
+        input.legacySourceHash === undefined ? current?.legacy_source_hash ?? null : input.legacySourceHash,
         input.actorUserId,
         now,
         now,

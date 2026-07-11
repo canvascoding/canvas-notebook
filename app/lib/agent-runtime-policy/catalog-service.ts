@@ -232,9 +232,13 @@ export function parseAiCatalogUpdate(value: unknown): AiCatalogUpdate {
   };
 }
 
-function installationIdFor(organizationId: string, provider: AiCatalogProviderUpdate): string {
+export function aiProviderInstallationId(
+  organizationId: string,
+  providerId: string,
+  credentialScope: AiCredentialScope,
+): string {
   const digest = createHash('sha256')
-    .update(`${organizationId}\0${provider.providerId}\0${provider.credentialScope}`)
+    .update(`${organizationId}\0${providerId}\0${credentialScope}`)
     .digest('hex')
     .slice(0, 24);
   return `aip_${digest}`;
@@ -260,11 +264,14 @@ function materializeProviders(params: {
   update: AiCatalogUpdate;
   discovery: AiCatalogDiscovery;
   previous: AiAppRuntimeCatalog;
+  readyInstallationIds?: ReadonlySet<string>;
+  sourceRevisionByInstallation?: ReadonlyMap<string, string>;
 }): CatalogStoreProviderInput[] {
   const bindings = new Set<string>();
   const previousById = new Map(params.previous.providers.map((provider) => [provider.installationId, {
     ...provider,
     verifiedAt: provider.verifiedAt ? Date.parse(provider.verifiedAt) : null,
+    lastSyncedAt: provider.lastSyncedAt ? Date.parse(provider.lastSyncedAt) : null,
   }]));
 
   return params.update.providers.map((provider) => {
@@ -283,7 +290,11 @@ function materializeProviders(params: {
       throw new AiCatalogValidationError('DUPLICATE_PROVIDER_BINDING', 'A provider credential binding may only appear once.');
     }
     bindings.add(bindingKey);
-    const installationId = installationIdFor(params.organizationId, provider);
+    const installationId = aiProviderInstallationId(
+      params.organizationId,
+      provider.providerId,
+      provider.credentialScope,
+    );
     if (provider.providerInstallationId && provider.providerInstallationId !== installationId) {
       throw new AiCatalogValidationError(
         'INVALID_PROVIDER_INSTALLATION',
@@ -325,18 +336,34 @@ function materializeProviders(params: {
       credentialScope: provider.credentialScope,
       enabled: provider.enabled,
       status: provider.enabled
-        ? (provider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID || provider.credentialScope === 'user'
+        ? (provider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
+            || provider.credentialScope === 'user'
+            || params.readyInstallationIds?.has(installationId)
             ? 'ready'
             : 'unverified')
         : 'disabled',
       config: provider.config,
+      sourceRevision: params.sourceRevisionByInstallation?.get(installationId)
+        ?? previousById.get(installationId)?.sourceRevision
+        ?? null,
+      lastSyncedAt: params.sourceRevisionByInstallation?.has(installationId)
+        ? Date.now()
+        : previousById.get(installationId)?.lastSyncedAt ?? null,
       revision: params.update.expectedRevision + 1,
-      verifiedAt: provider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID && provider.enabled ? Date.now() : null,
+      verifiedAt: (
+        provider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
+        || params.readyInstallationIds?.has(installationId)
+      ) && provider.enabled ? Date.now() : null,
       verifiedByUserId: null,
       models,
     };
     const previous = previousById.get(installationId);
-    if (sameProviderConfiguration(previous, next) && previous) {
+    if (
+      sameProviderConfiguration(previous, next)
+      && previous
+      && !params.readyInstallationIds?.has(installationId)
+      && !params.sourceRevisionByInstallation?.has(installationId)
+    ) {
       next.status = previous.status;
       next.verifiedAt = previous.verifiedAt;
       next.verifiedByUserId = previous.verifiedByUserId;
@@ -377,6 +404,10 @@ export async function replaceAiAppRuntimeCatalog(params: {
   actorUserId: string;
   update: AiCatalogUpdate;
   discovery: AiCatalogDiscovery;
+  migrationState?: AiAppRuntimeCatalog['migrationState'];
+  legacySourceHash?: string | null;
+  readyInstallationIds?: ReadonlySet<string>;
+  sourceRevisionByInstallation?: ReadonlyMap<string, string>;
 }): Promise<AiAppRuntimeCatalog> {
   const previous = await readAppRuntimeCatalog(params.organizationId);
   const providers = materializeProviders({
@@ -384,15 +415,18 @@ export async function replaceAiAppRuntimeCatalog(params: {
     update: params.update,
     discovery: params.discovery,
     previous,
+    readyInstallationIds: params.readyInstallationIds,
+    sourceRevisionByInstallation: params.sourceRevisionByInstallation,
   });
   const defaultSelection = resolveDefaultSelection(params.update.defaultSelection, providers);
   await replaceAppRuntimeCatalogStore({
     organizationId: params.organizationId,
     actorUserId: params.actorUserId,
     expectedRevision: params.update.expectedRevision,
-    migrationState: defaultSelection ? 'configured' : 'uninitialized',
+    migrationState: params.migrationState ?? (defaultSelection ? 'configured' : 'uninitialized'),
     defaultSelection,
     providers,
+    legacySourceHash: params.legacySourceHash,
   });
   return readAppRuntimeCatalog(params.organizationId);
 }

@@ -334,6 +334,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       enabled INTEGER NOT NULL DEFAULT 0,
       status TEXT NOT NULL DEFAULT 'unverified',
       config_json TEXT,
+      source_revision TEXT,
+      last_synced_at INTEGER,
       revision INTEGER NOT NULL DEFAULT 1,
       verified_at INTEGER,
       verified_by_user_id TEXT,
@@ -1697,6 +1699,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     runtime_catalog_revision: 'INTEGER',
     runtime_policy_revision: 'INTEGER',
     runtime_selection_source: 'TEXT',
+  });
+
+  addColumns(sqlite, 'ai_provider_installations', {
+    source_revision: 'TEXT',
+    last_synced_at: 'INTEGER',
   });
 
   addColumns(sqlite, 'pi_messages', {

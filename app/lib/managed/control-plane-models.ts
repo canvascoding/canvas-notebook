@@ -22,6 +22,15 @@ export type ManagedControlPlaneModel = Model<'openai-completions'> & {
   managedPricing?: ManagedControlPlanePricing | null;
 };
 
+export type ManagedControlPlaneCatalog = {
+  status: 'ready' | 'invalid' | 'unavailable';
+  errorCode: string | null;
+  catalogRevision: string | null;
+  defaultModelId: string | null;
+  defaultThinkingLevel: 'off' | 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+  models: ManagedControlPlaneModel[];
+};
+
 export const FALLBACK_CANVAS_CONTROL_PLANE_MODELS: ManagedControlPlaneModel[] = [];
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -149,7 +158,24 @@ function parseManagedControlPlaneModel(value: unknown): ManagedControlPlaneModel
   };
 }
 
-export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlaneModel[]> {
+function unavailableCatalog(errorCode: string): ManagedControlPlaneCatalog {
+  return {
+    status: 'unavailable',
+    errorCode,
+    catalogRevision: null,
+    defaultModelId: null,
+    defaultThinkingLevel: 'off',
+    models: FALLBACK_CANVAS_CONTROL_PLANE_MODELS,
+  };
+}
+
+function normalizeThinkingLevel(value: unknown): ManagedControlPlaneCatalog['defaultThinkingLevel'] {
+  return value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh'
+    ? value
+    : 'off';
+}
+
+export async function getCanvasControlPlaneCatalog(): Promise<ManagedControlPlaneCatalog> {
   const startedAt = Date.now();
   const controlPlaneUrl = getManagedControlPlaneBaseUrl();
   const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
@@ -161,7 +187,7 @@ export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlane
         managedServicesEnabled: process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
       });
     }
-    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+    return unavailableCatalog('MANAGED_CONNECTION_INCOMPLETE');
   }
 
   const controller = new AbortController();
@@ -183,7 +209,7 @@ export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlane
         durationMs: Date.now() - startedAt,
         body: body ? truncateLogText(body, 500) : undefined,
       });
-      return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+      return unavailableCatalog('MANAGED_CATALOG_REQUEST_FAILED');
     }
     const payload = await response.json();
     const rawModels = isRecord(payload) && Array.isArray(payload.models) ? payload.models : [];
@@ -199,15 +225,46 @@ export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlane
         return counts;
       }, {}),
     });
-    return models.length > 0 ? models : FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+    const catalogRevision = isRecord(payload) && typeof payload.catalogRevision === 'string'
+      ? payload.catalogRevision.trim() || null
+      : isRecord(payload) && typeof payload.revision === 'string'
+        ? payload.revision.trim() || null
+        : null;
+    const defaultModelId = isRecord(payload) && typeof payload.defaultModelId === 'string'
+      ? payload.defaultModelId.trim() || null
+      : null;
+    const defaultExists = Boolean(defaultModelId && models.some((model) => model.id === defaultModelId));
+    const errorCode = models.length === 0
+      ? 'MANAGED_CATALOG_EMPTY'
+      : !catalogRevision
+        ? 'MANAGED_CATALOG_REVISION_MISSING'
+        : !defaultModelId
+          ? 'MANAGED_DEFAULT_MISSING'
+          : !defaultExists
+            ? 'MANAGED_DEFAULT_NOT_IN_CATALOG'
+            : null;
+    return {
+      status: errorCode ? 'invalid' : 'ready',
+      errorCode,
+      catalogRevision,
+      defaultModelId,
+      defaultThinkingLevel: normalizeThinkingLevel(
+        isRecord(payload) ? payload.defaultThinkingLevel : null,
+      ),
+      models: models.length > 0 ? models : FALLBACK_CANVAS_CONTROL_PLANE_MODELS,
+    };
   } catch (error) {
     console.warn('[Canvas Control Plane] Failed to load managed models from Control Plane.', {
       timedOut: controller.signal.aborted,
       durationMs: Date.now() - startedAt,
       error: summarizeError(error),
     });
-    return FALLBACK_CANVAS_CONTROL_PLANE_MODELS;
+    return unavailableCatalog(controller.signal.aborted ? 'MANAGED_CATALOG_TIMEOUT' : 'MANAGED_CATALOG_REQUEST_FAILED');
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlaneModel[]> {
+  return (await getCanvasControlPlaneCatalog()).models;
 }

@@ -46,6 +46,8 @@ export type AiProviderInstallation = {
   enabled: boolean;
   status: AiProviderStatus;
   config: AiProviderSafeConfig;
+  sourceRevision: string | null;
+  lastSyncedAt: string | null;
   revision: number;
   verifiedAt: string | null;
   verifiedByUserId: string | null;

@@ -5,6 +5,7 @@ import type {
   AiProviderSafeConfig,
   AiProviderSource,
 } from '@/app/lib/agent-runtime-policy/types';
+import type { ManagedControlPlaneCatalog } from '@/app/lib/managed/control-plane-models';
 import { getProviderHelp } from '@/app/lib/pi/provider-help';
 import {
   CANVAS_CONTROL_PLANE_PROVIDER_ID,
@@ -41,11 +42,12 @@ function customModelFor(providerId: string, config?: AiProviderSafeConfig): stri
 
 export async function loadAiCatalogDiscovery(
   configsByProvider: Record<string, readonly AiProviderSafeConfig[]> = {},
+  options: { managedCatalog?: ManagedControlPlaneCatalog | null } = {},
 ): Promise<AiCatalogDiscovery> {
   const providers = Array.from(new Set(getPiProviders())).sort();
   const entries = await Promise.all(providers.map(async (providerId) => {
     const models = providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
-      ? await getCanvasControlPlaneModels()
+      ? options.managedCatalog?.models ?? await getCanvasControlPlaneModels()
       : (configsByProvider[providerId]?.length
           ? configsByProvider[providerId].flatMap((config) => getPiModels(providerId, customModelFor(providerId, config)))
           : getPiModels(providerId));

@@ -1,12 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { loadAiCatalogDiscovery } from '@/app/lib/agent-runtime-policy/catalog-discovery';
+import { ensureAgentRuntimeCatalogInitialized } from '@/app/lib/agent-runtime-policy/bootstrap-service';
 import {
   catalogErrorResponse,
   parseAiCatalogUpdate,
   replaceAiAppRuntimeCatalog,
 } from '@/app/lib/agent-runtime-policy/catalog-service';
-import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import type { AiCatalogUpdate, AiProviderSafeConfig } from '@/app/lib/agent-runtime-policy/types';
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
@@ -72,7 +72,11 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const catalog = await readAppRuntimeCatalog(admin.organizationId);
+    const initialization = await ensureAgentRuntimeCatalogInitialized({
+      organizationId: admin.organizationId,
+      actorUserId: admin.session.user.id,
+    });
+    const catalog = initialization.catalog;
     const configs: Record<string, AiProviderSafeConfig[]> = {};
     for (const provider of catalog.providers) {
       (configs[provider.providerId] ??= []).push(provider.config);
@@ -81,7 +85,14 @@ export async function GET(request: NextRequest) {
 
     return NextResponse.json({
       success: true,
-      data: { catalog, discovery },
+      data: {
+        catalog,
+        discovery,
+        initialization: {
+          action: initialization.action,
+          issueCode: initialization.issueCode,
+        },
+      },
     });
   } catch (error) {
     console.error('[admin/agent-runtime/catalog] Failed to read catalog.', {

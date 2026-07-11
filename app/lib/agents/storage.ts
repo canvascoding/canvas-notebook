@@ -6,7 +6,7 @@ import { type AgentId } from './catalog';
 import { DEFAULT_PI_CONFIG, normalizePiRuntimeConfig, type PiRuntimeConfig, validatePiConfig } from '../pi/config';
 import { DISABLED_ALL_TOOLS_SENTINEL, isLegacyEnabledToolsValue } from '../pi/enabled-tools';
 import { SKILL_TOOL_NAMES } from '../pi/toolsets';
-import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels } from '../managed/control-plane-models';
+import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneCatalog } from '../managed/control-plane-models';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import { resolveAgentStorageDir, resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
 import { getManagedAgentFileLimitBytes } from './managed-file-limits';
@@ -82,10 +82,7 @@ export class AgentConfigValidationError extends Error {
 }
 
 export function isManagedControlPlaneAvailable(): boolean {
-  return (
-    process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' ||
-    Boolean(getManagedControlPlaneBaseUrl() && process.env.CANVAS_INSTANCE_TOKEN?.trim())
-  );
+  return Boolean(getManagedControlPlaneBaseUrl() && process.env.CANVAS_INSTANCE_TOKEN?.trim());
 }
 
 function deepClone<T>(value: T): T {
@@ -151,8 +148,9 @@ async function withManagedRuntimeDefaults(config: PiRuntimeConfig): Promise<PiRu
 
   const existingManagedConfig = next.providers[CANVAS_CONTROL_PLANE_PROVIDER_ID];
   const configuredManagedModel = existingManagedConfig?.model?.trim();
+  const managedCatalog = configuredManagedModel ? null : await getCanvasControlPlaneCatalog();
   const discoveredManagedModel = configuredManagedModel
-    || (await getCanvasControlPlaneModels())[0]?.id
+    || (managedCatalog?.status === 'ready' ? managedCatalog.defaultModelId : null)
     || '';
 
   if (!discoveredManagedModel) {
@@ -168,7 +166,7 @@ async function withManagedRuntimeDefaults(config: PiRuntimeConfig): Promise<PiRu
         ...existingManagedConfig,
         id: CANVAS_CONTROL_PLANE_PROVIDER_ID,
         model: discoveredManagedModel,
-        thinking: existingManagedConfig?.thinking || 'medium',
+        thinking: existingManagedConfig?.thinking || managedCatalog?.defaultThinkingLevel || 'off',
         enabledTools: existingManagedConfig?.enabledTools || [],
       },
     },

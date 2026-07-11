@@ -457,6 +457,9 @@ async function main() {
 
   const originalFetch = globalThis.fetch;
   globalThis.fetch = async () => new Response(JSON.stringify({
+    catalogRevision: 'runtime-config-test-revision',
+    defaultModelId: 'deepseek-v4-flash',
+    defaultThinkingLevel: 'medium',
     models: [
       {
         id: 'deepseek-v4-flash',
