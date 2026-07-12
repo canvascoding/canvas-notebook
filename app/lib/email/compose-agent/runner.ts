@@ -2,12 +2,11 @@ import 'server-only';
 
 import { Agent, type AgentEvent, type AgentMessage } from '@earendil-works/pi-agent-core';
 
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
-import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import { assertEmailAiComposeInput } from '@/app/lib/email/ai-input-limits';
+import { resolveScopedEmailAiRuntime } from '@/app/lib/email/ai-runtime';
 import { htmlToPlainText, plainTextToEmailHtml } from '@/app/lib/email/html-conversion';
 import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/email/html-content';
 import { readEmailMessage } from '@/app/lib/email/service';
-import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { buildEmailComposeAgentSystemPrompt, buildEmailComposeAgentUserPrompt } from '@/app/lib/email/compose-agent/prompt';
 import { createEmailWorkspaceTools } from '@/app/lib/email/compose-agent/workspace-tools';
 import type {
@@ -19,9 +18,10 @@ import type {
 
 const AGENT_TIMEOUT_MS = 90_000;
 const MAX_TOOL_CALLS = 5;
+const EMAIL_HEADER_MAX_CHARS = 2_000;
 
 function compactText(value: unknown): string {
-  return String(value || '').replace(/\s+/gu, ' ').trim();
+  return String(value || '').replace(/\s+/gu, ' ').trim().slice(0, EMAIL_HEADER_MAX_CHARS);
 }
 
 function multilineText(value: unknown): string {
@@ -165,35 +165,39 @@ export async function runEmailWorkspaceComposeAgent(
   emit: EmailComposeAgentEventSink,
   requestSignal?: AbortSignal,
 ): Promise<EmailComposeAgentResult> {
+  assertEmailAiComposeInput(input);
   const instruction = input.instruction?.trim();
   if (!instruction) throw new Error('A writing instruction is required.');
   if (!input.accountId) throw new Error('accountId is required.');
 
   await emit({ type: 'status', label: 'Workspace Agent wird vorbereitet' });
 
-  const effectiveConfig = await resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID);
-  const apiKey = await resolvePiApiKey(effectiveConfig.model.provider);
-  if (!apiKey) {
-    throw new Error(`API key not configured for ${effectiveConfig.model.provider}. Configure it in Settings > Integrations.`);
-  }
+  if (requestSignal?.aborted) throw new Error('Email Workspace Agent request was aborted.');
+  const runtime = await resolveScopedEmailAiRuntime({ userId, workspaceId: input.workspaceId });
 
   const originalContext = await originalMessageContext(userId, input);
+  if (requestSignal?.aborted) throw new Error('Email Workspace Agent request was aborted.');
   let agent: Agent | null = null;
-  const abortAgent = () => {
+  let terminationReason: 'request' | 'timeout' | null = null;
+  const abortAgent = (reason: 'request' | 'timeout') => {
+    terminationReason ??= reason;
     agent?.abort();
   };
-  const timeout = setTimeout(abortAgent, AGENT_TIMEOUT_MS);
-  requestSignal?.addEventListener('abort', abortAgent, { once: true });
+  const abortForTimeout = () => abortAgent('timeout');
+  const abortForRequest = () => abortAgent('request');
+  const timeout = setTimeout(abortForTimeout, AGENT_TIMEOUT_MS);
+  requestSignal?.addEventListener('abort', abortForRequest, { once: true });
   let toolCallCount = 0;
 
   try {
     agent = new Agent({
       initialState: {
-        model: effectiveConfig.model,
+        model: runtime.model,
+        thinkingLevel: runtime.thinkingLevel,
         systemPrompt: buildEmailComposeAgentSystemPrompt(input),
-        tools: createEmailWorkspaceTools(),
+        tools: createEmailWorkspaceTools({ userId, workspace: runtime.workspace }),
       },
-      getApiKey: () => apiKey,
+      streamFn: runtime.streamFn,
       sessionId: `email-compose-agent:${Date.now()}`,
       toolExecution: 'sequential',
       beforeToolCall: async () => {
@@ -231,7 +235,14 @@ export async function runEmailWorkspaceComposeAgent(
     });
 
     const prompt = buildEmailComposeAgentUserPrompt(input, originalContext);
+    if (requestSignal?.aborted) throw new Error('Email Workspace Agent request was aborted.');
     await agent.prompt(prompt);
+    if (terminationReason === 'timeout') {
+      throw new Error('Email Workspace Agent timed out before producing a final draft.');
+    }
+    if (terminationReason === 'request' || requestSignal?.aborted) {
+      throw new Error('Email Workspace Agent request was aborted.');
+    }
 
     const finalText = assistantText(lastAssistant(agent.state.messages));
     if (!finalText) throw new Error('Workspace Agent returned no content.');
@@ -240,6 +251,6 @@ export async function runEmailWorkspaceComposeAgent(
     return result;
   } finally {
     clearTimeout(timeout);
-    requestSignal?.removeEventListener('abort', abortAgent);
+    requestSignal?.removeEventListener('abort', abortForRequest);
   }
 }

@@ -61,6 +61,7 @@ type EmailMessageListInput = EmailSearchInput & {
 
 type EmailReadPolicyOptions = {
   enforceReadPolicy?: boolean;
+  workspaceId?: string | null;
 };
 
 type EmailAccountsResponse = {

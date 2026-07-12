@@ -20,6 +20,7 @@ export type EmailComposeAgentInput = {
   subject?: string;
   to?: unknown;
   tone?: EmailComposeTone;
+  workspaceId?: string | null;
 };
 
 export type EmailComposeAgentUsedContext = {

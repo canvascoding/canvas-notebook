@@ -1,15 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 
-import { auth } from '@/app/lib/auth';
+import { emailAiRequestBodyErrorStatus, readEmailAiJsonObject } from '@/app/lib/email/ai-request-body';
+import { requireEmailAiRouteSession } from '@/app/lib/email/ai-route-guard';
 import { streamEmailMessageSummary, summarizeEmailMessage } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-
-async function requireSession(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  return session;
-}
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -28,15 +23,16 @@ function encodeSummaryStreamEvent(event: Record<string, unknown>): Uint8Array {
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ accountId: string; messageId: string }> }) {
-  const session = await requireSession(request);
+  const session = await requireEmailAiRouteSession(request);
   if (session instanceof NextResponse) return session;
   const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'email-message-summary-post' });
   if (!limited.ok) return limited.response;
 
   try {
     const { accountId, messageId } = await params;
-    const body = await request.json().catch(() => ({}));
-    const folder = stringValue((body as { folder?: unknown }).folder);
+    const body = await readEmailAiJsonObject(request);
+    const folder = stringValue(body.folder);
+    const workspaceId = stringValue(body.workspaceId);
     const shouldStream = request.nextUrl.searchParams.get('stream') === '1'
       || request.headers.get('accept')?.includes('text/event-stream');
 
@@ -60,7 +56,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               accountId,
               messageId,
               folder,
-              { enforceReadPolicy: false, signal: abortController.signal },
+              { enforceReadPolicy: false, signal: abortController.signal, workspaceId },
             );
 
             controller.enqueue(encodeSummaryStreamEvent({ type: 'start', messageId: data.messageId }));
@@ -121,10 +117,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       });
     }
 
-    const data = await summarizeEmailMessage(session.user.id, accountId, messageId, folder, { enforceReadPolicy: false });
+    const data = await summarizeEmailMessage(
+      session.user.id,
+      accountId,
+      messageId,
+      folder,
+      { enforceReadPolicy: false, workspaceId },
+    );
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to summarize email message';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: message },
+      { status: emailAiRequestBodyErrorStatus(error) ?? 500 },
+    );
   }
 }

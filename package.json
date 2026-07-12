@@ -101,6 +101,8 @@
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
+    "test:email:ai-request-body": "tsx --conditions react-server scripts/email-ai-request-body-test.ts",
+    "test:email:ai-runtime-scope": "tsx --conditions react-server scripts/email-ai-runtime-scope-test.ts",
     "test:email:chat-context": "tsx scripts/email-chat-context-test.ts",
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",

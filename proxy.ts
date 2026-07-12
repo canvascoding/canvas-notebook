@@ -352,8 +352,11 @@ export default async function middleware(request: NextRequest) {
 
 export const config = {
   matcher: [
-    // Skip all internal paths and static files
-    '/api/:path*',
+    // Email AI endpoints read their request bodies through a 1 MiB bounded
+    // stream reader. Excluding exactly those routes prevents Next.js proxy
+    // from cloning each body into the separate 256 MiB upload buffer first.
+    // Their handlers repeat full session and license checks before reading.
+    '/api/((?!email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
   ],
 };

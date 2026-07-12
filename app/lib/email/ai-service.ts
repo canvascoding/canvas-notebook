@@ -1,11 +1,9 @@
 import 'server-only';
 
-import { completeSimple, streamSimple } from '@earendil-works/pi-ai/compat';
 import type { AssistantMessage, AssistantMessageEvent, Message } from '@earendil-works/pi-ai';
 
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
-import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
-import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
+import { assertEmailAiComposeInput, assertEmailAiInstruction } from '@/app/lib/email/ai-input-limits';
+import { resolveScopedEmailAiRuntime, type EmailAiScope } from '@/app/lib/email/ai-runtime';
 
 type AiEmailMessage = Record<string, unknown>;
 
@@ -20,9 +18,10 @@ export type AiEmailComposeInput = {
 };
 
 const EMAIL_AI_INPUT_MAX_CHARS = 18_000;
+const EMAIL_AI_HEADER_MAX_CHARS = 2_000;
 
 function compactText(value: unknown): string {
-  return String(value || '').replace(/\s+/gu, ' ').trim();
+  return String(value || '').replace(/\s+/gu, ' ').trim().slice(0, EMAIL_AI_HEADER_MAX_CHARS);
 }
 
 function multilineText(value: unknown): string {
@@ -57,29 +56,26 @@ function messageContext(message: AiEmailMessage): string {
 async function completeEmailAi(params: {
   maxTokens: number;
   messages: Message[];
+  scope: EmailAiScope;
   sessionId: string;
   systemPrompt: string;
   temperature: number;
 }): Promise<string> {
-  const effectiveConfig = await resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID);
-  const apiKey = await resolvePiApiKey(effectiveConfig.model.provider);
-  if (!apiKey) {
-    throw new Error(`API key not configured for ${effectiveConfig.model.provider}. Configure it in Settings > Integrations.`);
-  }
-
-  const completion = await completeSimple(
-    effectiveConfig.model,
+  const runtime = await resolveScopedEmailAiRuntime(params.scope);
+  const stream = await runtime.streamFn(
+    runtime.model,
     {
       systemPrompt: params.systemPrompt,
       messages: params.messages,
     },
     {
-      apiKey,
       temperature: params.temperature,
-      maxTokens: Math.max(256, Math.min(effectiveConfig.model.maxTokens, params.maxTokens)),
+      maxTokens: Math.max(256, Math.min(runtime.model.maxTokens, params.maxTokens)),
+      reasoning: runtime.thinkingLevel === 'off' ? undefined : runtime.thinkingLevel,
       sessionId: params.sessionId,
     },
   );
+  const completion = await stream.result();
 
   if (completion.stopReason === 'error' || completion.stopReason === 'aborted') {
     throw new Error(completion.errorMessage || 'Email AI request failed.');
@@ -93,40 +89,37 @@ async function completeEmailAi(params: {
 async function streamEmailAi(params: {
   maxTokens: number;
   messages: Message[];
+  scope: EmailAiScope;
   sessionId: string;
   signal?: AbortSignal;
   systemPrompt: string;
   temperature: number;
 }): Promise<AsyncIterable<AssistantMessageEvent>> {
-  const effectiveConfig = await resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID);
-  const apiKey = await resolvePiApiKey(effectiveConfig.model.provider);
-  if (!apiKey) {
-    throw new Error(`API key not configured for ${effectiveConfig.model.provider}. Configure it in Settings > Integrations.`);
-  }
-
-  return streamSimple(
-    effectiveConfig.model,
+  const runtime = await resolveScopedEmailAiRuntime(params.scope);
+  return runtime.streamFn(
+    runtime.model,
     {
       systemPrompt: params.systemPrompt,
       messages: params.messages,
     },
     {
-      apiKey,
       temperature: params.temperature,
-      maxTokens: Math.max(256, Math.min(effectiveConfig.model.maxTokens, params.maxTokens)),
+      maxTokens: Math.max(256, Math.min(runtime.model.maxTokens, params.maxTokens)),
+      reasoning: runtime.thinkingLevel === 'off' ? undefined : runtime.thinkingLevel,
       sessionId: params.sessionId,
       signal: params.signal,
     },
   );
 }
 
-export async function summarizeEmailWithAi(message: AiEmailMessage): Promise<string> {
+export async function summarizeEmailWithAi(scope: EmailAiScope, message: AiEmailMessage): Promise<string> {
   const body = emailBodyForAi(message);
   if (!body) throw new Error('Email has no readable body for AI summary.');
 
   return completeEmailAi({
     temperature: 0.2,
     maxTokens: 350,
+    scope,
     sessionId: `email-summary:${Date.now()}`,
     systemPrompt: 'Summarize the email for a busy operator. Keep it factual, concise, and action-oriented. Do not invent details.',
     messages: [
@@ -140,6 +133,7 @@ export async function summarizeEmailWithAi(message: AiEmailMessage): Promise<str
 }
 
 export async function summarizeEmailWithAiStream(
+  scope: EmailAiScope,
   message: AiEmailMessage,
   options: { signal?: AbortSignal } = {},
 ): Promise<AsyncIterable<AssistantMessageEvent>> {
@@ -149,6 +143,7 @@ export async function summarizeEmailWithAiStream(
   return streamEmailAi({
     temperature: 0.2,
     maxTokens: 350,
+    scope,
     sessionId: `email-summary:${Date.now()}`,
     signal: options.signal,
     systemPrompt: 'Summarize the email for a busy operator. Keep it factual, concise, and action-oriented. Do not invent details.',
@@ -162,13 +157,19 @@ export async function summarizeEmailWithAiStream(
   });
 }
 
-export async function draftEmailReplyWithAi(message: AiEmailMessage, instruction?: string): Promise<string> {
+export async function draftEmailReplyWithAi(
+  scope: EmailAiScope,
+  message: AiEmailMessage,
+  instruction?: string,
+): Promise<string> {
+  assertEmailAiInstruction(instruction);
   const body = emailBodyForAi(message);
   if (!body) throw new Error('Email has no readable body for AI reply.');
 
   return completeEmailAi({
     temperature: 0.4,
     maxTokens: 700,
+    scope,
     sessionId: `email-reply:${Date.now()}`,
     systemPrompt: [
       'Draft a plain-text email reply body.',
@@ -193,16 +194,19 @@ export async function draftEmailReplyWithAi(message: AiEmailMessage, instruction
 }
 
 export async function draftEmailReplyWithAiStream(
+  scope: EmailAiScope,
   message: AiEmailMessage,
   instruction?: string,
   options: { signal?: AbortSignal } = {},
 ): Promise<AsyncIterable<AssistantMessageEvent>> {
+  assertEmailAiInstruction(instruction);
   const body = emailBodyForAi(message);
   if (!body) throw new Error('Email has no readable body for AI reply.');
 
   return streamEmailAi({
     temperature: 0.4,
     maxTokens: 700,
+    scope,
     sessionId: `email-reply:${Date.now()}`,
     signal: options.signal,
     systemPrompt: [
@@ -227,7 +231,8 @@ export async function draftEmailReplyWithAiStream(
   });
 }
 
-export async function draftEmailComposeWithAi(input: AiEmailComposeInput): Promise<string> {
+export async function draftEmailComposeWithAi(scope: EmailAiScope, input: AiEmailComposeInput): Promise<string> {
+  assertEmailAiComposeInput(input);
   const instruction = input.instruction?.trim();
   if (!instruction) throw new Error('A writing instruction is required.');
 
@@ -235,6 +240,7 @@ export async function draftEmailComposeWithAi(input: AiEmailComposeInput): Promi
   return completeEmailAi({
     temperature: 0.45,
     maxTokens: 800,
+    scope,
     sessionId: `email-compose:${Date.now()}`,
     systemPrompt: [
       'Write a plain-text email body for the user.',
@@ -265,9 +271,11 @@ export async function draftEmailComposeWithAi(input: AiEmailComposeInput): Promi
 }
 
 export async function draftEmailComposeWithAiStream(
+  scope: EmailAiScope,
   input: AiEmailComposeInput,
   options: { signal?: AbortSignal } = {},
 ): Promise<AsyncIterable<AssistantMessageEvent>> {
+  assertEmailAiComposeInput(input);
   const instruction = input.instruction?.trim();
   if (!instruction) throw new Error('A writing instruction is required.');
 
@@ -275,6 +283,7 @@ export async function draftEmailComposeWithAiStream(
   return streamEmailAi({
     temperature: 0.45,
     maxTokens: 800,
+    scope,
     sessionId: `email-compose:${Date.now()}`,
     signal: options.signal,
     systemPrompt: [

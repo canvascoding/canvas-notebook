@@ -1985,6 +1985,7 @@ export function EmailClient() {
   const t = useTranslations('emails');
   const locale = useLocale();
   const setEmailChatContext = useSetEmailChatContext();
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [accountsOpen, setAccountsOpen] = useState(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
   const [emailAllowRemoteImages, setEmailAllowRemoteImages] = useState(false);
@@ -2513,6 +2514,7 @@ export function EmailClient() {
         subject: composeDraft.subject,
         to: splitRecipientInput(composeDraft.toText),
         tone: composeDraft.aiTone,
+        workspaceId: activeWorkspaceId,
       };
 
       if (composeDraft.aiMode === 'quick') {
@@ -2673,7 +2675,7 @@ export function EmailClient() {
     } finally {
       setIsGeneratingComposeAi(false);
     }
-  }, [activeAccount, composeDraft, t, updateQuickAiProgress]);
+  }, [activeAccount, activeWorkspaceId, composeDraft, t, updateQuickAiProgress]);
 
   const submitComposeDraft = useCallback(async () => {
     if (!activeAccount || !composeDraft) return;
@@ -2764,7 +2766,7 @@ export function EmailClient() {
             credentials: 'include',
             cache: 'no-store',
             signal: controller.signal,
-            body: JSON.stringify({ folder }),
+            body: JSON.stringify({ folder, workspaceId: activeWorkspaceId }),
           });
           const summary = await readEmailSummaryStream(
             response,
@@ -2808,7 +2810,12 @@ export function EmailClient() {
               'Content-Type': 'application/json',
             },
             credentials: 'include',
-            body: JSON.stringify({ folder, messageId: selectedMessage.id, operation: 'ai-reply-preview' }),
+            body: JSON.stringify({
+              folder,
+              messageId: selectedMessage.id,
+              operation: 'ai-reply-preview',
+              workspaceId: activeWorkspaceId,
+            }),
           });
           const body = await readEmailAiDraftStream(response, {
             onDelta: (_delta, nextBody) => {
@@ -2877,7 +2884,7 @@ export function EmailClient() {
     } finally {
       setActiveMessageAction(null);
     }
-  }, [activeAccount, activeFolder, clearMessageSummary, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t, updateQuickAiProgress]);
+  }, [activeAccount, activeFolder, activeWorkspaceId, clearMessageSummary, loadFolders, openComposeDraft, selectedMessage, summaryAiStageLabel, t, updateQuickAiProgress]);
 
   const handleMessageListAction = useCallback(async (message: EmailMessageSummary, action: EmailMessageListActionName, destination?: string) => {
     if (!activeAccount) return;

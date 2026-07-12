@@ -91,6 +91,7 @@ export type EmailComposeAiInput = {
   mode?: 'compose' | EmailDerivedDraftMode;
   subject?: string;
   to?: string[];
+  workspaceId?: string | null;
 };
 
 export type { EmailDerivedDraftMode, EmailDerivedDraftOverrides } from '@/app/lib/email/message-draft-builder';
@@ -148,6 +149,7 @@ type EmailMessageListInput = {
 
 type EmailReadPolicyOptions = {
   enforceReadPolicy?: boolean;
+  workspaceId?: string | null;
 };
 
 type TokenResponse = {
@@ -1232,7 +1234,10 @@ export async function deleteLocalEmailMessagePermanently(userId: string, account
 
 export async function summarizeLocalEmailMessage(userId: string, accountId: string, messageId: string, folder?: string, options?: EmailReadPolicyOptions) {
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder, options);
-  const summary = await summarizeEmailWithAi(result.message as Record<string, unknown>);
+  const summary = await summarizeEmailWithAi(
+    { userId, workspaceId: options?.workspaceId },
+    result.message as Record<string, unknown>,
+  );
   return {
     account: result.account,
     messageId,
@@ -1249,7 +1254,11 @@ export async function streamLocalEmailMessageSummary(
 ) {
   const { signal, ...readOptions } = options || {};
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder, readOptions);
-  const events = await summarizeEmailWithAiStream(result.message as Record<string, unknown>, { signal });
+  const events = await summarizeEmailWithAiStream(
+    { userId, workspaceId: options?.workspaceId },
+    result.message as Record<string, unknown>,
+    { signal },
+  );
   return {
     account: result.account,
     events,
@@ -1287,7 +1296,11 @@ export async function createLocalEmailDerivedDraft(
 
 export async function generateLocalEmailAiReplyBody(userId: string, accountId: string, messageId: string, folder?: string, instruction?: string, options?: EmailReadPolicyOptions) {
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder, options);
-  const body = await draftEmailReplyWithAi(result.message as Record<string, unknown>, instruction);
+  const body = await draftEmailReplyWithAi(
+    { userId, workspaceId: options?.workspaceId },
+    result.message as Record<string, unknown>,
+    instruction,
+  );
   return {
     account: result.account,
     body,
@@ -1305,7 +1318,12 @@ export async function streamLocalEmailAiReplyBody(
 ) {
   const { signal, ...readOptions } = options || {};
   const result = await readLocalEmailMessage(userId, accountId, messageId, folder, readOptions);
-  const events = await draftEmailReplyWithAiStream(result.message as Record<string, unknown>, instruction, { signal });
+  const events = await draftEmailReplyWithAiStream(
+    { userId, workspaceId: options?.workspaceId },
+    result.message as Record<string, unknown>,
+    instruction,
+    { signal },
+  );
   return {
     account: result.account,
     events,
@@ -1318,7 +1336,7 @@ export async function generateLocalEmailComposeBody(userId: string, input: Email
   const messageResult = input.messageId
     ? await readLocalEmailMessage(userId, account.id, input.messageId, input.folder, options)
     : null;
-  const body = await draftEmailComposeWithAi({
+  const body = await draftEmailComposeWithAi({ userId, workspaceId: input.workspaceId ?? options?.workspaceId }, {
     cc: input.cc || [],
     currentBody: input.currentBody,
     instruction: input.instruction,
@@ -1345,7 +1363,7 @@ export async function streamLocalEmailComposeBody(
   const messageResult = input.messageId
     ? await readLocalEmailMessage(userId, account.id, input.messageId, input.folder, readOptions)
     : null;
-  const events = await draftEmailComposeWithAiStream({
+  const events = await draftEmailComposeWithAiStream({ userId, workspaceId: input.workspaceId ?? options?.workspaceId }, {
     cc: input.cc || [],
     currentBody: input.currentBody,
     instruction: input.instruction,

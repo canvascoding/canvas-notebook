@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 
-import { auth } from '@/app/lib/auth';
 import {
   archiveEmailMessage,
   createEmailAiReplyDraft,
@@ -18,6 +17,8 @@ import {
   trashEmailMessage,
 } from '@/app/lib/email/service';
 import { normalizeEmailAttachmentInputs } from '@/app/lib/email/attachments';
+import { emailAiRequestBodyErrorStatus, readEmailAiJsonObject } from '@/app/lib/email/ai-request-body';
+import { requireEmailAiRouteSession } from '@/app/lib/email/ai-route-guard';
 import { logEmailClientEvent } from '@/app/lib/email/logging';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -38,12 +39,6 @@ type EmailAiReplyStreamEvent =
   | { type: 'delta'; delta: string }
   | { type: 'done'; body: string }
   | { type: 'error'; message: string };
-
-async function requireSession(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  return session;
-}
 
 function stringValue(value: unknown): string | undefined {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
@@ -124,7 +119,7 @@ function encodeStreamEvent(event: EmailAiReplyStreamEvent): Uint8Array {
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ accountId: string }> }) {
-  const session = await requireSession(request);
+  const session = await requireEmailAiRouteSession(request);
   if (session instanceof NextResponse) return session;
   const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'email-message-actions-body-post' });
   if (!limited.ok) return limited.response;
@@ -141,11 +136,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   try {
     ({ accountId } = await params);
-    const body = await request.json().catch(() => ({}));
-    messageId = requiredString((body as { messageId?: unknown }).messageId, 'messageId');
-    folder = stringValue((body as { folder?: unknown }).folder);
-    operation = operationValue((body as { operation?: unknown }).operation);
+    const body = await readEmailAiJsonObject(request);
+    messageId = requiredString(body.messageId, 'messageId');
+    folder = stringValue(body.folder);
+    const workspaceId = stringValue(body.workspaceId);
+    operation = operationValue(body.operation);
     let data: unknown;
+
+    if (operation === 'summary' || operation === 'ai-reply' || operation === 'ai-reply-preview') {
+      const aiLimited = rateLimit(request, {
+        limit: 20,
+        windowMs: 60_000,
+        keyPrefix: 'email-message-ai-actions-post',
+      });
+      if (!aiLimited.ok) return aiLimited.response;
+    }
 
     if (operation === 'draft' || operation === 'send') {
       mode = draftMode((body as { mode?: unknown }).mode);
@@ -196,7 +201,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
               messageId,
               folder,
               instruction,
-              { enforceReadPolicy: false, signal: abortController.signal },
+              { enforceReadPolicy: false, signal: abortController.signal, workspaceId },
             );
 
             emit({ type: 'status', stage: 'writing', label: 'Drafting reply' });
@@ -271,7 +276,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     }
 
     if (operation === 'summary') {
-      data = await summarizeEmailMessage(session.user.id, accountId, messageId, folder, { enforceReadPolicy: false });
+      data = await summarizeEmailMessage(
+        session.user.id,
+        accountId,
+        messageId,
+        folder,
+        { enforceReadPolicy: false, workspaceId },
+      );
     }
 
     if (operation === 'ai-reply') {
@@ -281,7 +292,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         messageId,
         folder,
         optionalStringValue((body as { instruction?: unknown }).instruction),
-        { enforceReadPolicy: false },
+        { enforceReadPolicy: false, workspaceId },
       );
     }
 
@@ -292,7 +303,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         messageId,
         folder,
         optionalStringValue((body as { instruction?: unknown }).instruction),
-        { enforceReadPolicy: false },
+        { enforceReadPolicy: false, workspaceId },
       );
     }
 
@@ -367,6 +378,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       userId: session.user.id,
     });
     const message = error instanceof Error ? error.message : 'Failed to update email message';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: message },
+      { status: emailAiRequestBodyErrorStatus(error) ?? 500 },
+    );
   }
 }

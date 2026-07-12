@@ -2,16 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import crypto from 'crypto';
 import type { AssistantMessage } from '@earendil-works/pi-ai';
 
-import { auth } from '@/app/lib/auth';
+import { emailAiRequestBodyErrorStatus, readEmailAiJsonObject } from '@/app/lib/email/ai-request-body';
+import { requireEmailAiRouteSession } from '@/app/lib/email/ai-route-guard';
 import { logEmailClientEvent } from '@/app/lib/email/logging';
 import { generateEmailComposeBody, streamEmailComposeBody } from '@/app/lib/email/service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-
-async function requireSession(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  return session;
-}
 
 type EmailAiDraftStreamEvent =
   | { type: 'status'; stage: 'reading_context' | 'writing' | 'ready'; label: string }
@@ -32,7 +27,7 @@ function encodeEvent(event: EmailAiDraftStreamEvent): Uint8Array {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await requireSession(request);
+  const session = await requireEmailAiRouteSession(request);
   if (session instanceof NextResponse) return session;
   const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'email-compose-ai-post' });
   if (!limited.ok) return limited.response;
@@ -44,7 +39,9 @@ export async function POST(request: NextRequest) {
   let mode = '';
 
   try {
-    const body = await request.json().catch(() => ({}));
+    const body = await readEmailAiJsonObject(request);
+    const workspaceId = typeof body.workspaceId === 'string' ? body.workspaceId.trim() || undefined : undefined;
+    const aiInput = { ...body, workspaceId } as Parameters<typeof generateEmailComposeBody>[1];
     accountId = typeof body.accountId === 'string' ? body.accountId : '';
     messageId = typeof body.messageId === 'string' ? body.messageId : '';
     mode = typeof body.mode === 'string' ? body.mode : '';
@@ -77,8 +74,8 @@ export async function POST(request: NextRequest) {
             emit({ type: 'status', stage: 'reading_context', label: 'Preparing email context' });
             const data = await streamEmailComposeBody(
               session.user.id,
-              body,
-              { enforceReadPolicy: false, signal: abortController.signal },
+              aiInput,
+              { enforceReadPolicy: false, signal: abortController.signal, workspaceId },
             );
 
             emit({ type: 'status', stage: 'writing', label: 'Drafting email text' });
@@ -152,7 +149,11 @@ export async function POST(request: NextRequest) {
       });
     }
 
-    const data = await generateEmailComposeBody(session.user.id, body, { enforceReadPolicy: false });
+    const data = await generateEmailComposeBody(
+      session.user.id,
+      aiInput,
+      { enforceReadPolicy: false, workspaceId },
+    );
     logEmailClientEvent('info', 'compose_ai_succeeded', {
       accountId,
       durationMs: Date.now() - startedAt,
@@ -177,6 +178,9 @@ export async function POST(request: NextRequest) {
       userId: session.user.id,
     });
     const message = error instanceof Error ? error.message : 'Failed to generate email text';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json(
+      { success: false, error: message },
+      { status: emailAiRequestBodyErrorStatus(error) ?? 500 },
+    );
   }
 }
