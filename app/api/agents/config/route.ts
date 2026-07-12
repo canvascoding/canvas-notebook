@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import {
+  agentDefaultErrorResponse,
+  parseAgentDefaultCatalogRevision,
+  parseAgentDefaultFields,
+  writeAgentDefaultWithCatalogValidation,
+} from '@/app/lib/agent-runtime-policy/agent-default-service';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
@@ -12,7 +18,7 @@ import {
   writePiRuntimeConfig,
 } from '@/app/lib/agents/storage';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
-import { normalizeManagedAgentId, updateAgentProfile } from '@/app/lib/agents/registry';
+import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import {
   CANVAS_CONTROL_PLANE_PROVIDER_ID,
   findModelWithCompatibilityFallback,
@@ -28,12 +34,18 @@ import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
 import type { PiRuntimeConfig, PiThinkingLevel } from '@/app/lib/pi/config';
 import type { EffectiveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
+import {
+  isOrganizationAdminLike,
+  readOrganizationPermissionForUser,
+} from '@/app/lib/organization/permissions';
 
 type PatchConfigPayload = {
   agentId?: unknown;
+  providerInstallationId?: unknown;
   provider?: unknown;
   model?: unknown;
   thinkingLevel?: unknown;
+  expectedCatalogRevision?: unknown;
   makeActiveProvider?: unknown;
 };
 
@@ -117,6 +129,48 @@ async function requireSession(request: NextRequest) {
     session,
     response: null,
   };
+}
+
+async function requireAgentDefaultOrganization(userId: string) {
+  const state = await readOrganizationPermissionForUser(userId);
+  if (!state.configured || !state.organizationId) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        {
+          success: false,
+          code: 'ORGANIZATION_SETUP_REQUIRED',
+          error: 'Complete the app setup before configuring agent model defaults.',
+        },
+        { status: 409 },
+      ),
+    };
+  }
+  if (!isOrganizationAdminLike(state.permission)) {
+    return {
+      ok: false as const,
+      response: NextResponse.json(
+        { success: false, code: 'ADMIN_REQUIRED', error: 'Organization admin permission required.' },
+        { status: 403 },
+      ),
+    };
+  }
+  return { ok: true as const, organizationId: state.organizationId };
+}
+
+function agentDefaultRouteError(error: unknown) {
+  const response = agentDefaultErrorResponse(error);
+  return NextResponse.json(
+    {
+      success: false,
+      code: response.code,
+      error: response.message,
+      ...(response.currentCatalogRevision === undefined
+        ? {}
+        : { currentCatalogRevision: response.currentCatalogRevision }),
+    },
+    { status: response.status },
+  );
 }
 
 async function buildAgentConfigResponseData(
@@ -256,6 +310,56 @@ export async function PATCH(request: NextRequest) {
     const model = normalizeOptionalString(payload.model);
     const thinkingLevel = normalizeThinkingLevel(payload.thinkingLevel);
 
+    if (agentId !== DEFAULT_MANAGED_AGENT_ID) {
+      const organization = await requireAgentDefaultOrganization(session.user.id);
+      if (!organization.ok) return organization.response;
+      const selection = parseAgentDefaultFields({
+        providerInstallationId: payload.providerInstallationId,
+        providerId: payload.provider,
+        modelId: payload.model,
+        thinkingLevel: payload.thinkingLevel,
+      });
+      if (!selection) {
+        return NextResponse.json(
+          { success: false, code: 'INCOMPLETE_AGENT_DEFAULT', error: 'A complete agent model default is required.' },
+          { status: 400 },
+        );
+      }
+      const expectedCatalogRevision = parseAgentDefaultCatalogRevision(payload.expectedCatalogRevision, true)!;
+      const validation = await writeAgentDefaultWithCatalogValidation({
+        organizationId: organization.organizationId,
+        agentId,
+        selection,
+        expectedCatalogRevision,
+      });
+      const effective = await resolveAgentRuntimeSettings(agentId);
+      await recordAuditEvent({
+        organizationId: organization.organizationId,
+        userId: session.user.id,
+        agentId,
+        source: 'agents',
+        eventType: 'agent',
+        entityType: 'agent_runtime_config',
+        entityId: agentId,
+        action: 'agent_runtime_config.patch',
+        status: 'success',
+        summary: `Runtime config patched for agent ${agentId}.`,
+        metadata: {
+          providerInstallationId: selection.providerInstallationId,
+          provider: selection.providerId,
+          model: selection.modelId,
+          thinkingLevel: selection.thinkingLevel,
+          catalogRevision: validation.catalogRevision,
+          makeActiveProvider: false,
+        },
+      });
+
+      return NextResponse.json({
+        success: true,
+        data: await buildAgentConfigResponseData(effective, { userId: session.user.id }),
+      });
+    }
+
     if (!provider) {
       return NextResponse.json({ success: false, error: 'Provider is required.' }, { status: 400 });
     }
@@ -273,38 +377,6 @@ export async function PATCH(request: NextRequest) {
     }
     if (model && !(await isValidProviderModel(currentConfig, provider, model))) {
       return NextResponse.json({ success: false, error: 'Invalid model for provider.' }, { status: 400 });
-    }
-
-    if (agentId !== DEFAULT_MANAGED_AGENT_ID) {
-      await updateAgentProfile({
-        agentId,
-        defaultProvider: provider,
-        defaultModel: model || providerConfig.model,
-        defaultThinking: thinkingLevel || providerConfig.thinking || 'off',
-      });
-      const effective = await resolveAgentRuntimeSettings(agentId);
-      await recordAuditEvent({
-        userId: session.user.id,
-        agentId,
-        source: 'agents',
-        eventType: 'agent',
-        entityType: 'agent_runtime_config',
-        entityId: agentId,
-        action: 'agent_runtime_config.patch',
-        status: 'success',
-        summary: `Runtime config patched for agent ${agentId}.`,
-        metadata: {
-          provider,
-          model: model || providerConfig.model,
-          thinkingLevel: thinkingLevel || providerConfig.thinking || 'off',
-          makeActiveProvider: false,
-        },
-      });
-
-      return NextResponse.json({
-        success: true,
-        data: await buildAgentConfigResponseData(effective, { userId: session.user.id }),
-      });
     }
 
     const piConfig = await writePiRuntimeConfig({
@@ -343,6 +415,10 @@ export async function PATCH(request: NextRequest) {
       data: await buildAgentConfigResponseData(effective, { piConfig, userId: session.user.id }),
     });
   } catch (error) {
+    const agentDefaultResponse = agentDefaultErrorResponse(error);
+    if (agentDefaultResponse.code !== 'AGENT_DEFAULT_UPDATE_FAILED') {
+      return agentDefaultRouteError(error);
+    }
     const message = error instanceof Error ? error.message : 'Failed to update runtime config.';
     const status = error instanceof AgentConfigValidationError ? 400 : 500;
     return NextResponse.json({ success: false, error: message }, { status });
@@ -378,24 +454,31 @@ export async function PUT(request: NextRequest) {
       const providerConfig = provider && piConfigInput.providers ? piConfigInput.providers[provider] : null;
       const model = providerConfig ? normalizeOptionalString(providerConfig.model) : null;
       const thinking = providerConfig ? normalizeThinkingLevel(providerConfig.thinking) : null;
-      if (!provider || !model) {
-        return NextResponse.json({ success: false, error: 'Provider and model are required for agent overrides.' }, { status: 400 });
+      const organization = await requireAgentDefaultOrganization(session.user.id);
+      if (!organization.ok) return organization.response;
+      const selection = parseAgentDefaultFields({
+        providerInstallationId: payload.providerInstallationId,
+        providerId: provider,
+        modelId: model,
+        thinkingLevel: thinking,
+      });
+      if (!selection) {
+        return NextResponse.json(
+          { success: false, code: 'INCOMPLETE_AGENT_DEFAULT', error: 'A complete agent model default is required.' },
+          { status: 400 },
+        );
       }
-
-      const currentConfig = await readPiRuntimeConfig();
-      if (!(await isValidProviderModel(currentConfig, provider, model))) {
-        return NextResponse.json({ success: false, error: 'Invalid model for provider.' }, { status: 400 });
-      }
-
-      await updateAgentProfile({
+      const expectedCatalogRevision = parseAgentDefaultCatalogRevision(payload.expectedCatalogRevision, true)!;
+      const validation = await writeAgentDefaultWithCatalogValidation({
+        organizationId: organization.organizationId,
         agentId,
-        defaultProvider: provider,
-        defaultModel: model,
-        defaultThinking: thinking,
+        selection,
+        expectedCatalogRevision,
       });
 
       const effective = await resolveAgentRuntimeSettings(agentId);
       await recordAuditEvent({
+        organizationId: organization.organizationId,
         userId: session.user.id,
         agentId,
         source: 'agents',
@@ -406,9 +489,11 @@ export async function PUT(request: NextRequest) {
         status: 'success',
         summary: `Runtime config replaced for agent ${agentId}.`,
         metadata: {
-          provider,
-          model,
-          thinking,
+          providerInstallationId: selection.providerInstallationId,
+          provider: selection.providerId,
+          model: selection.modelId,
+          thinking: selection.thinkingLevel,
+          catalogRevision: validation.catalogRevision,
         },
       });
 
@@ -447,6 +532,10 @@ export async function PUT(request: NextRequest) {
       data: await buildAgentConfigResponseData(effective, { piConfig, userId: session.user.id }),
     });
   } catch (error) {
+    const agentDefaultResponse = agentDefaultErrorResponse(error);
+    if (agentDefaultResponse.code !== 'AGENT_DEFAULT_UPDATE_FAILED') {
+      return agentDefaultRouteError(error);
+    }
     const message = error instanceof Error ? error.message : 'Failed to update runtime config.';
     const status = error instanceof AgentConfigValidationError ? 400 : 500;
     return NextResponse.json({ success: false, error: message }, { status });

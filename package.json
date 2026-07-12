@@ -127,6 +127,7 @@
     "test:todos:tool": "tsx --conditions react-server scripts/human-todo-tool-test.ts",
     "test:todos:email": "tsx --conditions react-server scripts/todo-email-notification-test.ts",
     "test:agents:runtime": "tsx --conditions react-server scripts/agent-runtime-config-test.ts",
+    "test:agents:provider-coverage": "tsx --conditions react-server scripts/agent-runtime-provider-coverage-test.ts",
     "test:onboarding:profile": "tsx --conditions react-server scripts/onboarding-profile-test.ts",
     "test:onboarding:preferences": "tsx --conditions react-server scripts/onboarding-preferences-test.ts",
     "test:onboarding:flow": "tsx --conditions react-server scripts/onboarding-flow-test.ts",

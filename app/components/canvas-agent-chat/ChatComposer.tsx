@@ -20,9 +20,13 @@ import {
 import { PlanModeToggle } from '@/app/components/canvas-agent-chat/PlanModeToggle';
 import { SkillReferenceChipRow } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
 import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
+import type {
+  AiEffectiveRuntimeResolution,
+  AiRuntimeSelection,
+  AiRuntimeSelectionSource,
+} from '@/app/lib/agent-runtime-policy/types';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
-import type { AgentConfig, Attachment, AttachmentOpenHandler, QueuePreviewItem } from '@/app/lib/chat/types';
-import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import type { Attachment, AttachmentOpenHandler, QueuePreviewItem } from '@/app/lib/chat/types';
 import { Link } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 
@@ -100,14 +104,17 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   onSend: () => void | Promise<void>;
   selectedAgentId: string;
   sessionId: string | null;
-  activeModel: string;
-  activeProvider: string;
-  thinkingLevel: PiThinkingLevel;
-  agentConfig: AgentConfig | null;
+  runtimeSelection: AiRuntimeSelection | null;
+  runtimeSelectionSource: AiRuntimeSelectionSource | null;
+  runtimeResolution: AiEffectiveRuntimeResolution | null;
+  runtimeSelectionError: string | null;
+  hasLocalRuntimeSelection: boolean;
   modelSelectorDisabled: boolean;
   compactModelSelector: boolean;
-  onModelChange: (next: { model: string; thinkingLevel: PiThinkingLevel; provider: string }) => void;
-  onRuntimeInvalidated: () => Promise<void> | void;
+  onRuntimeSelectionChange: (next: AiRuntimeSelection) => void;
+  onRuntimeResolutionChange: (next: AiEffectiveRuntimeResolution) => void;
+  onRuntimeResolutionRefresh: () => Promise<void> | void;
+  onRuntimeStatusRefresh: () => Promise<void> | void;
   showComposerHint: boolean;
   onToggleComposerHint: () => void;
   composerHint: string;
@@ -154,14 +161,17 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   onSend,
   selectedAgentId,
   sessionId,
-  activeModel,
-  activeProvider,
-  thinkingLevel,
-  agentConfig,
+  runtimeSelection,
+  runtimeSelectionSource,
+  runtimeResolution,
+  runtimeSelectionError,
+  hasLocalRuntimeSelection,
   modelSelectorDisabled,
   compactModelSelector,
-  onModelChange,
-  onRuntimeInvalidated,
+  onRuntimeSelectionChange,
+  onRuntimeResolutionChange,
+  onRuntimeResolutionRefresh,
+  onRuntimeStatusRefresh,
   showComposerHint,
   onToggleComposerHint,
   composerHint,
@@ -205,7 +215,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
             <div className="mt-1 text-[11px] opacity-80">{t('modelRequiredDescription')}</div>
           </div>
           <Link
-            href="/settings?tab=agent"
+            href="/settings?tab=my-agent-runtime"
             className="inline-flex shrink-0 items-center gap-1 border border-amber-500/40 bg-background/60 px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
           >
             <Settings className="h-3 w-3" />
@@ -344,14 +354,17 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
             <ChatModelSelector
               agentId={selectedAgentId}
               sessionId={sessionId}
-              activeModel={activeModel}
-              activeProvider={activeProvider}
-              thinkingLevel={thinkingLevel}
-              agentConfig={agentConfig}
+              selection={runtimeSelection}
+              selectionSource={runtimeSelectionSource}
+              resolution={runtimeResolution}
+              runtimeError={runtimeSelectionError}
+              hasLocalSelection={hasLocalRuntimeSelection}
               disabled={modelSelectorDisabled}
               compact={compactModelSelector}
-              onModelChange={onModelChange}
-              onRuntimeInvalidated={onRuntimeInvalidated}
+              onSelectionChange={onRuntimeSelectionChange}
+              onResolutionChange={onRuntimeResolutionChange}
+              onResolutionRefresh={onRuntimeResolutionRefresh}
+              onRuntimeStatusRefresh={onRuntimeStatusRefresh}
             />
             <PlanModeToggle />
             <button

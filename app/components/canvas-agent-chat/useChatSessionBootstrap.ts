@@ -12,12 +12,10 @@ import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import { isRecord } from '@/app/lib/chat/message-content';
 import { readLatestCachedChatSession } from '@/app/lib/chat/session-cache';
 import type {
-  AgentConfig,
   AISession,
   Attachment,
 } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
-import { isAgentConfigForAgent } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 
 type ChatTranslator = ReturnType<typeof useTranslations<'chat'>>;
 
@@ -29,7 +27,6 @@ type InitialPromptPayload = {
 
 type UseChatSessionBootstrapParams = {
   addSessionToHistory: (session: AISession) => void;
-  agentConfig: AgentConfig | null;
   appendSystemMessage: (content: string) => void;
   clearSessionParamFromUrl: () => void;
   fetchHistory: () => Promise<void>;
@@ -47,6 +44,7 @@ type UseChatSessionBootstrapParams = {
   initialPromptStorageKey?: string;
   isLoadingHistory: boolean;
   isResolvingInitialChatState: boolean;
+  isRuntimeSelectionLoading: boolean;
   loadSession: (session: AISession) => Promise<void>;
   loadSessionList: () => Promise<AISession[]>;
   requestedSessionCleanupRef: MutableRefObject<string | null>;
@@ -141,7 +139,6 @@ function sessionMatchesActiveWorkspace(session: AISession, activeWorkspaceId?: s
 
 export function useChatSessionBootstrap({
   addSessionToHistory,
-  agentConfig,
   appendSystemMessage,
   clearSessionParamFromUrl,
   fetchHistory,
@@ -156,6 +153,7 @@ export function useChatSessionBootstrap({
   initialPromptStorageKey,
   isLoadingHistory,
   isResolvingInitialChatState,
+  isRuntimeSelectionLoading,
   loadSession,
   loadSessionList,
   requestedSessionCleanupRef,
@@ -174,8 +172,7 @@ export function useChatSessionBootstrap({
 }: UseChatSessionBootstrapParams) {
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
-    if (!agentConfig) return;
-    if (!isAgentConfigForAgent(agentConfig, selectedAgentId)) return;
+    if (isRuntimeSelectionLoading) return;
 
     const queueInitialPrompt = async (promptText: string, promptAttachments: Attachment[], storageKey?: string) => {
       initialPromptConsumedRef.current = true;
@@ -217,7 +214,7 @@ export function useChatSessionBootstrap({
     }
 
     void queueInitialPrompt(parsed.prompt, parsed.attachments, initialPromptStorageKey);
-  }, [agentConfig, appendSystemMessage, handleControlAction, initialPrompt, initialPromptConsumedRef, initialPromptStorageKey, selectedAgentId, sessionAgentIdRef, setHistoryAgentFilter, setIsResolvingInitialChatState, setSelectedAgentId, t]);
+  }, [appendSystemMessage, handleControlAction, initialPrompt, initialPromptConsumedRef, initialPromptStorageKey, isRuntimeSelectionLoading, selectedAgentId, sessionAgentIdRef, setHistoryAgentFilter, setIsResolvingInitialChatState, setSelectedAgentId, t]);
 
   useEffect(() => {
     if (initialPrompt?.trim()) return;

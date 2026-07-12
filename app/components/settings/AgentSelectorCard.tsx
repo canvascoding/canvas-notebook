@@ -17,6 +17,7 @@ export type AgentProfileItem = {
   iconId: AgentIconId;
   type: string;
   removable: boolean;
+  defaultProviderInstallationId: string | null;
   defaultProvider: string | null;
   defaultModel: string | null;
   defaultThinking: string | null;
@@ -32,6 +33,7 @@ type AgentSelectorCardProps = {
   error: string | null;
   creating: boolean;
   deletingAgentId: string | null;
+  canManageAgentDefaults: boolean;
   openCreateDialogOnMount?: boolean;
   onSelectedAgentIdChange: (agentId: string) => void;
   onCreate: (input: CreateAgentInput) => Promise<boolean>;
@@ -46,6 +48,7 @@ export function AgentSelectorCard({
   error,
   creating,
   deletingAgentId,
+  canManageAgentDefaults,
   openCreateDialogOnMount = false,
   onSelectedAgentIdChange,
   onCreate,
@@ -167,6 +170,7 @@ export function AgentSelectorCard({
       open={createDialogOpen}
       creating={creating}
       error={error}
+      canManageAgentDefaults={canManageAgentDefaults}
       onOpenChange={setCreateDialogOpen}
       onCreate={onCreate}
     />

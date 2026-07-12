@@ -28,6 +28,38 @@ export type AgentProfile = {
 };
 
 const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+const PROVIDER_INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
+
+type AgentDefaultTuple = {
+  defaultProviderInstallationId: string | null;
+  defaultProvider: string | null;
+  defaultModel: string | null;
+  defaultThinking: PiThinkingLevel | null;
+};
+
+function normalizeAgentDefaultTuple(input: {
+  defaultProviderInstallationId?: string | null;
+  defaultProvider?: string | null;
+  defaultModel?: string | null;
+  defaultThinking?: PiThinkingLevel | null;
+}): AgentDefaultTuple {
+  const tuple: AgentDefaultTuple = {
+    defaultProviderInstallationId: input.defaultProviderInstallationId?.trim() || null,
+    defaultProvider: input.defaultProvider?.trim() || null,
+    defaultModel: input.defaultModel?.trim() || null,
+    defaultThinking: normalizeThinking(input.defaultThinking),
+  };
+  if (Object.values(tuple).every((value) => value === null)) return tuple;
+  if (Object.values(tuple).some((value) => value === null)) {
+    throw new Error(
+      'Agent model defaults require providerInstallationId, provider, model, and thinking level together.',
+    );
+  }
+  if (!PROVIDER_INSTALLATION_ID_PATTERN.test(tuple.defaultProviderInstallationId!)) {
+    throw new Error('Agent model default providerInstallationId is invalid.');
+  }
+  return tuple;
+}
 
 export function normalizeManagedAgentId(agentId?: string | null): string {
   const normalized = typeof agentId === 'string' ? agentId.trim().toLowerCase() : '';
@@ -182,6 +214,8 @@ export async function createAgentProfile(input: {
     throw new Error('Canvas Agent already exists and cannot be recreated.');
   }
 
+  const agentDefault = normalizeAgentDefaultTuple(input);
+
   const now = new Date();
   await db.insert(agents).values({
     agentId,
@@ -189,10 +223,7 @@ export async function createAgentProfile(input: {
     iconId: normalizeAgentIconId(input.iconId),
     type: 'special',
     removable: true,
-    defaultProviderInstallationId: input.defaultProviderInstallationId?.trim() || null,
-    defaultProvider: input.defaultProvider?.trim() || null,
-    defaultModel: input.defaultModel?.trim() || null,
-    defaultThinking: normalizeThinking(input.defaultThinking) || null,
+    ...agentDefault,
     enabledToolsJson: stringifyEnabledTools(input.enabledTools),
     relevantSkillsJson: stringifyStringList(input.relevantSkills),
     relevantConnectionsJson: stringifyStringList(input.relevantConnections),
@@ -230,16 +261,31 @@ export async function updateAgentProfile(input: {
     throw new Error('Agent name is required.');
   }
 
+  const updatesAgentDefault = input.defaultProviderInstallationId !== undefined
+    || input.defaultProvider !== undefined
+    || input.defaultModel !== undefined
+    || input.defaultThinking !== undefined;
+  const agentDefault = updatesAgentDefault
+    ? normalizeAgentDefaultTuple({
+        defaultProviderInstallationId: input.defaultProviderInstallationId === undefined
+          ? existing.defaultProviderInstallationId
+          : input.defaultProviderInstallationId,
+        defaultProvider: input.defaultProvider === undefined ? existing.defaultProvider : input.defaultProvider,
+        defaultModel: input.defaultModel === undefined ? existing.defaultModel : input.defaultModel,
+        defaultThinking: input.defaultThinking === undefined ? existing.defaultThinking : input.defaultThinking,
+      })
+    : null;
+
   await db.update(agents)
     .set({
       name: nextName,
       iconId: input.iconId === undefined ? existing.iconId : normalizeAgentIconId(input.iconId),
-      defaultProviderInstallationId: input.defaultProviderInstallationId === undefined
-        ? existing.defaultProviderInstallationId
-        : input.defaultProviderInstallationId?.trim() || null,
-      defaultProvider: input.defaultProvider === undefined ? existing.defaultProvider : input.defaultProvider?.trim() || null,
-      defaultModel: input.defaultModel === undefined ? existing.defaultModel : input.defaultModel?.trim() || null,
-      defaultThinking: input.defaultThinking === undefined ? existing.defaultThinking : normalizeThinking(input.defaultThinking) || null,
+      defaultProviderInstallationId: updatesAgentDefault
+        ? agentDefault!.defaultProviderInstallationId
+        : existing.defaultProviderInstallationId,
+      defaultProvider: updatesAgentDefault ? agentDefault!.defaultProvider : existing.defaultProvider,
+      defaultModel: updatesAgentDefault ? agentDefault!.defaultModel : existing.defaultModel,
+      defaultThinking: updatesAgentDefault ? agentDefault!.defaultThinking : existing.defaultThinking,
       enabledToolsJson: input.enabledTools === undefined ? stringifyEnabledTools(existing.enabledTools) : stringifyEnabledTools(input.enabledTools),
       relevantSkillsJson: input.relevantSkills === undefined ? stringifyStringList(existing.relevantSkills) : stringifyStringList(input.relevantSkills),
       relevantConnectionsJson: input.relevantConnections === undefined ? stringifyStringList(existing.relevantConnections) : stringifyStringList(input.relevantConnections),

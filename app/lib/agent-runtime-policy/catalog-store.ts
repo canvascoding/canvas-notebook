@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { openDb } from '@/app/lib/db';
+import { getDatabaseProvider, openDb } from '@/app/lib/db';
 import type {
   AiAppRuntimeCatalog,
   AiCatalogModel,
@@ -180,7 +180,14 @@ function normalizeMigrationState(value: unknown): AiAppRuntimeCatalog['migration
 
 export async function readAppRuntimeCatalog(organizationId: string): Promise<AiAppRuntimeCatalog> {
   const connection = await openDb();
+  let transactionStarted = false;
   try {
+    await connection.run(
+      getDatabaseProvider() === 'postgres'
+        ? 'BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY'
+        : 'BEGIN',
+    );
+    transactionStarted = true;
     const defaults = await connection.get(
       `SELECT provider_installation_id, provider_id, model_id, thinking_level, catalog_revision, migration_state,
               legacy_source_hash, updated_by_user_id, updated_at
@@ -250,7 +257,7 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
         }
       : null;
 
-    return {
+    const catalog: AiAppRuntimeCatalog = {
       organizationId,
       revision: numberValue(defaults?.catalog_revision, 0),
       migrationState: normalizeMigrationState(defaults?.migration_state),
@@ -260,6 +267,18 @@ export async function readAppRuntimeCatalog(organizationId: string): Promise<AiA
       updatedAt: isoTimestamp(defaults?.updated_at),
       updatedByUserId: defaults?.updated_by_user_id ?? null,
     };
+    await connection.run('COMMIT');
+    transactionStarted = false;
+    return catalog;
+  } catch (error) {
+    if (transactionStarted) {
+      try {
+        await connection.run('ROLLBACK');
+      } catch {
+        // Preserve the original catalog read error.
+      }
+    }
+    throw error;
   } finally {
     await connection.close?.();
   }

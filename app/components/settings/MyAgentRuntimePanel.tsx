@@ -23,6 +23,7 @@ import {
 } from 'lucide-react';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
+import { ProviderInstallationCredentialEditor } from '@/app/components/settings/ProviderInstallationCredentialEditor';
 import type {
   AiCatalogModel,
   AiEffectiveCatalogProvider,
@@ -156,6 +157,12 @@ type PanelCopy = {
     useInherited: string;
     save: string;
   };
+  credentials: {
+    section: string;
+    title: string;
+    description: string;
+    missing: string;
+  };
   summary: {
     aria: string;
     effectiveTitle: string;
@@ -273,6 +280,12 @@ const DE_COPY: PanelCopy = {
     intelligenceHelp: 'Die verfügbaren Stufen stammen aus dem gewählten Modell. Ein Modellwechsel kann diese Auswahl verändern.',
     useInherited: 'Geerbten Standard verwenden',
     save: 'Meine Präferenz speichern',
+  },
+  credentials: {
+    section: 'Persönlicher Provider-Zugang',
+    title: 'Meine Zugangsdaten',
+    description: 'Diese Installation verwendet deinen persönlichen Secret-Scope. Hinterlege hier den API-Key oder verbinde dein OAuth-Konto.',
+    missing: 'Für diese Installation fehlen noch persönliche Zugangsdaten. Nach dem Speichern wird die Runtime-Auswahl automatisch neu geprüft.',
   },
   summary: {
     aria: 'Zusammenfassung der Runtime-Auswahl',
@@ -392,6 +405,12 @@ const EN_COPY: PanelCopy = {
     useInherited: 'Use inherited default',
     save: 'Save my preference',
   },
+  credentials: {
+    section: 'Personal provider access',
+    title: 'My credentials',
+    description: 'This installation uses your personal secret scope. Add your API key or connect your OAuth account here.',
+    missing: 'This installation still needs personal credentials. The runtime selection will be checked again automatically after saving.',
+  },
   summary: {
     aria: 'Runtime selection summary',
     effectiveTitle: 'Effective now',
@@ -480,6 +499,11 @@ function providerForSelection(
   return resolution.providers.find(
     (provider) => provider.installationId === selection.providerInstallationId,
   ) ?? null;
+}
+
+function canPrepareProvider(provider: AiEffectiveCatalogProvider): boolean {
+  return provider.selectable
+    || (provider.credentialScope === 'user' && provider.status === 'ready');
 }
 
 function modelForSelection(
@@ -612,6 +636,11 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
   const [resolutionReloadKey, setResolutionReloadKey] = useState(0);
   const sourcesRequestRef = useRef(0);
   const resolutionRequestRef = useRef(0);
+  const credentialRefreshRef = useRef<{
+    workspaceId: string;
+    agentId: string;
+    selection: AiRuntimeSelection;
+  } | null>(null);
 
   const loadSources = useCallback(async () => {
     const requestId = ++sourcesRequestRef.current;
@@ -697,8 +726,28 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
         .then((response) => readJson<RuntimeResponse>(response, copy.errors.loadPreference))
         .then((payload) => {
           if (requestId !== resolutionRequestRef.current || !payload.data) return;
+          const pendingCredentialRefresh = credentialRefreshRef.current;
+          credentialRefreshRef.current = null;
           setResolution(payload.data);
-          setDraft(initialDraft(payload.data));
+          if (
+            pendingCredentialRefresh
+            && pendingCredentialRefresh.workspaceId === selectedWorkspaceId
+            && pendingCredentialRefresh.agentId === selectedAgentId
+          ) {
+            const pendingProvider = providerForSelection(payload.data, pendingCredentialRefresh.selection);
+            const pendingModel = modelForSelection(pendingProvider, pendingCredentialRefresh.selection);
+            setDraft(pendingProvider && pendingModel
+              ? {
+                  ...pendingCredentialRefresh.selection,
+                  thinkingLevel: preferredThinkingLevel(
+                    pendingModel,
+                    pendingCredentialRefresh.selection.thinkingLevel,
+                  ),
+                }
+              : initialDraft(payload.data));
+          } else {
+            setDraft(initialDraft(payload.data));
+          }
           if (payload.data.preference && payload.data.valid) {
             onPreferenceSaved?.({ workspaceId: selectedWorkspaceId, agentId: selectedAgentId });
           }
@@ -786,6 +835,18 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
       thinkingLevel: preferredThinkingLevel(model, draft?.thinkingLevel),
     });
     setNotice(null);
+  };
+
+  const handleCredentialsSaved = () => {
+    if (draft) {
+      credentialRefreshRef.current = {
+        workspaceId: selectedWorkspaceId,
+        agentId: selectedAgentId,
+        selection: { ...draft },
+      };
+    }
+    setNotice(null);
+    setResolutionReloadKey((current) => current + 1);
   };
 
   const handleSave = async () => {
@@ -1087,7 +1148,7 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
                         <option
                           key={provider.installationId}
                           value={provider.installationId}
-                          disabled={!provider.selectable}
+                          disabled={!canPrepareProvider(provider)}
                         >
                           {provider.name} · {copy.credentialScope[provider.credentialScope] || provider.credentialScope}
                           {!provider.selectable ? ` · ${copy.providerStatus[provider.status] || provider.status}` : ''}
@@ -1109,7 +1170,7 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
                       className="h-10 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm outline-none transition focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
                       value={draft?.modelId ?? ''}
                       onChange={(event) => handleModelChange(event.target.value)}
-                      disabled={controlsDisabled || !selectedProvider?.selectable}
+                      disabled={controlsDisabled || !selectedProvider || !canPrepareProvider(selectedProvider)}
                     >
                       <option value="" disabled>{copy.preference.selectModel}</option>
                       {draft && selectedProvider && !selectedModel && (
@@ -1153,6 +1214,44 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
                         </Badge>
                       </div>
                     </div>
+                  </div>
+                )}
+
+                {selectedProvider?.credentialScope === 'user' && (
+                  <div className="min-w-0 space-y-4 rounded-lg border border-primary/20 bg-primary/[0.025] p-4">
+                    <div className="flex min-w-0 items-start gap-3">
+                      <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border bg-background shadow-sm">
+                        <KeyRound className="h-4 w-4 text-primary" aria-hidden="true" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                          {copy.credentials.section}
+                        </p>
+                        <h3 className="mt-1 text-sm font-semibold">{copy.credentials.title}</h3>
+                        <p className="mt-1 text-xs leading-5 text-muted-foreground">{copy.credentials.description}</p>
+                      </div>
+                    </div>
+
+                    {!selectedProvider.credentialAvailable && (
+                      <div className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/5 p-3 text-sm text-amber-800 dark:text-amber-200" role="status">
+                        <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                        <span>{copy.credentials.missing}</span>
+                      </div>
+                    )}
+
+                    <ProviderInstallationCredentialEditor
+                      key={selectedProvider.installationId}
+                      locale={locale}
+                      showIdentity={false}
+                      installation={{
+                        installationId: selectedProvider.installationId,
+                        providerId: selectedProvider.providerId,
+                        name: selectedProvider.name,
+                        credentialScope: selectedProvider.credentialScope,
+                        authMethod: selectedProvider.authMethod,
+                      }}
+                      onCredentialsSaved={handleCredentialsSaved}
+                    />
                   </div>
                 )}
 

@@ -39,6 +39,34 @@ export interface ProviderHelpInfo {
   supportsBothAuthMethods?: boolean;
 }
 
+function apiKeyProviderHelp(input: {
+  title: string;
+  shortDescription: string;
+  envName: string;
+  credentialDescription?: string;
+  documentationUrl?: string;
+}): ProviderHelpInfo {
+  return {
+    category: 'api-key',
+    title: input.title,
+    shortDescription: input.shortDescription,
+    setupSteps: [
+      `Get a credential for ${input.title}`,
+      `Add ${input.envName} to Agent Environment settings`,
+      'Save and verify the provider status',
+    ],
+    envVars: [
+      {
+        name: input.envName,
+        description: input.credentialDescription || `Your ${input.title} API key`,
+        scope: 'agents',
+        required: true,
+      },
+    ],
+    ...(input.documentationUrl ? { documentationUrl: input.documentationUrl } : {}),
+  };
+}
+
 /**
  * Provider help information mapping.
  * Covers all 23+ providers available in @earendil-works/pi-ai
@@ -262,6 +290,138 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     ],
   },
 
+  'ant-ling': apiKeyProviderHelp({
+    title: 'Ant Ling',
+    shortDescription: 'Ant Ling hosted language models',
+    envName: 'ANT_LING_API_KEY',
+  }),
+
+  deepseek: apiKeyProviderHelp({
+    title: 'DeepSeek',
+    shortDescription: 'DeepSeek chat and reasoning models',
+    envName: 'DEEPSEEK_API_KEY',
+    documentationUrl: 'https://api-docs.deepseek.com/',
+  }),
+
+  nvidia: apiKeyProviderHelp({
+    title: 'NVIDIA NIM',
+    shortDescription: 'NVIDIA-hosted inference models',
+    envName: 'NVIDIA_API_KEY',
+    documentationUrl: 'https://docs.api.nvidia.com/nim/',
+  }),
+
+  fireworks: apiKeyProviderHelp({
+    title: 'Fireworks AI',
+    shortDescription: 'Fireworks hosted inference models',
+    envName: 'FIREWORKS_API_KEY',
+    documentationUrl: 'https://docs.fireworks.ai/',
+  }),
+
+  together: apiKeyProviderHelp({
+    title: 'Together AI',
+    shortDescription: 'Together AI hosted inference models',
+    envName: 'TOGETHER_API_KEY',
+    documentationUrl: 'https://docs.together.ai/',
+  }),
+
+  'vercel-ai-gateway': apiKeyProviderHelp({
+    title: 'Vercel AI Gateway',
+    shortDescription: 'AI models routed through Vercel AI Gateway',
+    envName: 'AI_GATEWAY_API_KEY',
+    documentationUrl: 'https://vercel.com/docs/ai-gateway',
+  }),
+
+  moonshotai: apiKeyProviderHelp({
+    title: 'Moonshot AI',
+    shortDescription: 'Moonshot AI global API',
+    envName: 'MOONSHOT_API_KEY',
+    documentationUrl: 'https://platform.moonshot.ai/docs/',
+  }),
+
+  'moonshotai-cn': apiKeyProviderHelp({
+    title: 'Moonshot AI CN',
+    shortDescription: 'Moonshot AI China API',
+    envName: 'MOONSHOT_API_KEY',
+    documentationUrl: 'https://platform.moonshot.cn/docs/',
+  }),
+
+  'opencode-go': apiKeyProviderHelp({
+    title: 'OpenCode Zen Go',
+    shortDescription: 'OpenCode Go models',
+    envName: 'OPENCODE_API_KEY',
+  }),
+
+  'zai-coding-cn': apiKeyProviderHelp({
+    title: 'Z.AI Coding CN',
+    shortDescription: 'Z.AI Coding Plan models hosted in China',
+    envName: 'ZAI_CODING_CN_API_KEY',
+  }),
+
+  xiaomi: apiKeyProviderHelp({
+    title: 'Xiaomi MiMo',
+    shortDescription: 'Xiaomi MiMo API-billed models',
+    envName: 'XIAOMI_API_KEY',
+  }),
+
+  'xiaomi-token-plan-cn': apiKeyProviderHelp({
+    title: 'Xiaomi MiMo Token Plan CN',
+    shortDescription: 'Xiaomi MiMo Token Plan hosted in China',
+    envName: 'XIAOMI_TOKEN_PLAN_CN_API_KEY',
+  }),
+
+  'xiaomi-token-plan-ams': apiKeyProviderHelp({
+    title: 'Xiaomi MiMo Token Plan AMS',
+    shortDescription: 'Xiaomi MiMo Token Plan hosted in Amsterdam',
+    envName: 'XIAOMI_TOKEN_PLAN_AMS_API_KEY',
+  }),
+
+  'xiaomi-token-plan-sgp': apiKeyProviderHelp({
+    title: 'Xiaomi MiMo Token Plan SGP',
+    shortDescription: 'Xiaomi MiMo Token Plan hosted in Singapore',
+    envName: 'XIAOMI_TOKEN_PLAN_SGP_API_KEY',
+  }),
+
+  'github-copilot': apiKeyProviderHelp({
+    title: 'GitHub Copilot',
+    shortDescription: 'GitHub Copilot models using a token or user OAuth',
+    envName: 'COPILOT_GITHUB_TOKEN',
+    credentialDescription: 'GitHub token with Copilot access',
+    documentationUrl: 'https://docs.github.com/en/copilot',
+  }),
+
+  'cloudflare-workers-ai': {
+    category: 'api-key',
+    title: 'Cloudflare Workers AI',
+    shortDescription: 'Models hosted on Cloudflare Workers AI',
+    setupSteps: [
+      'Create a Cloudflare API token with Workers AI access',
+      'Add the API token and account ID to Agent Environment settings',
+      'Save and verify the provider status',
+    ],
+    envVars: [
+      { name: 'CLOUDFLARE_API_KEY', description: 'Cloudflare API token', scope: 'agents', required: true },
+      { name: 'CLOUDFLARE_ACCOUNT_ID', description: 'Cloudflare account ID', scope: 'agents', required: true },
+    ],
+    documentationUrl: 'https://developers.cloudflare.com/workers-ai/',
+  },
+
+  'cloudflare-ai-gateway': {
+    category: 'api-key',
+    title: 'Cloudflare AI Gateway',
+    shortDescription: 'Models routed through Cloudflare AI Gateway',
+    setupSteps: [
+      'Create a Cloudflare API token and an AI Gateway',
+      'Add the API token, account ID, and gateway ID to Agent Environment settings',
+      'Save and verify the provider status',
+    ],
+    envVars: [
+      { name: 'CLOUDFLARE_API_KEY', description: 'Cloudflare API token', scope: 'agents', required: true },
+      { name: 'CLOUDFLARE_ACCOUNT_ID', description: 'Cloudflare account ID', scope: 'agents', required: true },
+      { name: 'CLOUDFLARE_GATEWAY_ID', description: 'Cloudflare AI Gateway ID', scope: 'agents', required: true },
+    ],
+    documentationUrl: 'https://developers.cloudflare.com/ai-gateway/',
+  },
+
   // OAuth/CLI Providers - Now using PI OAuth
   'openai-codex': {
     category: 'oauth-cli',
@@ -300,8 +460,10 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       { command: 'gcloud config set compute/region YOUR_REGION', description: 'Set your region (e.g., us-central1)' },
     ],
     envVars: [
-      { name: 'GOOGLE_CLOUD_PROJECT', description: 'Your Google Cloud project ID', scope: 'agents', required: true },
-      { name: 'GOOGLE_CLOUD_LOCATION', description: 'Region (e.g., us-central1)', scope: 'agents', required: true },
+      { name: 'GOOGLE_CLOUD_API_KEY', description: 'Optional Vertex API key (alternative to ADC)', scope: 'agents', required: false },
+      { name: 'GOOGLE_CLOUD_PROJECT', description: 'Project ID (required when using ADC)', scope: 'agents', required: false },
+      { name: 'GOOGLE_CLOUD_LOCATION', description: 'Region (required when using ADC)', scope: 'agents', required: false },
+      { name: 'GOOGLE_APPLICATION_CREDENTIALS', description: 'Optional ADC service-account JSON path for system-scoped installs', scope: 'agents', required: false },
     ],
     notes: [
       'Uses Application Default Credentials (ADC)',
@@ -330,6 +492,8 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       { name: 'AWS_PROFILE', description: 'AWS profile name', scope: 'agents', required: false },
       { name: 'AWS_ACCESS_KEY_ID', description: 'AWS access key', scope: 'agents', required: false },
       { name: 'AWS_SECRET_ACCESS_KEY', description: 'AWS secret key', scope: 'agents', required: false },
+      { name: 'AWS_SESSION_TOKEN', description: 'Optional session token for temporary AWS credentials', scope: 'agents', required: false },
+      { name: 'AWS_REGION', description: 'AWS region for Bedrock (e.g., eu-central-1)', scope: 'agents', required: false },
       { name: 'AWS_BEARER_TOKEN_BEDROCK', description: 'AWS bearer token for Bedrock', scope: 'agents', required: false },
       { name: 'AWS_WEB_IDENTITY_TOKEN_FILE', description: 'Web identity token file path', scope: 'agents', required: false },
     ],
@@ -354,8 +518,8 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     ],
     envVars: [
       { name: 'AZURE_OPENAI_API_KEY', description: 'Your Azure OpenAI API key', scope: 'agents', required: true },
-      { name: 'AZURE_OPENAI_BASE_URL', description: 'Azure OpenAI endpoint URL', scope: 'agents', required: true },
-      { name: 'AZURE_OPENAI_RESOURCE_NAME', description: 'Resource name (alternative to base URL)', scope: 'agents', required: false },
+      { name: 'AZURE_OPENAI_BASE_URL', description: 'Endpoint URL (required unless a resource name is set)', scope: 'agents', required: false },
+      { name: 'AZURE_OPENAI_RESOURCE_NAME', description: 'Resource name (required unless a base URL is set)', scope: 'agents', required: false },
       { name: 'AZURE_OPENAI_API_VERSION', description: 'API version (optional)', scope: 'agents', required: false },
       { name: 'AZURE_OPENAI_DEPLOYMENT_NAME_MAP', description: 'Deployment name mappings (optional)', scope: 'agents', required: false },
     ],

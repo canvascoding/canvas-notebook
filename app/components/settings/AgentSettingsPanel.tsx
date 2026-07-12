@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, startTransition } fr
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
 
-import { PiProviderSetupCard } from './PiProviderSetupCard';
+import { AgentCatalogModelOverrideCard } from './AgentCatalogModelOverrideEditor';
 import {
   resolveEnabledToolNames,
   serializeEnabledToolNames,
@@ -281,7 +281,11 @@ function normalizeDeliveryChannels(channels: unknown[], telegramStatus: Record<s
     });
 }
 
-export function AgentSettingsPanel() {
+export function AgentSettingsPanel({
+  canManageAgentDefaults = false,
+}: {
+  canManageAgentDefaults?: boolean;
+}) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
   const requestedPanel = searchParams.get('panel');
@@ -407,7 +411,6 @@ export function AgentSettingsPanel() {
     [agents, selectedAgentId],
   );
   const isMainAgent = selectedAgentId === DEFAULT_AGENT_ID || selectedAgent?.type === 'main';
-  const modelOverrideEnabled = isMainAgent || Boolean(selectedAgent?.defaultProvider && selectedAgent.defaultModel);
   const toolsOverrideEnabled = isMainAgent || Array.isArray(selectedAgent?.enabledTools);
   const skillsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantSkills);
   const connectionsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantConnections);
@@ -476,9 +479,11 @@ export function AgentSettingsPanel() {
         body: JSON.stringify({
           name,
           iconId: input.iconId,
+          defaultProviderInstallationId: input.defaultProviderInstallationId,
           defaultProvider: input.defaultProvider,
           defaultModel: input.defaultModel,
           defaultThinking: input.defaultThinking,
+          expectedCatalogRevision: input.expectedCatalogRevision,
           files: input.files,
           enabledTools: input.enabledTools,
           relevantSkills: input.relevantSkills,
@@ -1045,30 +1050,6 @@ export function AgentSettingsPanel() {
     void saveToolsConfig(['__none__']);
   };
 
-  const setModelOverrideEnabled = async (enabled: boolean) => {
-    if (isMainAgent) return;
-    setToolsSaving(true);
-    setToolsError(null);
-    try {
-      if (!enabled) {
-        await patchSelectedAgent({ defaultProvider: null, defaultModel: null, defaultThinking: null });
-        return;
-      }
-
-      const providerId = toolsPiConfig?.activeProvider;
-      const providerConfig = providerId ? toolsPiConfig?.providers[providerId] : null;
-      await patchSelectedAgent({
-        defaultProvider: providerId || null,
-        defaultModel: providerConfig?.model || null,
-        defaultThinking: providerConfig?.thinking || 'off',
-      });
-    } catch (error) {
-      setToolsError(error instanceof Error ? error.message : t('agentPanel.inheritance.errors.save'));
-    } finally {
-      setToolsSaving(false);
-    }
-  };
-
   const setToolsOverrideEnabled = async (enabled: boolean) => {
     if (isMainAgent) return;
     setToolsSaving(true);
@@ -1205,9 +1186,6 @@ export function AgentSettingsPanel() {
     }
   };
 
-  const activeProviderId = toolsPiConfig?.activeProvider || selectedAgent?.defaultProvider || 'default';
-  const activeProviderConfig = toolsPiConfig?.providers?.[activeProviderId];
-  const inheritedModelSummary = `${activeProviderId} / ${activeProviderConfig?.model || selectedAgent?.defaultModel || t('agentPanel.selector.notSet')}`;
   const effectiveEnabledToolCount = availableTools.filter((tool) => isToolEnabled(tool.name)).length;
 
   return (
@@ -1219,6 +1197,7 @@ export function AgentSettingsPanel() {
         error={agentsError}
         creating={agentCreating}
         deletingAgentId={agentDeletingId}
+        canManageAgentDefaults={canManageAgentDefaults}
         openCreateDialogOnMount={shouldOpenCreateAgentDialog}
         onSelectedAgentIdChange={selectAgent}
         onCreate={createAgent}
@@ -1233,22 +1212,6 @@ export function AgentSettingsPanel() {
             <CardDescription>{t('agentPanel.inheritance.description')}</CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3 md:grid-cols-2">
-            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
-              <div className="min-w-0">
-                <p className="text-sm font-medium">{t('agentPanel.inheritance.modelOverride')}</p>
-                <p className="truncate text-xs text-muted-foreground">
-                  {modelOverrideEnabled
-                    ? t('agentPanel.inheritance.customModel', { summary: inheritedModelSummary })
-                    : t('agentPanel.inheritance.inheritedModel', { summary: inheritedModelSummary })}
-                </p>
-              </div>
-              <Switch
-                checked={modelOverrideEnabled}
-                onCheckedChange={(checked) => void setModelOverrideEnabled(checked)}
-                disabled={toolsSaving || !toolsPiConfig}
-                aria-label={t('agentPanel.inheritance.modelOverride')}
-              />
-            </div>
             <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
               <div className="min-w-0">
                 <p className="text-sm font-medium">{t('agentPanel.inheritance.toolsOverride')}</p>
@@ -1319,22 +1282,18 @@ export function AgentSettingsPanel() {
         </Card>
       )}
 
-      {!isMainAgent && modelOverrideEnabled && (
-        <div id="onboarding-settings-agentSettings">
-          <PiProviderSetupCard
-            agentId={selectedAgentId}
-            mode="override"
-            isOpen={agentSectionOpenById.runtime}
-            onOpenChange={(isOpen) => setAgentSectionOpen('runtime', isOpen)}
-            title={t('agentPanel.inheritance.modelCardTitle')}
-            description={t('agentPanel.inheritance.modelCardDescription')}
-            saveSuccessMessage={t('agentPanel.inheritance.overrideSaved')}
-            onSaved={async () => {
-              await loadAgents();
-              await loadToolsConfig();
-            }}
-          />
-        </div>
+      {!isMainAgent && selectedAgent && (
+        <AgentCatalogModelOverrideCard
+          key={selectedAgent.agentId}
+          agent={selectedAgent}
+          canManage={canManageAgentDefaults}
+          isOpen={agentSectionOpenById.runtime}
+          onOpenChange={(isOpen) => setAgentSectionOpen('runtime', isOpen)}
+          onSaved={async () => {
+            await loadAgents();
+            await loadToolsConfig();
+          }}
+        />
       )}
 
       <AgentChatDisplayCard

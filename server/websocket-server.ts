@@ -76,8 +76,7 @@ type ClientMessage =
       context?: ChatRequestContext;
     }
   | { type: 'control'; requestId?: string; sessionId: string; action: ControlAction; message?: AgentMessage; queueItemId?: string }
-  | { type: 'get_status'; requestId?: string; sessionId: string }
-  | { type: 'change_model'; requestId?: string; sessionId: string };
+  | { type: 'get_status'; requestId?: string; sessionId: string };
 
 /**
  * Messages pushed from this server to connected browser clients.
@@ -95,7 +94,6 @@ type ServerMessage =
   | { type: 'subscribe_result'; requestId?: string; success: boolean; sessionId?: string; error?: string }
   | { type: 'send_message_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'control_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
-  | { type: 'change_model_result'; requestId?: string; success: boolean; error?: string }
   | { type: 'status_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
   | { type: 'session_updated'; sessionId: string; lastMessageAt: string; title?: string }
@@ -112,10 +110,10 @@ type ServerMessage =
   | { type: 'error'; error: string; code: string };
 
 function shouldSerializeSessionAction(message: ClientMessage): message is Extract<ClientMessage, {
-  type: 'send_message' | 'control' | 'change_model';
+  type: 'send_message' | 'control';
 }> {
   return (
-    (message.type === 'send_message' || message.type === 'control' || message.type === 'change_model') &&
+    (message.type === 'send_message' || message.type === 'control') &&
     typeof message.sessionId === 'string' &&
     message.sessionId.length > 0
   );
@@ -825,56 +823,6 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         });
         sendWs(ws, {
           type: 'control_result',
-          requestId: message.requestId,
-          success: false,
-          error: getErrorMessage(error),
-        });
-      }
-      break;
-    }
-
-    case 'change_model': {
-      if (!message.sessionId) {
-        console.warn('[WebSocket] change_model rejected missing_session', {
-          connectionId: connection.id,
-          userId,
-          requestId: message.requestId,
-        });
-        sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: false, error: 'sessionId required' });
-        return;
-      }
-
-      if (!(await userOwnsSession(message.sessionId, userId))) {
-        console.warn('[WebSocket] change_model rejected unauthorized', {
-          connectionId: connection.id,
-          userId,
-          requestId: message.requestId,
-          sessionId: message.sessionId,
-        });
-        sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: false, error: 'Session not found' });
-        return;
-      }
-
-      try {
-        console.log('[WebSocket] change_model invalidating_runtime', {
-          connectionId: connection.id,
-          userId,
-          requestId: message.requestId,
-          sessionId: message.sessionId,
-        });
-        const runtimeService = await getRuntimeService();
-        await runtimeService.invalidateRuntime(message.sessionId, userId);
-        sendWs(ws, { type: 'change_model_result', requestId: message.requestId, success: true });
-      } catch (error) {
-        console.error('[WebSocket] change_model failed', {
-          connectionId: connection.id,
-          userId,
-          requestId: message.requestId,
-          sessionId: message.sessionId,
-          error,
-        });
-        sendWs(ws, {
-          type: 'change_model_result',
           requestId: message.requestId,
           success: false,
           error: getErrorMessage(error),

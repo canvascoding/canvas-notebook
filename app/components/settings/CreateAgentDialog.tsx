@@ -9,12 +9,14 @@ import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDi
 import { AgentManagedFilesEditor, type ManagedFileName } from './AgentManagedFilesCard';
 import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
 import {
-  CreateAgentModelOverrideEditor,
-  getInitialCreateAgentModelDraft,
-  type CreateAgentModelDiscovery,
-  type CreateAgentModelDraft,
-} from './CreateAgentModelOverrideEditor';
+  AgentCatalogModelOverrideEditor,
+  initialAgentCatalogSelection,
+  isAgentCatalogSelectionValid,
+  type AgentCatalogModelSelection,
+} from './AgentCatalogModelOverrideEditor';
+import { readAdminRuntimeCatalog } from './ai-runtime/catalog-client';
 import { AgentToolsEditor, type ToolMetadata } from './AgentToolsCard';
+import type { AiAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/types';
 import { type AgentIconId } from '@/app/lib/agents/icons';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import {
@@ -144,9 +146,11 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
 export type CreateAgentInput = {
   name: string;
   iconId: AgentIconId;
+  defaultProviderInstallationId: string | null;
   defaultProvider: string | null;
   defaultModel: string | null;
   defaultThinking: PiThinkingLevel | null;
+  expectedCatalogRevision?: number;
   files: Partial<Record<ManagedFileName, string>>;
   enabledTools: string[] | null;
   relevantSkills: string[] | null;
@@ -159,6 +163,7 @@ type CreateAgentDialogProps = {
   open: boolean;
   creating: boolean;
   error: string | null;
+  canManageAgentDefaults: boolean;
   onOpenChange: (open: boolean) => void;
   onCreate: (input: CreateAgentInput) => Promise<boolean>;
 };
@@ -304,6 +309,7 @@ export function CreateAgentDialog({
   open,
   creating,
   error,
+  canManageAgentDefaults,
   onOpenChange,
   onCreate,
 }: CreateAgentDialogProps) {
@@ -321,9 +327,8 @@ export function CreateAgentDialog({
   const [connectionsOverrideEnabled, setConnectionsOverrideEnabled] = useState(false);
   const [modelOverrideEnabled, setModelOverrideEnabled] = useState(false);
   const [modelOpen, setModelOpen] = useState(false);
-  const [modelPiConfig, setModelPiConfig] = useState<PiConfigData | null>(null);
-  const [modelDiscovery, setModelDiscovery] = useState<CreateAgentModelDiscovery>({});
-  const [modelDraft, setModelDraft] = useState<CreateAgentModelDraft>({ provider: '', model: '', thinking: 'off' });
+  const [modelCatalog, setModelCatalog] = useState<AiAppRuntimeCatalog | null>(null);
+  const [modelDraft, setModelDraft] = useState<AgentCatalogModelSelection | null>(null);
   const [modelLoading, setModelLoading] = useState(false);
   const [modelError, setModelError] = useState<string | null>(null);
   const [connectionsOpen, setConnectionsOpen] = useState(false);
@@ -390,33 +395,25 @@ export function CreateAgentDialog({
   }, [t]);
 
   const loadModelOptions = useCallback(async () => {
+    if (!canManageAgentDefaults) return;
     setModelLoading(true);
     setModelError(null);
     try {
-      const payload = await fetchCreateAgentJson<{ piConfig: PiConfigData; discovery: CreateAgentModelDiscovery }>(
-        `/api/agents/config?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID, readiness: 'false' }).toString()}`,
-      );
-      const nextConfig = payload.piConfig;
-      const nextDiscovery = payload.discovery || {};
-      setModelPiConfig(nextConfig);
-      setModelDiscovery(nextDiscovery);
-      setModelDraft((current) => (
-        current.provider && current.model
-          ? current
-          : getInitialCreateAgentModelDraft(nextConfig, nextDiscovery)
-      ));
+      const payload = await readAdminRuntimeCatalog();
+      setModelCatalog(payload.catalog);
+      setModelDraft((current) => initialAgentCatalogSelection(payload.catalog, current));
     } catch (loadError) {
       setModelError(loadError instanceof Error ? loadError.message : t('model.loadError'));
     } finally {
       setModelLoading(false);
     }
-  }, [t]);
+  }, [canManageAgentDefaults, t]);
 
   useEffect(() => {
-    if (!open || !modelOverrideEnabled || modelLoadRequestedRef.current) return;
+    if (!canManageAgentDefaults || !open || !modelOverrideEnabled || modelLoadRequestedRef.current) return;
     modelLoadRequestedRef.current = true;
     void loadModelOptions();
-  }, [loadModelOptions, modelOverrideEnabled, open]);
+  }, [canManageAgentDefaults, loadModelOptions, modelOverrideEnabled, open]);
 
   useEffect(() => {
     if (!open || !toolsOverrideEnabled || toolsLoadRequestedRef.current) return;
@@ -499,7 +496,8 @@ export function CreateAgentDialog({
     setConnectionsOpen(false);
     setModelOverrideEnabled(false);
     setModelOpen(false);
-    setModelDraft({ provider: '', model: '', thinking: 'off' });
+    setModelCatalog(null);
+    setModelDraft(null);
     setModelError(null);
     setToolsOverrideEnabled(false);
     setToolsOpen(false);
@@ -520,9 +518,14 @@ export function CreateAgentDialog({
     onOpenChange(nextOpen);
   }, [onOpenChange, resetDialog]);
 
+  const usesModelOverride = canManageAgentDefaults && modelOverrideEnabled;
   const canCreate = name.trim().length > 0
     && !creating
-    && !(modelOverrideEnabled && (modelLoading || Boolean(modelError) || !modelDraft.provider.trim() || !modelDraft.model.trim()))
+    && !(usesModelOverride && (
+      modelLoading
+      || Boolean(modelError)
+      || !isAgentCatalogSelectionValid(modelCatalog, modelDraft)
+    ))
     && !(toolsOverrideEnabled && (toolsLoading || customEnabledTools === null));
 
   async function submit() {
@@ -530,9 +533,11 @@ export function CreateAgentDialog({
     const success = await onCreate({
       name: name.trim(),
       iconId,
-      defaultProvider: modelOverrideEnabled ? modelDraft.provider.trim() : null,
-      defaultModel: modelOverrideEnabled ? modelDraft.model.trim() : null,
-      defaultThinking: modelOverrideEnabled ? modelDraft.thinking : null,
+      defaultProviderInstallationId: usesModelOverride ? modelDraft?.providerInstallationId ?? null : null,
+      defaultProvider: usesModelOverride ? modelDraft?.providerId ?? null : null,
+      defaultModel: usesModelOverride ? modelDraft?.modelId ?? null : null,
+      defaultThinking: usesModelOverride ? modelDraft?.thinkingLevel ?? null : null,
+      expectedCatalogRevision: usesModelOverride ? modelCatalog?.revision : undefined,
       files: Object.fromEntries(
         CREATE_AGENT_FILE_NAMES.map((fileName) => [fileName, fileDrafts[fileName] || '']),
       ) as Partial<Record<ManagedFileName, string>>,
@@ -619,25 +624,38 @@ export function CreateAgentDialog({
                     </div>
                   </section>
 
-                  <CreateAgentSection
-                    title={t('model.title')}
-                    description={t('model.description')}
-                    icon={Brain}
-                    open={modelOpen}
-                    onOpenChange={setModelOpen}
-                    enabled={modelOverrideEnabled}
-                    onEnabledChange={setModelOverrideEnabled}
-                  >
-                    <CreateAgentModelOverrideEditor
-                      piConfig={modelPiConfig}
-                      discovery={modelDiscovery}
-                      draft={modelDraft}
-                      loading={modelLoading}
-                      error={modelError}
-                      onDraftChange={setModelDraft}
-                      onRetry={loadModelOptions}
-                    />
-                  </CreateAgentSection>
+                  {canManageAgentDefaults ? (
+                    <CreateAgentSection
+                      title={t('model.title')}
+                      description={t('model.description')}
+                      icon={Brain}
+                      open={modelOpen}
+                      onOpenChange={setModelOpen}
+                      enabled={modelOverrideEnabled}
+                      onEnabledChange={setModelOverrideEnabled}
+                    >
+                      <AgentCatalogModelOverrideEditor
+                        catalog={modelCatalog}
+                        selection={modelDraft}
+                        loading={modelLoading}
+                        error={modelError}
+                        onSelectionChange={setModelDraft}
+                        onRetry={loadModelOptions}
+                      />
+                    </CreateAgentSection>
+                  ) : (
+                    <section className="flex min-w-0 items-start gap-3 rounded-md border bg-muted/10 p-3 sm:gap-4 sm:p-4">
+                      <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
+                        <Brain className="h-4 w-4" aria-hidden="true" />
+                      </span>
+                      <span className="min-w-0 space-y-1">
+                        <span className="block text-base font-semibold">{t('model.title')}</span>
+                        <span className="block text-sm leading-relaxed text-muted-foreground">
+                          {t('model.adminOnlyDescription')}
+                        </span>
+                      </span>
+                    </section>
+                  )}
 
                   <CreateAgentSection
                     title={t('tools.title')}

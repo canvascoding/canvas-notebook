@@ -14,6 +14,10 @@ import {
 } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { isProviderInstallationCredentialAvailable } from '@/app/lib/agent-runtime-policy/installation-credentials';
 import {
+  getAllowedCredentialScopesForProvider,
+  validateProviderCatalogAuth,
+} from '@/app/lib/agent-runtime-policy/provider-auth-policy';
+import {
   readUserModelPreference,
   writeUserModelPreferenceStore,
 } from '@/app/lib/agent-runtime-policy/runtime-store';
@@ -313,6 +317,8 @@ async function ensureMigratedOwnerPreference(input: {
   await writeUserModelPreferenceStore({
     ...key,
     expectedRevision: 0,
+    expectedCatalogRevision: input.catalog.revision,
+    expectedPolicyRevision: 0,
     selection: input.catalog.defaultSelection,
   });
 }
@@ -364,6 +370,20 @@ async function migrateLegacyRuntimeConfig(input: {
   }
 
   const safeConfig = safeProviderConfig(providerConfig);
+  const credentialScope = getAllowedCredentialScopesForProvider(providerId, safeConfig.authMethod).includes('system')
+    ? 'system'
+    : 'user';
+  if (validateProviderCatalogAuth({ providerId, credentialScope, config: safeConfig })) {
+    return {
+      catalog: await markLegacyReviewRequired({
+        organizationId: input.organizationId,
+        actorUserId: input.actorUserId,
+        sourceHash,
+      }),
+      action: 'review_required',
+      issueCode: 'LEGACY_PROVIDER_AUTH_INVALID',
+    };
+  }
   if (providerId === 'openai-compatible' && !safeConfig.openaiCompatibleCustomModel) {
     safeConfig.openaiCompatibleModelSource = 'custom';
     safeConfig.openaiCompatibleCustomModel = providerConfig.model.trim();
@@ -385,13 +405,13 @@ async function migrateLegacyRuntimeConfig(input: {
     };
   }
 
-  const installationId = aiProviderInstallationId(input.organizationId, providerId, 'system');
+  const installationId = aiProviderInstallationId(input.organizationId, providerId, credentialScope);
   const temporaryInstallation: AiProviderInstallation = {
     installationId,
     providerId,
     name: discoveredProvider.name,
     source: discoveredProvider.source,
-    credentialScope: 'system',
+    credentialScope,
     enabled: true,
     status: 'unverified',
     config: safeConfig,
@@ -423,7 +443,7 @@ async function migrateLegacyRuntimeConfig(input: {
     providerInstallationId: installationId,
     providerId,
     enabled: true,
-    credentialScope: 'system',
+    credentialScope,
     config: safeConfig,
     modelIds: [discoveredModel.id],
     defaultModelId: discoveredModel.id,

@@ -275,6 +275,9 @@ type AiProvidersModelsPanelProps = {
 type AiProviderCredentialsPanelProps = {
   locale?: string;
 };
+type AgentSettingsPanelProps = {
+  canManageAgentDefaults?: boolean;
+};
 type UserManagementPanelProps = {
   currentUserId: string;
   isAdmin: boolean;
@@ -306,7 +309,7 @@ function SettingsTabLoader() {
   );
 }
 
-const AgentSettingsPanel = dynamic(
+const AgentSettingsPanel = dynamic<AgentSettingsPanelProps>(
   () => import('@/app/components/settings/AgentSettingsPanel').then((module) => module.AgentSettingsPanel),
   { loading: SettingsTabLoader },
 );
@@ -2268,6 +2271,8 @@ export function IntegrationsSettingsClient({
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
   const workspaceManagementOpen = searchParams.get('workspaceManagement') === '1';
   const createWorkspaceOpen = searchParams.get('createWorkspace') === '1';
+  const canManageAgentDefaults = isAdmin
+    && (organizationPermission?.role === 'owner' || organizationPermission?.role === 'admin');
   const visibleSettingsTabItems = useMemo(
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
       if (tab.value === 'user-management') return isAdmin;
@@ -3065,7 +3070,9 @@ export function IntegrationsSettingsClient({
             { id: 'onboarding-settings-integrations' },
           )}
 
-          {renderLazyTabContent('agent-settings', <AgentSettingsPanel />)}
+          {renderLazyTabContent('agent-settings', (
+            <AgentSettingsPanel canManageAgentDefaults={canManageAgentDefaults} />
+          ))}
 
           {renderLazyTabContent('my-agent-runtime', <MyAgentRuntimePanel locale={locale} />)}
 

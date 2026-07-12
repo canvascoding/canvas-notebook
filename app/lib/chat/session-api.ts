@@ -1,5 +1,10 @@
 import { safeFetchJson } from '@/app/lib/chat/fetch-json';
 import type { AISession, ChatRequestContext, PersistedChatMessage } from '@/app/lib/chat/types';
+import type {
+  AiEffectiveRuntimeResolution,
+  AiRuntimeSelection,
+  AiSessionRuntimeSnapshot,
+} from '@/app/lib/agent-runtime-policy/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
 export type ChatSessionMessagesPayload = {
@@ -16,6 +21,9 @@ export type CreateChatSessionPayload = {
   title?: string;
   model?: string;
   thinkingLevel?: PiThinkingLevel;
+  runtimeSelection?: AiRuntimeSelection;
+  expectedCatalogRevision?: number;
+  expectedPolicyRevision?: number;
   workspaceId?: string;
   workspace?: ChatRequestContext['workspace'];
 };
@@ -23,12 +31,35 @@ export type CreateChatSessionPayload = {
 export type CreateChatSessionResponse = {
   success: boolean;
   error?: string;
+  code?: string;
+  currentCatalogRevision?: number;
+  currentPolicyRevision?: number;
   session?: Partial<AISession> & {
     sessionId?: string;
     provider?: string | null;
     model?: string;
     thinkingLevel?: PiThinkingLevel | null;
   };
+  runtime?: AiSessionRuntimeSnapshot;
+  resolution?: AiEffectiveRuntimeResolution;
+};
+
+export type UpdateChatSessionRuntimePayload = {
+  agentId: string;
+  sessionId: string;
+  runtimeSelection: AiRuntimeSelection;
+  expectedCatalogRevision: number;
+  expectedPolicyRevision: number;
+};
+
+export type PatchChatSessionsResponse = {
+  success: boolean;
+  error?: string;
+  code?: string;
+  lastViewedAt?: string;
+  session?: Partial<AISession>;
+  runtime?: AiSessionRuntimeSnapshot;
+  resolution?: AiEffectiveRuntimeResolution;
 };
 
 export async function fetchChatSessions(agentId = 'all', options: { workspaceId?: string | null } = {}): Promise<AISession[]> {
@@ -50,21 +81,23 @@ export async function createChatSession(payload: CreateChatSessionPayload): Prom
   const data = await safeFetchJson<CreateChatSessionResponse>(res);
   if (!res.ok || !data?.success || !data.session?.sessionId) {
     return {
+      ...(data ?? {}),
       success: false,
       error: data?.error || `Failed to create session (HTTP ${res.status})`,
-      session: data?.session,
     };
   }
   return data;
 }
 
-export async function patchChatSessions(payload: Record<string, unknown>): Promise<{ success: boolean; lastViewedAt?: string } | null> {
+export async function patchChatSessions(
+  payload: Record<string, unknown> | UpdateChatSessionRuntimePayload,
+): Promise<PatchChatSessionsResponse | null> {
   const res = await fetch('/api/sessions', {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(payload),
   });
-  return safeFetchJson<{ success: boolean; lastViewedAt?: string }>(res);
+  return safeFetchJson<PatchChatSessionsResponse>(res);
 }
 
 export async function deleteChatSession(agentId: string, sessionId: string): Promise<{ success: boolean } | null> {

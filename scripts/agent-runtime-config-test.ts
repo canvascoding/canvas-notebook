@@ -242,6 +242,7 @@ async function main() {
   const customAgent = await createAgentProfile({
     name: 'Custom Agent',
     iconId: 'sparkles',
+    defaultProviderInstallationId: `aip_${'a'.repeat(24)}`,
     defaultProvider: 'openrouter',
     defaultModel: DEFAULT_PI_CONFIG.providers.openrouter.model,
     defaultThinking: 'high',
@@ -285,8 +286,10 @@ async function main() {
 
   const legacyAgent = await createAgentProfile({
     name: 'Legacy OpenRouter Agent',
+    defaultProviderInstallationId: `aip_${'b'.repeat(24)}`,
     defaultProvider: 'openrouter',
     defaultModel: 'anthropic/claude-3.5-sonnet',
+    defaultThinking: 'off',
   });
   const legacyConfig = await resolveAgentRuntimeConfig(legacyAgent.agentId);
   assert.equal(legacyConfig.activeProvider, 'openrouter');
@@ -324,6 +327,7 @@ async function main() {
   await updateAgentProfile({
     agentId: customAgent.agentId,
     iconId: 'briefcase',
+    defaultProviderInstallationId: null,
     defaultProvider: null,
     defaultModel: null,
     defaultThinking: null,

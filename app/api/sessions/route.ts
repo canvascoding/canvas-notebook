@@ -8,27 +8,43 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { and, desc, eq, inArray, lt, or, isNull, sql, type SQL } from 'drizzle-orm';
 import { type AgentId, isAgentId } from '@/app/lib/agents/catalog';
 import { enforceAiSessionRetention } from '@/app/lib/agents/session-retention';
-import { readAgentRuntimeConfig, providerIdToAgentId, readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
-import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
+import { readAgentRuntimeConfig, providerIdToAgentId } from '@/app/lib/agents/storage';
 import { getActiveAiAgentEngine } from '@/app/lib/agents/runtime';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
-import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels, getPiModels, OLLAMA_PROVIDER_ID, OPENAI_COMPATIBLE_PROVIDER_ID } from '@/app/lib/pi/model-resolver';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
-import { getActiveRuntimeStatusSummaries, getStatus, invalidateRuntime } from '@/app/lib/pi/runtime-service';
+import {
+  getActiveRuntimeStatusSummaries,
+  invalidateRuntime,
+  withRuntimeSessionOperation,
+} from '@/app/lib/pi/runtime-service';
 import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
-import { createPiSystemPromptSnapshot, piSystemPromptSnapshotDbFields } from '@/app/lib/pi/system-prompt-snapshot';
+import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
+import { createPiSessionWithRuntimeSnapshot } from '@/app/lib/pi/session-store';
+import {
+  findOwnedPiSessionForRuntime,
+  isPiSessionInWorkspace,
+} from '@/app/lib/pi/session-runtime-access';
 import { markPiSessionAsReadForUser, markPiSessionAsUnreadForUser } from '@/app/lib/chat/session-read-state';
 import {
   resolveAgentSessionWorkspaceForUser,
   storedPiSessionWorkspaceToSummary,
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
+import {
+  hasSessionRuntimeUpdate,
+  parseSessionRuntimeUpdate,
+  prepareSessionRuntimeSnapshot,
+  replaceSessionRuntimeSnapshot,
+  type AiSessionRuntimeUpdate,
+} from '@/app/lib/agent-runtime-policy/session-runtime-service';
+import { AiRuntimeInputError, runtimeErrorResponse } from '@/app/lib/agent-runtime-policy/runtime-service';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 
 type CreateSessionPayload = {
   title?: string;
@@ -39,6 +55,9 @@ type CreateSessionPayload = {
   channelSessionKey?: string;
   workspaceId?: string;
   workspace?: ChatRequestContext['workspace'];
+  runtimeSelection?: unknown;
+  expectedCatalogRevision?: unknown;
+  expectedPolicyRevision?: unknown;
 };
 
 type RenameSessionPayload = {
@@ -53,10 +72,9 @@ type RenameSessionPayload = {
   provider?: string;
   model?: string;
   thinkingLevel?: string;
-};
-
-type ProviderModelCandidate = {
-  id: string;
+  runtimeSelection?: unknown;
+  expectedCatalogRevision?: unknown;
+  expectedPolicyRevision?: unknown;
 };
 
 const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
@@ -119,54 +137,81 @@ function normalizeThinkingLevel(value: unknown): PiThinkingLevel | null {
   return THINKING_LEVELS.has(normalized as PiThinkingLevel) ? normalized as PiThinkingLevel : null;
 }
 
-function getProviderCustomModel(piConfig: Awaited<ReturnType<typeof readPiRuntimeConfig>>, provider: string): string | undefined {
-  const providerConfig = piConfig.providers[provider];
-  if (provider === OLLAMA_PROVIDER_ID && providerConfig?.ollamaModelSource === 'custom') {
-    return providerConfig.ollamaCustomModel?.trim() || undefined;
-  }
-  if (provider === OPENAI_COMPATIBLE_PROVIDER_ID && providerConfig?.openaiCompatibleModelSource === 'custom') {
-    return providerConfig.openaiCompatibleCustomModel?.trim() || undefined;
-  }
-  return undefined;
-}
-
-async function isValidProviderModel(provider: string, model: string): Promise<boolean> {
-  const piConfig = await readPiRuntimeConfig();
-  const customModel = getProviderCustomModel(piConfig, provider);
-  const models: ProviderModelCandidate[] = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
-    ? await getCanvasControlPlaneModels()
-    : getPiModels(provider, customModel);
-  return models.some((candidate) => candidate.id === model);
-}
-
-async function syncSessionModelToPiConfig(
-  provider: string,
-  model: string | null,
-  thinkingLevel: PiThinkingLevel | null,
-) {
-  const piConfig = await readPiRuntimeConfig();
-  const providerConfig = piConfig.providers[provider];
-  if (!providerConfig || (!model && !thinkingLevel)) {
-    return;
-  }
-
-  await writePiRuntimeConfig({
-    ...piConfig,
-    activeProvider: provider,
-    providers: {
-      ...piConfig.providers,
-      [provider]: {
-        ...providerConfig,
-        ...(model ? { model } : {}),
-        ...(thinkingLevel ? { thinking: thinkingLevel } : {}),
-      },
-    },
-  });
-}
-
 async function resolveDefaultModel(): Promise<AgentId> {
   const config = await readAgentRuntimeConfig();
   return providerIdToAgentId(config.provider.id);
+}
+
+function sessionRuntimeErrorResponse(error: unknown) {
+  if (error instanceof Error && error.message === 'Agent not found.') {
+    return NextResponse.json(
+      { success: false, code: 'AGENT_NOT_FOUND', error: 'Agent not found.' },
+      { status: 404 },
+    );
+  }
+  const response = runtimeErrorResponse(error);
+  if (response.status >= 500) {
+    console.error('[API Sessions] Runtime selection failed.', {
+      errorType: error instanceof Error ? error.name : 'UnknownError',
+    });
+  }
+  return NextResponse.json(
+    { success: false, code: response.code, error: response.message, ...(response.details ?? {}) },
+    { status: response.status },
+  );
+}
+
+function legacyCompatibleRuntimeUpdate(input: {
+  prepared: Awaited<ReturnType<typeof prepareSessionRuntimeSnapshot>>;
+  provider: string | null;
+  model: string | null;
+  thinkingLevel: PiThinkingLevel | null;
+}): AiSessionRuntimeUpdate | null {
+  if (!input.provider && !input.model && !input.thinkingLevel) return null;
+
+  const current = input.prepared.snapshot.selection;
+  const targetProviderId = input.provider ?? current.providerId;
+  const currentProvider = input.prepared.resolution.providers.find(
+    (provider) => provider.installationId === current.providerInstallationId,
+  );
+  const matchingProviders = input.prepared.resolution.providers.filter(
+    (provider) => provider.providerId === targetProviderId && provider.selectable,
+  );
+  const targetProvider = targetProviderId === current.providerId
+    ? currentProvider
+    : matchingProviders.length === 1
+      ? matchingProviders[0]
+      : null;
+  if (!targetProvider) {
+    throw new AiRuntimeInputError(
+      'RUNTIME_SELECTION_REQUIRED',
+      'runtimeSelection is required when a provider has multiple eligible installations.',
+    );
+  }
+
+  const targetModelId = input.model
+    ?? (targetProvider.installationId === current.providerInstallationId
+      ? current.modelId
+      : targetProvider.models.find((model) => model.isProviderDefault)?.id ?? targetProvider.models[0]?.id)
+    ?? '';
+  const targetModel = targetProvider.models.find((model) => model.id === targetModelId);
+  const requestedThinking = input.thinkingLevel
+    ?? (targetProvider.installationId === current.providerInstallationId && targetModelId === current.modelId
+      ? current.thinkingLevel
+      : targetModel?.thinkingLevels.includes('off')
+        ? 'off'
+        : targetModel?.thinkingLevels[0] ?? 'off');
+
+  return {
+    selection: {
+      providerInstallationId: targetProvider.installationId,
+      providerId: targetProvider.providerId,
+      modelId: targetModelId,
+      thinkingLevel: requestedThinking,
+    },
+    expectedCatalogRevision: input.prepared.resolution.catalogRevision,
+    expectedPolicyRevision: input.prepared.resolution.policyRevision,
+  };
 }
 
 export async function GET(request: NextRequest) {
@@ -422,7 +467,14 @@ export async function POST(request: NextRequest) {
   const engine = getActiveAiAgentEngine();
 
   try {
-    const payload = (await request.json().catch(() => ({}))) as CreateSessionPayload;
+    const rawPayload = await request.json().catch(() => ({})) as unknown;
+    if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+      return NextResponse.json(
+        { success: false, code: 'INVALID_SESSION_INPUT', error: 'Request body must be an object.' },
+        { status: 400 },
+      );
+    }
+    const payload = rawPayload as CreateSessionPayload;
     const sessionId = buildSessionId();
     const title = normalizeTitle(payload.title, DEFAULT_SESSION_TITLE);
 
@@ -445,23 +497,52 @@ export async function POST(request: NextRequest) {
       if (!requestedAgent) {
         return NextResponse.json({ success: false, error: 'Agent not found' }, { status: 404 });
       }
-      const effectiveConfig = await resolveAgentRuntimeSettings(requestedAgentId);
-      if (!effectiveConfig.setupState.modelConfigured) {
+      let workspace: Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>>;
+      try {
+        workspace = await resolveAgentSessionWorkspaceForUser({
+          userId: session.user.id,
+          workspaceId: resolveCreateSessionWorkspaceId(payload),
+          permissions: ['canRead', 'canRunAgent'],
+        });
+      } catch {
+        return NextResponse.json(
+          { success: false, code: 'WORKSPACE_ACCESS_DENIED', error: 'Workspace not found or inaccessible.' },
+          { status: 403 },
+        );
+      }
+      if (!workspace.organizationId) {
         return NextResponse.json({
           success: false,
-          error: effectiveConfig.setupState.issues[0] || 'No model selected for this agent.',
-          code: 'MODEL_NOT_CONFIGURED',
-        }, { status: 400 });
-      }
-      const provider = effectiveConfig.activeProvider;
-      const providerConfig = effectiveConfig.providerConfig;
-
-      if (requestedModel && !(await isValidProviderModel(provider, requestedModel))) {
-        return NextResponse.json({ success: false, error: 'Invalid model for active provider' }, { status: 400 });
+          code: 'ORGANIZATION_SETUP_REQUIRED',
+          error: 'Complete the app setup first.',
+        }, { status: 409 });
       }
 
-      const model = requestedModel || providerConfig?.model || 'unknown';
-      const thinkingLevel = requestedThinkingLevel || providerConfig?.thinking || 'off';
+      const context = {
+        organizationId: workspace.organizationId,
+        userId: session.user.id,
+        workspaceId: workspace.workspaceId,
+        workspaceType: workspace.workspaceType,
+        agentId: requestedAgentId,
+        sessionId: null,
+        requestedSelection: null,
+      };
+      let runtimeUpdate = hasSessionRuntimeUpdate(payload)
+        ? parseSessionRuntimeUpdate(payload)
+        : null;
+      let prepared = await prepareSessionRuntimeSnapshot({ context, update: runtimeUpdate });
+      if (!runtimeUpdate) {
+        runtimeUpdate = legacyCompatibleRuntimeUpdate({
+          prepared,
+          provider: null,
+          model: requestedModel,
+          thinkingLevel: requestedThinkingLevel,
+        });
+        if (runtimeUpdate) {
+          prepared = await prepareSessionRuntimeSnapshot({ context, update: runtimeUpdate });
+        }
+      }
+
       const promptSnapshot = await createPiSystemPromptSnapshot(requestedAgentId, {
         userId: session.user.id,
         userName: session.user.name,
@@ -473,30 +554,17 @@ export async function POST(request: NextRequest) {
         : normalizedChannelId === WEB_CHANNEL_ID
           ? webChannelSessionKey(session.user.id)
           : null;
-      const workspace = await resolveAgentSessionWorkspaceForUser({
-        userId: session.user.id,
-        workspaceId: resolveCreateSessionWorkspaceId(payload),
-      });
       const workspaceFields = workspaceToPiSessionFields(workspace);
 
-      const inserted = await db
-        .insert(piSessions)
-        .values({
-          sessionId,
-          userId: session.user.id,
-          agentId: requestedAgentId,
-          provider,
-          model,
-          thinkingLevel,
-          title,
-          channelId: 'app',
-          channelSessionKey: null,
-          ...workspaceFields,
-          ...piSystemPromptSnapshotDbFields(promptSnapshot),
-          createdAt: new Date(),
-          updatedAt: new Date(),
-        })
-        .returning();
+      const inserted = await createPiSessionWithRuntimeSnapshot({
+        sessionId,
+        userId: session.user.id,
+        agentId: requestedAgentId,
+        title,
+        workspace: workspaceFields,
+        runtimeSnapshot: prepared.snapshot,
+        systemPromptSnapshot: promptSnapshot,
+      });
 
       await ensureSessionChannelLink({
         sessionId,
@@ -507,17 +575,40 @@ export async function POST(request: NextRequest) {
         isPrimary: normalizedChannelId === WEB_CHANNEL_ID,
       });
 
+      await recordAuditEvent({
+        organizationId: workspace.organizationId,
+        workspaceId: workspace.workspaceId,
+        userId: session.user.id,
+        agentId: requestedAgentId,
+        sessionId,
+        source: 'agent-runtime',
+        eventType: 'user',
+        entityType: 'pi_session',
+        entityId: sessionId,
+        action: 'pi_session_runtime.pin',
+        status: 'success',
+        summary: 'AI runtime selection pinned for a new chat session.',
+        metadata: {
+          catalogRevision: prepared.snapshot.catalogRevision,
+          policyRevision: prepared.snapshot.policyRevision,
+          selectionSource: prepared.snapshot.selectionSource,
+          selection: prepared.snapshot.selection,
+        },
+      });
+
       return NextResponse.json({
         success: true,
         session: {
-          ...inserted[0],
+          ...inserted,
           engine: 'pi',
-          workspace: storedPiSessionWorkspaceToSummary(inserted[0]),
+          workspace: storedPiSessionWorkspaceToSummary(inserted),
           creator: {
             name: session.user.name || null,
             email: session.user.email || null,
           },
         },
+        runtime: prepared.snapshot,
+        resolution: prepared.resolution,
       });
     }
 
@@ -555,8 +646,7 @@ export async function POST(request: NextRequest) {
       },
     });
   } catch (error) {
-    console.error('[API] Failed to create session:', error);
-    return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
+    return sessionRuntimeErrorResponse(error);
   }
 }
 
@@ -566,8 +656,22 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
+  const limited = rateLimit(request, {
+    limit: 60,
+    windowMs: 60_000,
+    keyPrefix: `sessions-patch:${session.user.id}`,
+  });
+  if (!limited.ok) return limited.response;
+
   try {
-    const payload = (await request.json()) as RenameSessionPayload;
+    const rawPayload = await request.json().catch(() => null) as unknown;
+    if (!rawPayload || typeof rawPayload !== 'object' || Array.isArray(rawPayload)) {
+      return NextResponse.json(
+        { success: false, code: 'INVALID_SESSION_INPUT', error: 'Request body must be an object.' },
+        { status: 400 },
+      );
+    }
+    const payload = rawPayload as RenameSessionPayload;
     const sessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
     const title = typeof payload.title === 'string' ? payload.title.trim() : '';
     const markAsRead = typeof payload.markAsRead === 'boolean' ? payload.markAsRead : false;
@@ -626,57 +730,113 @@ export async function PATCH(request: NextRequest) {
       return NextResponse.json({ success: false, error: 'Session ID required' }, { status: 400 });
     }
 
-    if (requestedProvider || requestedModel || requestedThinkingLevel) {
-      const piSession = await db.query.piSessions.findFirst({
-        where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)),
+    if (hasSessionRuntimeUpdate(payload) || requestedProvider || requestedModel || requestedThinkingLevel) {
+      const piSession = await findOwnedPiSessionForRuntime({
+        sessionId,
+        userId: session.user.id,
+        agentId: requestedAgentId,
       });
-
       if (!piSession) {
         return NextResponse.json({ success: false, error: 'Session not found' }, { status: 404 });
       }
-
-      const targetProvider = requestedProvider || piSession.provider;
-      const providerChanged = targetProvider !== piSession.provider;
-      const piConfig = providerChanged ? await readPiRuntimeConfig() : null;
-      const targetProviderConfig = piConfig?.providers[targetProvider];
-      const targetModel = requestedModel || (providerChanged ? targetProviderConfig?.model?.trim() : piSession.model);
-      const targetThinkingLevel = requestedThinkingLevel || (providerChanged
-        ? targetProviderConfig?.thinking || 'off'
-        : (piSession.thinkingLevel as PiThinkingLevel | null) || 'off');
-
-      if (!targetModel || ((providerChanged || requestedModel) && !(await isValidProviderModel(targetProvider, targetModel)))) {
-        return NextResponse.json({ success: false, error: 'Invalid model for selected provider' }, { status: 400 });
+      let workspace: Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>>;
+      try {
+        workspace = await resolveAgentSessionWorkspaceForUser({
+          userId: session.user.id,
+          workspaceId: workspaceIdFilter ?? piSession.workspaceId,
+          permissions: ['canRead', 'canRunAgent'],
+        });
+      } catch {
+        return NextResponse.json({ success: false, error: 'Workspace not found or inaccessible' }, { status: 403 });
       }
-
-      const runtimeStatus = await getStatus(sessionId, session.user.id);
-      if (runtimeStatus && runtimeStatus.phase !== 'idle') {
-        return NextResponse.json({ success: false, error: 'Model can only be changed while the agent is idle' }, { status: 409 });
-      }
-
-      const updateValues = {
-        ...(requestedProvider ? { provider: targetProvider } : {}),
-        ...(providerChanged || requestedModel ? { model: targetModel } : {}),
-        ...(providerChanged || requestedThinkingLevel ? { thinkingLevel: targetThinkingLevel } : {}),
-        updatedAt: new Date(),
-      };
-      const updatedPi = await db
-        .update(piSessions)
-        .set(updateValues)
-        .where(eq(piSessions.id, piSession.id))
-        .returning();
-
-      if (piSession.agentId === DEFAULT_AGENT_ID && !providerChanged) {
-        await syncSessionModelToPiConfig(
-          targetProvider,
-          requestedModel ? targetModel : null,
-          requestedThinkingLevel,
+      if (!isPiSessionInWorkspace(piSession, workspace)) {
+        return NextResponse.json(
+          { success: false, code: 'SESSION_WORKSPACE_MISMATCH', error: 'Session is outside the active workspace.' },
+          { status: 403 },
         );
       }
-      await invalidateRuntime(sessionId, session.user.id);
+      if (!workspace.organizationId) {
+        return NextResponse.json(
+          { success: false, code: 'ORGANIZATION_SETUP_REQUIRED', error: 'Complete the app setup first.' },
+          { status: 409 },
+        );
+      }
+      const organizationId = workspace.organizationId;
+
+      const runtimeChange = await withRuntimeSessionOperation(sessionId, session.user.id, async () => {
+        const activeRuntimeStatuses = await getActiveRuntimeStatusSummaries({
+          userId: session.user.id,
+          sessionIds: [sessionId],
+        });
+        if (activeRuntimeStatuses[sessionId]) {
+          return { busy: true as const };
+        }
+
+        const context = {
+          organizationId,
+          userId: session.user.id,
+          workspaceId: workspace.workspaceId,
+          workspaceType: workspace.workspaceType,
+          agentId: requestedAgentId,
+          sessionId,
+          requestedSelection: null,
+        };
+        let runtimeUpdate: AiSessionRuntimeUpdate;
+        if (hasSessionRuntimeUpdate(payload)) {
+          runtimeUpdate = parseSessionRuntimeUpdate(payload);
+        } else {
+          const prepared = await prepareSessionRuntimeSnapshot({ context });
+          const compatibleUpdate = legacyCompatibleRuntimeUpdate({
+            prepared,
+            provider: requestedProvider,
+            model: requestedModel,
+            thinkingLevel: requestedThinkingLevel,
+          });
+          if (!compatibleUpdate) {
+            throw new AiRuntimeInputError('RUNTIME_SELECTION_REQUIRED', 'runtimeSelection is required.');
+          }
+          runtimeUpdate = compatibleUpdate;
+        }
+
+        const result = await replaceSessionRuntimeSnapshot({ context, update: runtimeUpdate });
+        await invalidateRuntime(sessionId, session.user.id);
+        const updatedPi = await findOwnedPiSessionForRuntime({
+          sessionId,
+          userId: session.user.id,
+          agentId: requestedAgentId,
+        });
+        return { busy: false as const, result, updatedPi };
+      });
+      if (runtimeChange.busy) {
+        return NextResponse.json({ success: false, error: 'Model can only be changed while the agent is idle' }, { status: 409 });
+      }
+      const { result, updatedPi } = runtimeChange;
+      await recordAuditEvent({
+        organizationId: workspace.organizationId,
+        workspaceId: workspace.workspaceId,
+        userId: session.user.id,
+        agentId: requestedAgentId,
+        sessionId,
+        source: 'agent-runtime',
+        eventType: 'user',
+        entityType: 'pi_session',
+        entityId: sessionId,
+        action: 'pi_session_runtime.override',
+        status: 'success',
+        summary: 'AI runtime selection changed for a chat session.',
+        metadata: {
+          catalogRevision: result.snapshot.catalogRevision,
+          policyRevision: result.snapshot.policyRevision,
+          selectionSource: result.snapshot.selectionSource,
+          selection: result.snapshot.selection,
+        },
+      });
 
       return NextResponse.json({
         success: true,
-        session: updatedPi[0],
+        session: updatedPi,
+        runtime: result.snapshot,
+        resolution: result.resolution,
       });
     }
 
@@ -784,8 +944,7 @@ export async function PATCH(request: NextRequest) {
       session: updatedLegacy[0],
     });
   } catch (error) {
-    console.error('[API] Failed to rename session:', error);
-    return NextResponse.json({ success: false, error: 'Internal error' }, { status: 500 });
+    return sessionRuntimeErrorResponse(error);
   }
 }
 

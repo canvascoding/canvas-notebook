@@ -3,11 +3,17 @@ import { NextRequest, NextResponse } from 'next/server';
 import { loadAiCatalogDiscovery } from '@/app/lib/agent-runtime-policy/catalog-discovery';
 import { ensureAgentRuntimeCatalogInitialized } from '@/app/lib/agent-runtime-policy/bootstrap-service';
 import {
+  aiProviderInstallationId,
   catalogErrorResponse,
   parseAiCatalogUpdate,
   replaceAiAppRuntimeCatalog,
 } from '@/app/lib/agent-runtime-policy/catalog-service';
-import type { AiCatalogUpdate, AiProviderSafeConfig } from '@/app/lib/agent-runtime-policy/types';
+import { getAllowedCredentialScopesForProvider } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
+import type {
+  AiCatalogDiscovery,
+  AiCatalogUpdate,
+  AiProviderSafeConfig,
+} from '@/app/lib/agent-runtime-policy/types';
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import {
@@ -60,6 +66,21 @@ function groupProviderConfigs(update: AiCatalogUpdate): Record<string, AiProvide
   return grouped;
 }
 
+function withProviderInstallationIds(
+  discovery: AiCatalogDiscovery,
+  organizationId: string,
+): AiCatalogDiscovery {
+  return Object.fromEntries(Object.entries(discovery).map(([providerId, provider]) => [providerId, {
+    ...provider,
+    installationIds: Object.fromEntries(
+      getAllowedCredentialScopesForProvider(providerId).map((credentialScope) => [
+        credentialScope,
+        aiProviderInstallationId(organizationId, providerId, credentialScope),
+      ]),
+    ),
+  }]));
+}
+
 export async function GET(request: NextRequest) {
   const admin = await requireCatalogAdmin(request);
   if (!admin.ok) return admin.response;
@@ -81,7 +102,10 @@ export async function GET(request: NextRequest) {
     for (const provider of catalog.providers) {
       (configs[provider.providerId] ??= []).push(provider.config);
     }
-    const discovery = await loadAiCatalogDiscovery(configs);
+    const discovery = withProviderInstallationIds(
+      await loadAiCatalogDiscovery(configs),
+      admin.organizationId,
+    );
 
     return NextResponse.json({
       success: true,
@@ -119,7 +143,10 @@ export async function PUT(request: NextRequest) {
   try {
     const payload = await request.json().catch(() => null);
     const update = parseAiCatalogUpdate(payload);
-    const discovery = await loadAiCatalogDiscovery(groupProviderConfigs(update));
+    const discovery = withProviderInstallationIds(
+      await loadAiCatalogDiscovery(groupProviderConfigs(update)),
+      admin.organizationId,
+    );
     const catalog = await replaceAiAppRuntimeCatalog({
       organizationId: admin.organizationId,
       actorUserId: admin.session.user.id,

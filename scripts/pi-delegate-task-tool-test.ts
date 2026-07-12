@@ -38,7 +38,7 @@ async function main() {
     if (request === 'server-only') {
       return {};
     }
-    if (request === '@earendil-works/pi-ai') {
+    if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat') {
       return {
         registerBuiltInApiProviders: () => undefined,
         getProviders: () => [],
@@ -72,6 +72,7 @@ async function main() {
     await createAgentProfile({
       name: 'Research Agent',
       agentId: 'research-agent',
+      defaultProviderInstallationId: `aip_${'c'.repeat(24)}`,
       defaultProvider: 'test-provider',
       defaultModel: 'test-model',
       defaultThinking: 'off',

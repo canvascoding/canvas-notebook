@@ -6,13 +6,12 @@ import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
+import { resolveAndPinSessionRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
 import {
   createPiSystemPromptSnapshot,
   ensurePiSessionSystemPromptSnapshot,
   piSystemPromptSnapshotDbFields,
 } from '@/app/lib/pi/system-prompt-snapshot';
-import { createUserScopedPiApiKeyResolver } from '@/app/lib/pi/api-key-resolver';
 import {
   composePiHistoryForLlm,
   estimateTextTokens,
@@ -32,7 +31,6 @@ import {
   formatImageInputUnsupportedError,
   isImageInputUnsupportedError,
   modelSupportsImageInput,
-  resolvePiModel,
 } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
@@ -71,6 +69,7 @@ import {
   type RuntimeQueuePreview,
 } from '@/app/lib/pi/runtime-queue';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -216,6 +215,7 @@ type RuntimeInit = {
 
 type RuntimeOptions = {
   resetToolLoopGuard?: () => void;
+  requiresRuntimeRecreation?: () => boolean;
 };
 
 function isUserMessage(message: AgentMessage): message is Extract<AgentMessage, { role: 'user' }> {
@@ -404,6 +404,7 @@ class LivePiRuntime {
   private pendingInitialToolTailContinuation = false;
   private lastTurnDiagnostics: RuntimeTurnDiagnostics | null = null;
   private thinkingFilterState: ThinkingFilterState = createThinkingFilterState();
+  private disposed = false;
   agentUnsubscribe: (() => void) | null = null;
 
   constructor(init: RuntimeInit, agent: Agent, private readonly options: RuntimeOptions = {}) {
@@ -476,9 +477,11 @@ class LivePiRuntime {
     }
     const composition = this.lastComposition;
 
+    const hasPendingReplace = this.pendingReplace !== null;
+
     return {
       sessionId: this.sessionId,
-      phase: this.abortRequested
+      phase: this.abortRequested || hasPendingReplace
         ? 'aborting'
         : this.activeTool
           ? 'running_tool'
@@ -489,7 +492,7 @@ class LivePiRuntime {
       pendingToolCalls: this.agent.state.pendingToolCalls.size,
       followUpQueue: this.followUpQueue.map((entry) => entry.preview),
       steeringQueue: this.steeringQueue.map((entry) => entry.preview),
-      canAbort: this.isRunning || this.abortRequested,
+      canAbort: this.isRunning || this.abortRequested || hasPendingReplace,
       contextWindow: this.model.contextWindow,
       estimatedHistoryTokens: composition.estimatedHistoryTokens,
       availableHistoryTokens: composition.availableHistoryTokens,
@@ -1070,6 +1073,9 @@ class LivePiRuntime {
   }
 
   startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
+    if (this.disposed) {
+      throw new Error('The session runtime was replaced before the prompt started. Try again.');
+    }
     const sanitized = sanitizeUserMessage(message);
     this.resetRunSupervisorForUserMessage(sanitized);
     const initialContinuation = this.maybeCreateInitialToolTailContinuation();
@@ -1340,6 +1346,20 @@ class LivePiRuntime {
       });
     }
 
+    if (this.options.requiresRuntimeRecreation?.()) {
+      const replacement = this.pendingReplace?.message ?? null;
+      this.pendingReplace = null;
+      await evictPiRuntimeInstance(this.sessionId, this.userId, this);
+      if (replacement) {
+        queueMicrotask(() => {
+          void dispatchPiRuntimeUserMessage(this.sessionId, this.userId, replacement).catch((error) => {
+            console.error('[LiveRuntime] Failed to dispatch replacement on recreated runtime:', error);
+          });
+        });
+      }
+      return;
+    }
+
     if (this.pendingReplace) {
       const replacement = this.pendingReplace.message;
       this.pendingReplace = null;
@@ -1422,6 +1442,7 @@ class LivePiRuntime {
   }
 
   dispose(): void {
+    this.disposed = true;
     if (this.agentUnsubscribe) {
       this.agentUnsubscribe();
       this.agentUnsubscribe = null;
@@ -1482,15 +1503,31 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const sessionRecord = await db.query.piSessions.findFirst({
     where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId)),
   });
+  if (!sessionRecord) {
+    throw new Error('Session not found. Create the chat session before starting its runtime.');
+  }
 
-  const agentId = sessionRecord?.agentId ?? DEFAULT_AGENT_ID;
-  const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
-  const provider = sessionRecord?.provider || effectiveConfig.activeProvider;
-  const providerThinkingLevel = effectiveConfig.piConfig.providers[provider]?.thinking || effectiveConfig.thinkingLevel || 'off';
-  const thinkingLevel = (sessionRecord?.thinkingLevel || providerThinkingLevel) as ThinkingLevel;
-  const model = sessionRecord
-    ? await resolvePiModel(sessionRecord.provider, sessionRecord.model)
-    : effectiveConfig.model;
+  const agentId = sessionRecord.agentId ?? DEFAULT_AGENT_ID;
+  const executionContext = await resolveAgentExecutionContextForSession({
+    sessionId,
+    userId,
+    agentId,
+  });
+  if (!executionContext.organizationId) {
+    throw new Error('Complete the app AI runtime setup before starting an agent session.');
+  }
+  const executableRuntime = await resolveAndPinSessionRuntime({
+    organizationId: executionContext.organizationId,
+    userId,
+    workspaceId: executionContext.workspaceId,
+    workspaceType: executionContext.workspaceType,
+    agentId,
+    sessionId,
+    requestedSelection: null,
+  });
+  const provider = executableRuntime.selection.selection.providerId;
+  const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
+  const model = executableRuntime.model;
   const loadedSession = await loadPiSessionWithSummary(sessionId, userId, agentId);
   const initialMessages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
@@ -1505,11 +1542,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, agentId, sessionId);
   const toolLoopGuard = createToolLoopGuard();
-  const imageNormalizationOptions = await resolveAgentExecutionContextForSession({
-    sessionId,
-    userId,
-    agentId,
-  }).then((executionContext) => ({
+  const imageNormalizationOptions = {
     workspaceImageRoot: executionContext.workspaceRoot,
     allowedImageFileRoots: [
       executionContext.workspaceRoot,
@@ -1520,10 +1553,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
         organizationId: executionContext.organizationId,
       }),
     ],
-  })).catch((error) => {
-    console.warn('[LiveRuntime] Failed to resolve trusted image roots:', error);
-    return {};
-  });
+  };
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };
   const agent = new Agent({
@@ -1546,7 +1576,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
 
       return runtimeRef.current.transformContext(messages, signal);
     },
-    getApiKey: createUserScopedPiApiKeyResolver(userId),
+    streamFn: executableRuntime.streamFn,
     afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
     sessionId,
   });
@@ -1564,7 +1594,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       initialMessages,
     },
     agent,
-    { resetToolLoopGuard: () => toolLoopGuard.reset() },
+    {
+      resetToolLoopGuard: () => toolLoopGuard.reset(),
+      requiresRuntimeRecreation: executableRuntime.requiresRecreation,
+    },
   );
   runtimeRef.current = runtime;
 
@@ -1640,6 +1673,33 @@ function getRuntimeKey(sessionId: string, userId: string) {
   return `${userId}:${sessionId}`;
 }
 
+async function evictPiRuntimeInstance(
+  sessionId: string,
+  userId: string,
+  runtime: LivePiRuntime,
+): Promise<boolean> {
+  const store = getStore();
+  const key = getRuntimeKey(sessionId, userId);
+  const runtimePromise = store.runtimes.get(key);
+  if (!runtimePromise) return false;
+
+  let storedRuntime: LivePiRuntime;
+  try {
+    storedRuntime = await runtimePromise;
+  } catch {
+    if (store.runtimes.get(key) === runtimePromise) {
+      store.runtimes.delete(key);
+    }
+    return false;
+  }
+  if (storedRuntime !== runtime || store.runtimes.get(key) !== runtimePromise) {
+    return false;
+  }
+  store.runtimes.delete(key);
+  runtime.dispose();
+  return true;
+}
+
 export async function getOrCreatePiRuntimeWithState(sessionId: string, userId: string) {
   const store = getStore();
   const key = getRuntimeKey(sessionId, userId);
@@ -1675,16 +1735,21 @@ export async function dispatchPiRuntimeUserMessage(
   context?: PiRuntimePromptContext,
   runtimeInstance?: PiRuntimePromptDispatchTarget,
 ) {
-  const runtimeHandle = runtimeInstance
-    ? { runtime: runtimeInstance, created: false }
-    : await getOrCreatePiRuntimeWithState(sessionId, userId);
-  const runtime = runtimeHandle.runtime;
-  applyPiRuntimePromptContext(runtime, context);
-  if (!runtimeHandle.created) {
-    await runtime.reloadTools();
-  }
-  runtime.startPrompt(message);
-  return runtime;
+  return withPiSessionOperationLock(sessionId, userId, async () => {
+    const currentRuntime = runtimeInstance
+      ? await getExistingPiRuntime(sessionId, userId)
+      : null;
+    const runtimeHandle = runtimeInstance && currentRuntime === runtimeInstance
+      ? { runtime: runtimeInstance, created: false }
+      : await getOrCreatePiRuntimeWithState(sessionId, userId);
+    const runtime = runtimeHandle.runtime;
+    applyPiRuntimePromptContext(runtime, context);
+    if (!runtimeHandle.created) {
+      await runtime.reloadTools();
+    }
+    runtime.startPrompt(message);
+    return runtime;
+  });
 }
 
 export async function getExistingPiRuntime(sessionId: string, userId: string) {
@@ -1790,7 +1855,24 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
   const promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
   const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, sessionRecord.agentId, sessionId);
-  const model = await resolvePiModel(sessionRecord.provider, sessionRecord.model);
+  const executionContext = await resolveAgentExecutionContextForSession({
+    sessionId,
+    userId,
+    agentId: sessionRecord.agentId,
+  });
+  if (!executionContext.organizationId) {
+    throw new Error('Complete the app AI runtime setup before loading the session runtime.');
+  }
+  const executableRuntime = await resolveAndPinSessionRuntime({
+    organizationId: executionContext.organizationId,
+    userId,
+    workspaceId: executionContext.workspaceId,
+    workspaceType: executionContext.workspaceType,
+    agentId: sessionRecord.agentId,
+    sessionId,
+    requestedSelection: null,
+  });
+  const model = executableRuntime.model;
   const composition = composePiHistoryForLlm({
     messages,
     summary,

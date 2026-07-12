@@ -5,8 +5,10 @@ import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import {
   CANVAS_CONTROL_PLANE_PROVIDER_ID,
   FALLBACK_CANVAS_CONTROL_PLANE_MODELS,
+  getCanvasControlPlaneCatalog,
   getCanvasControlPlaneModels,
   managedProviderPath,
+  type ManagedControlPlaneCatalog,
   type ManagedControlPlaneModel,
 } from '../managed/control-plane-models';
 
@@ -363,7 +365,11 @@ export function findModelWithCompatibilityFallback<T extends { id: string }>(
  * Resolves the PI model instance based on user configuration.
  * For Ollama, dynamically sets the correct baseUrl based on mode.
  */
-export async function resolvePiModel(provider: string, modelName: string): Promise<ResolvedPiModel> {
+export async function resolvePiModel(
+  provider: string,
+  modelName: string,
+  options: { managedCatalog?: ManagedControlPlaneCatalog } = {},
+): Promise<ResolvedPiModel> {
   const config = await readPiRuntimeConfig();
   const providerConfig = config.providers[provider];
   
@@ -375,7 +381,7 @@ export async function resolvePiModel(provider: string, modelName: string): Promi
       : undefined;
   
   const models: ResolvedPiModel[] = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID
-    ? (await getCanvasControlPlaneModels()).map(withResolvedModelInput)
+    ? (options.managedCatalog?.models ?? (await getCanvasControlPlaneCatalog()).models).map(withResolvedModelInput)
     : getPiModels(provider, customModel);
   let model: ResolvedPiModel | undefined = findModelWithCompatibilityFallback(models, modelName);
   if (model && model.id !== modelName) {

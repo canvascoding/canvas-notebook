@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { openDb } from '@/app/lib/db';
+import { getDatabaseProvider, openDb } from '@/app/lib/db';
 import type {
   AiModelReference,
   AiRuntimeSelection,
@@ -71,13 +71,39 @@ export class RuntimeRevisionConflictError extends Error {
   }
 }
 
+export class RuntimeContextRevisionConflictError extends Error {
+  readonly code = 'RUNTIME_CONTEXT_REVISION_CONFLICT';
+  readonly status = 409;
+
+  constructor(
+    public readonly currentCatalogRevision: number,
+    public readonly currentPolicyRevision: number,
+  ) {
+    super('The app catalog or workspace policy changed. Reload the available models and try again.');
+    this.name = 'RuntimeContextRevisionConflictError';
+  }
+}
+
 export class SessionRuntimeSnapshotConflictError extends Error {
   readonly code = 'SESSION_RUNTIME_SNAPSHOT_EXISTS';
   readonly status = 409;
 
-  constructor() {
-    super('The session already has a different runtime snapshot.');
+  constructor(message = 'The session runtime changed concurrently. Reload it and try again.') {
+    super(message);
     this.name = 'SessionRuntimeSnapshotConflictError';
+  }
+}
+
+export class SessionRuntimeContextRevisionConflictError extends Error {
+  readonly code = 'RUNTIME_CONTEXT_REVISION_CONFLICT';
+  readonly status = 409;
+
+  constructor(
+    public readonly currentCatalogRevision: number,
+    public readonly currentPolicyRevision: number,
+  ) {
+    super('The app catalog or workspace policy changed. Reload the available models and try again.');
+    this.name = 'SessionRuntimeContextRevisionConflictError';
   }
 }
 
@@ -106,6 +132,79 @@ function changedRows(value: unknown): number {
   if (!value || typeof value !== 'object') return 0;
   const result = value as { changes?: unknown; rowCount?: unknown };
   return numberValue(result.changes ?? result.rowCount, 0);
+}
+
+type RuntimeStoreConnection = Awaited<ReturnType<typeof openDb>>;
+
+/**
+ * Locks the durable workspace context before reading catalog/policy revisions.
+ * The workspace row prevents a missing policy row from becoming a Postgres
+ * phantom insert; the catalog row serializes against catalog replacements.
+ * SQLite obtains the equivalent database write lock with BEGIN IMMEDIATE.
+ */
+async function lockWorkspaceRuntimeContext(
+  connection: RuntimeStoreConnection,
+  input: {
+    organizationId: string;
+    workspaceId: string;
+  },
+): Promise<void> {
+  const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+  const workspace = await connection.get(
+    `SELECT id
+     FROM canvas_workspaces
+     WHERE organization_id = ? AND id = ?
+     LIMIT 1${forUpdate}`,
+    [input.organizationId, input.workspaceId],
+  ) as { id?: string } | undefined;
+  if (!workspace?.id) {
+    throw new Error('Workspace runtime context not found.');
+  }
+}
+
+async function lockAndReadRuntimeContext(
+  connection: RuntimeStoreConnection,
+  input: {
+    organizationId: string;
+    workspaceId: string;
+  },
+): Promise<{ catalogRevision: number; policyRevision: number }> {
+  const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+  await lockWorkspaceRuntimeContext(connection, input);
+
+  const catalogRow = await connection.get(
+    `SELECT catalog_revision AS revision
+     FROM ai_runtime_defaults
+     WHERE organization_id = ?
+     LIMIT 1${forUpdate}`,
+    [input.organizationId],
+  ) as { revision?: number | string | null } | undefined;
+  const policyRow = await connection.get(
+    `SELECT revision
+     FROM ai_workspace_model_policies
+     WHERE organization_id = ? AND workspace_id = ?
+     LIMIT 1${forUpdate}`,
+    [input.organizationId, input.workspaceId],
+  ) as { revision?: number | string | null } | undefined;
+  return {
+    catalogRevision: numberValue(catalogRow?.revision, 0),
+    policyRevision: numberValue(policyRow?.revision, 0),
+  };
+}
+
+function assertRuntimeContextRevisions(
+  current: { catalogRevision: number; policyRevision: number },
+  expected: { expectedCatalogRevision: number; expectedPolicyRevision: number },
+): void {
+  if (
+    current.catalogRevision !== expected.expectedCatalogRevision
+    || current.policyRevision !== expected.expectedPolicyRevision
+  ) {
+    throw new RuntimeContextRevisionConflictError(
+      current.catalogRevision,
+      current.policyRevision,
+    );
+  }
 }
 
 function isoTimestamp(value: unknown): string {
@@ -235,6 +334,13 @@ function preferenceFromRow(row: UserPreferenceRow): AiUserModelPreference {
   };
 }
 
+function sameRuntimeSelection(left: AiRuntimeSelection, right: AiRuntimeSelection): boolean {
+  return left.providerInstallationId === right.providerInstallationId
+    && left.providerId === right.providerId
+    && left.modelId === right.modelId
+    && left.thinkingLevel === right.thinkingLevel;
+}
+
 export async function readWorkspaceModelPolicy(
   organizationId: string,
   workspaceId: string,
@@ -262,6 +368,7 @@ export async function writeWorkspaceModelPolicyStore(input: {
   workspaceId: string;
   actorUserId: string;
   expectedRevision: number;
+  expectedCatalogRevision: number;
   allowedModels: AiModelReference[] | null;
   defaultSelection: AiRuntimeSelection | null;
   allowUserCredentials: boolean;
@@ -270,8 +377,13 @@ export async function writeWorkspaceModelPolicyStore(input: {
   let transactionStarted = false;
   let insertAttempted = false;
   try {
-    await connection.run('BEGIN');
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     transactionStarted = true;
+    const context = await lockAndReadRuntimeContext(connection, input);
+    assertRuntimeContextRevisions(context, {
+      expectedCatalogRevision: input.expectedCatalogRevision,
+      expectedPolicyRevision: input.expectedRevision,
+    });
     const current = await connection.get(
       `SELECT revision
        FROM ai_workspace_model_policies
@@ -359,8 +471,9 @@ export async function deleteWorkspaceModelPolicyStore(input: {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run('BEGIN');
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     transactionStarted = true;
+    await lockWorkspaceRuntimeContext(connection, input);
     const current = await connection.get(
       `SELECT revision
        FROM ai_workspace_model_policies
@@ -431,77 +544,89 @@ export async function writeUserModelPreferenceStore(input: {
   workspaceId: string;
   agentId: string;
   expectedRevision: number;
+  expectedCatalogRevision: number;
+  expectedPolicyRevision: number;
   selection: AiRuntimeSelection;
 }): Promise<AiUserModelPreference> {
   const connection = await openDb();
   let transactionStarted = false;
   let insertAttempted = false;
   try {
-    await connection.run('BEGIN');
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     transactionStarted = true;
+    const context = await lockAndReadRuntimeContext(connection, input);
+    assertRuntimeContextRevisions(context, input);
     const current = await connection.get(
-      `SELECT revision
+      `SELECT organization_id, user_id, workspace_id, agent_id,
+              provider_installation_id, provider_id, model_id, thinking_level,
+              revision, updated_at
        FROM ai_user_model_preferences
        WHERE organization_id = ? AND user_id = ? AND workspace_id = ? AND agent_id = ?
        LIMIT 1`,
       [input.organizationId, input.userId, input.workspaceId, input.agentId],
-    ) as { revision?: number | string | null } | undefined;
+    ) as UserPreferenceRow | undefined;
     const currentRevision = numberValue(current?.revision, 0);
     if (currentRevision !== input.expectedRevision) {
       throw new RuntimeRevisionConflictError('user_preference', currentRevision);
     }
 
-    const now = Date.now();
-    const nextRevision = currentRevision + 1;
-    if (current) {
-      const result = await connection.run(
-        `UPDATE ai_user_model_preferences
-         SET provider_installation_id = ?, provider_id = ?, model_id = ?,
-             thinking_level = ?, revision = ?, updated_at = ?
-         WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
-           AND agent_id = ? AND revision = ?`,
-        [
-          input.selection.providerInstallationId,
-          input.selection.providerId,
-          input.selection.modelId,
-          input.selection.thinkingLevel,
-          nextRevision,
-          now,
-          input.organizationId,
-          input.userId,
-          input.workspaceId,
-          input.agentId,
-          currentRevision,
-        ],
-      );
-      if (changedRows(result) !== 1) {
-        throw new RuntimeRevisionConflictError('user_preference', currentRevision + 1);
-      }
+    if (current && sameRuntimeSelection(preferenceFromRow(current).selection, input.selection)) {
+      await connection.run('COMMIT');
+      transactionStarted = false;
     } else {
-      insertAttempted = true;
-      await connection.run(
-        `INSERT INTO ai_user_model_preferences (
-          organization_id, user_id, workspace_id, agent_id,
-          provider_installation_id, provider_id, model_id, thinking_level,
-          revision, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
-          input.organizationId,
-          input.userId,
-          input.workspaceId,
-          input.agentId,
-          input.selection.providerInstallationId,
-          input.selection.providerId,
-          input.selection.modelId,
-          input.selection.thinkingLevel,
-          nextRevision,
-          now,
-          now,
-        ],
-      );
+
+      const now = Date.now();
+      const nextRevision = currentRevision + 1;
+      if (current) {
+        const result = await connection.run(
+          `UPDATE ai_user_model_preferences
+           SET provider_installation_id = ?, provider_id = ?, model_id = ?,
+               thinking_level = ?, revision = ?, updated_at = ?
+           WHERE organization_id = ? AND user_id = ? AND workspace_id = ?
+             AND agent_id = ? AND revision = ?`,
+          [
+            input.selection.providerInstallationId,
+            input.selection.providerId,
+            input.selection.modelId,
+            input.selection.thinkingLevel,
+            nextRevision,
+            now,
+            input.organizationId,
+            input.userId,
+            input.workspaceId,
+            input.agentId,
+            currentRevision,
+          ],
+        );
+        if (changedRows(result) !== 1) {
+          throw new RuntimeRevisionConflictError('user_preference', currentRevision + 1);
+        }
+      } else {
+        insertAttempted = true;
+        await connection.run(
+          `INSERT INTO ai_user_model_preferences (
+            organization_id, user_id, workspace_id, agent_id,
+            provider_installation_id, provider_id, model_id, thinking_level,
+            revision, created_at, updated_at
+          ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+          [
+            input.organizationId,
+            input.userId,
+            input.workspaceId,
+            input.agentId,
+            input.selection.providerInstallationId,
+            input.selection.providerId,
+            input.selection.modelId,
+            input.selection.thinkingLevel,
+            nextRevision,
+            now,
+            now,
+          ],
+        );
+      }
+      await connection.run('COMMIT');
+      transactionStarted = false;
     }
-    await connection.run('COMMIT');
-    transactionStarted = false;
   } catch (error) {
     if (transactionStarted) {
       try {
@@ -655,12 +780,48 @@ export async function writePiSessionRuntimeSnapshot(input: {
   agentId: string;
   snapshot: AiSessionRuntimeSnapshot;
   allowReplace?: boolean;
+  expectedSnapshot?: AiSessionRuntimeSnapshot | null;
+  contextRevision?: {
+    organizationId: string;
+    workspaceId: string;
+    expectedCatalogRevision: number;
+    expectedPolicyRevision: number;
+  };
 }): Promise<void> {
   const connection = await openDb();
   let transactionStarted = false;
   try {
-    await connection.run('BEGIN');
+    await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
     transactionStarted = true;
+
+    if (input.contextRevision) {
+      const catalogRow = await connection.get(
+        `SELECT catalog_revision AS revision
+         FROM ai_runtime_defaults
+         WHERE organization_id = ?
+         LIMIT 1`,
+        [input.contextRevision.organizationId],
+      ) as { revision?: number | string | null } | undefined;
+      const policyRow = await connection.get(
+        `SELECT revision
+         FROM ai_workspace_model_policies
+         WHERE organization_id = ? AND workspace_id = ?
+         LIMIT 1`,
+        [input.contextRevision.organizationId, input.contextRevision.workspaceId],
+      ) as { revision?: number | string | null } | undefined;
+      const currentCatalogRevision = numberValue(catalogRow?.revision, 0);
+      const currentPolicyRevision = numberValue(policyRow?.revision, 0);
+      if (
+        currentCatalogRevision !== input.contextRevision.expectedCatalogRevision
+        || currentPolicyRevision !== input.contextRevision.expectedPolicyRevision
+      ) {
+        throw new SessionRuntimeContextRevisionConflictError(
+          currentCatalogRevision,
+          currentPolicyRevision,
+        );
+      }
+    }
+
     const row = await connection.get(
       `SELECT id, provider, model, thinking_level,
               runtime_provider_installation_id, runtime_catalog_revision,
@@ -672,19 +833,71 @@ export async function writePiSessionRuntimeSnapshot(input: {
     ) as SessionRuntimeRow | undefined;
     if (!row) throw new Error('Session not found.');
     const existing = snapshotFromSessionRow(row);
-    if (existing && sameSnapshot(existing, input.snapshot)) {
+    const hasExpectedSnapshot = Object.prototype.hasOwnProperty.call(input, 'expectedSnapshot');
+    const expectedSnapshot = hasExpectedSnapshot ? input.expectedSnapshot ?? null : undefined;
+    if (
+      hasExpectedSnapshot
+      && ((existing === null) !== (expectedSnapshot === null)
+        || (existing !== null && expectedSnapshot && !sameSnapshot(existing, expectedSnapshot)))
+    ) {
+      throw new SessionRuntimeSnapshotConflictError();
+    }
+    if (existing && sameSnapshot(existing, input.snapshot) && !input.contextRevision) {
       await connection.run('COMMIT');
       transactionStarted = false;
       return;
     }
     if (existing && !input.allowReplace) throw new SessionRuntimeSnapshotConflictError();
 
+    const compareSnapshot = hasExpectedSnapshot ? expectedSnapshot ?? null : existing;
+    const snapshotCasSql = compareSnapshot
+      ? `AND runtime_provider_installation_id = ?
+         AND provider = ? AND model = ? AND thinking_level = ?
+         AND runtime_catalog_revision = ? AND runtime_policy_revision = ?
+         AND runtime_selection_source = ?`
+      : 'AND runtime_provider_installation_id IS NULL';
+    const snapshotCasParams = compareSnapshot
+      ? [
+          compareSnapshot.selection.providerInstallationId,
+          compareSnapshot.selection.providerId,
+          compareSnapshot.selection.modelId,
+          compareSnapshot.selection.thinkingLevel,
+          compareSnapshot.catalogRevision,
+          compareSnapshot.policyRevision,
+          compareSnapshot.selectionSource,
+        ]
+      : [];
+    const contextCasSql = input.contextRevision
+      ? `AND COALESCE((
+           SELECT catalog_revision
+           FROM ai_runtime_defaults
+           WHERE organization_id = ?
+           LIMIT 1
+         ), 0) = ?
+         AND COALESCE((
+           SELECT revision
+           FROM ai_workspace_model_policies
+           WHERE organization_id = ? AND workspace_id = ?
+           LIMIT 1
+         ), 0) = ?`
+      : '';
+    const contextCasParams = input.contextRevision
+      ? [
+          input.contextRevision.organizationId,
+          input.contextRevision.expectedCatalogRevision,
+          input.contextRevision.organizationId,
+          input.contextRevision.workspaceId,
+          input.contextRevision.expectedPolicyRevision,
+        ]
+      : [];
     const result = await connection.run(
       `UPDATE pi_sessions
        SET provider = ?, model = ?, thinking_level = ?,
            runtime_provider_installation_id = ?, runtime_catalog_revision = ?,
            runtime_policy_revision = ?, runtime_selection_source = ?, updated_at = ?
-       WHERE session_id = ? AND user_id = ? AND agent_id = ?`,
+       WHERE session_id = ? AND user_id = ? AND agent_id = ?
+       ${snapshotCasSql}
+       ${contextCasSql}`,
       [
         input.snapshot.selection.providerId,
         input.snapshot.selection.modelId,
@@ -697,10 +910,41 @@ export async function writePiSessionRuntimeSnapshot(input: {
         input.sessionId,
         input.userId,
         input.agentId,
+        ...snapshotCasParams,
+        ...contextCasParams,
       ],
     ) as { changes?: number; rowCount?: number } | undefined;
     const changed = numberValue(result?.changes ?? result?.rowCount, 0);
-    if (changed === 0) throw new Error('Session not found.');
+    if (changed === 0) {
+      if (input.contextRevision) {
+        const catalogRow = await connection.get(
+          `SELECT catalog_revision AS revision
+           FROM ai_runtime_defaults
+           WHERE organization_id = ?
+           LIMIT 1`,
+          [input.contextRevision.organizationId],
+        ) as { revision?: number | string | null } | undefined;
+        const policyRow = await connection.get(
+          `SELECT revision
+           FROM ai_workspace_model_policies
+           WHERE organization_id = ? AND workspace_id = ?
+           LIMIT 1`,
+          [input.contextRevision.organizationId, input.contextRevision.workspaceId],
+        ) as { revision?: number | string | null } | undefined;
+        const currentCatalogRevision = numberValue(catalogRow?.revision, 0);
+        const currentPolicyRevision = numberValue(policyRow?.revision, 0);
+        if (
+          currentCatalogRevision !== input.contextRevision.expectedCatalogRevision
+          || currentPolicyRevision !== input.contextRevision.expectedPolicyRevision
+        ) {
+          throw new SessionRuntimeContextRevisionConflictError(
+            currentCatalogRevision,
+            currentPolicyRevision,
+          );
+        }
+      }
+      throw new SessionRuntimeSnapshotConflictError();
+    }
     await connection.run('COMMIT');
     transactionStarted = false;
   } catch (error) {

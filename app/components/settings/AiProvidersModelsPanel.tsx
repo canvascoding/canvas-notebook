@@ -22,12 +22,18 @@ import {
 import type {
   AiCatalogDiscoveryModel,
   AiCredentialScope,
+  AiProviderSafeConfig,
   AiProviderSource,
   AiProviderStatus,
   AiRuntimeSelection,
 } from '@/app/lib/agent-runtime-policy/types';
+import {
+  getAllowedCredentialScopesForProvider,
+  validateProviderCatalogAuth,
+} from '@/app/lib/agent-runtime-policy/provider-auth-policy';
 import { AI_THINKING_LEVELS } from '@/app/lib/agent-runtime-policy/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { getAuthMethodForProvider } from '@/app/lib/pi/provider-help';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
@@ -55,7 +61,7 @@ import {
 } from './ai-runtime/catalog-client';
 
 const CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
-const ADDABLE_CREDENTIAL_SCOPES: AiCredentialScope[] = ['system', 'organization', 'user'];
+const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+~-]{0,199}$/u;
 
 type DeploymentMode = 'managed' | 'self-hosted';
 type SupportedLocale = 'de' | 'en';
@@ -121,6 +127,11 @@ type PanelCopy = {
     verify: string;
     revisionConflict: string;
     duplicateBinding: string;
+    invalidAuthMethod: (provider: string) => string;
+    oauthScope: (provider: string) => string;
+    openAiBaseUrl: string;
+    ollamaHost: string;
+    customModel: string;
     enabledProviderModels: (provider: string) => string;
     providerDefault: (provider: string) => string;
     appDefaultRequired: string;
@@ -221,12 +232,12 @@ const DE_COPY: PanelCopy = {
   noProvidersTitle: 'Noch keine Provider installiert',
   noProvidersDescription: 'Füge einen verfügbaren Provider hinzu oder synchronisiere eine verbundene Control Plane.',
   addProviderTitle: 'Provider hinzufügen',
-  addProviderDescription: 'Zugangsdaten werden dabei nicht abgefragt. Wähle nur Provider und Gültigkeitsbereich aus.',
+  addProviderDescription: 'Zugangsdaten werden dabei nicht abgefragt. Derselbe Provider kann einmal je Credential-Scope installiert werden.',
   provider: 'Provider',
   credentialScope: 'Credential-Scope',
   chooseProvider: 'Provider auswählen',
   addProvider: 'Hinzufügen',
-  noProvidersAvailable: 'Alle erkannten Provider sind bereits installiert.',
+  noProvidersAvailable: 'Alle erkannten Provider sind bereits in ihren verfügbaren Credential-Scopes installiert.',
   appDefaultTitle: 'App-Standard',
   appDefaultDescription: 'Dieser Wert gilt als Fallback, wenn Workspace, Agent und Nutzer keine spezifischere Auswahl festlegen.',
   appDefaultProvider: 'Standard-Provider',
@@ -265,6 +276,24 @@ const DE_COPY: PanelCopy = {
     vision: 'Vision',
     contextWindow: (tokens) => `${tokens} Kontext`,
     managedScopeLocked: 'Der Credential-Scope eines Managed Providers wird von der Control Plane vorgegeben.',
+    oauthScopeLocked: 'OAuth-Verbindungen sind persönlich und werden deshalb immer pro Nutzer gespeichert.',
+    selfHostedConfiguration: 'Self-hosted Runtime',
+    selfHostedDescription: 'Konfiguriere hier nur Endpoint und Modell-Metadaten. Zugangsdaten bleiben im getrennten Secret-Scope.',
+    openAiBaseUrl: 'OpenAI-kompatible Base URL',
+    openAiBaseUrlPlaceholder: 'http://localhost:8080/v1',
+    ollamaMode: 'Server-Modus',
+    ollamaLocal: 'Lokal',
+    ollamaRemote: 'Remote',
+    ollamaLocalDescription: 'Verwendet http://localhost:11434/v1 innerhalb der App-Runtime.',
+    ollamaRemoteHost: 'Remote Ollama URL',
+    ollamaRemoteHostPlaceholder: 'https://ollama.example.com',
+    modelSource: 'Modellquelle',
+    predefinedModel: 'Vordefinierte Modelle',
+    customModel: 'Eigenes Modell',
+    customModelId: 'Custom Model ID',
+    customModelPlaceholder: 'z. B. llama3.3:70b oder mein-modell',
+    credentialsSeparated: 'Speichere den Katalog und verwalte die Zugangsdaten des App-Standards danach getrennt.',
+    configureCredentials: 'Zum Secret-Scope',
     status: SHARED_STATUS_DE,
     source: SOURCE_DE,
     scope: SCOPE_DE,
@@ -276,6 +305,11 @@ const DE_COPY: PanelCopy = {
     verify: 'Die Provider-Installation konnte nicht verifiziert werden.',
     revisionConflict: 'Der Katalog wurde zwischenzeitlich geändert. Lade die aktuelle Revision neu und prüfe deine Auswahl.',
     duplicateBinding: 'Diese Kombination aus Provider und Credential-Scope ist bereits vorhanden.',
+    invalidAuthMethod: (provider) => `Die gewählte Authentifizierung wird von „${provider}“ nicht unterstützt.`,
+    oauthScope: (provider) => `„${provider}“ verwendet persönliches OAuth und benötigt den Credential-Scope „Pro Nutzer“.`,
+    openAiBaseUrl: 'Trage für den OpenAI-kompatiblen Provider eine gültige HTTP(S)-Base-URL ohne Zugangsdaten ein.',
+    ollamaHost: 'Trage für den Remote-Ollama-Modus eine gültige HTTP(S)-URL ohne Zugangsdaten ein.',
+    customModel: 'Trage eine gültige Custom Model ID ein.',
     enabledProviderModels: (provider) => `Der aktive Provider „${provider}“ benötigt mindestens ein freigegebenes Modell.`,
     providerDefault: (provider) => `Wähle für „${provider}“ ein freigegebenes Provider-Standardmodell.`,
     appDefaultRequired: 'Wähle einen App-Standard aus, bevor du den Katalog speicherst.',
@@ -336,12 +370,12 @@ const EN_COPY: PanelCopy = {
   noProvidersTitle: 'No providers installed yet',
   noProvidersDescription: 'Add an available provider or synchronize a connected Control Plane.',
   addProviderTitle: 'Add provider',
-  addProviderDescription: 'No credentials are requested here. Select only the provider and its scope.',
+  addProviderDescription: 'No credentials are requested here. The same provider can be installed once per credential scope.',
   provider: 'Provider',
   credentialScope: 'Credential scope',
   chooseProvider: 'Select a provider',
   addProvider: 'Add',
-  noProvidersAvailable: 'All discovered providers are already installed.',
+  noProvidersAvailable: 'All discovered providers are already installed in their available credential scopes.',
   appDefaultTitle: 'App default',
   appDefaultDescription: 'This fallback applies when no workspace, agent, or user has selected a more specific runtime.',
   appDefaultProvider: 'Default provider',
@@ -380,6 +414,24 @@ const EN_COPY: PanelCopy = {
     vision: 'Vision',
     contextWindow: (tokens) => `${tokens} context`,
     managedScopeLocked: 'The credential scope of a managed provider is controlled by the Control Plane.',
+    oauthScopeLocked: 'OAuth connections are personal, so their credentials are always stored per user.',
+    selfHostedConfiguration: 'Self-hosted runtime',
+    selfHostedDescription: 'Configure endpoint and model metadata here. Credentials remain in their separate secret scope.',
+    openAiBaseUrl: 'OpenAI-compatible base URL',
+    openAiBaseUrlPlaceholder: 'http://localhost:8080/v1',
+    ollamaMode: 'Server mode',
+    ollamaLocal: 'Local',
+    ollamaRemote: 'Remote',
+    ollamaLocalDescription: 'Uses http://localhost:11434/v1 from inside the app runtime.',
+    ollamaRemoteHost: 'Remote Ollama URL',
+    ollamaRemoteHostPlaceholder: 'https://ollama.example.com',
+    modelSource: 'Model source',
+    predefinedModel: 'Predefined models',
+    customModel: 'Custom model',
+    customModelId: 'Custom model ID',
+    customModelPlaceholder: 'e.g. llama3.3:70b or my-model',
+    credentialsSeparated: 'Save the catalog, then manage the app default credentials in its separate secret scope.',
+    configureCredentials: 'Go to secret scope',
     status: SHARED_STATUS_EN,
     source: SOURCE_EN,
     scope: SCOPE_EN,
@@ -391,6 +443,11 @@ const EN_COPY: PanelCopy = {
     verify: 'The provider installation could not be verified.',
     revisionConflict: 'The catalog changed in another session. Reload the current revision and review your choices.',
     duplicateBinding: 'This provider and credential scope combination already exists.',
+    invalidAuthMethod: (provider) => `The selected authentication method is not supported by “${provider}”.`,
+    oauthScope: (provider) => `“${provider}” uses personal OAuth and requires the “Per user” credential scope.`,
+    openAiBaseUrl: 'Enter a valid HTTP(S) base URL without embedded credentials for the OpenAI-compatible provider.',
+    ollamaHost: 'Enter a valid HTTP(S) URL without embedded credentials for remote Ollama mode.',
+    customModel: 'Enter a valid custom model ID.',
     enabledProviderModels: (provider) => `The active provider “${provider}” needs at least one allowed model.`,
     providerDefault: (provider) => `Select an allowed provider default model for “${provider}”.`,
     appDefaultRequired: 'Select an app default before saving the catalog.',
@@ -423,6 +480,105 @@ function selectClassName(): string {
 
 function modelForProvider(provider: AiCatalogProviderDraft, modelId: string): AiCatalogDiscoveryModel | undefined {
   return provider.availableModels.find((model) => model.id === modelId);
+}
+
+function availableCredentialScopesForNewProvider(
+  providers: readonly AiCatalogProviderDraft[],
+  providerId: string,
+): readonly AiCredentialScope[] {
+  const configuredScopes = new Set(providers
+    .filter((provider) => provider.providerId === providerId)
+    .map((provider) => provider.credentialScope));
+  return getAllowedCredentialScopesForProvider(providerId)
+    .filter((credentialScope) => credentialScope !== 'managed' && !configuredScopes.has(credentialScope));
+}
+
+function isSafeEndpoint(value: string | undefined): boolean {
+  if (!value?.trim()) return false;
+  try {
+    const parsed = new URL(value.trim());
+    return (parsed.protocol === 'http:' || parsed.protocol === 'https:')
+      && !parsed.username
+      && !parsed.password
+      && !parsed.search
+      && !parsed.hash;
+  } catch {
+    return false;
+  }
+}
+
+function configuredCustomModel(provider: AiCatalogProviderDraft): string | undefined {
+  if (provider.providerId === 'openai-compatible') {
+    return provider.config.openaiCompatibleCustomModel?.trim() || undefined;
+  }
+  if (provider.providerId === 'ollama' && provider.config.ollamaModelSource === 'custom') {
+    return provider.config.ollamaCustomModel?.trim() || undefined;
+  }
+  return undefined;
+}
+
+function compactSafeConfig(config: AiProviderSafeConfig): AiProviderSafeConfig {
+  return Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined && value !== '')) as AiProviderSafeConfig;
+}
+
+function customModelMetadata(modelId: string): AiCatalogDiscoveryModel {
+  return {
+    id: modelId,
+    name: `${modelId} (Custom)`,
+    reasoning: false,
+    supportsVision: false,
+    contextWindow: 128_000,
+    maxTokens: 8_192,
+  };
+}
+
+function updateSelfHostedProviderConfig(params: {
+  provider: AiCatalogProviderDraft;
+  config: AiProviderSafeConfig;
+  discoveredModels: readonly AiCatalogDiscoveryModel[];
+}): AiCatalogProviderDraft {
+  const previousCustomModel = configuredCustomModel(params.provider);
+  const config = compactSafeConfig(params.config);
+  const nextCustomModel = params.provider.providerId === 'openai-compatible'
+    ? config.openaiCompatibleCustomModel?.trim()
+    : config.ollamaModelSource === 'custom'
+      ? config.ollamaCustomModel?.trim()
+      : undefined;
+  const nextCustomModelIsValid = Boolean(nextCustomModel && MODEL_ID_PATTERN.test(nextCustomModel));
+  const baseModels = params.discoveredModels.filter((model) => model.id !== previousCustomModel);
+  const availableModels = nextCustomModelIsValid && nextCustomModel
+    ? [
+        ...baseModels.filter((model) => model.id !== nextCustomModel),
+        params.discoveredModels.find((model) => model.id === nextCustomModel) ?? customModelMetadata(nextCustomModel),
+      ]
+    : baseModels;
+  const availableModelIds = new Set(availableModels.map((model) => model.id));
+  let modelIds = params.provider.modelIds
+    .filter((modelId) => modelId !== previousCustomModel && availableModelIds.has(modelId));
+  if (nextCustomModelIsValid && nextCustomModel && !modelIds.includes(nextCustomModel)) {
+    modelIds = [...modelIds, nextCustomModel];
+  }
+  if (
+    params.provider.providerId === 'ollama'
+    && params.provider.config.ollamaModelSource === 'custom'
+    && config.ollamaModelSource === 'predefined'
+    && modelIds.length === 0
+    && availableModels[0]
+  ) {
+    modelIds = [availableModels[0].id];
+  }
+  const defaultModelId = modelIds.includes(params.provider.defaultModelId)
+    ? params.provider.defaultModelId
+    : modelIds[0] ?? '';
+
+  return {
+    ...params.provider,
+    config,
+    modelIds,
+    defaultModelId,
+    availableModels: availableModels.sort((left, right) => left.name.localeCompare(right.name)),
+    status: params.provider.enabled ? 'unverified' : 'disabled',
+  };
 }
 
 function selectionProvider(
@@ -467,12 +623,46 @@ function defaultSelectionForProviders(
   };
 }
 
+function withSuggestedDefaultSelection(draft: AiRuntimeCatalogDraft): AiRuntimeCatalogDraft {
+  return {
+    ...draft,
+    defaultSelection: defaultSelectionForProviders(draft.providers, draft.defaultSelection),
+  };
+}
+
 function validateDraft(draft: AiRuntimeCatalogDraft, copy: PanelCopy): string | null {
   const bindings = new Set<string>();
   for (const provider of draft.providers) {
     const binding = `${provider.providerId}\0${provider.credentialScope}`;
     if (bindings.has(binding)) return copy.errors.duplicateBinding;
     bindings.add(binding);
+    const authIssue = validateProviderCatalogAuth(provider);
+    if (authIssue === 'INVALID_PROVIDER_AUTH_METHOD') {
+      return copy.errors.invalidAuthMethod(provider.name);
+    }
+    if (authIssue === 'OAUTH_REQUIRES_USER_SCOPE') {
+      return copy.errors.oauthScope(provider.name);
+    }
+    if (provider.providerId === 'openai-compatible') {
+      const baseUrl = provider.config.openaiCompatibleBaseUrl;
+      if ((provider.enabled || baseUrl) && !isSafeEndpoint(baseUrl)) return copy.errors.openAiBaseUrl;
+      const customModel = provider.config.openaiCompatibleCustomModel?.trim();
+      if ((provider.enabled || customModel) && (!customModel || !MODEL_ID_PATTERN.test(customModel))) {
+        return copy.errors.customModel;
+      }
+    }
+    if (provider.providerId === 'ollama') {
+      const host = provider.config.ollamaHost;
+      if (provider.config.ollamaMode === 'cloud' && (provider.enabled || host) && !isSafeEndpoint(host)) {
+        return copy.errors.ollamaHost;
+      }
+      if (provider.config.ollamaModelSource === 'custom') {
+        const customModel = provider.config.ollamaCustomModel?.trim();
+        if ((provider.enabled || customModel) && (!customModel || !MODEL_ID_PATTERN.test(customModel))) {
+          return copy.errors.customModel;
+        }
+      }
+    }
     if (provider.enabled && provider.modelIds.length === 0) {
       return copy.errors.enabledProviderModels(provider.name);
     }
@@ -534,10 +724,14 @@ export function AiProvidersModelsPanel({
   const [setManagedAsDefault, setSetManagedAsDefault] = useState(true);
 
   const applyCatalogData = useCallback((nextData: AdminRuntimeCatalogData) => {
-    const nextDraft = catalogDataToDraft(nextData);
+    const storedDraft = catalogDataToDraft(nextData);
+    const nextDraft = withSuggestedDefaultSelection(storedDraft);
     setData(nextData);
     setDraft(nextDraft);
-    setBaseline(serializeCatalogDraft(nextDraft));
+    // A migrated/self-hosted catalog can contain valid providers but no app
+    // default yet. Suggest the first valid default and keep the stored null as
+    // the baseline so the admin can actually save the required review.
+    setBaseline(serializeCatalogDraft(storedDraft));
     setSetManagedAsDefault(
       !nextData.catalog.defaultSelection
       || nextData.catalog.defaultSelection.providerId === CONTROL_PLANE_PROVIDER_ID,
@@ -577,14 +771,22 @@ export function AiProvidersModelsPanel({
 
   const addableProviders = useMemo(() => {
     if (!data || !draft) return [];
-    const configuredProviderIds = new Set(draft.providers.map((provider) => provider.providerId));
     return Object.values(data.discovery)
-      .filter((provider) => provider.id !== CONTROL_PLANE_PROVIDER_ID && !configuredProviderIds.has(provider.id))
+      .filter((provider) => (
+        provider.id !== CONTROL_PLANE_PROVIDER_ID
+        && availableCredentialScopesForNewProvider(draft.providers, provider.id).length > 0
+      ))
       .sort((left, right) => left.name.localeCompare(right.name));
   }, [data, draft]);
   const resolvedAddProviderId = addableProviders.some((provider) => provider.id === addProviderId)
     ? addProviderId
     : addableProviders[0]?.id ?? '';
+  const addableCredentialScopes = draft && resolvedAddProviderId
+    ? availableCredentialScopesForNewProvider(draft.providers, resolvedAddProviderId)
+    : [];
+  const resolvedAddCredentialScope = addableCredentialScopes.includes(addCredentialScope)
+    ? addCredentialScope
+    : addableCredentialScopes[0];
 
   const defaultProvider = draft ? selectionProvider(draft.providers, draft.defaultSelection) : undefined;
   const defaultModel = defaultProvider && draft?.defaultSelection
@@ -616,10 +818,13 @@ export function AiProvidersModelsPanel({
   )));
 
   const addProvider = () => {
-    if (!draft || !data || !resolvedAddProviderId) return;
+    if (!draft || !data || !resolvedAddProviderId || !resolvedAddCredentialScope) return;
     const discovered = data.discovery[resolvedAddProviderId];
     if (!discovered) return;
     const firstModel = discovered.models[0];
+    const isOpenAiCompatible = discovered.id === 'openai-compatible';
+    const isOllama = discovered.id === 'ollama';
+    const isOAuth = getAuthMethodForProvider(discovered.id) === 'oauth';
     const clientKey = `new-${discovered.id}-${globalThis.crypto?.randomUUID?.() ?? Date.now()}`;
     const provider: AiCatalogProviderDraft = {
       clientKey,
@@ -627,9 +832,16 @@ export function AiProvidersModelsPanel({
       name: discovered.name,
       source: discovered.source,
       status: 'unverified',
-      enabled: Boolean(firstModel),
-      credentialScope: addCredentialScope,
-      config: {},
+      enabled: Boolean(firstModel) && !isOpenAiCompatible,
+      credentialScope: resolvedAddCredentialScope,
+      providerInstallationId: discovered.installationIds?.[resolvedAddCredentialScope],
+      config: isOAuth
+        ? { authMethod: 'oauth' }
+        : isOpenAiCompatible
+        ? { openaiCompatibleModelSource: 'custom' }
+        : isOllama
+          ? { ollamaMode: 'local', ollamaModelSource: 'predefined' }
+          : {},
       modelIds: firstModel ? [firstModel.id] : [],
       defaultModelId: firstModel?.id ?? '',
       availableModels: [...discovered.models].sort((left, right) => left.name.localeCompare(right.name)),
@@ -891,7 +1103,13 @@ export function AiProvidersModelsPanel({
                 onVerify={provider.providerInstallationId && !isDirty
                   ? () => void verifyProvider(provider.providerInstallationId!)
                   : undefined}
-                onEnabledChange={(enabled) => updateProvider(provider.clientKey, (current) => ({ ...current, enabled }))}
+                onEnabledChange={(enabled) => updateProvider(provider.clientKey, (current) => ({
+                  ...current,
+                  enabled,
+                  status: enabled
+                    ? (current.status === 'disabled' ? 'unverified' : current.status)
+                    : 'disabled',
+                }))}
                 onCredentialScopeChange={(credentialScope) => {
                   const duplicate = draft.providers.some((candidate) => (
                     candidate.clientKey !== provider.clientKey
@@ -904,11 +1122,36 @@ export function AiProvidersModelsPanel({
                   }
                   updateProvider(provider.clientKey, (current) => ({
                     ...current,
-                    providerInstallationId: undefined,
+                    providerInstallationId: data.discovery[current.providerId]?.installationIds?.[credentialScope],
                     credentialScope,
                     status: current.enabled ? 'unverified' : 'disabled',
                   }));
                 }}
+                onConfigChange={(config) => updateProvider(provider.clientKey, (current) => (
+                  updateSelfHostedProviderConfig({
+                    provider: current,
+                    config,
+                    discoveredModels: data.discovery[current.providerId]?.models ?? current.availableModels,
+                  })
+                ))}
+                onCustomModelChange={(modelId) => updateProvider(provider.clientKey, (current) => {
+                  const config: AiProviderSafeConfig = current.providerId === 'openai-compatible'
+                    ? {
+                        ...current.config,
+                        openaiCompatibleModelSource: 'custom',
+                        openaiCompatibleCustomModel: modelId || undefined,
+                      }
+                    : {
+                        ...current.config,
+                        ollamaModelSource: 'custom',
+                        ollamaCustomModel: modelId || undefined,
+                      };
+                  return updateSelfHostedProviderConfig({
+                    provider: current,
+                    config,
+                    discoveredModels: data.discovery[current.providerId]?.models ?? current.availableModels,
+                  });
+                })}
                 onModelAllowedChange={(model, allowed) => updateProvider(provider.clientKey, (current) => {
                   const modelIds = allowed
                     ? current.availableModels.filter((candidate) => (
@@ -951,52 +1194,61 @@ export function AiProvidersModelsPanel({
             <CardDescription>{copy.addProviderDescription}</CardDescription>
           </CardHeader>
           <CardContent className="space-y-4 px-4 sm:px-6">
-            {addableProviders.length > 0 ? (
-              <div className="grid gap-3 sm:grid-cols-2">
-                <div className="space-y-2">
-                  <Label htmlFor="ai-catalog-add-provider">{copy.provider}</Label>
-                  <div className="relative">
-                    <select
-                      id="ai-catalog-add-provider"
-                      value={resolvedAddProviderId}
-                      disabled={busy}
-                      onChange={(event) => setAddProviderId(event.target.value)}
-                      className={selectClassName()}
-                    >
-                      <option value="" disabled>{copy.chooseProvider}</option>
-                      {addableProviders.map((provider) => (
-                        <option key={provider.id} value={provider.id}>{provider.name}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                  </div>
-                </div>
-                <div className="space-y-2">
-                  <Label htmlFor="ai-catalog-add-scope">{copy.credentialScope}</Label>
-                  <div className="relative">
-                    <select
-                      id="ai-catalog-add-scope"
-                      value={addCredentialScope}
-                      disabled={busy}
-                      onChange={(event) => setAddCredentialScope(event.target.value as AiCredentialScope)}
-                      className={selectClassName()}
-                    >
-                      {ADDABLE_CREDENTIAL_SCOPES.map((scope) => (
-                        <option key={scope} value={scope}>{copy.providerCard.scope[scope]}</option>
-                      ))}
-                    </select>
-                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                  </div>
+            <div className="grid gap-3 sm:grid-cols-2">
+              <div className="space-y-2">
+                <Label htmlFor="ai-catalog-add-provider">{copy.provider}</Label>
+                <div className="relative">
+                  <select
+                    id="ai-catalog-add-provider"
+                    value={resolvedAddProviderId}
+                    disabled={busy || addableProviders.length === 0}
+                    onChange={(event) => {
+                      const providerId = event.target.value;
+                      setAddProviderId(providerId);
+                      if (!draft) return;
+                      const availableScopes = availableCredentialScopesForNewProvider(draft.providers, providerId);
+                      setAddCredentialScope((current) => (
+                        availableScopes.includes(current) ? current : availableScopes[0] ?? 'organization'
+                      ));
+                    }}
+                    className={selectClassName()}
+                  >
+                    <option value="" disabled>
+                      {addableProviders.length > 0 ? copy.chooseProvider : copy.noProvidersAvailable}
+                    </option>
+                    {addableProviders.map((provider) => (
+                      <option key={provider.id} value={provider.id}>{provider.name}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
                 </div>
               </div>
-            ) : (
-              <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{copy.noProvidersAvailable}</p>
+              <div className="space-y-2">
+                <Label htmlFor="ai-catalog-add-scope">{copy.credentialScope}</Label>
+                <div className="relative">
+                  <select
+                    id="ai-catalog-add-scope"
+                    value={resolvedAddCredentialScope ?? ''}
+                    disabled={busy || addableCredentialScopes.length === 0}
+                    onChange={(event) => setAddCredentialScope(event.target.value as AiCredentialScope)}
+                    className={selectClassName()}
+                  >
+                    {addableCredentialScopes.map((scope) => (
+                      <option key={scope} value={scope}>{copy.providerCard.scope[scope]}</option>
+                    ))}
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                </div>
+              </div>
+            </div>
+            {addableProviders.length === 0 && (
+              <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">{copy.noProvidersAvailable}</p>
             )}
             <div className="flex justify-end">
               <Button
                 type="button"
                 variant="outline"
-                disabled={busy || !resolvedAddProviderId}
+                disabled={busy || !resolvedAddProviderId || !resolvedAddCredentialScope}
                 onClick={addProvider}
               >
                 <Plus className="size-4" aria-hidden="true" />
@@ -1129,7 +1381,7 @@ export function AiProvidersModelsPanel({
             variant="outline"
             disabled={busy || !isDirty}
             onClick={() => {
-              const nextDraft = catalogDataToDraft(data);
+              const nextDraft = withSuggestedDefaultSelection(catalogDataToDraft(data));
               setDraft(nextDraft);
               setError(null);
               setMessage(null);

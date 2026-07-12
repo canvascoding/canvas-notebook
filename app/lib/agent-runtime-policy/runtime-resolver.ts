@@ -75,6 +75,7 @@ export function buildEffectiveCatalogProviders(input: {
       name: provider.name,
       source: provider.source,
       credentialScope: provider.credentialScope,
+      authMethod: provider.config.authMethod,
       credentialAvailable,
       selectable: provider.status === 'ready' && credentialAvailable,
       status: provider.status,
@@ -316,7 +317,11 @@ export async function resolveEffectiveAgentRuntime(
   const explicit = context.requestedSelection
     ? { selection: context.requestedSelection, source: 'session' as const, snapshot: null }
     : persistedSession
-      ? { selection: persistedSession.selection, source: 'session' as const, snapshot: persistedSession }
+      ? {
+          selection: persistedSession.selection,
+          source: persistedSession.selectionSource,
+          snapshot: persistedSession,
+        }
       : preference
         ? { selection: preference.selection, source: 'user_preference' as const, snapshot: null }
         : null;

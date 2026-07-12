@@ -8,6 +8,7 @@ import {
   replaceAppRuntimeCatalogStore,
   type CatalogStoreProviderInput,
 } from '@/app/lib/agent-runtime-policy/catalog-store';
+import { validateProviderCatalogAuth } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
 import type {
   AiAppRuntimeCatalog,
   AiCatalogDiscovery,
@@ -102,12 +103,21 @@ function endpoint(value: unknown, field: string): string {
   }
   try {
     const parsed = new URL(value.trim());
-    if ((parsed.protocol !== 'http:' && parsed.protocol !== 'https:') || parsed.username || parsed.password) {
+    if (
+      (parsed.protocol !== 'http:' && parsed.protocol !== 'https:')
+      || parsed.username
+      || parsed.password
+      || parsed.search
+      || parsed.hash
+    ) {
       throw new Error('unsafe URL');
     }
     return parsed.toString().replace(/\/$/u, '');
   } catch {
-    throw new AiCatalogValidationError('INVALID_PROVIDER_CONFIG', `${field} must be an HTTP(S) URL without credentials.`);
+    throw new AiCatalogValidationError(
+      'INVALID_PROVIDER_CONFIG',
+      `${field} must be an HTTP(S) URL without credentials, query parameters, or fragments.`,
+    );
   }
 }
 
@@ -259,6 +269,60 @@ function sameProviderConfiguration(previous: CatalogStoreProviderInput | undefin
     && JSON.stringify(previousModels) === JSON.stringify(nextModels);
 }
 
+function validateEnabledProviderConfig(provider: AiCatalogProviderUpdate): void {
+  if (!provider.enabled) return;
+  if (provider.providerId === 'openai-compatible') {
+    if (!provider.config.openaiCompatibleBaseUrl) {
+      throw new AiCatalogValidationError(
+        'INVALID_PROVIDER_CONFIG',
+        'An enabled OpenAI-compatible provider requires a base URL.',
+      );
+    }
+    if (
+      provider.config.openaiCompatibleModelSource !== 'custom'
+      || !provider.config.openaiCompatibleCustomModel
+    ) {
+      throw new AiCatalogValidationError(
+        'INVALID_PROVIDER_CONFIG',
+        'An enabled OpenAI-compatible provider requires a custom model ID.',
+      );
+    }
+  }
+  if (provider.providerId === 'ollama') {
+    if (provider.config.ollamaMode === 'cloud' && !provider.config.ollamaHost) {
+      throw new AiCatalogValidationError(
+        'INVALID_PROVIDER_CONFIG',
+        'Remote Ollama mode requires a server URL.',
+      );
+    }
+    if (
+      provider.config.ollamaModelSource === 'custom'
+      && !provider.config.ollamaCustomModel
+    ) {
+      throw new AiCatalogValidationError(
+        'INVALID_PROVIDER_CONFIG',
+        'A custom Ollama model source requires a custom model ID.',
+      );
+    }
+  }
+}
+
+function validateProviderAuthPolicy(provider: AiCatalogProviderUpdate): void {
+  const issue = validateProviderCatalogAuth(provider);
+  if (issue === 'INVALID_PROVIDER_AUTH_METHOD') {
+    throw new AiCatalogValidationError(
+      issue,
+      `Authentication method is not supported by provider ${provider.providerId}.`,
+    );
+  }
+  if (issue === 'OAUTH_REQUIRES_USER_SCOPE') {
+    throw new AiCatalogValidationError(
+      'INVALID_CREDENTIAL_SCOPE',
+      `OAuth provider ${provider.providerId} requires per-user credentials.`,
+    );
+  }
+}
+
 function materializeProviders(params: {
   organizationId: string;
   update: AiCatalogUpdate;
@@ -275,6 +339,8 @@ function materializeProviders(params: {
   }]));
 
   return params.update.providers.map((provider) => {
+    validateEnabledProviderConfig(provider);
+    validateProviderAuthPolicy(provider);
     const discoveryProvider = params.discovery[provider.providerId];
     if (!discoveryProvider) {
       throw new AiCatalogValidationError('PROVIDER_NOT_AVAILABLE', `Provider is not available: ${provider.providerId}`);

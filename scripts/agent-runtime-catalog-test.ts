@@ -37,6 +37,38 @@ async function main() {
     CatalogRevisionConflictError,
     readAppRuntimeCatalog,
   } = await import('../app/lib/agent-runtime-policy/catalog-store');
+  const {
+    getAllowedCredentialScopesForProvider,
+    validateProviderCatalogAuth,
+  } = await import('../app/lib/agent-runtime-policy/provider-auth-policy');
+
+  assert.deepEqual(getAllowedCredentialScopesForProvider('openai-codex'), ['user']);
+  assert.deepEqual(getAllowedCredentialScopesForProvider('openai'), ['system', 'organization', 'user']);
+  assert.equal(validateProviderCatalogAuth({
+    providerId: 'openai-codex',
+    credentialScope: 'user',
+    config: { authMethod: 'oauth' },
+  }), null);
+  assert.equal(validateProviderCatalogAuth({
+    providerId: 'openai-codex',
+    credentialScope: 'organization',
+    config: { authMethod: 'oauth' },
+  }), 'OAUTH_REQUIRES_USER_SCOPE');
+  assert.equal(validateProviderCatalogAuth({
+    providerId: 'openai-codex',
+    credentialScope: 'user',
+    config: { authMethod: 'api-key' },
+  }), 'INVALID_PROVIDER_AUTH_METHOD');
+  assert.equal(validateProviderCatalogAuth({
+    providerId: 'github-copilot',
+    credentialScope: 'user',
+    config: { authMethod: 'oauth' },
+  }), 'INVALID_PROVIDER_AUTH_METHOD');
+  assert.equal(validateProviderCatalogAuth({
+    providerId: 'anthropic',
+    credentialScope: 'user',
+    config: { authMethod: 'oauth' },
+  }), 'INVALID_PROVIDER_AUTH_METHOD');
 
   const owner = await createInitialOwner({
     name: 'Runtime Catalog Owner',
@@ -67,6 +99,31 @@ async function main() {
     (error) => error instanceof AiCatalogValidationError && error.code === 'SECRET_VALUE_NOT_ALLOWED',
   );
 
+  for (const unsafeBaseUrl of [
+    'https://models.example.test/v1?api_key=must-not-leak',
+    'https://models.example.test/v1#api-key=must-not-leak',
+  ]) {
+    assert.throws(
+      () => parseAiCatalogUpdate({
+        expectedRevision: 0,
+        providers: [{
+          providerId: 'openai-compatible',
+          enabled: false,
+          credentialScope: 'organization',
+          config: {
+            openaiCompatibleBaseUrl: unsafeBaseUrl,
+            openaiCompatibleModelSource: 'custom',
+            openaiCompatibleCustomModel: 'safe-model',
+          },
+          modelIds: [],
+          defaultModelId: '',
+        }],
+        defaultSelection: null,
+      }),
+      (error) => error instanceof AiCatalogValidationError && error.code === 'INVALID_PROVIDER_CONFIG',
+    );
+  }
+
   const discovery = {
     openrouter: {
       id: 'openrouter',
@@ -91,9 +148,23 @@ async function main() {
         },
       ],
     },
+    'openai-codex': {
+      id: 'openai-codex',
+      name: 'OpenAI Codex',
+      source: 'built-in' as const,
+      models: [{
+        id: 'codex-model',
+        name: 'Codex Model',
+        reasoning: true,
+        supportsVision: true,
+        contextWindow: 128_000,
+        maxTokens: 16_384,
+      }],
+    },
   };
   const organizationInstallationId = installationId(organization.organizationId, 'openrouter', 'organization');
   const userInstallationId = installationId(organization.organizationId, 'openrouter', 'user');
+  const codexInstallationId = installationId(organization.organizationId, 'openai-codex', 'user');
   const update = parseAiCatalogUpdate({
     expectedRevision: 0,
     providers: [
@@ -111,9 +182,18 @@ async function main() {
         providerId: 'openrouter',
         enabled: true,
         credentialScope: 'user',
-        config: { authMethod: 'oauth' },
+        config: { authMethod: 'api-key' },
         modelIds: ['fast-model'],
         defaultModelId: 'fast-model',
+      },
+      {
+        providerInstallationId: codexInstallationId,
+        providerId: 'openai-codex',
+        enabled: true,
+        credentialScope: 'user',
+        config: { authMethod: 'oauth' },
+        modelIds: ['codex-model'],
+        defaultModelId: 'codex-model',
       },
     ],
     defaultSelection: {
@@ -132,7 +212,7 @@ async function main() {
   });
   assert.equal(catalog.revision, 1);
   assert.equal(catalog.migrationState, 'configured');
-  assert.equal(catalog.providers.length, 2);
+  assert.equal(catalog.providers.length, 3);
   assert.equal(catalog.defaultSelection?.providerInstallationId, organizationInstallationId);
   assert.deepEqual(
     catalog.providers.find((provider) => provider.installationId === userInstallationId)?.models[0].thinkingLevels,
@@ -151,8 +231,68 @@ async function main() {
     FROM ai_provider_installations
     WHERE organization_id = ?
   `).all(organization.organizationId) as Array<{ configJson: string }>;
-  assert.equal(storedConfigs.length, 2);
+  assert.equal(storedConfigs.length, 3);
   assert.equal(storedConfigs.some((entry) => /must-never-be-stored|apiKey/u.test(entry.configJson)), false);
+
+  assert.throws(
+    () => parseAiCatalogUpdate({
+      expectedRevision: 1,
+      providers: [{
+        providerId: 'openrouter',
+        enabled: true,
+        credentialScope: 'user',
+        config: { authMethod: 'password' },
+        modelIds: ['fast-model'],
+        defaultModelId: 'fast-model',
+      }],
+      defaultSelection: null,
+    }),
+    (error) => error instanceof AiCatalogValidationError && error.code === 'INVALID_PROVIDER_CONFIG',
+  );
+
+  const invalidCodexScopeUpdate = parseAiCatalogUpdate({
+    expectedRevision: 1,
+    providers: [{
+      providerId: 'openai-codex',
+      enabled: true,
+      credentialScope: 'organization',
+      config: { authMethod: 'oauth' },
+      modelIds: ['codex-model'],
+      defaultModelId: 'codex-model',
+    }],
+    defaultSelection: null,
+  });
+  await assert.rejects(
+    () => replaceAiAppRuntimeCatalog({
+      organizationId: organization.organizationId,
+      actorUserId: owner.id,
+      update: invalidCodexScopeUpdate,
+      discovery,
+    }),
+    (error) => error instanceof AiCatalogValidationError && error.code === 'INVALID_CREDENTIAL_SCOPE',
+  );
+
+  const invalidCodexAuthUpdate = parseAiCatalogUpdate({
+    expectedRevision: 1,
+    providers: [{
+      providerId: 'openai-codex',
+      enabled: true,
+      credentialScope: 'user',
+      config: { authMethod: 'api-key' },
+      modelIds: ['codex-model'],
+      defaultModelId: 'codex-model',
+    }],
+    defaultSelection: null,
+  });
+  await assert.rejects(
+    () => replaceAiAppRuntimeCatalog({
+      organizationId: organization.organizationId,
+      actorUserId: owner.id,
+      update: invalidCodexAuthUpdate,
+      discovery,
+    }),
+    (error) => error instanceof AiCatalogValidationError && error.code === 'INVALID_PROVIDER_AUTH_METHOD',
+  );
 
   const sessionColumns = sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as Array<{ name: string }>;
   const sessionColumnNames = new Set(sessionColumns.map((column) => column.name));
@@ -218,7 +358,7 @@ async function main() {
 
   const preserved = await readAppRuntimeCatalog(organization.organizationId);
   assert.equal(preserved.revision, 1);
-  assert.equal(preserved.providers.length, 2);
+  assert.equal(preserved.providers.length, 3);
   sqlite.close();
 
   console.log('agent runtime catalog tests passed');

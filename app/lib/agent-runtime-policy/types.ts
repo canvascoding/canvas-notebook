@@ -95,6 +95,7 @@ export type AiCatalogDiscoveryProvider = {
   name: string;
   source: AiProviderSource;
   models: AiCatalogDiscoveryModel[];
+  installationIds?: Partial<Record<AiCredentialScope, string>>;
 };
 
 export type AiCatalogDiscovery = Record<string, AiCatalogDiscoveryProvider>;
@@ -153,6 +154,7 @@ export type AiEffectiveCatalogProvider = {
   name: string;
   source: AiProviderSource;
   credentialScope: AiCredentialScope;
+  authMethod?: 'api-key' | 'oauth';
   credentialAvailable: boolean;
   selectable: boolean;
   status: AiProviderStatus;

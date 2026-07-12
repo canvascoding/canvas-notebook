@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { Api, Model } from '@earendil-works/pi-ai';
+import { completeSimple } from '@earendil-works/pi-ai/compat';
 
 import {
   CatalogRevisionConflictError,
@@ -8,6 +9,11 @@ import {
   readAppRuntimeCatalog,
   updateProviderVerificationStore,
 } from '@/app/lib/agent-runtime-policy/catalog-store';
+import { resolveProviderInstallationRuntimeAuth } from '@/app/lib/agent-runtime-policy/installation-credentials';
+import {
+  AiRuntimeExecutionError,
+  resolveProviderInstallationModel,
+} from '@/app/lib/agent-runtime-policy/provider-runtime';
 import type {
   AiCatalogModel,
   AiProviderInstallation,
@@ -16,16 +22,9 @@ import type {
 import type { EffectiveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { testAgentModelConnection, type AgentModelTestCode } from '@/app/lib/agents/model-test';
 import type { AgentProfile } from '@/app/lib/agents/registry';
-import { readScopedEnvState, type EnvStorageScope } from '@/app/lib/integrations/env-config';
-import { CANVAS_CONTROL_PLANE_PROVIDER_ID } from '@/app/lib/managed/control-plane-models';
 import type { PiProviderConfig, PiRuntimeConfig } from '@/app/lib/pi/config';
-import { getProviderApiKey, isOAuthProvider, type OAuthProviderId } from '@/app/lib/pi/oauth';
-import { getAuthMethodForProvider, getProviderEnvVars } from '@/app/lib/pi/provider-help';
-import { getPiModels, resolvePiModel } from '@/app/lib/pi/model-resolver';
 
 const INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
-const SECRET_ENV_NAME_PATTERN = /(api[_-]?key|token|secret|password|credential)/iu;
-const LOCAL_PROBE_CREDENTIAL = 'canvas-provider-verification';
 const VERIFICATION_AGENT_ID = 'provider-verification';
 
 type ProbeFailureCode = AgentModelTestCode | 'PROVIDER_MODEL_UNAVAILABLE' | 'CREDENTIAL_LOOKUP_FAILED';
@@ -56,178 +55,6 @@ export class ProviderVerificationError extends Error {
     super(message);
     this.name = 'ProviderVerificationError';
   }
-}
-
-function storageScopeFor(input: {
-  provider: AiProviderInstallation;
-  organizationId: string;
-  actorUserId: string;
-}): EnvStorageScope | null {
-  if (input.provider.credentialScope === 'user') {
-    return { secretScope: 'user', userId: input.actorUserId };
-  }
-  if (input.provider.credentialScope === 'organization') {
-    return { secretScope: 'organization', organizationId: input.organizationId };
-  }
-  // Existing app-wide provider credentials live in /data/secrets.
-  return null;
-}
-
-function firstConfiguredValue(
-  names: readonly string[],
-  integrations: ReadonlyMap<string, string>,
-  agents: ReadonlyMap<string, string>,
-  includeProcessEnvironment: boolean,
-): string | undefined {
-  for (const name of names) {
-    const value = integrations.get(name)?.trim()
-      || agents.get(name)?.trim()
-      || (includeProcessEnvironment ? process.env[name]?.trim() : undefined);
-    if (value) return value;
-  }
-  return undefined;
-}
-
-async function resolveInstallationCredential(input: {
-  provider: AiProviderInstallation;
-  organizationId: string;
-  actorUserId: string;
-}): Promise<string | undefined> {
-  const providerId = input.provider.providerId.toLowerCase();
-  if (providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
-    return input.provider.credentialScope === 'managed'
-      ? process.env.CANVAS_INSTANCE_TOKEN?.trim() || undefined
-      : undefined;
-  }
-
-  const authMethod = getAuthMethodForProvider(providerId);
-  const wantsOAuth = input.provider.config.authMethod === 'oauth'
-    || (authMethod === 'oauth' && input.provider.config.authMethod !== 'api-key');
-  if (wantsOAuth) {
-    if (input.provider.credentialScope !== 'user' || !isOAuthProvider(providerId)) return undefined;
-    return (await getProviderApiKey(providerId as OAuthProviderId, { userId: input.actorUserId }))?.apiKey;
-  }
-
-  const storageScope = storageScopeFor(input);
-  const [integrationsState, agentsState] = await Promise.all([
-    readScopedEnvState('integrations', storageScope),
-    readScopedEnvState('agents', storageScope),
-  ]);
-  const integrations = new Map(integrationsState.entries.map((entry) => [entry.key, entry.value]));
-  const agents = new Map(agentsState.entries.map((entry) => [entry.key, entry.value]));
-  const secretNames = (getProviderEnvVars(providerId) ?? [])
-    .map((entry) => entry.name)
-    .filter((name) => SECRET_ENV_NAME_PATTERN.test(name));
-  const configured = firstConfiguredValue(
-    secretNames,
-    integrations,
-    agents,
-    input.provider.credentialScope === 'system',
-  );
-  if (configured) return configured;
-
-  // The existing PI probe requires a non-empty apiKey option even for endpoints
-  // that intentionally do not authenticate requests.
-  if (providerId === 'openai-compatible' || providerId === 'ollama') {
-    return LOCAL_PROBE_CREDENTIAL;
-  }
-  return undefined;
-}
-
-function openAiCompatibleModel(
-  provider: AiProviderInstallation,
-  model: AiCatalogModel,
-): Model<'openai-completions'> {
-  const configuredBaseUrl = provider.config.openaiCompatibleBaseUrl?.trim();
-  if (!configuredBaseUrl) {
-    throw new ProviderVerificationError(
-      'PROVIDER_ENDPOINT_NOT_CONFIGURED',
-      'The provider endpoint is not configured.',
-      409,
-    );
-  }
-  const baseUrl = configuredBaseUrl.endsWith('/v1')
-    ? configuredBaseUrl
-    : `${configuredBaseUrl.replace(/\/+$/u, '')}/v1`;
-  return {
-    id: model.id,
-    name: model.name,
-    provider: 'openai-compatible',
-    api: 'openai-completions',
-    baseUrl,
-    reasoning: model.reasoning,
-    input: model.supportsVision ? ['text', 'image'] : ['text'],
-    cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
-    contextWindow: model.metadata.contextWindow ?? 128_000,
-    maxTokens: model.metadata.maxTokens ?? 8_192,
-    compat: {
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
-      supportsStore: false,
-      supportsLongCacheRetention: false,
-    },
-  };
-}
-
-function isOllamaCloudHost(value: string): boolean {
-  try {
-    return new URL(value).hostname.toLowerCase() === 'cloud.ollama.com';
-  } catch {
-    return value.trim().toLowerCase() === 'cloud.ollama.com';
-  }
-}
-
-function applyOllamaEndpoint(
-  provider: AiProviderInstallation,
-  model: Model<Api>,
-): Model<Api> {
-  const configuredHost = provider.config.ollamaHost?.trim();
-  const baseUrl = configuredHost && !isOllamaCloudHost(configuredHost)
-    ? (configuredHost.endsWith('/v1') ? configuredHost : `${configuredHost.replace(/\/+$/u, '')}/v1`)
-    : 'http://localhost:11434/v1';
-  return {
-    ...model,
-    baseUrl,
-    compat: {
-      ...model.compat,
-      supportsDeveloperRole: false,
-      supportsReasoningEffort: false,
-      supportsStore: false,
-      supportsLongCacheRetention: false,
-    },
-  } as Model<Api>;
-}
-
-async function resolveVerificationModel(
-  provider: AiProviderInstallation,
-  providerDefault: AiCatalogModel,
-): Promise<Model<Api>> {
-  if (provider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
-    const model = await resolvePiModel(provider.providerId, providerDefault.id);
-    if (model.id !== providerDefault.id) {
-      throw new ProviderVerificationError(
-        'PROVIDER_DEFAULT_MODEL_UNAVAILABLE',
-        'The configured provider default is no longer available.',
-        409,
-      );
-    }
-    return model;
-  }
-  if (provider.providerId === 'openai-compatible') {
-    return openAiCompatibleModel(provider, providerDefault);
-  }
-
-  const customModel = provider.providerId === 'ollama' ? providerDefault.id : undefined;
-  const model = getPiModels(provider.providerId, customModel)
-    .find((candidate) => candidate.id === providerDefault.id);
-  if (!model) {
-    throw new ProviderVerificationError(
-      'PROVIDER_DEFAULT_MODEL_UNAVAILABLE',
-      'The configured provider default is no longer available.',
-      409,
-    );
-  }
-  return provider.providerId === 'ollama' ? applyOllamaEndpoint(provider, model) : model;
 }
 
 function probeRuntimeConfig(input: {
@@ -344,28 +171,39 @@ export async function verifyProviderInstallation(input: {
   let success = false;
   let failureCode: ProbeFailureCode = 'MODEL_TEST_FAILED';
   try {
-    const [model, credential] = await Promise.all([
-      resolveVerificationModel(provider, providerDefault),
-      resolveInstallationCredential({
+    const [model, auth] = await Promise.all([
+      resolveProviderInstallationModel({ provider, model: providerDefault }),
+      resolveProviderInstallationRuntimeAuth({
         provider,
         organizationId: input.organizationId,
-        actorUserId: input.actorUserId,
+        userId: input.actorUserId,
       }),
     ]);
+    if (!auth.configured) {
+      throw new AiRuntimeExecutionError(
+        'CREDENTIAL_NOT_AVAILABLE',
+        'Credentials are missing for the selected provider installation.',
+      );
+    }
     const effectiveConfig = probeRuntimeConfig({ provider, providerDefault, model });
     const probe = await testAgentModelConnection({
       agentId: VERIFICATION_AGENT_ID,
       deps: {
         resolveConfig: async () => effectiveConfig,
         resolveApiKey: async (requestedProvider) => (
-          requestedProvider === model.provider ? credential : undefined
+          requestedProvider === model.provider ? auth.apiKey ?? '<authenticated>' : undefined
         ),
+        complete: (probeModel, context, options) => completeSimple(probeModel, context, {
+          ...options,
+          ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
+          env: { ...options?.env, ...auth.env },
+        }),
       },
     });
     success = probe.success;
     failureCode = probe.code ?? 'MODEL_TEST_FAILED';
   } catch (error) {
-    if (error instanceof ProviderVerificationError) {
+    if (error instanceof ProviderVerificationError || error instanceof AiRuntimeExecutionError) {
       failureCode = 'PROVIDER_MODEL_UNAVAILABLE';
     } else {
       failureCode = 'CREDENTIAL_LOOKUP_FAILED';

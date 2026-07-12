@@ -5,8 +5,11 @@ import {
   deleteWorkspaceModelPolicyStore,
   deleteUserModelPreferenceStore,
   readWorkspaceModelPolicy,
+  RuntimeContextRevisionConflictError,
   RuntimeRevisionConflictError,
   RuntimeStoredDataError,
+  SessionRuntimeContextRevisionConflictError,
+  SessionRuntimeSnapshotConflictError,
   writeUserModelPreferenceStore,
   writeWorkspaceModelPolicyStore,
 } from '@/app/lib/agent-runtime-policy/runtime-store';
@@ -25,6 +28,8 @@ import type {
 import { AI_THINKING_LEVELS } from '@/app/lib/agent-runtime-policy/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 
+export { RuntimeContextRevisionConflictError };
+
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+~-]{0,199}$/u;
 const INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
@@ -36,19 +41,6 @@ export class AiRuntimeInputError extends Error {
   constructor(public readonly code: string, message: string) {
     super(message);
     this.name = 'AiRuntimeInputError';
-  }
-}
-
-export class RuntimeContextRevisionConflictError extends Error {
-  readonly code = 'RUNTIME_CONTEXT_REVISION_CONFLICT';
-  readonly status = 409;
-
-  constructor(
-    public readonly currentCatalogRevision: number,
-    public readonly currentPolicyRevision: number,
-  ) {
-    super('The app catalog or workspace policy changed. Reload the available models and try again.');
-    this.name = 'RuntimeContextRevisionConflictError';
   }
 }
 
@@ -126,13 +118,6 @@ export function parseUserPreferenceUpdate(value: unknown): AiUserPreferenceUpdat
   };
 }
 
-function sameSelection(left: AiRuntimeSelection, right: AiRuntimeSelection): boolean {
-  return left.providerInstallationId === right.providerInstallationId
-    && left.providerId === right.providerId
-    && left.modelId === right.modelId
-    && left.thinkingLevel === right.thinkingLevel;
-}
-
 function assertContextRevisions(
   resolution: AiEffectiveRuntimeResolution,
   expectedCatalogRevision: number,
@@ -162,21 +147,14 @@ export async function setUserRuntimePreference(input: {
   );
   assertEffectiveRuntimeSelection(validation);
 
-  const current = validation.preference;
-  const currentRevision = current?.revision ?? 0;
-  if (currentRevision !== input.update.expectedRevision) {
-    throw new RuntimeRevisionConflictError('user_preference', currentRevision);
-  }
-  if (current && sameSelection(current.selection, input.update.selection)) {
-    return resolveEffectiveAgentRuntime({ ...input.context, sessionId: null, requestedSelection: null });
-  }
-
   await writeUserModelPreferenceStore({
     organizationId: input.context.organizationId,
     userId: input.context.userId,
     workspaceId: input.context.workspaceId,
     agentId: input.context.agentId,
     expectedRevision: input.update.expectedRevision,
+    expectedCatalogRevision: input.update.expectedCatalogRevision,
+    expectedPolicyRevision: input.update.expectedPolicyRevision,
     selection: input.update.selection,
   });
   return resolveEffectiveAgentRuntime({ ...input.context, sessionId: null, requestedSelection: null });
@@ -328,6 +306,7 @@ export async function replaceWorkspaceRuntimePolicy(input: {
     workspaceId: input.workspaceId,
     actorUserId: input.actorUserId,
     expectedRevision: input.update.expectedRevision,
+    expectedCatalogRevision: input.update.expectedCatalogRevision,
     allowedModels: input.update.allowedModels,
     defaultSelection: input.update.defaultSelection,
     allowUserCredentials: input.update.allowUserCredentials,
@@ -374,6 +353,20 @@ export function runtimeErrorResponse(error: unknown): {
         currentPolicyRevision: error.currentPolicyRevision,
       },
     };
+  }
+  if (error instanceof SessionRuntimeContextRevisionConflictError) {
+    return {
+      status: error.status,
+      code: error.code,
+      message: error.message,
+      details: {
+        currentCatalogRevision: error.currentCatalogRevision,
+        currentPolicyRevision: error.currentPolicyRevision,
+      },
+    };
+  }
+  if (error instanceof SessionRuntimeSnapshotConflictError) {
+    return { status: error.status, code: error.code, message: error.message };
   }
   return { status: 500, code: 'RUNTIME_UPDATE_FAILED', message: 'Failed to update the AI runtime selection.' };
 }

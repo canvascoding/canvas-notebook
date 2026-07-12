@@ -1,4 +1,4 @@
-import { db } from '../db';
+import { db, openDb } from '../db';
 import { legacyAiTablesExist } from '../db/legacy-ai-tables';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
 import { eq, and, asc, desc } from 'drizzle-orm';
@@ -15,9 +15,13 @@ import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, normalizeStoredChannelId, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import {
   resolveAgentSessionWorkspaceForUser,
+  type PiSessionWorkspaceFields,
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
-import { piSessionRuntimeSnapshotDbFields } from '@/app/lib/agent-runtime-policy/runtime-store';
+import {
+  piSessionRuntimeSnapshotDbFields,
+  SessionRuntimeContextRevisionConflictError,
+} from '@/app/lib/agent-runtime-policy/runtime-store';
 import type { AiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/types';
 
 /**
@@ -25,6 +29,11 @@ import type { AiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/ty
  */
 
 const SESSION_TITLE_MAX_LENGTH = 48;
+
+function storedRevision(value: unknown): number {
+  const revision = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
+  return Number.isSafeInteger(revision) && revision >= 0 ? revision : 0;
+}
 
 function resolveSessionAgentId(agentId?: string | null): string {
   return agentId?.trim() || DEFAULT_AGENT_ID;
@@ -89,6 +98,109 @@ function attachPersistedSequence(message: AgentMessage, sequence: number): Agent
     ...(message as unknown as Record<string, unknown>),
     sequence,
   } as unknown as AgentMessage;
+}
+
+export async function createPiSessionWithRuntimeSnapshot(input: {
+  sessionId: string;
+  userId: string;
+  agentId: string;
+  title: string;
+  workspace: PiSessionWorkspaceFields;
+  runtimeSnapshot: AiSessionRuntimeSnapshot;
+  systemPromptSnapshot: PiSystemPromptSnapshot;
+}): Promise<typeof piSessions.$inferSelect> {
+  if (!input.workspace.organizationId) {
+    throw new Error('Organization setup is required for an AI runtime session.');
+  }
+
+  const connection = await openDb();
+  try {
+    const now = Date.now();
+    const inserted = await connection.get(
+      `INSERT INTO pi_sessions (
+         session_id, user_id, agent_id, provider, model, thinking_level, title,
+         created_at, updated_at, system_prompt_snapshot, system_prompt_snapshot_hash,
+         system_prompt_snapshot_created_at, channel_id, channel_session_key,
+         organization_id, customer_id, project_id, workspace_id, workspace_type,
+         workspace_name, workspace_root_relative_path, runtime_provider_installation_id,
+         runtime_catalog_revision, runtime_policy_revision, runtime_selection_source
+       )
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL,
+              ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
+       WHERE COALESCE((
+         SELECT catalog_revision
+         FROM ai_runtime_defaults
+         WHERE organization_id = ?
+         LIMIT 1
+       ), 0) = ?
+       AND COALESCE((
+         SELECT revision
+         FROM ai_workspace_model_policies
+         WHERE organization_id = ? AND workspace_id = ?
+         LIMIT 1
+       ), 0) = ?
+       RETURNING id`,
+      [
+        input.sessionId,
+        input.userId,
+        input.agentId,
+        input.runtimeSnapshot.selection.providerId,
+        input.runtimeSnapshot.selection.modelId,
+        input.runtimeSnapshot.selection.thinkingLevel,
+        input.title,
+        now,
+        now,
+        input.systemPromptSnapshot.systemPrompt,
+        input.systemPromptSnapshot.systemPromptHash,
+        input.systemPromptSnapshot.systemPromptCreatedAt.getTime(),
+        input.workspace.organizationId,
+        input.workspace.customerId,
+        input.workspace.projectId,
+        input.workspace.workspaceId,
+        input.workspace.workspaceType,
+        input.workspace.workspaceName,
+        input.workspace.workspaceRootRelativePath,
+        input.runtimeSnapshot.selection.providerInstallationId,
+        input.runtimeSnapshot.catalogRevision,
+        input.runtimeSnapshot.policyRevision,
+        input.runtimeSnapshot.selectionSource,
+        input.workspace.organizationId,
+        input.runtimeSnapshot.catalogRevision,
+        input.workspace.organizationId,
+        input.workspace.workspaceId,
+        input.runtimeSnapshot.policyRevision,
+      ],
+    ) as { id?: number | string } | undefined;
+
+    if (!inserted?.id) {
+      const catalogRow = await connection.get(
+        `SELECT catalog_revision AS revision
+         FROM ai_runtime_defaults
+         WHERE organization_id = ?
+         LIMIT 1`,
+        [input.workspace.organizationId],
+      ) as { revision?: number | string | null } | undefined;
+      const policyRow = await connection.get(
+        `SELECT revision
+         FROM ai_workspace_model_policies
+         WHERE organization_id = ? AND workspace_id = ?
+         LIMIT 1`,
+        [input.workspace.organizationId, input.workspace.workspaceId],
+      ) as { revision?: number | string | null } | undefined;
+      throw new SessionRuntimeContextRevisionConflictError(
+        storedRevision(catalogRow?.revision),
+        storedRevision(policyRow?.revision),
+      );
+    }
+  } finally {
+    await connection.close?.();
+  }
+
+  const session = await db.query.piSessions.findFirst({
+    where: buildPiSessionLookup(input.sessionId, input.userId, input.agentId),
+  });
+  if (!session) throw new Error('Session could not be loaded after creation.');
+  return session;
 }
 
 export async function savePiSession(

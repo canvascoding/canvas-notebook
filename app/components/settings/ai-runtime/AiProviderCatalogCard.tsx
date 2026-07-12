@@ -2,11 +2,13 @@
 
 import { useMemo, useState } from 'react';
 import {
+  ArrowDown,
   BrainCircuit,
   Check,
   ChevronDown,
   Cloud,
   Eye,
+  Network,
   Search,
   ServerCog,
   ShieldCheck,
@@ -17,10 +19,12 @@ import {
 import type {
   AiCatalogDiscoveryModel,
   AiCredentialScope,
+  AiProviderSafeConfig,
   AiProviderSource,
   AiProviderStatus,
   AiRuntimeSelection,
 } from '@/app/lib/agent-runtime-policy/types';
+import { getAllowedCredentialScopesForProvider } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -32,7 +36,6 @@ import { cn } from '@/lib/utils';
 
 import type { AiCatalogProviderDraft } from './catalog-client';
 
-const STANDARD_CREDENTIAL_SCOPES: AiCredentialScope[] = ['system', 'organization', 'user'];
 const INITIAL_MODEL_COUNT = 8;
 
 export type AiProviderCatalogCardCopy = {
@@ -59,6 +62,24 @@ export type AiProviderCatalogCardCopy = {
   vision: string;
   contextWindow: (tokens: string) => string;
   managedScopeLocked: string;
+  oauthScopeLocked: string;
+  selfHostedConfiguration: string;
+  selfHostedDescription: string;
+  openAiBaseUrl: string;
+  openAiBaseUrlPlaceholder: string;
+  ollamaMode: string;
+  ollamaLocal: string;
+  ollamaRemote: string;
+  ollamaLocalDescription: string;
+  ollamaRemoteHost: string;
+  ollamaRemoteHostPlaceholder: string;
+  modelSource: string;
+  predefinedModel: string;
+  customModel: string;
+  customModelId: string;
+  customModelPlaceholder: string;
+  credentialsSeparated: string;
+  configureCredentials: string;
   status: Record<AiProviderStatus, string>;
   source: Record<AiProviderSource, string>;
   scope: Record<AiCredentialScope, string>;
@@ -72,6 +93,8 @@ type AiProviderCatalogCardProps = {
   verifying?: boolean;
   onEnabledChange: (enabled: boolean) => void;
   onCredentialScopeChange: (scope: AiCredentialScope) => void;
+  onConfigChange: (config: AiProviderSafeConfig) => void;
+  onCustomModelChange: (modelId: string) => void;
   onModelAllowedChange: (model: AiCatalogDiscoveryModel, allowed: boolean) => void;
   onProviderDefaultChange: (model: AiCatalogDiscoveryModel) => void;
   onRemove: () => void;
@@ -99,6 +122,8 @@ export function AiProviderCatalogCard({
   verifying = false,
   onEnabledChange,
   onCredentialScopeChange,
+  onConfigChange,
+  onCustomModelChange,
   onModelAllowedChange,
   onProviderDefaultChange,
   onRemove,
@@ -108,6 +133,12 @@ export function AiProviderCatalogCard({
   const [search, setSearch] = useState('');
   const [showAll, setShowAll] = useState(false);
   const isManaged = provider.source === 'managed' || provider.credentialScope === 'managed';
+  const credentialScopes = isManaged
+    ? (['managed'] as const)
+    : getAllowedCredentialScopesForProvider(provider.providerId, provider.config.authMethod);
+  const isPersonalOAuthScope = !isManaged
+    && credentialScopes.length === 1
+    && credentialScopes[0] === 'user';
   const selectedModelIds = useMemo(() => new Set(provider.modelIds), [provider.modelIds]);
   const normalizedSearch = search.trim().toLocaleLowerCase();
   const filteredModels = useMemo(() => provider.availableModels.filter((model) => {
@@ -119,6 +150,9 @@ export function AiProviderCatalogCard({
     ? filteredModels
     : filteredModels.slice(0, INITIAL_MODEL_COUNT);
   const providerDefault = provider.availableModels.find((model) => model.id === provider.defaultModelId);
+  const isOpenAiCompatible = provider.providerId === 'openai-compatible';
+  const isOllama = provider.providerId === 'ollama';
+  const hasSelfHostedConfiguration = isOpenAiCompatible || isOllama;
 
   return (
     <Card className={cn('gap-0 overflow-hidden py-0', !provider.enabled && 'bg-muted/20')}>
@@ -177,17 +211,18 @@ export function AiProviderCatalogCard({
               <select
                 id={`${provider.clientKey}-credential-scope`}
                 value={provider.credentialScope}
-                disabled={disabled || isManaged}
+                disabled={disabled || isManaged || isPersonalOAuthScope}
                 onChange={(event) => onCredentialScopeChange(event.target.value as AiCredentialScope)}
                 className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
               >
-                {(isManaged ? ['managed'] as const : STANDARD_CREDENTIAL_SCOPES).map((scope) => (
+                {credentialScopes.map((scope) => (
                   <option key={scope} value={scope}>{copy.scope[scope]}</option>
                 ))}
               </select>
               <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
             </div>
             {isManaged && <p className="text-xs text-muted-foreground">{copy.managedScopeLocked}</p>}
+            {isPersonalOAuthScope && <p className="text-xs text-muted-foreground">{copy.oauthScopeLocked}</p>}
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {onVerify && (
@@ -219,6 +254,162 @@ export function AiProviderCatalogCard({
           </div>
         </div>
       </CardHeader>
+
+      {hasSelfHostedConfiguration && (
+        <div className="border-b bg-muted/10 px-4 py-4 sm:px-5">
+          <div className="space-y-4 rounded-lg border bg-background p-3.5 shadow-xs">
+            <div className="flex items-start gap-3">
+              <div className="flex size-8 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
+                <Network className="size-4" aria-hidden="true" />
+              </div>
+              <div className="min-w-0 space-y-1">
+                <p className="text-sm font-semibold">{copy.selfHostedConfiguration}</p>
+                <p className="text-xs leading-relaxed text-muted-foreground">{copy.selfHostedDescription}</p>
+              </div>
+            </div>
+
+            {isOpenAiCompatible && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor={`${provider.clientKey}-openai-base-url`}>{copy.openAiBaseUrl}</Label>
+                  <Input
+                    id={`${provider.clientKey}-openai-base-url`}
+                    type="url"
+                    inputMode="url"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={provider.config.openaiCompatibleBaseUrl ?? ''}
+                    disabled={disabled}
+                    placeholder={copy.openAiBaseUrlPlaceholder}
+                    onChange={(event) => onConfigChange({
+                      ...provider.config,
+                      openaiCompatibleBaseUrl: event.target.value || undefined,
+                      openaiCompatibleModelSource: 'custom',
+                    })}
+                  />
+                </div>
+                <div className="space-y-2 sm:col-span-2">
+                  <Label htmlFor={`${provider.clientKey}-openai-model-id`}>{copy.customModelId}</Label>
+                  <Input
+                    id={`${provider.clientKey}-openai-model-id`}
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
+                    value={provider.config.openaiCompatibleCustomModel ?? ''}
+                    disabled={disabled}
+                    placeholder={copy.customModelPlaceholder}
+                    onChange={(event) => onCustomModelChange(event.target.value)}
+                  />
+                </div>
+              </div>
+            )}
+
+            {isOllama && (
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="space-y-2">
+                  <Label htmlFor={`${provider.clientKey}-ollama-mode`}>{copy.ollamaMode}</Label>
+                  <div className="relative">
+                    <select
+                      id={`${provider.clientKey}-ollama-mode`}
+                      value={provider.config.ollamaMode ?? 'local'}
+                      disabled={disabled}
+                      onChange={(event) => {
+                        const ollamaMode = event.target.value as 'local' | 'cloud';
+                        onConfigChange({
+                          ...provider.config,
+                          ollamaMode,
+                          ...(ollamaMode === 'local' ? { ollamaHost: undefined } : {}),
+                        });
+                      }}
+                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                    >
+                      <option value="local">{copy.ollamaLocal}</option>
+                      <option value="cloud">{copy.ollamaRemote}</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                  </div>
+                  <p className="text-xs leading-relaxed text-muted-foreground">
+                    {provider.config.ollamaMode === 'cloud'
+                      ? copy.ollamaRemoteHostPlaceholder
+                      : copy.ollamaLocalDescription}
+                  </p>
+                </div>
+
+                <div className="space-y-2">
+                  <Label htmlFor={`${provider.clientKey}-ollama-model-source`}>{copy.modelSource}</Label>
+                  <div className="relative">
+                    <select
+                      id={`${provider.clientKey}-ollama-model-source`}
+                      value={provider.config.ollamaModelSource ?? 'predefined'}
+                      disabled={disabled}
+                      onChange={(event) => onConfigChange({
+                        ...provider.config,
+                        ollamaModelSource: event.target.value as 'predefined' | 'custom',
+                        ...(event.target.value === 'predefined' ? { ollamaCustomModel: undefined } : {}),
+                      })}
+                      className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                    >
+                      <option value="predefined">{copy.predefinedModel}</option>
+                      <option value="custom">{copy.customModel}</option>
+                    </select>
+                    <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                  </div>
+                </div>
+
+                {provider.config.ollamaMode === 'cloud' && (
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor={`${provider.clientKey}-ollama-host`}>{copy.ollamaRemoteHost}</Label>
+                    <Input
+                      id={`${provider.clientKey}-ollama-host`}
+                      type="url"
+                      inputMode="url"
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={provider.config.ollamaHost ?? ''}
+                      disabled={disabled}
+                      placeholder={copy.ollamaRemoteHostPlaceholder}
+                      onChange={(event) => onConfigChange({
+                        ...provider.config,
+                        ollamaMode: 'cloud',
+                        ollamaHost: event.target.value || undefined,
+                      })}
+                    />
+                  </div>
+                )}
+
+                {provider.config.ollamaModelSource === 'custom' && (
+                  <div className="space-y-2 sm:col-span-2">
+                    <Label htmlFor={`${provider.clientKey}-ollama-model-id`}>{copy.customModelId}</Label>
+                    <Input
+                      id={`${provider.clientKey}-ollama-model-id`}
+                      autoCapitalize="none"
+                      autoCorrect="off"
+                      spellCheck={false}
+                      value={provider.config.ollamaCustomModel ?? ''}
+                      disabled={disabled}
+                      placeholder={copy.customModelPlaceholder}
+                      onChange={(event) => onCustomModelChange(event.target.value)}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex flex-col gap-2 rounded-md border border-dashed bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
+              <span>{copy.credentialsSeparated}</span>
+              <a
+                href="#ai-provider-credentials"
+                className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
+              >
+                {copy.configureCredentials}
+                <ArrowDown className="size-3" aria-hidden="true" />
+              </a>
+            </div>
+          </div>
+        </div>
+      )}
 
       <Collapsible open={modelsOpen} onOpenChange={setModelsOpen}>
         <CollapsibleTrigger asChild>

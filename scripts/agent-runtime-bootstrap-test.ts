@@ -90,6 +90,10 @@ async function main() {
     syncManagedAgentRuntimeCatalog,
   } = await import('../app/lib/agent-runtime-policy/bootstrap-service');
   const { readAppRuntimeCatalog } = await import('../app/lib/agent-runtime-policy/catalog-store');
+  const {
+    AiRuntimeExecutionError,
+    resolveProviderInstallationModel,
+  } = await import('../app/lib/agent-runtime-policy/provider-runtime');
   const { readUserModelPreference } = await import('../app/lib/agent-runtime-policy/runtime-store');
   const { readPiRuntimeConfig } = await import('../app/lib/agents/storage');
   const { resolveSettingsStoragePath } = await import('../app/lib/settings-storage');
@@ -209,6 +213,17 @@ async function main() {
   assert.equal(managed.catalog.providers[0].providerId, 'canvas-control-plane');
   assert.equal(managed.catalog.providers[0].sourceRevision, 'managed-revision-1');
   assert.ok(managed.catalog.providers[0].lastSyncedAt);
+
+  payload = managedPayload({ revision: 'managed-revision-2' });
+  await assert.rejects(
+    () => resolveProviderInstallationModel({
+      provider: managed.catalog.providers[0],
+      model: managed.catalog.providers[0].models.find((model) => model.id === 'managed-second')!,
+    }),
+    (error) => error instanceof AiRuntimeExecutionError
+      && error.code === 'RUNTIME_MANAGED_CATALOG_CHANGED',
+  );
+  payload = managedPayload();
 
   await fs.rm(runtimeConfigPath, { force: true });
   const compatibilityConfig = await readPiRuntimeConfig();

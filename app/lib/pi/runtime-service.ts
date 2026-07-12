@@ -25,6 +25,7 @@ import {
   requestedWorkspaceIdFromChatContext,
   workspaceToChatRequestWorkspace,
 } from '@/app/lib/pi/session-workspace-context';
+import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 
 export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
 
@@ -282,22 +283,24 @@ export async function sendMessage(
   message: UserAgentMessage | null,
   context?: ChatRequestContext,
 ): Promise<PiRuntimeStatus> {
-  const payload = {
-    sessionId,
-    ...(message ? { message, messages: [message] } : {}),
-    context,
-  };
-  const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
+  return withPiSessionOperationLock(sessionId, userId, async () => {
+    const payload = {
+      sessionId,
+      ...(message ? { message, messages: [message] } : {}),
+      context,
+    };
+    const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
 
-  if (prepared.promptMessage) {
-    if (prepared.status.canAbort) {
-      return prepared.runtimeInstance.queueFollowUp(prepared.promptMessage);
+    if (prepared.promptMessage) {
+      if (prepared.status.canAbort) {
+        return prepared.runtimeInstance.queueFollowUp(prepared.promptMessage);
+      }
+
+      prepared.runtimeInstance.startPrompt(prepared.promptMessage);
     }
 
-    prepared.runtimeInstance.startPrompt(prepared.promptMessage);
-  }
-
-  return prepared.runtimeInstance.getStatus();
+    return prepared.runtimeInstance.getStatus();
+  });
 }
 
 export async function sendFollowUpMessage(
@@ -306,25 +309,27 @@ export async function sendFollowUpMessage(
   message: UserAgentMessage,
   context?: ChatRequestContext,
 ): Promise<PiRuntimeStatus> {
-  const payload = {
-    sessionId,
-    message,
-    messages: [message],
-    context,
-  };
-  const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
-  const promptMessage = prepared.promptMessage;
+  return withPiSessionOperationLock(sessionId, userId, async () => {
+    const payload = {
+      sessionId,
+      message,
+      messages: [message],
+      context,
+    };
+    const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
+    const promptMessage = prepared.promptMessage;
 
-  if (!promptMessage) {
-    throw new RuntimeServiceError('Follow-up message required.', 400);
-  }
+    if (!promptMessage) {
+      throw new RuntimeServiceError('Follow-up message required.', 400);
+    }
 
-  if (prepared.status.canAbort) {
-    return prepared.runtimeInstance.queueFollowUp(promptMessage);
-  }
+    if (prepared.status.canAbort) {
+      return prepared.runtimeInstance.queueFollowUp(promptMessage);
+    }
 
-  prepared.runtimeInstance.startPrompt(promptMessage);
-  return prepared.runtimeInstance.getStatus();
+    prepared.runtimeInstance.startPrompt(promptMessage);
+    return prepared.runtimeInstance.getStatus();
+  });
 }
 
 export async function control(
@@ -334,41 +339,43 @@ export async function control(
   message?: unknown,
   queueItemId?: string,
 ): Promise<PiRuntimeStatus> {
-  const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
+  return withPiSessionOperationLock(sessionId, userId, async () => {
+    const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
 
-  switch (action) {
-    case 'follow_up':
-      if (!isValidUserMessage(message)) {
-        throw new RuntimeServiceError('User message required for follow_up.', 400);
-      }
-      return runtimeInstance.queueFollowUp(message);
-    case 'steer':
-      if (!isValidUserMessage(message)) {
-        throw new RuntimeServiceError('User message required for steer.', 400);
-      }
-      return runtimeInstance.queueSteering(message);
-    case 'promote_queued_to_steer':
-      if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
-        throw new RuntimeServiceError('Queue item id required for promote_queued_to_steer.', 400);
-      }
-      return runtimeInstance.promoteQueuedMessageToSteering(queueItemId.trim());
-    case 'remove_queued_item':
-      if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
-        throw new RuntimeServiceError('Queue item id required for remove_queued_item.', 400);
-      }
-      return runtimeInstance.removeQueuedMessage(queueItemId.trim());
-    case 'replace':
-      if (!isValidUserMessage(message)) {
-        throw new RuntimeServiceError('User message required for replace.', 400);
-      }
-      return runtimeInstance.replace(message);
-    case 'abort':
-      return runtimeInstance.abort();
-    case 'compact':
-      return runtimeInstance.compactNow();
-    default:
-      throw new RuntimeServiceError(`Unsupported action: ${String(action)}`, 400);
-  }
+    switch (action) {
+      case 'follow_up':
+        if (!isValidUserMessage(message)) {
+          throw new RuntimeServiceError('User message required for follow_up.', 400);
+        }
+        return runtimeInstance.queueFollowUp(message);
+      case 'steer':
+        if (!isValidUserMessage(message)) {
+          throw new RuntimeServiceError('User message required for steer.', 400);
+        }
+        return runtimeInstance.queueSteering(message);
+      case 'promote_queued_to_steer':
+        if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
+          throw new RuntimeServiceError('Queue item id required for promote_queued_to_steer.', 400);
+        }
+        return runtimeInstance.promoteQueuedMessageToSteering(queueItemId.trim());
+      case 'remove_queued_item':
+        if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
+          throw new RuntimeServiceError('Queue item id required for remove_queued_item.', 400);
+        }
+        return runtimeInstance.removeQueuedMessage(queueItemId.trim());
+      case 'replace':
+        if (!isValidUserMessage(message)) {
+          throw new RuntimeServiceError('User message required for replace.', 400);
+        }
+        return runtimeInstance.replace(message);
+      case 'abort':
+        return runtimeInstance.abort();
+      case 'compact':
+        return runtimeInstance.compactNow();
+      default:
+        throw new RuntimeServiceError(`Unsupported action: ${String(action)}`, 400);
+    }
+  });
 }
 
 export async function getStatus(
@@ -404,4 +411,12 @@ export async function getActiveRuntimeStatusSummaries({
 
 export async function invalidateRuntime(sessionId: string, userId: string): Promise<boolean> {
   return invalidatePiRuntime(sessionId, userId);
+}
+
+export async function withRuntimeSessionOperation<T>(
+  sessionId: string,
+  userId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withPiSessionOperationLock(sessionId, userId, operation);
 }

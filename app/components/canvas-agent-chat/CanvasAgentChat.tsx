@@ -42,6 +42,7 @@ import {
   WORKSPACE_CHANGED_EVENT,
 } from '@/app/store/workspace-store';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
+import type { AiEffectiveRuntimeResolution, AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
 
 import {
   clearCanvasChatActiveSessionStorage,
@@ -49,14 +50,7 @@ import {
 } from '@/app/lib/chat/constants';
 import { removeComposerDraft } from '@/app/lib/chat/draft-storage';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
-import {
-  DEFAULT_MODEL_ID,
-  DEFAULT_PROVIDER_ID,
-  isAgentConfigForAgent,
-  resolveAgentModelState,
-  useChatAgentConfig,
-  type AgentModelState,
-} from '@/app/components/canvas-agent-chat/useChatAgentConfig';
+import { useChatAgentConfig } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { useChatAttachments } from '@/app/components/canvas-agent-chat/useChatAttachments';
 import { useChatControlActions } from '@/app/components/canvas-agent-chat/useChatControlActions';
 import { useChatComposerDraft } from '@/app/components/canvas-agent-chat/useChatComposerDraft';
@@ -69,6 +63,7 @@ import {
 import { useChatSessionBootstrap } from '@/app/components/canvas-agent-chat/useChatSessionBootstrap';
 import { useChatSessionMessages } from '@/app/components/canvas-agent-chat/useChatSessionMessages';
 import { useComposerReferences } from '@/app/components/canvas-agent-chat/useComposerReferences';
+import { useChatRuntimeSelection } from '@/app/components/canvas-agent-chat/useChatRuntimeSelection';
 import type {
   AgentProfile,
   AISession,
@@ -115,6 +110,23 @@ function formatContextTokens(value: number): string {
   }
 
   return `${value}`;
+}
+
+function isSelectableRuntimeSelection(
+  resolution: AiEffectiveRuntimeResolution | null,
+  selection: AiRuntimeSelection | null,
+): boolean {
+  if (!resolution || !selection) return false;
+  const provider = resolution.providers.find((candidate) => (
+    candidate.installationId === selection.providerInstallationId
+  ));
+  const model = provider?.models.find((candidate) => candidate.id === selection.modelId);
+  return Boolean(
+    provider?.selectable
+      && provider.providerId === selection.providerId
+      && model?.enabled
+      && model.thinkingLevels.includes(selection.thinkingLevel),
+  );
 }
 
 export default function CanvasAgentChat({
@@ -210,7 +222,6 @@ export default function CanvasAgentChat({
     activeThinkingLevel,
     agentConfig,
     availableAgents,
-    isAgentConfigLoading,
     selectedAgentId,
     setActiveModel,
     setActiveProvider,
@@ -221,6 +232,24 @@ export default function CanvasAgentChat({
     initialAgentId: CHAT_AGENT_ID,
     sessionId,
   });
+  const {
+    resolution: runtimeResolution,
+    selection: requestedRuntimeSelection,
+    selectionSource: runtimeSelectionSource,
+    hasLocalSelection: hasLocalRuntimeSelection,
+    loading: isRuntimeSelectionLoading,
+    error: runtimeSelectionError,
+    setRequestedSelection: setRequestedRuntimeSelection,
+    applyResolution: applyRuntimeResolution,
+    refresh: refreshRuntimeSelection,
+  } = useChatRuntimeSelection({
+    workspaceId: activeWorkspaceId,
+    agentId: selectedAgentId,
+    sessionId,
+  });
+  const runtimeSelection = isSelectableRuntimeSelection(runtimeResolution, requestedRuntimeSelection)
+    ? requestedRuntimeSelection
+    : null;
   const selectedAgentProfile = availableAgents.find((agent) => agent.agentId === selectedAgentId);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
@@ -582,6 +611,11 @@ export default function CanvasAgentChat({
     activeModel,
     activeProvider,
     activeThinkingLevel,
+    runtimeSelection,
+    hasLocalRuntimeSelection,
+    runtimeCatalogRevision: runtimeResolution?.catalogRevision ?? null,
+    runtimePolicyRevision: runtimeResolution?.policyRevision ?? null,
+    refreshRuntimeSelection,
     activeWorkspaceId,
     addSessionToHistory,
     agentConfig,
@@ -823,7 +857,6 @@ export default function CanvasAgentChat({
 
   useChatSessionBootstrap({
     addSessionToHistory,
-    agentConfig,
     appendSystemMessage,
     clearSessionParamFromUrl,
     fetchHistory,
@@ -838,6 +871,7 @@ export default function CanvasAgentChat({
     initialPromptStorageKey,
     isLoadingHistory,
     isResolvingInitialChatState,
+    isRuntimeSelectionLoading,
     loadSession,
     loadSessionList,
     requestedSessionCleanupRef,
@@ -857,27 +891,27 @@ export default function CanvasAgentChat({
 
   // Poll runtime status only while the agent is active; fetch once on session switch
   const isAgentActive = runtimeStatus != null && runtimeStatus.phase !== 'idle';
-  const handleModelChange = useCallback((next: AgentModelState) => {
-    updateAgentModelSelection(next);
+  const handleRuntimeSelectionChange = useCallback((next: AiRuntimeSelection) => {
+    setRequestedRuntimeSelection(next);
+    updateAgentModelSelection({
+      provider: next.providerId,
+      model: next.modelId,
+      thinkingLevel: next.thinkingLevel,
+    });
     setHistory((items) => items.map((item) => (
       item.sessionId === sessionIdRef.current
-        ? { ...item, model: next.model, provider: next.provider, thinkingLevel: next.thinkingLevel }
+        ? { ...item, model: next.modelId, provider: next.providerId, thinkingLevel: next.thinkingLevel }
         : item
     )));
-  }, [setHistory, updateAgentModelSelection]);
+  }, [setHistory, setRequestedRuntimeSelection, updateAgentModelSelection]);
 
-  const invalidateRuntimeAfterModelChange = useCallback(async () => {
+  const refreshRuntimeStatusAfterModelChange = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
     if (!currentSessionId) {
       return;
     }
-    try {
-      await wsRequest('change_model', { sessionId: currentSessionId }, 5000);
-    } catch (error) {
-      console.warn('Runtime invalidation after model change did not complete over WebSocket', error);
-    }
     await refreshRuntimeStatus(currentSessionId);
-  }, [refreshRuntimeStatus, wsRequest]);
+  }, [refreshRuntimeStatus]);
 
   useEffect(() => {
     if (!sessionId) return;
@@ -937,18 +971,11 @@ export default function CanvasAgentChat({
   const primaryActionIsStop = isRuntimeBusy && !hasComposerContent;
   const isRuntimeAborting = runtimeStatus?.phase === 'aborting';
   const primaryActionLabel = primaryActionIsStop ? (isRuntimeAborting ? t('stopping') : t('stop')) : t('sendAction');
-  const selectedAgentConfig = isAgentConfigForAgent(agentConfig, selectedAgentId) ? agentConfig : null;
-  const selectedAgentModelState = resolveAgentModelState(selectedAgentConfig);
-  const effectiveActiveProvider = activeProvider || selectedAgentModelState?.provider || DEFAULT_PROVIDER_ID;
-  const effectiveActiveModel = activeModel || selectedAgentModelState?.model || DEFAULT_MODEL_ID;
-  const effectiveActiveThinkingLevel = activeModel
-    ? activeThinkingLevel
-    : selectedAgentModelState?.thinkingLevel || activeThinkingLevel;
-  const isModelConfigured = Boolean(effectiveActiveModel.trim());
+  const isModelConfigured = Boolean(runtimeSelection);
   const primaryActionDisabled = primaryActionIsStop
     ? isRuntimeAborting || !runtimeStatus?.canAbort || isWebSocketUnavailable
     : isUploading || !hasComposerContent || isWebSocketUnavailable || !isModelConfigured;
-  const isModelConfigurationLoading = isAgentConfigLoading && !isModelConfigured;
+  const isModelConfigurationLoading = isRuntimeSelectionLoading && !isModelConfigured;
   const showModelRequiredNotice = !isModelConfigured && !isModelConfigurationLoading;
   const isHistoryOverlayOpen = showHistory && shouldShowHistoryAsOverlay;
   const scrollContentPadding = isHistoryOverlayOpen ? 24 : composerHeight + 24;
@@ -1261,14 +1288,17 @@ export default function CanvasAgentChat({
         onSend={handleSend}
         selectedAgentId={selectedAgentId}
         sessionId={sessionId}
-        activeModel={effectiveActiveModel}
-        activeProvider={effectiveActiveProvider}
-        thinkingLevel={effectiveActiveThinkingLevel}
-        agentConfig={selectedAgentConfig}
-        modelSelectorDisabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle') || !effectiveActiveProvider}
+        runtimeSelection={requestedRuntimeSelection}
+        runtimeSelectionSource={runtimeSelectionSource}
+        runtimeResolution={runtimeResolution}
+        runtimeSelectionError={runtimeSelectionError}
+        hasLocalRuntimeSelection={hasLocalRuntimeSelection}
+        modelSelectorDisabled={Boolean(runtimeStatus && runtimeStatus.phase !== 'idle') || isRuntimeSelectionLoading}
         compactModelSelector={isCompactView}
-        onModelChange={handleModelChange}
-        onRuntimeInvalidated={invalidateRuntimeAfterModelChange}
+        onRuntimeSelectionChange={handleRuntimeSelectionChange}
+        onRuntimeResolutionChange={applyRuntimeResolution}
+        onRuntimeResolutionRefresh={refreshRuntimeSelection}
+        onRuntimeStatusRefresh={refreshRuntimeStatusAfterModelChange}
         showComposerHint={showComposerHint}
         onToggleComposerHint={() => setShowComposerHint((current) => !current)}
         composerHint={composerHint}

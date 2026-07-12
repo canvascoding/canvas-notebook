@@ -13,12 +13,150 @@ process.env.DATA = dataDir;
 process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
 process.env.CANVAS_DEPLOYMENT_MODE = 'single_user';
 
+const scopedStreamCalls: Array<{
+  modelId: string;
+  apiKey?: string;
+  env?: Record<string, string | undefined>;
+}> = [];
+
+type Deferred = {
+  promise: Promise<void>;
+  resolve: () => void;
+};
+
+function deferred(): Deferred {
+  let resolve!: () => void;
+  const promise = new Promise<void>((resolvePromise) => {
+    resolve = resolvePromise;
+  });
+  return { promise, resolve };
+}
+
+let organizationCredentialReadBarrier: {
+  remainingReads: number;
+  started: Deferred;
+  release: Deferred;
+} | null = null;
+
+function delayOrganizationCredentialReadAfter(readsToSkip: number): {
+  started: Promise<void>;
+  release: () => void;
+} {
+  const started = deferred();
+  const release = deferred();
+  organizationCredentialReadBarrier = {
+    remainingReads: readsToSkip,
+    started,
+    release,
+  };
+  return {
+    started: started.promise,
+    release: () => {
+      organizationCredentialReadBarrier = null;
+      release.resolve();
+    },
+  };
+}
+
+let catalogDefaultsReadBarrier: {
+  started: Deferred;
+  release: Deferred;
+} | null = null;
+
+function delayCatalogReadAfterDefaults(): {
+  started: Promise<void>;
+  release: () => void;
+} {
+  const started = deferred();
+  const release = deferred();
+  catalogDefaultsReadBarrier = { started, release };
+  return {
+    started: started.promise,
+    release: () => {
+      catalogDefaultsReadBarrier = null;
+      release.resolve();
+    },
+  };
+}
+
+async function within<T>(promise: Promise<T>, label: string): Promise<T> {
+  let timeout: NodeJS.Timeout | undefined;
+  try {
+    return await Promise.race([
+      promise,
+      new Promise<never>((_, reject) => {
+        timeout = setTimeout(() => reject(new Error(`${label} timed out.`)), 5_000);
+      }),
+    ]);
+  } finally {
+    if (timeout) clearTimeout(timeout);
+  }
+}
+
 const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
+  if (request === '@/app/lib/db') {
+    const database = originalLoad(request, parent, isMain) as {
+      openDb: () => Promise<{
+        get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
+        run: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
+        all: (sql: string, params?: unknown[]) => unknown[] | Promise<unknown[]>;
+        close: () => void | Promise<void>;
+      }>;
+    };
+    return {
+      ...database,
+      openDb: async () => {
+        const connection = await database.openDb();
+        return {
+          ...connection,
+          get: async (sql: string, params?: unknown[]) => {
+            const result = await connection.get(sql, params);
+            const barrier = catalogDefaultsReadBarrier;
+            if (
+              barrier
+              && sql.includes('legacy_source_hash')
+              && /FROM\s+ai_runtime_defaults/u.test(sql)
+            ) {
+              barrier.started.resolve();
+              await barrier.release.promise;
+            }
+            return result;
+          },
+        };
+      },
+    };
+  }
+  if (request === '@/app/lib/integrations/env-config') {
+    const envConfig = originalLoad(request, parent, isMain) as {
+      readScopedEnvState: (
+        scope: string,
+        storageScope?: { secretScope?: string } | null,
+      ) => Promise<unknown>;
+    };
+    return {
+      ...envConfig,
+      readScopedEnvState: async (
+        scope: string,
+        storageScope?: { secretScope?: string } | null,
+      ) => {
+        const barrier = organizationCredentialReadBarrier;
+        if (barrier && storageScope?.secretScope === 'organization') {
+          if (barrier.remainingReads > 0) {
+            barrier.remainingReads -= 1;
+          } else {
+            barrier.started.resolve();
+            await barrier.release.promise;
+          }
+        }
+        return envConfig.readScopedEnvState(scope, storageScope);
+      },
+    };
+  }
   if (request === '@earendil-works/pi-ai/oauth') {
     return { getOAuthProvider: () => null };
   }
@@ -27,6 +165,15 @@ moduleInternals._load = (request, parent, isMain) => {
       getModels: () => [],
       getProviders: () => [],
       registerBuiltInApiProviders: () => undefined,
+      streamSimple: (
+        model: { id: string },
+        _context: unknown,
+        options?: { apiKey?: string; env?: Record<string, string | undefined> },
+      ) => {
+        scopedStreamCalls.push({ modelId: model.id, apiKey: options?.apiKey, env: options?.env });
+        return {};
+      },
+      createAssistantMessageEventStream: () => ({ push: () => undefined }),
     };
   }
   return originalLoad(request, parent, isMain);
@@ -42,12 +189,22 @@ function installationId(organizationId: string, providerId: string, credentialSc
 
 async function main() {
   const { createInitialOwner } = await import('../app/lib/auth-setup');
+  const { readAppRuntimeCatalog } = await import('../app/lib/agent-runtime-policy/catalog-store');
   const { parseAiCatalogUpdate, replaceAiAppRuntimeCatalog } = await import('../app/lib/agent-runtime-policy/catalog-service');
   const {
     AiRuntimePolicyError,
     assertEffectiveRuntimeSelection,
     resolveEffectiveAgentRuntime,
   } = await import('../app/lib/agent-runtime-policy/runtime-resolver');
+  const {
+    resolveAndPinSessionRuntime,
+    resolveExecutableAgentRuntime,
+  } = await import('../app/lib/agent-runtime-policy/provider-runtime');
+  const {
+    isProviderInstallationCredentialAvailable,
+    resolveProviderInstallationRuntimeAuth,
+    resolveProviderInstallationRuntimeCredential,
+  } = await import('../app/lib/agent-runtime-policy/installation-credentials');
   const {
     parseUserPreferenceUpdate,
     replaceWorkspaceRuntimePolicy,
@@ -57,11 +214,15 @@ async function main() {
   const {
     deleteWorkspaceModelPolicyStore,
     readPiSessionRuntimeSnapshot,
+    RuntimeContextRevisionConflictError,
     RuntimeStoredDataError,
     SessionRuntimeSnapshotConflictError,
+    writeUserModelPreferenceStore,
+    writeWorkspaceModelPolicyStore,
     writePiSessionRuntimeSnapshot,
   } = await import('../app/lib/agent-runtime-policy/runtime-store');
   const { createAgentProfile } = await import('../app/lib/agents/registry');
+  const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
   const { ensureDefaultWorkspaceRecords } = await import('../app/lib/workspaces/service');
   const { resolveAgentSessionWorkspaceForUser } = await import('../app/lib/pi/session-workspace-context');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
@@ -79,6 +240,32 @@ async function main() {
     FROM canvas_organization_settings
     LIMIT 1
   `).get() as { organizationId: string };
+  const remoteOllamaInstallation = {
+    installationId: `aip_${'d'.repeat(24)}`,
+    providerId: 'ollama',
+    name: 'Remote Ollama',
+    source: 'self-hosted' as const,
+    credentialScope: 'organization' as const,
+    enabled: true,
+    status: 'ready' as const,
+    config: { ollamaMode: 'cloud' as const, ollamaHost: 'http://ollama.example.test' },
+    sourceRevision: null,
+    lastSyncedAt: null,
+    revision: 1,
+    verifiedAt: new Date().toISOString(),
+    verifiedByUserId: owner.id,
+    models: [],
+  };
+  assert.equal(await isProviderInstallationCredentialAvailable({
+    provider: remoteOllamaInstallation,
+    organizationId: organization.organizationId,
+    userId: owner.id,
+  }), true);
+  assert.equal(await resolveProviderInstallationRuntimeCredential({
+    provider: remoteOllamaInstallation,
+    organizationId: organization.organizationId,
+    userId: owner.id,
+  }), 'canvas-local-runtime');
   sqlite.prepare(`
     UPDATE canvas_organization_settings
     SET team_features_enabled = 1
@@ -98,6 +285,86 @@ async function main() {
   const organizationWorkspaceId = workspaces.find((workspace) => workspace.type === 'organization')?.id;
   assert.ok(personalWorkspaceId);
   assert.ok(organizationWorkspaceId);
+
+  const organizationCompatibleKey = 'sk-org-compatible-runtime-test';
+  await replaceScopedEnvEntries(
+    'agents',
+    [
+      { key: 'OPENAI_COMPATIBLE_API_KEY', value: organizationCompatibleKey },
+      { key: 'AWS_ACCESS_KEY_ID', value: 'org-bedrock-access-key' },
+      { key: 'AWS_SECRET_ACCESS_KEY', value: 'org-bedrock-secret-key' },
+      { key: 'AWS_REGION', value: 'eu-central-1' },
+      { key: 'AZURE_OPENAI_API_KEY', value: 'org-azure-api-key' },
+      { key: 'AZURE_OPENAI_RESOURCE_NAME', value: 'org-azure-resource' },
+    ],
+    { secretScope: 'organization', organizationId: organization.organizationId },
+  );
+  const organizationBedrockInstallation = {
+    installationId: `aip_${'e'.repeat(24)}`,
+    providerId: 'amazon-bedrock',
+    name: 'Organization Bedrock',
+    source: 'built-in' as const,
+    credentialScope: 'organization' as const,
+    enabled: true,
+    status: 'ready' as const,
+    config: {},
+    sourceRevision: null,
+    lastSyncedAt: null,
+    revision: 1,
+    verifiedAt: new Date().toISOString(),
+    verifiedByUserId: owner.id,
+    models: [],
+  };
+  for (const name of [
+    'AWS_ACCESS_KEY_ID',
+    'AWS_SECRET_ACCESS_KEY',
+    'AWS_SESSION_TOKEN',
+    'AWS_REGION',
+    'AWS_DEFAULT_REGION',
+    'AWS_PROFILE',
+    'AWS_BEARER_TOKEN_BEDROCK',
+    'AWS_WEB_IDENTITY_TOKEN_FILE',
+    'AWS_CONTAINER_CREDENTIALS_RELATIVE_URI',
+    'AWS_CONTAINER_CREDENTIALS_FULL_URI',
+    'AWS_BEDROCK_SKIP_AUTH',
+  ]) {
+    delete process.env[name];
+  }
+  process.env.AWS_BEARER_TOKEN_BEDROCK = 'system-bedrock-bearer-must-not-leak';
+  await assert.rejects(
+    () => resolveProviderInstallationRuntimeAuth({
+      provider: organizationBedrockInstallation,
+      organizationId: organization.organizationId,
+      userId: owner.id,
+    }),
+    /conflict with ambient system configuration/u,
+  );
+  delete process.env.AWS_BEARER_TOKEN_BEDROCK;
+  const scopedBedrockAuth = await resolveProviderInstallationRuntimeAuth({
+    provider: organizationBedrockInstallation,
+    organizationId: organization.organizationId,
+    userId: owner.id,
+  });
+  assert.equal(scopedBedrockAuth.configured, true);
+  assert.equal(scopedBedrockAuth.env.AWS_ACCESS_KEY_ID, 'org-bedrock-access-key');
+  assert.equal(scopedBedrockAuth.env.AWS_SECRET_ACCESS_KEY, 'org-bedrock-secret-key');
+  assert.equal(scopedBedrockAuth.env.AWS_BEARER_TOKEN_BEDROCK, undefined);
+  delete process.env.AZURE_OPENAI_BASE_URL;
+  delete process.env.AZURE_OPENAI_RESOURCE_NAME;
+  const scopedAzureAuth = await resolveProviderInstallationRuntimeAuth({
+    provider: {
+      ...organizationBedrockInstallation,
+      installationId: `aip_${'f'.repeat(24)}`,
+      providerId: 'azure-openai-responses',
+      name: 'Organization Azure OpenAI',
+    },
+    organizationId: organization.organizationId,
+    userId: owner.id,
+  });
+  assert.equal(scopedAzureAuth.configured, true);
+  assert.equal(scopedAzureAuth.apiKey, 'org-azure-api-key');
+  assert.equal(scopedAzureAuth.env.AZURE_OPENAI_BASE_URL, undefined);
+  assert.equal(scopedAzureAuth.env.AZURE_OPENAI_RESOURCE_NAME, 'org-azure-resource');
 
   const organizationProviderId = installationId(organization.organizationId, 'openai-compatible', 'organization');
   const userProviderId = installationId(organization.organizationId, 'openai-compatible', 'user');
@@ -161,7 +428,7 @@ async function main() {
         models: [{
           id: sharedModel,
           name: 'Shared Model',
-          reasoning: false,
+          reasoning: true,
           supportsVision: false,
         }],
       },
@@ -184,6 +451,65 @@ async function main() {
     WHERE id = ?
   `).run(Date.now(), organizationProviderId);
 
+  const extendedThinkingLevels = JSON.stringify(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
+  const setSharedModelCapabilityState = (revision: number, supportsExtendedThinking: boolean) => {
+    sqlite.transaction(() => {
+      sqlite.prepare(`
+        UPDATE ai_runtime_defaults
+        SET catalog_revision = ?
+        WHERE organization_id = ?
+      `).run(revision, organization.organizationId);
+      sqlite.prepare(`
+        UPDATE ai_provider_installations
+        SET revision = ?
+        WHERE organization_id = ?
+      `).run(revision, organization.organizationId);
+      sqlite.prepare(`
+        UPDATE ai_provider_models
+        SET revision = ?
+        WHERE organization_id = ?
+      `).run(revision, organization.organizationId);
+      sqlite.prepare(`
+        UPDATE ai_provider_models
+        SET reasoning = ?, thinking_levels_json = ?
+        WHERE organization_id = ? AND model_id = ?
+      `).run(
+        supportsExtendedThinking ? 1 : 0,
+        supportsExtendedThinking ? extendedThinkingLevels : JSON.stringify(['off']),
+        organization.organizationId,
+        sharedModel,
+      );
+    })();
+  };
+
+  const catalogRead = delayCatalogReadAfterDefaults();
+  const catalogDuringUpdatePromise = readAppRuntimeCatalog(organization.organizationId);
+  let catalogStateChanged = false;
+  try {
+    await within(catalogRead.started, 'Catalog defaults read barrier');
+    setSharedModelCapabilityState(2, false);
+    catalogStateChanged = true;
+    catalogRead.release();
+    const stableCatalog = await within(catalogDuringUpdatePromise, 'Stable catalog read');
+    const stableModel = stableCatalog.providers
+      .find((provider) => provider.installationId === organizationProviderId)
+      ?.models.find((model) => model.id === sharedModel);
+    assert.equal(stableCatalog.revision, 1);
+    assert.equal(stableModel?.revision, 1);
+    assert.equal(stableModel?.thinkingLevels.includes('high'), true);
+
+    const updatedCatalog = await readAppRuntimeCatalog(organization.organizationId);
+    const updatedModel = updatedCatalog.providers
+      .find((provider) => provider.installationId === organizationProviderId)
+      ?.models.find((model) => model.id === sharedModel);
+    assert.equal(updatedCatalog.revision, 2);
+    assert.equal(updatedModel?.revision, 2);
+    assert.deepEqual(updatedModel?.thinkingLevels, ['off']);
+  } finally {
+    catalogRead.release();
+    if (catalogStateChanged) setSharedModelCapabilityState(1, true);
+  }
+
   const personalContext = {
     organizationId: organization.organizationId,
     userId: owner.id,
@@ -196,6 +522,87 @@ async function main() {
   assert.equal(resolution.source, 'app_default');
   assert.equal(resolution.effectiveSelection?.selection.providerInstallationId, organizationProviderId);
   assert.equal(resolution.providers.filter((provider) => provider.providerId === 'openai-compatible').length, 2);
+  const executableRuntime = await resolveExecutableAgentRuntime(personalContext);
+  assert.equal(executableRuntime.providerInstallation.installationId, organizationProviderId);
+  assert.equal(executableRuntime.model.id, sharedModel);
+  assert.equal(executableRuntime.model.baseUrl, 'http://localhost:9000/v1');
+  assert.equal(await executableRuntime.getApiKey('openai-compatible'), organizationCompatibleKey);
+  assert.equal(await executableRuntime.getApiKey('openai'), undefined);
+  await executableRuntime.streamFn(executableRuntime.model, { messages: [] }, { sessionId: 'scoped-runtime-test' });
+  assert.deepEqual(scopedStreamCalls.at(-1), {
+    modelId: sharedModel,
+    apiKey: organizationCompatibleKey,
+    env: { OPENAI_COMPATIBLE_API_KEY: organizationCompatibleKey },
+  });
+
+  const streamCallsBeforePolicyRace = scopedStreamCalls.length;
+  const credentialRead = delayOrganizationCredentialReadAfter(2);
+  const racedStream = executableRuntime.streamFn(
+    executableRuntime.model,
+    { messages: [] },
+    { sessionId: 'scoped-runtime-policy-race-test' },
+  );
+  let racedPolicyRevision: number | null = null;
+  try {
+    await within(credentialRead.started, 'Credential read barrier');
+    const racedPolicy = await replaceWorkspaceRuntimePolicy({
+      organizationId: organization.organizationId,
+      workspaceId: personalWorkspaceId,
+      workspaceType: 'personal',
+      actorUserId: owner.id,
+      update: {
+        expectedRevision: 0,
+        expectedCatalogRevision: 1,
+        allowedModels: [],
+        defaultSelection: null,
+        allowUserCredentials: true,
+      },
+    });
+    racedPolicyRevision = racedPolicy.revision;
+    credentialRead.release();
+    await within(Promise.resolve(racedStream), 'Revoked provider stream');
+  } finally {
+    credentialRead.release();
+    if (racedPolicyRevision !== null) {
+      await deleteWorkspaceModelPolicyStore({
+        organizationId: organization.organizationId,
+        workspaceId: personalWorkspaceId,
+        expectedRevision: racedPolicyRevision,
+      });
+    }
+  }
+  assert.equal(scopedStreamCalls.length, streamCallsBeforePolicyRace);
+  assert.equal(executableRuntime.requiresRecreation(), true);
+
+  const intelligenceRuntime = await resolveExecutableAgentRuntime({
+    ...personalContext,
+    requestedSelection: {
+      providerInstallationId: organizationProviderId,
+      providerId: 'openai-compatible',
+      modelId: sharedModel,
+      thinkingLevel: 'high',
+    },
+  });
+  const streamCallsBeforeCatalogRace = scopedStreamCalls.length;
+  const catalogCredentialRead = delayOrganizationCredentialReadAfter(2);
+  const catalogRacedStream = intelligenceRuntime.streamFn(
+    intelligenceRuntime.model,
+    { messages: [] },
+    { sessionId: 'scoped-runtime-catalog-race-test' },
+  );
+  catalogStateChanged = false;
+  try {
+    await within(catalogCredentialRead.started, 'Catalog race credential read barrier');
+    setSharedModelCapabilityState(2, false);
+    catalogStateChanged = true;
+    catalogCredentialRead.release();
+    await within(Promise.resolve(catalogRacedStream), 'Revoked intelligence stream');
+  } finally {
+    catalogCredentialRead.release();
+    if (catalogStateChanged) setSharedModelCapabilityState(1, true);
+  }
+  assert.equal(scopedStreamCalls.length, streamCallsBeforeCatalogRace);
+  assert.equal(intelligenceRuntime.requiresRecreation(), true);
 
   const userSelection = {
     providerInstallationId: userProviderId,
@@ -203,6 +610,55 @@ async function main() {
     modelId: sharedModel,
     thinkingLevel: 'off' as const,
   };
+  sqlite.prepare(`
+    UPDATE ai_runtime_defaults
+    SET catalog_revision = 2
+    WHERE organization_id = ?
+  `).run(organization.organizationId);
+  await assert.rejects(
+    () => writeUserModelPreferenceStore({
+      ...personalContext,
+      agentId: 'stale-catalog-preference',
+      expectedRevision: 0,
+      expectedCatalogRevision: 1,
+      expectedPolicyRevision: 0,
+      selection: userSelection,
+    }),
+    (error) => error instanceof RuntimeContextRevisionConflictError
+      && error.currentCatalogRevision === 2
+      && error.currentPolicyRevision === 0,
+  );
+  assert.equal((sqlite.prepare(`
+    SELECT COUNT(*) AS count
+    FROM ai_user_model_preferences
+    WHERE user_id = ? AND workspace_id = ? AND agent_id = 'stale-catalog-preference'
+  `).get(owner.id, personalWorkspaceId) as { count: number }).count, 0);
+  await assert.rejects(
+    () => writeWorkspaceModelPolicyStore({
+      organizationId: organization.organizationId,
+      workspaceId: personalWorkspaceId,
+      actorUserId: owner.id,
+      expectedRevision: 0,
+      expectedCatalogRevision: 1,
+      allowedModels: null,
+      defaultSelection: null,
+      allowUserCredentials: true,
+    }),
+    (error) => error instanceof RuntimeContextRevisionConflictError
+      && error.currentCatalogRevision === 2
+      && error.currentPolicyRevision === 0,
+  );
+  assert.equal((sqlite.prepare(`
+    SELECT COUNT(*) AS count
+    FROM ai_workspace_model_policies
+    WHERE organization_id = ? AND workspace_id = ?
+  `).get(organization.organizationId, personalWorkspaceId) as { count: number }).count, 0);
+  sqlite.prepare(`
+    UPDATE ai_runtime_defaults
+    SET catalog_revision = 1
+    WHERE organization_id = ?
+  `).run(organization.organizationId);
+
   resolution = await setUserRuntimePreference({
     context: personalContext,
     update: parseUserPreferenceUpdate({
@@ -229,12 +685,57 @@ async function main() {
   });
   assert.equal(samePreference.preference?.revision, 1);
 
-  const ambiguousAgent = await createAgentProfile({
-    name: 'Ambiguous Agent',
-    defaultProvider: 'openai-compatible',
-    defaultModel: sharedModel,
-    defaultThinking: 'off',
+  const idempotentRacePolicy = await writeWorkspaceModelPolicyStore({
+    organizationId: organization.organizationId,
+    workspaceId: personalWorkspaceId,
+    actorUserId: owner.id,
+    expectedRevision: 0,
+    expectedCatalogRevision: 1,
+    allowedModels: null,
+    defaultSelection: null,
+    allowUserCredentials: true,
   });
+  await assert.rejects(
+    () => writeUserModelPreferenceStore({
+      ...personalContext,
+      agentId: 'canvas-agent',
+      expectedRevision: 1,
+      expectedCatalogRevision: 1,
+      expectedPolicyRevision: 0,
+      selection: userSelection,
+    }),
+    (error) => error instanceof RuntimeContextRevisionConflictError
+      && error.currentCatalogRevision === 1
+      && error.currentPolicyRevision === idempotentRacePolicy.revision,
+  );
+  assert.equal((sqlite.prepare(`
+    SELECT revision
+    FROM ai_user_model_preferences
+    WHERE user_id = ? AND workspace_id = ? AND agent_id = 'canvas-agent'
+  `).get(owner.id, personalWorkspaceId) as { revision: number }).revision, 1);
+  await deleteWorkspaceModelPolicyStore({
+    organizationId: organization.organizationId,
+    workspaceId: personalWorkspaceId,
+    expectedRevision: idempotentRacePolicy.revision,
+  });
+
+  await assert.rejects(
+    () => createAgentProfile({
+      name: 'Rejected Legacy Agent',
+      defaultProvider: 'openai-compatible',
+      defaultModel: sharedModel,
+      defaultThinking: 'off',
+    }),
+    /providerInstallationId, provider, model, and thinking level together/u,
+  );
+  const ambiguousAgent = await createAgentProfile({ name: 'Ambiguous Agent' });
+  // Legacy rows without installation IDs remain readable and fail closed. New
+  // registry/API writes above may no longer create this ambiguous shape.
+  sqlite.prepare(`
+    UPDATE agents
+    SET default_provider = ?, default_model = ?, default_thinking = ?
+    WHERE agent_id = ?
+  `).run('openai-compatible', sharedModel, 'off', ambiguousAgent.agentId);
   const ambiguousResolution = await resolveEffectiveAgentRuntime({
     ...personalContext,
     agentId: ambiguousAgent.agentId,
@@ -256,6 +757,10 @@ async function main() {
   assert.equal(
     missingCredentialResolution.providers.find((provider) => provider.installationId === missingCredentialProviderId)?.selectable,
     false,
+  );
+  assert.equal(
+    missingCredentialResolution.providers.find((provider) => provider.installationId === missingCredentialProviderId)?.authMethod,
+    'api-key',
   );
 
   const organizationContext = {
@@ -282,6 +787,24 @@ async function main() {
     },
   });
   assert.equal(organizationPolicy.revision, 1);
+  await assert.rejects(
+    () => writeUserModelPreferenceStore({
+      ...organizationContext,
+      agentId: 'stale-policy-preference',
+      expectedRevision: 0,
+      expectedCatalogRevision: 1,
+      expectedPolicyRevision: 0,
+      selection: userSelection,
+    }),
+    (error) => error instanceof RuntimeContextRevisionConflictError
+      && error.currentCatalogRevision === 1
+      && error.currentPolicyRevision === 1,
+  );
+  assert.equal((sqlite.prepare(`
+    SELECT COUNT(*) AS count
+    FROM ai_user_model_preferences
+    WHERE user_id = ? AND workspace_id = ? AND agent_id = 'stale-policy-preference'
+  `).get(owner.id, organizationWorkspaceId) as { count: number }).count, 0);
   resolution = await resolveEffectiveAgentRuntime(organizationContext);
   assert.equal(resolution.valid, true);
   assert.equal(resolution.source, 'workspace_default');
@@ -359,6 +882,7 @@ async function main() {
   const preferencesRoute = await import('../app/api/agent-runtime/preferences/route');
   const catalogRoute = await import('../app/api/admin/agent-runtime/catalog/route');
   const workspacePolicyRoute = await import('../app/api/admin/agent-runtime/workspace-policy/route');
+  const agentsRoute = await import('../app/api/agents/route');
   const legacyConfigRoute = await import('../app/api/agents/config/route');
   const onboardingUserRoute = await import('../app/api/onboarding/user/route');
   const envRoute = await import('../app/api/integrations/env/route');
@@ -413,6 +937,39 @@ async function main() {
     },
   ));
   assert.equal(memberLegacyMutationResponse.status, 403);
+  const memberInheritedAgentResponse = await agentsRoute.POST(new NextRequest(
+    'http://localhost:3000/api/agents',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        name: 'Member Inherited Agent',
+        defaultProviderInstallationId: null,
+        defaultProvider: null,
+        defaultModel: null,
+        defaultThinking: null,
+      }),
+    },
+  ));
+  assert.equal(memberInheritedAgentResponse.status, 200);
+  const memberInheritedAgentPayload = await memberInheritedAgentResponse.json();
+  const memberInheritedAgentId = memberInheritedAgentPayload.data.agent.agentId as string;
+  const memberAgentDefaultMutation = await agentsRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/agents',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentId: memberInheritedAgentId,
+        defaultProviderInstallationId: userProviderId,
+        defaultProvider: 'openai-compatible',
+        defaultModel: sharedModel,
+        defaultThinking: 'off',
+        expectedCatalogRevision: 1,
+      }),
+    },
+  ));
+  assert.equal(memberAgentDefaultMutation.status, 403);
   const memberRoleAfterWorkspaceAccess = sqlite.prepare(`
     SELECT u.role AS globalRole, p.role AS organizationRole
     FROM user u
@@ -463,10 +1020,171 @@ async function main() {
     `http://localhost:3000/api/agent-runtime/preferences?workspaceId=${personalWorkspaceId}&agentId=canvas-agent`,
   ));
   assert.equal(ownerPreferenceResponse.status, 200);
+  const ownerCatalogResponse = await catalogRoute.GET(new NextRequest(
+    'http://localhost:3000/api/admin/agent-runtime/catalog',
+  ));
+  assert.equal(ownerCatalogResponse.status, 200);
+  const ownerCatalogPayload = await ownerCatalogResponse.json();
+  assert.equal(
+    ownerCatalogPayload.data.discovery['openai-compatible'].installationIds.organization,
+    organizationProviderId,
+  );
+  assert.equal(
+    ownerCatalogPayload.data.discovery['openai-compatible'].installationIds.user,
+    userProviderId,
+  );
   const ownerPolicyResponse = await workspacePolicyRoute.GET(new NextRequest(
     `http://localhost:3000/api/admin/agent-runtime/workspace-policy?workspaceId=${organizationWorkspaceId}`,
   ));
   assert.equal(ownerPolicyResponse.status, 200);
+
+  const outsideCatalogAgentDefault = await agentsRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/agents',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentId: memberInheritedAgentId,
+        defaultProviderInstallationId: `aip_${'f'.repeat(24)}`,
+        defaultProvider: 'openai-compatible',
+        defaultModel: sharedModel,
+        defaultThinking: 'off',
+        expectedCatalogRevision: 1,
+      }),
+    },
+  ));
+  assert.equal(outsideCatalogAgentDefault.status, 409);
+  assert.equal((await outsideCatalogAgentDefault.json()).code, 'PROVIDER_INSTALLATION_NOT_ALLOWED');
+
+  const staleAgentDefault = await agentsRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/agents',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentId: memberInheritedAgentId,
+        defaultProviderInstallationId: userProviderId,
+        defaultProvider: 'openai-compatible',
+        defaultModel: sharedModel,
+        defaultThinking: 'off',
+        expectedCatalogRevision: 0,
+      }),
+    },
+  ));
+  assert.equal(staleAgentDefault.status, 409);
+  const staleAgentDefaultPayload = await staleAgentDefault.json();
+  assert.equal(staleAgentDefaultPayload.code, 'AGENT_DEFAULT_CATALOG_REVISION_CONFLICT');
+  assert.equal(staleAgentDefaultPayload.currentCatalogRevision, 1);
+  const defaultAfterRejectedWrites = sqlite.prepare(`
+    SELECT default_provider_installation_id AS providerInstallationId,
+           default_provider AS provider, default_model AS model, default_thinking AS thinking
+    FROM agents
+    WHERE agent_id = ?
+  `).get(memberInheritedAgentId) as {
+    providerInstallationId: string | null;
+    provider: string | null;
+    model: string | null;
+    thinking: string | null;
+  };
+  assert.deepEqual(defaultAfterRejectedWrites, {
+    providerInstallationId: null,
+    provider: null,
+    model: null,
+    thinking: null,
+  });
+
+  const exactAgentDefault = await agentsRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/agents',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentId: memberInheritedAgentId,
+        defaultProviderInstallationId: userProviderId,
+        defaultProvider: 'openai-compatible',
+        defaultModel: sharedModel,
+        defaultThinking: 'off',
+        expectedCatalogRevision: 1,
+      }),
+    },
+  ));
+  assert.equal(exactAgentDefault.status, 200);
+  const exactAgentDefaultPayload = await exactAgentDefault.json();
+  assert.deepEqual(
+    {
+      providerInstallationId: exactAgentDefaultPayload.data.agent.defaultProviderInstallationId,
+      provider: exactAgentDefaultPayload.data.agent.defaultProvider,
+      model: exactAgentDefaultPayload.data.agent.defaultModel,
+      thinking: exactAgentDefaultPayload.data.agent.defaultThinking,
+    },
+    {
+      providerInstallationId: userProviderId,
+      provider: 'openai-compatible',
+      model: sharedModel,
+      thinking: 'off',
+    },
+  );
+  const invalidCombinedAgentPatch = await agentsRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/agents',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentId: memberInheritedAgentId,
+        name: '',
+        defaultProviderInstallationId: organizationProviderId,
+        defaultProvider: 'openai-compatible',
+        defaultModel: sharedModel,
+        defaultThinking: 'off',
+        expectedCatalogRevision: 1,
+      }),
+    },
+  ));
+  assert.equal(invalidCombinedAgentPatch.status, 400);
+  const defaultAfterInvalidCombinedPatch = sqlite.prepare(`
+    SELECT default_provider_installation_id AS providerInstallationId,
+           default_provider AS provider, default_model AS model, default_thinking AS thinking
+    FROM agents
+    WHERE agent_id = ?
+  `).get(memberInheritedAgentId);
+  assert.deepEqual(defaultAfterInvalidCombinedPatch, {
+    providerInstallationId: userProviderId,
+    provider: 'openai-compatible',
+    model: sharedModel,
+    thinking: 'off',
+  });
+  const missingInstallationLegacyConfig = await legacyConfigRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/agents/config',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentId: memberInheritedAgentId,
+        provider: 'openai-compatible',
+        model: sharedModel,
+        thinkingLevel: 'off',
+        expectedCatalogRevision: 1,
+      }),
+    },
+  ));
+  assert.equal(missingInstallationLegacyConfig.status, 400);
+  assert.equal((await missingInstallationLegacyConfig.json()).code, 'INCOMPLETE_AGENT_DEFAULT');
+  const exactLegacyConfig = await legacyConfigRoute.PATCH(new NextRequest(
+    'http://localhost:3000/api/agents/config',
+    {
+      method: 'PATCH',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({
+        agentId: memberInheritedAgentId,
+        providerInstallationId: userProviderId,
+        provider: 'openai-compatible',
+        model: sharedModel,
+        thinkingLevel: 'off',
+        expectedCatalogRevision: 1,
+      }),
+    },
+  ));
+  assert.equal(exactLegacyConfig.status, 200);
 
   const ownerOrganizationSecretWrite = await envRoute.PUT(new NextRequest(
     'http://localhost:3000/api/integrations/env?scope=agents&secretScope=organization',
@@ -579,6 +1297,30 @@ async function main() {
     workspaceId: personalWorkspaceId,
   });
   const promptSnapshot = buildPiSystemPromptSnapshotFromText('Runtime resolution test prompt');
+  await savePiSession(
+    'sess-runtime-auto-pin',
+    owner.id,
+    'legacy-provider',
+    'legacy-model',
+    [{ role: 'user', content: 'Legacy session', timestamp: now - 1 }],
+    undefined,
+    {
+      agentId: 'canvas-agent',
+      workspaceId: personalWorkspace.workspaceId,
+      systemPromptSnapshot: promptSnapshot,
+    },
+  );
+  const autoPinnedRuntime = await resolveAndPinSessionRuntime({
+    ...personalContext,
+    sessionId: 'sess-runtime-auto-pin',
+  });
+  assert.equal(autoPinnedRuntime.model.id, sessionSelection.selection.modelId);
+  assert.deepEqual(await readPiSessionRuntimeSnapshot({
+    sessionId: 'sess-runtime-auto-pin',
+    userId: owner.id,
+    agentId: 'canvas-agent',
+  }), runtimeSnapshot);
+
   await savePiSession(
     'sess-runtime-snapshot',
     owner.id,

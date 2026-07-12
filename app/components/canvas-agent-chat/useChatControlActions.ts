@@ -15,6 +15,7 @@ import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import { createChatSession } from '@/app/lib/chat/session-api';
+import type { AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
 import type {
   AgentConfig,
   AISession,
@@ -35,8 +36,6 @@ import {
   DEFAULT_MODEL_ID,
   DEFAULT_PROVIDER_ID,
   DEFAULT_THINKING_LEVEL,
-  isAgentConfigForAgent,
-  resolveAgentModelState,
   resolveAgentProviderState,
 } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 
@@ -66,6 +65,11 @@ type UseChatControlActionsParams = {
   activeModel: string;
   activeProvider: string;
   activeThinkingLevel: PiThinkingLevel;
+  runtimeSelection: AiRuntimeSelection | null;
+  hasLocalRuntimeSelection: boolean;
+  runtimeCatalogRevision: number | null;
+  runtimePolicyRevision: number | null;
+  refreshRuntimeSelection: () => Promise<void> | void;
   activeWorkspaceId?: string | null;
   addSessionToHistory: (session: AISession) => void;
   agentConfig: AgentConfig | null;
@@ -205,6 +209,11 @@ export function useChatControlActions({
   activeModel,
   activeProvider,
   activeThinkingLevel,
+  runtimeSelection,
+  hasLocalRuntimeSelection,
+  runtimeCatalogRevision,
+  runtimePolicyRevision,
+  refreshRuntimeSelection,
   activeWorkspaceId,
   addSessionToHistory,
   agentConfig,
@@ -268,35 +277,39 @@ export function useChatControlActions({
     }
 
     const agentId = selectedAgentId;
-    const sessionAgentConfig = isAgentConfigForAgent(agentConfig, agentId) ? agentConfig : null;
-    const configuredModelState = resolveAgentModelState(sessionAgentConfig);
-    const requestedModel = activeModel.trim() || configuredModelState?.model || '';
-    const requestedThinkingLevel = activeModel.trim()
-      ? activeThinkingLevel
-      : configuredModelState?.thinkingLevel || activeThinkingLevel;
+    if (!runtimeSelection || runtimeCatalogRevision === null || runtimePolicyRevision === null) {
+      throw new Error(t('runtimeSelectionUnavailableError'));
+    }
+
     const optimisticTitle = getOptimisticSessionTitle(preferredTitle ?? input, t('newChatTitle'));
     const requestedTitle = isAutomaticSessionTitle(optimisticTitle) ? undefined : optimisticTitle;
     const requestContext = buildRequestContext(currentFilePath);
 
-    const createSessionPayload = await createChatSession({
+    const createSessionRequest = {
       agentId,
       ...(requestedTitle ? { title: requestedTitle } : {}),
-      ...(requestedModel ? { model: requestedModel } : {}),
-      ...(requestedThinkingLevel ? { thinkingLevel: requestedThinkingLevel } : {}),
+      ...(hasLocalRuntimeSelection ? {
+        runtimeSelection,
+        expectedCatalogRevision: runtimeCatalogRevision,
+        expectedPolicyRevision: runtimePolicyRevision,
+      } : {}),
       ...(requestContext.workspace ? {
         workspaceId: requestContext.workspace.workspaceId,
         workspace: requestContext.workspace,
       } : {}),
-    });
+    };
+    const createSessionPayload = await createChatSession(createSessionRequest);
 
     if (!createSessionPayload?.success || !createSessionPayload.session?.sessionId) {
+      await refreshRuntimeSelection();
       throw new Error(createSessionPayload?.error || 'Failed to create session');
     }
 
     const nextSessionId = createSessionPayload.session.sessionId as string;
-    const createdProvider = createSessionPayload.session.provider || activeProvider;
-    const createdModel = createSessionPayload.session.model || activeModel;
-    const createdThinkingLevel = createSessionPayload.session.thinkingLevel || activeThinkingLevel;
+    const pinnedSelection = createSessionPayload.runtime?.selection ?? runtimeSelection;
+    const createdProvider = createSessionPayload.session.provider || pinnedSelection.providerId || activeProvider;
+    const createdModel = createSessionPayload.session.model || pinnedSelection.modelId || activeModel;
+    const createdThinkingLevel = createSessionPayload.session.thinkingLevel || pinnedSelection.thinkingLevel || activeThinkingLevel;
 
     skipNextSessionStatusRefreshRef.current = nextSessionId;
     setSessionId(nextSessionId);
@@ -332,7 +345,7 @@ export function useChatControlActions({
     addSessionToHistory(newSession);
 
     return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, agentConfig, buildRequestContext, currentFilePath, input, optimisticSessionTitlesRef, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
+  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, buildRequestContext, currentFilePath, hasLocalRuntimeSelection, input, optimisticSessionTitlesRef, refreshRuntimeSelection, runtimeCatalogRevision, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
 
   const postControl = useCallback(async (
     targetSessionId: string,
@@ -376,18 +389,8 @@ export function useChatControlActions({
       return;
     }
 
-    const effectiveAgentConfig = isAgentConfigForAgent(agentConfig, selectedAgentId) ? agentConfig : null;
-    const configuredModelState = resolveAgentModelState(effectiveAgentConfig);
-    const effectiveModel = activeModel.trim() || configuredModelState?.model || '';
-
-    if (!effectiveModel.trim()) {
-      throw new Error(t('modelRequiredError'));
-    }
-
-    if (!activeModel.trim() && configuredModelState) {
-      setActiveProvider(configuredModelState.provider);
-      setActiveModel(configuredModelState.model);
-      setActiveThinkingLevel(configuredModelState.thinkingLevel);
+    if (!runtimeSelection) {
+      throw new Error(t('runtimeSelectionUnavailableError'));
     }
 
     if (showHistory && (isMobile || shouldShowHistoryAsOverlay)) {
@@ -458,7 +461,7 @@ export function useChatControlActions({
       }
       throw error;
     }
-  }, [activeModel, agentConfig, appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFilePath, ensureSession, ensureSessionSubscribed, input, isMobile, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, scanForImageReferences, selectedAgentId, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setInput, setIsResolvingInitialChatState, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, setShowHistory, shouldShowHistoryAsOverlay, showHistory, t, wsRequest]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFilePath, ensureSession, ensureSessionSubscribed, input, isMobile, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, runtimeSelection, scanForImageReferences, sessionIdRef, setAttachments, setInput, setIsResolvingInitialChatState, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, setShowHistory, shouldShowHistoryAsOverlay, showHistory, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {

@@ -1,15 +1,14 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Cloud, KeyRound, Loader2, RefreshCw, ShieldAlert } from 'lucide-react';
+import { ChevronDown, KeyRound, Loader2, RefreshCw } from 'lucide-react';
 
 import type { AiAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/types';
-import { getAuthMethodForProvider, getProviderHelp } from '@/app/lib/pi/provider-help';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Label } from '@/components/ui/label';
 
-import { PiOAuthButton } from './PiOAuthButton';
-import { ProviderEnvEditor } from './ProviderEnvEditor';
+import { ProviderInstallationCredentialEditor } from './ProviderInstallationCredentialEditor';
 
 type CatalogResponse = {
   success?: boolean;
@@ -25,32 +24,38 @@ type AiProviderCredentialsPanelProps = {
 
 const COPY = {
   de: {
-    title: 'Zugangsdaten des App-Standards',
-    description: 'Keys und OAuth-Tokens werden getrennt vom Modellkatalog im passenden Secret-Scope gespeichert.',
-    loading: 'Provider wird geladen …',
-    loadError: 'Der aktuelle App-Standard konnte nicht geladen werden.',
+    title: 'Provider-Zugangsdaten',
+    description: 'Konfiguriere jede installierte Provider-/Scope-Kombination getrennt vom Modellkatalog.',
+    loading: 'Provider-Installationen werden geladen …',
+    loadError: 'Die Provider-Installationen konnten nicht geladen werden.',
     retry: 'Erneut laden',
-    noDefault: 'Lege zuerst im Katalog einen App-Standard fest und speichere ihn.',
-    managed: 'Die Zugangsdaten werden sicher durch die verbundene Canvas Control Plane bereitgestellt.',
-    noFields: 'Für diesen Provider sind keine Zugangsdatenfelder in der App hinterlegt.',
-    integrations: 'Integrations-Variablen öffnen',
-    oauthScope: 'OAuth-Verbindungen sind persönlich. Verwende für diesen Provider den Credential-Scope „Pro Nutzer“ oder API-Key-Authentifizierung.',
-    provider: 'Provider',
-    scope: 'Credential-Scope',
+    noProviders: 'Lege zuerst mindestens eine Provider-Installation im Modellkatalog an und speichere sie.',
+    installation: 'Provider-Installation',
+    chooseInstallation: 'Provider-Installation auswählen',
+    appDefault: 'App-Standard',
+    scope: {
+      managed: 'Managed · Control Plane',
+      system: 'Systemweit',
+      organization: 'Organisation',
+      user: 'Pro Nutzer',
+    },
   },
   en: {
-    title: 'App-default credentials',
-    description: 'Keys and OAuth tokens are stored separately from the model catalog in the appropriate secret scope.',
-    loading: 'Loading provider …',
-    loadError: 'The current app default could not be loaded.',
+    title: 'Provider credentials',
+    description: 'Configure every installed provider/scope combination separately from the model catalog.',
+    loading: 'Loading provider installations …',
+    loadError: 'Provider installations could not be loaded.',
     retry: 'Reload',
-    noDefault: 'Choose and save an app default in the catalog first.',
-    managed: 'Credentials are supplied securely by the connected Canvas Control Plane.',
-    noFields: 'No in-app credential fields are registered for this provider.',
-    integrations: 'Open integration variables',
-    oauthScope: 'OAuth connections are personal. Use the per-user credential scope for this provider or API-key authentication.',
-    provider: 'Provider',
-    scope: 'Credential scope',
+    noProviders: 'Create and save at least one provider installation in the model catalog first.',
+    installation: 'Provider installation',
+    chooseInstallation: 'Select a provider installation',
+    appDefault: 'App default',
+    scope: {
+      managed: 'Managed · Control Plane',
+      system: 'System wide',
+      organization: 'Organization',
+      user: 'Per user',
+    },
   },
 } as const;
 
@@ -61,6 +66,7 @@ export function AiProviderCredentialsPanel({
 }: AiProviderCredentialsPanelProps) {
   const copy = locale?.toLowerCase().startsWith('de') ? COPY.de : COPY.en;
   const [catalog, setCatalog] = useState<AiAppRuntimeCatalog | null>(null);
+  const [selectedInstallationId, setSelectedInstallationId] = useState('');
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -76,9 +82,23 @@ export function AiProviderCredentialsPanel({
       if (!response.ok || !payload?.success || !payload.data?.catalog) {
         throw new Error(payload?.error || copy.loadError);
       }
-      setCatalog(payload.data.catalog);
+      const nextCatalog = payload.data.catalog;
+      setCatalog(nextCatalog);
+      setSelectedInstallationId((current) => {
+        if (nextCatalog.providers.some((provider) => provider.installationId === current)) {
+          return current;
+        }
+        const defaultInstallationId = nextCatalog.defaultSelection?.providerInstallationId;
+        if (defaultInstallationId && nextCatalog.providers.some((provider) => (
+          provider.installationId === defaultInstallationId
+        ))) {
+          return defaultInstallationId;
+        }
+        return nextCatalog.providers[0]?.installationId ?? '';
+      });
     } catch (loadError) {
       setCatalog(null);
+      setSelectedInstallationId('');
       setError(loadError instanceof Error ? loadError.message : copy.loadError);
     } finally {
       setLoading(false);
@@ -91,18 +111,12 @@ export function AiProviderCredentialsPanel({
   }, [loadCatalog, refreshKey]);
 
   const provider = useMemo(() => {
-    const installationId = catalog?.defaultSelection?.providerInstallationId;
-    return installationId
-      ? catalog?.providers.find((candidate) => candidate.installationId === installationId) ?? null
-      : null;
-  }, [catalog]);
-  const help = provider ? getProviderHelp(provider.providerId) : undefined;
-  const wantsOAuth = Boolean(provider && (
-    provider.config.authMethod === 'oauth' || getAuthMethodForProvider(provider.providerId) === 'oauth'
-  ));
+    if (!catalog || !selectedInstallationId) return null;
+    return catalog.providers.find((candidate) => candidate.installationId === selectedInstallationId) ?? null;
+  }, [catalog, selectedInstallationId]);
 
   return (
-    <Card>
+    <Card id="ai-provider-credentials" className="scroll-mt-6">
       <CardHeader className="border-b bg-muted/20">
         <div className="flex items-start justify-between gap-4">
           <div className="min-w-0">
@@ -132,51 +146,49 @@ export function AiProviderCredentialsPanel({
           </div>
         )}
 
-        {!loading && !error && !provider && (
-          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{copy.noDefault}</p>
+        {!loading && !error && catalog?.providers.length === 0 && (
+          <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">{copy.noProviders}</p>
         )}
 
-        {!loading && provider && (
+        {!loading && !error && catalog && catalog.providers.length > 0 && (
           <>
-            <dl className="grid gap-3 rounded-md border bg-muted/10 p-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{copy.provider}</dt>
-                <dd className="mt-1 font-medium">{provider.name}</dd>
+            <div className="space-y-2">
+              <Label htmlFor="ai-provider-credential-installation">{copy.installation}</Label>
+              <div className="relative">
+                <select
+                  id="ai-provider-credential-installation"
+                  value={selectedInstallationId}
+                  onChange={(event) => setSelectedInstallationId(event.target.value)}
+                  className="h-10 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                >
+                  <option value="" disabled>{copy.chooseInstallation}</option>
+                  {catalog.providers.map((candidate) => {
+                    const isDefault = candidate.installationId === catalog.defaultSelection?.providerInstallationId;
+                    return (
+                      <option key={candidate.installationId} value={candidate.installationId}>
+                        {candidate.name} · {copy.scope[candidate.credentialScope]}
+                        {isDefault ? ` · ${copy.appDefault}` : ''}
+                      </option>
+                    );
+                  })}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               </div>
-              <div>
-                <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{copy.scope}</dt>
-                <dd className="mt-1 font-medium">{provider.credentialScope}</dd>
-              </div>
-            </dl>
+            </div>
 
-            {provider.credentialScope === 'managed' ? (
-              <div className="flex items-start gap-3 rounded-md border border-primary/25 bg-primary/5 p-4 text-sm">
-                <Cloud className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
-                <p>{copy.managed}</p>
-              </div>
-            ) : wantsOAuth ? (
-              provider.credentialScope === 'user' ? (
-                <PiOAuthButton activeProviderId={provider.providerId} onStatusChange={onCredentialsSaved} />
-              ) : (
-                <div className="flex items-start gap-3 rounded-md border border-amber-500/30 bg-amber-500/5 p-4 text-sm">
-                  <ShieldAlert className="mt-0.5 h-5 w-5 shrink-0 text-amber-600" aria-hidden="true" />
-                  <p>{copy.oauthScope}</p>
-                </div>
-              )
-            ) : help?.envVars?.length ? (
-              <ProviderEnvEditor
-                providerId={provider.providerId}
-                envVars={help.envVars}
-                credentialScope={provider.credentialScope}
-                onSaveComplete={onCredentialsSaved}
+            {provider && (
+              <ProviderInstallationCredentialEditor
+                key={provider.installationId}
+                locale={locale}
+                installation={{
+                  installationId: provider.installationId,
+                  providerId: provider.providerId,
+                  name: provider.name,
+                  credentialScope: provider.credentialScope,
+                  authMethod: provider.config.authMethod,
+                }}
+                onCredentialsSaved={onCredentialsSaved}
               />
-            ) : (
-              <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
-                <p>{copy.noFields}</p>
-                <a className="mt-2 inline-flex font-medium text-primary underline-offset-4 hover:underline" href="?tab=integrations">
-                  {copy.integrations}
-                </a>
-              </div>
             )}
           </>
         )}
