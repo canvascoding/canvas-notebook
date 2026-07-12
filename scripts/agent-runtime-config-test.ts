@@ -66,6 +66,9 @@ async function main() {
     if (request === '@earendil-works/pi-ai/oauth') {
       return {};
     }
+    if (request === '@earendil-works/pi-agent-core') {
+      return {};
+    }
     return originalLoad(request, parent, isMain);
   };
 
@@ -81,7 +84,7 @@ async function main() {
     writePiRuntimeConfig,
   } = await import('../app/lib/agents/storage');
   const { createAgentProfile, getAgentProfile, updateAgentProfile } = await import('../app/lib/agents/registry');
-  const { resolveAgentRuntimeConfig, resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
+  const { resolveAgentRuntimeSettings } = await import('../app/lib/agents/effective-runtime-config');
   const { loadManagedAgentSystemPrompt } = await import('../app/lib/agents/system-prompt');
   const {
     formatImageInputUnsupportedError,
@@ -106,10 +109,6 @@ async function main() {
   assert.equal(unconfiguredSettings.activeProvider, DEFAULT_PI_CONFIG.activeProvider);
   assert.equal(unconfiguredSettings.providerConfig.model, '');
   assert.equal(unconfiguredSettings.setupState.modelConfigured, false);
-  await assert.rejects(
-    () => resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID),
-    /No model selected/,
-  );
 
   const configuredPiConfig = {
     ...DEFAULT_PI_CONFIG,
@@ -232,9 +231,9 @@ async function main() {
   assert.equal(inheritedAgent.iconId, 'bot');
   assert.equal(isWritableManagedAgentFileName('USER.md', inheritedAgent.agentId), false);
   assert.equal(isWritableManagedAgentFileName('MEMORY.md', inheritedAgent.agentId), true);
-  const inheritedConfig = await resolveAgentRuntimeConfig(inheritedAgent.agentId);
+  const inheritedConfig = await resolveAgentRuntimeSettings(inheritedAgent.agentId);
   assert.equal(inheritedConfig.activeProvider, 'google');
-  assert.equal(inheritedConfig.model.id, 'gemini-1.5-pro');
+  assert.equal(inheritedConfig.providerConfig.model, 'gemini-1.5-pro');
   assert.equal(inheritedConfig.thinkingLevel, 'off');
   assert.deepEqual(inheritedConfig.enabledTools, expectedGoogleTools);
   assert.deepEqual(inheritedConfig.overrideState, { model: false, tools: false });
@@ -254,9 +253,9 @@ async function main() {
   assert.equal(customProfile?.iconId, 'sparkles');
   assert.deepEqual(customProfile?.relevantSkills, ['research-notes']);
   assert.deepEqual(customProfile?.relevantConnections, ['mcp:Docs', 'composio:slack']);
-  const customConfig = await resolveAgentRuntimeConfig(customAgent.agentId);
+  const customConfig = await resolveAgentRuntimeSettings(customAgent.agentId);
   assert.equal(customConfig.activeProvider, 'openrouter');
-  assert.equal(customConfig.model.id, DEFAULT_PI_CONFIG.providers.openrouter.model);
+  assert.equal(customConfig.providerConfig.model, DEFAULT_PI_CONFIG.providers.openrouter.model);
   assert.equal(customConfig.thinkingLevel, 'high');
   assert.deepEqual(customConfig.enabledTools, ['bash']);
   assert.deepEqual(customConfig.overrideState, { model: true, tools: true });
@@ -291,10 +290,13 @@ async function main() {
     defaultModel: 'anthropic/claude-3.5-sonnet',
     defaultThinking: 'off',
   });
-  const legacyConfig = await resolveAgentRuntimeConfig(legacyAgent.agentId);
+  const legacyConfig = await resolveAgentRuntimeSettings(legacyAgent.agentId);
   assert.equal(legacyConfig.activeProvider, 'openrouter');
   assert.equal(legacyConfig.providerConfig.model, 'anthropic/claude-3.5-sonnet');
-  assert.equal(legacyConfig.model.id, 'anthropic/claude-sonnet-4.5');
+  assert.equal(
+    (await resolvePiModel(legacyConfig.activeProvider, legacyConfig.providerConfig.model)).id,
+    'anthropic/claude-sonnet-4.5',
+  );
 
   const directOllamaModel = await resolvePiModel('ollama', 'deepseek-r1:32b');
   const directOllamaCompat = (directOllamaModel as OpenAICompletionsCompatProbe).compat;
@@ -335,9 +337,9 @@ async function main() {
   });
   const updatedCustomProfile = await getAgentProfile(customAgent.agentId);
   assert.equal(updatedCustomProfile?.iconId, 'briefcase');
-  const clearedConfig = await resolveAgentRuntimeConfig(customAgent.agentId);
+  const clearedConfig = await resolveAgentRuntimeSettings(customAgent.agentId);
   assert.equal(clearedConfig.activeProvider, 'google');
-  assert.equal(clearedConfig.model.id, 'gemini-1.5-pro');
+  assert.equal(clearedConfig.providerConfig.model, 'gemini-1.5-pro');
   assert.deepEqual(clearedConfig.enabledTools, expectedGoogleTools);
   assert.deepEqual(clearedConfig.overrideState, { model: false, tools: false });
 
@@ -489,10 +491,12 @@ async function main() {
     assert.equal(managedSettings.providerConfig.model, 'deepseek-v4-flash');
     assert.equal(managedSettings.setupState.modelConfigured, true);
 
-    const managedConfig = await resolveAgentRuntimeConfig(DEFAULT_MANAGED_AGENT_ID);
-    assert.equal(managedConfig.activeProvider, 'canvas-control-plane');
-    assert.equal(managedConfig.model.id, 'deepseek-v4-flash');
-    const managedCompat = (managedConfig.model as OpenAICompletionsCompatProbe).compat;
+    const managedModel = await resolvePiModel(
+      managedSettings.activeProvider,
+      managedSettings.providerConfig.model,
+    );
+    assert.equal(managedModel.id, 'deepseek-v4-flash');
+    const managedCompat = (managedModel as OpenAICompletionsCompatProbe).compat;
     assert.equal(managedCompat?.supportsDeveloperRole, false);
     assert.equal(managedCompat?.supportsStore, false);
     assert.equal(managedCompat?.thinkingFormat, 'openrouter');

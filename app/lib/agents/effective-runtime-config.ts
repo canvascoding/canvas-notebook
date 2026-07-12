@@ -1,7 +1,5 @@
 import 'server-only';
 
-import type { Api, Model } from '@earendil-works/pi-ai';
-
 import type { AgentProfile } from './registry';
 import { getAgentProfile, normalizeManagedAgentId } from './registry';
 import { DEFAULT_MANAGED_AGENT_ID, isManagedControlPlaneAvailable, readPiRuntimeConfig } from './storage';
@@ -19,7 +17,7 @@ export type AgentRuntimeSetupState = {
   issues: string[];
 };
 
-export type EffectiveAgentRuntimeConfig = {
+export type EffectiveAgentRuntimeSettings = {
   agent: AgentProfile;
   agentId: string;
   isMainAgent: boolean;
@@ -27,14 +25,11 @@ export type EffectiveAgentRuntimeConfig = {
   mainPiConfig: PiRuntimeConfig;
   activeProvider: string;
   providerConfig: PiProviderConfig;
-  model: Model<Api>;
   thinkingLevel: PiThinkingLevel;
   enabledTools: string[];
   overrideState: AgentOverrideState;
   setupState: AgentRuntimeSetupState;
 };
-
-export type EffectiveAgentRuntimeSettings = Omit<EffectiveAgentRuntimeConfig, 'model'>;
 
 function clonePiConfig(config: PiRuntimeConfig): PiRuntimeConfig {
   return JSON.parse(JSON.stringify(config)) as PiRuntimeConfig;
@@ -135,18 +130,5 @@ export async function resolveAgentRuntimeSettings(agentIdInput?: string | null):
     enabledTools: providerConfig.enabledTools || [],
     overrideState,
     setupState,
-  };
-}
-
-export async function resolveAgentRuntimeConfig(agentIdInput?: string | null): Promise<EffectiveAgentRuntimeConfig> {
-  const settings = await resolveAgentRuntimeSettings(agentIdInput);
-  const { resolvePiModel } = await import('@/app/lib/pi/model-resolver');
-  if (!settings.setupState.modelConfigured) {
-    throw new Error(settings.setupState.issues[0] || 'No model selected for this agent.');
-  }
-
-  return {
-    ...settings,
-    model: await resolvePiModel(settings.activeProvider, settings.providerConfig.model),
   };
 }
