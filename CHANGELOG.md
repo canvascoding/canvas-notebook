@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.12.1] - 2026-07-12
+
+### Added
+
+- Added a catalog-backed AI runtime system with agent-scoped runtime policy, provider credentials, verification, and live runtime resolution.
+- Added dedicated runtime support for chat sessions, channels, automations, delegated agents, todo follow-ups, and email AI workflows.
+- Added per-user onboarding runtime profiles and provider-management flows alongside the settings navigation redesign.
+
+### Changed
+
+- Migrated managed and legacy agent configuration to scoped runtimes, then retired the legacy configuration, resolver, and model-probe paths.
+- Reworked settings into a sidebar-based experience and separated runtime onboarding from ongoing settings management.
+
+### Fixed
+
+- Made managed control-plane swap reconciliation crash-safe and pinned session, onboarding, and follow-up execution to their selected runtimes.
+
+### Verification
+
+- `npm run build`
+- GitHub Actions `Build and Push (Both Arch)` on `main`: `29208146665` built and pushed both architectures and merged the image manifest successfully before release prep.
+
 ## [2026.7.11.1] - 2026-07-11
 
 ### Added
