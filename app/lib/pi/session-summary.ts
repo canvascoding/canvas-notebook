@@ -1,10 +1,8 @@
 import 'server-only';
 
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import { completeSimple } from '@earendil-works/pi-ai/compat';
+import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
 import type { Api, AssistantMessage, Message, Model, UserMessage } from '@earendil-works/pi-ai';
 
-import { resolvePiApiKey } from './api-key-resolver';
 import {
   composePiHistoryForLlm,
   estimateTextTokens,
@@ -25,6 +23,7 @@ type PreparePiHistoryContextOptions = {
   additionalContextTokens?: number;
   sessionId?: string;
   signal?: AbortSignal;
+  streamFn?: StreamFn;
 };
 
 type SummarizeHistoryInput = {
@@ -33,6 +32,7 @@ type SummarizeHistoryInput = {
   model: Model<Api>;
   sessionId?: string;
   signal?: AbortSignal;
+  streamFn?: StreamFn;
 };
 
 export type PreparePiHistoryContextResult = {
@@ -260,9 +260,9 @@ export async function summarizePiSessionHistory({
   model,
   sessionId,
   signal,
+  streamFn,
 }: SummarizeHistoryInput): Promise<string | null> {
-  const apiKey = await resolvePiApiKey(model.provider);
-  if (!apiKey) {
+  if (!streamFn) {
     return null;
   }
 
@@ -305,7 +305,7 @@ export async function summarizePiSessionHistory({
       batchTokens += nextTokens;
       pendingMessages.shift();
     }
-    const summaryMessage = await completeSimple(
+    const summaryStream = await streamFn(
       model,
       {
         systemPrompt: SUMMARY_SYSTEM_PROMPT,
@@ -316,13 +316,13 @@ export async function summarizePiSessionHistory({
         ],
       },
       {
-        apiKey,
         temperature: 0,
         maxTokens: Math.max(256, Math.min(model.maxTokens, SUMMARY_OUTPUT_TOKENS)),
         sessionId: sessionId ? `${sessionId}:summary` : undefined,
         signal,
       },
     );
+    const summaryMessage = await summaryStream.result();
 
     if (summaryMessage.stopReason === 'error' || summaryMessage.stopReason === 'aborted') {
       return null;
@@ -347,6 +347,7 @@ export async function preparePiHistoryContext({
   additionalContextTokens = 0,
   sessionId,
   signal,
+  streamFn,
 }: PreparePiHistoryContextOptions): Promise<PreparePiHistoryContextResult> {
   let nextSummary = summary;
   let summaryAttempted = false;
@@ -398,6 +399,7 @@ export async function preparePiHistoryContext({
       model,
       sessionId,
       signal,
+      streamFn,
     });
 
     if (summaryText?.trim()) {

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
-import type { Model } from '@earendil-works/pi-ai';
+import type { AgentMessage, StreamFn } from '@earendil-works/pi-agent-core';
+import type { AssistantMessage, AssistantMessageEventStream, Model } from '@earendil-works/pi-ai';
 
 async function main() {
   const moduleLoader = Module as unknown as {
@@ -19,16 +19,15 @@ async function main() {
         registerBuiltInApiProviders: () => undefined,
         getProviders: () => [],
         getModels: () => [],
-        completeSimple: async () => ({
-          role: 'assistant',
-          content: [{ type: 'text', text: 'unused summary' }],
-          stopReason: 'stop',
-        }),
       };
     }
 
     if (request === '@earendil-works/pi-ai/oauth') {
       return {};
+    }
+
+    if (request.endsWith('/pi/api-key-resolver')) {
+      throw new Error('Session summaries must not load the legacy API-key resolver.');
     }
 
     return originalLoad.call(this, request, parent, isMain);
@@ -87,6 +86,56 @@ async function main() {
   assert.equal(result.summary.summaryText, null);
   assert.ok(result.unsummarizedMessageCount > 0);
   assert.ok(result.composition.omittedMessages.length > 0);
+
+  const summaryStreamCalls: Array<{ modelId: string; sessionId?: string; messageCount: number }> = [];
+  const summaryStreamFn: StreamFn = async (requestedModel, context, options) => {
+    summaryStreamCalls.push({
+      modelId: requestedModel.id,
+      sessionId: options?.sessionId,
+      messageCount: context.messages.length,
+    });
+    return {
+      result: async () => ({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'Scoped runtime summary' }],
+        api: requestedModel.api,
+        provider: requestedModel.provider,
+        model: requestedModel.id,
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'stop',
+        timestamp: Date.now(),
+      } as AssistantMessage),
+    } as AssistantMessageEventStream;
+  };
+  const scopedResult = await preparePiHistoryContext({
+    messages,
+    summary: {
+      summaryText: null,
+      summaryUpdatedAt: null,
+      summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
+    },
+    systemPromptTokens: 200,
+    model: { ...model, contextWindow: 10_000, maxTokens: 1_000 },
+    toolTokens: 0,
+    sessionId: 'summary-scoped-runtime-test',
+    streamFn: summaryStreamFn,
+  });
+  assert.equal(scopedResult.summaryAttempted, true);
+  assert.equal(scopedResult.summaryUpdated, true);
+  assert.equal(scopedResult.summaryFailed, false);
+  assert.equal(scopedResult.summary.summaryText, 'Scoped runtime summary');
+  assert.ok(summaryStreamCalls.length > 0);
+  assert.equal(summaryStreamCalls[0].modelId, model.id);
+  assert.equal(summaryStreamCalls[0].sessionId, 'summary-scoped-runtime-test:summary');
+  assert.ok(summaryStreamCalls[0].messageCount > 1);
 
   const noOmittedResult = await preparePiHistoryContext({
     messages: messages.slice(-1),

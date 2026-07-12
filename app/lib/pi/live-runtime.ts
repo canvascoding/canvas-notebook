@@ -1,7 +1,7 @@
 import 'server-only';
 
 import path from 'node:path';
-import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type ThinkingLevel } from '@earendil-works/pi-agent-core';
+import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type StreamFn, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 
 import { db } from '@/app/lib/db';
@@ -216,6 +216,7 @@ type RuntimeInit = {
 type RuntimeOptions = {
   resetToolLoopGuard?: () => void;
   requiresRuntimeRecreation?: () => boolean;
+  summaryStreamFn?: StreamFn;
 };
 
 function isUserMessage(message: AgentMessage): message is Extract<AgentMessage, { role: 'user' }> {
@@ -600,6 +601,7 @@ class LivePiRuntime {
       model: this.model,
       toolTokens: estimatePiToolSchemaTokens(this.tools),
       sessionId: this.sessionId,
+      streamFn: this.options.summaryStreamFn,
     });
 
     if (result.composition.contextBudgetExceeded) {
@@ -1236,6 +1238,7 @@ class LivePiRuntime {
       additionalContextTokens: runtimeContext ? estimateTextTokens(runtimeContext) : 0,
       sessionId: this.sessionId,
       signal,
+      streamFn: this.options.summaryStreamFn,
     });
 
     if (result.composition.contextBudgetExceeded) {
@@ -1597,6 +1600,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     {
       resetToolLoopGuard: () => toolLoopGuard.reset(),
       requiresRuntimeRecreation: executableRuntime.requiresRecreation,
+      summaryStreamFn: executableRuntime.streamFn,
     },
   );
   runtimeRef.current = runtime;
