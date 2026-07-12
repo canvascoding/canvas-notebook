@@ -30,6 +30,7 @@ const dispatches: Array<{
   userId: string;
   message: { role: string; content: string; timestamp: number };
   context?: Record<string, unknown>;
+  target?: { expectedAgentId?: string | null };
 }> = [];
 
 moduleInternals._load = (request, parent, isMain) => {
@@ -79,8 +80,9 @@ moduleInternals._load = (request, parent, isMain) => {
         userId: string,
         message: { role: string; content: string; timestamp: number },
         context?: Record<string, unknown>,
+        target?: { expectedAgentId?: string | null },
       ) => {
-        dispatches.push({ sessionId, userId, message, context });
+        dispatches.push({ sessionId, userId, message, context, target });
         return { sessionId, phase: 'running' };
       },
     };
@@ -206,6 +208,7 @@ async function main() {
   assert.equal(dispatches[0].sessionId, 'reply-session-de');
   assert.equal(dispatches[0].userId, 'reply-user-de');
   assert.equal(dispatches[0].context?.channelId, 'email');
+  assert.equal(dispatches[0].target?.expectedAgentId, 'canvas-agent');
   assert.match(dispatches[0].message.content, /Eine Antwort auf die To-do-E-Mail ist eingegangen/);
   assert.match(dispatches[0].message.content, /Hier ist meine Antwort für den Agenten\./);
   assert.match(dispatches[0].message.content, /externe Nutzereingabe/);
@@ -278,6 +281,80 @@ async function main() {
   const ignoredPoll = await pollTodoEmailReplies({ now: new Date('2026-06-08T12:21:00.000Z') });
   assert.equal(ignoredPoll.processed, 0);
   assert.equal(dispatches.length, 2);
+
+  activeToken = 'CTD-WRONG001';
+  activeSubject = `Re: New Canvas to-do [${activeToken}]`;
+  activeBody = `Reply for the wrong agent.\n\nReply code ${activeToken}`;
+  activeDate = '2026-06-08T12:30:00.000Z';
+  activeInReplyTo = outboundMessageId;
+
+  await seedBase('reply-user-wrong-agent', 'reply-todo-wrong-agent', 'reply-session-wrong-agent');
+  const { todoItems, piSessions } = await import('../app/lib/db/schema');
+  await db
+    .update(todoItems)
+    .set({ sourceAgentId: 'other-agent' })
+    .where(eq(todoItems.id, 'reply-todo-wrong-agent'));
+  await createTodoEmailReplyWatcher({
+    todoId: 'reply-todo-wrong-agent',
+    userId: 'reply-user-wrong-agent',
+    accountId: accountIdFor('reply-user-wrong-agent'),
+    replyToken: activeToken,
+    outboundMessageId,
+    sourceAgentId: 'other-agent',
+    sourceSessionId: 'reply-session-wrong-agent',
+    locale: 'en',
+    sentAt: new Date('2026-06-08T12:29:00.000Z'),
+  });
+
+  const wrongAgentPoll = await pollTodoEmailReplies({ now: new Date('2026-06-08T12:31:00.000Z') });
+  assert.equal(wrongAgentPoll.failed, 1);
+  assert.equal(dispatches.length, 2);
+  const wrongAgentWatcher = await db.query.todoEmailReplyWatchers.findFirst({
+    where: eq(todoEmailReplyWatchers.todoId, 'reply-todo-wrong-agent'),
+  });
+  assert.equal(wrongAgentWatcher?.status, 'failed');
+  assert.match(wrongAgentWatcher?.error || '', /not found for this user and agent/);
+
+  activeToken = 'CTD-AMBIG001';
+  activeSubject = `Re: New Canvas to-do [${activeToken}]`;
+  activeBody = `Reply for an ambiguous session.\n\nReply code ${activeToken}`;
+  activeDate = '2026-06-08T12:40:00.000Z';
+  activeInReplyTo = outboundMessageId;
+
+  await seedBase('reply-user-ambiguous', 'reply-todo-ambiguous', 'reply-session-ambiguous');
+  const now = new Date();
+  await db.insert(piSessions).values({
+    sessionId: 'reply-session-ambiguous',
+    userId: 'reply-user-ambiguous',
+    agentId: 'other-agent',
+    provider: 'openai',
+    model: 'gpt-test',
+    thinkingLevel: null,
+    title: 'Colliding reply session',
+    createdAt: now,
+    updatedAt: now,
+    channelId: 'app',
+  });
+  await createTodoEmailReplyWatcher({
+    todoId: 'reply-todo-ambiguous',
+    userId: 'reply-user-ambiguous',
+    accountId: accountIdFor('reply-user-ambiguous'),
+    replyToken: activeToken,
+    outboundMessageId,
+    sourceAgentId: 'canvas-agent',
+    sourceSessionId: 'reply-session-ambiguous',
+    locale: 'en',
+    sentAt: new Date('2026-06-08T12:39:00.000Z'),
+  });
+
+  const ambiguousPoll = await pollTodoEmailReplies({ now: new Date('2026-06-08T12:41:00.000Z') });
+  assert.equal(ambiguousPoll.failed, 1);
+  assert.equal(dispatches.length, 2);
+  const ambiguousWatcher = await db.query.todoEmailReplyWatchers.findFirst({
+    where: eq(todoEmailReplyWatchers.todoId, 'reply-todo-ambiguous'),
+  });
+  assert.equal(ambiguousWatcher?.status, 'failed');
+  assert.match(ambiguousWatcher?.error || '', /ambiguous across multiple agents/);
 
   console.log('Todo email reply watcher test passed.');
 }

@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { and, eq } from 'drizzle-orm';
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
-import { db } from '@/app/lib/db';
-import { piSessions } from '@/app/lib/db/schema';
 import { sendFollowUpMessage } from '@/app/lib/pi/runtime-service';
+import {
+  assertUnambiguousOwnedPiSessionForRuntime,
+  PiSessionRuntimeAccessError,
+} from '@/app/lib/pi/session-runtime-access';
 import { applyTodoRateLimit, requireTodoSession, todoErrorResponse } from '@/app/lib/todos/api';
 import { getTodo, updateTodo } from '@/app/lib/todos/store';
 
@@ -70,19 +71,23 @@ export async function POST(request: NextRequest, context: RouteContext) {
       return NextResponse.json({ success: false, error: 'Todo not found.' }, { status: 404 });
     }
 
-    if (!todo.sourceSessionId) {
-      return NextResponse.json({ success: false, error: 'Todo has no linked session.' }, { status: 400 });
+    if (!todo.sourceSessionId || !todo.sourceAgentId) {
+      return NextResponse.json({ success: false, error: 'Todo has no linked agent session.' }, { status: 400 });
     }
 
-    const linkedSession = await db.query.piSessions.findFirst({
-      where: and(
-        eq(piSessions.userId, session.user.id),
-        eq(piSessions.sessionId, todo.sourceSessionId),
-      ),
-    });
-
-    if (!linkedSession) {
-      return NextResponse.json({ success: false, error: 'Linked session not found.' }, { status: 404 });
+    try {
+      await assertUnambiguousOwnedPiSessionForRuntime({
+        userId: session.user.id,
+        sessionId: todo.sourceSessionId,
+        agentId: todo.sourceAgentId,
+      });
+    } catch (error) {
+      if (error instanceof PiSessionRuntimeAccessError) {
+        return NextResponse.json({ success: false, error: error.message }, {
+          status: error.code === 'SESSION_NOT_FOUND' ? 404 : 409,
+        });
+      }
+      throw error;
     }
 
     const preparedTodo = await updateTodo(session.user.id, todo.id, {
@@ -113,6 +118,8 @@ export async function POST(request: NextRequest, context: RouteContext) {
         channelId: 'web',
         currentPage: '/todos',
         currentTime: new Date(timestamp).toISOString(),
+      }, {
+        expectedAgentId: todo.sourceAgentId,
       });
 
       const updated = await updateTodo(session.user.id, todo.id, {

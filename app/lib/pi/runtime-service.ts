@@ -8,12 +8,17 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import {
   getExistingPiRuntimeStatuses,
+  getExistingPiRuntime,
   getOrCreatePiRuntime,
   getOrCreatePiRuntimeWithState,
   getPiRuntimeStatus,
   invalidatePiRuntime,
   type PiRuntimeStatus,
 } from '@/app/lib/pi/live-runtime';
+import {
+  assertUnambiguousOwnedPiSessionForRuntime,
+  PiSessionRuntimeAccessError,
+} from '@/app/lib/pi/session-runtime-access';
 import { applyPiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
 import { canReadStudioOutputPath } from '@/app/lib/integrations/studio-generation-service';
@@ -308,8 +313,28 @@ export async function sendFollowUpMessage(
   userId: string,
   message: UserAgentMessage,
   context?: ChatRequestContext,
+  target?: { expectedAgentId?: string | null },
 ): Promise<PiRuntimeStatus> {
   return withPiSessionOperationLock(sessionId, userId, async () => {
+    const expectedAgentId = target?.expectedAgentId?.trim() || null;
+    if (target?.expectedAgentId !== undefined && !expectedAgentId) {
+      throw new RuntimeServiceError('Expected agent ID must not be empty.', 400);
+    }
+    if (expectedAgentId) {
+      try {
+        await assertUnambiguousOwnedPiSessionForRuntime({ sessionId, userId, agentId: expectedAgentId });
+      } catch (error) {
+        if (error instanceof PiSessionRuntimeAccessError) {
+          throw new RuntimeServiceError(error.message, error.code === 'SESSION_NOT_FOUND' ? 404 : 409);
+        }
+        throw error;
+      }
+      const existingRuntime = await getExistingPiRuntime(sessionId, userId);
+      if (existingRuntime && existingRuntime.agentId !== expectedAgentId) {
+        throw new RuntimeServiceError('The active runtime belongs to a different agent.', 409);
+      }
+    }
+
     const payload = {
       sessionId,
       message,
@@ -317,6 +342,9 @@ export async function sendFollowUpMessage(
       context,
     };
     const prepared = await prepareRuntimePrompt(sessionId, userId, payload);
+    if (expectedAgentId && prepared.runtimeInstance.agentId !== expectedAgentId) {
+      throw new RuntimeServiceError('The prepared runtime belongs to a different agent.', 409);
+    }
     const promptMessage = prepared.promptMessage;
 
     if (!promptMessage) {

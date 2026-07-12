@@ -7,12 +7,12 @@ import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
 import { db } from '@/app/lib/db';
 import {
-  piSessions,
   todoEmailReplyEvents,
   todoEmailReplyWatchers,
 } from '@/app/lib/db/schema';
 import { readEmailMessage, listEmailMessages } from '@/app/lib/email/service';
 import { sendFollowUpMessage } from '@/app/lib/pi/runtime-service';
+import { assertUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
 import { getTodo, type TodoWithRelations } from '@/app/lib/todos/store';
 
 const REPLY_POLL_INTERVAL_MS = 60_000;
@@ -354,19 +354,19 @@ async function markReplyEvent(eventId: string, status: 'dispatched' | 'failed', 
 }
 
 async function dispatchReplyToSession(watcher: TodoEmailReplyWatcher, todo: TodoWithRelations, message: EmailReadMessage, replyText: string): Promise<void> {
-  if (!watcher.sourceSessionId) {
-    throw new Error('Todo email reply watcher has no linked source session.');
+  const sourceSessionId = watcher.sourceSessionId?.trim();
+  const sourceAgentId = watcher.sourceAgentId?.trim();
+  if (!sourceSessionId || !sourceAgentId) {
+    throw new Error('Todo email reply watcher has no linked source agent session.');
   }
-
-  const linkedSession = await db.query.piSessions.findFirst({
-    where: and(
-      eq(piSessions.userId, watcher.userId),
-      eq(piSessions.sessionId, watcher.sourceSessionId),
-    ),
+  if (todo.sourceSessionId !== sourceSessionId || todo.sourceAgentId !== sourceAgentId) {
+    throw new Error('Todo email reply watcher no longer matches the todo source agent session.');
+  }
+  await assertUnambiguousOwnedPiSessionForRuntime({
+    sessionId: sourceSessionId,
+    userId: watcher.userId,
+    agentId: sourceAgentId,
   });
-  if (!linkedSession) {
-    throw new Error('Linked agent session for todo email reply was not found.');
-  }
 
   const receivedAt = parseDate(message.date);
   const timestamp = Date.now();
@@ -382,10 +382,12 @@ async function dispatchReplyToSession(watcher: TodoEmailReplyWatcher, todo: Todo
     timestamp,
   };
 
-  await sendFollowUpMessage(watcher.sourceSessionId, watcher.userId, agentMessage, {
+  await sendFollowUpMessage(sourceSessionId, watcher.userId, agentMessage, {
     channelId: 'email',
     currentPage: '/todos',
     currentTime: new Date(timestamp).toISOString(),
+  }, {
+    expectedAgentId: sourceAgentId,
   });
 }
 
