@@ -30,7 +30,7 @@ CANVAS_SWAP_SIZE="${CANVAS_SWAP_SIZE:-2G}"
 CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
 CANVAS_AUTO_UPDATE_ENABLED_WAS_SET="${CANVAS_AUTO_UPDATE_ENABLED+x}"
 CANVAS_AUTO_UPDATE_SCHEDULE_WAS_SET="${CANVAS_AUTO_UPDATE_SCHEDULE+x}"
-CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
+CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-false}"
 CANVAS_AUTO_UPDATE_SCHEDULE="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
 LEGACY_COMPOSE_PATH=""
 LEGACY_DATA_PATH=""
@@ -67,7 +67,7 @@ CANVAS_SWAP_ENABLED="${CANVAS_SWAP_ENABLED:-true}"
   if [[ -z "$CANVAS_AUTO_UPDATE_SCHEDULE_WAS_SET" ]]; then
     CANVAS_AUTO_UPDATE_SCHEDULE="$(awk -F= '/^CANVAS_AUTO_UPDATE_SCHEDULE=/ {gsub(/'\''|"/, "", $2); print $2; exit}' "$manager_env")"
   fi
-  CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
+  CANVAS_AUTO_UPDATE_ENABLED="${CANVAS_AUTO_UPDATE_ENABLED:-false}"
   CANVAS_AUTO_UPDATE_SCHEDULE="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
 }
 
@@ -188,8 +188,8 @@ configure_secrets() {
   local auth_secret internal_key
   section "Secrets"
   if [[ -f "$CONFIG_JSON_PATH" ]]; then
-    auth_secret="$(jq -r '.env.BETTER_AUTH_SECRET // empty' "$CONFIG_JSON_PATH")"
-    internal_key="$(jq -r '.env.CANVAS_INTERNAL_API_KEY // empty' "$CONFIG_JSON_PATH")"
+    auth_secret="$(_read_config_file "$CONFIG_JSON_PATH" | jq -r '.env.BETTER_AUTH_SECRET // empty')"
+    internal_key="$(_read_config_file "$CONFIG_JSON_PATH" | jq -r '.env.CANVAS_INTERNAL_API_KEY // empty')"
   fi
   if [[ -z "$auth_secret" ]]; then
     auth_secret="$(openssl rand -base64 32)"
@@ -241,8 +241,8 @@ configure_compose_values() {
 
   local has_placeholders=false
   local url_val domain_val
-  url_val="$(jq -r '.env.BETTER_AUTH_BASE_URL // empty' "$CONFIG_JSON_PATH")"
-  domain_val="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH")"
+  url_val="$(_read_config_file "$CONFIG_JSON_PATH" | jq -r '.env.BETTER_AUTH_BASE_URL // empty')"
+  domain_val="$(_read_config_file "$CONFIG_JSON_PATH" | jq -r '.domain // empty')"
 
   if [[ -z "$url_val" && -z "$domain_val" ]]; then
     has_placeholders=true
@@ -267,7 +267,7 @@ configure_compose_values() {
     ask "  Press Enter to open ${CONFIG_JSON_PATH} in ${EDITOR_CMD}, or Ctrl+C to abort: " _dummy ""
     "$EDITOR_CMD" "$CONFIG_JSON_PATH" </dev/tty
 
-    domain_val="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH")"
+    domain_val="$(_read_config_file "$CONFIG_JSON_PATH" | jq -r '.domain // empty')"
     if [[ -z "$domain_val" ]]; then
       fail "Config still contains placeholder values. Edit ${CONFIG_JSON_PATH} and re-run: bash install.sh"
     fi
@@ -440,6 +440,9 @@ run_prebuilt_install() {
   fi
 
   config_json_to_env
+  if [[ "$(id -u)" -ne 0 ]] && { [[ ! -r "$CONFIG_ENV_PATH" ]] || [[ ! -r "$COMPOSE_ENV_PATH" ]]; }; then
+    DOCKER_COMPOSE="sudo docker compose"
+  fi
   configure_data_bind_mount
   pull_image_if_needed "${DOCKER_COMPOSE:-docker compose}" "$IMAGE" "${SERVICE:-canvas-notebook}" "${LOG_FILE:-}" "${COMPOSE_FILE:-}"
   cleanup_docker_artifacts
@@ -450,7 +453,7 @@ run_prebuilt_install() {
   apply_transient_admin_credentials
 
   local domain
-  domain="$(jq -r '.domain // empty' "$CONFIG_JSON_PATH" 2>/dev/null)"
+  domain="$(_read_config_file "$CONFIG_JSON_PATH" | jq -r '.domain // empty' 2>/dev/null)"
   configure_caddy "$domain"
 
   echo
@@ -501,6 +504,14 @@ fi
 load_existing_manager_config
 resolve_support_dir
 source_libs
+
+if [[ "${CLI_UPDATE_ONLY:-false}" == "true" ]]; then
+  if ! command -v jq >/dev/null 2>&1; then
+    echo "jq is required before a verified host CLI update can acquire its operation lock." >&2
+    exit 1
+  fi
+  canvas_operation_lock_acquire cli-update-installer
+fi
 
 require_jq
 

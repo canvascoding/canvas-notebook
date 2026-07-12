@@ -17,7 +17,7 @@ show_auto_update_status() {
 
   local enabled_val schedule_val
   enabled_val="$(config_json_read autoUpdate.enabled)"
-  enabled_val="${enabled_val:-true}"
+  enabled_val="${enabled_val:-false}"
   printf 'autoUpdate.enabled=%s\n' "$enabled_val"
 
   schedule_val="$(config_json_read autoUpdate.schedule)"
@@ -73,6 +73,15 @@ enable_auto_update() {
     fail "Auto-update timer unit not installed. Run: canvas-notebook cli-update first"
   fi
 
+  if config_json_managed_by_control_plane; then
+    fail "Managed installations are updated by the Control Plane; autonomous updates cannot be enabled."
+  fi
+  local configured_image
+  configured_image="$(config_json_read image)"
+  if ! config_json_image_is_pinned "$configured_image"; then
+    fail "Auto-update requires config.image to be pinned to a sha256 digest."
+  fi
+
   if [[ -n "$schedule_arg" ]]; then
     if ! printf '%s' "$schedule_arg" | grep -qE '^[*0-9]{1,2}-[*0-9]{1,2}-[*0-9]{1,2} [*0-9:,]+'; then
       fail "Invalid schedule format '${schedule_arg}'. Example: '*-*-* 04:00:00'"
@@ -122,8 +131,18 @@ disable_auto_update() {
 sync_auto_update() {
   local enabled_val timer_active
   enabled_val="$(config_json_read autoUpdate.enabled)"
-  enabled_val="${enabled_val:-true}"
+  enabled_val="${enabled_val:-false}"
   timer_active="$(systemctl is-active canvas-notebook-update.timer 2>/dev/null || true)"
+
+  if config_json_managed_by_control_plane || ! config_json_image_is_pinned "$(config_json_read image)"; then
+    if [[ "$timer_active" == "active" ]]; then
+      disable_auto_update
+    else
+      config_json_write autoUpdate.enabled false
+      ok "Auto-update remains disabled by the managed/pinned-image safety policy"
+    fi
+    return 0
+  fi
 
   if [[ "$(is_false "$enabled_val" && printf 'false' || printf 'true')" == "true" && "$timer_active" != "active" ]]; then
     info "Config says enabled but timer inactive — enabling..."

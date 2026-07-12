@@ -5,6 +5,5 @@ Wants=docker.service network-online.target
 
 [Service]
 Type=oneshot
-ExecStart=__CLI_PATH__ cli-update --no-banner
-ExecStart=__CLI_PATH__ update --no-banner
-TimeoutStartSec=900
+ExecStart=__CLI_PATH__ update --require-pinned --no-banner
+TimeoutStartSec=10800

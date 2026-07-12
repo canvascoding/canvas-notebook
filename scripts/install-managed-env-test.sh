@@ -9,6 +9,9 @@ export CANVAS_INSTALL_DIR="$TMP_DIR/install"
 export CANVAS_CONFIG_JSON="$TMP_DIR/canvas-notebook-config.json"
 export CANVAS_CONFIG_ENV="$TMP_DIR/canvas-notebook.env"
 export CANVAS_COMPOSE_ENV="$TMP_DIR/.env"
+export CANVAS_CLI_PATH="$CANVAS_INSTALL_DIR/bin/canvas-notebook"
+export CANVAS_CONFIG_FILE_OWNER="$(id -u):$(id -g)"
+export CANVAS_HOST_CODE_OWNER="$(id -u):$(id -g)"
 export CANVAS_USE_COLOR=false
 export INSTALL_MODE=1
 export NONINTERACTIVE=true
@@ -50,11 +53,55 @@ SUPPORT_DIR="$ROOT_DIR/install"
 . "$ROOT_DIR/install/lib/common.sh"
 # shellcheck source=../install/lib/shared/config_json.sh
 . "$ROOT_DIR/install/lib/shared/config_json.sh"
+# shellcheck source=../install/lib/systemd.sh
+. "$ROOT_DIR/install/lib/systemd.sh"
 
 config_json_init
+first_config_inode="$(stat -c '%i' "$CANVAS_CONFIG_JSON" 2>/dev/null || stat -f '%i' "$CANVAS_CONFIG_JSON")"
 configure_compose_values
 configure_database_values
 config_json_to_env
+mkdir -p "$(dirname "$CANVAS_CLI_PATH")"
+install_management_cli >/dev/null
+
+file_mode() {
+  stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
+}
+
+file_owner() {
+  stat -c '%u:%g' "$1" 2>/dev/null || stat -f '%u:%g' "$1"
+}
+
+[[ "$(file_mode "$CANVAS_CONFIG_JSON")" == "600" ]]
+[[ "$(file_mode "$CANVAS_CONFIG_ENV")" == "600" ]]
+[[ "$(file_mode "$CANVAS_COMPOSE_ENV")" == "600" ]]
+[[ "$(file_mode "$CANVAS_CLI_PATH")" == "755" ]]
+[[ "$(file_mode "$CANVAS_INSTALL_DIR/lib")" == "755" ]]
+[[ "$(file_mode "$CANVAS_INSTALL_DIR/lib/shared")" == "755" ]]
+[[ "$(file_mode "$CANVAS_INSTALL_DIR/lib/commands")" == "755" ]]
+[[ "$(file_mode "$CANVAS_INSTALL_DIR/templates")" == "755" ]]
+[[ "$(file_mode "$CANVAS_INSTALL_DIR/lib/shared/utils.sh")" == "644" ]]
+[[ "$(file_mode "$CANVAS_INSTALL_DIR/lib/commands/update.sh")" == "644" ]]
+[[ "$(file_mode "$CANVAS_INSTALL_DIR/lib/systemd.sh")" == "644" ]]
+[[ "$(file_mode "$CANVAS_INSTALL_DIR/templates/canvas-notebook.service")" == "644" ]]
+expected_host_owner="$(id -u):$(id -g)"
+[[ "$(file_owner "$CANVAS_CLI_PATH")" == "$expected_host_owner" ]]
+[[ "$(file_owner "$CANVAS_INSTALL_DIR/lib/shared/utils.sh")" == "$expected_host_owner" ]]
+[[ "$(file_owner "$CANVAS_INSTALL_DIR/lib/commands/update.sh")" == "$expected_host_owner" ]]
+[[ "$(file_owner "$CANVAS_INSTALL_DIR/lib/systemd.sh")" == "$expected_host_owner" ]]
+[[ "$(file_owner "$CANVAS_INSTALL_DIR/templates/canvas-notebook.service")" == "$expected_host_owner" ]]
+[[ "$(env -u CANVAS_HOST_CODE_OWNER bash -c '. "$1"; _host_code_owner' _ "$ROOT_DIR/install/lib/shared/config_json.sh")" == "root:root" ]]
+last_config_inode="$(stat -c '%i' "$CANVAS_CONFIG_JSON" 2>/dev/null || stat -f '%i' "$CANVAS_CONFIG_JSON")"
+[[ "$first_config_inode" != "$last_config_inode" ]]
+config_json_managed_by_control_plane
+if config_json_image_is_pinned "$(config_json_read image)"; then
+  echo "managed install unexpectedly treated the mutable default image as pinned" >&2
+  exit 1
+fi
+if find "$CANVAS_INSTALL_DIR" -maxdepth 1 -name '.*.tmp.*' -print -quit | grep -q .; then
+  echo "atomic config write left a temporary file behind" >&2
+  exit 1
+fi
 
 jq -e '
   .env.CANVAS_DEPLOYMENT_MODE == "managed-team" and
@@ -70,6 +117,7 @@ jq -e '
   .env.CANVAS_DATABASE_PROVIDER == "postgres" and
   .env.CANVAS_POSTGRES_REQUIRED == true and
   .env.CANVAS_POSTGRES_VECTOR_ENABLED == true and
+  .autoUpdate.enabled == false and
   .env.DATABASE_URL == "postgresql://canvas:safe-postgres-password@postgres:5432/canvas_notebook"
 ' "$CANVAS_CONFIG_JSON" >/dev/null
 

@@ -2,6 +2,54 @@ import { spawn } from 'node:child_process';
 
 import type { CommandResult, CommandRunner, RunOptions } from './types';
 
+export const MAX_CAPTURED_PROCESS_OUTPUT_BYTES = 2 * 1024 * 1024;
+
+const OUTPUT_TRUNCATION_NOTICE = Buffer.from('[... process output truncated; showing tail ...]\n', 'utf8');
+
+interface CapturedOutput {
+  chunks: Buffer[];
+  byteLength: number;
+  truncated: boolean;
+}
+
+function trimCapturedOutput(state: CapturedOutput, limit: number): void {
+  while (state.byteLength > limit) {
+    const first = state.chunks[0];
+    if (!first) {
+      state.byteLength = 0;
+      return;
+    }
+
+    const excess = state.byteLength - limit;
+    if (first.length <= excess) {
+      state.chunks.shift();
+      state.byteLength -= first.length;
+      continue;
+    }
+
+    state.chunks[0] = Buffer.from(first.subarray(excess));
+    state.byteLength -= excess;
+  }
+}
+
+function appendCapturedOutput(state: CapturedOutput, chunk: Buffer): void {
+  state.chunks.push(chunk);
+  state.byteLength += chunk.length;
+  const tailLimit = MAX_CAPTURED_PROCESS_OUTPUT_BYTES - OUTPUT_TRUNCATION_NOTICE.length;
+  if (!state.truncated && state.byteLength > MAX_CAPTURED_PROCESS_OUTPUT_BYTES) {
+    state.truncated = true;
+  }
+  trimCapturedOutput(state, state.truncated ? tailLimit : MAX_CAPTURED_PROCESS_OUTPUT_BYTES);
+}
+
+function capturedOutputText(state: CapturedOutput): string {
+  const chunks = state.truncated
+    ? [OUTPUT_TRUNCATION_NOTICE, ...state.chunks]
+    : state.chunks;
+  const byteLength = state.byteLength + (state.truncated ? OUTPUT_TRUNCATION_NOTICE.length : 0);
+  return Buffer.concat(chunks, byteLength).toString('utf8');
+}
+
 export class SpawnCommandRunner implements CommandRunner {
   run(command: string, args: string[], options: RunOptions = {}): Promise<CommandResult> {
     return new Promise((resolve, reject) => {
@@ -14,26 +62,40 @@ export class SpawnCommandRunner implements CommandRunner {
         windowsHide: true,
       });
 
-      let stdout = '';
-      let stderr = '';
+      const stdout: CapturedOutput = { chunks: [], byteLength: 0, truncated: false };
+      const stderr: CapturedOutput = { chunks: [], byteLength: 0, truncated: false };
+      let timedOut = false;
+      let forceKillTimer: NodeJS.Timeout | undefined;
+      const timeout = options.timeoutMs && options.timeoutMs > 0
+        ? setTimeout(() => {
+          timedOut = true;
+          child.kill('SIGTERM');
+          forceKillTimer = setTimeout(() => child.kill('SIGKILL'), 5000);
+          forceKillTimer.unref();
+        }, options.timeoutMs)
+        : undefined;
+      timeout?.unref();
 
       if (stdio === 'pipe') {
-        child.stdout?.setEncoding('utf8');
-        child.stderr?.setEncoding('utf8');
         child.stdout?.on('data', (chunk) => {
-          stdout += String(chunk);
+          appendCapturedOutput(stdout, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
         });
         child.stderr?.on('data', (chunk) => {
-          stderr += String(chunk);
+          appendCapturedOutput(stderr, Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
         });
       }
 
       child.on('error', reject);
       child.on('close', (code) => {
+        if (timeout) clearTimeout(timeout);
+        if (forceKillTimer) clearTimeout(forceKillTimer);
+        if (timedOut) {
+          appendCapturedOutput(stderr, Buffer.from('\nCommand exceeded its update deadline.', 'utf8'));
+        }
         resolve({
-          status: code ?? 0,
-          stdout,
-          stderr,
+          status: timedOut ? 124 : (code ?? 0),
+          stdout: capturedOutputText(stdout),
+          stderr: timedOut ? capturedOutputText(stderr).trim() : capturedOutputText(stderr),
         });
       });
 

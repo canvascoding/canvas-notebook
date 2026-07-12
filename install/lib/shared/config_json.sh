@@ -21,7 +21,7 @@ CONFIG_JSON_DEFAULTS='{
     "file": "/swapfile"
   },
   "autoUpdate": {
-    "enabled": true,
+    "enabled": false,
     "schedule": "*-*-* 04:00:00"
   },
   "env": {
@@ -83,26 +83,90 @@ _install_user() {
   fi
 }
 
-_write_owned_file() {
-  local dest="$1" src="$2" owner
-  owner="$(_install_user)"
-  if cp "$src" "$dest" 2>/dev/null; then
-    chmod 644 "$dest" 2>/dev/null || true
+_config_file_owner() {
+  printf '%s\n' "${CANVAS_CONFIG_FILE_OWNER:-root:root}"
+}
+
+_host_code_owner() {
+  printf '%s\n' "${CANVAS_HOST_CODE_OWNER:-root:root}"
+}
+
+_atomic_write_file() {
+  local dest="$1" src="$2" mode="$3" owner="$4" dir base tmp use_root=false
+  dir="$(dirname "$dest")"
+  base="$(basename "$dest")"
+  if [[ "$(id -u)" -eq 0 || "$owner" == "root:root" ]]; then
+    use_root=true
+  fi
+  if [[ "$use_root" == "true" ]]; then
+    run_root mkdir -p "$dir"
+    tmp="$(run_root mktemp "${dir}/.${base}.tmp.XXXXXX")"
+    if ! run_root cp "$src" "$tmp" || ! run_root chown "$owner" "$tmp" || ! run_root chmod "$mode" "$tmp" || ! run_root mv -f "$tmp" "$dest"; then
+      run_root rm -f "$tmp" 2>/dev/null || true
+      return 1
+    fi
   else
-    run_root cp "$src" "$dest"
-    run_root chown "$owner" "$dest" 2>/dev/null || true
-    run_root chmod 644 "$dest"
+    mkdir -p "$dir"
+    tmp="$(mktemp "${dir}/.${base}.tmp.XXXXXX")"
+    if ! cp "$src" "$tmp" || ! chmod "$mode" "$tmp" || ! mv -f "$tmp" "$dest"; then
+      rm -f "$tmp" 2>/dev/null || true
+      return 1
+    fi
   fi
 }
 
+_write_owned_file() {
+  local dest="$1" src="$2"
+  _atomic_write_file "$dest" "$src" 644 "$(_host_code_owner)"
+}
+
+_write_secure_config_file() {
+  local dest="$1" src="$2"
+  _atomic_write_file "$dest" "$src" 600 "$(_config_file_owner)"
+}
+
+_read_config_file() {
+  local file="$1"
+  if [[ -r "$file" ]]; then
+    cat "$file"
+  else
+    run_root cat "$file"
+  fi
+}
+
+_secure_config_file_permissions() {
+  local file owner
+  owner="$(_config_file_owner)"
+  for file in "$CONFIG_JSON_PATH" "$CONFIG_ENV_PATH" "$COMPOSE_ENV_PATH"; do
+    if [[ -f "$file" ]]; then
+      if [[ "$(id -u)" -eq 0 || "$owner" == "root:root" ]]; then
+        run_root chown "$owner" "$file"
+        run_root chmod 600 "$file"
+      else
+        chmod 600 "$file"
+      fi
+    fi
+  done
+}
+
 _ensure_dir_writable() {
-  local dir="$1" owner
-  owner="$(_install_user)"
+  local dir="$1" owner current_owner
+  owner="$(_host_code_owner)"
+  current_owner="$(id -u):$(id -g)"
   if [[ ! -d "$dir" ]]; then
-    run_root mkdir -p "$dir"
+    if [[ "$owner" == "$current_owner" ]]; then
+      mkdir -p "$dir"
+      chmod 755 "$dir"
+    else
+      run_root mkdir -p "$dir"
+      run_root chown "$owner" "$dir"
+      run_root chmod 755 "$dir"
+    fi
+  elif [[ "$(id -u)" -eq 0 || "$owner" == "root:root" ]]; then
     run_root chown "$owner" "$dir"
-  elif [[ ! -w "$dir" ]]; then
-    run_root chown "$owner" "$dir"
+    run_root chmod 755 "$dir"
+  elif [[ "$owner" == "$current_owner" ]]; then
+    chmod 755 "$dir"
   fi
 }
 
@@ -113,7 +177,7 @@ config_json_init() {
     local tmp
     tmp="$(mktemp)"
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$tmp"
-    _write_owned_file "$CONFIG_JSON_PATH" "$tmp"
+    _write_secure_config_file "$CONFIG_JSON_PATH" "$tmp"
     rm -f "$tmp"
     if [[ "${OUTPUT_JSON:-false}" != "true" && "${NO_BANNER:-false}" != "true" ]]; then
       ok "Created default config at ${CONFIG_JSON_PATH}"
@@ -127,7 +191,7 @@ config_json_read() {
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" | jq -r --arg k "$key" 'getpath($k | split(".")) // empty'
     return
   fi
-  jq -r --arg k "$key" 'getpath($k | split(".")) // empty' "$CONFIG_JSON_PATH"
+  _read_config_file "$CONFIG_JSON_PATH" | jq -r --arg k "$key" 'getpath($k | split(".")) // empty'
 }
 
 config_json_read_raw() {
@@ -136,7 +200,11 @@ config_json_read_raw() {
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" | jq --arg k "$key" 'getpath($k | split("."))'
     return
   fi
-  jq --arg k "$key" 'getpath($k | split("."))' "$CONFIG_JSON_PATH"
+  _read_config_file "$CONFIG_JSON_PATH" | jq --arg k "$key" 'getpath($k | split("."))'
+}
+
+config_json_encode_string() {
+  jq -Rs '.'
 }
 
 config_json_write() {
@@ -177,11 +245,11 @@ config_json_write() {
       if [[ -n "$value" ]]; then
         local extracted_domain
         extracted_domain="$(printf '%s' "$value" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1)"
-        _config_json_write_raw "domain" "\"$extracted_domain\""
+        _config_json_write_raw "domain" "$(printf '%s' "$extracted_domain" | config_json_encode_string)"
         local base_url
         base_url="$value"
-        _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\""
-        _config_json_write_raw "env.BASE_URL" "\"$base_url\""
+        _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "$(printf '%s' "$base_url" | config_json_encode_string)"
+        _config_json_write_raw "env.BASE_URL" "$(printf '%s' "$base_url" | config_json_encode_string)"
         return
       fi
       ;;
@@ -189,12 +257,12 @@ config_json_write() {
       if [[ -n "$value" ]]; then
         local extracted_domain
         extracted_domain="$(printf '%s' "$value" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1)"
-        _config_json_write_raw "domain" "\"$extracted_domain\""
-        _config_json_write_raw "env.BASE_URL" "\"$value\""
+        _config_json_write_raw "domain" "$(printf '%s' "$extracted_domain" | config_json_encode_string)"
+        _config_json_write_raw "env.BASE_URL" "$(printf '%s' "$value" | config_json_encode_string)"
         local current_auth_url
         current_auth_url="$(config_json_read env.BETTER_AUTH_BASE_URL)"
         if [[ -z "$current_auth_url" ]]; then
-          _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$value\""
+          _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "$(printf '%s' "$value" | config_json_encode_string)"
         fi
         return
       fi
@@ -222,13 +290,13 @@ config_json_write() {
   elif [[ "$value" == "true" || "$value" == "false" ]]; then
     _config_json_write_raw "$key" "$value"
   else
-    _config_json_write_raw "$key" "\"$value\""
+    _config_json_write_raw "$key" "$(printf '%s' "$value" | config_json_encode_string)"
   fi
 
   if [[ "$key" == "domain" ]] && [[ -n "$value" ]]; then
     local base_url="https://${value}"
-    _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\""
-    _config_json_write_raw "env.BASE_URL" "\"$base_url\""
+    _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "$(printf '%s' "$base_url" | config_json_encode_string)"
+    _config_json_write_raw "env.BASE_URL" "$(printf '%s' "$base_url" | config_json_encode_string)"
   fi
 }
 
@@ -256,6 +324,21 @@ config_json_deployment_requires_postgres() {
   esac
 
   return 1
+}
+
+config_json_managed_by_control_plane() {
+  local managed control_plane_url
+  managed="$(config_json_read env.CANVAS_MANAGED_SERVICES_ENABLED)"
+  control_plane_url="$(config_json_read env.CANVAS_CONTROL_PLANE_URL)"
+  case "$(printf '%s' "$managed" | tr '[:upper:]' '[:lower:]')" in
+    true|1|yes|on) return 0 ;;
+  esac
+  [[ -n "$control_plane_url" ]]
+}
+
+config_json_image_is_pinned() {
+  local image_ref="$1"
+  [[ "$image_ref" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[a-f0-9]{64}$ ]]
 }
 
 config_json_generate_secret() {
@@ -292,17 +375,35 @@ config_json_require_url_safe_postgres_part() {
 
 config_json_decode_postgres_url_part() {
   local key="$1" value="$2" decoded
-  decoded="$(config_json_url_decode_component "$value")"
-  config_json_require_url_safe_postgres_part "$key" "$decoded"
+  decoded="$(config_json_url_decode_component "$value")" || return 1
+  config_json_require_url_safe_postgres_part "$key" "$decoded" || return 1
+  printf '%s\n' "$decoded"
+}
+
+config_json_decode_postgres_password() {
+  local value="$1" decoded
+  if [[ "$value" =~ %([0][0AaDd]) ]]; then
+    fail "CANVAS_POSTGRES_PASSWORD contains unsafe control characters."
+  fi
+  decoded="$(config_json_url_decode_component "$value")" || return 1
+  if [[ "$decoded" == *$'\n'* || "$decoded" == *$'\r'* || "$decoded" == *"***"* || "$decoded" == "(not set)" ]]; then
+    fail "CANVAS_POSTGRES_PASSWORD contains unsafe or masked content."
+  fi
   printf '%s\n' "$decoded"
 }
 
 config_json_ensure_database_config() {
-  local deployment_mode team_features provider database_url pg_image pg_volume pg_db pg_user pg_password
+  local deployment_mode team_features provider provider_raw database_url pg_image pg_volume pg_db pg_user pg_password
   deployment_mode="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
   deployment_mode="${deployment_mode:-single_user}"
   team_features="$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)"
-  provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
+  provider_raw="$(config_json_read env.CANVAS_DATABASE_PROVIDER)"
+  database_url="$(config_json_read env.DATABASE_URL)"
+  if [[ -z "$(printf '%s' "$provider_raw" | xargs)" && "$database_url" =~ ^postgres(ql)?:// ]]; then
+    provider="postgres"
+  else
+    provider="$(config_json_normalize_database_provider "$provider_raw")" || return 1
+  fi
 
   if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
     if [[ "${CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE:-false}" != "true" ]]; then
@@ -328,12 +429,11 @@ config_json_ensure_database_config() {
   pg_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
   pg_user="${pg_user:-canvas}"
   pg_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
-  database_url="$(config_json_read env.DATABASE_URL)"
   if [[ -n "$database_url" ]]; then
     if [[ "$database_url" =~ ^postgres(ql)?://([^:/@]+):([^@]+)@[^/]+/([^/?#]+) ]]; then
-      pg_user="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_USER "${BASH_REMATCH[2]}")"
-      pg_password="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_PASSWORD "${BASH_REMATCH[3]}")"
-      pg_db="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_DB "${BASH_REMATCH[4]}")"
+      pg_user="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_USER "${BASH_REMATCH[2]}")" || return 1
+      pg_password="$(config_json_decode_postgres_password "${BASH_REMATCH[3]}")" || return 1
+      pg_db="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_DB "${BASH_REMATCH[4]}")" || return 1
     elif [[ "$database_url" =~ ^postgres(ql)?:// ]]; then
       fail "DATABASE_URL must include user, password, host, and database for managed Postgres."
     fi
@@ -341,6 +441,9 @@ config_json_ensure_database_config() {
 
   if [[ -z "$database_url" ]]; then
     if [[ -z "$pg_password" ]]; then
+      if [[ "${CANVAS_ALLOW_POSTGRES_SECRET_GENERATION:-true}" != "true" ]]; then
+        fail "Managed Postgres credentials are missing. Run: canvas-notebook database prepare-postgres"
+      fi
       pg_password="$(config_json_generate_secret)"
       config_json_write env.CANVAS_POSTGRES_PASSWORD "$pg_password"
     fi
@@ -375,9 +478,9 @@ config_json_ensure_postgres_infrastructure_config() {
   database_url="$(config_json_read env.DATABASE_URL)"
   if [[ -n "$database_url" ]]; then
     if [[ "$database_url" =~ ^postgres(ql)?://([^:/@]+):([^@]+)@[^/]+/([^/?#]+) ]]; then
-      pg_user="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_USER "${BASH_REMATCH[2]}")"
-      pg_password="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_PASSWORD "${BASH_REMATCH[3]}")"
-      pg_db="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_DB "${BASH_REMATCH[4]}")"
+      pg_user="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_USER "${BASH_REMATCH[2]}")" || return 1
+      pg_password="$(config_json_decode_postgres_password "${BASH_REMATCH[3]}")" || return 1
+      pg_db="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_DB "${BASH_REMATCH[4]}")" || return 1
     elif [[ "$database_url" =~ ^postgres(ql)?:// ]]; then
       fail "DATABASE_URL must include user, password, host, and database for managed Postgres."
     fi
@@ -405,24 +508,51 @@ config_json_ensure_postgres_infrastructure_config() {
 }
 
 _config_json_write_raw() {
-  local key="$1" json_value="$2" tmp
+  local key="$1" json_value="$2" tmp value_tmp
 
   if [[ ! -f "$CONFIG_JSON_PATH" ]]; then
     config_json_init
   fi
 
   tmp="$(mktemp)"
-  jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$CONFIG_JSON_PATH" > "$tmp"
-  _write_owned_file "$CONFIG_JSON_PATH" "$tmp"
-  rm -f "$tmp"
+  value_tmp="$(mktemp)"
+  chmod 600 "$value_tmp"
+  printf '%s' "$json_value" > "$value_tmp"
+  _read_config_file "$CONFIG_JSON_PATH" | jq --arg k "$key" --slurpfile v "$value_tmp" 'setpath($k | split("."); $v[0])' > "$tmp"
+  _write_secure_config_file "$CONFIG_JSON_PATH" "$tmp"
+  rm -f "$tmp" "$value_tmp"
 }
 
 config_json_show() {
   if [[ -f "$CONFIG_JSON_PATH" ]]; then
-    jq '.' "$CONFIG_JSON_PATH"
+    _read_config_file "$CONFIG_JSON_PATH" | jq '.'
   else
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" | jq '.'
   fi
+}
+
+config_json_env_key_is_secret() {
+  local key="$1"
+  key="$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')"
+  [[ "$key" == "DATABASE_URL" ]] && return 0
+  [[ "$key" =~ (^|_)(PASSWORD|PASSWD|SECRET_KEY|SECRET|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY|LICENSE_CERT)$ ]]
+}
+
+config_json_mask_secrets() {
+  jq '
+    .env |= with_entries(
+      if ((.key | ascii_upcase) == "DATABASE_URL" or (.key | test("(^|_)(PASSWORD|PASSWD|SECRET_KEY|SECRET|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY|LICENSE_CERT)$"; "i"))) then
+        .value = (
+          if (.value == null or .value == "") then "(not set)"
+          elif (.key | ascii_upcase) == "DATABASE_URL" then "postgresql://***"
+          else ((.value | tostring) | .[0:4] + "***")
+          end
+        )
+      else . end
+    )
+    | reduce ["BETTER_AUTH_SECRET", "CANVAS_INTERNAL_API_KEY", "DATABASE_URL", "CANVAS_POSTGRES_PASSWORD"][] as $key
+        (. ; if (.env | has($key)) then . else .env[$key] = "(not set)" end)
+  '
 }
 
 config_json_to_env() {
@@ -474,7 +604,7 @@ config_json_to_env() {
     printf 'CANVAS_POSTGRES_USER=%s\n' "${postgres_user:-canvas}"
     printf 'CANVAS_POSTGRES_PASSWORD=%s\n' "$postgres_password"
   } >> "$compose_tmp"
-  _write_owned_file "$COMPOSE_ENV_PATH" "$compose_tmp"
+  _write_secure_config_file "$COMPOSE_ENV_PATH" "$compose_tmp"
   rm -f "$compose_tmp"
 
   local env_tmp
@@ -482,9 +612,9 @@ config_json_to_env() {
   {
     printf '# Auto-generated from canvas-notebook-config.json — do not edit manually\n'
     printf '# Run: canvas-notebook env --sync to regenerate\n\n'
-    jq -r '.env | to_entries[] | "\(.key)=\(.value)"' "$CONFIG_JSON_PATH"
+    _read_config_file "$CONFIG_JSON_PATH" | jq -r '.env | to_entries[] | "\(.key)=\(.value)"'
   } > "$env_tmp"
-  _write_owned_file "$CONFIG_ENV_PATH" "$env_tmp"
+  _write_secure_config_file "$CONFIG_ENV_PATH" "$env_tmp"
   rm -f "$env_tmp"
 
   if [[ "${OUTPUT_JSON:-false}" != "true" ]]; then
@@ -514,7 +644,7 @@ config_json_migrate() {
   local mig_tmp
   mig_tmp="$(mktemp)"
   printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$mig_tmp"
-  _write_owned_file "$CONFIG_JSON_PATH" "$mig_tmp"
+  _write_secure_config_file "$CONFIG_JSON_PATH" "$mig_tmp"
   rm -f "$mig_tmp"
 
   if [[ -f "$manager_env" ]]; then

@@ -224,7 +224,11 @@ export async function reexecPortableCliIfUpdated(params: {
   console.log(`Portable CLI updated${versionText}`);
   console.log(`Restarting ${params.command} with updated CLI...`);
   const child = spawn(process.execPath, [result.mainPath, ...portableCliReexecArgs(params)], {
-    env: { ...process.env, CANVAS_CLI_SELF_UPDATE_REEXEC: 'true' },
+    env: {
+      ...process.env,
+      CANVAS_CLI_SELF_UPDATE_REEXEC: 'true',
+      CANVAS_OPERATION_LOCK_INHERIT_TOKEN: process.env.CANVAS_OPERATION_LOCK_NONCE,
+    },
     stdio: 'inherit',
     windowsHide: true,
   });

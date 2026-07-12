@@ -57,7 +57,7 @@ export function createDefaultConfig(paths: CliPaths, platform: HostPlatform): Ca
       file: '/swapfile',
     },
     autoUpdate: {
-      enabled: true,
+      enabled: false,
       schedule: '*-*-* 04:00:00',
     },
     env: { ...DEFAULT_ENV },
@@ -97,6 +97,9 @@ function normalizeEnv(input: unknown, defaults: Record<string, EnvValue>): Recor
   if (!isRecord(input)) return env;
   for (const [key, value] of Object.entries(input)) {
     env[key] = asEnvValue(value);
+  }
+  if (!Object.prototype.hasOwnProperty.call(input, 'CANVAS_DATABASE_PROVIDER')) {
+    env.CANVAS_DATABASE_PROVIDER = '';
   }
   return env;
 }
@@ -158,13 +161,33 @@ export async function loadConfig(paths: CliPaths, platform: HostPlatform): Promi
   }
 }
 
+export async function writeSecureFile(filePath: string, content: string): Promise<void> {
+  const dir = path.dirname(filePath);
+  const tempPath = path.join(dir, `.${path.basename(filePath)}.${process.pid}.${crypto.randomBytes(8).toString('hex')}.tmp`);
+  await fs.mkdir(dir, { recursive: true });
+  try {
+    await fs.writeFile(tempPath, content, { encoding: 'utf8', flag: 'wx', mode: 0o600 });
+    await fs.chmod(tempPath, 0o600);
+    if (process.platform === 'linux' && typeof process.geteuid === 'function' && process.geteuid() === 0) {
+      await fs.chown(tempPath, 0, 0);
+    }
+    await fs.rename(tempPath, filePath);
+  } catch (error) {
+    await fs.rm(tempPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function writeConfig(config: CanvasCliConfig): Promise<void> {
-  await fs.mkdir(path.dirname(config.paths.configFile), { recursive: true });
-  await fs.writeFile(config.paths.configFile, `${JSON.stringify(config, null, 2)}\n`, 'utf8');
+  await writeSecureFile(config.paths.configFile, `${JSON.stringify(config, null, 2)}\n`);
 }
 
 export function randomSecret(): string {
   return crypto.randomBytes(32).toString('base64');
+}
+
+export function isPinnedImageReference(value: string): boolean {
+  return /^[a-z0-9]+(?:[._-][a-z0-9]+)*(?::[0-9]+)?(?:\/[a-z0-9]+(?:[._-][a-z0-9]+)*)+(?::[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[a-f0-9]{64}$/u.test(value);
 }
 
 export function ensureSecrets(config: CanvasCliConfig): CanvasCliConfig {
@@ -258,10 +281,17 @@ function databaseUrlParts(value: EnvValue): { user: string; password: string; da
     throw new Error('DATABASE_URL must use postgres:// or postgresql://');
   }
   const user = decodeURIComponent(parsed.username || '');
-  const password = decodeURIComponent(parsed.password || '');
+  const encodedPassword = parsed.password || '';
+  if (/%(?:00|0a|0d)/iu.test(encodedPassword)) {
+    throw new Error('CANVAS_POSTGRES_PASSWORD contains unsafe control characters.');
+  }
+  const password = decodeURIComponent(encodedPassword);
   const database = decodeURIComponent(parsed.pathname.replace(/^\/+/u, '').split('/')[0] || '');
   if (!user || !password || !database) {
     throw new Error('DATABASE_URL must include user, password, host, and database for managed Postgres.');
+  }
+  if (/[\0\r\n]/u.test(password) || password.includes('***') || password === '(not set)') {
+    throw new Error('CANVAS_POSTGRES_PASSWORD contains unsafe or masked content.');
   }
   return { user, password, database };
 }
@@ -302,13 +332,15 @@ export function parseCliRuntimeMode(value: string): CliRuntimeMode {
   return normalizeRuntimeModeValue(value);
 }
 
-export function ensurePostgresInfrastructureConfig(config: CanvasCliConfig): CanvasCliConfig {
+export function ensurePostgresInfrastructureConfig(
+  config: CanvasCliConfig,
+  options: { allowSecretGeneration?: boolean } = {},
+): CanvasCliConfig {
   const next = structuredClone(config);
   let databaseUrl = String(next.env.DATABASE_URL || '').trim();
   const parsedDatabaseUrl = databaseUrlParts(databaseUrl);
   if (parsedDatabaseUrl) {
     requireUrlSafePostgresPart('CANVAS_POSTGRES_USER', parsedDatabaseUrl.user);
-    requireUrlSafePostgresPart('CANVAS_POSTGRES_PASSWORD', parsedDatabaseUrl.password);
     requireUrlSafePostgresPart('CANVAS_POSTGRES_DB', parsedDatabaseUrl.database);
     next.env.CANVAS_POSTGRES_USER = parsedDatabaseUrl.user;
     next.env.CANVAS_POSTGRES_PASSWORD = parsedDatabaseUrl.password;
@@ -320,6 +352,9 @@ export function ensurePostgresInfrastructureConfig(config: CanvasCliConfig): Can
   next.env.CANVAS_POSTGRES_DB = next.env.CANVAS_POSTGRES_DB || DEFAULT_POSTGRES_DB;
   next.env.CANVAS_POSTGRES_USER = next.env.CANVAS_POSTGRES_USER || DEFAULT_POSTGRES_USER;
   if (!String(next.env.CANVAS_POSTGRES_PASSWORD || '').trim()) {
+    if (options.allowSecretGeneration === false) {
+      throw new Error('Managed Postgres credentials are missing. Run: canvas-notebook database prepare-postgres');
+    }
     next.env.CANVAS_POSTGRES_PASSWORD = randomSecret().replace(/[+/=]/g, '').slice(0, 32);
   }
   validateDatabaseUrl(databaseUrl);
@@ -333,9 +368,15 @@ export function ensurePostgresInfrastructureConfig(config: CanvasCliConfig): Can
   return next;
 }
 
-export function normalizeDatabaseConfig(config: CanvasCliConfig): CanvasCliConfig {
+export function normalizeDatabaseConfig(
+  config: CanvasCliConfig,
+  options: { allowSecretGeneration?: boolean } = {},
+): CanvasCliConfig {
   const next = structuredClone(config);
-  const provider = normalizeDatabaseProviderValue(next.env.CANVAS_DATABASE_PROVIDER);
+  const rawProvider = normalized(next.env.CANVAS_DATABASE_PROVIDER);
+  const provider = !rawProvider && /^postgres(?:ql)?:\/\//iu.test(String(next.env.DATABASE_URL || '').trim())
+    ? 'postgres'
+    : normalizeDatabaseProviderValue(next.env.CANVAS_DATABASE_PROVIDER);
   next.env.CANVAS_DATABASE_PROVIDER = provider;
 
   if (deploymentRequiresPostgres(next.env.CANVAS_DEPLOYMENT_MODE, next.env.CANVAS_TEAM_FEATURES_ENABLED) && provider !== 'postgres') {
@@ -347,7 +388,7 @@ export function normalizeDatabaseConfig(config: CanvasCliConfig): CanvasCliConfi
     return next;
   }
 
-  const prepared = ensurePostgresInfrastructureConfig(next);
+  const prepared = ensurePostgresInfrastructureConfig(next, options);
   validateDatabaseUrl(prepared.env.DATABASE_URL);
   if (!String(prepared.env.DATABASE_URL || '').trim()) {
     requireUrlSafePostgresPart('CANVAS_POSTGRES_USER', prepared.env.CANVAS_POSTGRES_USER);
@@ -360,21 +401,49 @@ export function normalizeDatabaseConfig(config: CanvasCliConfig): CanvasCliConfi
 }
 
 export function materializePostgresInfrastructureConfig(config: CanvasCliConfig, baseUrl?: string): CanvasCliConfig {
-  return ensurePostgresInfrastructureConfig(ensureBaseUrl(ensureSecrets(config), baseUrl));
+  return ensurePostgresInfrastructureConfig(ensureBaseUrl(ensureSecrets(config), baseUrl), { allowSecretGeneration: true });
 }
 
-export function materializeConfig(config: CanvasCliConfig, baseUrl?: string): CanvasCliConfig {
-  return normalizeDatabaseConfig(ensureBaseUrl(ensureSecrets(config), baseUrl));
+export function materializeConfig(
+  config: CanvasCliConfig,
+  baseUrl?: string,
+  options: { allowPostgresSecretGeneration?: boolean } = {},
+): CanvasCliConfig {
+  return normalizeDatabaseConfig(ensureBaseUrl(ensureSecrets(config), baseUrl), {
+    allowSecretGeneration: options.allowPostgresSecretGeneration,
+  });
 }
 
 export function redactConfig(config: CanvasCliConfig): CanvasCliConfig {
   const next = structuredClone(config);
-  for (const key of ['BETTER_AUTH_SECRET', 'CANVAS_INTERNAL_API_KEY', 'CANVAS_POSTGRES_PASSWORD']) {
+  for (const key of Object.keys(next.env).filter(isSensitiveEnvKey)) {
     const value = String(next.env[key] || '');
-    next.env[key] = value ? `${value.slice(0, 4)}***` : '(not set)';
+    next.env[key] = key.toUpperCase() === 'DATABASE_URL'
+      ? (value.trim() ? 'postgresql://***' : '(not set)')
+      : (value ? `${value.slice(0, 4)}***` : '(not set)');
   }
-  next.env.DATABASE_URL = String(next.env.DATABASE_URL || '').trim() ? 'postgresql://***' : '(not set)';
+  for (const key of ['BETTER_AUTH_SECRET', 'CANVAS_INTERNAL_API_KEY', 'DATABASE_URL', 'CANVAS_POSTGRES_PASSWORD']) {
+    if (!(key in next.env)) next.env[key] = '(not set)';
+  }
   return next;
+}
+
+export function isSensitiveEnvKey(key: string): boolean {
+  return key.toUpperCase() === 'DATABASE_URL' || /(?:^|_)(?:PASSWORD|PASSWD|SECRET_KEY|SECRET|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY|LICENSE_CERT)$/iu.test(key);
+}
+
+export function configSecretState(config: CanvasCliConfig): Record<string, { present: boolean; sha256: string | null }> {
+  const mandatoryKeys = ['BETTER_AUTH_SECRET', 'CANVAS_INTERNAL_API_KEY', 'DATABASE_URL', 'CANVAS_POSTGRES_PASSWORD'];
+  const keys = [...mandatoryKeys, ...Object.keys(config.env).filter((key) => isSensitiveEnvKey(key) && !mandatoryKeys.includes(key))];
+  return Object.fromEntries(
+    keys.map((key) => {
+      const value = String(config.env[key] || '');
+      return [key, {
+        present: value.length > 0,
+        sha256: value.length > 0 ? crypto.createHash('sha256').update(value, 'utf8').digest('hex') : null,
+      }];
+    }),
+  );
 }
 
 function envLine(key: string, value: EnvValue): string {
@@ -419,7 +488,6 @@ export function composeEnvText(config: CanvasCliConfig, composeDataDir: string):
 }
 
 export async function writeEnvFiles(config: CanvasCliConfig, composeDataDir: string): Promise<void> {
-  await fs.mkdir(path.dirname(config.paths.containerEnvFile), { recursive: true });
-  await fs.writeFile(config.paths.containerEnvFile, containerEnvText(config), 'utf8');
-  await fs.writeFile(config.paths.composeEnvFile, composeEnvText(config, composeDataDir), 'utf8');
+  await writeSecureFile(config.paths.containerEnvFile, containerEnvText(config));
+  await writeSecureFile(config.paths.composeEnvFile, composeEnvText(config, composeDataDir));
 }

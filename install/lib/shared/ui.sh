@@ -31,7 +31,8 @@ Commands:
   help       Show this help
   version    Show CLI, pulled image, and running container build info
   install    Pull the image and start/recreate the container
-  update     Pull the latest image, recreate the container, and wait until healthy
+  update [--image <name@sha256>] [--require-pinned]
+             Pull and apply an image with rollback protection
   start      Start the container and wait until healthy
   restart    Restart the container and wait until healthy
   stop       Stop the container
@@ -43,14 +44,17 @@ Commands:
   manager-log
                Show the host-side CLI management log
   env        Show current environment from config.json
-  env --sync Generate .env from config.json, sync Caddy, and restart
+  env --render | env --sync --timeout <seconds>
+             Render only, or reconcile services and wait for health
   env --edit Open config.json in editor, then sync and restart
   backup create [--output <path>]
              Create/replace the local latest full backup
   database status
              Show configured database provider status
-  database prepare-postgres
+  database prepare-postgres --timeout <seconds>
              Prepare local Postgres service without migrating SQLite data
+  database reconcile-postgres-auth --timeout <seconds>
+             Reconcile local Postgres auth, then render env and restart the app
   database migrate-sqlite-to-postgres [--sqlite-path <path>]
              Copy the current SQLite database into the configured Postgres database
   admin reset-password --email <email> [--name <name>] [--password-stdin]
@@ -68,17 +72,17 @@ Commands:
   diagnose   Show host, Docker, memory, OOM, and container diagnostics
   health     Check the local health endpoint; use --json for machine-readable output
   config     Show config paths
-  config-show
-               Show config.json contents; use --json for machine-readable output
-  config-set <key> <value>
-               Set a config value (dot notation, e.g. env.BETTER_AUTH_BASE_URL)
+  config-show --json --secret-state
+               Show masked config plus local secret presence and SHA-256 fingerprints
+  config-set <key> <value> | config-set <key> --stdin
+               Read a single-line config value from stdin without echoing it
   config-migrate [--force]
                Migrate from legacy manager.env + Compose to config.json
   cli-update Download the latest management CLI and systemd service from GitHub
   auto-update-status
                Show auto-update timer status and last update result
   auto-update-enable [--schedule "..."]
-               Enable automatic image updates via systemd timer
+               Enable the pinned-image verification timer for standalone installs
   auto-update-disable
                 Disable automatic image updates
   auto-update-sync
@@ -130,11 +134,20 @@ run_with_spinner() {
 
 recreate_container() {
   local recreate_log spin='⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏'
-  local i=0
+  local i=0 timeout_seconds="${1:-0}" started_at
   recreate_log="$(mktemp)"
-  compose up -d --force-recreate >"$recreate_log" 2>&1 &
+  compose up -d --force-recreate --no-deps "$SERVICE" >"$recreate_log" 2>&1 &
   local rec_pid=$!
+  started_at="$SECONDS"
   while kill -0 "$rec_pid" 2>/dev/null; do
+    if [[ "$timeout_seconds" -gt 0 && $((SECONDS - started_at)) -ge "$timeout_seconds" ]]; then
+      kill "$rec_pid" >/dev/null 2>&1 || true
+      sleep 1
+      kill -9 "$rec_pid" >/dev/null 2>&1 || true
+      wait "$rec_pid" >/dev/null 2>&1 || true
+      rm -f "$recreate_log"
+      return 124
+    fi
     printf "\r  ${spin:$((i % ${#spin})):1} Recreating container..."
     i=$((i + 1))
     sleep 0.08
@@ -147,13 +160,19 @@ recreate_container() {
 }
 
 wait_until_healthy() {
-  local url attempts attempt elapsed
+  local url attempts attempt elapsed deadline_seconds="${2:-0}" remaining probe_timeout
   url="$(health_url)"
-  attempts="$DEFAULT_HEALTH_ATTEMPTS"
+  attempts="${1:-$DEFAULT_HEALTH_ATTEMPTS}"
   info "Waiting for Canvas Notebook health check: $url"
 
   for ((attempt=1; attempt<=attempts; attempt++)); do
-    if curl -fsS "$url" >/dev/null 2>&1; then
+    probe_timeout=2
+    if [[ "$deadline_seconds" -gt 0 ]]; then
+      remaining=$((deadline_seconds - $(date +%s)))
+      [[ "$remaining" -ge 1 ]] || break
+      [[ "$probe_timeout" -le "$remaining" ]] || probe_timeout="$remaining"
+    fi
+    if canvas_health_probe "$url" "$probe_timeout"; then
       progress_bar "$attempt" "$attempts" ""
       printf "\n"
       ok "Canvas Notebook is healthy"
@@ -161,6 +180,9 @@ wait_until_healthy() {
     fi
     elapsed=$attempt
     progress_bar "$elapsed" "$attempts" "Waiting for healthy (${elapsed}s/${attempts}s)"
+    if [[ "$deadline_seconds" -gt 0 && $((deadline_seconds - $(date +%s))) -lt 1 ]]; then
+      break
+    fi
     sleep 1
   done
 
@@ -170,7 +192,7 @@ wait_until_healthy() {
 
 follow_until_healthy() {
   local compose_cmd="compose -f ${COMPOSE_FILE}"
-  wait_for_healthy "$compose_cmd" "$SERVICE" "$(health_url)" "$DEFAULT_HEALTH_ATTEMPTS" "$LOG_FILE"
+  wait_for_healthy "$compose_cmd" "$SERVICE" "$(health_url)" "${1:-$DEFAULT_HEALTH_ATTEMPTS}" "$LOG_FILE" "" "${2:-0}"
 }
 
 cleanup_docker_artifacts() {

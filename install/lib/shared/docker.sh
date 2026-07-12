@@ -47,9 +47,14 @@ pull_image_if_needed() {
   local service="${3:-${SERVICE:-canvas-notebook}}"
   local log_file="${4:-}"
   local compose_file="${5:-${COMPOSE_FILE:-}}"
+  local timeout_seconds="${6:-0}" started_at
 
   local remote_digest
-  remote_digest="$(remote_image_digest "$image_ref" || true)"
+  if [[ "$timeout_seconds" -gt 0 ]]; then
+    remote_digest=""
+  else
+    remote_digest="$(remote_image_digest "$image_ref" || true)"
+  fi
   if [[ -n "$remote_digest" ]] && image_digest "$image_ref" | grep -Fxq "$remote_digest"; then
     ok "Already up to date (${image_ref}@${remote_digest:0:19}...)"
     return 0
@@ -63,7 +68,17 @@ pull_image_if_needed() {
     docker_cmd pull "$image_ref" >"$pull_log" 2>&1 &
   fi
   local pull_pid=$!
+  started_at="$SECONDS"
   while kill -0 "$pull_pid" 2>/dev/null; do
+    if [[ "$timeout_seconds" -gt 0 && $((SECONDS - started_at)) -ge "$timeout_seconds" ]]; then
+      kill "$pull_pid" >/dev/null 2>&1 || true
+      sleep 1
+      kill -9 "$pull_pid" >/dev/null 2>&1 || true
+      wait "$pull_pid" >/dev/null 2>&1 || true
+      rm -f "$pull_log"
+      printf '\r  ✗ Image pull exceeded its update deadline.\n' >&2
+      return 124
+    fi
     printf "\r  ${spin:$((i % ${#spin})):1} Pulling latest image..."
     i=$((i + 1))
     sleep 0.08

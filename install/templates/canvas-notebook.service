@@ -12,7 +12,7 @@ Environment=CANVAS_MANAGER_LOG_DIR=/var/log/canvas-notebook
 ExecStart=__CLI_PATH__ start --no-banner
 ExecStop=__CLI_PATH__ stop --no-banner
 ExecReload=__CLI_PATH__ restart --no-banner
-TimeoutStartSec=300
+TimeoutStartSec=10800
 TimeoutStopSec=120
 
 [Install]

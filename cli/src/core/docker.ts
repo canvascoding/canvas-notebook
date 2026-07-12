@@ -9,19 +9,23 @@ export class DockerManager {
     private readonly context: RuntimeContext,
   ) {}
 
-  async docker(args: string[], options: { stdin?: string; stdio?: 'pipe' | 'inherit' } = {}) {
+  async docker(args: string[], options: { env?: NodeJS.ProcessEnv; stdin?: string; stdio?: 'pipe' | 'inherit'; timeoutMs?: number } = {}) {
     return this.runner.run(this.context.dockerBin, args, {
       cwd: this.context.paths.installDir,
+      env: options.env,
       stdin: options.stdin,
       stdio: options.stdio ?? 'pipe',
+      timeoutMs: options.timeoutMs,
     });
   }
 
-  async dockerOrThrow(args: string[], options: { stdin?: string; stdio?: 'pipe' | 'inherit' } = {}) {
+  async dockerOrThrow(args: string[], options: { env?: NodeJS.ProcessEnv; stdin?: string; stdio?: 'pipe' | 'inherit'; timeoutMs?: number } = {}) {
     return runOrThrow(this.runner, this.context.dockerBin, args, {
       cwd: this.context.paths.installDir,
+      env: options.env,
       stdin: options.stdin,
       stdio: options.stdio ?? 'pipe',
+      timeoutMs: options.timeoutMs,
     });
   }
 
@@ -40,8 +44,8 @@ export class DockerManager {
     return this.docker(this.composeArgs(config, args), { stdio });
   }
 
-  async composeOrThrow(config: CanvasCliConfig, args: string[], stdio: 'pipe' | 'inherit' = 'pipe') {
-    return this.dockerOrThrow(this.composeArgs(config, args), { stdio });
+  async composeOrThrow(config: CanvasCliConfig, args: string[], stdio: 'pipe' | 'inherit' = 'pipe', timeoutMs?: number, env?: NodeJS.ProcessEnv) {
+    return this.dockerOrThrow(this.composeArgs(config, args), { env, stdio, timeoutMs });
   }
 
   async isReachable(): Promise<boolean> {
@@ -72,8 +76,8 @@ export class DockerManager {
     return result.status === 0 && result.stdout.trim() === 'true';
   }
 
-  async pull(config: CanvasCliConfig, stdio: 'pipe' | 'inherit' = 'inherit'): Promise<void> {
-    await this.composeOrThrow(config, ['pull', this.context.serviceName], stdio);
+  async pull(config: CanvasCliConfig, stdio: 'pipe' | 'inherit' = 'inherit', timeoutMs?: number, env?: NodeJS.ProcessEnv): Promise<void> {
+    await this.composeOrThrow(config, ['pull', this.context.serviceName], stdio, timeoutMs, env);
   }
 
   async needsRecreate(config: CanvasCliConfig): Promise<boolean> {
@@ -92,19 +96,27 @@ export class DockerManager {
     return `http://127.0.0.1:${config.hostPort}/api/health`;
   }
 
-  async isHealthy(config: CanvasCliConfig): Promise<boolean> {
+  async isHealthy(config: CanvasCliConfig, timeoutMs = 3000): Promise<boolean> {
     try {
-      const response = await fetch(this.healthUrl(config), { signal: AbortSignal.timeout(3000) });
+      const response = await fetch(this.healthUrl(config), { signal: AbortSignal.timeout(Math.max(1, timeoutMs)) });
       return response.ok;
     } catch {
       return false;
     }
   }
 
-  async waitUntilHealthy(config: CanvasCliConfig, maxAttempts = 180): Promise<void> {
+  async waitUntilHealthy(
+    config: CanvasCliConfig,
+    maxAttempts = Number(process.env.CANVAS_HEALTH_MAX_ATTEMPTS || 180),
+    timeoutMs?: number,
+  ): Promise<void> {
+    const deadline = timeoutMs === undefined ? null : Date.now() + Math.max(1, timeoutMs);
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-      if (await this.isHealthy(config)) return;
-      await delay(1000);
+      const remaining = deadline === null ? 3000 : deadline - Date.now();
+      if (remaining <= 0) break;
+      if (await this.isHealthy(config, Math.min(3000, remaining))) return;
+      if (deadline !== null && deadline - Date.now() <= 0) break;
+      await delay(deadline === null ? 1000 : Math.min(1000, Math.max(1, deadline - Date.now())));
     }
     throw new Error(`Canvas Notebook did not become healthy within ${maxAttempts}s.`);
   }

@@ -97,6 +97,12 @@ _backup_create() {
   fi
 
   log_msg "backup create"
+  if postgres_runtime_desired && [[ -f "$CONFIG_ENV_PATH" && -f "$COMPOSE_ENV_PATH" ]]; then
+    if ! declare -f _database_reconcile_postgres_auth >/dev/null 2>&1; then
+      . "${CMD_DIR:-${INSTALL_DIR}/lib/commands}/database.sh"
+    fi
+    _database_reconcile_postgres_auth --timeout "${CANVAS_POSTGRES_RECONCILE_TIMEOUT:-900}"
+  fi
   if [[ "${OUTPUT_JSON:-false}" == "true" ]]; then
     migrate_compose_file >/dev/null
   else

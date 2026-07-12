@@ -11,7 +11,7 @@ install_manager_config() {
     local m_tmp
     m_tmp="$(mktemp)"
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$m_tmp"
-    _write_owned_file "$config_json_path" "$m_tmp"
+    _write_secure_config_file "$config_json_path" "$m_tmp"
     rm -f "$m_tmp"
   fi
 
@@ -23,34 +23,38 @@ install_manager_config() {
   _config_json_raw_write "$config_json_path" "swap.enabled" "\"${CANVAS_SWAP_ENABLED:-false}\""
   _config_json_raw_write "$config_json_path" "swap.size" "\"${CANVAS_SWAP_SIZE:-2G}\""
   _config_json_raw_write "$config_json_path" "swap.file" "\"${CANVAS_SWAP_FILE:-/swapfile}\""
-  _config_json_raw_write "$config_json_path" "autoUpdate.enabled" "\"${CANVAS_AUTO_UPDATE_ENABLED:-true}\""
+  _config_json_raw_write "$config_json_path" "autoUpdate.enabled" "\"${CANVAS_AUTO_UPDATE_ENABLED:-false}\""
   _config_json_raw_write "$config_json_path" "autoUpdate.schedule" "\"${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}\""
 
   ok "Wrote ${config_json_path}"
 }
 
 _config_json_raw_write() {
-  local file="$1" key="$2" json_value="$3" tmp
+  local file="$1" key="$2" json_value="$3" tmp value_tmp
   tmp="$(mktemp)"
-  jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$file" > "$tmp"
-  _write_owned_file "$file" "$tmp"
-  rm -f "$tmp"
+  value_tmp="$(mktemp)"
+  chmod 600 "$value_tmp"
+  printf '%s' "$json_value" > "$value_tmp"
+  _read_config_file "$file" | jq --arg k "$key" --slurpfile v "$value_tmp" 'setpath($k | split("."); $v[0])' > "$tmp"
+  _write_secure_config_file "$file" "$tmp"
+  rm -f "$tmp" "$value_tmp"
 }
 
 install_management_cli() {
-  local bin_path fallback_bin_path shared_dir
+  local bin_path fallback_bin_path shared_dir code_owner
   bin_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
   fallback_bin_path="/usr/bin/canvas-notebook"
+  code_owner="$(_host_code_owner)"
 
   section "Management CLI"
-  if [[ -w "$(dirname "$bin_path")" ]]; then
+  if [[ "$code_owner" != "root:root" && -w "$(dirname "$bin_path")" ]]; then
     install -m 755 "${SUPPORT_DIR}/bin/canvas-notebook" "$bin_path"
   else
-    run_root install -m 755 "${SUPPORT_DIR}/bin/canvas-notebook" "$bin_path"
+    run_root install -o "${code_owner%%:*}" -g "${code_owner#*:}" -m 755 "${SUPPORT_DIR}/bin/canvas-notebook" "$bin_path"
   fi
 
   if [[ "$bin_path" != "$fallback_bin_path" ]]; then
-    if [[ -w "$(dirname "$fallback_bin_path")" ]]; then
+    if [[ "$code_owner" != "root:root" && -w "$(dirname "$fallback_bin_path")" ]]; then
       ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
     else
       run_root ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
@@ -65,6 +69,7 @@ install_management_cli() {
     fi
   done
   unset _lib
+  _write_owned_file "${INSTALL_DIR}/lib/systemd.sh" "${SUPPORT_DIR}/lib/systemd.sh"
 
   local commands_dir="${INSTALL_DIR}/lib/commands"
   _ensure_dir_writable "$commands_dir"
@@ -139,13 +144,26 @@ install_update_timer() {
 
   require_jq
 
-  local update_enabled update_schedule
+  local update_enabled update_schedule configured_image safety_reason=""
   if [[ -f "$config_json_path" ]]; then
-    update_enabled="$(jq -r '.autoUpdate.enabled // true' "$config_json_path")"
-    update_schedule="$(jq -r '.autoUpdate.schedule // "*-*-* 04:00:00"' "$config_json_path")"
+    update_enabled="$(_read_config_file "$config_json_path" | jq -r '.autoUpdate.enabled // false')"
+    update_schedule="$(_read_config_file "$config_json_path" | jq -r '.autoUpdate.schedule // "*-*-* 04:00:00"')"
   else
-    update_enabled="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
+    update_enabled="${CANVAS_AUTO_UPDATE_ENABLED:-false}"
     update_schedule="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
+  fi
+
+  configured_image="$(config_json_read image)"
+  if config_json_managed_by_control_plane; then
+    update_enabled=false
+    safety_reason="managed installations are updated by the Control Plane"
+  elif ! config_json_image_is_pinned "$configured_image"; then
+    update_enabled=false
+    safety_reason="scheduled updates require a sha256-pinned image"
+  fi
+  if [[ -n "$safety_reason" ]]; then
+    config_json_write autoUpdate.enabled false
+    warn "Auto-update timer disabled: ${safety_reason}."
   fi
 
   if ! command -v systemctl >/dev/null 2>&1; then

@@ -2,11 +2,34 @@
 [[ -n "${_SHARED_COMPOSE_LOADED:-}" ]] && return 0
 _SHARED_COMPOSE_LOADED=1
 
+canvas_compose_image_override_is_safe() {
+  local image_ref="$1"
+  [[ "${#image_ref}" -le 512 ]] || return 1
+  [[ "$image_ref" =~ ^sha256:[a-f0-9]{64}$ ]] && return 0
+  [[ "$image_ref" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?(@sha256:[a-f0-9]{64})?$ ]]
+}
+
+canvas_compose_install_dir_is_safe() {
+  local install_dir="$1"
+  [[ -n "$install_dir" && "${#install_dir}" -le 4096 && "$install_dir" == /* && \
+    "$install_dir" != *$'\n'* && "$install_dir" != *$'\r'* ]]
+}
+
 compose_optional() {
-  if docker info >/dev/null 2>&1; then
+  local config_requires_root=false
+  if [[ "$(id -u)" -ne 0 ]] && { [[ -f "$CONFIG_ENV_PATH" && ! -r "$CONFIG_ENV_PATH" ]] || [[ -f "$COMPOSE_ENV_PATH" && ! -r "$COMPOSE_ENV_PATH" ]]; }; then
+    config_requires_root=true
+  fi
+  if [[ "$config_requires_root" != "true" ]] && docker info >/dev/null 2>&1; then
     docker compose -f "$COMPOSE_FILE" --project-directory "$INSTALL_DIR" "$@"
   elif command -v sudo >/dev/null 2>&1 && sudo docker info >/dev/null 2>&1; then
-    sudo docker compose -f "$COMPOSE_FILE" --project-directory "$INSTALL_DIR" "$@"
+    canvas_compose_install_dir_is_safe "$INSTALL_DIR" || return 1
+    if [[ -n "${CANVAS_IMAGE:-}" ]]; then
+      canvas_compose_image_override_is_safe "$CANVAS_IMAGE" || return 1
+      sudo env "CANVAS_INSTALL_DIR=$INSTALL_DIR" "CANVAS_IMAGE=$CANVAS_IMAGE" docker compose -f "$COMPOSE_FILE" --project-directory "$INSTALL_DIR" "$@"
+    else
+      sudo env "CANVAS_INSTALL_DIR=$INSTALL_DIR" docker compose -f "$COMPOSE_FILE" --project-directory "$INSTALL_DIR" "$@"
+    fi
   else
     return 1
   fi
