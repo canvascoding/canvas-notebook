@@ -201,31 +201,6 @@ export type CollapsedRun = {
 
 export type AttachmentOpenHandler = (attachment: Attachment, previewGroup?: Attachment[]) => void;
 
-export type DiscoveryModel = {
-  id: string;
-  name: string;
-  supportsVision?: boolean;
-  reasoning?: boolean;
-};
-
-export type AgentConfig = {
-  piConfig: {
-    activeProvider: string;
-    providers: Record<string, { model: string; thinking?: PiThinkingLevel }>;
-  };
-  effectiveConfig?: {
-    agentId: string;
-    activeProvider: string;
-    model: string | null;
-    thinkingLevel: PiThinkingLevel;
-    setupState?: {
-      modelConfigured: boolean;
-      issues: string[];
-    };
-  };
-  discovery: Record<string, { models: DiscoveryModel[] }>;
-};
-
 export type AgentProfile = {
   agentId: string;
   name: string;

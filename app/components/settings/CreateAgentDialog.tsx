@@ -27,7 +27,7 @@ import {
   resolveEnabledToolNames,
   serializeEnabledToolNames,
 } from '@/app/lib/pi/enabled-tools';
-import type { PiRuntimeConfig, PiThinkingLevel } from '@/app/lib/pi/config';
+import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -156,8 +156,6 @@ export type CreateAgentInput = {
   relevantSkills: string[] | null;
   relevantConnections: string[] | null;
 };
-
-type PiConfigData = PiRuntimeConfig;
 
 type CreateAgentDialogProps = {
   open: boolean;
@@ -294,14 +292,12 @@ async function fetchCreateAgentJson<T>(input: string): Promise<T> {
   return payload.data as T;
 }
 
-function getExplicitEnabledToolsFromConfig(tools: ToolMetadata[], piConfig: PiConfigData | null): string[] | null {
-  if (!piConfig) return null;
+function getExplicitEnabledToolsFromConfig(tools: ToolMetadata[], configuredTools: string[] | null): string[] | null {
+  if (!configuredTools) return null;
   const allNames = tools.map((tool) => tool.name);
-  const activeProvider = piConfig.providers[piConfig.activeProvider];
-  const enabledTools = activeProvider?.enabledTools ?? [];
-  const enabledSet = isDefaultToolsConfig(enabledTools)
+  const enabledSet = isDefaultToolsConfig(configuredTools)
     ? getDefaultEnabledToolNames(allNames)
-    : resolveEnabledToolNames(allNames, enabledTools);
+    : resolveEnabledToolNames(allNames, configuredTools);
   return serializeEnabledToolNames(enabledSet, allNames);
 }
 
@@ -336,7 +332,7 @@ export function CreateAgentDialog({
   const [toolsOverrideEnabled, setToolsOverrideEnabled] = useState(false);
   const [toolsOpen, setToolsOpen] = useState(false);
   const [availableTools, setAvailableTools] = useState<ToolMetadata[]>([]);
-  const [toolsPiConfig, setToolsPiConfig] = useState<PiConfigData | null>(null);
+  const [inheritedEnabledTools, setInheritedEnabledTools] = useState<string[] | null>(null);
   const [customEnabledTools, setCustomEnabledTools] = useState<string[] | null>(null);
   const [openToolRows, setOpenToolRows] = useState<Record<string, boolean>>({});
   const [toolSearchQuery, setToolSearchQuery] = useState('');
@@ -378,15 +374,15 @@ export function CreateAgentDialog({
     setToolsLoading(true);
     setToolsError(null);
     try {
-      const [toolsPayload, configPayload] = await Promise.all([
-        fetchCreateAgentJson<{ tools: ToolMetadata[] }>(`/api/agents/tools?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID }).toString()}`),
-        fetchCreateAgentJson<{ piConfig: PiConfigData }>(`/api/agents/config?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID }).toString()}`),
-      ]);
+      const toolsPayload = await fetchCreateAgentJson<{
+        tools: ToolMetadata[];
+        config: { enabledTools: string[] };
+      }>(`/api/agents/tools?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID }).toString()}`);
       const nextTools = toolsPayload.tools || [];
-      const nextConfig = configPayload.piConfig;
+      const nextEnabledTools = toolsPayload.config?.enabledTools ?? [];
       setAvailableTools(nextTools);
-      setToolsPiConfig(nextConfig);
-      setCustomEnabledTools((current) => current ?? getExplicitEnabledToolsFromConfig(nextTools, nextConfig));
+      setInheritedEnabledTools(nextEnabledTools);
+      setCustomEnabledTools((current) => current ?? getExplicitEnabledToolsFromConfig(nextTools, nextEnabledTools));
     } catch (loadError) {
       setToolsError(loadError instanceof Error ? loadError.message : t('tools.loadError'));
     } finally {
@@ -422,16 +418,16 @@ export function CreateAgentDialog({
   }, [loadToolOptions, open, toolsOverrideEnabled]);
 
   useEffect(() => {
-    if (!toolsOverrideEnabled || customEnabledTools !== null || availableTools.length === 0 || !toolsPiConfig) return;
+    if (!toolsOverrideEnabled || customEnabledTools !== null || availableTools.length === 0 || !inheritedEnabledTools) return;
     let cancelled = false;
     queueMicrotask(() => {
       if (cancelled) return;
-      setCustomEnabledTools(getExplicitEnabledToolsFromConfig(availableTools, toolsPiConfig));
+      setCustomEnabledTools(getExplicitEnabledToolsFromConfig(availableTools, inheritedEnabledTools));
     });
     return () => {
       cancelled = true;
     };
-  }, [availableTools, customEnabledTools, toolsOverrideEnabled, toolsPiConfig]);
+  }, [availableTools, customEnabledTools, inheritedEnabledTools, toolsOverrideEnabled]);
 
   const isCreateToolEnabled = useCallback((toolName: string): boolean => {
     const allNames = availableTools.map((tool) => tool.name);

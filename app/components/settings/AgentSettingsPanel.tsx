@@ -15,7 +15,6 @@ import {
 } from '@/app/lib/pi/enabled-tools';
 import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
-import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
 import { AgentManagedFilesCard, getVisibleManagedFileNames, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
@@ -47,10 +46,9 @@ function buildAgentQuery(agentId: string): string {
 
 type SessionItem = AgentSessionItem;
 
-type PiConfigData = {
-  activeProvider: string;
-  providers: Record<string, { enabledTools: string[]; model?: string; thinking?: PiThinkingLevel; [key: string]: unknown }>;
-  [key: string]: unknown;
+type AgentToolsConfigData = {
+  agentId: string;
+  enabledTools: string[];
 };
 
 type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'connections' | 'skills' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
@@ -342,7 +340,7 @@ export function AgentSettingsPanel({
   const [toolsLoading, setToolsLoading] = useState(true);
   const [toolsSaving, setToolsSaving] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
-  const [toolsPiConfig, setToolsPiConfig] = useState<PiConfigData | null>(null);
+  const [toolsConfig, setToolsConfig] = useState<AgentToolsConfigData | null>(null);
   const [toolSearchQuery, setToolSearchQuery] = useState('');
   const [activeToolGroups, setActiveToolGroups] = useState<Set<string>>(new Set());
   const [capabilitiesSaving, setCapabilitiesSaving] = useState(false);
@@ -389,7 +387,7 @@ export function AgentSettingsPanel({
     setCreateTitle('');
     setSessionPendingId(null);
     setRenameDrafts({});
-    setToolsPiConfig(null);
+    setToolsConfig(null);
     setOpenToolRows({});
     setActiveToolGroups(new Set());
     setCapabilitiesError(null);
@@ -587,8 +585,8 @@ export function AgentSettingsPanel({
 
   const loadToolsConfig = useCallback(async () => {
     try {
-      const payload = await fetchJson<{ piConfig: PiConfigData }>(`/api/agents/config?${buildAgentQuery(selectedAgentId)}`);
-      setToolsPiConfig(payload.piConfig);
+      const payload = await fetchJson<{ config: AgentToolsConfigData }>(`/api/agents/tools?${buildAgentQuery(selectedAgentId)}`);
+      setToolsConfig(payload.config);
     } catch (error) {
       setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
     }
@@ -975,9 +973,7 @@ export function AgentSettingsPanel({
   };
 
   const getActiveEnabledTools = (): string[] => {
-    if (!toolsPiConfig) return [];
-    const activeProvider = toolsPiConfig.providers[toolsPiConfig.activeProvider];
-    return activeProvider?.enabledTools ?? [];
+    return toolsConfig?.enabledTools ?? [];
   };
 
   const isToolEnabled = (toolName: string): boolean => {
@@ -995,7 +991,7 @@ export function AgentSettingsPanel({
   };
 
   const saveToolsConfig = async (newEnabledTools: string[]) => {
-    if (!toolsPiConfig) return;
+    if (!toolsConfig) return;
     setToolsSaving(true);
     setToolsError(null);
 
@@ -1005,22 +1001,12 @@ export function AgentSettingsPanel({
         return;
       }
 
-      const nextConfig = { ...toolsPiConfig };
-      const providerId = nextConfig.activeProvider;
-      nextConfig.providers = {
-        ...nextConfig.providers,
-        [providerId]: {
-          ...nextConfig.providers[providerId],
-          enabledTools: newEnabledTools,
-        },
-      };
-
-      const payload = await fetchJson<{ piConfig: PiConfigData }>('/api/agents/config', {
-        method: 'PUT',
+      const payload = await fetchJson<{ config: AgentToolsConfigData }>('/api/agents/tools', {
+        method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: selectedAgentId, piConfig: nextConfig }),
+        body: JSON.stringify({ agentId: selectedAgentId, enabledTools: newEnabledTools }),
       });
-      setToolsPiConfig(payload.piConfig);
+      setToolsConfig(payload.config);
     } catch (error) {
       setToolsError(error instanceof Error ? error.message : t('agentPanel.tools.saveError'));
     } finally {

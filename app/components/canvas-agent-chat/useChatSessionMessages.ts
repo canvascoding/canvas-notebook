@@ -23,7 +23,6 @@ import { fetchChatSessionMessages, patchChatSessions } from '@/app/lib/chat/sess
 import { loadComposerDraft } from '@/app/lib/chat/draft-storage';
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type {
-  AgentConfig,
   AISession,
   ChatMessage,
 } from '@/app/lib/chat/types';
@@ -31,6 +30,7 @@ import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import {
   DEFAULT_MODEL_ID,
+  DEFAULT_PROVIDER_ID,
   DEFAULT_THINKING_LEVEL,
 } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 import { mapPersistedChatMessages } from '@/app/components/canvas-agent-chat/chatMessageMapping';
@@ -48,7 +48,6 @@ type UseChatSessionMessagesParams = {
   activeProvider: string;
   activeThinkingLevel: PiThinkingLevel | null;
   activeWorkspaceId?: string | null;
-  agentConfig: AgentConfig | null;
   deferredSavedMessageRefreshSessionRef: MutableRefObject<string | null>;
   ensureSessionSubscribed: (targetSessionId: string) => Promise<void>;
   hasLiveMessagesInProgress: () => boolean;
@@ -109,7 +108,6 @@ export function useChatSessionMessages({
   activeProvider,
   activeThinkingLevel,
   activeWorkspaceId,
-  agentConfig,
   deferredSavedMessageRefreshSessionRef,
   ensureSessionSubscribed,
   hasLiveMessagesInProgress,
@@ -317,12 +315,10 @@ export function useChatSessionMessages({
     const sessionDraft = loadComposerDraft(session.sessionId);
     setInput(sessionDraft ?? '');
     setShowMobileDetails(false);
-    setActiveProvider(session.provider || agentConfig?.piConfig?.activeProvider || 'pi');
+    setActiveProvider(session.provider || DEFAULT_PROVIDER_ID);
     setActiveModel(session.model || DEFAULT_MODEL_ID);
     setActiveThinkingLevel(
-      session.thinkingLevel ||
-      agentConfig?.piConfig?.providers?.[session.provider || agentConfig?.piConfig?.activeProvider || 'pi']?.thinking ||
-      DEFAULT_THINKING_LEVEL,
+      session.thinkingLevel || DEFAULT_THINKING_LEVEL,
     );
     setHasMoreBefore(false);
     setOldestTimestamp(null);
@@ -487,7 +483,7 @@ export function useChatSessionMessages({
         loadSessionAbortRef.current = null;
       }
     }
-  }, [activeWorkspaceId, agentConfig, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasMoreBefore, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, t, userStartedNewChatRef, wsRequest]);
+  }, [activeWorkspaceId, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasMoreBefore, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, t, userStartedNewChatRef, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;

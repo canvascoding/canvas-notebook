@@ -10,7 +10,7 @@ import {
   readRuntimeManagedAgentFiles,
   type AgentStorageScope,
 } from './storage';
-import { resolveAgentRuntimeConfig } from './effective-runtime-config';
+import { resolveAgentRuntimeSettings } from './effective-runtime-config';
 import {
   composeManagedAgentSystemPrompt,
   MANAGED_PROMPT_FILE_NAMES,
@@ -402,7 +402,7 @@ export async function loadManagedAgentSystemPrompt(
 
     // Check if composio tools are enabled for the active provider
     try {
-      const effectiveConfig = await resolveAgentRuntimeConfig(normalizedAgentId);
+      const effectiveConfig = await resolveAgentRuntimeSettings(normalizedAgentId);
       const enabledTools = effectiveConfig.enabledTools;
       const specializedToolsContext = await buildSpecializedAgentToolsContext({
         normalizedAgentId,

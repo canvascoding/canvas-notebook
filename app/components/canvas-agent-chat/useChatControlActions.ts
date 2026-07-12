@@ -17,7 +17,6 @@ import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import { createChatSession } from '@/app/lib/chat/session-api';
 import type { AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
 import type {
-  AgentConfig,
   AISession,
   Attachment,
   ChatMessage,
@@ -36,7 +35,6 @@ import {
   DEFAULT_MODEL_ID,
   DEFAULT_PROVIDER_ID,
   DEFAULT_THINKING_LEVEL,
-  resolveAgentProviderState,
 } from '@/app/components/canvas-agent-chat/useChatAgentConfig';
 
 type ChatTranslator = ReturnType<typeof useTranslations<'chat'>>;
@@ -72,7 +70,6 @@ type UseChatControlActionsParams = {
   refreshRuntimeSelection: () => Promise<void> | void;
   activeWorkspaceId?: string | null;
   addSessionToHistory: (session: AISession) => void;
-  agentConfig: AgentConfig | null;
   appendCompactionBreak: (kind: 'manual' | 'automatic', timestamp: string, omittedMessageCount: number) => void;
   appendOptimisticUserMessage: (
     content: string,
@@ -216,7 +213,6 @@ export function useChatControlActions({
   refreshRuntimeSelection,
   activeWorkspaceId,
   addSessionToHistory,
-  agentConfig,
   appendCompactionBreak,
   appendOptimisticUserMessage,
   appendSystemMessage,
@@ -580,16 +576,10 @@ export function useChatControlActions({
       setShowHistory(false);
     }
     setShowMobileDetails(false);
-    const isCurrentAgentConfig = agentConfig?.effectiveConfig?.agentId
-      ? agentConfig.effectiveConfig.agentId === nextAgentId
-      : nextAgentId === selectedAgentId;
-    const providerState = isCurrentAgentConfig
-      ? resolveAgentProviderState(agentConfig)
-      : { provider: DEFAULT_PROVIDER_ID, model: DEFAULT_MODEL_ID, thinkingLevel: DEFAULT_THINKING_LEVEL };
-    setActiveProvider(providerState.provider);
-    setActiveModel(providerState.model);
-    setActiveThinkingLevel(providerState.thinkingLevel);
-  }, [activeWorkspaceId, agentConfig, input, isMobile, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setExpandedRunKeys, setHasMoreBefore, setInput, setIsLoadingOlder, setMessages, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, shouldShowHistoryAsOverlay, userStartedNewChatRef]);
+    setActiveProvider(DEFAULT_PROVIDER_ID);
+    setActiveModel(DEFAULT_MODEL_ID);
+    setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
+  }, [activeWorkspaceId, input, isMobile, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setExpandedRunKeys, setHasMoreBefore, setInput, setIsLoadingOlder, setMessages, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, shouldShowHistoryAsOverlay, userStartedNewChatRef]);
 
   const selectChatAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentId && !sessionIdRef.current) {

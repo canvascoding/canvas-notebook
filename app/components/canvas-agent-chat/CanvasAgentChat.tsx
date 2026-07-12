@@ -220,7 +220,6 @@ export default function CanvasAgentChat({
     activeModel,
     activeProvider,
     activeThinkingLevel,
-    agentConfig,
     availableAgents,
     selectedAgentId,
     setActiveModel,
@@ -250,6 +249,14 @@ export default function CanvasAgentChat({
   const runtimeSelection = isSelectableRuntimeSelection(runtimeResolution, requestedRuntimeSelection)
     ? requestedRuntimeSelection
     : null;
+  useEffect(() => {
+    if (!runtimeSelection) return;
+    updateAgentModelSelection({
+      provider: runtimeSelection.providerId,
+      model: runtimeSelection.modelId,
+      thinkingLevel: runtimeSelection.thinkingLevel,
+    });
+  }, [runtimeSelection, updateAgentModelSelection]);
   const selectedAgentProfile = availableAgents.find((agent) => agent.agentId === selectedAgentId);
   const [hasUnreadInCurrentSession, setHasUnreadInCurrentSession] = useState(false);
   const [showUnreadBanner, setShowUnreadBanner] = useState(false);
@@ -618,7 +625,6 @@ export default function CanvasAgentChat({
     refreshRuntimeSelection,
     activeWorkspaceId,
     addSessionToHistory,
-    agentConfig,
     appendCompactionBreak,
     appendOptimisticUserMessage,
     appendSystemMessage,
@@ -693,7 +699,6 @@ export default function CanvasAgentChat({
     activeProvider,
     activeThinkingLevel,
     activeWorkspaceId,
-    agentConfig,
     deferredSavedMessageRefreshSessionRef,
     ensureSessionSubscribed,
     hasLiveMessagesInProgress,

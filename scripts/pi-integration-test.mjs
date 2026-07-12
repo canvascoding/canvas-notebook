@@ -198,19 +198,20 @@ function collectAgentRun(ws, sessionId, timeoutMs = 30000) {
 }
 
 async function testConfig(cookie) {
-  console.log('[PI Test] Testing /api/agents/config...');
-  const getCfg = await request('/api/agents/config', { headers: { cookie } });
-  if (!getCfg.response.ok) throw new Error('GET config failed');
-  console.log('[PI Test] Config engine:', getCfg.body.data.engine);
+  console.log('[PI Test] Testing /api/agents/tools...');
+  const getCfg = await request('/api/agents/tools?agentId=canvas-agent', { headers: { cookie } });
+  if (!getCfg.response.ok) throw new Error('GET tools failed');
 
-  const piConfig = getCfg.body.data.piConfig;
-  const putCfg = await request('/api/agents/config', {
-    method: 'PUT',
+  const patchCfg = await request('/api/agents/tools', {
+    method: 'PATCH',
     headers: { 'Content-Type': 'application/json', cookie },
-    body: JSON.stringify({ piConfig: { ...piConfig, updatedAt: new Date().toISOString() } }),
+    body: JSON.stringify({
+      agentId: 'canvas-agent',
+      enabledTools: getCfg.body.data.config.enabledTools,
+    }),
   });
-  if (!putCfg.response.ok) throw new Error('PUT config failed');
-  console.log('[PI Test] Config update successful.');
+  if (!patchCfg.response.ok) throw new Error('PATCH tools failed');
+  console.log('[PI Test] Tool config update successful.');
 }
 
 async function testManagedFiles(cookie) {

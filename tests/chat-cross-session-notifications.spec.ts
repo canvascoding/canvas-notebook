@@ -8,6 +8,60 @@ const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_E
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
 
 async function login(page: Page) {
+  await page.route('**/api/agent-runtime/effective**', async (route) => {
+    const selection = {
+      providerInstallationId: 'test-openai',
+      providerId: 'openai',
+      modelId: 'gpt-4o',
+      thinkingLevel: 'off',
+    };
+    const resolvedSelection = {
+      selection,
+      catalogRevision: 1,
+      policyRevision: 1,
+      selectionSource: 'app_default',
+      credentialScope: 'system',
+    };
+    const resolution = {
+      context: {
+        organizationId: 'test-organization',
+        userId: 'test-user',
+        workspaceId: new URL(route.request().url()).searchParams.get('workspaceId') || 'test-workspace',
+        workspaceType: 'personal',
+        agentId: 'canvas-agent',
+      },
+      catalogRevision: 1,
+      policyRevision: 1,
+      providers: [{
+        installationId: 'test-openai',
+        providerId: 'openai',
+        name: 'OpenAI',
+        source: 'built-in',
+        credentialScope: 'system',
+        credentialAvailable: true,
+        selectable: true,
+        status: 'ready',
+        models: [{
+          id: 'gpt-4o',
+          name: 'GPT-4o',
+          enabled: true,
+          isProviderDefault: true,
+          reasoning: false,
+          supportsVision: true,
+          thinkingLevels: ['off'],
+          metadata: {},
+          revision: 1,
+        }],
+      }],
+      inheritedSelection: resolvedSelection,
+      preference: null,
+      effectiveSelection: resolvedSelection,
+      source: 'app_default',
+      valid: true,
+      issues: [],
+    };
+    await route.fulfill({ json: { success: true, data: resolution, resolution } });
+  });
   const response = await page.request.post('/api/auth/sign-in/email', {
     headers: {
       Origin: process.env.BASE_URL || 'http://localhost:3000',
@@ -27,29 +81,6 @@ test('shows a completion toast fallback and unread badge for another session', a
   const createdAt = '2026-04-18T09:00:00.000Z';
   const currentSessionId = 'sess-current';
   const backgroundSessionId = 'sess-background';
-
-  await page.route('**/api/agents/config', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        data: {
-          piConfig: {
-            activeProvider: 'openai',
-            providers: {
-              openai: { model: 'gpt-4o' },
-            },
-          },
-          discovery: {
-            openai: {
-              models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-            },
-          },
-        },
-      }),
-    });
-  });
 
   await page.route('**/api/sessions', async (route) => {
     if (route.request().method() !== 'GET') {
@@ -115,29 +146,6 @@ test('suppresses toast and unread when the finished response belongs to the visi
   const createdAt = '2026-04-18T09:00:00.000Z';
   const currentSessionId = 'sess-current';
   let markAsReadCalls = 0;
-
-  await page.route('**/api/agents/config', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        data: {
-          piConfig: {
-            activeProvider: 'openai',
-            providers: {
-              openai: { model: 'gpt-4o' },
-            },
-          },
-          discovery: {
-            openai: {
-              models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-            },
-          },
-        },
-      }),
-    });
-  });
 
   await page.route('**/api/sessions', async (route) => {
     const method = route.request().method();

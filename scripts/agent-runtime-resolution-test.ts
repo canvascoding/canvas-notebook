@@ -883,7 +883,6 @@ async function main() {
   const catalogRoute = await import('../app/api/admin/agent-runtime/catalog/route');
   const workspacePolicyRoute = await import('../app/api/admin/agent-runtime/workspace-policy/route');
   const agentsRoute = await import('../app/api/agents/route');
-  const legacyConfigRoute = await import('../app/api/agents/config/route');
   const onboardingUserRoute = await import('../app/api/onboarding/user/route');
   const envRoute = await import('../app/api/integrations/env/route');
 
@@ -928,15 +927,6 @@ async function main() {
     `http://localhost:3000/api/admin/agent-runtime/workspace-policy?workspaceId=${organizationWorkspaceId}`,
   ));
   assert.equal(memberPolicyResponse.status, 403);
-  const memberLegacyMutationResponse = await legacyConfigRoute.PATCH(new NextRequest(
-    'http://localhost:3000/api/agents/config',
-    {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ provider: 'openai-compatible', model: sharedModel }),
-    },
-  ));
-  assert.equal(memberLegacyMutationResponse.status, 403);
   const memberInheritedAgentResponse = await agentsRoute.POST(new NextRequest(
     'http://localhost:3000/api/agents',
     {
@@ -1153,39 +1143,6 @@ async function main() {
     model: sharedModel,
     thinking: 'off',
   });
-  const missingInstallationLegacyConfig = await legacyConfigRoute.PATCH(new NextRequest(
-    'http://localhost:3000/api/agents/config',
-    {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        agentId: memberInheritedAgentId,
-        provider: 'openai-compatible',
-        model: sharedModel,
-        thinkingLevel: 'off',
-        expectedCatalogRevision: 1,
-      }),
-    },
-  ));
-  assert.equal(missingInstallationLegacyConfig.status, 400);
-  assert.equal((await missingInstallationLegacyConfig.json()).code, 'INCOMPLETE_AGENT_DEFAULT');
-  const exactLegacyConfig = await legacyConfigRoute.PATCH(new NextRequest(
-    'http://localhost:3000/api/agents/config',
-    {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        agentId: memberInheritedAgentId,
-        providerInstallationId: userProviderId,
-        provider: 'openai-compatible',
-        model: sharedModel,
-        thinkingLevel: 'off',
-        expectedCatalogRevision: 1,
-      }),
-    },
-  ));
-  assert.equal(exactLegacyConfig.status, 200);
-
   const ownerOrganizationSecretWrite = await envRoute.PUT(new NextRequest(
     'http://localhost:3000/api/integrations/env?scope=agents&secretScope=organization',
     {

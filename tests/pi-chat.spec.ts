@@ -46,7 +46,82 @@ function createMockRuntimeStatus(sessionId: string, overrides: Partial<PiRuntime
   };
 }
 
+async function mockEffectiveAgentRuntime(page: Page) {
+  await page.route('**/api/agent-runtime/effective**', async (route) => {
+    const url = new URL(route.request().url());
+    const agentId = url.searchParams.get('agentId') || 'canvas-agent';
+    const isResearchAgent = agentId === 'research-agent';
+    const providerId = isResearchAgent ? 'anthropic' : 'openai';
+    const modelId = isResearchAgent ? 'claude-sonnet-4.5' : 'gpt-4o';
+    const thinkingLevel = isResearchAgent ? 'medium' : 'off';
+    const installationId = `test-${providerId}`;
+    const models = (isResearchAgent
+      ? [
+          { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5' },
+          { id: 'claude-opus-4.1', name: 'Claude Opus 4.1' },
+        ]
+      : [{ id: 'gpt-4o', name: 'GPT-4o' }]
+    ).map((model, index) => ({
+      ...model,
+      enabled: true,
+      isProviderDefault: index === 0,
+      reasoning: isResearchAgent,
+      supportsVision: !isResearchAgent,
+      thinkingLevels: isResearchAgent ? ['off', 'medium', 'high'] : ['off'],
+      metadata: {},
+      revision: 1,
+    }));
+    const selection = {
+      providerInstallationId: installationId,
+      providerId,
+      modelId,
+      thinkingLevel,
+    };
+    const resolvedSelection = {
+      selection,
+      catalogRevision: 1,
+      policyRevision: 1,
+      selectionSource: 'app_default',
+      credentialScope: 'system',
+    };
+    const resolution = {
+      context: {
+        organizationId: 'test-organization',
+        userId: 'test-user',
+        workspaceId: url.searchParams.get('workspaceId') || 'test-workspace',
+        workspaceType: 'personal',
+        agentId,
+      },
+      catalogRevision: 1,
+      policyRevision: 1,
+      providers: [{
+        installationId,
+        providerId,
+        name: isResearchAgent ? 'Anthropic' : 'OpenAI',
+        source: 'built-in',
+        credentialScope: 'system',
+        credentialAvailable: true,
+        selectable: true,
+        status: 'ready',
+        models,
+      }],
+      inheritedSelection: resolvedSelection,
+      preference: null,
+      effectiveSelection: resolvedSelection,
+      source: 'app_default',
+      valid: true,
+      issues: [],
+    };
+    await route.fulfill({
+      status: 200,
+      contentType: 'application/json',
+      body: JSON.stringify({ success: true, data: resolution, resolution }),
+    });
+  });
+}
+
 async function login(page: Page) {
+  await mockEffectiveAgentRuntime(page);
   const response = await page.request.post('/api/auth/sign-in/email', {
     headers: {
       Origin: process.env.BASE_URL || 'http://localhost:3000',
@@ -71,29 +146,6 @@ async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string;
   const mockSessionId = options.sessionId || `sess-mock-${Date.now()}`;
   const mockTitle = options.title || 'New session';
   let mockSession: Record<string, unknown> | null = null;
-
-  await page.route('**/api/agents/config**', async (route) => {
-    await route.fulfill({
-      status: 200,
-      contentType: 'application/json',
-      body: JSON.stringify({
-        success: true,
-        data: {
-          piConfig: {
-            activeProvider: 'openai',
-            providers: {
-              openai: { model: 'gpt-4o' },
-            },
-          },
-          discovery: {
-            openai: {
-              models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-            },
-          },
-        },
-      }),
-    });
-  });
 
   await page.route('**/api/sessions**', async (route) => {
     const request = route.request();
@@ -371,34 +423,6 @@ contentKind: document
     await page.addInitScript(() => {
       window.sessionStorage.clear();
       window.localStorage.removeItem('canvas.chat.sessionMessages.v1');
-    });
-
-    await page.route(/\/api\/agents\/config(\?.*)?$/, async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: 'openai',
-              providers: { openai: { model: 'gpt-4o' } },
-            },
-            effectiveConfig: {
-              agentId: 'canvas-agent',
-              activeProvider: 'openai',
-              model: 'gpt-4o',
-              thinkingLevel: 'medium',
-              setupState: { modelConfigured: true, issues: [] },
-            },
-            discovery: {
-              openai: {
-                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-              },
-            },
-          },
-        }),
-      });
     });
 
     await page.route(/\/api\/agents$/, async (route) => {
@@ -713,29 +737,6 @@ contentKind: document
         controlActions.push(action);
         return createMockRuntimeStatus(sessionId) as unknown as Record<string, unknown>;
       },
-    });
-
-    await page.route('**/api/agents/config**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: 'openai',
-              providers: {
-                openai: { model: 'gpt-4o' },
-              },
-            },
-            discovery: {
-              openai: {
-                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-              },
-            },
-          },
-        }),
-      });
     });
 
     await page.route('**/api/sessions**', async (route) => {
@@ -1694,29 +1695,6 @@ contentKind: document
     const queuedMessages = new Map<string, Record<string, unknown>>();
     const controlActions: string[] = [];
 
-    await page.route('**/api/agents/config**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: 'openai',
-              providers: {
-                openai: { model: 'gpt-4o' },
-              },
-            },
-            discovery: {
-              openai: {
-                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-              },
-            },
-          },
-        }),
-      });
-    });
-
     await page.route('**/api/sessions**', async (route) => {
       const request = route.request();
       if (request.method() === 'GET') {
@@ -1933,29 +1911,6 @@ contentKind: document
     });
     const controlActions: string[] = [];
 
-    await page.route('**/api/agents/config**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: 'openai',
-              providers: {
-                openai: { model: 'gpt-4o' },
-              },
-            },
-            discovery: {
-              openai: {
-                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-              },
-            },
-          },
-        }),
-      });
-    });
-
     await page.route('**/api/sessions**', async (route) => {
       const request = route.request();
       if (request.method() === 'GET') {
@@ -2136,7 +2091,6 @@ contentKind: document
   });
 
   test('should load the selected agent model before the first chat session starts', async ({ page }) => {
-    let patchedConfig: Record<string, unknown> | null = null;
     let savedLastActiveAgentId: string | null = null;
 
     await page.route('**/api/agents', async (route) => {
@@ -2172,58 +2126,6 @@ contentKind: document
       });
     });
 
-    await page.route('**/api/agents/config**', async (route) => {
-      const request = route.request();
-      if (request.method() === 'PATCH') {
-        patchedConfig = request.postDataJSON() as Record<string, unknown>;
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({ success: true }),
-        });
-        return;
-      }
-
-      const url = new URL(request.url());
-      const agentId = url.searchParams.get('agentId') || 'canvas-agent';
-      const isResearchAgent = agentId === 'research-agent';
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: isResearchAgent ? 'anthropic' : 'openai',
-              providers: isResearchAgent
-                ? { anthropic: { model: 'claude-sonnet-4.5', thinking: 'medium' } }
-                : { openai: { model: 'gpt-4o', thinking: 'off' } },
-            },
-            effectiveConfig: {
-              agentId,
-              activeProvider: isResearchAgent ? 'anthropic' : 'openai',
-              model: isResearchAgent ? 'claude-sonnet-4.5' : 'gpt-4o',
-              thinkingLevel: isResearchAgent ? 'medium' : 'off',
-            },
-            discovery: isResearchAgent
-              ? {
-                  anthropic: {
-                    models: [
-                      { id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', reasoning: true },
-                      { id: 'claude-opus-4.1', name: 'Claude Opus 4.1', reasoning: true },
-                    ],
-                  },
-                }
-              : {
-                  openai: {
-                    models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-                  },
-                },
-          },
-        }),
-      });
-    });
-
     await page.route('**/api/sessions**', async (route) => {
       if (route.request().method() !== 'GET') {
         await route.continue();
@@ -2250,12 +2152,7 @@ contentKind: document
     await page.getByTestId('chat-model-selector').click();
     await page.getByText('Claude Opus 4.1').click();
 
-    await expect.poll(() => patchedConfig).toMatchObject({
-      agentId: 'research-agent',
-      provider: 'anthropic',
-      model: 'claude-opus-4.1',
-      makeActiveProvider: true,
-    });
+    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Opus 4\.1/);
   });
 
   test('should initialize a new chat from the last active agent preference', async ({ page }) => {
@@ -2283,45 +2180,6 @@ contentKind: document
           success: true,
           data: {
             lastActiveAgentId: 'research-agent',
-          },
-        }),
-      });
-    });
-
-    await page.route('**/api/agents/config**', async (route) => {
-      const url = new URL(route.request().url());
-      const agentId = url.searchParams.get('agentId') || 'canvas-agent';
-      const isResearchAgent = agentId === 'research-agent';
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: isResearchAgent ? 'anthropic' : 'openai',
-              providers: isResearchAgent
-                ? { anthropic: { model: 'claude-sonnet-4.5', thinking: 'medium' } }
-                : { openai: { model: 'gpt-4o', thinking: 'off' } },
-            },
-            effectiveConfig: {
-              agentId,
-              activeProvider: isResearchAgent ? 'anthropic' : 'openai',
-              model: isResearchAgent ? 'claude-sonnet-4.5' : 'gpt-4o',
-              thinkingLevel: isResearchAgent ? 'medium' : 'off',
-            },
-            discovery: isResearchAgent
-              ? {
-                  anthropic: {
-                    models: [{ id: 'claude-sonnet-4.5', name: 'Claude Sonnet 4.5', reasoning: true }],
-                  },
-                }
-              : {
-                  openai: {
-                    models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-                  },
-                },
           },
         }),
       });
@@ -2365,41 +2223,7 @@ contentKind: document
       });
     });
 
-    await page.route(/\/api\/agents\/config(\?.*)?$/, async (route) => {
-      const url = new URL(route.request().url());
-      const agentId = url.searchParams.get('agentId') || 'canvas-agent';
-      const isResearchAgent = agentId === 'research-agent';
-
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: 'openai',
-              providers: {
-                openai: { model: isResearchAgent ? 'gpt-4o-search' : 'gpt-4o' },
-              },
-            },
-            effectiveConfig: {
-              agentId,
-              activeProvider: 'openai',
-              model: isResearchAgent ? 'gpt-4o-search' : 'gpt-4o',
-              thinkingLevel: 'off',
-            },
-            discovery: {
-              openai: {
-                models: [
-                  { id: 'gpt-4o', name: 'GPT-4o', supportsVision: true },
-                  { id: 'gpt-4o-search', name: 'GPT-4o Search', supportsVision: true },
-                ],
-              },
-            },
-          },
-        }),
-      });
-    });
+    await mockEffectiveAgentRuntime(page);
 
     await page.route(/\/api\/sessions(\?.*)?$/, async (route) => {
       const request = route.request();
@@ -2465,29 +2289,6 @@ contentKind: document
       lastCompactionKind: null,
       lastCompactionOmittedCount: 0,
     };
-
-    await page.route('**/api/agents/config**', async (route) => {
-      await route.fulfill({
-        status: 200,
-        contentType: 'application/json',
-        body: JSON.stringify({
-          success: true,
-          data: {
-            piConfig: {
-              activeProvider: 'openai',
-              providers: {
-                openai: { model: 'gpt-4o' },
-              },
-            },
-            discovery: {
-              openai: {
-                models: [{ id: 'gpt-4o', name: 'GPT-4o', supportsVision: true }],
-              },
-            },
-          },
-        }),
-      });
-    });
 
     await page.route('**/api/sessions**', async (route) => {
       await route.fulfill({
