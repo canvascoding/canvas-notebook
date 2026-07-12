@@ -21,6 +21,7 @@ import {
   resolveEffectiveAgentRuntime,
   type AiRuntimeResolutionContext,
 } from '@/app/lib/agent-runtime-policy/runtime-resolver';
+import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
 import {
   readPiSessionRuntimeSnapshot,
   readWorkspaceModelPolicy,
@@ -239,15 +240,6 @@ export type ExecutableAgentRuntime = {
   ) => AssistantMessageEventStream | Promise<AssistantMessageEventStream>;
   requiresRecreation: () => boolean;
 };
-
-function snapshotFromSelection(selection: AiResolvedRuntimeSelection): AiSessionRuntimeSnapshot {
-  return {
-    selection: selection.selection,
-    catalogRevision: selection.catalogRevision,
-    policyRevision: selection.policyRevision,
-    selectionSource: selection.selectionSource,
-  };
-}
 
 function snapshotMatchesExecutableSelection(
   snapshot: AiSessionRuntimeSnapshot,
@@ -566,7 +558,7 @@ export async function resolveAndPinSessionRuntime(
         sessionId: context.sessionId,
         userId: context.userId,
         agentId: context.agentId,
-        snapshot: snapshotFromSelection(runtime.selection),
+        snapshot: sessionRuntimeSnapshotFromResolvedSelection(runtime.selection),
         expectedSnapshot: null,
         contextRevision: {
           organizationId: context.organizationId,

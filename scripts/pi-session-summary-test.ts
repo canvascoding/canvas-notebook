@@ -33,7 +33,7 @@ async function main() {
     return originalLoad.call(this, request, parent, isMain);
   };
 
-  const { preparePiHistoryContext } = await import('../app/lib/pi/session-summary');
+  const { preparePiHistoryContext, summarizePiSessionHistory } = await import('../app/lib/pi/session-summary');
   const { composePiHistoryForLlm, getUnsummarizedMessages } = await import('../app/lib/pi/history-budget');
   const { MAX_LLM_HISTORY_BYTES } = await import('../app/lib/pi/llm-payload-limits');
 
@@ -136,6 +136,55 @@ async function main() {
   assert.equal(summaryStreamCalls[0].modelId, model.id);
   assert.equal(summaryStreamCalls[0].sessionId, 'summary-scoped-runtime-test:summary');
   assert.ok(summaryStreamCalls[0].messageCount > 1);
+
+  const summaryAbortController = new AbortController();
+  let abortedSummaryStreamCalls = 0;
+  const abortingSummaryStreamFn: StreamFn = async (requestedModel, context, options) => {
+    abortedSummaryStreamCalls += 1;
+    assert.equal(options?.signal, summaryAbortController.signal);
+    assert.ok(context.messages.length < 9, 'the test input must require more than one summary batch');
+    summaryAbortController.abort();
+    return {
+      result: async () => ({
+        role: 'assistant',
+        content: [{ type: 'text', text: 'This batch should not permit another provider call.' }],
+        api: requestedModel.api,
+        provider: requestedModel.provider,
+        model: requestedModel.id,
+        usage: {
+          input: 0,
+          output: 0,
+          cacheRead: 0,
+          cacheWrite: 0,
+          totalTokens: 0,
+          cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+        },
+        stopReason: 'stop',
+        timestamp: Date.now(),
+      } as AssistantMessage),
+    } as AssistantMessageEventStream;
+  };
+  const multiBatchSummaryMessages = Array.from({ length: 8 }, (_, index) => ({
+    role: 'user' as const,
+    content: `Summary batch ${index}: ${'large historical record '.repeat(300)}`,
+    timestamp: 20_000 + index,
+  }));
+  await assert.rejects(
+    summarizePiSessionHistory({
+      previousSummaryText: null,
+      messagesToSummarize: multiBatchSummaryMessages,
+      model: { ...model, contextWindow: 4_000, maxTokens: 512 },
+      sessionId: 'summary-abort-between-batches',
+      signal: summaryAbortController.signal,
+      streamFn: abortingSummaryStreamFn,
+    }),
+    /Summary generation was aborted/u,
+  );
+  assert.equal(
+    abortedSummaryStreamCalls,
+    1,
+    'an aborted multi-batch summary must not start another provider request',
+  );
 
   const noOmittedResult = await preparePiHistoryContext({
     messages: messages.slice(-1),

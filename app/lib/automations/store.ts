@@ -52,6 +52,10 @@ type AutomationRunCreateOptions = {
 type AutomationStoreTransaction = Parameters<Parameters<typeof db.transaction>[0]>[0];
 type AutomationJobRow = typeof automationJobs.$inferSelect;
 type AutomationRunRow = typeof automationRuns.$inferSelect;
+export type AutomationRunTransitionExpectation = {
+  status: AutomationRunStatus;
+  attemptNumber: number;
+};
 
 const isPostgresRuntime = getDatabaseProvider() === 'postgres';
 
@@ -1398,11 +1402,14 @@ export async function markStaleAutomationRunsFailed(now = new Date()): Promise<n
     );
 
   if (staleRuns.length > 0) {
-    console.warn(`[Automationen] Marking ${staleRuns.length} stale run(s) as failed globally`);
-    await markStaleAutomationRunRowsFailed(staleRuns, now);
+    const failedCount = await markStaleAutomationRunRowsFailed(staleRuns, now);
+    if (failedCount > 0) {
+      console.warn(`[Automationen] Marked ${failedCount} stale run(s) as failed globally`);
+    }
+    return failedCount;
   }
 
-  return staleRuns.length;
+  return 0;
 }
 
 async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise<number> {
@@ -1419,58 +1426,85 @@ async function failStaleAutomationRuns(jobId: string, now = new Date()): Promise
     );
 
   if (staleRuns.length > 0) {
-    console.warn(`[Automationen] Marking ${staleRuns.length} stale run(s) as failed for job ${jobId}`);
-    await markStaleAutomationRunRowsFailed(staleRuns, now);
+    const failedCount = await markStaleAutomationRunRowsFailed(staleRuns, now);
+    if (failedCount > 0) {
+      console.warn(`[Automationen] Marked ${failedCount} stale run(s) as failed for job ${jobId}`);
+    }
+    return failedCount;
   }
 
-  return staleRuns.length;
+  return 0;
 }
 
-async function markStaleAutomationRunRowsFailed(staleRuns: AutomationRunRow[], now: Date): Promise<void> {
-  await runAutomationTransaction(
+async function markStaleAutomationRunRowsFailed(staleRuns: AutomationRunRow[], now: Date): Promise<number> {
+  return runAutomationTransaction(
     (tx) => {
+      let failedCount = 0;
       for (const run of staleRuns) {
-        tx
+        if (!run.startedAt) continue;
+        const [updated] = tx
           .update(automationRuns)
           .set({
             status: 'failed',
             errorMessage: 'Automation run was marked stale before a new run could start.',
             finishedAt: now,
           })
-          .where(eq(automationRuns.id, run.id))
-          .run();
+          .where(and(
+            eq(automationRuns.id, run.id),
+            eq(automationRuns.status, 'running'),
+            eq(automationRuns.attemptNumber, run.attemptNumber),
+            eq(automationRuns.startedAt, run.startedAt),
+          ))
+          .returning({ id: automationRuns.id })
+          .all();
 
-        tx
-          .update(automationJobs)
-          .set({
-            lastRunAt: now,
-            lastRunStatus: 'failed',
-            updatedAt: now,
-          })
-          .where(eq(automationJobs.id, run.jobId))
-          .run();
+        if (updated) {
+          failedCount += 1;
+          tx
+            .update(automationJobs)
+            .set({
+              lastRunAt: now,
+              lastRunStatus: 'failed',
+              updatedAt: now,
+            })
+            .where(eq(automationJobs.id, run.jobId))
+            .run();
+        }
       }
+      return failedCount;
     },
     async (tx) => {
+      let failedCount = 0;
       for (const run of staleRuns) {
-        await tx
+        if (!run.startedAt) continue;
+        const [updated] = await tx
           .update(automationRuns)
           .set({
             status: 'failed',
             errorMessage: 'Automation run was marked stale before a new run could start.',
             finishedAt: now,
           })
-          .where(eq(automationRuns.id, run.id));
+          .where(and(
+            eq(automationRuns.id, run.id),
+            eq(automationRuns.status, 'running'),
+            eq(automationRuns.attemptNumber, run.attemptNumber),
+            eq(automationRuns.startedAt, run.startedAt),
+          ))
+          .returning({ id: automationRuns.id });
 
-        await tx
-          .update(automationJobs)
-          .set({
-            lastRunAt: now,
-            lastRunStatus: 'failed',
-            updatedAt: now,
-          })
-          .where(eq(automationJobs.id, run.jobId));
+        if (updated) {
+          failedCount += 1;
+          await tx
+            .update(automationJobs)
+            .set({
+              lastRunAt: now,
+              lastRunStatus: 'failed',
+              updatedAt: now,
+            })
+            .where(eq(automationJobs.id, run.jobId));
+        }
       }
+      return failedCount;
     },
   );
 }
@@ -1591,6 +1625,7 @@ export async function markAutomationRunStarted(
     resultPath: string | null;
     piSessionId: string;
     eventsLog: string[];
+    expectedAttemptNumber: number;
   },
 ): Promise<AutomationRunRecord | null> {
   const [updated] = await db
@@ -1613,6 +1648,7 @@ export async function markAutomationRunStarted(
       and(
         eq(automationRuns.id, runId),
         or(eq(automationRuns.status, 'pending'), eq(automationRuns.status, 'retry_scheduled')),
+        eq(automationRuns.attemptNumber, values.expectedAttemptNumber),
       ),
     )
     .returning();
@@ -1626,15 +1662,41 @@ export async function markAutomationRunStarted(
   return updated ? mapRunRow(updated, null) : null;
 }
 
+export async function revalidateAutomationRunClaim(
+  runId: string,
+  expectation: Pick<AutomationRunTransitionExpectation, 'attemptNumber'>,
+): Promise<AutomationRunRecord | null> {
+  const [updated] = await db
+    .update(automationRuns)
+    .set({ startedAt: new Date() })
+    .where(and(
+      eq(automationRuns.id, runId),
+      eq(automationRuns.status, 'running'),
+      eq(automationRuns.attemptNumber, expectation.attemptNumber),
+    ))
+    .returning();
+
+  if (!updated) {
+    console.warn(`[Automationen] Run ${runId} lost its claim while waiting for session execution`);
+    return null;
+  }
+  return mapRunRow(updated, null);
+}
+
 export async function markAutomationRunRetryScheduled(
   runId: string,
   nextAttemptAt: Date,
   errorMessage: string,
   eventsLog: string[],
   metadataJson: Record<string, unknown>,
+  expectation: AutomationRunTransitionExpectation,
   resultText?: string | null,
 ): Promise<AutomationRunRecord | null> {
   const finish = (current: AutomationRunRow, updated: AutomationRunRow | undefined) => {
+    if (!updated) {
+      console.warn(`[Automationen] Run ${runId} retry transition lost its status/attempt CAS; leaving the current state unchanged`);
+      return null;
+    }
     console.warn(`[Automationen] Run ${runId} marked as retry_scheduled (attempt=${current.attemptNumber + 1}, nextAttemptAt=${nextAttemptAt.toISOString()})`);
     return updated ? mapRunRow(updated, null) : null;
   };
@@ -1658,18 +1720,24 @@ export async function markAutomationRunRetryScheduled(
           eventsLog: JSON.stringify(eventsLog),
           metadataJson: mergeAutomationRunMetadata(current, metadataJson),
         })
-        .where(eq(automationRuns.id, runId))
+        .where(and(
+          eq(automationRuns.id, runId),
+          eq(automationRuns.status, expectation.status),
+          eq(automationRuns.attemptNumber, expectation.attemptNumber),
+        ))
         .returning()
         .all();
 
-      tx
-        .update(automationJobs)
-        .set({
-          lastRunStatus: 'retry_scheduled',
-          updatedAt: new Date(),
-        })
-        .where(eq(automationJobs.id, current.jobId))
-        .run();
+      if (updated) {
+        tx
+          .update(automationJobs)
+          .set({
+            lastRunStatus: 'retry_scheduled',
+            updatedAt: new Date(),
+          })
+          .where(eq(automationJobs.id, current.jobId))
+          .run();
+      }
 
       return finish(current, updated);
     },
@@ -1691,16 +1759,22 @@ export async function markAutomationRunRetryScheduled(
           eventsLog: JSON.stringify(eventsLog),
           metadataJson: mergeAutomationRunMetadata(current, metadataJson),
         })
-        .where(eq(automationRuns.id, runId))
+        .where(and(
+          eq(automationRuns.id, runId),
+          eq(automationRuns.status, expectation.status),
+          eq(automationRuns.attemptNumber, expectation.attemptNumber),
+        ))
         .returning();
 
-      await tx
-        .update(automationJobs)
-        .set({
-          lastRunStatus: 'retry_scheduled',
-          updatedAt: new Date(),
-        })
-        .where(eq(automationJobs.id, current.jobId));
+      if (updated) {
+        await tx
+          .update(automationJobs)
+          .set({
+            lastRunStatus: 'retry_scheduled',
+            updatedAt: new Date(),
+          })
+          .where(eq(automationJobs.id, current.jobId));
+      }
 
       return finish(current, updated);
     },
@@ -1716,9 +1790,14 @@ export async function markAutomationRunFinished(
     resultText?: string | null;
     eventsLog: string[];
     metadataJson: Record<string, unknown>;
+    expectation: AutomationRunTransitionExpectation;
   },
 ): Promise<AutomationRunRecord | null> {
   const finish = (current: AutomationRunRow, updated: AutomationRunRow | undefined) => {
+    if (!updated) {
+      console.warn(`[Automationen] Run ${runId} finish transition lost its status/attempt CAS; leaving the current state unchanged`);
+      return null;
+    }
     console.log(`[Automationen] Run ${runId} finished (status=${values.status}, job=${current.jobId})`);
     return updated ? mapRunRow(updated, null) : null;
   };
@@ -1742,19 +1821,25 @@ export async function markAutomationRunFinished(
           eventsLog: JSON.stringify(values.eventsLog),
           metadataJson: mergeAutomationRunMetadata(current, values.metadataJson),
         })
-        .where(eq(automationRuns.id, runId))
+        .where(and(
+          eq(automationRuns.id, runId),
+          eq(automationRuns.status, values.expectation.status),
+          eq(automationRuns.attemptNumber, values.expectation.attemptNumber),
+        ))
         .returning()
         .all();
 
-      tx
-        .update(automationJobs)
-        .set({
-          lastRunAt: now,
-          lastRunStatus: values.status,
-          updatedAt: now,
-        })
-        .where(eq(automationJobs.id, current.jobId))
-        .run();
+      if (updated) {
+        tx
+          .update(automationJobs)
+          .set({
+            lastRunAt: now,
+            lastRunStatus: values.status,
+            updatedAt: now,
+          })
+          .where(eq(automationJobs.id, current.jobId))
+          .run();
+      }
 
       return finish(current, updated);
     },
@@ -1776,17 +1861,23 @@ export async function markAutomationRunFinished(
           eventsLog: JSON.stringify(values.eventsLog),
           metadataJson: mergeAutomationRunMetadata(current, values.metadataJson),
         })
-        .where(eq(automationRuns.id, runId))
+        .where(and(
+          eq(automationRuns.id, runId),
+          eq(automationRuns.status, values.expectation.status),
+          eq(automationRuns.attemptNumber, values.expectation.attemptNumber),
+        ))
         .returning();
 
-      await tx
-        .update(automationJobs)
-        .set({
-          lastRunAt: now,
-          lastRunStatus: values.status,
-          updatedAt: now,
-        })
-        .where(eq(automationJobs.id, current.jobId));
+      if (updated) {
+        await tx
+          .update(automationJobs)
+          .set({
+            lastRunAt: now,
+            lastRunStatus: values.status,
+            updatedAt: now,
+          })
+          .where(eq(automationJobs.id, current.jobId));
+      }
 
       return finish(current, updated);
     },

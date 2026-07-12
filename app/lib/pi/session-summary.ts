@@ -66,6 +66,12 @@ const SUMMARY_TOOL_ARGUMENT_LIMIT = 1200;
 const SUMMARY_OUTPUT_TOKENS = 1200;
 const SUMMARY_INPUT_SAFETY_TOKENS = 512;
 
+function assertSummaryGenerationActive(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    throw new Error('Summary generation was aborted.');
+  }
+}
+
 function extractAssistantText(message: AssistantMessage): string {
   return message.content
     .filter((part) => part.type === 'text')
@@ -266,7 +272,9 @@ export async function summarizePiSessionHistory({
     return null;
   }
 
+  assertSummaryGenerationActive(signal);
   const sanitizedMessages = await sanitizeMessagesForSummary(messagesToSummarize);
+  assertSummaryGenerationActive(signal);
   if (sanitizedMessages.length === 0) {
     return previousSummaryText?.trim() || null;
   }
@@ -283,6 +291,7 @@ export async function summarizePiSessionHistory({
 
   const pendingMessages = [...sanitizedMessages];
   while (pendingMessages.length > 0) {
+    assertSummaryGenerationActive(signal);
     const rawPriorSummaryRecord = nextSummary
       ? wrapUntrustedSummaryRecord('prior_internal_summary', truncateForSummary(nextSummary, Math.floor(availableInputTokens * 0.4)), 0)
       : null;
@@ -305,6 +314,7 @@ export async function summarizePiSessionHistory({
       batchTokens += nextTokens;
       pendingMessages.shift();
     }
+    assertSummaryGenerationActive(signal);
     const summaryStream = await streamFn(
       model,
       {
@@ -322,7 +332,9 @@ export async function summarizePiSessionHistory({
         signal,
       },
     );
+    assertSummaryGenerationActive(signal);
     const summaryMessage = await summaryStream.result();
+    assertSummaryGenerationActive(signal);
 
     if (summaryMessage.stopReason === 'error' || summaryMessage.stopReason === 'aborted') {
       return null;

@@ -13,7 +13,7 @@ process.env.TELEGRAM_CHANNEL_ENABLED = 'true';
 async function main() {
   const { eq } = await import('drizzle-orm');
   const { db } = await import('../app/lib/db');
-  const { user, piSessions, sessionChannelLinks } = await import('../app/lib/db/schema');
+  const { channelActiveSessions, user, piSessions, sessionChannelLinks } = await import('../app/lib/db/schema');
   const { setActiveChannelSession } = await import('../app/lib/channels/active-sessions');
   const { createBinding, deleteBinding } = await import('../app/lib/channels/telegram/link-token');
   const { getChannelRegistry } = await import('../app/lib/channels/registry');
@@ -26,6 +26,10 @@ async function main() {
 
   const now = new Date();
   const userId = 'user-automation-delivery';
+  const personalWorkspace = {
+    workspaceId: 'workspace-automation-delivery-personal',
+    workspaceType: 'personal' as const,
+  };
 
   await db.insert(user).values({
     id: userId,
@@ -85,6 +89,7 @@ async function main() {
     job: baseJob,
     userId,
     defaultSessionId: 'auto-new',
+    workspace: personalWorkspace,
   });
   assert.equal(webNew.sessionId, 'auto-new');
   assert.equal(webNew.mode, 'new_session');
@@ -94,7 +99,7 @@ async function main() {
   const webLink = await db.query.sessionChannelLinks.findFirst({
     where: eq(sessionChannelLinks.sessionId, 'auto-new'),
   });
-  assert.equal(webLink?.channelId, 'web');
+  assert.equal(webLink, undefined);
 
   await db.insert(piSessions).values({
     sessionId: 'fixed-session',
@@ -115,10 +120,41 @@ async function main() {
     },
     userId,
     defaultSessionId: 'auto-fixed-fallback',
+    workspace: personalWorkspace,
   });
   assert.equal(fixed.sessionId, 'fixed-session');
   assert.equal(fixed.mode, 'fixed_session');
   assert.deepEqual(fixed.warnings, []);
+  const fixedLink = await db.query.sessionChannelLinks.findFirst({
+    where: eq(sessionChannelLinks.sessionId, 'fixed-session'),
+  });
+  assert.equal(fixedLink, undefined, 'delivery resolution must remain read-only before the run claim');
+
+  await db.insert(piSessions).values({
+    sessionId: 'cross-workspace-session',
+    userId,
+    agentId: 'canvas-agent',
+    provider: 'test-provider',
+    model: 'test-model',
+    title: 'Cross Workspace Session',
+    workspaceId: 'workspace-other',
+    workspaceType: 'organization',
+    createdAt: now,
+    updatedAt: now,
+  });
+  const crossWorkspace = await resolveAutomationDeliveryTarget({
+    job: {
+      ...baseJob,
+      deliverySessionMode: 'fixed_session',
+      deliverySessionId: 'cross-workspace-session',
+    },
+    userId,
+    defaultSessionId: 'auto-cross-workspace-fallback',
+    workspace: personalWorkspace,
+  });
+  assert.equal(crossWorkspace.sessionId, 'auto-cross-workspace-fallback');
+  assert.equal(crossWorkspace.mode, 'new_session');
+  assert.ok(crossWorkspace.warnings.some((warning) => warning.includes('workspace')));
 
   await db.insert(piSessions).values({
     sessionId: 'active-session',
@@ -148,10 +184,22 @@ async function main() {
     },
     userId,
     defaultSessionId: 'auto-active-fallback',
+    workspace: personalWorkspace,
   });
   assert.equal(active.sessionId, 'active-session');
   assert.equal(active.mode, 'channel_active');
   assert.equal(active.channelId, 'telegram');
+
+  await setActiveChannelSession({
+    userId,
+    channelId: 'telegram',
+    channelSessionKey: 'telegram:99',
+    sessionId: 'cross-workspace-session',
+  });
+  await db.update(channelActiveSessions)
+    .set({ updatedAt: new Date(now.getTime() + 60_000) })
+    .where(eq(channelActiveSessions.sessionId, 'cross-workspace-session'));
+  await createBinding(userId, 'telegram', '99', 'other-workspace');
 
   const inferredActive = await resolveAutomationDeliveryTarget({
     job: {
@@ -163,6 +211,7 @@ async function main() {
     },
     userId,
     defaultSessionId: 'auto-inferred-active',
+    workspace: personalWorkspace,
   });
   assert.equal(inferredActive.sessionId, 'active-session');
   assert.equal(inferredActive.mode, 'channel_active');
@@ -179,11 +228,13 @@ async function main() {
     },
     userId,
     defaultSessionId: 'auto-last-active',
+    workspace: personalWorkspace,
   });
   assert.equal(lastActive.sessionId, 'active-session');
   assert.equal(lastActive.mode, 'channel_active');
   assert.equal(lastActive.channelId, 'telegram');
   assert.equal(lastActive.channelSessionKey, 'telegram:42');
+  assert.ok(lastActive.warnings.some((warning) => warning.includes('another workspace')));
 
   process.env.TELEGRAM_CHANNEL_ENABLED = 'false';
   const lastActiveFallback = await resolveAutomationDeliveryTarget({
@@ -196,6 +247,7 @@ async function main() {
     },
     userId,
     defaultSessionId: 'auto-last-active-fallback',
+    workspace: personalWorkspace,
   });
   assert.equal(lastActiveFallback.channelId, 'web');
   assert.equal(lastActiveFallback.channelSessionKey, `web:user:${userId}`);
@@ -212,6 +264,7 @@ async function main() {
     },
     userId,
     defaultSessionId: 'auto-missing-active',
+    workspace: personalWorkspace,
   });
   assert.equal(missingActive.sessionId, 'auto-missing-active');
   assert.equal(missingActive.mode, 'new_session');
@@ -228,6 +281,7 @@ async function main() {
     },
     userId,
     defaultSessionId: 'auto-missing-external-target',
+    workspace: personalWorkspace,
   });
   assert.equal(missingExternalTarget.channelId, 'slack');
   assert.equal(missingExternalTarget.channelSessionKey, '');
@@ -256,6 +310,7 @@ async function main() {
     },
     userId,
     defaultSessionId: 'auto-silent-fallback',
+    workspace: personalWorkspace,
   });
   assert.equal(silentFallback.channelId, 'web');
   assert.equal(silentFallback.channelSessionKey, `web:user:${userId}`);

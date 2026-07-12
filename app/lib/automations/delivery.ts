@@ -1,15 +1,13 @@
 import 'server-only';
 
-import { and, eq } from 'drizzle-orm';
-
-import { db } from '@/app/lib/db';
-import { piSessions } from '@/app/lib/db/schema';
-import { getActiveChannelSession, getLatestActiveChannelSession, getRecentActiveChannelSessions } from '@/app/lib/channels/active-sessions';
+import { getActiveChannelSession, getRecentActiveChannelSessions } from '@/app/lib/channels/active-sessions';
 import { getChannelDeliveryReadiness } from '@/app/lib/channels/availability';
-import { ensureSessionChannelLink, markChannelLinkOutbound } from '@/app/lib/channels/channel-links';
+import { markChannelLinkOutbound } from '@/app/lib/channels/channel-links';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { buildDeliveryTarget } from '@/app/lib/channels/delivery-targets';
 import { getChannelRegistry } from '@/app/lib/channels/registry';
+import { findOwnedPiSessionForRuntime, isPiSessionInWorkspace } from '@/app/lib/pi/session-runtime-access';
+import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 import type { AutomationJobRecord } from './types';
 
@@ -41,7 +39,11 @@ function defaultWebChannelSessionKey(userId: string): string {
   return webChannelSessionKey(userId);
 }
 
-async function resolveDeliveryChannel(job: AutomationJobRecord, userId: string) {
+async function resolveDeliveryChannel(
+  job: AutomationJobRecord,
+  userId: string,
+  workspace: Pick<WorkspaceContext, 'workspaceId' | 'workspaceType'>,
+) {
   const warnings: string[] = [];
   if (job.deliveryMode === 'last_active') {
     const recentSessions = await getRecentActiveChannelSessions({
@@ -51,6 +53,15 @@ async function resolveDeliveryChannel(job: AutomationJobRecord, userId: string) 
     });
 
     for (const recentSession of recentSessions) {
+      if (!await verifySessionOwnership({
+        sessionId: recentSession.sessionId,
+        userId,
+        agentId: job.agentId,
+        workspace,
+      })) {
+        warnings.push('Ignored a last-active channel session from another workspace.');
+        continue;
+      }
       const channelId = recentSession.channelId || WEB_CHANNEL_ID;
       const channelSessionKey = recentSession.channelSessionKey?.trim()
         || (channelId === WEB_CHANNEL_ID ? defaultWebChannelSessionKey(userId) : '');
@@ -105,34 +116,58 @@ async function verifySessionOwnership(input: {
   sessionId: string;
   userId: string;
   agentId: string;
+  workspace: Pick<WorkspaceContext, 'workspaceId' | 'workspaceType'>;
 }): Promise<boolean> {
-  const row = await db.query.piSessions.findFirst({
-    where: and(
-      eq(piSessions.sessionId, input.sessionId),
-      eq(piSessions.userId, input.userId),
-      eq(piSessions.agentId, input.agentId),
-    ),
-    columns: { id: true },
+  const row = await findOwnedPiSessionForRuntime({
+    sessionId: input.sessionId,
+    userId: input.userId,
+    agentId: input.agentId,
   });
+  return isPiSessionInWorkspace(row, input.workspace);
+}
 
-  return Boolean(row);
+async function findLatestWorkspaceChannelSession(input: {
+  userId: string;
+  agentId: string;
+  channelId: string;
+  workspace: Pick<WorkspaceContext, 'workspaceId' | 'workspaceType'>;
+}) {
+  const recentSessions = await getRecentActiveChannelSessions({
+    userId: input.userId,
+    agentId: input.agentId,
+    limit: 20,
+  });
+  for (const recentSession of recentSessions) {
+    if (recentSession.channelId !== input.channelId) continue;
+    if (await verifySessionOwnership({
+      sessionId: recentSession.sessionId,
+      userId: input.userId,
+      agentId: input.agentId,
+      workspace: input.workspace,
+    })) {
+      return recentSession;
+    }
+  }
+  return null;
 }
 
 export async function resolveAutomationDeliveryTarget(input: {
   job: AutomationJobRecord;
   userId: string;
   defaultSessionId: string;
+  workspace: Pick<WorkspaceContext, 'workspaceId' | 'workspaceType'>;
 }): Promise<AutomationDeliveryResolution> {
-  const { job, userId, defaultSessionId } = input;
+  const { job, userId, defaultSessionId, workspace } = input;
   const warnings: string[] = [];
-  const delivery = await resolveDeliveryChannel(job, userId);
+  const delivery = await resolveDeliveryChannel(job, userId, workspace);
   warnings.push(...delivery.warnings);
 
   if (delivery.channelId !== WEB_CHANNEL_ID && !delivery.channelSessionKey) {
-    const latest = await getLatestActiveChannelSession({
+    const latest = await findLatestWorkspaceChannelSession({
       userId,
       channelId: delivery.channelId,
       agentId: job.agentId,
+      workspace,
     });
     if (latest) {
       delivery.channelSessionKey = latest.channelSessionKey;
@@ -144,11 +179,16 @@ export async function resolveAutomationDeliveryTarget(input: {
 
   if (job.deliverySessionMode === 'fixed_session') {
     const fixedSessionId = job.deliverySessionId?.trim();
-    if (fixedSessionId && await verifySessionOwnership({ sessionId: fixedSessionId, userId, agentId: job.agentId })) {
+    if (fixedSessionId && await verifySessionOwnership({
+      sessionId: fixedSessionId,
+      userId,
+      agentId: job.agentId,
+      workspace,
+    })) {
       sessionId = fixedSessionId;
       mode = 'fixed_session';
     } else {
-      warnings.push('Fixed delivery session was missing or not accessible for this agent; created a new automation session instead.');
+      warnings.push('Fixed delivery session was missing or not accessible for this agent and workspace; created a new automation session instead.');
     }
   } else if (job.deliverySessionMode === 'channel_active') {
     if (delivery.channelSessionKey) {
@@ -158,7 +198,12 @@ export async function resolveAutomationDeliveryTarget(input: {
         channelId: delivery.channelId,
         channelSessionKey: delivery.channelSessionKey,
       });
-      if (activeSessionId && await verifySessionOwnership({ sessionId: activeSessionId, userId, agentId: job.agentId })) {
+      if (activeSessionId && await verifySessionOwnership({
+        sessionId: activeSessionId,
+        userId,
+        agentId: job.agentId,
+        workspace,
+      })) {
         sessionId = activeSessionId;
         mode = 'channel_active';
       } else {
@@ -171,17 +216,6 @@ export async function resolveAutomationDeliveryTarget(input: {
 
   const resolvedChannelSessionKey = delivery.channelSessionKey
     || (delivery.channelId === WEB_CHANNEL_ID ? defaultWebChannelSessionKey(userId) : '');
-
-  if (resolvedChannelSessionKey) {
-    await ensureSessionChannelLink({
-      sessionId,
-      userId,
-      channelId: delivery.channelId,
-      channelSessionKey: resolvedChannelSessionKey,
-      isPrimary: delivery.channelId === WEB_CHANNEL_ID,
-      deliveryPolicy: 'last_active',
-    });
-  }
 
   return {
     sessionId,

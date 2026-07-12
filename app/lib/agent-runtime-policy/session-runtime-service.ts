@@ -5,6 +5,7 @@ import {
   resolveEffectiveAgentRuntime,
   type AiRuntimeResolutionContext,
 } from '@/app/lib/agent-runtime-policy/runtime-resolver';
+import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
 import {
   AiRuntimeInputError,
   RuntimeContextRevisionConflictError,
@@ -72,13 +73,7 @@ function assertExpectedContextRevisions(
 }
 
 function snapshotFromResolution(resolution: AiEffectiveRuntimeResolution): AiSessionRuntimeSnapshot {
-  const selection = assertEffectiveRuntimeSelection(resolution);
-  return {
-    selection: selection.selection,
-    catalogRevision: selection.catalogRevision,
-    policyRevision: selection.policyRevision,
-    selectionSource: selection.selectionSource,
-  };
+  return sessionRuntimeSnapshotFromResolvedSelection(assertEffectiveRuntimeSelection(resolution));
 }
 
 export async function prepareSessionRuntimeSnapshot(input: {

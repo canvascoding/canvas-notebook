@@ -3,22 +3,44 @@ import path from 'node:path';
 import { agentLoop, type AgentContext, type AgentMessage, type ThinkingLevel } from '@earendil-works/pi-agent-core';
 import type { Api, ProviderId } from '@earendil-works/pi-ai';
 
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
+import {
+  resolveAndPinSessionRuntime,
+  resolveExecutableAgentRuntime,
+  type ExecutableAgentRuntime,
+} from '@/app/lib/agent-runtime-policy/provider-runtime';
+import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
+import { SessionRuntimeContextRevisionConflictError } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { createDirectory } from '@/app/lib/filesystem/workspace-files';
-import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 import { normalizePiMessagesForLlm } from '@/app/lib/pi/message-normalization';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
-import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
+import {
+  createPiSessionWithRuntimeSnapshot,
+  loadPiSessionWithSummary,
+  savePiSession,
+} from '@/app/lib/pi/session-store';
 import { runWithAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
-import { workspaceToAgentExecutionContext } from '@/app/lib/pi/session-workspace-context';
+import {
+  workspaceToAgentExecutionContext,
+  workspaceToPiSessionFields,
+} from '@/app/lib/pi/session-workspace-context';
+import { findOwnedPiSessionForRuntime, isPiSessionInWorkspace } from '@/app/lib/pi/session-runtime-access';
+import {
+  PiSessionBusyError,
+  withExclusivePiSessionExecution,
+} from '@/app/lib/pi/session-exclusive-execution';
 import { loadPiSessionSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
 import { buildHeartbeatPrompt } from './heartbeat';
+import {
+  AutomationLoopShutdownError,
+  AutomationRunTimeoutError,
+  runWithAutomationTimeout,
+} from './run-timeout';
 import { buildPersistedAutomationMessages, getAutomationPersistedLength } from './session-messages';
 import {
   dispatchAutomationResult,
@@ -34,6 +56,7 @@ import {
   markAutomationRunFinished,
   markAutomationRunRetryScheduled,
   markAutomationRunStarted,
+  revalidateAutomationRunClaim,
   updateAutomationJob,
 } from './store';
 import { resolveAutomationRunWorkspace } from './policy';
@@ -44,6 +67,7 @@ const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
 const MAX_EVENTS_LOG = 500;
 const MAX_EVENT_JSON_LENGTH = 10_000;
 const RUN_TIMEOUT_MS = 10 * 60_000;
+const RUN_ABORT_GRACE_MS = 30_000;
 const EMPTY_USAGE = {
   input: 0,
   output: 0,
@@ -58,6 +82,19 @@ const EMPTY_USAGE = {
     total: 0,
   },
 } as const;
+
+class AutomationRunClaimLostError extends Error {
+  constructor() {
+    super('Automation run claim was lost while waiting for its session.');
+    this.name = 'AutomationRunClaimLostError';
+  }
+}
+
+function assertAutomationExecutionActive(signal: AbortSignal): void {
+  if (signal.aborted) {
+    throw new Error('Automation execution was aborted after exceeding its deadline.');
+  }
+}
 
 function estimateAutomationToolSchemaTokens(tools: AgentContext['tools']): number {
   try {
@@ -113,12 +150,6 @@ function calculateRetryAt(attemptNumber: number): Date | null {
   }
   const delay = RETRY_BACKOFF_MS[attemptNumber - 1] ?? RETRY_BACKOFF_MS[RETRY_BACKOFF_MS.length - 1];
   return new Date(Date.now() + delay);
-}
-
-function createRunTimeoutPromise(ms: number): Promise<never> {
-  return new Promise((_, reject) => {
-    setTimeout(() => reject(new Error(`Automation run timed out after ${ms}ms`)), ms);
-  });
 }
 
 function buildAutomationSessionId(runId: string): string {
@@ -188,6 +219,29 @@ function buildAutomationRunMetadata(
   };
 }
 
+function buildAutomationRuntimeMetadata(runtime: ExecutableAgentRuntime) {
+  const selection = runtime.selection;
+  return {
+    providerInstallationId: selection.selection.providerInstallationId,
+    providerId: selection.selection.providerId,
+    modelId: selection.selection.modelId,
+    thinkingLevel: selection.selection.thinkingLevel,
+    credentialScope: selection.credentialScope,
+    catalogRevision: selection.catalogRevision,
+    policyRevision: selection.policyRevision,
+    selectionSource: selection.selectionSource,
+  };
+}
+
+function sameAutomationWorkspaceIdentity(
+  left: { workspaceId: string; workspaceType: string; organizationId?: string | null },
+  right: { workspaceId: string; workspaceType: string; organizationId?: string | null },
+): boolean {
+  return left.workspaceId === right.workspaceId
+    && left.workspaceType === right.workspaceType
+    && (left.organizationId ?? null) === (right.organizationId ?? null);
+}
+
 export async function executeAutomationRun(runId: string): Promise<void> {
   const runStartTime = Date.now();
   const run = await getAutomationRun(runId);
@@ -195,6 +249,18 @@ export async function executeAutomationRun(runId: string): Promise<void> {
     console.warn(`[Automationen] Run ${runId} not found, skipping`);
     return;
   }
+  if (run.status !== 'pending' && run.status !== 'retry_scheduled') {
+    console.warn(`[Automationen] Run ${runId} is already ${run.status}, skipping`);
+    return;
+  }
+
+  let runTransitionExpectation: {
+    status: AutomationRunRecord['status'];
+    attemptNumber: number;
+  } = {
+    status: run.status,
+    attemptNumber: run.attemptNumber,
+  };
 
   const job = await getAutomationJob(run.jobId);
   if (!job) {
@@ -204,6 +270,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       errorMessage: 'Automation job not found.',
       eventsLog: [],
       metadataJson: { provider: 'unknown', model: 'unknown', status: 'failed' },
+      expectation: runTransitionExpectation,
     });
     return;
   }
@@ -213,23 +280,68 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
   try {
     const defaultPiSessionId = buildAutomationSessionId(run.id);
+    let automationWorkspace = await resolveAutomationRunWorkspace(job);
     const deliveryResolution = await resolveAutomationDeliveryTarget({
       job,
       userId: automationUserId,
       defaultSessionId: defaultPiSessionId,
+      workspace: automationWorkspace,
     });
     const piSessionId = deliveryResolution.sessionId;
     const piSessionTitle = buildAutomationSessionTitle(job.name);
-    const automationWorkspace = await resolveAutomationRunWorkspace(job);
-    const executionContext = workspaceToAgentExecutionContext({
+    const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
+    const startedRun = await markAutomationRunStarted(run.id, {
+      outputDir: null,
+      targetOutputPath: job.targetOutputPath,
+      effectiveTargetOutputPath: effectiveTargetOutputPath || null,
+      logPath: '',
+      resultPath: null,
+      piSessionId,
+      eventsLog: [],
+      expectedAttemptNumber: run.attemptNumber,
+    });
+    if (!startedRun) {
+      console.warn(`[Automationen] Run ${runId} could not be marked as started (already running or completed), aborting`);
+      return;
+    }
+    runTransitionExpectation = {
+      status: 'running',
+      attemptNumber: startedRun.attemptNumber,
+    };
+    let executionContext = workspaceToAgentExecutionContext({
       workspace: automationWorkspace,
       userId: automationUserId,
       sessionId: piSessionId,
       agentId: job.agentId,
     });
 
-    await runWithAgentExecutionContext(executionContext, async () => {
-      const effectiveTargetOutputPath = getEffectiveAutomationTargetOutputPath(job);
+    await withExclusivePiSessionExecution({
+      sessionId: piSessionId,
+      userId: automationUserId,
+      beforeRuntimeCheck: async () => {
+        const revalidatedRun = await revalidateAutomationRunClaim(run.id, runTransitionExpectation);
+        if (!revalidatedRun) throw new AutomationRunClaimLostError();
+        const refreshedWorkspace = await resolveAutomationRunWorkspace(job);
+        if (!sameAutomationWorkspaceIdentity(automationWorkspace, refreshedWorkspace)) {
+          throw new Error('Automation workspace identity changed while waiting for session execution.');
+        }
+        automationWorkspace = refreshedWorkspace;
+        executionContext = workspaceToAgentExecutionContext({
+          workspace: refreshedWorkspace,
+          userId: automationUserId,
+          sessionId: piSessionId,
+          agentId: job.agentId,
+        });
+      },
+      operation: async (reservation) => {
+        try {
+          return await runWithAutomationTimeout({
+            timeoutMs: RUN_TIMEOUT_MS,
+            abortGraceMs: RUN_ABORT_GRACE_MS,
+            operation: (executionSignal) => reservation.runReserved(
+              executionSignal,
+              () => runWithAgentExecutionContext(executionContext, async () => {
+      assertAutomationExecutionActive(executionSignal);
 
       if (effectiveTargetOutputPath) {
         const targetParentDir = path.posix.dirname(effectiveTargetOutputPath);
@@ -237,11 +349,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           await createDirectory(targetParentDir, { workspace: automationWorkspace });
         }
       }
+      assertAutomationExecutionActive(executionSignal);
 
       const includeAutomatedHeartbeatContext = job.jobType === 'heartbeat' && run.triggerType !== 'manual';
       const jobPrompt = job.jobType === 'heartbeat'
         ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext, userId: automationUserId })
         : job.prompt;
+      assertAutomationExecutionActive(executionSignal);
       const promptText = buildAutomationPrompt({
         name: job.name,
         workspaceContextPaths: job.workspaceContextPaths,
@@ -256,92 +370,159 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       let finalMessages: AgentMessage[] = [];
       let dispatchResult: AutomationDeliveryDispatchResult | undefined;
       let promptPersistedBeforeRun = false;
-      const existingSession = deliveryResolution.mode === 'new_session'
-        ? null
-        : await loadPiSessionWithSummary(piSessionId, automationUserId, job.agentId);
-      const existingMessages = existingSession?.messages ?? [];
-      let sessionSummary = existingSession?.summary ?? {
+      const persistedSession = await findOwnedPiSessionForRuntime({
+        sessionId: piSessionId,
+        userId: automationUserId,
+        agentId: job.agentId,
+      });
+      assertAutomationExecutionActive(executionSignal);
+      if (persistedSession && !isPiSessionInWorkspace(persistedSession, automationWorkspace)) {
+        throw new Error('Automation delivery session belongs to a different workspace.');
+      }
+      const historySession = persistedSession
+        ? await loadPiSessionWithSummary(piSessionId, automationUserId, job.agentId)
+        : null;
+      assertAutomationExecutionActive(executionSignal);
+      const existingMessages = historySession?.messages ?? [];
+      const initialSessionSummary = historySession?.summary ?? {
         summaryText: null,
         summaryUpdatedAt: null,
         summaryThroughTimestamp: null,
         summaryThroughSequence: null,
       };
-
-      const effectiveConfig = await resolveAgentRuntimeConfig(job.agentId);
-      const provider = effectiveConfig.activeProvider;
-      const providerConfig = effectiveConfig.providerConfig;
-      const model = effectiveConfig.model;
-      console.log(`[Automationen] Run ${runId} using provider=${provider}, model=${model.id}`);
+      if (!automationWorkspace.organizationId) {
+        throw new Error('Complete the app AI runtime setup before running an automation.');
+      }
+      const runtimeContext = {
+        organizationId: automationWorkspace.organizationId,
+        userId: automationUserId,
+        workspaceId: automationWorkspace.workspaceId,
+        workspaceType: automationWorkspace.workspaceType,
+        agentId: job.agentId,
+        requestedSelection: null,
+      };
+      let executableRuntime = persistedSession
+        ? await resolveAndPinSessionRuntime({ ...runtimeContext, sessionId: piSessionId })
+        : await resolveExecutableAgentRuntime({ ...runtimeContext, sessionId: null });
+      assertAutomationExecutionActive(executionSignal);
+      let provider = executableRuntime.selection.selection.providerId;
+      let model = executableRuntime.model;
+      console.log(
+        `[Automationen] Run ${runId} using installation=${executableRuntime.selection.selection.providerInstallationId}, `
+        + `provider=${provider}, model=${model.id}`,
+      );
 
       const tools = await getPiTools(automationUserId, job.agentId, piSessionId);
+      assertAutomationExecutionActive(executionSignal);
       const promptSnapshot = await loadPiSessionSystemPromptSnapshot({
         sessionId: piSessionId,
         userId: automationUserId,
         agentId: job.agentId,
       });
+      assertAutomationExecutionActive(executionSignal);
       const systemPrompt = promptSnapshot.systemPrompt;
       const promptMessage: AgentMessage = {
         role: 'user',
         content: promptText,
         timestamp: Date.now(),
       };
-      const preparedHistory = await preparePiHistoryContext({
-        messages: [...existingMessages, promptMessage],
-        summary: sessionSummary,
-        systemPromptTokens: estimateTextTokens(systemPrompt),
-        model,
-        toolTokens: estimateAutomationToolSchemaTokens(tools),
-        sessionId: piSessionId,
-      });
-      if (preparedHistory.composition.contextBudgetExceeded) {
-        if (preparedHistory.composition.payloadBudgetExceeded) {
-          throw new Error(
-            `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
-            'Shorten the latest prompt or attachments.',
-          );
+      const prepareHistoryForRuntime = async (runtime: ExecutableAgentRuntime) => {
+        const prepared = await preparePiHistoryContext({
+          messages: [...existingMessages, promptMessage],
+          summary: initialSessionSummary,
+          systemPromptTokens: estimateTextTokens(systemPrompt),
+          model: runtime.model,
+          toolTokens: estimateAutomationToolSchemaTokens(tools),
+          sessionId: piSessionId,
+          signal: executionSignal,
+          streamFn: runtime.streamFn,
+        });
+        if (prepared.composition.contextBudgetExceeded) {
+          if (prepared.composition.payloadBudgetExceeded) {
+            throw new Error(
+              `Automation request exceeds the ${Math.floor(MAX_LLM_HISTORY_BYTES / (1024 * 1024))}MB LLM transfer budget. ` +
+              'Shorten the latest prompt or attachments.',
+            );
+          }
+          throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
         }
-        throw new Error('Automation context exceeds the selected model window. Use a larger-context model or start a new automation session.');
-      }
-      if (preparedHistory.summaryFailed && preparedHistory.composition.omittedMessages.length > 0) {
-        throw new Error('Automation context compaction failed because its summary could not be updated.');
-      }
-      sessionSummary = preparedHistory.summary;
-      const preparedMessages = preparedHistory.composition.llmMessages;
-      if (preparedMessages[preparedMessages.length - 1] !== promptMessage) {
-        throw new Error('Automation prompt could not be retained inside the model context budget.');
-      }
-      const config = {
-        model,
-        thinkingLevel: (providerConfig?.thinking || 'off') as ThinkingLevel,
-        convertToLlm: async (messages: AgentMessage[]) => normalizePiMessagesForLlm(messages, {
-          workspaceImageRoot: automationWorkspace.rootPath,
-          allowedImageFileRoots: [automationWorkspace.rootPath],
-        }),
-        getApiKey: resolvePiApiKey,
-        sessionId: piSessionId,
+        if (prepared.summaryFailed && prepared.composition.omittedMessages.length > 0) {
+          throw new Error('Automation context compaction failed because its summary could not be updated.');
+        }
+        const preparedMessages = prepared.composition.llmMessages;
+        if (preparedMessages[preparedMessages.length - 1] !== promptMessage) {
+          throw new Error('Automation prompt could not be retained inside the model context budget.');
+        }
+        return prepared;
       };
-      const context: AgentContext = {
-        systemPrompt,
-        messages: preparedMessages.slice(0, -1),
-        tools,
-      };
-
-      const startedRun = await markAutomationRunStarted(run.id, {
-        outputDir: null,
-        targetOutputPath: job.targetOutputPath,
-        effectiveTargetOutputPath: effectiveTargetOutputPath || null,
-        logPath: '',
-        resultPath: null,
-        piSessionId,
-        eventsLog: [],
-      });
-
-      if (!startedRun) {
-        console.warn(`[Automationen] Run ${runId} could not be marked as started (already running?), aborting`);
-        return;
-      }
-
+      let sessionSummary = initialSessionSummary;
+      let sessionReadyForPersistence = Boolean(persistedSession);
       try {
+        if (!sessionReadyForPersistence) {
+          for (let attempt = 0; attempt < 2; attempt += 1) {
+            try {
+              await createPiSessionWithRuntimeSnapshot({
+                sessionId: piSessionId,
+                userId: automationUserId,
+                agentId: job.agentId,
+                title: piSessionTitle,
+                workspace: workspaceToPiSessionFields(automationWorkspace),
+                runtimeSnapshot: sessionRuntimeSnapshotFromResolvedSelection(executableRuntime.selection),
+                systemPromptSnapshot: promptSnapshot,
+              });
+              sessionReadyForPersistence = true;
+              break;
+            } catch (error) {
+              const concurrentSession = await findOwnedPiSessionForRuntime({
+                sessionId: piSessionId,
+                userId: automationUserId,
+                agentId: job.agentId,
+              });
+              if (concurrentSession && isPiSessionInWorkspace(concurrentSession, automationWorkspace)) {
+                sessionReadyForPersistence = true;
+                break;
+              }
+              if (error instanceof SessionRuntimeContextRevisionConflictError && attempt === 0) {
+                assertAutomationExecutionActive(executionSignal);
+                executableRuntime = await resolveExecutableAgentRuntime({ ...runtimeContext, sessionId: null });
+                assertAutomationExecutionActive(executionSignal);
+                provider = executableRuntime.selection.selection.providerId;
+                model = executableRuntime.model;
+                continue;
+              }
+              throw error;
+            }
+          }
+          if (!sessionReadyForPersistence) {
+            throw new Error('Automation session could not be created with a current runtime snapshot.');
+          }
+
+          assertAutomationExecutionActive(executionSignal);
+          executableRuntime = await resolveAndPinSessionRuntime({ ...runtimeContext, sessionId: piSessionId });
+          provider = executableRuntime.selection.selection.providerId;
+          model = executableRuntime.model;
+        }
+        assertAutomationExecutionActive(executionSignal);
+
+        const preparedHistory = await prepareHistoryForRuntime(executableRuntime);
+        assertAutomationExecutionActive(executionSignal);
+        sessionSummary = preparedHistory.summary;
+        const preparedMessages = preparedHistory.composition.llmMessages;
+        const config = {
+          model,
+          thinkingLevel: executableRuntime.selection.selection.thinkingLevel as ThinkingLevel,
+          convertToLlm: async (messages: AgentMessage[]) => normalizePiMessagesForLlm(messages, {
+            workspaceImageRoot: automationWorkspace.rootPath,
+            allowedImageFileRoots: [automationWorkspace.rootPath],
+          }),
+          sessionId: piSessionId,
+        };
+        const context: AgentContext = {
+          systemPrompt,
+          messages: preparedMessages.slice(0, -1),
+          tools,
+        };
+
         await savePiSession(
           piSessionId,
           automationUserId,
@@ -360,24 +541,27 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           },
         );
         promptPersistedBeforeRun = true;
+        assertAutomationExecutionActive(executionSignal);
 
         console.log(`[Automationen] Starting agent loop for run ${runId} (provider=${provider}, model=${model.id})`);
-        const agentLoopPromise = (async () => {
-          const loopEvents: string[] = [];
-          let loopMessages: AgentMessage[] = [];
-          for await (const event of agentLoop([promptMessage], context, config, undefined)) {
-            if (loopEvents.length < MAX_EVENTS_LOG) {
-              const json = JSON.stringify(event);
-              loopEvents.push(json.length > MAX_EVENT_JSON_LENGTH ? json.slice(0, MAX_EVENT_JSON_LENGTH) + '...[truncated]' : json);
-            }
-            if (event.type === 'agent_end') {
-              loopMessages = event.messages;
-            }
+        const loopEvents: string[] = [];
+        let loopMessages: AgentMessage[] = [];
+        for await (const event of agentLoop(
+          [promptMessage],
+          context,
+          config,
+          executionSignal,
+          executableRuntime.streamFn,
+        )) {
+          if (loopEvents.length < MAX_EVENTS_LOG) {
+            const json = JSON.stringify(event);
+            loopEvents.push(json.length > MAX_EVENT_JSON_LENGTH ? json.slice(0, MAX_EVENT_JSON_LENGTH) + '...[truncated]' : json);
           }
-          return { loopEvents, loopMessages };
-        })();
-
-        const { loopEvents, loopMessages } = await Promise.race([agentLoopPromise, createRunTimeoutPromise(RUN_TIMEOUT_MS)]);
+          if (event.type === 'agent_end') {
+            loopMessages = event.messages;
+          }
+        }
+        assertAutomationExecutionActive(executionSignal);
         events.push(...loopEvents);
         finalMessages = loopMessages;
         console.log(`[Automationen] Agent loop completed for run ${runId} (events=${events.length})`);
@@ -394,6 +578,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           resolution: deliveryResolution,
           text: assistantText,
         });
+        assertAutomationExecutionActive(executionSignal);
         const deliveryFailureMessage = getAutomationDeliveryFailureMessage(deliveryResolution, dispatchResult);
         if (deliveryFailureMessage) {
           throw new Error(deliveryFailureMessage);
@@ -423,26 +608,34 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             workspaceId: automationWorkspace.workspaceId,
           },
         );
+        assertAutomationExecutionActive(executionSignal);
         console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
-        await markAutomationRunFinished(run.id, {
+        const finishedRun = await markAutomationRunFinished(run.id, {
           status: 'success',
           resultText: assistantText || 'Run completed without assistant text output.',
           eventsLog: events,
           metadataJson: {
             provider,
             model: model.id,
+            runtime: buildAutomationRuntimeMetadata(executableRuntime),
             ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
             status: 'success',
             targetOutputPath: job.targetOutputPath,
             effectiveTargetOutputPath,
           },
+          expectation: runTransitionExpectation,
         });
+        if (!finishedRun) {
+          console.warn(`[Automationen] Run ${runId} completed but its terminal transition lost the run CAS`);
+          return;
+        }
         const duration = Date.now() - runStartTime;
         console.log(`[Automationen] Run ${runId} completed successfully (duration=${duration}ms)`);
       } catch (error) {
+        assertAutomationExecutionActive(executionSignal);
         const message = error instanceof Error ? error.message : 'Automation run failed.';
         const pauseJobAfterFailure = shouldPauseAutomationAfterDeliveryFailure(dispatchResult);
-        const retryAt = pauseJobAfterFailure ? null : calculateRetryAt(run.attemptNumber);
+        const retryAt = pauseJobAfterFailure ? null : calculateRetryAt(runTransitionExpectation.attemptNumber);
         const fallbackErrorMessage = createAutomationErrorMessage(message, model.provider, model.id, model.api);
         const persistedMessages = finalMessages.length > 0
           ? (extractAssistantText(finalMessages) ? finalMessages : [...finalMessages, fallbackErrorMessage])
@@ -458,40 +651,49 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           existingMessagesLength: existingMessages.length,
           promptPersistedBeforeRun,
         });
-        await savePiSession(
-          piSessionId,
-          automationUserId,
-          provider,
-          model.id,
-          persistedFailureMessages,
-          sessionSummary,
-          {
-            titleOverride: piSessionTitle,
-            agentId: job.agentId,
-            persistedLength,
-            channelId: deliveryResolution.channelId,
-            channelSessionKey: deliveryResolution.channelSessionKey || null,
-            workspaceId: automationWorkspace.workspaceId,
-          },
-        );
+        if (sessionReadyForPersistence) {
+          await savePiSession(
+            piSessionId,
+            automationUserId,
+            provider,
+            model.id,
+            persistedFailureMessages,
+            sessionSummary,
+            {
+              titleOverride: piSessionTitle,
+              agentId: job.agentId,
+              persistedLength,
+              channelId: deliveryResolution.channelId,
+              channelSessionKey: deliveryResolution.channelSessionKey || null,
+              workspaceId: automationWorkspace.workspaceId,
+            },
+          );
+          assertAutomationExecutionActive(executionSignal);
+        }
 
         if (retryAt) {
-          await markAutomationRunRetryScheduled(run.id, retryAt, message, events, {
+          const retryScheduled = await markAutomationRunRetryScheduled(run.id, retryAt, message, events, {
             provider,
             model: model.id,
+            runtime: buildAutomationRuntimeMetadata(executableRuntime),
             ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
             status: 'retry_scheduled',
+            loopQuiescent: true,
             retryAt: retryAt.toISOString(),
             error: message,
             targetOutputPath: job.targetOutputPath,
             effectiveTargetOutputPath,
-          }, failureResultText);
+          }, runTransitionExpectation, failureResultText);
+          if (!retryScheduled) {
+            console.warn(`[Automationen] Run ${runId} could not schedule a retry because its status or attempt changed`);
+            return;
+          }
           const duration = Date.now() - runStartTime;
-          console.warn(`[Automationen] Run ${runId} failed, scheduling retry #${run.attemptNumber} at ${retryAt.toISOString()} (duration=${duration}ms): ${message}`);
+          console.warn(`[Automationen] Run ${runId} failed, scheduling retry #${runTransitionExpectation.attemptNumber} at ${retryAt.toISOString()} (duration=${duration}ms): ${message}`);
           return;
         }
 
-        await markAutomationRunFinished(run.id, {
+        const failedRun = await markAutomationRunFinished(run.id, {
           status: 'failed',
           errorMessage: message,
           resultText: failureResultText,
@@ -499,15 +701,22 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           metadataJson: {
             provider,
             model: model.id,
+            runtime: buildAutomationRuntimeMetadata(executableRuntime),
             ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
             status: 'failed',
+            loopQuiescent: true,
             error: message,
             automationPaused: pauseJobAfterFailure,
             automationPauseReason: dispatchResult?.skippedReason ?? null,
             targetOutputPath: job.targetOutputPath,
             effectiveTargetOutputPath,
           },
+          expectation: runTransitionExpectation,
         });
+        if (!failedRun) {
+          console.warn(`[Automationen] Run ${runId} could not be marked failed because its status or attempt changed`);
+          return;
+        }
         if (pauseJobAfterFailure) {
           await updateAutomationJob(job.id, { status: 'paused' });
           console.warn(`[Automationen] Paused job ${job.id} because delivery channel is unavailable (${dispatchResult?.skippedReason ?? 'unknown'})`);
@@ -515,10 +724,67 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         const duration = Date.now() - runStartTime;
         console.error(`[Automationen] Run ${runId} failed permanently (duration=${duration}ms): ${message}`);
       }
+              }),
+            ),
+          });
+        } catch (error) {
+          if (error instanceof AutomationLoopShutdownError) {
+            reservation.lease.holdUntil(error.operationSettlement);
+          }
+          throw error;
+        }
+      },
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Automation run preparation failed.';
-    await markAutomationRunFinished(run.id, {
+    if (error instanceof AutomationRunClaimLostError) {
+      console.warn(`[Automationen] Run ${runId} stopped because its claim was lost before session execution`);
+      return;
+    }
+    if (error instanceof AutomationRunTimeoutError || error instanceof AutomationLoopShutdownError) {
+      const loopQuiescent = !(error instanceof AutomationLoopShutdownError);
+      const failedRun = await markAutomationRunFinished(run.id, {
+        status: 'failed',
+        errorMessage: message,
+        resultText: `Automation failed: ${message}`,
+        eventsLog: [],
+        metadataJson: {
+          agentId: job.agentId,
+          status: 'failed',
+          stage: 'execution_timeout',
+          loopQuiescent,
+          error: message,
+        },
+        expectation: runTransitionExpectation,
+      });
+      if (!failedRun) {
+        console.warn(`[Automationen] Run ${runId} timeout lost the run CAS; leaving the current terminal state unchanged`);
+        return;
+      }
+      console.error(`[Automationen] Run ${runId} exceeded its execution deadline (quiescent=${loopQuiescent}): ${message}`);
+      return;
+    }
+    if (error instanceof PiSessionBusyError) {
+      const retryAt = calculateRetryAt(runTransitionExpectation.attemptNumber);
+      if (retryAt) {
+        const retryScheduled = await markAutomationRunRetryScheduled(run.id, retryAt, message, [], {
+          agentId: job.agentId,
+          status: 'retry_scheduled',
+          stage: 'session_reservation',
+          retryAt: retryAt.toISOString(),
+          error: message,
+        }, runTransitionExpectation, `Automation delayed: ${message}`);
+        if (!retryScheduled) {
+          console.warn(`[Automationen] Run ${runId} stayed unchanged because its busy retry lost the run CAS`);
+          return;
+        }
+        console.warn(
+          `[Automationen] Run ${runId} delayed because session is busy; retry scheduled at ${retryAt.toISOString()}.`,
+        );
+        return;
+      }
+    }
+    const failedRun = await markAutomationRunFinished(run.id, {
       status: 'failed',
       errorMessage: message,
       resultText: `Automation failed during preparation: ${message}`,
@@ -529,7 +795,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         stage: 'prepare',
         error: message,
       },
+      expectation: runTransitionExpectation,
     });
+    if (!failedRun) {
+      console.warn(`[Automationen] Run ${runId} preparation failure lost the run CAS; leaving the current state unchanged`);
+      return;
+    }
     const duration = Date.now() - runStartTime;
     console.error(`[Automationen] Run ${runId} failed during preparation (duration=${duration}ms): ${message}`);
   }

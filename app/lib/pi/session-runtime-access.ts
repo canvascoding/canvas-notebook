@@ -22,7 +22,7 @@ export async function findOwnedPiSessionForRuntime(input: {
 
 export function isPiSessionInWorkspace(
   session: Awaited<ReturnType<typeof findOwnedPiSessionForRuntime>>,
-  workspace: WorkspaceContext,
+  workspace: Pick<WorkspaceContext, 'workspaceId' | 'workspaceType'>,
 ): boolean {
   if (!session) return false;
   if (session.workspaceId) return session.workspaceId === workspace.workspaceId;
