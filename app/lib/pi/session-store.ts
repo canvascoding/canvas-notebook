@@ -1,9 +1,11 @@
-import { db, openDb } from '../db';
+import { db, getDatabaseProvider, openDb, type SqlConnection } from '../db';
 import { legacyAiTablesExist } from '../db/legacy-ai-tables';
+import { toDatabaseTimestamp } from '../db/timestamps';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
 import { eq, and, asc, desc } from 'drizzle-orm';
 import { type AgentMessage } from '@earendil-works/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
+import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
 import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
 import {
   createPiSystemPromptSnapshot,
@@ -21,6 +23,7 @@ import {
 import {
   piSessionRuntimeSnapshotDbFields,
   SessionRuntimeContextRevisionConflictError,
+  SessionRuntimeSnapshotConflictError,
 } from '@/app/lib/agent-runtime-policy/runtime-store';
 import type { AiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/types';
 
@@ -100,7 +103,7 @@ function attachPersistedSequence(message: AgentMessage, sequence: number): Agent
   } as unknown as AgentMessage;
 }
 
-export async function createPiSessionWithRuntimeSnapshot(input: {
+export type CreatePiSessionWithRuntimeSnapshotInput = {
   sessionId: string;
   userId: string;
   agentId: string;
@@ -108,16 +111,77 @@ export async function createPiSessionWithRuntimeSnapshot(input: {
   workspace: PiSessionWorkspaceFields;
   runtimeSnapshot: AiSessionRuntimeSnapshot;
   systemPromptSnapshot: PiSystemPromptSnapshot;
-}): Promise<typeof piSessions.$inferSelect> {
+};
+
+export type InsertPiSessionWithRuntimeSnapshotResult = {
+  id: number | string;
+  created: boolean;
+};
+
+function storedRuntimeSnapshotMatches(
+  session: typeof piSessions.$inferSelect,
+  input: CreatePiSessionWithRuntimeSnapshotInput,
+): boolean {
+  return session.organizationId === input.workspace.organizationId
+    && session.workspaceId === input.workspace.workspaceId
+    && session.workspaceType === input.workspace.workspaceType
+    && session.runtimeProviderInstallationId === input.runtimeSnapshot.selection.providerInstallationId
+    && session.provider === input.runtimeSnapshot.selection.providerId
+    && session.model === input.runtimeSnapshot.selection.modelId
+    && session.thinkingLevel === input.runtimeSnapshot.selection.thinkingLevel
+    && session.runtimeCatalogRevision === input.runtimeSnapshot.catalogRevision
+    && session.runtimePolicyRevision === input.runtimeSnapshot.policyRevision
+    && session.runtimeSelectionSource === input.runtimeSnapshot.selectionSource;
+}
+
+export async function lockPiSessionCreationForUser(
+  connection: SqlConnection,
+  userId: string,
+): Promise<void> {
+  const forUpdate = getDatabaseProvider() === 'postgres' ? ' FOR UPDATE' : '';
+  const actor = await connection.get(
+    `SELECT id FROM "user" WHERE id = ? LIMIT 1${forUpdate}`,
+    [userId],
+  ) as { id?: string } | undefined;
+  if (!actor?.id) {
+    throw new Error('Session owner not found.');
+  }
+}
+
+export async function withPiSessionUserStateLock<T>(
+  userId: string,
+  operation: () => Promise<T>,
+): Promise<T> {
+  return withKeyedOperationLock('pi-session-user-state', JSON.stringify([userId]), operation);
+}
+
+/**
+ * Inserts a runtime-pinned session on a caller-owned transaction/connection.
+ * The caller must first serialize creation with lockPiSessionCreationForUser.
+ */
+export async function insertPiSessionWithRuntimeSnapshotOnConnection(
+  connection: SqlConnection,
+  input: CreatePiSessionWithRuntimeSnapshotInput,
+): Promise<InsertPiSessionWithRuntimeSnapshotResult> {
   if (!input.workspace.organizationId) {
     throw new Error('Organization setup is required for an AI runtime session.');
   }
 
-  const connection = await openDb();
-  try {
-    const now = Date.now();
-    const inserted = await connection.get(
-      `INSERT INTO pi_sessions (
+  const existing = await connection.get(
+    `SELECT id
+     FROM pi_sessions
+     WHERE session_id = ? AND user_id = ? AND agent_id = ?
+     ORDER BY id ASC
+     LIMIT 1`,
+    [input.sessionId, input.userId, input.agentId],
+  ) as { id?: number | string } | undefined;
+  if (existing?.id !== undefined) {
+    return { id: existing.id, created: false };
+  }
+
+  const now = toDatabaseTimestamp(new Date());
+  const inserted = await connection.get(
+    `INSERT INTO pi_sessions (
          session_id, user_id, agent_id, provider, model, thinking_level, title,
          created_at, updated_at, system_prompt_snapshot, system_prompt_snapshot_hash,
          system_prompt_snapshot_created_at, channel_id, channel_session_key,
@@ -140,67 +204,98 @@ export async function createPiSessionWithRuntimeSnapshot(input: {
          LIMIT 1
        ), 0) = ?
        RETURNING id`,
-      [
-        input.sessionId,
-        input.userId,
-        input.agentId,
-        input.runtimeSnapshot.selection.providerId,
-        input.runtimeSnapshot.selection.modelId,
-        input.runtimeSnapshot.selection.thinkingLevel,
-        input.title,
-        now,
-        now,
-        input.systemPromptSnapshot.systemPrompt,
-        input.systemPromptSnapshot.systemPromptHash,
-        input.systemPromptSnapshot.systemPromptCreatedAt.getTime(),
-        input.workspace.organizationId,
-        input.workspace.customerId,
-        input.workspace.projectId,
-        input.workspace.workspaceId,
-        input.workspace.workspaceType,
-        input.workspace.workspaceName,
-        input.workspace.workspaceRootRelativePath,
-        input.runtimeSnapshot.selection.providerInstallationId,
-        input.runtimeSnapshot.catalogRevision,
-        input.runtimeSnapshot.policyRevision,
-        input.runtimeSnapshot.selectionSource,
-        input.workspace.organizationId,
-        input.runtimeSnapshot.catalogRevision,
-        input.workspace.organizationId,
-        input.workspace.workspaceId,
-        input.runtimeSnapshot.policyRevision,
-      ],
-    ) as { id?: number | string } | undefined;
+    [
+      input.sessionId,
+      input.userId,
+      input.agentId,
+      input.runtimeSnapshot.selection.providerId,
+      input.runtimeSnapshot.selection.modelId,
+      input.runtimeSnapshot.selection.thinkingLevel,
+      input.title,
+      now,
+      now,
+      input.systemPromptSnapshot.systemPrompt,
+      input.systemPromptSnapshot.systemPromptHash,
+      toDatabaseTimestamp(input.systemPromptSnapshot.systemPromptCreatedAt),
+      input.workspace.organizationId,
+      input.workspace.customerId,
+      input.workspace.projectId,
+      input.workspace.workspaceId,
+      input.workspace.workspaceType,
+      input.workspace.workspaceName,
+      input.workspace.workspaceRootRelativePath,
+      input.runtimeSnapshot.selection.providerInstallationId,
+      input.runtimeSnapshot.catalogRevision,
+      input.runtimeSnapshot.policyRevision,
+      input.runtimeSnapshot.selectionSource,
+      input.workspace.organizationId,
+      input.runtimeSnapshot.catalogRevision,
+      input.workspace.organizationId,
+      input.workspace.workspaceId,
+      input.runtimeSnapshot.policyRevision,
+    ],
+  ) as { id?: number | string } | undefined;
 
-    if (!inserted?.id) {
-      const catalogRow = await connection.get(
-        `SELECT catalog_revision AS revision
+  if (inserted?.id === undefined) {
+    const catalogRow = await connection.get(
+      `SELECT catalog_revision AS revision
          FROM ai_runtime_defaults
          WHERE organization_id = ?
          LIMIT 1`,
-        [input.workspace.organizationId],
-      ) as { revision?: number | string | null } | undefined;
-      const policyRow = await connection.get(
-        `SELECT revision
+      [input.workspace.organizationId],
+    ) as { revision?: number | string | null } | undefined;
+    const policyRow = await connection.get(
+      `SELECT revision
          FROM ai_workspace_model_policies
          WHERE organization_id = ? AND workspace_id = ?
          LIMIT 1`,
-        [input.workspace.organizationId, input.workspace.workspaceId],
-      ) as { revision?: number | string | null } | undefined;
-      throw new SessionRuntimeContextRevisionConflictError(
-        storedRevision(catalogRow?.revision),
-        storedRevision(policyRow?.revision),
-      );
-    }
-  } finally {
-    await connection.close?.();
+      [input.workspace.organizationId, input.workspace.workspaceId],
+    ) as { revision?: number | string | null } | undefined;
+    throw new SessionRuntimeContextRevisionConflictError(
+      storedRevision(catalogRow?.revision),
+      storedRevision(policyRow?.revision),
+    );
   }
 
-  const session = await db.query.piSessions.findFirst({
-    where: buildPiSessionLookup(input.sessionId, input.userId, input.agentId),
+  return { id: inserted.id, created: true };
+}
+
+export async function createPiSessionWithRuntimeSnapshot(
+  input: CreatePiSessionWithRuntimeSnapshotInput,
+): Promise<typeof piSessions.$inferSelect> {
+  return withPiSessionUserStateLock(input.userId, async () => {
+    const connection = await openDb();
+    let transactionStarted = false;
+    let insertResult: InsertPiSessionWithRuntimeSnapshotResult | null = null;
+    try {
+      await connection.run(getDatabaseProvider() === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+      transactionStarted = true;
+      await lockPiSessionCreationForUser(connection, input.userId);
+      insertResult = await insertPiSessionWithRuntimeSnapshotOnConnection(connection, input);
+      await connection.run('COMMIT');
+      transactionStarted = false;
+    } catch (error) {
+      if (transactionStarted) {
+        try {
+          await connection.run('ROLLBACK');
+        } catch {
+          // Preserve the original session creation error.
+        }
+      }
+      throw error;
+    } finally {
+      await connection.close?.();
+    }
+
+    const session = await db.query.piSessions.findFirst({
+      where: buildPiSessionLookup(input.sessionId, input.userId, input.agentId),
+    });
+    if (!session) throw new Error('Session could not be loaded after creation.');
+    if (insertResult && !insertResult.created && !storedRuntimeSnapshotMatches(session, input)) {
+      throw new SessionRuntimeSnapshotConflictError();
+    }
+    return session;
   });
-  if (!session) throw new Error('Session could not be loaded after creation.');
-  return session;
 }
 
 export async function savePiSession(

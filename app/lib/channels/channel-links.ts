@@ -86,17 +86,21 @@ export async function markChannelLinkOutbound(input: ChannelLinkInput): Promise<
   await ensureSessionChannelLink({ ...input, outboundAt: input.outboundAt ?? new Date() });
 }
 
-export async function listSessionChannelLinks(sessionId: string) {
+export async function listSessionChannelLinks(sessionId: string, userId: string) {
   return db.query.sessionChannelLinks.findMany({
-    where: eq(sessionChannelLinks.sessionId, sessionId),
+    where: and(
+      eq(sessionChannelLinks.sessionId, sessionId),
+      eq(sessionChannelLinks.userId, userId),
+    ),
     orderBy: [desc(sessionChannelLinks.lastInboundAt), desc(sessionChannelLinks.updatedAt)],
   });
 }
 
-export async function findLastActiveExternalLink(sessionId: string, webChannelId: string) {
+export async function findLastActiveExternalLink(sessionId: string, userId: string, webChannelId: string) {
   return db.query.sessionChannelLinks.findFirst({
     where: and(
       eq(sessionChannelLinks.sessionId, sessionId),
+      eq(sessionChannelLinks.userId, userId),
       ne(sessionChannelLinks.channelId, webChannelId),
       ne(sessionChannelLinks.deliveryPolicy, 'muted'),
     ),

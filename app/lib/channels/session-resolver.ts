@@ -1,18 +1,25 @@
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
+import { prepareSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/session-runtime-service';
+import { SessionRuntimeContextRevisionConflictError } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { db } from '@/app/lib/db';
-import { piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
+import { piSessions } from '@/app/lib/db/schema';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
-import { createPiSystemPromptSnapshot, piSystemPromptSnapshotDbFields } from '@/app/lib/pi/system-prompt-snapshot';
-import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, WEB_CHANNEL_ID, webChannelSessionKey } from './constants';
-import { ensureDefaultAgent } from './agents';
-import { getActiveChannelSession, setActiveChannelSession } from './active-sessions';
-import { ensureSessionChannelLink } from './channel-links';
+import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
+import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import {
   resolveAgentSessionWorkspaceForUser,
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
+import { ensureDefaultAgent } from './agents';
+import {
+  activateOwnedChannelSessionState,
+  createAndActivateChannelSessionState,
+  resolveExistingChannelSessionState,
+  resolveOrCreateChannelSessionState,
+} from './channel-session-store';
+import { withChannelOperationLock } from './channel-operation-lock';
+import { DEFAULT_AGENT_ID, normalizeChannelThreadKey, WEB_CHANNEL_ID, webChannelSessionKey } from './constants';
 
 export type ResolveChannelSessionInput = {
   userId: string;
@@ -25,12 +32,14 @@ export type ResolveChannelSessionInput = {
   workspaceId?: string | null;
 };
 
+type ChannelSessionCreationMode = 'activate' | 'resolve';
+
 function resolveAgentId(agentId?: string | null): string {
   return agentId?.trim() || DEFAULT_AGENT_ID;
 }
 
-export async function userOwnsPiSession(sessionId: string, userId: string, agentId?: string | null): Promise<boolean> {
-  const session = await db.query.piSessions.findFirst({
+async function findOwnedPiSession(sessionId: string, userId: string, agentId?: string | null) {
+  return db.query.piSessions.findFirst({
     where: and(
       eq(piSessions.sessionId, sessionId),
       eq(piSessions.userId, userId),
@@ -38,116 +47,174 @@ export async function userOwnsPiSession(sessionId: string, userId: string, agent
     ),
     columns: { id: true },
   });
-  return Boolean(session);
+}
+
+export async function userOwnsPiSession(
+  sessionId: string,
+  userId: string,
+  agentId?: string | null,
+): Promise<boolean> {
+  return Boolean(await findOwnedPiSession(sessionId, userId, agentId));
+}
+
+async function createRuntimePinnedChannelSession(
+  input: ResolveChannelSessionInput,
+  sessionId: string,
+  mode: ChannelSessionCreationMode,
+): Promise<string> {
+  await ensureDefaultAgent();
+  const agentId = resolveAgentId(input.agentId);
+
+  return withPiSessionOperationLock(sessionId, input.userId, async () => {
+    if (mode === 'activate') {
+      const activated = await activateOwnedChannelSessionState({
+        ...input,
+        agentId,
+        sessionId,
+        inboundAt: new Date(),
+      });
+      if (activated) return activated;
+    }
+
+    let workspace = await resolveAgentSessionWorkspaceForUser({
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+    });
+    if (!workspace.organizationId) {
+      throw new Error('Complete the app AI runtime setup before creating a channel session.');
+    }
+    const workspaceId = workspace.workspaceId;
+    const promptSnapshot = await createPiSystemPromptSnapshot(agentId, { userId: input.userId });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      if (attempt > 0) {
+        workspace = await resolveAgentSessionWorkspaceForUser({
+          userId: input.userId,
+          workspaceId,
+        });
+      }
+      if (!workspace.organizationId) {
+        throw new Error('Complete the app AI runtime setup before creating a channel session.');
+      }
+      const organizationId = workspace.organizationId;
+      const prepared = await prepareSessionRuntimeSnapshot({
+        context: {
+          organizationId,
+          userId: input.userId,
+          workspaceId: workspace.workspaceId,
+          workspaceType: workspace.workspaceType,
+          agentId,
+          sessionId: null,
+          requestedSelection: null,
+        },
+      });
+
+      const refreshedWorkspace = await resolveAgentSessionWorkspaceForUser({
+        userId: input.userId,
+        workspaceId,
+      });
+      if (
+        !refreshedWorkspace.organizationId
+        || refreshedWorkspace.workspaceId !== workspace.workspaceId
+        || refreshedWorkspace.workspaceType !== workspace.workspaceType
+        || refreshedWorkspace.organizationId !== workspace.organizationId
+      ) {
+        throw new Error('Channel session workspace changed during runtime resolution.');
+      }
+      workspace = refreshedWorkspace;
+
+      const storeInput = {
+        sessionId,
+        userId: input.userId,
+        agentId,
+        title: DEFAULT_PI_SESSION_TITLE,
+        workspace: workspaceToPiSessionFields(workspace),
+        runtimeSnapshot: prepared.snapshot,
+        systemPromptSnapshot: promptSnapshot,
+        channelId: input.channelId,
+        channelSessionKey: input.channelSessionKey,
+        channelThreadKey: input.channelThreadKey,
+        displayName: input.displayName,
+        inboundAt: new Date(),
+      };
+
+      try {
+        const result = mode === 'resolve'
+          ? await resolveOrCreateChannelSessionState(storeInput)
+          : await createAndActivateChannelSessionState(storeInput);
+        return result.sessionId;
+      } catch (error) {
+        if (error instanceof SessionRuntimeContextRevisionConflictError && attempt === 0) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new Error('Channel session could not be created with a current AI runtime snapshot.');
+  });
+}
+
+async function createChannelSessionUnlocked(input: ResolveChannelSessionInput): Promise<string> {
+  const agentId = resolveAgentId(input.agentId);
+  const sessionId = input.requestedSessionId || `sess-${Date.now()}-${randomUUID()}`;
+  const existingSession = await findOwnedPiSession(sessionId, input.userId, agentId);
+  if (existingSession) {
+    const activated = await activateOwnedChannelSessionState({
+      ...input,
+      agentId,
+      sessionId,
+      inboundAt: new Date(),
+    });
+    if (activated) return activated;
+  }
+  return createRuntimePinnedChannelSession({ ...input, agentId }, sessionId, 'activate');
 }
 
 export async function createChannelSession(input: ResolveChannelSessionInput): Promise<string> {
-  await ensureDefaultAgent();
-
   const agentId = resolveAgentId(input.agentId);
-  const sessionId = input.requestedSessionId || `sess-${Date.now()}-${randomUUID()}`;
-  const effectiveConfig = await resolveAgentRuntimeConfig(agentId);
-  const promptSnapshot = await createPiSystemPromptSnapshot(agentId, { userId: input.userId });
-  const workspace = await resolveAgentSessionWorkspaceForUser({
-    userId: input.userId,
-    workspaceId: input.workspaceId,
-  });
-  const now = new Date();
+  return withChannelOperationLock({ ...input, agentId }, () => (
+    createChannelSessionUnlocked({ ...input, agentId })
+  ));
+}
 
-  await db.insert(piSessions).values({
-    sessionId,
-    userId: input.userId,
-    agentId,
-    provider: effectiveConfig.activeProvider,
-    model: effectiveConfig.model.id,
-    thinkingLevel: effectiveConfig.thinkingLevel,
-    channelId: 'app',
-    channelSessionKey: null,
-    ...piSystemPromptSnapshotDbFields(promptSnapshot),
-    title: DEFAULT_PI_SESSION_TITLE,
-    createdAt: now,
-    updatedAt: now,
-    lastMessageAt: null,
-    lastViewedAt: null,
-    ...workspaceToPiSessionFields(workspace),
-  }).onConflictDoNothing();
+async function resolveChannelSessionUnlocked(input: ResolveChannelSessionInput): Promise<string> {
+  const channelThreadKey = normalizeChannelThreadKey(input.channelThreadKey);
+  const agentId = resolveAgentId(input.agentId);
+  const stateInput = { ...input, agentId, channelThreadKey, inboundAt: new Date() };
 
-  await ensureSessionChannelLink({
+  if (input.requestedSessionId) {
+    const activated = await activateOwnedChannelSessionState({
+      ...stateInput,
+      sessionId: input.requestedSessionId,
+    });
+    if (activated) return activated;
+    if (input.channelId !== WEB_CHANNEL_ID) {
+      throw new Error('Session not found');
+    }
+    return createRuntimePinnedChannelSession(
+      { ...input, agentId, channelThreadKey },
+      input.requestedSessionId,
+      'activate',
+    );
+  }
+
+  const existingSessionId = await resolveExistingChannelSessionState(stateInput);
+  if (existingSessionId) return existingSessionId;
+
+  const sessionId = `sess-${Date.now()}-${randomUUID()}`;
+  return createRuntimePinnedChannelSession(
+    { ...input, agentId, channelThreadKey },
     sessionId,
-    userId: input.userId,
-    channelId: input.channelId,
-    channelSessionKey: input.channelSessionKey,
-    channelThreadKey: input.channelThreadKey,
-    displayName: input.displayName,
-    isPrimary: input.channelId === WEB_CHANNEL_ID,
-    inboundAt: now,
-  });
-  await setActiveChannelSession({ ...input, agentId, sessionId });
-  return sessionId;
+    'resolve',
+  );
 }
 
 export async function resolveChannelSession(input: ResolveChannelSessionInput): Promise<string> {
-  const channelThreadKey = normalizeChannelThreadKey(input.channelThreadKey);
   const agentId = resolveAgentId(input.agentId);
-
-  if (input.requestedSessionId) {
-    const exists = await userOwnsPiSession(input.requestedSessionId, input.userId, agentId);
-    if (!exists && input.channelId !== WEB_CHANNEL_ID) {
-      throw new Error('Session not found');
-    }
-    if (!exists) {
-      await createChannelSession({ ...input, agentId, channelThreadKey });
-      return input.requestedSessionId;
-    }
-
-    await ensureSessionChannelLink({
-      sessionId: input.requestedSessionId,
-      userId: input.userId,
-      channelId: input.channelId,
-      channelSessionKey: input.channelSessionKey,
-      channelThreadKey,
-      displayName: input.displayName,
-      isPrimary: input.channelId === WEB_CHANNEL_ID,
-      inboundAt: new Date(),
-    });
-    await setActiveChannelSession({ ...input, agentId, channelThreadKey, sessionId: input.requestedSessionId });
-    return input.requestedSessionId;
-  }
-
-  const activeSessionId = await getActiveChannelSession({ ...input, agentId });
-  if (activeSessionId && await userOwnsPiSession(activeSessionId, input.userId, agentId)) {
-    await ensureSessionChannelLink({
-      sessionId: activeSessionId,
-      userId: input.userId,
-      channelId: input.channelId,
-      channelSessionKey: input.channelSessionKey,
-      channelThreadKey,
-      displayName: input.displayName,
-      inboundAt: new Date(),
-    });
-    return activeSessionId;
-  }
-
-  const latestLinks = await db.query.sessionChannelLinks.findMany({
-    where: and(
-      eq(sessionChannelLinks.userId, input.userId),
-      eq(sessionChannelLinks.channelId, input.channelId),
-      eq(sessionChannelLinks.channelSessionKey, input.channelSessionKey),
-      eq(sessionChannelLinks.channelThreadKey, channelThreadKey),
-    ),
-    orderBy: [desc(sessionChannelLinks.lastInboundAt), desc(sessionChannelLinks.updatedAt)],
-    columns: { sessionId: true },
-    limit: 20,
-  });
-
-  for (const latestLink of latestLinks) {
-    if (await userOwnsPiSession(latestLink.sessionId, input.userId, agentId)) {
-      await setActiveChannelSession({ ...input, agentId, channelThreadKey, sessionId: latestLink.sessionId });
-      return latestLink.sessionId;
-    }
-  }
-
-  return createChannelSession({ ...input, agentId });
+  return withChannelOperationLock({ ...input, agentId }, () => (
+    resolveChannelSessionUnlocked({ ...input, agentId })
+  ));
 }
 
 export function getDefaultWebChannelContext(userId: string) {

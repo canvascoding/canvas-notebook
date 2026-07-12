@@ -10,7 +10,7 @@ export async function deliverToLastActiveExternalChannel(
   userId: string,
   message: OutboundMessage,
 ): Promise<void> {
-  const link = await findLastActiveExternalLink(sessionId, WEB_CHANNEL_ID);
+  const link = await findLastActiveExternalLink(sessionId, userId, WEB_CHANNEL_ID);
   if (!link) {
     return;
   }
@@ -39,13 +39,13 @@ export async function deliverToLastActiveExternalChannel(
   });
 }
 
-export async function sendTypingToLastActiveExternalChannel(sessionId: string, _userId: string): Promise<void> {
-  const link = await findLastActiveExternalLink(sessionId, WEB_CHANNEL_ID);
+export async function sendTypingToLastActiveExternalChannel(sessionId: string, userId: string): Promise<void> {
+  const link = await findLastActiveExternalLink(sessionId, userId, WEB_CHANNEL_ID);
   if (!link) return;
 
   const readiness = await getChannelDeliveryReadiness({
     channelId: link.channelId,
-    userId: _userId,
+    userId,
     channelSessionKey: link.channelSessionKey,
   });
   if (!readiness.ok) return;

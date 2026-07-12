@@ -18,7 +18,7 @@ import {
   DatabaseUnavailableError,
 } from './errors';
 
-type SqlConnection = {
+export type SqlConnection = {
   get: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
   run: (sql: string, params?: unknown[]) => unknown | Promise<unknown>;
   all: (sql: string, params?: unknown[]) => unknown[] | Promise<unknown[]>;

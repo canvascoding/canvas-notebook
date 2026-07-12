@@ -1,15 +1,11 @@
 import { and, desc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
-import { channelActiveSessions, sessionChannelLinks } from '@/app/lib/db/schema';
+import { channelActiveSessions } from '@/app/lib/db/schema';
 import { DEFAULT_AGENT_ID, normalizeChannelThreadKey } from './constants';
+import { setActiveChannelSessionState } from './channel-session-store';
+import type { ChannelContextKey } from './channel-context';
 
-export type ChannelContextKey = {
-  userId: string;
-  channelId: string;
-  channelSessionKey: string;
-  channelThreadKey?: string | null;
-  agentId?: string | null;
-};
+export type { ChannelContextKey } from './channel-context';
 
 function resolveAgentId(agentId?: string | null): string {
   return agentId?.trim() || DEFAULT_AGENT_ID;
@@ -79,65 +75,5 @@ export async function getRecentActiveChannelSessions(input: {
 export async function setActiveChannelSession(input: ChannelContextKey & {
   sessionId: string;
 }): Promise<void> {
-  const channelThreadKey = normalizeChannelThreadKey(input.channelThreadKey);
-  const agentId = resolveAgentId(input.agentId);
-  const existing = await db.query.channelActiveSessions.findFirst({
-    where: and(
-      eq(channelActiveSessions.userId, input.userId),
-      eq(channelActiveSessions.agentId, agentId),
-      eq(channelActiveSessions.channelId, input.channelId),
-      eq(channelActiveSessions.channelSessionKey, input.channelSessionKey),
-      eq(channelActiveSessions.channelThreadKey, channelThreadKey),
-    ),
-    columns: { id: true },
-  });
-
-  const now = new Date();
-  if (existing) {
-    await db.update(channelActiveSessions)
-      .set({
-        userId: input.userId,
-        sessionId: input.sessionId,
-        updatedAt: now,
-      })
-      .where(eq(channelActiveSessions.id, existing.id));
-    await markPrimaryChannelLinkForActiveSession(input, channelThreadKey);
-    return;
-  }
-
-  await db.insert(channelActiveSessions).values({
-    userId: input.userId,
-    agentId,
-    channelId: input.channelId,
-    channelSessionKey: input.channelSessionKey,
-    channelThreadKey,
-    sessionId: input.sessionId,
-    updatedAt: now,
-  }).onConflictDoNothing();
-  await markPrimaryChannelLinkForActiveSession(input, channelThreadKey);
-}
-
-async function markPrimaryChannelLinkForActiveSession(
-  input: ChannelContextKey & { sessionId: string },
-  channelThreadKey: string,
-): Promise<void> {
-  await db.update(sessionChannelLinks)
-    .set({ isPrimary: false })
-    .where(and(
-      eq(sessionChannelLinks.userId, input.userId),
-      eq(sessionChannelLinks.channelId, input.channelId),
-      eq(sessionChannelLinks.channelSessionKey, input.channelSessionKey),
-      eq(sessionChannelLinks.channelThreadKey, channelThreadKey),
-      eq(sessionChannelLinks.isPrimary, true),
-    ));
-
-  await db.update(sessionChannelLinks)
-    .set({ isPrimary: true })
-    .where(and(
-      eq(sessionChannelLinks.userId, input.userId),
-      eq(sessionChannelLinks.channelId, input.channelId),
-      eq(sessionChannelLinks.channelSessionKey, input.channelSessionKey),
-      eq(sessionChannelLinks.channelThreadKey, channelThreadKey),
-      eq(sessionChannelLinks.sessionId, input.sessionId),
-    ));
+  await setActiveChannelSessionState(input);
 }

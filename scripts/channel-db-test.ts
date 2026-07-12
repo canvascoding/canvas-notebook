@@ -182,7 +182,7 @@ async function main() {
   });
   assert.ok(outboundLink?.lastOutboundAt instanceof Date);
 
-  const externalLink = await findLastActiveExternalLink(linkedSessionId, 'web');
+  const externalLink = await findLastActiveExternalLink(linkedSessionId, userId, 'web');
   assert.equal(externalLink?.channelId, 'telegram');
   assert.equal(externalLink?.channelSessionKey, 'telegram:42');
 
@@ -217,6 +217,27 @@ async function main() {
     createdAt: now,
     updatedAt: now,
   });
+  await db.insert(piSessions).values({
+    sessionId: linkedSessionId,
+    userId: secondUserId,
+    provider: 'test-provider',
+    model: 'test-model',
+    title: 'Colliding Session ID',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await ensureSessionChannelLink({
+    sessionId: linkedSessionId,
+    userId: secondUserId,
+    channelId: 'telegram',
+    channelSessionKey: 'telegram:collision',
+    displayName: 'Cross-user collision',
+    inboundAt: new Date(now.getTime() + 60_000),
+  });
+  const collisionSafeExternalLink = await findLastActiveExternalLink(linkedSessionId, userId, 'web');
+  assert.equal(collisionSafeExternalLink?.channelSessionKey, 'telegram:42');
   await createBinding(userId, 'telegram', '42', 'channel-tester');
   await createBinding(secondUserId, 'telegram', '84', 'second-channel-tester');
   assert.equal((await getBinding('telegram', '42'))?.userId, userId);
