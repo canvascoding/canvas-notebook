@@ -19,13 +19,11 @@ import type {
   AiProviderInstallation,
   AiProviderStatus,
 } from '@/app/lib/agent-runtime-policy/types';
-import type { EffectiveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
 import { testAgentModelConnection, type AgentModelTestCode } from '@/app/lib/agents/model-test';
-import type { AgentProfile } from '@/app/lib/agents/registry';
-import type { PiProviderConfig, PiRuntimeConfig } from '@/app/lib/pi/config';
 
 const INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
 const VERIFICATION_AGENT_ID = 'provider-verification';
+const PROVIDER_PROBE_TIMEOUT_MS = 30_000;
 
 type ProbeFailureCode = AgentModelTestCode | 'PROVIDER_MODEL_UNAVAILABLE' | 'CREDENTIAL_LOOKUP_FAILED';
 type VerificationStatus = Extract<AiProviderStatus, 'ready' | 'degraded' | 'unverified'>;
@@ -57,65 +55,6 @@ export class ProviderVerificationError extends Error {
   }
 }
 
-function probeRuntimeConfig(input: {
-  provider: AiProviderInstallation;
-  providerDefault: AiCatalogModel;
-  model: Model<Api>;
-}): EffectiveAgentRuntimeConfig {
-  const now = new Date().toISOString();
-  const providerConfig: PiProviderConfig = {
-    id: input.provider.providerId,
-    model: input.providerDefault.id,
-    thinking: 'off',
-    enabledTools: [],
-    ...input.provider.config,
-  };
-  const piConfig: PiRuntimeConfig = {
-    version: 2,
-    activeProvider: input.provider.providerId,
-    providers: { [input.provider.providerId]: providerConfig },
-    enabledSkills: [],
-    updatedAt: now,
-    updatedBy: 'system:provider-verification',
-  };
-  const agent: AgentProfile = {
-    id: 0,
-    agentId: VERIFICATION_AGENT_ID,
-    name: 'Provider verification',
-    iconId: 'bot',
-    type: 'system',
-    removable: false,
-    defaultProviderInstallationId: input.provider.installationId,
-    defaultProvider: input.provider.providerId,
-    defaultModel: input.providerDefault.id,
-    defaultThinking: 'off',
-    enabledTools: [],
-    relevantSkills: [],
-    relevantConnections: [],
-    createdAt: now,
-    updatedAt: now,
-  };
-  return {
-    agent,
-    agentId: VERIFICATION_AGENT_ID,
-    isMainAgent: false,
-    piConfig,
-    mainPiConfig: piConfig,
-    activeProvider: input.provider.providerId,
-    providerConfig,
-    model: input.model,
-    thinkingLevel: 'off',
-    enabledTools: [],
-    overrideState: { model: true, tools: false },
-    setupState: {
-      providerConfigured: true,
-      modelConfigured: true,
-      managedControlPlaneAvailable: input.provider.credentialScope === 'managed',
-      issues: [],
-    },
-  };
-}
-
 function previousVerificationTimestamp(provider: AiProviderInstallation): number | null {
   if (!provider.verifiedAt) return null;
   const value = Date.parse(provider.verifiedAt);
@@ -128,10 +67,123 @@ function failedStatus(provider: AiProviderInstallation): Exclude<VerificationSta
     : 'unverified';
 }
 
+function assertProbeActive(signal?: AbortSignal): void {
+  if (!signal?.aborted) return;
+  throw signal.reason instanceof Error ? signal.reason : new Error('Provider verification was aborted.');
+}
+
+function raceWithProbeSignal<T>(promise: Promise<T>, signal: AbortSignal | undefined): Promise<T> {
+  if (!signal) return promise;
+  if (signal.aborted) {
+    return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('Provider verification was aborted.'));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Provider verification was aborted.'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', abort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function assertProviderProbeTarget(input: {
+  catalogRevision: number;
+  provider: AiProviderInstallation | undefined;
+  expectedCatalogRevision: number;
+  expectedProviderRevision: number;
+  expectedProviderId: string;
+  expectedModelId: string;
+}): { provider: AiProviderInstallation; providerDefault: AiCatalogModel } {
+  if (input.catalogRevision !== input.expectedCatalogRevision) {
+    throw new ProviderVerificationError(
+      'PROVIDER_VERIFICATION_TARGET_CHANGED',
+      'The AI provider catalog changed while verification was running. Try again.',
+      409,
+    );
+  }
+  const provider = input.provider;
+  if (
+    !provider
+    || provider.revision !== input.expectedProviderRevision
+    || provider.providerId !== input.expectedProviderId
+    || !provider.enabled
+    || provider.status === 'disabled'
+  ) {
+    throw new ProviderVerificationError(
+      'PROVIDER_VERIFICATION_TARGET_CHANGED',
+      'The AI provider installation changed while verification was running. Try again.',
+      409,
+    );
+  }
+  const providerDefault = provider.models.find((model) => model.enabled && model.isProviderDefault);
+  if (!providerDefault || providerDefault.id !== input.expectedModelId) {
+    throw new ProviderVerificationError(
+      'PROVIDER_VERIFICATION_TARGET_CHANGED',
+      'The provider default model changed while verification was running. Try again.',
+      409,
+    );
+  }
+  return { provider, providerDefault };
+}
+
+async function resolveCurrentProviderProbeTarget(input: {
+  organizationId: string;
+  providerInstallationId: string;
+  expectedCatalogRevision: number;
+  expectedProviderRevision: number;
+  expectedProviderId: string;
+  expectedModelId: string;
+  signal?: AbortSignal;
+}): Promise<{ provider: AiProviderInstallation; providerDefault: AiCatalogModel; model: Model<Api> }> {
+  assertProbeActive(input.signal);
+  const catalog = await raceWithProbeSignal(readAppRuntimeCatalog(input.organizationId), input.signal);
+  const target = assertProviderProbeTarget({
+    catalogRevision: catalog.revision,
+    provider: catalog.providers.find((candidate) => candidate.installationId === input.providerInstallationId),
+    expectedCatalogRevision: input.expectedCatalogRevision,
+    expectedProviderRevision: input.expectedProviderRevision,
+    expectedProviderId: input.expectedProviderId,
+    expectedModelId: input.expectedModelId,
+  });
+  const model = await raceWithProbeSignal(
+    resolveProviderInstallationModel({
+      provider: target.provider,
+      model: target.providerDefault,
+    }),
+    input.signal,
+  );
+  assertProbeActive(input.signal);
+
+  // Model resolution can read the managed source catalog. Re-read the app
+  // catalog afterwards so a concurrent disable/model change cannot race the
+  // provider turn.
+  const confirmedCatalog = await raceWithProbeSignal(readAppRuntimeCatalog(input.organizationId), input.signal);
+  const confirmed = assertProviderProbeTarget({
+    catalogRevision: confirmedCatalog.revision,
+    provider: confirmedCatalog.providers.find((candidate) => candidate.installationId === input.providerInstallationId),
+    expectedCatalogRevision: input.expectedCatalogRevision,
+    expectedProviderRevision: input.expectedProviderRevision,
+    expectedProviderId: input.expectedProviderId,
+    expectedModelId: input.expectedModelId,
+  });
+  assertProbeActive(input.signal);
+  return { ...confirmed, model };
+}
+
 export async function verifyProviderInstallation(input: {
   organizationId: string;
   actorUserId: string;
   providerInstallationId: string;
+  signal?: AbortSignal;
 }): Promise<ProviderVerificationResult> {
   const installationId = input.providerInstallationId.trim();
   if (!INSTALLATION_ID_PATTERN.test(installationId)) {
@@ -168,46 +220,129 @@ export async function verifyProviderInstallation(input: {
   }
 
   const startedAt = Date.now();
+  const timeoutSignal = AbortSignal.timeout(PROVIDER_PROBE_TIMEOUT_MS);
+  const probeSignal = input.signal
+    ? AbortSignal.any([input.signal, timeoutSignal])
+    : timeoutSignal;
   let success = false;
   let failureCode: ProbeFailureCode = 'MODEL_TEST_FAILED';
   try {
-    const [model, auth] = await Promise.all([
-      resolveProviderInstallationModel({ provider, model: providerDefault }),
-      resolveProviderInstallationRuntimeAuth({
-        provider,
-        organizationId: input.organizationId,
-        userId: input.actorUserId,
-      }),
-    ]);
-    if (!auth.configured) {
-      throw new AiRuntimeExecutionError(
-        'CREDENTIAL_NOT_AVAILABLE',
-        'Credentials are missing for the selected provider installation.',
-      );
+    const targetInput = {
+      organizationId: input.organizationId,
+      providerInstallationId: installationId,
+      expectedCatalogRevision: catalog.revision,
+      expectedProviderRevision: provider.revision,
+      expectedProviderId: provider.providerId,
+      expectedModelId: providerDefault.id,
+      signal: probeSignal,
+    };
+    const initialTarget = await resolveCurrentProviderProbeTarget(targetInput);
+    const remainingTimeoutMs = PROVIDER_PROBE_TIMEOUT_MS - (Date.now() - startedAt);
+    if (remainingTimeoutMs <= 0) {
+      failureCode = 'MODEL_TEST_TIMEOUT';
+      throw new Error('Provider verification exceeded its time budget before the probe started.');
     }
-    const effectiveConfig = probeRuntimeConfig({ provider, providerDefault, model });
+    const preflightFailure: {
+      error: unknown;
+      stage: 'credential' | 'target' | null;
+    } = {
+      error: null,
+      stage: null,
+    };
     const probe = await testAgentModelConnection({
       agentId: VERIFICATION_AGENT_ID,
-      deps: {
-        resolveConfig: async () => effectiveConfig,
-        resolveApiKey: async (requestedProvider) => (
-          requestedProvider === model.provider ? auth.apiKey ?? '<authenticated>' : undefined
-        ),
-        complete: (probeModel, context, options) => completeSimple(probeModel, context, {
-          ...options,
-          ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
-          env: { ...options?.env, ...auth.env },
-        }),
+      provider: provider.providerId,
+      model: initialTarget.model,
+      timeoutMs: remainingTimeoutMs,
+      signal: probeSignal,
+      complete: async (_probeModel, context, options) => {
+        let stage: 'credential' | 'target' = 'target';
+        try {
+          // Each retry gets a fresh catalog/model snapshot and fresh scoped
+          // credentials. Nothing credential-bearing is cached across attempts.
+          const beforeAuth = await resolveCurrentProviderProbeTarget({
+            ...targetInput,
+            signal: options?.signal,
+          });
+          stage = 'credential';
+          const auth = await raceWithProbeSignal(
+            resolveProviderInstallationRuntimeAuth({
+              provider: beforeAuth.provider,
+              organizationId: input.organizationId,
+              userId: input.actorUserId,
+            }),
+            options?.signal,
+          );
+          if (!auth.configured) {
+            throw new AiRuntimeExecutionError(
+              'CREDENTIAL_NOT_AVAILABLE',
+              'Credentials are missing for the selected provider installation.',
+            );
+          }
+          stage = 'target';
+          const ready = await resolveCurrentProviderProbeTarget({
+            ...targetInput,
+            signal: options?.signal,
+          });
+          assertProbeActive(options?.signal);
+          return completeSimple(ready.model, context, {
+            ...options,
+            ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
+            env: { ...options?.env, ...auth.env },
+          });
+        } catch (error) {
+          preflightFailure.error = error;
+          preflightFailure.stage = stage;
+          throw error;
+        }
       },
     });
+    if (preflightFailure.error) {
+      if (probeSignal.aborted) {
+        failureCode = input.signal?.aborted ? 'MODEL_TEST_ABORTED' : 'MODEL_TEST_TIMEOUT';
+      } else if (
+        preflightFailure.stage === 'credential'
+        && !(preflightFailure.error instanceof ProviderVerificationError)
+        && !(preflightFailure.error instanceof AiRuntimeExecutionError)
+      ) {
+        failureCode = 'CREDENTIAL_LOOKUP_FAILED';
+      } else {
+        throw preflightFailure.error;
+      }
+    } else {
+      failureCode = probe.code ?? 'MODEL_TEST_FAILED';
+      if (
+        failureCode === 'MODEL_TEST_ABORTED'
+        && !input.signal?.aborted
+        && timeoutSignal.aborted
+      ) {
+        failureCode = 'MODEL_TEST_TIMEOUT';
+      }
+    }
     success = probe.success;
-    failureCode = probe.code ?? 'MODEL_TEST_FAILED';
   } catch (error) {
-    if (error instanceof ProviderVerificationError || error instanceof AiRuntimeExecutionError) {
+    if (failureCode === 'MODEL_TEST_TIMEOUT') {
+      // Preserve the explicit hard-budget failure assigned above.
+    } else if (probeSignal.aborted) {
+      failureCode = input.signal?.aborted ? 'MODEL_TEST_ABORTED' : 'MODEL_TEST_TIMEOUT';
+    } else if (
+      error instanceof ProviderVerificationError
+      && error.code === 'PROVIDER_VERIFICATION_TARGET_CHANGED'
+    ) {
+      throw error;
+    } else if (error instanceof ProviderVerificationError || error instanceof AiRuntimeExecutionError) {
       failureCode = 'PROVIDER_MODEL_UNAVAILABLE';
     } else {
       failureCode = 'CREDENTIAL_LOOKUP_FAILED';
     }
+  }
+
+  if (failureCode === 'MODEL_TEST_ABORTED') {
+    throw new ProviderVerificationError(
+      'PROVIDER_VERIFICATION_ABORTED',
+      'Provider verification was aborted.',
+      408,
+    );
   }
 
   const updatedAt = Date.now();
@@ -262,7 +397,7 @@ export function providerVerificationErrorResponse(error: unknown): {
 }
 
 export function providerProbeFailureHttpStatus(code: ProbeFailureCode): number {
-  if (code === 'API_KEY_MISSING') return 400;
+  if (code === 'MODEL_TEST_ABORTED') return 408;
   if (code === 'MODEL_TEST_TIMEOUT') return 504;
   if (code === 'MODEL_NOT_CONFIGURED' || code === 'PROVIDER_MODEL_UNAVAILABLE') return 409;
   return 502;

@@ -127,6 +127,7 @@ export async function POST(
       organizationId: admin.organizationId,
       actorUserId: admin.session.user.id,
       providerInstallationId: installationId,
+      signal: request.signal,
     });
     await recordVerificationAudit({
       organizationId: admin.organizationId,

@@ -335,6 +335,27 @@ async function main() {
   assert.equal(verifiedProvider.verifiedByUserId, owner.id);
   assert.equal(verifiedProvider.verifiedAt > 0, true);
 
+  const abortedController = new AbortController();
+  abortedController.abort(new Error('admin request disconnected'));
+  const probesBeforeAbort = probeCalls.length;
+  await assert.rejects(
+    () => verifyProviderInstallation({
+      organizationId: organization.organizationId,
+      actorUserId: owner.id,
+      providerInstallationId,
+      signal: abortedController.signal,
+    }),
+    (error) => error instanceof ProviderVerificationError
+      && error.code === 'PROVIDER_VERIFICATION_ABORTED',
+  );
+  assert.equal(probeCalls.length, probesBeforeAbort);
+  const providerAfterAbort = sqlite.prepare(`
+    SELECT status, verified_at AS verifiedAt, verified_by_user_id AS verifiedByUserId, revision
+    FROM ai_provider_installations
+    WHERE organization_id = ? AND id = ?
+  `).get(organization.organizationId, providerInstallationId) as typeof verifiedProvider;
+  assert.deepEqual(providerAfterAbort, verifiedProvider, 'Aborted verification must not mutate provider status.');
+
   const defaultsAfterSuccess = sqlite.prepare(`
     SELECT provider_installation_id AS providerInstallationId, provider_id AS providerId,
            model_id AS modelId, thinking_level AS thinkingLevel, catalog_revision AS catalogRevision

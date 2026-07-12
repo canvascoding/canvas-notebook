@@ -4,10 +4,9 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
-import type { AssistantMessage } from '@earendil-works/pi-ai';
-import type { EffectiveAgentRuntimeConfig } from '../app/lib/agents/effective-runtime-config';
+import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 
-const fakeModel = {
+const fakeModel: Model<Api> = {
   id: 'gemini-test',
   name: 'Gemini Test',
   provider: 'google',
@@ -18,16 +17,7 @@ const fakeModel = {
   cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0 },
   contextWindow: 128000,
   maxTokens: 8192,
-} as const;
-
-const fakeManagedModel = {
-  ...fakeModel,
-  id: 'managed-test',
-  name: 'Managed Test',
-  provider: 'canvas-control-plane',
-  baseUrl: 'https://api.canvasnotebook.app/v1/managed/openrouter/v1',
-  managedProvider: 'openrouter',
-} as const;
+};
 
 function assistantText(text: string): AssistantMessage {
   return {
@@ -80,7 +70,6 @@ async function main() {
     const { eq } = await import('drizzle-orm');
     const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
     const { writePiRuntimeConfig, DEFAULT_MANAGED_AGENT_ID } = await import('../app/lib/agents/storage');
-    const { testAgentModelConnection } = await import('../app/lib/agents/model-test');
     const {
       buildOnboardingProfileSessionId,
       completeOnboardingProfile,
@@ -119,87 +108,6 @@ async function main() {
       },
     };
     await writePiRuntimeConfig(configuredPiConfig);
-
-    const missingModel = await testAgentModelConnection({
-      deps: {
-        resolveConfig: async () => {
-          throw new Error('No model selected for this agent.');
-        },
-      },
-    });
-    assert.equal(missingModel.success, false);
-    assert.equal(missingModel.code, 'MODEL_NOT_CONFIGURED');
-
-    const missingKey = await testAgentModelConnection({
-      deps: {
-        resolveConfig: async () => ({
-          activeProvider: 'google',
-          model: fakeModel,
-        }) as unknown as EffectiveAgentRuntimeConfig,
-        resolveApiKey: async () => undefined,
-      },
-    });
-    assert.equal(missingKey.success, false);
-    assert.equal(missingKey.code, 'API_KEY_MISSING');
-
-    const failedCall = await testAgentModelConnection({
-      deps: {
-        resolveConfig: async () => ({
-          activeProvider: 'google',
-          model: fakeModel,
-        }) as unknown as EffectiveAgentRuntimeConfig,
-        resolveApiKey: async () => 'test-key',
-        complete: async () => {
-          throw new Error('provider unavailable');
-        },
-      },
-    });
-    assert.equal(failedCall.success, false);
-    assert.equal(failedCall.code, 'MODEL_TEST_FAILED');
-
-    const okCall = await testAgentModelConnection({
-      deps: {
-        resolveConfig: async () => ({
-          activeProvider: 'google',
-          model: fakeModel,
-        }) as unknown as EffectiveAgentRuntimeConfig,
-        resolveApiKey: async () => 'test-key',
-        complete: async () => assistantText('OK'),
-      },
-    });
-    assert.equal(okCall.success, true);
-
-    let managedAttempts = 0;
-    const managedRetryCall = await testAgentModelConnection({
-      deps: {
-        resolveConfig: async () => ({
-          activeProvider: 'canvas-control-plane',
-          model: fakeManagedModel,
-        }) as unknown as EffectiveAgentRuntimeConfig,
-        resolveApiKey: async () => 'managed-token',
-        sleep: async () => undefined,
-        complete: async () => {
-          managedAttempts += 1;
-          if (managedAttempts === 1) {
-            return {
-              ...assistantText(''),
-              provider: fakeManagedModel.provider,
-              model: fakeManagedModel.id,
-              stopReason: 'aborted',
-              errorMessage: 'Request was aborted',
-            };
-          }
-          return {
-            ...assistantText('OK'),
-            provider: fakeManagedModel.provider,
-            model: fakeManagedModel.id,
-          };
-        },
-      },
-    });
-    assert.equal(managedRetryCall.success, true);
-    assert.equal(managedRetryCall.attempts, 2);
-    assert.equal(managedAttempts, 2);
 
     const bootstrapPath = getOnboardingBootstrapPath(DEFAULT_MANAGED_AGENT_ID);
     await fs.mkdir(path.dirname(bootstrapPath), { recursive: true });

@@ -2,17 +2,20 @@ import 'server-only';
 
 import crypto from 'node:crypto';
 
-import { completeSimple } from '@earendil-works/pi-ai/compat';
-import type { Api, AssistantMessage, Message, Model } from '@earendil-works/pi-ai';
+import type {
+  Api,
+  AssistantMessage,
+  Context,
+  Message,
+  Model,
+  SimpleStreamOptions,
+} from '@earendil-works/pi-ai';
 
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
-import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID } from '@/app/lib/managed/control-plane-models';
-import { resolvePiApiKey } from '@/app/lib/pi/api-key-resolver';
 
 export type AgentModelTestCode =
   | 'MODEL_NOT_CONFIGURED'
-  | 'API_KEY_MISSING'
+  | 'MODEL_TEST_ABORTED'
   | 'MODEL_TEST_FAILED'
   | 'MODEL_TEST_TIMEOUT'
   | 'MODEL_TEST_UNEXPECTED_RESPONSE';
@@ -30,13 +33,11 @@ export type AgentModelTestResult = {
   attempts?: number;
 };
 
-type TestAgentModelConnectionDeps = {
-  resolveConfig?: typeof resolveAgentRuntimeConfig;
-  resolveApiKey?: typeof resolvePiApiKey;
-  complete?: typeof completeSimple;
-  now?: () => number;
-  sleep?: (ms: number) => Promise<void>;
-};
+export type AgentModelProbeComplete = (
+  model: Model<Api>,
+  context: Context,
+  options?: SimpleStreamOptions,
+) => Promise<AssistantMessage>;
 
 const MODEL_TEST_SYSTEM_PROMPT = [
   'You are a connectivity probe for Canvas Notebook.',
@@ -137,85 +138,97 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-function createTimeoutController(
+function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
+  if (signal.aborted) {
+    return Promise.reject(signal.reason instanceof Error ? signal.reason : new Error('Model probe was aborted.'));
+  }
+  return new Promise<T>((resolve, reject) => {
+    const abort = () => {
+      reject(signal.reason instanceof Error ? signal.reason : new Error('Model probe was aborted.'));
+    };
+    signal.addEventListener('abort', abort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener('abort', abort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener('abort', abort);
+        reject(error);
+      },
+    );
+  });
+}
+
+function createProbeController(
   timeoutMs: number,
+  callerSignal: AbortSignal | undefined,
   onTimeout?: () => void,
-): { controller: AbortController; dispose: () => void } {
+): { controller: AbortController; didTimeout: () => boolean; dispose: () => void } {
   const controller = new AbortController();
+  let timedOut = false;
+  const abortFromCaller = () => controller.abort(callerSignal?.reason);
+  if (callerSignal?.aborted) abortFromCaller();
+  else callerSignal?.addEventListener('abort', abortFromCaller, { once: true });
   const timer = setTimeout(() => {
+    timedOut = true;
     onTimeout?.();
-    controller.abort();
+    controller.abort(new Error('Model probe timed out.'));
   }, timeoutMs);
   timer.unref?.();
   return {
     controller,
-    dispose: () => clearTimeout(timer),
+    didTimeout: () => timedOut,
+    dispose: () => {
+      clearTimeout(timer);
+      callerSignal?.removeEventListener('abort', abortFromCaller);
+    },
   };
 }
 
-export async function testAgentModelConnection(params?: {
-  agentId?: string | null;
+export async function testAgentModelConnection(params: {
+  agentId: string;
+  provider: string;
+  model: Model<Api>;
+  complete: AgentModelProbeComplete;
   timeoutMs?: number;
-  deps?: TestAgentModelConnectionDeps;
+  signal?: AbortSignal;
+  now?: () => number;
+  sleep?: (ms: number) => Promise<void>;
 }): Promise<AgentModelTestResult> {
-  const agentId = params?.agentId?.trim() || DEFAULT_MANAGED_AGENT_ID;
-  const timeoutMs = Math.max(1_000, Math.min(params?.timeoutMs ?? DEFAULT_MODEL_TEST_TIMEOUT_MS, 120_000));
-  const deps = params?.deps ?? {};
-  const resolveConfig = deps.resolveConfig ?? resolveAgentRuntimeConfig;
-  const resolveApiKey = deps.resolveApiKey ?? resolvePiApiKey;
-  const complete = deps.complete ?? completeSimple;
-  const now = deps.now ?? Date.now;
-  const wait = deps.sleep ?? sleep;
+  const agentId = params.agentId.trim();
+  const timeoutMs = Math.max(1, Math.min(params.timeoutMs ?? DEFAULT_MODEL_TEST_TIMEOUT_MS, 120_000));
+  const complete = params.complete;
+  const now = params.now ?? Date.now;
+  const wait = params.sleep ?? sleep;
 
-  let provider: string | undefined;
-  let modelId: string | undefined;
+  const provider = params.provider.trim() || undefined;
+  const modelId = params.model.id.trim() || undefined;
   const startedAt = now();
   const runId = `mt-${startedAt.toString(36)}-${crypto.randomUUID().slice(0, 8)}`;
+  let activeAttempt = 0;
+  const budget = createProbeController(timeoutMs, params.signal, () => {
+    logWarn(runId, 'timeout-fired', {
+      agentId,
+      provider,
+      model: modelId,
+      attempt: activeAttempt,
+      timeoutMs,
+      durationMs: now() - startedAt,
+    });
+  });
 
   logInfo(runId, 'start', { agentId, timeoutMs });
 
   try {
-    const resolveStartedAt = now();
-    const effectiveConfig = await resolveConfig(agentId);
-    provider = effectiveConfig.activeProvider;
-    modelId = effectiveConfig.model.id;
-    logInfo(runId, 'config-resolved', {
-      agentId,
-      durationMs: now() - resolveStartedAt,
-      activeProvider: provider,
-      thinkingLevel: effectiveConfig.thinkingLevel,
-      setupState: effectiveConfig.setupState,
-      model: modelDetailsForLog(effectiveConfig.model),
-    });
-
-    const keyStartedAt = now();
-    const apiKey = await resolveApiKey(effectiveConfig.model.provider);
-    logInfo(runId, 'api-key-resolved', {
-      agentId,
-      durationMs: now() - keyStartedAt,
-      activeProvider: provider,
-      modelProvider: effectiveConfig.model.provider,
-      hasApiKey: Boolean(apiKey),
-    });
-    if (!apiKey) {
-      logWarn(runId, 'api-key-missing', {
-        agentId,
-        provider,
-        model: modelId,
-        durationMs: now() - startedAt,
-      });
-      return {
-        success: false,
-        provider,
-        model: modelId,
-        error: `API key not configured for ${effectiveConfig.model.provider}.`,
-        code: 'API_KEY_MISSING',
-        runId,
-        durationMs: now() - startedAt,
-        timeoutMs,
-        attempts: 0,
-      };
+    if (!agentId || !provider || !modelId) {
+      throw new Error('The model probe requires an explicit agent, provider, and model.');
     }
+    logInfo(runId, 'runtime-received', {
+      agentId,
+      activeProvider: provider,
+      model: modelDetailsForLog(params.model),
+    });
 
     const messages: Message[] = [
       {
@@ -227,18 +240,22 @@ export async function testAgentModelConnection(params?: {
 
     const maxAttempts = provider === CANVAS_CONTROL_PLANE_PROVIDER_ID ? MANAGED_MODEL_TEST_MAX_ATTEMPTS : 1;
     for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
+      activeAttempt = attempt;
       const completeStartedAt = now();
-      const { controller, dispose } = createTimeoutController(timeoutMs, () => {
-        logWarn(runId, 'timeout-fired', {
-          agentId,
+      if (budget.controller.signal.aborted) {
+        const code = budget.didTimeout() ? 'MODEL_TEST_TIMEOUT' : 'MODEL_TEST_ABORTED';
+        return {
+          success: false,
           provider,
           model: modelId,
-          attempt,
-          maxAttempts,
-          timeoutMs,
+          error: code === 'MODEL_TEST_TIMEOUT' ? 'Model probe timed out.' : 'Model probe was aborted.',
+          code,
+          runId,
           durationMs: now() - startedAt,
-        });
-      });
+          timeoutMs,
+          attempts: attempt - 1,
+        };
+      }
 
       logInfo(runId, 'probe-request-start', {
         agentId,
@@ -250,24 +267,30 @@ export async function testAgentModelConnection(params?: {
       });
 
       try {
-        const response = await complete(
-          effectiveConfig.model,
-          {
-            systemPrompt: MODEL_TEST_SYSTEM_PROMPT,
-            messages,
-          },
-          {
-            apiKey,
-            temperature: 0,
-            maxTokens: 8,
-            sessionId: `model-test:${agentId}:${runId}:attempt-${attempt}`,
-            signal: controller.signal,
-          },
+        const response = await raceWithAbort(
+          complete(
+            params.model,
+            {
+              systemPrompt: MODEL_TEST_SYSTEM_PROMPT,
+              messages,
+            },
+            {
+              temperature: 0,
+              maxTokens: 8,
+              sessionId: `model-test:${agentId}:${runId}:attempt-${attempt}`,
+              signal: budget.controller.signal,
+            },
+          ),
+          budget.controller.signal,
         );
         const completeDurationMs = now() - completeStartedAt;
 
         if (response.stopReason === 'error' || response.stopReason === 'aborted') {
-          const code = response.stopReason === 'aborted' ? 'MODEL_TEST_TIMEOUT' : 'MODEL_TEST_FAILED';
+          const code = response.stopReason !== 'aborted'
+            ? 'MODEL_TEST_FAILED'
+            : budget.controller.signal.aborted
+              ? (budget.didTimeout() ? 'MODEL_TEST_TIMEOUT' : 'MODEL_TEST_ABORTED')
+              : 'MODEL_TEST_TIMEOUT';
           logWarn(runId, 'probe-request-failed', {
             agentId,
             provider,
@@ -276,15 +299,15 @@ export async function testAgentModelConnection(params?: {
             maxAttempts,
             stopReason: response.stopReason,
             code,
-            willRetry: code === 'MODEL_TEST_TIMEOUT' && attempt < maxAttempts,
+            willRetry: code === 'MODEL_TEST_TIMEOUT' && !budget.controller.signal.aborted && attempt < maxAttempts,
             errorMessage: truncateLogText(response.errorMessage),
             completeDurationMs,
             durationMs: now() - startedAt,
             timeoutMs,
           });
 
-          if (code === 'MODEL_TEST_TIMEOUT' && attempt < maxAttempts) {
-            await wait(MANAGED_MODEL_TEST_RETRY_DELAY_MS);
+          if (code === 'MODEL_TEST_TIMEOUT' && !budget.controller.signal.aborted && attempt < maxAttempts) {
+            await raceWithAbort(wait(MANAGED_MODEL_TEST_RETRY_DELAY_MS), budget.controller.signal);
             continue;
           }
 
@@ -302,7 +325,7 @@ export async function testAgentModelConnection(params?: {
         }
 
         const responseText = extractAssistantText(response);
-        if (!/\bok\b/i.test(responseText)) {
+        if (responseText.toUpperCase() !== 'OK') {
           logWarn(runId, 'unexpected-response', {
             agentId,
             provider,
@@ -350,8 +373,9 @@ export async function testAgentModelConnection(params?: {
           attempts: attempt,
         };
       } catch (error) {
-        const timedOut = controller.signal.aborted;
-        const code = timedOut ? 'MODEL_TEST_TIMEOUT' : 'MODEL_TEST_FAILED';
+        const aborted = budget.controller.signal.aborted;
+        const timedOut = aborted && budget.didTimeout();
+        const code = timedOut ? 'MODEL_TEST_TIMEOUT' : aborted ? 'MODEL_TEST_ABORTED' : 'MODEL_TEST_FAILED';
         logWarn(runId, 'probe-request-exception', {
           agentId,
           provider,
@@ -360,16 +384,11 @@ export async function testAgentModelConnection(params?: {
           maxAttempts,
           code,
           timedOut,
-          willRetry: timedOut && attempt < maxAttempts,
+          willRetry: false,
           durationMs: now() - startedAt,
           timeoutMs,
           error: summarizeError(error),
         });
-
-        if (timedOut && attempt < maxAttempts) {
-          await wait(MANAGED_MODEL_TEST_RETRY_DELAY_MS);
-          continue;
-        }
 
         return {
           success: false,
@@ -382,8 +401,6 @@ export async function testAgentModelConnection(params?: {
           timeoutMs,
           attempts: attempt,
         };
-      } finally {
-        dispose();
       }
     }
 
@@ -408,7 +425,7 @@ export async function testAgentModelConnection(params?: {
       attempts: maxAttempts,
     };
   } catch (error) {
-    const code = provider || modelId ? 'MODEL_TEST_FAILED' : 'MODEL_NOT_CONFIGURED';
+    const code = !agentId || !provider || !modelId ? 'MODEL_NOT_CONFIGURED' : 'MODEL_TEST_FAILED';
     logWarn(runId, 'exception', {
       agentId,
       provider,
@@ -430,5 +447,7 @@ export async function testAgentModelConnection(params?: {
       timeoutMs,
       attempts: 0,
     };
+  } finally {
+    budget.dispose();
   }
 }

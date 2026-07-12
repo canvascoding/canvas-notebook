@@ -47,19 +47,32 @@ export async function POST(request: NextRequest) {
   }
 
   const limited = rateLimit(request, {
-    limit: 10,
+    limit: 5,
     windowMs: 60_000,
     keyPrefix: 'onboarding-provider-verify',
   });
   if (!limited.ok) return limited.response;
 
   if (request.body !== null) {
+    await recordAuditEvent({
+      organizationId: organizationState.organizationId,
+      userId: session.user.id,
+      source: 'onboarding',
+      eventType: 'admin',
+      entityType: 'ai_provider_installation',
+      entityId: null,
+      action: 'onboarding.ai_provider.verify',
+      status: 'blocked',
+      summary: 'Onboarding AI provider verification rejected an unexpected request body.',
+      metadata: { errorCode: 'REQUEST_BODY_NOT_ALLOWED' },
+    });
     return NextResponse.json(
       { success: false, code: 'REQUEST_BODY_NOT_ALLOWED', error: 'Provider verification does not accept a request body.' },
       { status: 400 },
     );
   }
 
+  let installationId: string | null = null;
   try {
     const catalog = await readAppRuntimeCatalog(organizationState.organizationId);
     if (!catalog.defaultSelection) {
@@ -68,10 +81,12 @@ export async function POST(request: NextRequest) {
         { status: 409 },
       );
     }
+    installationId = catalog.defaultSelection.providerInstallationId;
     const result = await verifyProviderInstallation({
       organizationId: organizationState.organizationId,
       actorUserId: session.user.id,
       providerInstallationId: catalog.defaultSelection.providerInstallationId,
+      signal: request.signal,
     });
     await recordAuditEvent({
       organizationId: organizationState.organizationId,
@@ -119,6 +134,18 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const response = providerVerificationErrorResponse(error);
+    await recordAuditEvent({
+      organizationId: organizationState.organizationId,
+      userId: session.user.id,
+      source: 'onboarding',
+      eventType: 'admin',
+      entityType: 'ai_provider_installation',
+      entityId: installationId,
+      action: 'onboarding.ai_provider.verify',
+      status: response.status >= 500 ? 'error' : 'blocked',
+      summary: 'Onboarding AI provider verification could not start or persist.',
+      metadata: { errorCode: response.code },
+    });
     return NextResponse.json(
       { success: false, code: response.code, error: response.message },
       { status: response.status },
