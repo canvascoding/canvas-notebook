@@ -11,13 +11,26 @@ import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { db } from '@/app/lib/db';
 import { piMessages, piSessions } from '@/app/lib/db/schema';
-import { resolveAgentRuntimeConfig } from '@/app/lib/agents/effective-runtime-config';
+import { resolveExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/provider-runtime';
+import { sessionRuntimeSnapshotFromResolvedSelection } from '@/app/lib/agent-runtime-policy/runtime-snapshot';
+import {
+  readPiSessionRuntimeSnapshot,
+  SessionRuntimeContextRevisionConflictError,
+  SessionRuntimeSnapshotConflictError,
+  writePiSessionRuntimeSnapshot,
+} from '@/app/lib/agent-runtime-policy/runtime-store';
 import {
   AGENTS_STORAGE_ROOT,
   DEFAULT_MANAGED_AGENT_ID,
   writeManagedAgentFile,
 } from '@/app/lib/agents/storage';
-import { savePiSession } from '@/app/lib/pi/session-store';
+import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
+import { createPiSessionWithRuntimeSnapshot, savePiSession } from '@/app/lib/pi/session-store';
+import {
+  resolveAgentSessionWorkspaceForUser,
+  workspaceToPiSessionFields,
+} from '@/app/lib/pi/session-workspace-context';
+import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { getUserOnboardingState, updateUserOnboardingState } from '@/app/lib/user-preferences';
 
 export const ONBOARDING_BOOTSTRAP_FILE_NAME = 'BOOTSTRAP.md';
@@ -151,47 +164,164 @@ export async function ensureOnboardingProfileSession(params: {
   await ensureDefaultAgent();
 
   const sessionId = buildOnboardingProfileSessionId(params.userId);
-  const existing = await db.query.piSessions.findFirst({
-    where: and(
-      eq(piSessions.sessionId, sessionId),
-      eq(piSessions.userId, params.userId),
-      eq(piSessions.agentId, DEFAULT_AGENT_ID),
-    ),
+  return withPiSessionOperationLock(sessionId, params.userId, async () => {
+    const promptSnapshot = await createPiSystemPromptSnapshot(DEFAULT_AGENT_ID, { userId: params.userId });
+
+    for (let attempt = 0; attempt < 2; attempt += 1) {
+      const existing = await db.query.piSessions.findFirst({
+        where: and(
+          eq(piSessions.sessionId, sessionId),
+          eq(piSessions.userId, params.userId),
+          eq(piSessions.agentId, DEFAULT_AGENT_ID),
+        ),
+      });
+
+      if (existing && await onboardingSessionHasMessages(existing.id)) {
+        return { sessionId };
+      }
+
+      try {
+        let workspace = await resolveAgentSessionWorkspaceForUser({
+          userId: params.userId,
+          workspaceId: existing?.workspaceId ?? null,
+        });
+        if (workspace.workspaceType !== 'personal' || !workspace.organizationId) {
+          throw new OnboardingProfileError(
+            'The onboarding profile session requires your personal workspace and completed app setup.',
+            'ONBOARDING_PERSONAL_WORKSPACE_REQUIRED',
+            409,
+          );
+        }
+        const organizationId = workspace.organizationId;
+
+        const storedSnapshot = existing
+          ? await readPiSessionRuntimeSnapshot({
+            sessionId,
+            userId: params.userId,
+            agentId: DEFAULT_AGENT_ID,
+          })
+          : null;
+        const runtime = await resolveExecutableAgentRuntime({
+          organizationId,
+          userId: params.userId,
+          workspaceId: workspace.workspaceId,
+          workspaceType: workspace.workspaceType,
+          agentId: DEFAULT_AGENT_ID,
+          sessionId: null,
+          requestedSelection: storedSnapshot?.selection ?? null,
+        });
+        const runtimeSnapshot = storedSnapshot
+          ?? sessionRuntimeSnapshotFromResolvedSelection(runtime.selection);
+
+        const refreshedWorkspace = await resolveAgentSessionWorkspaceForUser({
+          userId: params.userId,
+          workspaceId: workspace.workspaceId,
+        });
+        if (
+          refreshedWorkspace.workspaceType !== 'personal'
+          || refreshedWorkspace.workspaceId !== workspace.workspaceId
+          || refreshedWorkspace.organizationId !== organizationId
+        ) {
+          throw new OnboardingProfileError(
+            'The personal workspace changed while the onboarding session was being created.',
+            'ONBOARDING_WORKSPACE_CHANGED',
+            409,
+          );
+        }
+        workspace = refreshedWorkspace;
+
+        if (!existing) {
+          await createPiSessionWithRuntimeSnapshot({
+            sessionId,
+            userId: params.userId,
+            agentId: DEFAULT_AGENT_ID,
+            title: ONBOARDING_PROFILE_SESSION_TITLE,
+            workspace: workspaceToPiSessionFields(workspace),
+            runtimeSnapshot,
+            systemPromptSnapshot: promptSnapshot,
+          });
+        } else if (!storedSnapshot) {
+          await writePiSessionRuntimeSnapshot({
+            sessionId,
+            userId: params.userId,
+            agentId: DEFAULT_AGENT_ID,
+            snapshot: runtimeSnapshot,
+            expectedSnapshot: null,
+            contextRevision: {
+              organizationId,
+              workspaceId: workspace.workspaceId,
+              expectedCatalogRevision: runtimeSnapshot.catalogRevision,
+              expectedPolicyRevision: runtimeSnapshot.policyRevision,
+            },
+          });
+        }
+
+        const finalWorkspace = await resolveAgentSessionWorkspaceForUser({
+          userId: params.userId,
+          workspaceId: workspace.workspaceId,
+        });
+        if (
+          finalWorkspace.workspaceType !== 'personal'
+          || finalWorkspace.workspaceId !== workspace.workspaceId
+          || finalWorkspace.organizationId !== organizationId
+        ) {
+          throw new OnboardingProfileError(
+            'Access to the personal workspace changed before the onboarding welcome message was saved.',
+            'ONBOARDING_WORKSPACE_CHANGED',
+            409,
+          );
+        }
+
+        const welcomeMessage: AssistantMessage = {
+          role: 'assistant',
+          content: [{ type: 'text', text: getOnboardingProfileWelcomeMessage(params.locale) }],
+          api: runtime.model.api,
+          provider: runtime.model.provider,
+          model: runtime.model.id,
+          usage: emptyUsage(),
+          stopReason: 'stop',
+          timestamp: Date.now(),
+        };
+
+        await savePiSession(
+          sessionId,
+          params.userId,
+          runtimeSnapshot.selection.providerId,
+          runtimeSnapshot.selection.modelId,
+          [welcomeMessage],
+          undefined,
+          {
+            titleOverride: ONBOARDING_PROFILE_SESSION_TITLE,
+            agentId: DEFAULT_AGENT_ID,
+            channelId: WEB_CHANNEL_ID,
+            channelSessionKey: webChannelSessionKey(params.userId),
+            workspaceId: finalWorkspace.workspaceId,
+            runtimeSnapshot,
+            systemPromptSnapshot: promptSnapshot,
+          },
+        );
+
+        return { sessionId };
+      } catch (error) {
+        if (
+          attempt === 0
+          && (
+            error instanceof SessionRuntimeContextRevisionConflictError
+            || error instanceof SessionRuntimeSnapshotConflictError
+          )
+        ) {
+          continue;
+        }
+        throw error;
+      }
+    }
+
+    throw new OnboardingProfileError(
+      'The onboarding session runtime changed while it was being created. Try again.',
+      'ONBOARDING_RUNTIME_CHANGED',
+      409,
+    );
   });
-
-  if (existing && await onboardingSessionHasMessages(existing.id)) {
-    return { sessionId };
-  }
-
-  const effectiveConfig = await resolveAgentRuntimeConfig(DEFAULT_AGENT_ID);
-  const now = Date.now();
-  const welcomeMessage: AssistantMessage = {
-    role: 'assistant',
-    content: [{ type: 'text', text: getOnboardingProfileWelcomeMessage(params.locale) }],
-    api: effectiveConfig.model.api,
-    provider: effectiveConfig.model.provider,
-    model: effectiveConfig.model.id,
-    usage: emptyUsage(),
-    stopReason: 'stop',
-    timestamp: now,
-  };
-
-  await savePiSession(
-    sessionId,
-    params.userId,
-    effectiveConfig.activeProvider,
-    effectiveConfig.model.id,
-    [welcomeMessage],
-    undefined,
-    {
-      titleOverride: ONBOARDING_PROFILE_SESSION_TITLE,
-      agentId: DEFAULT_AGENT_ID,
-      channelId: WEB_CHANNEL_ID,
-      channelSessionKey: webChannelSessionKey(params.userId),
-    },
-  );
-
-  return { sessionId };
 }
 
 export async function completeOnboardingProfile(params: {

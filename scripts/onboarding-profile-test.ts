@@ -66,10 +66,22 @@ async function main() {
 
   try {
     const { db } = await import('../app/lib/db');
-    const { user, onboardingLog, piMessages, piSessions } = await import('../app/lib/db/schema');
+    const {
+      aiProviderInstallations,
+      user,
+      onboardingLog,
+      piMessages,
+      piSessions,
+    } = await import('../app/lib/db/schema');
     const { eq } = await import('drizzle-orm');
     const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
     const { writePiRuntimeConfig, DEFAULT_MANAGED_AGENT_ID } = await import('../app/lib/agents/storage');
+    const {
+      aiProviderInstallationId,
+      parseAiCatalogUpdate,
+      replaceAiAppRuntimeCatalog,
+    } = await import('../app/lib/agent-runtime-policy/catalog-service');
+    const { readPiSessionRuntimeSnapshot } = await import('../app/lib/agent-runtime-policy/runtime-store');
     const {
       buildOnboardingProfileSessionId,
       completeOnboardingProfile,
@@ -79,6 +91,7 @@ async function main() {
       skipOnboardingProfile,
     } = await import('../app/lib/onboarding/profile');
     const { isOnboardingComplete } = await import('../app/lib/onboarding/status');
+    const { resolveAgentSessionWorkspaceForUser } = await import('../app/lib/pi/session-workspace-context');
     const { initializeUserOnboarding, updateUserOnboardingState } = await import('../app/lib/user-preferences');
 
     const now = new Date('2026-06-08T10:00:00.000Z');
@@ -93,6 +106,63 @@ async function main() {
       createdAt: now,
       updatedAt: now,
     });
+
+    const personalWorkspace = await resolveAgentSessionWorkspaceForUser({ userId });
+    assert.equal(personalWorkspace.workspaceType, 'personal');
+    assert.ok(personalWorkspace.organizationId);
+    const providerInstallationId = aiProviderInstallationId(
+      personalWorkspace.organizationId,
+      'openai-compatible',
+      'organization',
+    );
+    await replaceAiAppRuntimeCatalog({
+      organizationId: personalWorkspace.organizationId,
+      actorUserId: userId,
+      update: parseAiCatalogUpdate({
+        expectedRevision: 0,
+        providers: [{
+          providerInstallationId,
+          providerId: 'openai-compatible',
+          enabled: true,
+          credentialScope: 'organization',
+          config: {
+            openaiCompatibleBaseUrl: 'http://localhost:9000/v1',
+            openaiCompatibleModelSource: 'custom',
+            openaiCompatibleCustomModel: fakeModel.id,
+          },
+          modelIds: [fakeModel.id],
+          defaultModelId: fakeModel.id,
+        }],
+        defaultSelection: {
+          providerInstallationId,
+          providerId: 'openai-compatible',
+          modelId: fakeModel.id,
+          thinkingLevel: 'off',
+        },
+      }),
+      discovery: {
+        'openai-compatible': {
+          id: 'openai-compatible',
+          name: 'OpenAI Compatible',
+          source: 'self-hosted',
+          models: [{
+            id: fakeModel.id,
+            name: fakeModel.name,
+            reasoning: false,
+            supportsVision: false,
+          }],
+        },
+      },
+    });
+    await db
+      .update(aiProviderInstallations)
+      .set({
+        status: 'ready',
+        verifiedAt: now,
+        verifiedByUserId: userId,
+        updatedAt: now,
+      })
+      .where(eq(aiProviderInstallations.id, providerInstallationId));
 
     const configuredPiConfig = {
       ...DEFAULT_PI_CONFIG,
@@ -124,6 +194,29 @@ async function main() {
       where: eq(piSessions.sessionId, profileSession.sessionId),
     });
     assert.ok(dbSession);
+    assert.equal(dbSession.agentId, DEFAULT_MANAGED_AGENT_ID);
+    assert.equal(dbSession.organizationId, personalWorkspace.organizationId);
+    assert.equal(dbSession.workspaceId, personalWorkspace.workspaceId);
+    assert.equal(dbSession.workspaceType, 'personal');
+    assert.equal(dbSession.provider, 'openai-compatible');
+    assert.equal(dbSession.model, fakeModel.id);
+    assert.equal(dbSession.thinkingLevel, 'off');
+    assert.equal(dbSession.runtimeProviderInstallationId, providerInstallationId);
+    assert.equal(dbSession.runtimeCatalogRevision, 1);
+    assert.equal(typeof dbSession.runtimePolicyRevision, 'number');
+    assert.equal(dbSession.runtimeSelectionSource, 'app_default');
+    const runtimeSnapshot = await readPiSessionRuntimeSnapshot({
+      sessionId: profileSession.sessionId,
+      userId,
+      agentId: DEFAULT_MANAGED_AGENT_ID,
+    });
+    assert.ok(runtimeSnapshot);
+    assert.deepEqual(runtimeSnapshot.selection, {
+      providerInstallationId,
+      providerId: 'openai-compatible',
+      modelId: fakeModel.id,
+      thinkingLevel: 'off',
+    });
     const [welcomeRow] = await db
       .select()
       .from(piMessages)
