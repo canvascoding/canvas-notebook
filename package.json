@@ -42,6 +42,7 @@
     "test:brave-search": "tsx scripts/brave-search-service-test.ts",
     "test:pi:session-search": "tsx scripts/pi-session-search-tool-test.ts",
     "test:pi:delegate-task": "tsx scripts/pi-delegate-task-tool-test.ts",
+    "test:pi:delegate-task-runtime": "tsx --conditions react-server scripts/pi-delegate-task-runtime-test.ts",
     "test:pi:continuation": "tsx scripts/pi-run-continuation-guard-test.ts",
     "test:pi:queue": "tsx scripts/pi-runtime-queue-test.ts",
     "test:pi:oauth-scope": "tsx scripts/pi-oauth-user-scope-test.ts",

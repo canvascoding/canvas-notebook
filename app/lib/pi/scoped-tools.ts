@@ -1160,7 +1160,7 @@ export function createUserScopedTools(userId?: string, agentId?: string | null, 
   const tools: AgentTool[] = [
     createMcpProxyTool(userId),
     createMemoryTool(userId, agentId),
-    createSessionSearchTool({ userId, agentId }),
+    createSessionSearchTool({ userId, agentId, sessionId }),
     createHumanTodoTool({ userId, agentId, sessionId }),
     createPublicShareTool(userId, agentId, sessionId),
     createBrowserGatewayTool({ userId, agentId: sourceAgentId, sessionId }),
@@ -1170,7 +1170,7 @@ export function createUserScopedTools(userId?: string, agentId?: string | null, 
   ];
 
   if (sourceAgentId === DEFAULT_AGENT_ID) {
-    tools.push(createDelegateTaskTool({ userId, sourceAgentId }));
+    tools.push(createDelegateTaskTool({ userId, sourceAgentId, sourceSessionId: sessionId }));
   }
 
   tools.push(

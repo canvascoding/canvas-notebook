@@ -1,11 +1,14 @@
 import { type AgentMessage, type AgentTool } from '@earendil-works/pi-agent-core';
 import { Type } from 'typebox';
-import { and, asc, desc, eq, like, or } from 'drizzle-orm';
+import { and, asc, desc, eq, isNull, like, or } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { piMessages, piSessions } from '@/app/lib/db/schema';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import type { WorkspaceType } from '@/app/lib/workspaces/types';
 
 type SessionSearchArgs = {
   query?: string;
@@ -19,6 +22,11 @@ type SessionSearchArgs = {
 
 type PiMessageRow = typeof piMessages.$inferSelect;
 type PiSessionRow = typeof piSessions.$inferSelect;
+
+type SessionSearchScope = {
+  workspaceId: string;
+  workspaceType: WorkspaceType;
+};
 
 const DEFAULT_DISCOVERY_LIMIT = 3;
 const MAX_DISCOVERY_LIMIT = 10;
@@ -124,7 +132,18 @@ function sessionSummary(session: PiSessionRow) {
   };
 }
 
-async function getSessionForUser(sessionId: string, userId: string, agentId: string): Promise<PiSessionRow | null> {
+function sessionWorkspaceCondition(scope: SessionSearchScope) {
+  return scope.workspaceType === 'personal'
+    ? or(eq(piSessions.workspaceId, scope.workspaceId), isNull(piSessions.workspaceId))!
+    : eq(piSessions.workspaceId, scope.workspaceId);
+}
+
+async function getSessionForUser(
+  sessionId: string,
+  userId: string,
+  agentId: string,
+  scope: SessionSearchScope,
+): Promise<PiSessionRow | null> {
   const rows = await db
     .select()
     .from(piSessions)
@@ -132,6 +151,7 @@ async function getSessionForUser(sessionId: string, userId: string, agentId: str
       eq(piSessions.sessionId, sessionId),
       eq(piSessions.userId, userId),
       eq(piSessions.agentId, agentId),
+      sessionWorkspaceCondition(scope),
     ))
     .limit(1);
   return rows[0] ?? null;
@@ -165,12 +185,16 @@ async function getWindow(sessionDbId: number, aroundMessageId: number, window: n
   };
 }
 
-async function browseSessions(userId: string, agentId: string, args: SessionSearchArgs) {
+async function browseSessions(userId: string, agentId: string, scope: SessionSearchScope, args: SessionSearchArgs) {
   const limit = clampNumber(args.limit, DEFAULT_BROWSE_LIMIT, 1, MAX_BROWSE_LIMIT);
   const sessions = await db
     .select()
     .from(piSessions)
-    .where(and(eq(piSessions.userId, userId), eq(piSessions.agentId, agentId)))
+    .where(and(
+      eq(piSessions.userId, userId),
+      eq(piSessions.agentId, agentId),
+      sessionWorkspaceCondition(scope),
+    ))
     .orderBy(desc(piSessions.lastMessageAt), desc(piSessions.updatedAt), desc(piSessions.createdAt))
     .limit(limit);
 
@@ -180,7 +204,7 @@ async function browseSessions(userId: string, agentId: string, args: SessionSear
   };
 }
 
-async function scrollSession(userId: string, agentId: string, args: SessionSearchArgs) {
+async function scrollSession(userId: string, agentId: string, scope: SessionSearchScope, args: SessionSearchArgs) {
   const sessionId = args.session_id?.trim();
   if (!sessionId) {
     throw new Error('session_id is required for scroll mode.');
@@ -189,7 +213,7 @@ async function scrollSession(userId: string, agentId: string, args: SessionSearc
     throw new Error('around_message_id is required for scroll mode.');
   }
 
-  const session = await getSessionForUser(sessionId, userId, agentId);
+  const session = await getSessionForUser(sessionId, userId, agentId, scope);
   if (!session) {
     throw new Error('Session not found.');
   }
@@ -210,10 +234,10 @@ async function scrollSession(userId: string, agentId: string, args: SessionSearc
   };
 }
 
-async function searchSessions(userId: string, agentId: string, args: SessionSearchArgs) {
+async function searchSessions(userId: string, agentId: string, scope: SessionSearchScope, args: SessionSearchArgs) {
   const query = args.query?.trim();
   if (!query) {
-    return browseSessions(userId, agentId, args);
+    return browseSessions(userId, agentId, scope, args);
   }
 
   const roleFilter = parseRoleFilter(args.role_filter);
@@ -230,6 +254,7 @@ async function searchSessions(userId: string, agentId: string, args: SessionSear
     .where(and(
       eq(piSessions.userId, userId),
       eq(piSessions.agentId, agentId),
+      sessionWorkspaceCondition(scope),
       like(piMessages.content, likePattern),
       roleConditions.length === 1 ? roleConditions[0] : or(...roleConditions),
     ))
@@ -300,12 +325,16 @@ function formatSessionSearchResult(result: SessionSearchResult): string {
   ].join('\n');
 }
 
-export function createSessionSearchTool(deps: { userId?: string; agentId?: string | null } = {}): AgentTool {
+export function createSessionSearchTool(deps: {
+  userId?: string;
+  agentId?: string | null;
+  sessionId?: string | null;
+} = {}): AgentTool {
   return {
     name: 'session_search',
     label: 'Searching session history',
     description:
-      'Browse, search, and read previous Canvas Agent conversations for this user and agent. ' +
+      'Browse, search, and read previous Canvas Agent conversations for this user, agent, and current workspace. ' +
       'Call with no arguments to browse recent sessions. Call with query to discover matching sessions. ' +
       'Call with session_id and around_message_id to scroll a concrete message window. This tool is read-only.',
     parameters: Type.Object({
@@ -324,9 +353,51 @@ export function createSessionSearchTool(deps: { userId?: string; agentId?: strin
         }
         const args = (params || {}) as SessionSearchArgs;
         const agentId = normalizeAgentId(deps.agentId);
+        const ambientContext = getAgentExecutionContext();
+        let scope: SessionSearchScope | null = null;
+        if (deps.sessionId) {
+          const sessions = await db.query.piSessions.findMany({
+            where: and(
+              eq(piSessions.sessionId, deps.sessionId),
+              eq(piSessions.userId, deps.userId),
+            ),
+            columns: { agentId: true },
+            limit: 3,
+          });
+          if (sessions.length !== 1 || sessions[0].agentId !== agentId) {
+            throw new Error('Workspace-scoped source session is missing or ambiguous.');
+          }
+          const executionContext = await resolveAgentExecutionContextForSession({
+            userId: deps.userId,
+            sessionId: deps.sessionId,
+            agentId,
+          });
+          const matchingAmbientContext = ambientContext?.userId === deps.userId
+            && ambientContext.sessionId === deps.sessionId
+            && ambientContext.agentId === agentId
+            ? ambientContext
+            : null;
+          if (
+            matchingAmbientContext
+            && (
+              matchingAmbientContext.workspaceId !== executionContext.workspaceId
+              || matchingAmbientContext.workspaceType !== executionContext.workspaceType
+              || matchingAmbientContext.organizationId !== executionContext.organizationId
+            )
+          ) {
+            throw new Error('Workspace execution context changed before session_search could run.');
+          }
+          scope = {
+            workspaceId: executionContext.workspaceId,
+            workspaceType: executionContext.workspaceType,
+          };
+        }
+        if (!scope?.workspaceId || !scope.workspaceType) {
+          throw new Error('Workspace-scoped session context is required for session_search.');
+        }
         const result = args.session_id || args.around_message_id !== undefined
-          ? await scrollSession(deps.userId, agentId, args)
-          : await searchSessions(deps.userId, agentId, args);
+          ? await scrollSession(deps.userId, agentId, scope, args)
+          : await searchSessions(deps.userId, agentId, scope, args);
 
         return {
           content: [{ type: 'text', text: formatSessionSearchResult(result) }],

@@ -276,7 +276,12 @@ export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {
   });
 }
 
-export async function getPiTools(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
+export async function getPiTools(
+  userId?: string,
+  agentId?: string | null,
+  sessionId?: string | null,
+  options: { executionContext?: AgentExecutionContext } = {},
+): Promise<AgentTool[]> {
   let allTools = await buildPiToolRegistryAsync(userId, agentId, sessionId);
   const onboardingProfileToolAvailable = await isOnboardingProfileToolAvailable({ userId, agentId, sessionId }).catch(() => false);
 
@@ -341,8 +346,15 @@ export async function getPiTools(userId?: string, agentId?: string | null, sessi
     let executionContext: AgentExecutionContext;
     try {
       const ambientContext = getAgentExecutionContext();
-      executionContext = ambientContext?.userId === userId && ambientContext.sessionId === sessionId
-        ? ambientContext
+      const suppliedContext = options.executionContext ?? ambientContext;
+      const contextMatches = suppliedContext?.userId === userId
+        && suppliedContext.sessionId === sessionId
+        && (!agentId || suppliedContext.agentId === agentId);
+      if (options.executionContext && !contextMatches) {
+        throw new Error('Supplied tool execution context does not match the requested session.');
+      }
+      executionContext = contextMatches
+        ? suppliedContext
         : await resolveAgentExecutionContextForSession({
             userId,
             sessionId,

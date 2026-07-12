@@ -38,6 +38,27 @@ function assistantMessage(text: string, timestamp: number): AgentMessage {
 async function main() {
   const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-pi-session-search-'));
   process.env.DATA = dataDir;
+  let resolveSessionContext = async (input: { userId: string; sessionId: string; agentId?: string | null }) => {
+    const isTeamSession = input.sessionId === 'sess-team';
+    const workspaceId = isTeamSession ? 'workspace-team' : 'workspace-current';
+    return {
+      userId: input.userId,
+      sessionId: input.sessionId,
+      agentId: input.agentId ?? null,
+      workspaceId,
+      workspaceType: isTeamSession ? 'team' as const : 'personal' as const,
+      workspaceName: isTeamSession ? 'Team workspace' : 'Current workspace',
+      organizationId: 'organization-current',
+      customerId: null,
+      projectId: null,
+      workspaceRoot: path.join(dataDir, workspaceId),
+      workspaceRootRelativePath: workspaceId,
+      canWrite: true,
+      canDelete: true,
+      canShare: true,
+      legacy: false,
+    };
+  };
 
   const moduleLoader = Module as unknown as {
     _load: (request: string, parent: unknown, isMain: boolean) => unknown;
@@ -47,12 +68,20 @@ async function main() {
     if (request === 'server-only') {
       return {};
     }
+    if (request.endsWith('/pi/session-workspace-context') || request === '@/app/lib/pi/session-workspace-context') {
+      return {
+        resolveAgentExecutionContextForSession: (input: { userId: string; sessionId: string; agentId?: string | null }) => (
+          resolveSessionContext(input)
+        ),
+      };
+    }
     return originalLoad.call(this, request, parent, isMain);
   };
 
   try {
     const { db } = await import('../app/lib/db');
     const { user, piSessions, piMessages } = await import('../app/lib/db/schema');
+    const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
     const { createSessionSearchTool } = await import('../app/lib/pi/session-search-tool');
 
     const now = new Date('2026-05-28T10:00:00.000Z');
@@ -83,6 +112,8 @@ async function main() {
       sessionId: 'sess-alpha',
       userId: 'user-1',
       agentId: 'canvas-agent',
+      workspaceId: 'workspace-current',
+      workspaceType: 'personal',
       provider: 'test-provider',
       model: 'test-model',
       thinkingLevel: null,
@@ -111,6 +142,8 @@ async function main() {
       sessionId: 'sess-other-agent',
       userId: 'user-1',
       agentId: 'other-agent',
+      workspaceId: 'workspace-current',
+      workspaceType: 'personal',
       provider: 'test-provider',
       model: 'test-model',
       thinkingLevel: null,
@@ -125,6 +158,8 @@ async function main() {
       sessionId: 'sess-other-user',
       userId: 'user-2',
       agentId: 'canvas-agent',
+      workspaceId: 'workspace-current',
+      workspaceType: 'personal',
       provider: 'test-provider',
       model: 'test-model',
       thinkingLevel: null,
@@ -132,6 +167,38 @@ async function main() {
       createdAt: new Date('2026-05-28T07:00:00.000Z'),
       updatedAt: new Date('2026-05-28T07:01:00.000Z'),
       lastMessageAt: new Date('2026-05-28T07:01:00.000Z'),
+      channelId: 'app',
+      channelSessionKey: null,
+    }).returning();
+    const [otherWorkspaceSession] = await db.insert(piSessions).values({
+      sessionId: 'sess-other-workspace',
+      userId: 'user-1',
+      agentId: 'canvas-agent',
+      workspaceId: 'workspace-other',
+      workspaceType: 'personal',
+      provider: 'test-provider',
+      model: 'test-model',
+      thinkingLevel: null,
+      title: 'Other workspace alpha',
+      createdAt: new Date('2026-05-28T06:00:00.000Z'),
+      updatedAt: new Date('2026-05-28T06:01:00.000Z'),
+      lastMessageAt: new Date('2026-05-28T06:01:00.000Z'),
+      channelId: 'app',
+      channelSessionKey: null,
+    }).returning();
+    const [teamSession] = await db.insert(piSessions).values({
+      sessionId: 'sess-team',
+      userId: 'user-1',
+      agentId: 'canvas-agent',
+      workspaceId: 'workspace-team',
+      workspaceType: 'team',
+      provider: 'test-provider',
+      model: 'test-model',
+      thinkingLevel: null,
+      title: 'Team Orion',
+      createdAt: new Date('2026-05-28T05:00:00.000Z'),
+      updatedAt: new Date('2026-05-28T05:01:00.000Z'),
+      lastMessageAt: new Date('2026-05-28T05:01:00.000Z'),
       channelId: 'app',
       channelSessionKey: null,
     }).returning();
@@ -173,6 +240,18 @@ async function main() {
         content: JSON.stringify(userMessage('Alpha belongs to another user', 6000)),
         timestamp: 6000,
       },
+      {
+        piSessionDbId: otherWorkspaceSession.id,
+        role: 'user',
+        content: JSON.stringify(userMessage('Alpha belongs to another workspace', 6500)),
+        timestamp: 6500,
+      },
+      {
+        piSessionDbId: teamSession.id,
+        role: 'user',
+        content: JSON.stringify(userMessage('Orion belongs to the team workspace', 6600)),
+        timestamp: 6600,
+      },
     ]);
 
     const [anchor] = await db.insert(piMessages).values({
@@ -182,7 +261,11 @@ async function main() {
       timestamp: 7000,
     }).returning();
 
-    const tool = createSessionSearchTool({ userId: 'user-1', agentId: 'canvas-agent' });
+    const tool = createSessionSearchTool({
+      userId: 'user-1',
+      agentId: 'canvas-agent',
+      sessionId: 'sess-alpha',
+    });
 
     const browseResult = await tool.execute('browse', {});
     assert.match(getText(browseResult), /Recent sessions/);
@@ -216,12 +299,72 @@ async function main() {
     assert.equal(scrollDetails.messages.some((message) => message.id === anchor.id && message.anchor), true);
     assert.equal(scrollDetails.messages.some((message) => /Anchor details/.test(message.text)), true);
 
-    const otherAgentTool = createSessionSearchTool({ userId: 'user-1', agentId: 'other-agent' });
+    assert.match(
+      getText(await tool.execute('cross-workspace-scroll', {
+        session_id: 'sess-other-workspace',
+        around_message_id: 1,
+      })),
+      /Session not found/,
+    );
+
+    const otherAgentTool = createSessionSearchTool({
+      userId: 'user-1',
+      agentId: 'other-agent',
+      sessionId: 'sess-other-agent',
+    });
     const otherAgentResult = await otherAgentTool.execute('other-agent', { query: 'Alpha', limit: 5 });
     const otherAgentDetails = getDetails<{ results: Array<{ session: { session_id: string } }> }>(otherAgentResult);
     assert.deepEqual(
       otherAgentDetails.results.map((result) => result.session.session_id),
       ['sess-other-agent'],
+    );
+
+    const teamTool = createSessionSearchTool({
+      userId: 'user-1',
+      agentId: 'canvas-agent',
+      sessionId: 'sess-team',
+    });
+    const teamBrowseDetails = getDetails<{ sessions: Array<{ session_id: string }> }>(
+      await teamTool.execute('team-browse', {}),
+    );
+    assert.deepEqual(
+      teamBrowseDetails.sessions.map((session) => session.session_id),
+      ['sess-team'],
+      'team search must not include personal or legacy workspace sessions',
+    );
+    const teamDiscoveryDetails = getDetails<{ results: Array<{ session: { session_id: string } }> }>(
+      await teamTool.execute('team-search', { query: 'Orion', limit: 5 }),
+    );
+    assert.deepEqual(
+      teamDiscoveryDetails.results.map((result) => result.session.session_id),
+      ['sess-team'],
+    );
+
+    const reauthorizedTool = createSessionSearchTool({
+      userId: 'user-1',
+      agentId: 'canvas-agent',
+      sessionId: 'sess-alpha',
+    });
+    assert.match(
+      getText(await reauthorizedTool.execute('reauthorized-search', { query: 'Alpha', limit: 5 })),
+      /sess-alpha/,
+    );
+    const staleAmbientContext = await resolveSessionContext({
+      userId: 'user-1',
+      sessionId: 'sess-alpha',
+      agentId: 'canvas-agent',
+    });
+    resolveSessionContext = async () => {
+      throw new Error('Workspace permission denied after tool reload.');
+    };
+    const revokedResult = await runWithAgentExecutionContext(
+      staleAmbientContext,
+      () => reauthorizedTool.execute('revoked-search', { query: 'Alpha', limit: 5 }),
+    );
+    assert.match(
+      getText(revokedResult),
+      /Workspace permission denied after tool reload/,
+      'session_search must reauthorize instead of trusting a stale ambient context',
     );
 
     const missingUserTool = createSessionSearchTool({ agentId: 'canvas-agent' });

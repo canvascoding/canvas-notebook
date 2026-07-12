@@ -69,6 +69,9 @@ async function main() {
     if (request === 'server-only') {
       return {};
     }
+    if (request === '@earendil-works/pi-agent-core') {
+      return {};
+    }
     if (request === '@earendil-works/pi-ai') {
       return {
         completeSimple: async () => ({
