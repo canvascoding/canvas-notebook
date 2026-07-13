@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.13.5] - 2026-07-13
+## [2026.7.13.6] - 2026-07-13
 
 ### Added
 
@@ -27,6 +27,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Restored safe automatic-update defaults, Postgres credential reconciliation and redaction, and host CLI ownership after merging the managed-update workflow.
 - Made managed-install verification portable across filesystems while still proving atomic configuration replacement.
+- Restored the host CLI packaging command required by the tagged release workflow.
 
 ### Verification
 
