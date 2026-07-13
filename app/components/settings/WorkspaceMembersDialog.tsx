@@ -1,10 +1,19 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Loader2, RefreshCw, Trash2, UserPlus } from 'lucide-react';
+import { Loader2, RefreshCw, Trash2, UserPlus, UsersRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
-import { Badge } from '@/components/ui/badge';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { Button } from '@/components/ui/button';
 import {
   Dialog,
@@ -15,7 +24,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 
 type WorkspaceMemberRecord = {
@@ -44,8 +52,42 @@ interface WorkspaceMembersDialogProps {
   workspace: ClientWorkspaceSummary | null;
 }
 
+type WorkspaceAccessLevel = 'viewer' | 'editor' | 'manager';
+
+function getAccessLevel(member: Pick<WorkspaceMemberRecord, 'canWrite' | 'canManage'>): WorkspaceAccessLevel {
+  if (member.canManage) return 'manager';
+  if (member.canWrite) return 'editor';
+  return 'viewer';
+}
+
+function getAccessInput(accessLevel: WorkspaceAccessLevel) {
+  if (accessLevel === 'manager') {
+    return { canRead: true, canWrite: true, canManage: true, role: 'admin' };
+  }
+  if (accessLevel === 'editor') {
+    return { canRead: true, canWrite: true, canManage: false, role: 'member' };
+  }
+  return { canRead: true, canWrite: false, canManage: false, role: 'member' };
+}
+
 function getUserLabel(user: { name?: string | null; email?: string | null; userId: string }) {
-  return user.email || user.name || user.userId;
+  const name = user.name?.trim();
+  const email = user.email?.trim();
+  if (name && email && name !== email) return `${name} · ${email}`;
+  return name || email || user.userId;
+}
+
+function getUserInitials(user: Pick<WorkspaceMemberRecord, 'name' | 'email' | 'userId'>) {
+  const source = user.name?.trim() || user.email?.trim() || user.userId;
+  const parts = source.split(/[\s@._-]+/).filter(Boolean);
+  return parts.slice(0, 2).map((part) => part[0]?.toUpperCase()).join('') || '?';
+}
+
+function getMemberIdentity(member: WorkspaceMemberRecord) {
+  const name = member.name?.trim();
+  const email = member.email?.trim();
+  if (name && email && name !== email) return { primary: name, secondary: email };
+  return { primary: name || email || member.userId, secondary: null };
 }
 
 export function WorkspaceMembersDialog({
@@ -57,18 +99,15 @@ export function WorkspaceMembersDialog({
   const [members, setMembers] = useState<WorkspaceMemberRecord[]>([]);
   const [candidates, setCandidates] = useState<WorkspaceMemberCandidate[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
-  const [newCanRead, setNewCanRead] = useState(true);
-  const [newCanWrite, setNewCanWrite] = useState(false);
-  const [newCanManage, setNewCanManage] = useState(false);
+  const [newAccessLevel, setNewAccessLevel] = useState<WorkspaceAccessLevel>('viewer');
   const [isLoading, setIsLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<string | null>(null);
+  const [removeTarget, setRemoveTarget] = useState<WorkspaceMemberRecord | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const resetDraft = () => {
     setSelectedUserId('');
-    setNewCanRead(true);
-    setNewCanWrite(false);
-    setNewCanManage(false);
+    setNewAccessLevel('viewer');
     setError(null);
   };
 
@@ -159,9 +198,11 @@ export function WorkspaceMembersDialog({
         throw new Error(message);
       }
       await loadMembers();
+      return true;
     } catch (err) {
       const message = err instanceof Error ? err.message : t('errors.remove');
       setError(message);
+      return false;
     } finally {
       setActiveAction(null);
     }
@@ -173,6 +214,7 @@ export function WorkspaceMembersDialog({
       setMembers([]);
       setCandidates([]);
       setActiveAction(null);
+      setRemoveTarget(null);
     }
     onOpenChange(nextOpen);
   };
@@ -180,172 +222,222 @@ export function WorkspaceMembersDialog({
   const title = workspace ? t('title', { name: workspace.name }) : t('titleFallback');
 
   return (
-    <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent layout="viewport">
-        <DialogHeader className="border-b border-border px-5 py-4">
-          <DialogTitle>{title}</DialogTitle>
-          <DialogDescription>{t('description')}</DialogDescription>
-        </DialogHeader>
-
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">
-          <div className="mx-auto flex w-full max-w-4xl flex-col gap-4">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+    <>
+      <Dialog open={open} onOpenChange={handleOpenChange}>
+        <DialogContent
+          className="!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_48rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none"
+        >
+          <DialogHeader className="border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14">
+            <div className="flex items-start gap-3">
+              <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <UsersRound className="size-4" aria-hidden="true" />
+              </div>
               <div className="min-w-0">
-                <h3 className="text-sm font-semibold">{t('currentMembers')}</h3>
-                <p className="text-sm text-muted-foreground">{t('currentMembersDescription')}</p>
+                <DialogTitle>{title}</DialogTitle>
+                <DialogDescription className="mt-1.5 max-w-xl leading-5">{t('description')}</DialogDescription>
               </div>
-              <Button type="button" variant="outline" onClick={() => void loadMembers()} disabled={isLoading || activeAction !== null}>
-                {isLoading ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RefreshCw data-icon="inline-start" />}
-                {t('refresh')}
-              </Button>
             </div>
+          </DialogHeader>
 
-            {error ? (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </p>
-            ) : null}
-
-            {isLoading && members.length === 0 ? (
-              <div className="flex items-center gap-2 rounded-md border border-border px-3 py-3 text-sm text-muted-foreground">
-                <Loader2 data-icon="inline-start" className="animate-spin" />
-                {t('loading')}
-              </div>
-            ) : members.length === 0 ? (
-              <p className="rounded-md border border-border bg-muted/40 px-3 py-3 text-sm text-muted-foreground">
-                {t('noMembers')}
-              </p>
-            ) : (
-              <div className="flex flex-col gap-2">
-                {members.map((member) => {
-                  const busy = activeAction?.endsWith(member.userId) ?? false;
-                  const nextRead = member.canRead;
-                  const nextWrite = member.canWrite;
-                  const nextManage = member.canManage;
-                  return (
-                    <div key={member.userId} className="grid gap-3 rounded-md border border-border px-3 py-3 lg:grid-cols-[minmax(0,1fr)_auto]">
-                      <div className="min-w-0">
-                        <div className="flex min-w-0 flex-wrap items-center gap-2">
-                          <span className="min-w-0 truncate text-sm font-medium">{getUserLabel(member)}</span>
-                          <Badge variant={member.canManage ? 'default' : 'outline'}>{t(`roles.${member.role}`)}</Badge>
-                        </div>
-                        <p className="mt-1 truncate text-xs text-muted-foreground">{member.userId}</p>
-                      </div>
-                      <div className="grid gap-3 sm:grid-cols-[repeat(3,7rem)_auto] sm:items-center">
-                        {(['canRead', 'canWrite', 'canManage'] as const).map((key) => {
-                          const checked = key === 'canRead' ? nextRead : key === 'canWrite' ? nextWrite : nextManage;
-                          return (
-                            <label key={key} className="flex items-center justify-between gap-2 text-sm">
-                              <span>{t(`permissions.${key}`)}</span>
-                              <Switch
-                                checked={checked}
-                                disabled={busy || activeAction !== null}
-                                onCheckedChange={(checkedValue) => {
-                                  const canManage = key === 'canManage' ? checkedValue : nextManage;
-                                  const canWrite = canManage || (key === 'canWrite' ? checkedValue : nextWrite);
-                                  const canRead = canManage || canWrite || (key === 'canRead' ? checkedValue : nextRead);
-                                  void updateMember(member.userId, {
-                                    canRead,
-                                    canWrite,
-                                    canManage,
-                                    role: canManage ? 'admin' : member.role,
-                                  });
-                                }}
-                              />
-                            </label>
-                          );
-                        })}
-                        <Button
-                          type="button"
-                          variant="ghost"
-                          size="icon-sm"
-                          disabled={busy || activeAction !== null}
-                          onClick={() => void removeMember(member)}
-                          aria-label={t('removeMember')}
-                          title={t('removeMember')}
-                        >
-                          {busy ? <Loader2 className="animate-spin" /> : <Trash2 />}
-                        </Button>
-                      </div>
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-
-            <div className="rounded-md border border-border px-3 py-3">
-              <div className="flex flex-col gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">{t('addMember')}</h3>
-                  <p className="text-sm text-muted-foreground">{t('addMemberDescription')}</p>
-                </div>
-                <div className="grid gap-3 lg:grid-cols-[minmax(0,1fr)_repeat(3,7rem)_auto] lg:items-end">
-                  <div className="flex flex-col gap-2">
-                    <Label htmlFor="workspace-member-user">{t('selectUser')}</Label>
-                    <select
-                      id="workspace-member-user"
-                      value={selectedUserId}
-                      onChange={(event) => setSelectedUserId(event.target.value)}
-                      disabled={activeAction !== null || availableCandidates.length === 0}
-                      className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
-                    >
-                      <option value="">{availableCandidates.length === 0 ? t('noCandidates') : t('selectUser')}</option>
-                      {availableCandidates.map((candidate) => (
-                        <option key={candidate.userId} value={candidate.userId}>
-                          {getUserLabel(candidate)}
-                        </option>
-                      ))}
-                    </select>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+            <div className="flex w-full flex-col gap-6">
+              <section aria-labelledby="workspace-members-heading" aria-busy={isLoading}>
+                <div className="mb-3 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+                  <div className="min-w-0">
+                    <h3 id="workspace-members-heading" className="text-base font-semibold tracking-tight">{t('currentMembers')}</h3>
+                    <p className="mt-1 max-w-2xl text-sm leading-5 text-muted-foreground">{t('currentMembersDescription')}</p>
                   </div>
-                  {[
-                    ['canRead', newCanRead, setNewCanRead],
-                    ['canWrite', newCanWrite, setNewCanWrite],
-                    ['canManage', newCanManage, setNewCanManage],
-                  ].map(([key, checked, setChecked]) => (
-                    <label key={String(key)} className="flex items-center justify-between gap-2 text-sm">
-                      <span>{t(`permissions.${key}`)}</span>
-                      <Switch
-                        checked={Boolean(checked)}
-                        disabled={activeAction !== null}
-                        onCheckedChange={(value) => {
-                          const updater = setChecked as (next: boolean) => void;
-                          updater(value);
-                          if (key === 'canManage' && value) {
-                            setNewCanWrite(true);
-                            setNewCanRead(true);
-                          }
-                          if (key === 'canWrite' && value) {
-                            setNewCanRead(true);
-                          }
-                        }}
-                      />
-                    </label>
-                  ))}
                   <Button
                     type="button"
-                    disabled={!selectedUserId || activeAction !== null}
-                    onClick={() => void updateMember(selectedUserId, {
-                      canRead: newCanRead,
-                      canWrite: newCanWrite,
-                      canManage: newCanManage,
-                      role: newCanManage ? 'admin' : 'member',
-                    })}
+                    variant="outline"
+                    size="sm"
+                    className="shrink-0 self-start sm:self-auto"
+                    onClick={() => void loadMembers()}
+                    disabled={isLoading || activeAction !== null}
                   >
-                    <UserPlus data-icon="inline-start" />
-                    {t('addMember')}
+                    {isLoading ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RefreshCw data-icon="inline-start" />}
+                    {t('refresh')}
                   </Button>
                 </div>
-              </div>
+
+                {error ? (
+                  <p role="alert" className="mb-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {error}
+                  </p>
+                ) : null}
+
+                {isLoading && members.length === 0 ? (
+                  <div className="flex items-center gap-2 rounded-lg border border-border bg-card px-4 py-5 text-sm text-muted-foreground">
+                    <Loader2 data-icon="inline-start" className="animate-spin" />
+                    {t('loading')}
+                  </div>
+                ) : members.length === 0 ? (
+                  <p className="rounded-lg border border-dashed border-border bg-muted/30 px-4 py-5 text-sm text-muted-foreground">
+                    {t('noMembers')}
+                  </p>
+                ) : (
+                  <div className="overflow-hidden rounded-lg border border-border bg-card">
+                    <div className="hidden grid-cols-[minmax(0,1fr)_10.5rem_auto] items-center gap-4 border-b border-border bg-muted/40 px-4 py-2.5 text-xs font-medium uppercase tracking-wide text-muted-foreground sm:grid">
+                      <span>{t('person')}</span>
+                      <span>{t('accessLevel')}</span>
+                      <span className="sr-only">{t('actions')}</span>
+                    </div>
+                    <div className="divide-y divide-border">
+                      {members.map((member) => {
+                        const busy = activeAction?.endsWith(member.userId) ?? false;
+                        const accessLevel = getAccessLevel(member);
+                        const identity = getMemberIdentity(member);
+                        const selectId = `workspace-member-access-${member.userId}`;
+                        return (
+                          <div
+                            key={member.userId}
+                            className="grid gap-4 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_10.5rem_auto] sm:items-center"
+                          >
+                            <div className="flex min-w-0 items-center gap-3">
+                              <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-secondary-foreground">
+                                {getUserInitials(member)}
+                              </div>
+                              <div className="min-w-0">
+                                <p className="truncate text-sm font-medium text-foreground">{identity.primary}</p>
+                                {identity.secondary ? (
+                                  <p className="mt-0.5 truncate text-sm text-muted-foreground">{identity.secondary}</p>
+                                ) : null}
+                              </div>
+                            </div>
+
+                            <div className="grid gap-1.5">
+                              <Label htmlFor={selectId} className="text-xs font-medium text-muted-foreground sm:sr-only">
+                                {t('accessLevel')}
+                              </Label>
+                              <select
+                                id={selectId}
+                                value={accessLevel}
+                                disabled={busy || activeAction !== null}
+                                onChange={(event) => {
+                                  const nextAccessLevel = event.target.value as WorkspaceAccessLevel;
+                                  if (nextAccessLevel === accessLevel) return;
+                                  void updateMember(member.userId, getAccessInput(nextAccessLevel));
+                                }}
+                                className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                              >
+                                <option value="viewer">{t('accessLevels.viewer')}</option>
+                                <option value="editor">{t('accessLevels.editor')}</option>
+                                <option value="manager">{t('accessLevels.manager')}</option>
+                              </select>
+                            </div>
+
+                            <div className="flex sm:justify-end">
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="sm"
+                                className="text-destructive hover:bg-destructive/10 hover:text-destructive"
+                                disabled={busy || activeAction !== null}
+                                onClick={() => setRemoveTarget(member)}
+                              >
+                                {busy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Trash2 data-icon="inline-start" />}
+                                {t('removeMember')}
+                              </Button>
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </section>
+
+              <section className="rounded-lg border border-border bg-muted/20 p-4 sm:p-5" aria-labelledby="add-workspace-member-heading">
+                <div>
+                  <h3 id="add-workspace-member-heading" className="text-base font-semibold tracking-tight">{t('addMember')}</h3>
+                  <p className="mt-1 text-sm leading-5 text-muted-foreground">{t('addMemberDescription')}</p>
+                </div>
+
+                {availableCandidates.length === 0 ? (
+                  <p className="mt-4 rounded-md border border-dashed border-border bg-background/60 px-3 py-3 text-sm text-muted-foreground">
+                    {t('noCandidatesDescription')}
+                  </p>
+                ) : (
+                  <div className="mt-4 grid gap-4 sm:grid-cols-[minmax(0,1fr)_10.5rem_auto] sm:items-end">
+                    <div className="grid gap-2">
+                      <Label htmlFor="workspace-member-user">{t('selectUser')}</Label>
+                      <select
+                        id="workspace-member-user"
+                        value={selectedUserId}
+                        onChange={(event) => setSelectedUserId(event.target.value)}
+                        disabled={activeAction !== null}
+                        className="h-9 w-full min-w-0 rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="">{t('selectUser')}</option>
+                        {availableCandidates.map((candidate) => (
+                          <option key={candidate.userId} value={candidate.userId}>
+                            {getUserLabel(candidate)}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <div className="grid gap-2">
+                      <Label htmlFor="workspace-new-member-access">{t('accessLevel')}</Label>
+                      <select
+                        id="workspace-new-member-access"
+                        value={newAccessLevel}
+                        onChange={(event) => setNewAccessLevel(event.target.value as WorkspaceAccessLevel)}
+                        disabled={activeAction !== null}
+                        className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
+                      >
+                        <option value="viewer">{t('accessLevels.viewer')}</option>
+                        <option value="editor">{t('accessLevels.editor')}</option>
+                        <option value="manager">{t('accessLevels.manager')}</option>
+                      </select>
+                    </div>
+
+                    <Button
+                      type="button"
+                      className="sm:min-w-32"
+                      disabled={!selectedUserId || activeAction !== null}
+                      onClick={() => void updateMember(selectedUserId, getAccessInput(newAccessLevel))}
+                    >
+                      <UserPlus data-icon="inline-start" />
+                      {t('addMember')}
+                    </Button>
+                  </div>
+                )}
+              </section>
             </div>
           </div>
-        </div>
 
-        <DialogFooter className="border-t border-border px-5 py-4">
-          <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
-            {t('close')}
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+          <DialogFooter className="border-t border-border px-5 py-4 sm:px-6">
+            <Button type="button" variant="outline" onClick={() => handleOpenChange(false)}>
+              {t('close')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={Boolean(removeTarget)} onOpenChange={(nextOpen) => {
+        if (!nextOpen) setRemoveTarget(null);
+      }}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>{t('removeDialog.title')}</AlertDialogTitle>
+            <AlertDialogDescription>
+              {removeTarget ? t('removeDialog.description', { name: getMemberIdentity(removeTarget).primary }) : ''}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>{t('cancel')}</AlertDialogCancel>
+            <AlertDialogAction
+              className="bg-destructive text-white hover:bg-destructive/90"
+              onClick={() => {
+                if (removeTarget) void removeMember(removeTarget);
+              }}
+            >
+              {t('removeDialog.confirm')}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
