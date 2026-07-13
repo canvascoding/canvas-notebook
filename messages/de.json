@@ -1826,6 +1826,7 @@
       "workspace": "Workspace",
       "knowledge": "Knowledge",
       "userManagement": "Benutzer",
+      "dataMigration": "Datenmigration",
       "aiProviders": "KI-Provider & Modelle",
       "systemEmail": "System-E-Mail",
       "channels": "Channels",
@@ -1850,7 +1851,7 @@
       "descriptions": {
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
         "myAgentRuntime": "Persönlichen Provider, Modell und Intelligence je Workspace und Agent auswählen.",
-        "workspace": "Workspace-Speicher, Organisation und Migration verwalten.",
+        "workspace": "Persönlichen Workspace exportieren und Workspace-Zugriffe verwalten.",
         "knowledge": "Knowledge-Verarbeitung, Ressourcen und Feature-Gates konfigurieren.",
         "agentSettings": "Identität, Fähigkeiten, Tools und Laufzeitverhalten der Agents steuern.",
         "browser": "Browser-Laufzeit und Browser-Zugriff für Agents konfigurieren.",
@@ -1858,6 +1859,7 @@
         "integrations": "API-Schlüssel, verbundene Apps, E-Mail und MCP-Dienste einrichten.",
         "channels": "Externe Kommunikationskanäle und Benutzerverknüpfungen verwalten.",
         "userManagement": "Benutzerkonten, Rollen, Rechte und Zugriff verwalten.",
+        "dataMigration": "VM-Migrationen, Import-Prüfungen und Wiederherstellungen dieser Instanz verwalten.",
         "aiProviders": "Appweit verfügbare KI-Provider, Modelle und Standards administrieren.",
         "systemEmail": "Den systemweiten SMTP-Absender für App-Benachrichtigungen konfigurieren.",
         "usage": "Tokenverbrauch, Kosten und Laufzeitereignisse analysieren.",
@@ -2575,13 +2577,15 @@
     "workspacePanel": {
       "title": "Workspace",
       "description": "Den kompletten Workspace als ZIP-Archiv herunterladen.",
+      "personalExport": {
+        "title": "Mein persönlicher Workspace",
+        "description": "Exportiere ausschließlich die Dateien aus deinem persönlichen Workspace.",
+        "hint": "Team-, Projekt- und Organisations-Workspaces sowie Einstellungen und Zugangsdaten sind nicht enthalten."
+      },
       "loadingStats": "Lade Workspace-Statistiken...",
       "totalSize": "Gesamtgröße",
       "fileCount": "Dateien",
-      "downloadZip": "Als ZIP herunterladen",
-      "downloadDataZip": "Alle Daten als ZIP herunterladen",
-      "dataZipHint": "Der Daten-Export enthält das komplette /data-Verzeichnis inklusive Workspace, Agent-Dateien, Datenbank, Uploads und gespeicherten Secrets.",
-      "adminOnlyHint": "Vollständige Datenexports und Migrations-Restores erfordern explizite Organisations-Berechtigungen.",
+      "downloadZip": "Workspace als ZIP exportieren",
       "downloading": "Download wird vorbereitet...",
       "refresh": "Aktualisieren",
       "emptyWorkspace": "Dein Workspace ist leer.",
@@ -2738,7 +2742,7 @@
       "migration": {
         "title": "VM-Migration",
         "description": "Erstelle ein versioniertes Migrations-Bundle oder stelle eines in dieser VM wieder her.",
-        "adminOnly": "Du brauchst Export- oder Recovery-Berechtigung, um Migrations-Bundles zu erstellen oder Daten wiederherzustellen.",
+        "adminOnly": "Die VM-Migration ist nur für App-Administratoren verfügbar.",
         "exportTitle": "Bundle exportieren",
         "selectedComponents": "{count} Bausteine ausgewählt",
         "createExport": "Migrations-ZIP erstellen",

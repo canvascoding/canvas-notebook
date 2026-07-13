@@ -1827,6 +1827,7 @@
       "workspace": "Workspace",
       "knowledge": "Knowledge",
       "userManagement": "Users",
+      "dataMigration": "Data Migration",
       "aiProviders": "AI Providers & Models",
       "systemEmail": "System Email",
       "channels": "Channels",
@@ -1851,7 +1852,7 @@
       "descriptions": {
         "general": "Manage your account, language, and basic instance options.",
         "myAgentRuntime": "Choose your personal provider, model, and intelligence per workspace and agent.",
-        "workspace": "Manage workspace storage, organization, and migration.",
+        "workspace": "Export your personal workspace and manage workspace access.",
         "knowledge": "Configure knowledge processing, resources, and feature gates.",
         "agentSettings": "Control agent identity, capabilities, tools, and runtime behavior.",
         "browser": "Configure the browser runtime and browser access for agents.",
@@ -1859,6 +1860,7 @@
         "integrations": "Set up API keys, connected apps, email, and MCP services.",
         "channels": "Manage external communication channels and user bindings.",
         "userManagement": "Manage user accounts, roles, permissions, and access.",
+        "dataMigration": "Manage VM migrations, import checks, and restores for this instance.",
         "aiProviders": "Administer app-wide AI providers, models, and defaults.",
         "systemEmail": "Configure the instance-wide SMTP sender for app notifications.",
         "usage": "Analyze token usage, cost, and runtime events.",
@@ -2576,13 +2578,15 @@
     "workspacePanel": {
       "title": "Workspace",
       "description": "Download your entire workspace as a ZIP archive.",
+      "personalExport": {
+        "title": "My personal workspace",
+        "description": "Export only the files in your personal workspace.",
+        "hint": "Team, project, and organization workspaces, settings, and credentials are not included."
+      },
       "loadingStats": "Loading workspace stats...",
       "totalSize": "Total Size",
       "fileCount": "Files",
-      "downloadZip": "Download as ZIP",
-      "downloadDataZip": "Download all data as ZIP",
-      "dataZipHint": "The data export includes the complete /data directory, including workspace, agent files, database, uploads, and stored secrets.",
-      "adminOnlyHint": "Full data exports and migration restores require explicit organization permissions.",
+      "downloadZip": "Export workspace as ZIP",
       "downloading": "Preparing download...",
       "refresh": "Refresh",
       "emptyWorkspace": "Your workspace is empty.",
@@ -2739,7 +2743,7 @@
       "migration": {
         "title": "VM Migration",
         "description": "Create a versioned migration bundle or restore one into this VM.",
-        "adminOnly": "You need export or recovery permission to create migration bundles or restore data.",
+        "adminOnly": "VM migration is available only to app administrators.",
         "exportTitle": "Export bundle",
         "selectedComponents": "{count} components selected",
         "createExport": "Create migration ZIP",

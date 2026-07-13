@@ -183,6 +183,12 @@ async function main() {
   const memberRoute = await import('../app/api/workspaces/[id]/members/[userId]/route');
   const permissionsRoute = await import('../app/api/admin/organization/users/[userId]/permissions/route');
   const roleRoute = await import('../app/api/admin/organization/users/[userId]/role/route');
+  const downloadRoute = await import('../app/api/files/download/route');
+  const workspaceStatsRoute = await import('../app/api/files/workspace-stats/route');
+  const {
+    requireMigrationExportPermission,
+    requireMigrationRestorePermission,
+  } = await import('../app/lib/migration/auth');
 
   currentSession = null;
   const unauthorized = await workspacesRoute.GET(request('http://localhost/api/workspaces'));
@@ -335,6 +341,38 @@ async function main() {
   assert.equal(permissionPatch.success, true);
   assert.equal(permissionPatch.sessionsRevoked, 1);
   assert.equal(expectObject(expectObject(permissionPatch.user, 'patched user').permissions, 'patched permissions').canExport, true);
+
+  currentSession = {
+    user: {
+      id: 'member-user',
+      email: 'member@example.test',
+      name: 'Member User',
+      role: 'user',
+    },
+    session: {
+      id: 'member-route-test-session',
+    },
+  };
+  const deniedMigrationExport = await requireMigrationExportPermission(request('http://localhost/api/migration/export'));
+  assert.equal(deniedMigrationExport.ok, false);
+  if (!deniedMigrationExport.ok) assert.equal(deniedMigrationExport.response.status, 403);
+  const deniedMigrationRestore = await requireMigrationRestorePermission(request('http://localhost/api/migration/restore'));
+  assert.equal(deniedMigrationRestore.ok, false);
+  if (!deniedMigrationRestore.ok) assert.equal(deniedMigrationRestore.response.status, 403);
+
+  currentSession = {
+    user: {
+      id: 'owner-user',
+      email: 'owner@example.test',
+      name: 'Owner User',
+      role: 'admin',
+    },
+    session: {
+      id: 'route-test-session',
+    },
+  };
+  const allowedMigrationExport = await requireMigrationExportPermission(request('http://localhost/api/migration/export'));
+  assert.equal(allowedMigrationExport.ok, true);
 
   const invalidRoleResponse = await roleRoute.PATCH(
     jsonRequest('http://localhost/api/admin/organization/users/member-user/role', 'PATCH', { role: 'owner' }),
