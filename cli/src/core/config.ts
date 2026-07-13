@@ -10,6 +10,8 @@ const DEFAULT_POSTGRES_IMAGE = 'pgvector/pgvector:0.8.3-pg18';
 const DEFAULT_POSTGRES_DATA_VOLUME = 'canvas-postgres-data';
 const DEFAULT_POSTGRES_DB = 'canvas_notebook';
 const DEFAULT_POSTGRES_USER = 'canvas';
+const SECRET_FINGERPRINT_DOMAIN = 'canvas-notebook/secret-state/v1';
+const SCRYPT_OPTIONS = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
 
 export type CliDatabaseProvider = 'sqlite' | 'postgres';
 export type CliRuntimeMode = 'personal' | 'team';
@@ -442,7 +444,11 @@ export function isSensitiveEnvKey(key: string): boolean {
   return key.toUpperCase() === 'DATABASE_URL' || /(?:^|_)(?:PASSWORD|PASSWD|SECRET_KEY|SECRET|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY|LICENSE_CERT)$/iu.test(key);
 }
 
-export function configSecretState(config: CanvasCliConfig): Record<string, { present: boolean; sha256: string | null }> {
+function secretStateFingerprint(value: string, installDir: string): string {
+  return crypto.scryptSync(value, SECRET_FINGERPRINT_DOMAIN + '\0' + installDir, 32, SCRYPT_OPTIONS).toString('hex');
+}
+
+export function configSecretState(config: CanvasCliConfig): Record<string, { present: boolean; fingerprint: string | null }> {
   const mandatoryKeys = ['BETTER_AUTH_SECRET', 'CANVAS_INTERNAL_API_KEY', 'DATABASE_URL', 'CANVAS_POSTGRES_PASSWORD'];
   const keys = [...mandatoryKeys, ...Object.keys(config.env).filter((key) => isSensitiveEnvKey(key) && !mandatoryKeys.includes(key))];
   return Object.fromEntries(
@@ -450,7 +456,7 @@ export function configSecretState(config: CanvasCliConfig): Record<string, { pre
       const value = String(config.env[key] || '');
       return [key, {
         present: value.length > 0,
-        sha256: value.length > 0 ? crypto.createHash('sha256').update(value, 'utf8').digest('hex') : null,
+        fingerprint: value.length > 0 ? secretStateFingerprint(value, config.paths.installDir) : null,
       }];
     }),
   );

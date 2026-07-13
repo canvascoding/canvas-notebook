@@ -623,7 +623,7 @@ _database_reconcile_postgres_auth() (
     jq -nc \
       --arg databaseProvider "$provider" \
       --argjson appRestarted "$app_restarted" \
-      '{success:true, databaseProvider:$databaseProvider, postgresStarted:true, rolePasswordSynchronized:true, passwordVerified:true, envRendered:true, appRestarted:$appRestarted, healthy:true}'
+      '{success:true, databaseProvider:$databaseProvider, postgresStarted:true, roleAuthSynchronized:true, authVerified:true, envRendered:true, appRestarted:$appRestarted, healthy:true}'
   else
     ok "Postgres credentials reconciled, verified, and applied"
   fi

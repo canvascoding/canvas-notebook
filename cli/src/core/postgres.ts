@@ -6,8 +6,8 @@ import type { CanvasCliConfig, EnvValue } from './types';
 export interface PostgresPrepareResult {
   desired: boolean;
   containerId: string;
-  rolePasswordSynchronized: boolean;
-  passwordVerified: boolean;
+  roleAuthSynchronized: boolean;
+  authVerified: boolean;
   pgvectorEnsured: boolean;
 }
 
@@ -192,8 +192,8 @@ export async function preparePostgresManagedRuntime(params: {
     return {
       desired: false,
       containerId: '',
-      rolePasswordSynchronized: false,
-      passwordVerified: false,
+      roleAuthSynchronized: false,
+      authVerified: false,
       pgvectorEnsured: false,
     };
   }
@@ -228,8 +228,8 @@ export async function preparePostgresManagedRuntime(params: {
   return {
     desired: true,
     containerId,
-    rolePasswordSynchronized: reconcileAuth,
-    passwordVerified: true,
+    roleAuthSynchronized: reconcileAuth,
+    authVerified: true,
     pgvectorEnsured: shouldEnsurePgvector,
   };
 }

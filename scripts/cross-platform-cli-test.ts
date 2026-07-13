@@ -1,5 +1,4 @@
 import assert from 'node:assert/strict';
-import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { mkdtemp, readFile, readdir, rm, stat } from 'node:fs/promises';
@@ -223,6 +222,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     const composeDataDir = composePath('C:\\Users\\Test User\\Canvas Notebook\\data', 'windows');
     assert.equal(composeDataDir, 'C:/Users/Test User/Canvas Notebook/data');
     assert.match(composeEnvText(winConfig, composeDataDir), /DATA_DIR=C:\/Users\/Test User\/Canvas Notebook\/data/);
+    assert.equal(windowsTaskCommand('C:\\Canvas\\'), '"C:\\Canvas\\\\" start --no-banner');
     assert.equal(windowsTaskCommand('C:\\Program Files\\Canvas Notebook\\canvas-notebook.exe'), '"C:\\Program Files\\Canvas Notebook\\canvas-notebook.exe" start --no-banner');
   });
 
@@ -300,11 +300,13 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(redactedPostgres.env.DATABASE_URL, 'postgresql://***');
     assert.match(String(redactedPostgres.env.CANVAS_POSTGRES_PASSWORD), /^\w{4}\*\*\*$/u);
     const secretState = configSecretState(postgresConfig);
-    assert.deepEqual(secretState.CANVAS_POSTGRES_PASSWORD, {
-      present: true,
-      sha256: createHash('sha256').update(String(postgresConfig.env.CANVAS_POSTGRES_PASSWORD), 'utf8').digest('hex'),
-    });
-    assert.deepEqual(configSecretState(config).CANVAS_POSTGRES_PASSWORD, { present: false, sha256: null });
+    assert.equal(secretState.CANVAS_POSTGRES_PASSWORD.present, true);
+    assert.match(secretState.CANVAS_POSTGRES_PASSWORD.fingerprint || '', /^[a-f0-9]{64}$/u);
+    assert.equal(
+      configSecretState(postgresConfig).CANVAS_POSTGRES_PASSWORD.fingerprint,
+      secretState.CANVAS_POSTGRES_PASSWORD.fingerprint,
+    );
+    assert.deepEqual(configSecretState(config).CANVAS_POSTGRES_PASSWORD, { present: false, fingerprint: null });
     const dynamicSecretConfig = structuredClone(postgresConfig);
     dynamicSecretConfig.env.CANVAS_INSTANCE_TOKEN = 'dynamic-instance-token';
     dynamicSecretConfig.env.OPENAI_API_KEY = 'dynamic-openai-key';
@@ -316,14 +318,13 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
     assert.equal(redactConfig(dynamicSecretConfig).env.CANVAS_LICENSE_CERT, 'dyna***');
     assert.equal(redactConfig(dynamicSecretConfig).env.CUSTOM_SECRET_KEY, 'dyna***');
     assert.equal(redactConfig(dynamicSecretConfig).env.openai_api_key, 'lowe***');
-    assert.deepEqual(configSecretState(dynamicSecretConfig).CANVAS_INSTANCE_TOKEN, {
-      present: true,
-      sha256: createHash('sha256').update('dynamic-instance-token', 'utf8').digest('hex'),
-    });
-    assert.equal(configSecretState(dynamicSecretConfig).OPENAI_API_KEY.sha256, createHash('sha256').update('dynamic-openai-key', 'utf8').digest('hex'));
-    assert.equal(configSecretState(dynamicSecretConfig).CANVAS_LICENSE_CERT.sha256, createHash('sha256').update('dynamic-license-cert', 'utf8').digest('hex'));
-    assert.equal(configSecretState(dynamicSecretConfig).CUSTOM_SECRET_KEY.sha256, createHash('sha256').update('dynamic-secret-key', 'utf8').digest('hex'));
-    assert.equal(configSecretState(dynamicSecretConfig).openai_api_key.sha256, createHash('sha256').update('lowercase-openai-key', 'utf8').digest('hex'));
+    const dynamicSecretState = configSecretState(dynamicSecretConfig);
+    assert.equal(dynamicSecretState.CANVAS_INSTANCE_TOKEN.present, true);
+    assert.match(dynamicSecretState.CANVAS_INSTANCE_TOKEN.fingerprint || '', /^[a-f0-9]{64}$/u);
+    assert.match(dynamicSecretState.OPENAI_API_KEY.fingerprint || '', /^[a-f0-9]{64}$/u);
+    assert.match(dynamicSecretState.CANVAS_LICENSE_CERT.fingerprint || '', /^[a-f0-9]{64}$/u);
+    assert.match(dynamicSecretState.CUSTOM_SECRET_KEY.fingerprint || '', /^[a-f0-9]{64}$/u);
+    assert.match(dynamicSecretState.openai_api_key.fingerprint || '', /^[a-f0-9]{64}$/u);
 
     assert.equal(postgresRuntimeDesired(config), false);
     assert.equal(postgresRuntimeDesired(postgresConfig), true);
@@ -538,7 +539,7 @@ process.stderr.write('\\nSTDERR_TAIL_SENTINEL\\n');`,
   console.log('cross-platform CLI tests passed');
 }
 
-main().catch((error) => {
-  console.error(error);
+main().catch(() => {
+  console.error('cross-platform CLI tests failed');
   process.exitCode = 1;
 });
