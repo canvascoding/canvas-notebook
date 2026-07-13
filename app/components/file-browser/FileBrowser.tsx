@@ -139,9 +139,14 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   );
 
   const imagePreprocess = useImagePreprocess({
-    onUpload: async (files, convertParams, targetDir, pathMap) => {
+    onUpload: async (files, convertParams, targetDir, pathMap, options) => {
       const dir = targetDir || resolveTargetDir();
-      await uploadFile(files, dir, pathMap, convertParams);
+      await uploadFile(files, dir, pathMap, convertParams, options);
+    },
+    onBatchComplete: async (targetDir) => {
+      const dir = targetDir || resolveTargetDir();
+      await refreshDirectory(dir, true);
+      invalidateFileReferenceValidationCache();
     },
   });
 

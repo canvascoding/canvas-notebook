@@ -15,7 +15,9 @@ export interface UseImagePreprocessOptions {
     convertParams?: (ConvertParams | null)[],
     targetDir?: string,
     pathMap?: Map<File, string>,
+    options?: { refreshTree?: boolean },
   ) => Promise<void>;
+  onBatchComplete?: (targetDir?: string) => Promise<void>;
 }
 
 export interface ImagePreprocessDialogState {
@@ -59,7 +61,7 @@ function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Upload failed';
 }
 
-export function useImagePreprocess({ onUpload }: UseImagePreprocessOptions): UseImagePreprocessReturn {
+export function useImagePreprocess({ onUpload, onBatchComplete }: UseImagePreprocessOptions): UseImagePreprocessReturn {
   const [dialogState, setDialogState] = useState<ImagePreprocessDialogState | null>(null);
   const [isProcessing, setIsProcessing] = useState(false);
   const [progressItems, setProgressItems] = useState<ImagePreprocessProgressItem[]>([]);
@@ -113,6 +115,42 @@ export function useImagePreprocess({ onUpload }: UseImagePreprocessOptions): Use
     }
   }, [onUpload]);
 
+  const runPendingUploads = useCallback(async (
+    resolveConvertParam: (file: File, index: number) => ConvertParams | null,
+    skipHeic: boolean,
+  ) => {
+    let successfulUploads = 0;
+
+    for (let index = 0; index < pendingFiles.length; index += 1) {
+      const file = pendingFiles[index];
+      if (skipHeic && isHeicUploadFile(file)) {
+        updateProgressItem(index, 'skipped');
+        continue;
+      }
+
+      const convertParam = resolveConvertParam(file, index);
+      updateProgressItem(index, convertParam ? 'processing' : 'uploading');
+
+      try {
+        await onUpload(
+          [file],
+          convertParam ? [convertParam] : undefined,
+          pendingTargetDir,
+          filterPathMap([file], pendingPathMap),
+          { refreshTree: false },
+        );
+        successfulUploads += 1;
+        updateProgressItem(index, 'success');
+      } catch (error) {
+        updateProgressItem(index, 'error', getErrorMessage(error));
+      }
+    }
+
+    if (successfulUploads > 0) {
+      await onBatchComplete?.(pendingTargetDir);
+    }
+  }, [onBatchComplete, onUpload, pendingFiles, pendingPathMap, pendingTargetDir, updateProgressItem]);
+
   const handleConfirm = useCallback(async (convertParams: (ConvertParams | null)[]) => {
     setIsProcessing(true);
     setProgressItems(createProgressItems(pendingFiles));
@@ -122,51 +160,21 @@ export function useImagePreprocess({ onUpload }: UseImagePreprocessOptions): Use
         convertParamsByFile.set(file, convertParams[index] ?? null);
       });
 
-      for (let index = 0; index < pendingFiles.length; index += 1) {
-        const file = pendingFiles[index];
-        const convertParam = convertParamsByFile.get(file) ?? null;
-        updateProgressItem(index, convertParam ? 'processing' : 'uploading');
-
-        try {
-          await onUpload(
-            [file],
-            [convertParam],
-            pendingTargetDir,
-            filterPathMap([file], pendingPathMap),
-          );
-          updateProgressItem(index, 'success');
-        } catch (error) {
-          updateProgressItem(index, 'error', getErrorMessage(error));
-        }
-      }
+      await runPendingUploads((file) => convertParamsByFile.get(file) ?? null, false);
     } finally {
       setIsProcessing(false);
     }
-  }, [onUpload, pendingFiles, pendingPreprocessFiles, pendingTargetDir, pendingPathMap, updateProgressItem]);
+  }, [pendingFiles, pendingPreprocessFiles, runPendingUploads]);
 
   const handleSkip = useCallback(async () => {
     setIsProcessing(true);
     setProgressItems(createProgressItems(pendingFiles));
     try {
-      for (let index = 0; index < pendingFiles.length; index += 1) {
-        const file = pendingFiles[index];
-        if (isHeicUploadFile(file)) {
-          updateProgressItem(index, 'skipped');
-          continue;
-        }
-
-        updateProgressItem(index, 'uploading');
-        try {
-          await onUpload([file], undefined, pendingTargetDir, filterPathMap([file], pendingPathMap));
-          updateProgressItem(index, 'success');
-        } catch (error) {
-          updateProgressItem(index, 'error', getErrorMessage(error));
-        }
-      }
+      await runPendingUploads(() => null, true);
     } finally {
       setIsProcessing(false);
     }
-  }, [onUpload, pendingFiles, pendingTargetDir, pendingPathMap, updateProgressItem]);
+  }, [pendingFiles, runPendingUploads]);
 
   return {
     handleFiles,

@@ -335,7 +335,13 @@ interface FileStoreState {
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
   deletePath: (path: string | string[]) => Promise<DeleteWorkspacePathsResult>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean) => Promise<void>;
-  uploadFile: (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => Promise<void>;
+  uploadFile: (
+    file: File | File[],
+    targetDir: string,
+    pathMap?: Map<File, string>,
+    convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[],
+    options?: { refreshTree?: boolean },
+  ) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
   toggleDirectory: (path: string) => void;
   collapseAllDirectories: () => void;
@@ -1283,7 +1289,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     }
   },
 
-  uploadFile: async (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => {
+  uploadFile: async (
+    file: File | File[],
+    targetDir: string,
+    pathMap?: Map<File, string>,
+    convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[],
+    options = {},
+  ) => {
     set({ uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
@@ -1297,7 +1309,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         onProgress: (progress) => set({ uploadProgress: progress }),
       });
 
-      if (useWorkspaceStore.getState().activeWorkspaceId === workspaceId) {
+      if (
+        options.refreshTree !== false
+        && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
+      ) {
         await get().refreshDirectory(targetDir, true, workspaceId);
       }
     } catch (error) {
