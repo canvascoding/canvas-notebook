@@ -1,5 +1,7 @@
 import assert from 'node:assert/strict';
 
+import type { ClientWorkspaceSummary } from '../app/lib/workspaces/client-types';
+
 type Listener = (event: Event) => void;
 
 class MemoryStorage {
@@ -59,7 +61,7 @@ const listeners = new Map<string, Set<Listener>>();
   },
 };
 
-const personalWorkspace = {
+const personalWorkspace: ClientWorkspaceSummary = {
   id: 'ws_personal',
   type: 'personal',
   name: 'Personal Workspace',
@@ -78,7 +80,7 @@ const personalWorkspace = {
   },
 };
 
-const teamWorkspace = {
+const teamWorkspace: ClientWorkspaceSummary = {
   id: 'ws_team',
   type: 'team',
   name: 'Team Workspace',
@@ -97,7 +99,7 @@ const teamWorkspace = {
   },
 };
 
-const additionalPersonalWorkspace = {
+const additionalPersonalWorkspace: ClientWorkspaceSummary = {
   ...personalWorkspace,
   id: 'ws_personal_research',
   name: 'Research Workspace',
