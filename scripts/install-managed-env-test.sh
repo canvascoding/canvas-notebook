@@ -97,8 +97,14 @@ expected_host_owner="$(id -u):$(id -g)"
 [[ "$(env -u CANVAS_HOST_CODE_OWNER bash -c '. "$1"; _host_code_owner' _ "$ROOT_DIR/install/lib/shared/config_json.sh")" == "root:root" ]]
 printf 'managed env file modes and ownership verified\n'
 last_config_inode="$(stat -c '%i' "$CANVAS_CONFIG_JSON" 2>/dev/null || stat -f '%i' "$CANVAS_CONFIG_JSON")"
-[[ "$first_config_inode" != "$last_config_inode" ]]
-config_json_managed_by_control_plane
+if [[ "$first_config_inode" == "$last_config_inode" ]]; then
+  echo "atomic config write did not replace the config file (inode: ${first_config_inode})" >&2
+  exit 1
+fi
+if ! config_json_managed_by_control_plane; then
+  echo "managed install config was not marked as control-plane managed" >&2
+  exit 1
+fi
 if config_json_image_is_pinned "$(config_json_read image)"; then
   echo "managed install unexpectedly treated the mutable default image as pinned" >&2
   exit 1
