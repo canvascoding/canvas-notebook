@@ -153,6 +153,16 @@ async function main() {
     const defaultWorkspace = resolveDefaultWorkspaceContext(sqlite, { actor: ownerActor, organizationId });
     assert.equal(defaultWorkspace?.workspaceId, ownerWorkspaces[0].workspaceId);
 
+    sqlite.prepare('UPDATE canvas_workspaces SET display_name = ? WHERE id = ?').run('Private notes', ownerWorkspaces[0].workspaceId);
+    sqlite.prepare('UPDATE canvas_workspaces SET display_name = ? WHERE id = ?').run('Canvas Studio', ownerWorkspaces[1].workspaceId);
+    const renamedDefaults = ensureDefaultWorkspaceRecords(sqlite, {
+      organizationId,
+      userId: 'user-owner',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(renamedDefaults.personal.displayName, 'Private notes');
+    assert.equal(renamedDefaults.organization?.displayName, 'Canvas Studio');
+
     assert.throws(
       () => deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: ownerWorkspaces[0].workspaceId }),
       (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_IS_DEFAULT',
@@ -542,7 +552,7 @@ async function main() {
       teamFeaturesEnabled: true,
     });
     assert.equal(disabledEnsure.personal.status, 'disabled');
-    assert.equal(disabledEnsure.personal.displayName, 'Personal Workspace');
+    assert.equal(disabledEnsure.personal.displayName, 'Outdated Name');
     const memberWorkspacesAfterDisable = listWorkspaceContextsForUser(sqlite, { actor: memberActor, organizationId });
     assert.deepEqual(memberWorkspacesAfterDisable.map((workspace) => workspace.workspaceType), ['organization']);
 

@@ -385,14 +385,14 @@ function updateWorkspaceRoot(
   record: WorkspaceRecord,
   input: {
     rootRelativePath: string;
-    displayName: string;
+    displayName?: string;
     isDefault?: boolean;
   },
 ): WorkspaceRecord {
   const nextIsDefault = input.isDefault ?? record.isDefault;
   if (
     record.rootRelativePath === input.rootRelativePath &&
-    record.displayName === input.displayName &&
+    record.displayName === nextDisplayName &&
     record.isDefault === nextIsDefault
   ) {
     ensureWorkspaceDirectory(record);
@@ -403,7 +403,8 @@ function updateWorkspaceRoot(
     UPDATE canvas_workspaces
     SET root_relative_path = ?, display_name = ?, is_default = ?, updated_at = ?
     WHERE id = ?
-  `).run(input.rootRelativePath, input.displayName, nextIsDefault ? 1 : 0, Date.now(), record.id);
+  const nextDisplayName = input.displayName ?? record.displayName;
+  `).run(input.rootRelativePath, nextDisplayName, nextIsDefault ? 1 : 0, Date.now(), record.id);
 
   const updated = getWorkspaceById(sqlite, record.id);
   if (!updated) throw new Error('Workspace update failed');
@@ -432,7 +433,6 @@ export function ensureDefaultWorkspaceRecords(
         type: 'personal',
         ownerUserId: params.userId,
         rootRelativePath: personalRoot,
-        displayName: 'Personal Workspace',
         isDefault: true,
       });
 
@@ -453,7 +453,6 @@ export function ensureDefaultWorkspaceRecords(
         type: 'organization',
         ownerUserId: null,
         rootRelativePath: organizationRoot,
-        displayName: 'Organization Workspace',
         isDefault: true,
       });
 

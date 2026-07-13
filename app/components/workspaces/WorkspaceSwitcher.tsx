@@ -279,7 +279,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
             renderWorkspaceIcon(activeWorkspace, 'h-3.5 w-3.5 shrink-0')
           )}
           <span className={cn('min-w-0 truncate', isCompact && 'hidden sm:inline', isChatCompact && 'hidden md:inline')}>
-            {isCompact && activeWorkspace ? getWorkspaceKindLabel(activeWorkspace, kindLabels) : activeLabel}
+            {activeLabel}
           </span>
           {activeWorkspace && !activeWorkspace.permissions.canWrite ? <Lock className="h-3 w-3 shrink-0 text-amber-500" /> : null}
           <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />

@@ -531,7 +531,7 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
     const nextRootRelativePath = input.preserveExistingRoot ? existing.rootRelativePath : input.rootRelativePath;
     await database.run(
       'UPDATE canvas_workspaces SET root_relative_path = ?, display_name = ?, is_default = ?, updated_at = ? WHERE id = ?',
-      [nextRootRelativePath, input.displayName, input.isDefault ? 1 : 0, now, existing.id],
+      [nextRootRelativePath, existing.displayName || input.displayName, input.isDefault ? 1 : 0, now, existing.id],
     );
     ensureWorkspaceDirectory(nextRootRelativePath);
     return await getWorkspaceById(database, existing.id);
