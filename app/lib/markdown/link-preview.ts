@@ -3,6 +3,8 @@ import 'server-only';
 import dns from 'node:dns/promises';
 import net from 'node:net';
 
+import { requestPublicHttpUrl } from '@/app/lib/security/safe-external-fetch';
+
 const HTML_BYTE_LIMIT = 512 * 1024;
 const LINK_PREVIEW_TIMEOUT_MS = 4_000;
 const MAX_REDIRECTS = 3;
@@ -133,7 +135,12 @@ async function toSafeRemoteUrlString(url: URL): Promise<string> {
   return url.toString();
 }
 
-async function fetchWithValidatedRedirects(inputUrl: URL, init: RequestInit) {
+type LinkPreviewRequestOptions = {
+  headers: Record<string, string>;
+  method?: string;
+};
+
+async function fetchWithValidatedRedirects(inputUrl: URL, init: LinkPreviewRequestOptions) {
   let currentUrl = inputUrl;
 
   for (let redirectCount = 0; redirectCount <= MAX_REDIRECTS; redirectCount += 1) {
@@ -142,10 +149,10 @@ async function fetchWithValidatedRedirects(inputUrl: URL, init: RequestInit) {
     const controller = new AbortController();
     const timeout = setTimeout(() => controller.abort(), LINK_PREVIEW_TIMEOUT_MS);
     try {
-      const response = await fetch(safeUrl, {
+      const response = await requestPublicHttpUrl(new URL(safeUrl), {
         ...init,
-        redirect: 'manual',
         signal: controller.signal,
+        timeoutMs: LINK_PREVIEW_TIMEOUT_MS,
       });
 
       if (response.status >= 300 && response.status < 400) {
