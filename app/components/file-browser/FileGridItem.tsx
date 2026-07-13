@@ -12,6 +12,7 @@ import { Globe2, MoreVertical } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { formatCompactFileSize } from '@/app/lib/files/format';
+import { getParentDirectory } from '@/app/lib/files/path-utils';
 
 interface FileGridItemProps {
   node: FileNodeType;
@@ -19,6 +20,7 @@ interface FileGridItemProps {
   onOpenDirectory?: (path: string) => void;
   size?: 'sm' | 'lg';
   selectionOrder?: string[];
+  showPath?: boolean;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'heic', 'heif']);
@@ -29,7 +31,7 @@ function isImageNode(node: FileNodeType): boolean {
   return IMAGE_EXTENSIONS.has(ext);
 }
 
-function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm', selectionOrder }: FileGridItemProps) {
+function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm', selectionOrder, showPath = false }: FileGridItemProps) {
   const t = useTranslations('notebook');
   const {
     isSelected,
@@ -58,6 +60,7 @@ function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm',
     ? node.publicShare.shortUrl
     : node.publicShare?.publicUrl;
   const showImagePreview = isImageNode(node);
+  const parentPath = getParentDirectory(node.path);
 
   const [thumbnailError, setThumbnailError] = useState(false);
   const contextMenuJustOpened = useRef(false);
@@ -205,9 +208,14 @@ function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm',
         <p className={cn(
           'truncate text-xs sm:text-sm leading-tight',
           isRowActive ? 'font-medium text-foreground' : 'text-foreground/90'
-        )} title={node.name}>
+        )} title={showPath ? node.path : node.name}>
           {displayName}
         </p>
+        {showPath && (
+          <p className="mt-0.5 truncate text-[10px] text-muted-foreground" title={parentPath}>
+            {parentPath === '.' ? t('workspaceRoot') : parentPath}
+          </p>
+        )}
         {!isDirectory && node.size !== undefined && (
           <p className="truncate text-[10px] text-muted-foreground/70">
             {formatCompactFileSize(node.size)}

@@ -409,7 +409,13 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         )}
 
         <div className={cn('border-t border-border bg-muted/30', isFullscreen ? 'px-4 py-2' : 'px-3 py-2')}>
-          <FileBreadcrumb currentDirectory={currentDirectory} onNavigate={(dir) => void navigateToDirectory(dir)} />
+          <FileBreadcrumb
+            currentDirectory={currentDirectory}
+            onNavigate={(dir) => {
+              setSearchQuery('');
+              void navigateToDirectory(dir);
+            }}
+          />
         </div>
 
         <div className={cn('border-t border-border', isFullscreen ? 'px-4 py-2' : 'px-3 py-2')}>
@@ -418,9 +424,25 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
             <Input
               value={searchQuery}
               onChange={(event) => setSearchQuery(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === 'Escape' && searchQuery) setSearchQuery('');
+              }}
               placeholder={t('searchFiles')}
-              className="h-9 bg-background pl-8 placeholder:text-muted-foreground"
+              aria-label={t('searchFiles')}
+              className="h-9 bg-background pl-8 pr-9 placeholder:text-muted-foreground"
             />
+            {searchQuery && (
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-sm"
+                className="absolute right-1 top-0.5 h-8 w-8 text-muted-foreground hover:text-foreground"
+                onClick={() => setSearchQuery('')}
+                aria-label={t('clearSearch')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            )}
           </div>
           {uploadProgress !== null && (
             <div className="mt-2 h-1 w-full overflow-hidden bg-muted">

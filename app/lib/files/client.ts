@@ -91,6 +91,11 @@ export interface WorkspaceFileReferenceEntry {
   publicShare?: FileNode['publicShare'];
 }
 
+export interface WorkspaceFileReferencePage {
+  files: WorkspaceFileReferenceEntry[];
+  total: number;
+}
+
 export interface ListWorkspaceFileReferencesOptions {
   query?: string;
   limit?: number;
@@ -176,13 +181,13 @@ export async function readApiError(response: Response, fallbackMessage: string) 
   return `${fallbackMessage}${formatResponseStatus(response)}`;
 }
 
-export async function listWorkspaceFileReferences({
+export async function searchWorkspaceFileReferences({
   query = '',
   limit = 50,
   workspaceId,
   signal,
   cache = 'no-store',
-}: ListWorkspaceFileReferencesOptions): Promise<WorkspaceFileReferenceEntry[]> {
+}: ListWorkspaceFileReferencesOptions): Promise<WorkspaceFileReferencePage> {
   const normalizedWorkspaceId = workspaceId.trim();
   if (!normalizedWorkspaceId) {
     throw new Error('Workspace context is not ready');
@@ -208,14 +213,24 @@ export async function listWorkspaceFileReferences({
     );
   }
 
-  const payload = await readApiJson<{ success?: boolean; files?: WorkspaceFileReferenceEntry[]; error?: string }>(
+  const payload = await readApiJson<{ success?: boolean; files?: WorkspaceFileReferenceEntry[]; total?: number; error?: string }>(
     response,
     'Failed to search workspace files',
   );
   if (!payload.success || !Array.isArray(payload.files)) {
     throw new Error(payload.error || 'Failed to search workspace files');
   }
-  return payload.files;
+  return {
+    files: payload.files,
+    total: typeof payload.total === 'number' ? payload.total : payload.files.length,
+  };
+}
+
+export async function listWorkspaceFileReferences(
+  options: ListWorkspaceFileReferencesOptions,
+): Promise<WorkspaceFileReferenceEntry[]> {
+  const page = await searchWorkspaceFileReferences(options);
+  return page.files;
 }
 
 function apiErrorMessage(response: Response, fallbackMessage: string, payload: ApiErrorPayload) {

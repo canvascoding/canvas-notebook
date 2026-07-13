@@ -24,6 +24,8 @@ import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { getFileDisplayName } from '@/app/lib/files/display-name';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { formatCompactFileSize } from '@/app/lib/files/format';
+import { getParentDirectory } from '@/app/lib/files/path-utils';
+import { useTranslations } from 'next-intl';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -32,9 +34,11 @@ interface FileTreeNodeProps {
   onNavigateInto?: (node: FileNodeType) => void;
   onOpenFile?: (path: string) => void;
   selectionOrder?: string[];
+  showPath?: boolean;
 }
 
-function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile, selectionOrder }: FileTreeNodeProps) {
+function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile, selectionOrder, showPath = false }: FileTreeNodeProps) {
+  const t = useTranslations('notebook');
   const {
     isExpanded,
     isLoading,
@@ -65,6 +69,17 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
   const hasLoadedChildren = Array.isArray(node.children);
   const childNodes = node.children ?? [];
   const displayName = getFileDisplayName(node);
+  const parentPath = getParentDirectory(node.path);
+  const nameContent = (
+    <span className="min-w-0 flex-1">
+      <span className="block truncate text-sm" title={showPath ? node.path : node.name}>{displayName}</span>
+      {showPath && (
+        <span className="block truncate text-[10px] leading-tight text-muted-foreground" title={parentPath}>
+          {parentPath === '.' ? t('workspaceRoot') : parentPath}
+        </span>
+      )}
+    </span>
+  );
   const rowPaddingStyle = {
     '--tree-mobile-padding': `${8 + Math.min(depth, 4) * 12}px`,
   } as CSSProperties;
@@ -216,7 +231,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
               ) : (
                 getFileIcon()
               )}
-              <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>{displayName}</span>
+              {nameContent}
             </SidebarMenuButton>
             {isMultiSelectMode ? (
               <button
@@ -280,7 +295,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
                   />
                 )}
                 {getFileIcon()}
-                <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>{displayName}</span>
+                {nameContent}
               </SidebarMenuButton>
             </CollapsibleTrigger>
             {isMultiSelectMode ? (
@@ -336,6 +351,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
                     onNavigateInto={onNavigateInto}
                     onOpenFile={onOpenFile}
                     selectionOrder={selectionOrder}
+                    showPath={showPath}
                   />
                 ))
               )}
@@ -369,7 +385,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
         >
           <span className="h-4 w-4 shrink-0 pl-3 md:pl-6" />
           {getFileIcon()}
-          <span className="min-w-0 flex-1 truncate text-sm" title={node.name}>{displayName}</span>
+          {nameContent}
           {isPublic && (
             <Globe2
               className="h-3.5 w-3.5 shrink-0 text-amber-600"

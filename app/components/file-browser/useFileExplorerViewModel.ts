@@ -12,7 +12,7 @@ import {
 } from '@/app/lib/files/path-utils';
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
-import { listWorkspaceFileReferences } from '@/app/lib/files/client';
+import { searchWorkspaceFileReferences } from '@/app/lib/files/client';
 
 interface UseFileExplorerViewModelOptions {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -22,11 +22,13 @@ interface UseFileExplorerViewModelOptions {
 interface SearchState {
   query: string;
   results: FileNodeType[] | null;
+  total: number | null;
   isSearching: boolean;
   error: string | null;
 }
 
 const RESTORE_LOAD_CONCURRENCY = 4;
+const SEARCH_RESULT_LIMIT = 200;
 
 function filterTree(nodes: FileNodeType[], query: string): FileNodeType[] {
   if (!query) return nodes;
@@ -63,6 +65,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
   const [searchState, setSearchState] = useState<SearchState>({
     query: '',
     results: null,
+    total: null,
     isSearching: false,
     error: null,
   });
@@ -103,6 +106,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
   const normalizedSearchQuery = searchQuery.trim();
   const normalizedSearchQueryLower = normalizedSearchQuery.toLowerCase();
   const searchResults = searchState.query === normalizedSearchQuery ? searchState.results : null;
+  const searchResultTotal = searchState.query === normalizedSearchQuery ? searchState.total : null;
   const isSearching = searchState.query === normalizedSearchQuery && searchState.isSearching;
   const searchError = searchState.query === normalizedSearchQuery ? searchState.error : null;
 
@@ -251,16 +255,16 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
 
     const controller = new AbortController();
     const timeout = window.setTimeout(async () => {
-      setSearchState({ query, results: null, isSearching: true, error: null });
+      setSearchState({ query, results: null, total: null, isSearching: true, error: null });
       try {
         if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
-        const entries = await listWorkspaceFileReferences({
+        const result = await searchWorkspaceFileReferences({
           query,
-          limit: 200,
+          limit: SEARCH_RESULT_LIMIT,
           workspaceId: activeWorkspaceId,
           signal: controller.signal,
         });
-        const nextResults = entries.map((entry) => ({
+        const nextResults = result.files.map((entry) => ({
           name: entry.name,
           path: entry.path,
           type: entry.type,
@@ -268,12 +272,13 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
           publicShare: entry.publicShare,
         } satisfies FileNodeType));
         if (controller.signal.aborted) return;
-        setSearchState({ query, results: nextResults, isSearching: false, error: null });
+        setSearchState({ query, results: nextResults, total: result.total, isSearching: false, error: null });
       } catch (error) {
         if (!(error instanceof DOMException && error.name === 'AbortError')) {
           setSearchState({
             query,
             results: null,
+            total: null,
             isSearching: false,
             error: error instanceof Error ? error.message : 'Failed to search files',
           });
@@ -325,6 +330,8 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     [gridItems]
   );
 
+  const visibleSearchResultCount = normalizedSearchQuery ? searchResultNodes.length : 0;
+
   const listSelectionOrder = useMemo(
     () => filteredListChildren?.map((node) => node.path) ?? [],
     [filteredListChildren]
@@ -358,6 +365,8 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     normalizedSearchQuery,
     searchQuery,
     searchError,
+    searchResultTotal,
+    visibleSearchResultCount,
     searchResultNodes,
     treeError,
   };

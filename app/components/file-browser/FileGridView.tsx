@@ -44,8 +44,10 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     normalizedSearchQuery,
     searchQuery,
     searchError,
+    searchResultTotal,
     searchResultNodes,
     treeError,
+    visibleSearchResultCount,
   } = useFileExplorerViewModel({ containerRef, variant });
 
   const handleFileOpen = useCallback((path: string) => {
@@ -69,12 +71,14 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   }, [currentDirectory]);
 
   const handleOpenDirectory = useCallback(async (dirPath: string) => {
+    useFileStore.getState().setSearchQuery('');
     useFileStore.getState().setCurrentDirectory(dirPath);
     await loadSubdirectory(dirPath, true);
   }, [loadSubdirectory]);
 
   const handleNavigateInto = useCallback(async (node: FileNodeType) => {
     if (node.type === 'directory') {
+      useFileStore.getState().setSearchQuery('');
       useFileStore.getState().setCurrentDirectory(node.path);
       await loadSubdirectory(node.path, true);
     }
@@ -87,6 +91,19 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     const parentPath = parentSegments.length === 0 ? '.' : parentSegments.join('/');
     useFileStore.getState().setCurrentDirectory(parentPath);
   }, [currentDirectory]);
+
+  const searchSummary = normalizedSearchQuery ? (
+    <div className="mb-3 rounded-md border border-border/70 bg-muted/35 px-3 py-2" role="status" aria-live="polite">
+      <p className="truncate text-xs font-medium text-foreground">
+        {t('searchResultsSummary', { count: visibleSearchResultCount, query: searchQuery.trim() })}
+      </p>
+      {searchResultTotal !== null && searchResultTotal > visibleSearchResultCount && (
+        <p className="mt-0.5 text-[11px] text-muted-foreground">
+          {t('searchResultsLimited', { shown: visibleSearchResultCount, total: searchResultTotal })}
+        </p>
+      )}
+    </div>
+  ) : null;
 
   if (isLoadingTree || isRestoring) {
     return (
@@ -121,6 +138,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   if (browserMode === 'grid') {
     return (
       <div ref={containerRef} className="h-full overflow-y-auto p-3 md:p-4" onContextMenu={handleBackgroundContextMenu}>
+        {searchSummary}
         {gridItems.length === 0 && !searchQuery ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
             <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
@@ -140,6 +158,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
                 onOpenDirectory={handleOpenDirectory}
                 size={variant === 'fullscreen' ? 'lg' : 'sm'}
                 selectionOrder={gridSelectionOrder}
+                showPath={Boolean(normalizedSearchQuery)}
               />
             ))}
           </div>
@@ -170,6 +189,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   if (browserMode === 'list') {
     const listContent = (
       <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1} onContextMenu={handleBackgroundContextMenu}>
+        <div className="px-2">{searchSummary}</div>
         {currentDirectory !== '.' && (
           <button
             type="button"
@@ -197,6 +217,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
                     onNavigateInto={handleNavigateInto}
                     onOpenFile={handleFileOpen}
                     selectionOrder={listSelectionOrder}
+                    showPath={Boolean(normalizedSearchQuery)}
                   />
                 ))}
               </SidebarMenu>
@@ -237,12 +258,13 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   // tree view
   const treeContent = (
     <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1} onContextMenu={handleBackgroundContextMenu}>
+      <div className="px-2">{searchSummary}</div>
       <SidebarProvider>
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5">
               {searchResultNodes.map((node) => (
-                <FileTreeNode key={node.path} node={node} onOpenFile={handleFileOpen} />
+                <FileTreeNode key={node.path} node={node} onOpenFile={handleFileOpen} showPath={Boolean(normalizedSearchQuery)} />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>
