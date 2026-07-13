@@ -35,9 +35,19 @@ interface FileTreeNodeProps {
   onOpenFile?: (path: string) => void;
   selectionOrder?: string[];
   showPath?: boolean;
+  openOnSingleClick?: boolean;
 }
 
-function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNavigateInto, onOpenFile, selectionOrder, showPath = false }: FileTreeNodeProps) {
+function FileTreeNodeComponent({
+  node,
+  depth = 0,
+  browserMode = 'tree',
+  onNavigateInto,
+  onOpenFile,
+  selectionOrder,
+  showPath = false,
+  openOnSingleClick = true,
+}: FileTreeNodeProps) {
   const t = useTranslations('notebook');
   const {
     isExpanded,
@@ -104,8 +114,12 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
         event.stopPropagation();
       }
 
-      selectNode(node, ctrlOrMeta, shiftKey, selectionOrder);
+      const shouldOpen = browserMode === 'tree'
+        || openOnSingleClick
+        || window.matchMedia('(hover: none), (pointer: coarse), (max-width: 767px)').matches;
+      selectNode(node, ctrlOrMeta, shiftKey, selectionOrder, !shouldOpen);
       if (shouldOnlySelect) return;
+      if (!shouldOpen) return;
 
       if (node.type === 'file') {
         if (onOpenFile) {
@@ -115,7 +129,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
         }
       }
     },
-    [isMultiSelectMode, node, selectNode, selectionOrder, onOpenFile]
+    [browserMode, isMultiSelectMode, node, onOpenFile, openOnSingleClick, selectNode, selectionOrder]
   );
 
   const handleListDirectoryClick = useCallback(
@@ -131,11 +145,37 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
         return;
       }
 
+      const prefersDirectOpen = openOnSingleClick
+        || window.matchMedia('(hover: none), (pointer: coarse), (max-width: 767px)').matches;
+      if (!prefersDirectOpen) {
+        selectNode(node, false, false, selectionOrder, true);
+        return;
+      }
+
       selectNode(node, false, false, selectionOrder);
       onNavigateInto?.(node);
     },
-    [isMultiSelectMode, node, onNavigateInto, selectNode, selectionOrder]
+    [isMultiSelectMode, node, onNavigateInto, openOnSingleClick, selectNode, selectionOrder]
   );
+
+  const handleListDoubleClick = useCallback((event: React.MouseEvent) => {
+    const prefersDirectOpen = openOnSingleClick
+      || window.matchMedia('(hover: none), (pointer: coarse), (max-width: 767px)').matches;
+    if (
+      browserMode !== 'list'
+      || prefersDirectOpen
+      || isMultiSelectMode
+      || event.ctrlKey
+      || event.metaKey
+      || event.shiftKey
+    ) return;
+    if (isDirectory) {
+      onNavigateInto?.(node);
+      return;
+    }
+    if (onOpenFile) onOpenFile(node.path);
+    else void useFileStore.getState().revealAndLoadFile(node.path, { revealInTree: false });
+  }, [browserMode, isDirectory, isMultiSelectMode, node, onNavigateInto, onOpenFile, openOnSingleClick]);
 
   const handleCheckboxClick = (event: React.MouseEvent) => {
     event.stopPropagation();
@@ -225,6 +265,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
                 isRowActive && 'text-foreground'
               )}
               onClick={handleListDirectoryClick}
+              onDoubleClick={handleListDoubleClick}
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
@@ -352,6 +393,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
                     onOpenFile={onOpenFile}
                     selectionOrder={selectionOrder}
                     showPath={showPath}
+                    openOnSingleClick={openOnSingleClick}
                   />
                 ))
               )}
@@ -382,6 +424,7 @@ function FileTreeNodeComponent({ node, depth = 0, browserMode = 'tree', onNaviga
             isRowActive && 'text-foreground'
           )}
           onClick={handleSelect}
+          onDoubleClick={handleListDoubleClick}
         >
           <span className="h-4 w-4 shrink-0 pl-3 md:pl-6" />
           {getFileIcon()}

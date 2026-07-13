@@ -309,7 +309,13 @@ interface FileStoreState {
   refreshCurrentFileContent: (path: string) => Promise<CurrentFile | null>;
   revealAndLoadFile: (path: string, options?: OpenWorkspaceFileOptions) => Promise<OpenWorkspaceFileResult>;
   saveFile: (path: string, content: string, workspaceId?: string | null) => Promise<void>;
-  selectNode: (node: FileNode, ctrlOrMeta?: boolean, shiftKey?: boolean, selectionOrder?: string[]) => void;
+  selectNode: (
+    node: FileNode,
+    ctrlOrMeta?: boolean,
+    shiftKey?: boolean,
+    selectionOrder?: string[],
+    preserveCurrentDirectory?: boolean,
+  ) => void;
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
   deletePath: (path: string | string[]) => Promise<void>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean) => Promise<void>;
@@ -1062,7 +1068,13 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     });
   },
 
-  selectNode: (node: FileNode, ctrlOrMeta = false, shiftKey = false, selectionOrder?: string[]) => {
+  selectNode: (
+    node: FileNode,
+    ctrlOrMeta = false,
+    shiftKey = false,
+    selectionOrder?: string[],
+    preserveCurrentDirectory = false,
+  ) => {
     const { isMultiSelectMode, lastSelectedPath } = get();
 
     if (shiftKey && lastSelectedPath) {
@@ -1103,17 +1115,21 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           : node.path.includes('/')
             ? node.path.slice(0, node.path.lastIndexOf('/'))
             : '.';
-      set({
+      const selectionState = {
         selectedNode: { path: node.path, type: node.type, name: node.name },
-        currentDirectory: nextDir || '.',
         multiSelectPaths: new Set<string>(),
         isMultiSelectMode: false,
         lastSelectedPath: node.path,
-      });
-      persistExplorerState({
-        currentDirectory: nextDir || '.',
-        expandedDirs: get().expandedDirs,
-      });
+      };
+      if (preserveCurrentDirectory) {
+        set(selectionState);
+      } else {
+        set({ ...selectionState, currentDirectory: nextDir || '.' });
+        persistExplorerState({
+          currentDirectory: nextDir || '.',
+          expandedDirs: get().expandedDirs,
+        });
+      }
     }
   },
 

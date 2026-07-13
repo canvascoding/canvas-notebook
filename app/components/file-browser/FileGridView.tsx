@@ -159,6 +159,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
                 size={variant === 'fullscreen' ? 'lg' : 'sm'}
                 selectionOrder={gridSelectionOrder}
                 showPath={Boolean(normalizedSearchQuery)}
+                openOnSingleClick={variant !== 'fullscreen'}
               />
             ))}
           </div>
@@ -218,6 +219,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
                     onOpenFile={handleFileOpen}
                     selectionOrder={listSelectionOrder}
                     showPath={Boolean(normalizedSearchQuery)}
+                    openOnSingleClick={variant !== 'fullscreen'}
                   />
                 ))}
               </SidebarMenu>

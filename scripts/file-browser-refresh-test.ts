@@ -190,6 +190,16 @@ async function main() {
       'shift range selection should follow the visible view order when provided',
     );
 
+    const selectedDirectory: FileNode = { name: 'docs', path: 'docs', type: 'directory' };
+    useFileStore.setState({ currentDirectory: '.', selectedNode: null, isMultiSelectMode: false });
+    useFileStore.getState().selectNode(selectedDirectory, false, false, undefined, true);
+    assert.equal(useFileStore.getState().selectedNode?.path, 'docs');
+    assert.equal(
+      useFileStore.getState().currentDirectory,
+      '.',
+      'desktop selection should not navigate into a directory before it is opened',
+    );
+
     calls.length = 0;
     callDetails.length = 0;
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {

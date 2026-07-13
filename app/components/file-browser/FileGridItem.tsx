@@ -21,6 +21,7 @@ interface FileGridItemProps {
   size?: 'sm' | 'lg';
   selectionOrder?: string[];
   showPath?: boolean;
+  openOnSingleClick?: boolean;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'heic', 'heif']);
@@ -31,7 +32,15 @@ function isImageNode(node: FileNodeType): boolean {
   return IMAGE_EXTENSIONS.has(ext);
 }
 
-function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm', selectionOrder, showPath = false }: FileGridItemProps) {
+function FileGridItemComponent({
+  node,
+  onOpenFile,
+  onOpenDirectory,
+  size = 'sm',
+  selectionOrder,
+  showPath = false,
+  openOnSingleClick = true,
+}: FileGridItemProps) {
   const t = useTranslations('notebook');
   const {
     isSelected,
@@ -82,7 +91,10 @@ function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm',
         selectNode(node, false, false, selectionOrder);
         return;
       }
-      selectNode(node, false, false, selectionOrder);
+      const prefersDirectOpen = openOnSingleClick
+        || window.matchMedia('(hover: none), (pointer: coarse), (max-width: 767px)').matches;
+      selectNode(node, false, false, selectionOrder, !prefersDirectOpen);
+      if (!prefersDirectOpen) return;
       if (isDirectory) {
         if (onOpenDirectory) {
           onOpenDirectory(node.path);
@@ -93,8 +105,20 @@ function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm',
         onOpenFile(node.path);
       }
     },
-    [node, selectNode, selectionOrder, isMultiSelectMode, isDirectory, onOpenFile, onOpenDirectory, toggleDirectory]
+    [node, selectNode, selectionOrder, isMultiSelectMode, openOnSingleClick, isDirectory, onOpenFile, onOpenDirectory, toggleDirectory]
   );
+
+  const handleDoubleClick = useCallback((event: React.MouseEvent) => {
+    const prefersDirectOpen = openOnSingleClick
+      || window.matchMedia('(hover: none), (pointer: coarse), (max-width: 767px)').matches;
+    if (isMultiSelectMode || prefersDirectOpen || event.ctrlKey || event.metaKey || event.shiftKey) return;
+    if (isDirectory) {
+      if (onOpenDirectory) onOpenDirectory(node.path);
+      else toggleDirectory(node.path);
+      return;
+    }
+    onOpenFile(node.path);
+  }, [isDirectory, isMultiSelectMode, node.path, onOpenDirectory, onOpenFile, openOnSingleClick, toggleDirectory]);
 
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => {
@@ -135,6 +159,7 @@ function FileGridItemComponent({ node, onOpenFile, onOpenDirectory, size = 'sm',
         isPublic && 'border-amber-500 bg-amber-500/10 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)]'
       )}
       onClick={handleClick}
+      onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
     >
       <div className="flex w-full items-center justify-end gap-0.5 px-1.5 pt-1.5 min-h-[20px]">
