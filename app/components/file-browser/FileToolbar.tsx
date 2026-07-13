@@ -83,6 +83,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
     labelClassName = 'hidden sm:inline',
     triggerClassName,
     mainTooltipLabel,
+    touchSized = false,
   }: {
     align?: 'start' | 'center' | 'end';
     sideOffset?: number;
@@ -90,12 +91,13 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
     labelClassName?: string;
     triggerClassName?: string;
     mainTooltipLabel?: string;
+    touchSized?: boolean;
   } = {}) => {
     const mainButton = (
       <Button
         variant="ghost"
         size={showLabel ? 'sm' : 'icon-sm'}
-        className={cn(showLabel && 'h-8 gap-1.5 text-xs', 'rounded-r-none', triggerClassName)}
+        className={cn(showLabel && 'h-8 gap-1.5 text-xs', touchSized && 'h-10 w-10', 'rounded-r-none', triggerClassName)}
         onClick={handlers.onNewFolder}
         aria-label={t('newFolder')}
       >
@@ -119,7 +121,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
             <Button
               variant="ghost"
               size="icon-sm"
-              className="h-8 w-6 rounded-l-none border-l border-border/70 px-0"
+              className={cn('h-8 w-6 rounded-l-none border-l border-border/70 px-0', touchSized && 'h-10 w-8')}
               aria-label={t('create')}
             >
               <ChevronDown className="h-3.5 w-3.5" />
@@ -167,120 +169,146 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
     );
   };
 
-  if (isMobileSheet) {
-    return (
-      <div className="flex items-center gap-1 px-3 py-2">
-        {showWorkspaceSwitcher ? (
-          <WorkspaceSwitcher source="file-browser" variant="compact" className="mr-1 shrink-0" />
-        ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          onClick={handlers.onToggleMultiSelect}
-          aria-label={t('toggleSelectMode')}
-        >
-          <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
-          {isMultiSelectMode ? t('multiSelectDone') : t('select')}
-        </Button>
-        {renderCreateSplitButton()}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          onClick={handlers.onUpload}
-          aria-label={t('upload')}
-        >
-          <Upload className="h-4 w-4" />
-          {t('upload')}
-        </Button>
-        {renderDeleteButton({ showLabel: true })}
-        <DropdownMenu modal={false}>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon-sm" aria-label={t('moreActions')}>
-              <MoreHorizontal className="h-4 w-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="start" sideOffset={8} className="w-56">
-            {VIEW_MODES.map(({ mode, Icon, labelKey }) => (
-              <DropdownMenuItem
-                key={mode}
-                onSelect={() => setBrowserMode(mode)}
-                className={browserMode === mode ? 'font-semibold' : ''}
-              >
-                <Icon className="mr-2 h-4 w-4" />
-                {t(labelKey)}
+  const renderCompactToolbar = ({
+    className,
+    includeWorkspaceSwitcher,
+  }: {
+    className?: string;
+    includeWorkspaceSwitcher: boolean;
+  }) => (
+    <div className={cn('flex min-w-0 items-center gap-1 py-2', className)}>
+      {includeWorkspaceSwitcher && showWorkspaceSwitcher ? (
+        <WorkspaceSwitcher source="file-browser" variant="compact" className="mr-1 min-w-0 flex-1" />
+      ) : (
+        <div className="min-w-0 flex-1" />
+      )}
+      <Button
+        variant={isMultiSelectMode ? 'secondary' : 'ghost'}
+        size="icon-sm"
+        className="h-10 w-10 shrink-0"
+        onClick={handlers.onToggleMultiSelect}
+        aria-label={t('toggleSelectMode')}
+        aria-pressed={isMultiSelectMode}
+      >
+        <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
+      </Button>
+      {renderCreateSplitButton({ align: 'end', touchSized: true })}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        className="h-10 w-10 shrink-0"
+        onClick={handlers.onUpload}
+        aria-label={t('upload')}
+      >
+        <Upload className="h-4 w-4" />
+      </Button>
+      <DropdownMenu modal={false}>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="icon-sm" className="h-10 w-10 shrink-0" aria-label={t('moreActions')}>
+            <MoreHorizontal className="h-4 w-4" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" sideOffset={8} className="w-56">
+          {!isDeleteDisabled && (
+            <>
+              <DropdownMenuItem variant="destructive" onSelect={handlers.onDelete}>
+                <Trash2 className="mr-2 h-4 w-4" />
+                {t('delete')}
               </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onSelect={handlers.onRefresh} disabled={isRefreshing}>
-              <RefreshCw className={cn('mr-2 h-4 w-4', isRefreshing && 'animate-spin')} />
-              {t('refresh')}
+              <DropdownMenuSeparator />
+            </>
+          )}
+          {VIEW_MODES.map(({ mode, Icon, labelKey }) => (
+            <DropdownMenuItem
+              key={mode}
+              onSelect={() => setBrowserMode(mode)}
+              className={browserMode === mode ? 'font-semibold' : ''}
+              aria-current={browserMode === mode ? 'true' : undefined}
+            >
+              <Icon className="mr-2 h-4 w-4" />
+              {t(labelKey)}
             </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onSelect={handlers.onRefresh} disabled={isRefreshing}>
+            <RefreshCw className={cn('mr-2 h-4 w-4', isRefreshing && 'animate-spin')} />
+            {t('refresh')}
+          </DropdownMenuItem>
+          {browserMode === 'tree' && (
             <DropdownMenuItem onSelect={handlers.onCollapseAll}>
               <ChevronsDownUp className="mr-2 h-4 w-4" />
               {t('collapseAllFolders')}
             </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </div>
-    );
+          )}
+        </DropdownMenuContent>
+      </DropdownMenu>
+    </div>
+  );
+
+  if (isMobileSheet) {
+    return renderCompactToolbar({ className: 'px-3', includeWorkspaceSwitcher: true });
   }
 
   if (isFullscreen) {
     return (
-      <div className="flex flex-wrap items-center gap-2 px-4 py-2.5">
-        {showWorkspaceSwitcher ? (
-          <>
-            <WorkspaceSwitcher source="file-browser" variant="toolbar" className="shrink-0" />
-            <div className="hidden h-5 w-px bg-border sm:block" />
-          </>
-        ) : null}
-        <Button
-          variant="ghost"
-          size="sm"
-          className="h-8 gap-1.5 text-xs"
-          onClick={handlers.onToggleMultiSelect}
-          aria-label={t('toggleSelectMode')}
-        >
-          <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
-          <span className="hidden sm:inline">{isMultiSelectMode ? t('multiSelectDone') : t('select')}</span>
-        </Button>
-        {renderCreateSplitButton({ showLabel: true })}
-        <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onUpload} aria-label={t('upload')}>
-          <Upload className="h-4 w-4" />
-          <span className="hidden sm:inline">{t('upload')}</span>
-        </Button>
-        {renderDeleteButton({ showLabel: true })}
-
-        <div className="hidden h-5 w-px bg-border sm:block" />
-
-        <div className="flex items-center rounded-md border border-border p-0.5">
-          {VIEW_MODES.map(({ mode, Icon, labelKey }) => (
-            <Button
-              key={mode}
-              variant={browserMode === mode ? 'secondary' : 'ghost'}
-              size="icon-sm"
-              className="h-7 w-7 rounded-sm"
-              onClick={() => setBrowserMode(mode)}
-              aria-label={t(labelKey)}
-              aria-pressed={browserMode === mode}
-            >
-              <Icon className="h-3.5 w-3.5" />
-            </Button>
-          ))}
+      <>
+        <div className="md:hidden">
+          {renderCompactToolbar({ className: 'px-4', includeWorkspaceSwitcher: false })}
         </div>
-
-        {browserMode === 'tree' && (
-          <Button variant="ghost" size="icon-sm" onClick={handlers.onCollapseAll} aria-label={t('collapseAllFolders')}>
-            <ChevronsDownUp className="h-4 w-4" />
+        <div className="hidden flex-wrap items-center gap-2 px-4 py-2.5 md:flex">
+          {showWorkspaceSwitcher ? (
+            <>
+              <WorkspaceSwitcher source="file-browser" variant="toolbar" className="shrink-0" />
+              <div className="hidden h-5 w-px bg-border sm:block" />
+            </>
+          ) : null}
+          <Button
+            variant="ghost"
+            size="sm"
+            className="h-8 gap-1.5 text-xs"
+            onClick={handlers.onToggleMultiSelect}
+            aria-label={t('toggleSelectMode')}
+            aria-pressed={isMultiSelectMode}
+          >
+            <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
+            <span className="hidden sm:inline">{isMultiSelectMode ? t('multiSelectDone') : t('select')}</span>
           </Button>
-        )}
+          {renderCreateSplitButton({ showLabel: true })}
+          <Button variant="ghost" size="sm" className="h-8 gap-1.5 text-xs" onClick={handlers.onUpload} aria-label={t('upload')}>
+            <Upload className="h-4 w-4" />
+            <span className="hidden sm:inline">{t('upload')}</span>
+          </Button>
+          {renderDeleteButton({ showLabel: true })}
 
-        <Button variant="ghost" size="icon-sm" onClick={handlers.onRefresh} disabled={isRefreshing} aria-label={t('refresh')}>
-          <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
-        </Button>
-      </div>
+          <div className="hidden h-5 w-px bg-border sm:block" />
+
+          <div className="flex items-center rounded-md border border-border p-0.5">
+            {VIEW_MODES.map(({ mode, Icon, labelKey }) => (
+              <Button
+                key={mode}
+                variant={browserMode === mode ? 'secondary' : 'ghost'}
+                size="icon-sm"
+                className="h-7 w-7 rounded-sm"
+                onClick={() => setBrowserMode(mode)}
+                aria-label={t(labelKey)}
+                aria-pressed={browserMode === mode}
+              >
+                <Icon className="h-3.5 w-3.5" />
+              </Button>
+            ))}
+          </div>
+
+          {browserMode === 'tree' && (
+            <Button variant="ghost" size="icon-sm" onClick={handlers.onCollapseAll} aria-label={t('collapseAllFolders')}>
+              <ChevronsDownUp className="h-4 w-4" />
+            </Button>
+          )}
+
+          <Button variant="ghost" size="icon-sm" onClick={handlers.onRefresh} disabled={isRefreshing} aria-label={t('refresh')}>
+            <RefreshCw className={cn('h-4 w-4', isRefreshing && 'animate-spin')} />
+          </Button>
+        </div>
+      </>
     );
   }
 
@@ -297,7 +325,13 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
         <div className="flex min-w-0 flex-1 items-center justify-start gap-1">
           <Tooltip>
             <TooltipTrigger asChild>
-              <Button variant="ghost" size="icon-sm" onClick={handlers.onToggleMultiSelect} aria-label={t('toggleSelectMode')}>
+              <Button
+                variant="ghost"
+                size="icon-sm"
+                onClick={handlers.onToggleMultiSelect}
+                aria-label={t('toggleSelectMode')}
+                aria-pressed={isMultiSelectMode}
+              >
                 <CheckSquare className={cn('h-4 w-4', isMultiSelectMode && 'text-primary')} />
               </Button>
             </TooltipTrigger>
