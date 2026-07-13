@@ -45,6 +45,15 @@ export class WorkspaceFileApiError extends Error {
 export interface DeleteWorkspacePathsResult {
   deleted?: string[];
   failed?: Array<{ path: string; error: string }>;
+  trashEntries?: WorkspaceTrashEntryReference[];
+}
+
+export interface WorkspaceTrashEntryReference {
+  id: string;
+  originalPath: string;
+  itemType: 'file' | 'directory' | 'other';
+  sizeBytes: number;
+  expiresAt: string;
 }
 
 export interface CopyWorkspacePathsResult {
@@ -365,6 +374,28 @@ export async function deleteWorkspacePaths(paths: string[]): Promise<DeleteWorks
   }
 
   return readApiJson<DeleteWorkspacePathsResult>(response, 'Failed to delete paths');
+}
+
+export async function restoreWorkspaceTrashEntry(
+  entryId: string,
+  workspaceId?: string | null,
+): Promise<WorkspaceTrashEntryReference> {
+  const response = await fetch(`/api/files/trash/${encodeURIComponent(entryId)}/restore`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders(workspaceId) },
+    credentials: 'include',
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, 'Failed to restore trashed item'));
+  }
+
+  const payload = await readApiJson<{ restored?: WorkspaceTrashEntryReference }>(
+    response,
+    'Failed to restore trashed item',
+  );
+  if (!payload.restored) throw new Error('Failed to restore trashed item');
+  return payload.restored;
 }
 
 export async function renameWorkspacePath(oldPath: string, newPath: string, overwrite = false): Promise<void> {

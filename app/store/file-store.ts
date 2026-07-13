@@ -33,6 +33,7 @@ import {
 } from '@/app/lib/files/tree-utils';
 import {
   type CopyWorkspacePathsResult,
+  type DeleteWorkspacePathsResult,
   copyWorkspacePaths,
   createWorkspacePath,
   deleteWorkspacePaths,
@@ -317,7 +318,7 @@ interface FileStoreState {
     preserveCurrentDirectory?: boolean,
   ) => void;
   createPath: (path: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
-  deletePath: (path: string | string[]) => Promise<void>;
+  deletePath: (path: string | string[]) => Promise<DeleteWorkspacePathsResult>;
   renamePath: (oldPath: string, newPath: string, overwrite?: boolean, refreshTree?: boolean) => Promise<void>;
   uploadFile: (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => Promise<void>;
   downloadFile: (path: string) => Promise<void>;
@@ -1034,7 +1035,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         workspaceId,
       });
 
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return result;
 
       // Update current file if it's the same path
       const { currentFile } = get();
@@ -1203,6 +1204,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       for (const parentDir of parentDirs) {
         await get().refreshDirectory(parentDir, true, workspaceId);
       }
+      return result;
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Failed to delete path';
       set({ treeError: message });

@@ -66,6 +66,7 @@ import { useCreateItemDialog } from './useCreateItemDialog';
 import { WorkspaceDestinationPicker } from '@/app/components/workspaces/WorkspaceDestinationPicker';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { useShallow } from 'zustand/react/shallow';
+import { useTrashUndo } from './useTrashUndo';
 
 type DropdownMenuContentProps = ComponentProps<typeof DropdownMenuContent>;
 
@@ -116,7 +117,6 @@ export function FileActionsDropdown({
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
 
   const {
-    deletePath,
     renamePath,
     downloadFile,
     fileTree,
@@ -130,7 +130,6 @@ export function FileActionsDropdown({
     setBulkMoveOpen,
     refreshDirectory,
   } = useFileStore(useShallow((state) => ({
-    deletePath: state.deletePath,
     renamePath: state.renamePath,
     downloadFile: state.downloadFile,
     fileTree: state.fileTree,
@@ -144,6 +143,7 @@ export function FileActionsDropdown({
     setBulkMoveOpen: state.setBulkMoveOpen,
     refreshDirectory: state.refreshDirectory,
   })));
+  const deleteWithUndo = useTrashUndo();
 
   const parentPath = useMemo(() => {
     if (!node) return '.';
@@ -305,7 +305,7 @@ export function FileActionsDropdown({
 
   const handleConfirmDelete = async () => {
     if (!node) return;
-    await deletePath(node.path);
+    await deleteWithUndo(node.path);
     onAfterDelete?.(node);
   };
 

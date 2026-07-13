@@ -31,6 +31,7 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { useEditorStore } from '@/app/store/editor-store';
 import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
 import { useShallow } from 'zustand/react/shallow';
+import { useTrashUndo } from './useTrashUndo';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
@@ -67,7 +68,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshDirectory,
     refreshVisibleTree,
     selectedNode,
-    deletePath,
     uploadFile,
     uploadProgress,
     currentDirectory,
@@ -88,7 +88,6 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshDirectory: state.refreshDirectory,
     refreshVisibleTree: state.refreshVisibleTree,
     selectedNode: state.selectedNode,
-    deletePath: state.deletePath,
     uploadFile: state.uploadFile,
     uploadProgress: state.uploadProgress,
     currentDirectory: state.currentDirectory,
@@ -107,6 +106,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     refreshCurrentFileContent: state.refreshCurrentFileContent,
   })));
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const deleteWithUndo = useTrashUndo();
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -212,7 +212,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   };
 
   const handleConfirmDelete = async () => {
-    await deletePath(deletePaths);
+    await deleteWithUndo(deletePaths);
     if (deleteSkippedCount > 0) toast.info(t('protectedFoldersSkipped', { count: deleteSkippedCount }));
     clearMultiSelect();
   };
