@@ -254,10 +254,12 @@ export const fileRevisions = sqliteTable("file_revisions", {
   createdByActorType: text("created_by_actor_type").notNull().default("user"),
   sourceSessionId: text("source_session_id"),
   baseRevisionId: text("base_revision_id"),
+  lineageId: text("lineage_id"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   workspacePathCreatedIdx: index("idx_file_revisions_workspace_path_created").on(table.workspaceId, table.path, table.createdAt),
   workspacePathHashIdx: index("idx_file_revisions_workspace_path_hash").on(table.workspaceId, table.path, table.contentHash),
+  lineageCreatedIdx: index("idx_file_revisions_lineage_created").on(table.lineageId, table.createdAt),
   orgCreatedIdx: index("idx_file_revisions_org_created").on(table.organizationId, table.createdAt),
   projectCreatedIdx: index("idx_file_revisions_project_created").on(table.projectId, table.createdAt),
   actorCreatedIdx: index("idx_file_revisions_actor_created").on(table.createdByUserId, table.createdAt),

@@ -3,6 +3,7 @@ import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { restoreWorkspaceTrashEntry } from '@/app/lib/filesystem/workspace-trash';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
+import { restoreFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -36,6 +37,11 @@ export async function POST(
       workspace: workspaceResult.workspace,
       entryId,
       restoredByUserId: workspaceResult.session.user.id,
+    });
+    restoreFileCollaborationPath({
+      workspace: workspaceResult.workspace,
+      path: restored.originalPath,
+      trashEntryId: restored.id,
     });
     const fileOptions = workspaceFileOptions(workspaceResult.workspace);
     invalidateWorkspaceFileViews({

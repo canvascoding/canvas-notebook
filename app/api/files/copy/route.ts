@@ -4,6 +4,7 @@ import { auth } from '@/app/lib/auth';
 import { batchCopyBetweenWorkspaces } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
+import { initializeCopiedFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -93,6 +94,10 @@ export async function POST(request: NextRequest) {
     const result = await batchCopyBetweenWorkspaces(copySources, destDir, overwrite, renameOnCollision, {
       source: sourceFileOptions,
       target: targetFileOptions,
+    });
+    initializeCopiedFileCollaborationPaths({
+      workspace: targetWorkspaceResult.workspace,
+      paths: result.copied,
     });
 
     invalidateWorkspaceFileViews({

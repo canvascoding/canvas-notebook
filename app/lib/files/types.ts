@@ -33,6 +33,7 @@ export type FileCollaborationStrategy = 'crdt_text' | 'revision_check' | 'exclus
 
 export interface FileRevisionRecord {
   id: string;
+  lineageId?: string | null;
   contentHash: string;
   baseRevisionId: string | null;
   createdAt: number;

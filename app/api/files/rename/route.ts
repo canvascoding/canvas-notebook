@@ -3,6 +3,7 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { renameFile, checkRenameConflict, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { syncPublicSharesAfterMove } from '@/app/lib/public-sharing/public-file-shares';
+import { moveFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -51,6 +52,11 @@ export async function POST(request: NextRequest) {
       const conflictError = conflict as RenameConflictError;
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
         await renameFile(oldPath, newPath, true, fileOptions);
+        moveFileCollaborationPath({
+          workspace: workspaceResult.workspace,
+          oldPath,
+          newPath,
+        });
         await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
         invalidateWorkspaceFileViews({
           fileOptions,
@@ -90,6 +96,11 @@ export async function POST(request: NextRequest) {
     }
 
     await renameFile(oldPath, newPath, overwrite, fileOptions);
+    moveFileCollaborationPath({
+      workspace: workspaceResult.workspace,
+      oldPath,
+      newPath,
+    });
     await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
     invalidateWorkspaceFileViews({
       fileOptions,

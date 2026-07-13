@@ -50,12 +50,15 @@ async function main() {
     const {
       FileCollaborationPolicyError,
       acquireFileLock,
+      archiveFileCollaborationPaths,
       assertFileCollaborationWriteAllowed,
       detectFileCollaborationStrategy,
       ensureFileRevisionForCurrentContent,
       expireActiveFileLocks,
       getFileCollaborationState,
+      moveFileCollaborationPath,
       releaseFileLock,
+      restoreFileCollaborationPath,
     } = await import('../app/lib/files/collaboration-policy');
     const { writeFile } = await import('../app/lib/filesystem/workspace-files');
     const { sha256Buffer } = await import('../app/lib/files/revision-guard');
@@ -123,6 +126,91 @@ async function main() {
       }),
       (error) => error instanceof FileCollaborationPolicyError && error.code === 'FILE_REVISION_ID_CONFLICT',
     );
+
+    // Regression: a conflict copy can replace a deleted original at the same
+    // path without inheriting that file's revision stream or active lock.
+    const originalLock = acquireFileLock({
+      workspace,
+      path: 'notes.md',
+      lockedByUserId: 'user-a',
+      lockType: 'edit',
+      ttlMs: 60_000,
+      baseRevisionId: secondRevision.id,
+      nowMs: 10_005,
+    });
+    assert.equal(originalLock.lock.status, 'active');
+
+    const conflictCopyBuffer = Buffer.from('# Local conflict copy\n');
+    const conflictCopyRevision = ensureFileRevisionForCurrentContent({
+      workspace,
+      path: 'notes.local-copy.md',
+      contentHash: sha256Buffer(conflictCopyBuffer),
+      sizeBytes: conflictCopyBuffer.length,
+      actorUserId: 'user-b',
+      actorType: 'user',
+      nowMs: 10_006,
+    });
+    assert.notEqual(conflictCopyRevision.lineageId, secondRevision.lineageId);
+
+    archiveFileCollaborationPaths({
+      workspace,
+      paths: [{ path: 'notes.md', trashEntryId: 'trash-original-notes' }],
+      nowMs: 10_007,
+    });
+    moveFileCollaborationPath({
+      workspace,
+      oldPath: 'notes.local-copy.md',
+      newPath: 'notes.md',
+      nowMs: 10_008,
+    });
+
+    const replacedState = getFileCollaborationState({
+      workspace,
+      path: 'notes.md',
+      nowMs: 10_009,
+    });
+    assert.equal(replacedState.latestRevision?.id, conflictCopyRevision.id);
+    assert.equal(replacedState.activeLock, null);
+    assert.doesNotThrow(() => assertFileCollaborationWriteAllowed({
+      workspace,
+      path: 'notes.md',
+      actorUserId: 'user-b',
+      baseRevisionId: conflictCopyRevision.id,
+      nowMs: 10_010,
+    }));
+
+    const continuedCopyBuffer = Buffer.from('# Local conflict copy, continued\n');
+    const continuedCopyRevision = ensureFileRevisionForCurrentContent({
+      workspace,
+      path: 'notes.md',
+      contentHash: sha256Buffer(continuedCopyBuffer),
+      sizeBytes: continuedCopyBuffer.length,
+      actorUserId: 'user-b',
+      actorType: 'user',
+      baseRevisionId: conflictCopyRevision.id,
+      nowMs: 10_011,
+    });
+    assert.equal(continuedCopyRevision.baseRevisionId, conflictCopyRevision.id);
+    assert.equal(continuedCopyRevision.lineageId, conflictCopyRevision.lineageId);
+
+    archiveFileCollaborationPaths({
+      workspace,
+      paths: [{ path: 'notes.md', trashEntryId: 'trash-conflict-copy-notes' }],
+      nowMs: 10_012,
+    });
+    restoreFileCollaborationPath({
+      workspace,
+      path: 'notes.md',
+      trashEntryId: 'trash-original-notes',
+      nowMs: 10_013,
+    });
+    const restoredState = getFileCollaborationState({
+      workspace,
+      path: 'notes.md',
+      nowMs: 10_014,
+    });
+    assert.equal(restoredState.latestRevision?.id, secondRevision.id);
+    assert.equal(restoredState.activeLock, null);
 
     await writeFile('brief.pdf', Buffer.from('%PDF-locked\n'), { workspace });
     const pdfBuffer = Buffer.from('%PDF-locked\n');

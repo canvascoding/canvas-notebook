@@ -14,6 +14,7 @@ export type FileLockStatus = 'active' | 'released' | 'expired' | 'force_released
 
 export interface FileRevisionRecord {
   id: string;
+  lineageId: string | null;
   organizationId: string | null;
   customerId: string | null;
   projectId: string | null;
@@ -148,6 +149,7 @@ type Sqlite = InstanceType<typeof Database>;
 
 type FileRevisionRow = {
   id: string;
+  lineage_id: string | null;
   organization_id: string | null;
   customer_id: string | null;
   project_id: string | null;
@@ -161,6 +163,28 @@ type FileRevisionRow = {
   source_session_id: string | null;
   base_revision_id: string | null;
   created_at: number;
+};
+
+type FileCollaborationLineageRow = {
+  id: string;
+  workspace_id: string;
+  workspace_type: WorkspaceContext['workspaceType'];
+  path: string;
+  status: 'active' | 'archived';
+  created_at: number;
+  archived_at: number | null;
+  trash_entry_id: string | null;
+};
+
+type FileCollaborationLineage = {
+  id: string;
+  workspaceId: string;
+  workspaceType: WorkspaceContext['workspaceType'];
+  path: string;
+  status: 'active' | 'archived';
+  createdAt: number;
+  archivedAt: number | null;
+  trashEntryId: string | null;
 };
 
 type FileLockRow = {
@@ -226,6 +250,7 @@ function mapRevision(row: FileRevisionRow | undefined): FileRevisionRecord | nul
   if (!row) return null;
   return {
     id: row.id,
+    lineageId: row.lineage_id,
     organizationId: row.organization_id,
     customerId: row.customer_id,
     projectId: row.project_id,
@@ -239,6 +264,20 @@ function mapRevision(row: FileRevisionRow | undefined): FileRevisionRecord | nul
     sourceSessionId: row.source_session_id,
     baseRevisionId: row.base_revision_id,
     createdAt: row.created_at,
+  };
+}
+
+function mapLineage(row: FileCollaborationLineageRow | undefined): FileCollaborationLineage | null {
+  if (!row) return null;
+  return {
+    id: row.id,
+    workspaceId: row.workspace_id,
+    workspaceType: row.workspace_type,
+    path: row.path,
+    status: row.status,
+    createdAt: row.created_at,
+    archivedAt: row.archived_at,
+    trashEntryId: row.trash_entry_id,
   };
 }
 
@@ -308,15 +347,150 @@ function expireStaleLocks(sqlite: Sqlite, workspaceId: string, filePath: string,
   `).run(nowMs, workspaceId, filePath, nowMs);
 }
 
-function getLatestRevision(sqlite: Sqlite, workspaceId: string, filePath: string): FileRevisionRecord | null {
+function getLatestRevisionForLineage(sqlite: Sqlite, lineageId: string): FileRevisionRecord | null {
   const row = sqlite.prepare(`
     SELECT *
     FROM file_revisions
-    WHERE workspace_id = ? AND path = ?
+    WHERE lineage_id = ?
+    ORDER BY created_at DESC, rowid DESC
+    LIMIT 1
+  `).get(lineageId) as FileRevisionRow | undefined;
+  return mapRevision(row);
+}
+
+function getActiveLineage(sqlite: Sqlite, workspaceId: string, filePath: string): FileCollaborationLineage | null {
+  const row = sqlite.prepare(`
+    SELECT *
+    FROM file_collaboration_lineages
+    WHERE workspace_id = ? AND path = ? AND status = 'active'
+    LIMIT 1
+  `).get(workspaceId, filePath) as FileCollaborationLineageRow | undefined;
+  return mapLineage(row);
+}
+
+function createActiveLineage(
+  sqlite: Sqlite,
+  workspace: WorkspaceContext,
+  filePath: string,
+  nowMs: number,
+): FileCollaborationLineage {
+  const id = `file-lineage-${randomUUID()}`;
+  sqlite.prepare(`
+    INSERT INTO file_collaboration_lineages (
+      id, workspace_id, workspace_type, path, status, created_at, archived_at, trash_entry_id
+    )
+    VALUES (?, ?, ?, ?, 'active', ?, NULL, NULL)
+  `).run(id, workspace.workspaceId, workspace.workspaceType, filePath, nowMs);
+
+  const lineage = getActiveLineage(sqlite, workspace.workspaceId, filePath);
+  if (!lineage) throw new Error(`Failed to create collaboration lineage for ${filePath}.`);
+  return lineage;
+}
+
+function ensureActiveLineage(
+  sqlite: Sqlite,
+  workspace: WorkspaceContext,
+  filePath: string,
+  nowMs: number,
+): FileCollaborationLineage {
+  const existing = getActiveLineage(sqlite, workspace.workspaceId, filePath);
+  if (existing) return existing;
+
+  const lineage = createActiveLineage(sqlite, workspace, filePath, nowMs);
+  // Adopt pre-lineage records exactly once. Their path was the only identity
+  // available before file lineages were introduced.
+  sqlite.prepare(`
+    UPDATE file_revisions
+    SET lineage_id = ?
+    WHERE workspace_id = ? AND path = ? AND lineage_id IS NULL
+  `).run(lineage.id, workspace.workspaceId, filePath);
+  return lineage;
+}
+
+function getLatestRevision(sqlite: Sqlite, workspaceId: string, filePath: string): FileRevisionRecord | null {
+  const lineage = getActiveLineage(sqlite, workspaceId, filePath);
+  if (lineage) return getLatestRevisionForLineage(sqlite, lineage.id);
+  // Read-only callers retain backwards compatibility until the first mutation
+  // materializes an active lineage for legacy revision rows.
+  const row = sqlite.prepare(`
+    SELECT *
+    FROM file_revisions
+    WHERE workspace_id = ? AND path = ? AND lineage_id IS NULL
     ORDER BY created_at DESC, rowid DESC
     LIMIT 1
   `).get(workspaceId, filePath) as FileRevisionRow | undefined;
   return mapRevision(row);
+}
+
+function pathScopeCondition(filePath: string): { exact: string; descendant: string } {
+  return { exact: filePath, descendant: `${filePath}/%` };
+}
+
+function materializeLegacyLineagesInPathScope(
+  sqlite: Sqlite,
+  workspace: WorkspaceContext,
+  filePath: string,
+  nowMs: number,
+): void {
+  const scope = pathScopeCondition(filePath);
+  const rows = sqlite.prepare(`
+    SELECT DISTINCT path
+    FROM file_revisions
+    WHERE workspace_id = ?
+      AND lineage_id IS NULL
+      AND (path = ? OR path LIKE ?)
+  `).all(workspace.workspaceId, scope.exact, scope.descendant) as Array<{ path: string }>;
+  for (const row of rows) {
+    ensureActiveLineage(sqlite, workspace, row.path, nowMs);
+  }
+}
+
+function archivePathScope(
+  sqlite: Sqlite,
+  workspaceId: string,
+  filePath: string,
+  nowMs: number,
+  trashEntryId: string | null = null,
+): void {
+  const scope = pathScopeCondition(filePath);
+  sqlite.prepare(`
+    UPDATE file_collaboration_lineages
+    SET status = 'archived', archived_at = ?, trash_entry_id = ?
+    WHERE workspace_id = ?
+      AND status = 'active'
+      AND (path = ? OR path LIKE ?)
+  `).run(nowMs, trashEntryId, workspaceId, scope.exact, scope.descendant);
+  sqlite.prepare(`
+    UPDATE collaboration_documents
+    SET status = 'archived', updated_at = ?
+    WHERE workspace_id = ?
+      AND status = 'active'
+      AND (path = ? OR path LIKE ?)
+  `).run(nowMs, workspaceId, scope.exact, scope.descendant);
+  sqlite.prepare(`
+    UPDATE file_locks
+    SET status = 'released', updated_at = ?
+    WHERE workspace_id = ?
+      AND status = 'active'
+      AND (path = ? OR path LIKE ?)
+  `).run(nowMs, workspaceId, scope.exact, scope.descendant);
+}
+
+function remapActivePathScope(
+  sqlite: Sqlite,
+  table: 'file_collaboration_lineages' | 'collaboration_documents' | 'file_locks',
+  workspaceId: string,
+  oldPath: string,
+  newPath: string,
+): void {
+  const scope = pathScopeCondition(oldPath);
+  sqlite.prepare(`
+    UPDATE ${table}
+    SET path = ? || substr(path, length(?) + 1)
+    WHERE workspace_id = ?
+      AND status = 'active'
+      AND (path = ? OR path LIKE ?)
+  `).run(newPath, oldPath, workspaceId, scope.exact, scope.descendant);
 }
 
 function getActiveLock(sqlite: Sqlite, workspaceId: string, filePath: string, nowMs: number): FileLockRecord | null {
@@ -426,13 +600,20 @@ export function getFileCollaborationState(params: {
   nowMs?: number;
 }): FileCollaborationState {
   const normalizedPath = normalizeWorkspacePath(params.path);
-  return withCollaborationDatabase(Boolean(params.ensureDocument), (sqlite) => buildState({
-    sqlite,
-    workspace: params.workspace,
-    path: normalizedPath,
-    nowMs: params.nowMs ?? Date.now(),
-    ensureDocument: params.ensureDocument,
-  }));
+  const nowMs = params.nowMs ?? Date.now();
+  return withCollaborationDatabase(Boolean(params.ensureDocument), (sqlite) => {
+    const lineage = params.ensureDocument
+      ? ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs)
+      : null;
+    return buildState({
+      sqlite,
+      workspace: params.workspace,
+      path: normalizedPath,
+      nowMs,
+      latestRevision: lineage ? getLatestRevisionForLineage(sqlite, lineage.id) : undefined,
+      ensureDocument: params.ensureDocument,
+    });
+  });
 }
 
 export function ensureFileRevisionForCurrentContent(params: {
@@ -450,7 +631,8 @@ export function ensureFileRevisionForCurrentContent(params: {
   const nowMs = params.nowMs ?? Date.now();
 
   return withCollaborationDatabase(true, (sqlite) => {
-    const latest = getLatestRevision(sqlite, params.workspace.workspaceId, normalizedPath);
+    const lineage = ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs);
+    const latest = getLatestRevisionForLineage(sqlite, lineage.id);
     if (latest?.contentHash === params.contentHash && latest.sizeBytes === params.sizeBytes) {
       return latest;
     }
@@ -460,9 +642,9 @@ export function ensureFileRevisionForCurrentContent(params: {
       INSERT INTO file_revisions (
         id, organization_id, customer_id, project_id, workspace_id, workspace_type, path,
         content_hash, size_bytes, created_by_user_id, created_by_actor_type,
-        source_session_id, base_revision_id, created_at
+        source_session_id, base_revision_id, lineage_id, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       id,
       params.workspace.organizationId ?? null,
@@ -477,10 +659,11 @@ export function ensureFileRevisionForCurrentContent(params: {
       params.actorType ?? 'system',
       params.sourceSessionId ?? null,
       params.baseRevisionId ?? latest?.id ?? null,
+      lineage.id,
       nowMs,
     );
 
-    const created = getLatestRevision(sqlite, params.workspace.workspaceId, normalizedPath);
+    const created = getLatestRevisionForLineage(sqlite, lineage.id);
     if (!created) {
       throw new Error(`Failed to create file revision for ${normalizedPath}.`);
     }
@@ -490,6 +673,112 @@ export function ensureFileRevisionForCurrentContent(params: {
     }
 
     return created;
+  });
+}
+
+/**
+ * Marks the active revision streams for deleted paths as archived. Historical
+ * revisions remain available through their lineage, but the path can safely be
+ * reused by a different file without inheriting old locks or CRDT state.
+ */
+export function archiveFileCollaborationPaths(params: {
+  workspace: WorkspaceContext;
+  paths: Array<string | { path: string; trashEntryId?: string | null }>;
+  nowMs?: number;
+}): void {
+  const entries = new Map<string, string | null>();
+  for (const entry of params.paths) {
+    const filePath = normalizeWorkspacePath(typeof entry === 'string' ? entry : entry.path);
+    entries.set(filePath, typeof entry === 'string' ? null : entry.trashEntryId ?? null);
+  }
+  if (entries.size === 0) return;
+  const nowMs = params.nowMs ?? Date.now();
+
+  withCollaborationDatabase(true, (sqlite) => {
+    for (const [filePath, trashEntryId] of entries) {
+      materializeLegacyLineagesInPathScope(sqlite, params.workspace, filePath, nowMs);
+      archivePathScope(sqlite, params.workspace.workspaceId, filePath, nowMs, trashEntryId);
+    }
+  });
+}
+
+/** Restores the exact lineage associated with a workspace trash entry. */
+export function restoreFileCollaborationPath(params: {
+  workspace: WorkspaceContext;
+  path: string;
+  trashEntryId: string;
+  nowMs?: number;
+}): void {
+  const filePath = normalizeWorkspacePath(params.path);
+  const nowMs = params.nowMs ?? Date.now();
+
+  withCollaborationDatabase(true, (sqlite) => {
+    const archived = sqlite.prepare(`
+      SELECT *
+      FROM file_collaboration_lineages
+      WHERE workspace_id = ?
+        AND path = ?
+        AND status = 'archived'
+        AND trash_entry_id = ?
+      ORDER BY archived_at DESC, rowid DESC
+      LIMIT 1
+    `).get(params.workspace.workspaceId, filePath, params.trashEntryId) as FileCollaborationLineageRow | undefined;
+    if (!archived) return;
+
+    archivePathScope(sqlite, params.workspace.workspaceId, filePath, nowMs);
+    sqlite.prepare(`
+      UPDATE file_collaboration_lineages
+      SET status = 'active', archived_at = NULL, trash_entry_id = NULL
+      WHERE id = ?
+    `).run(archived.id);
+  });
+}
+
+/**
+ * Starts independent revision streams for copied paths. Copying is deliberately
+ * not a rename: its future edits must never join the source file's history.
+ */
+export function initializeCopiedFileCollaborationPaths(params: {
+  workspace: WorkspaceContext;
+  paths: string[];
+  nowMs?: number;
+}): void {
+  const paths = [...new Set(params.paths.map(normalizeWorkspacePath))];
+  if (paths.length === 0) return;
+  const nowMs = params.nowMs ?? Date.now();
+
+  withCollaborationDatabase(true, (sqlite) => {
+    for (const filePath of paths) {
+      materializeLegacyLineagesInPathScope(sqlite, params.workspace, filePath, nowMs);
+      archivePathScope(sqlite, params.workspace.workspaceId, filePath, nowMs);
+      createActiveLineage(sqlite, params.workspace, filePath, nowMs);
+    }
+  });
+}
+
+/**
+ * Moves the active identity of a file (or directory tree) to its new path.
+ * Any inactive history already associated with the destination stays archived.
+ */
+export function moveFileCollaborationPath(params: {
+  workspace: WorkspaceContext;
+  oldPath: string;
+  newPath: string;
+  nowMs?: number;
+}): void {
+  const oldPath = normalizeWorkspacePath(params.oldPath);
+  const newPath = normalizeWorkspacePath(params.newPath);
+  if (oldPath === newPath) return;
+  const nowMs = params.nowMs ?? Date.now();
+
+  withCollaborationDatabase(true, (sqlite) => {
+    materializeLegacyLineagesInPathScope(sqlite, params.workspace, oldPath, nowMs);
+    // An overwritten destination may still have an active lineage despite the
+    // physical rename replacing its file. Archive it before moving the source.
+    archivePathScope(sqlite, params.workspace.workspaceId, newPath, nowMs);
+    remapActivePathScope(sqlite, 'file_collaboration_lineages', params.workspace.workspaceId, oldPath, newPath);
+    remapActivePathScope(sqlite, 'collaboration_documents', params.workspace.workspaceId, oldPath, newPath);
+    remapActivePathScope(sqlite, 'file_locks', params.workspace.workspaceId, oldPath, newPath);
   });
 }
 
@@ -511,7 +800,8 @@ export function assertFileCollaborationWriteAllowed(params: {
   const nowMs = params.nowMs ?? Date.now();
 
   return withCollaborationDatabase(true, (sqlite) => {
-    const latestRevision = getLatestRevision(sqlite, params.workspace.workspaceId, normalizedPath);
+    const lineage = ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs);
+    const latestRevision = getLatestRevisionForLineage(sqlite, lineage.id);
     const state = buildState({
       sqlite,
       workspace: params.workspace,
@@ -583,7 +873,8 @@ export function acquireFileLock(params: {
   const expiresAt = nowMs + normalizeLockTtl(params.ttlMs);
 
   return withCollaborationDatabase(true, (sqlite) => {
-    const latestRevision = getLatestRevision(sqlite, params.workspace.workspaceId, normalizedPath);
+    const lineage = ensureActiveLineage(sqlite, params.workspace, normalizedPath, nowMs);
+    const latestRevision = getLatestRevisionForLineage(sqlite, lineage.id);
     const activeLock = getActiveLock(sqlite, params.workspace.workspaceId, normalizedPath, nowMs);
 
     if (
