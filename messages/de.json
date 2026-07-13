@@ -4509,9 +4509,10 @@
   },
   "usage": {
     "title": "Nutzung",
+    "eyebrow": "Laufzeit-Monitoring",
     "header": {
       "title": "Nutzungsanalyse",
-      "description": "Tokens und Kosten auf Basis der PI-Usage-Events seit Rollout des Ledgers."
+      "description": "Behalte Token, Kosten und Agentenaktivität im Blick – zuerst als Trend, bei Bedarf bis zum einzelnen Event."
     },
     "presets": {
       "lastDays": "Letzte {days} T"
@@ -4526,16 +4527,29 @@
       "session": "Session",
       "sessionPlaceholder": "Session-Titel oder ID",
       "stopReason": "Stop-Grund",
+      "agent": "Agent",
+      "agentPlaceholder": "canvas-agent, research-agent",
+      "workspaceType": "Workspace-Typ",
+      "allWorkspaceTypes": "Alle Workspace-Typen",
+      "workspaceTypes": {
+        "personal": "Persönlich",
+        "team": "Team",
+        "organization": "Organisation",
+        "project": "Projekt"
+      },
       "groupBy": "Gruppieren nach",
       "user": "Benutzer",
       "allUsers": "Alle Benutzer",
       "userOption": "{label} · {count} Events",
       "userId": "User-ID",
-      "userIdPlaceholder": "Optionaler Admin-Filter"
+      "userIdPlaceholder": "Optionaler Admin-Filter",
+      "title": "Analyse verfeinern",
+      "description": "Filter gelten gleichzeitig für Kennzahlen, Diagramme und Detaildaten."
     },
     "actions": {
       "applyFilters": "Filter anwenden",
-      "reset": "Zurücksetzen"
+      "reset": "Zurücksetzen",
+      "filters": "Filter"
     },
     "scope": {
       "title": "Aktiver Scope",
@@ -4543,6 +4557,8 @@
       "provider": "Provider: {value}",
       "model": "Modell: {value}",
       "session": "Session: {value}",
+      "workspaceType": "Workspace: {value}",
+      "agent": "Agent: {value}",
       "stopReason": "Stop-Grund: {value}",
       "groupedBy": "Gruppiert nach: {value}",
       "userScope": "User-Scope: {value}",
@@ -4578,6 +4594,7 @@
     },
     "summary": {
       "title": "Gruppierte Zusammenfassung",
+      "description": "Die vollständige Auswertung für den gewählten Blickwinkel.",
       "columns": {
         "group": "Gruppe",
         "cost": "Kosten",
@@ -4591,6 +4608,7 @@
     },
     "events": {
       "title": "Letzte Usage-Events",
+      "description": "Die jüngsten Einträge im gefilterten Zeitraum.",
       "previous": "Zurück",
       "next": "Weiter",
       "page": "Seite {page}",
@@ -4615,7 +4633,38 @@
       "session": "Session",
       "user": "User"
     },
+    "overview": {
+      "label": "Kennzahlen zur aktuellen Nutzung"
+    },
+    "charts": {
+      "input": "Input",
+      "output": "Output",
+      "cache": "Cache",
+      "tokens": "Tokens",
+      "loading": "Nutzungsdaten werden geladen…",
+      "empty": "Für die aktuellen Filter gibt es noch keine Daten für eine Grafik.",
+      "trend": {
+        "title": "Token-Verlauf",
+        "description": "Tägliche Nutzung, aufgeteilt nach Input, Output und Cache.",
+        "ariaLabel": "Gestapeltes Diagramm des täglichen Token-Verlaufs"
+      },
+      "breakdown": {
+        "description": "Die acht stärksten Gruppen nach Token-Verbrauch.",
+        "users": "Aktivste Benutzer",
+        "providers": "Provider im Vergleich",
+        "models": "Modelle im Vergleich",
+        "ariaLabel": "Balkendiagramm der Token-Verteilung nach {group}"
+      }
+    },
+    "details": {
+      "title": "Details & Ereignisse",
+      "description": "Öffne die tabellarische Auswertung und die einzelnen Usage-Events bei Bedarf.",
+      "toggle": "Details und Ereignisse ein- oder ausblenden",
+      "show": "Details zeigen",
+      "hide": "Details ausblenden"
+    },
     "errors": {
+      "loadDashboard": "Dashboard konnte nicht geladen werden ({status}).",
       "loadSummary": "Zusammenfassung konnte nicht geladen werden ({status}).",
       "loadEvents": "Events konnten nicht geladen werden ({status}).",
       "loadUsers": "Benutzerliste konnte nicht geladen werden ({status})."

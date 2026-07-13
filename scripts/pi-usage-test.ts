@@ -29,6 +29,7 @@ async function main() {
   } = usageEvents;
   const {
     getUsageEvents,
+    getUsageDashboard,
     getUsageSummary,
     getUsageUsers,
     parsePage,
@@ -428,6 +429,25 @@ async function main() {
       [userId, otherUserId],
     );
 
+    const adminDashboard = await getUsageDashboard(
+      {
+        from: new Date('2026-03-01T00:00:00.000Z'),
+        to: new Date('2026-03-31T23:59:59.999Z'),
+        groupBy: 'day',
+      },
+      { id: adminId, role: 'admin' },
+    );
+    assert.equal(adminDashboard.totals.totalTokens, 600);
+    assert.equal(adminDashboard.breakdownBy, 'user');
+    assert.deepEqual(
+      adminDashboard.timeline.map((row) => row.groupKey),
+      ['2026-03-10', '2026-03-11', '2026-03-12'],
+    );
+    assert.deepEqual(
+      adminDashboard.breakdown.map((row) => row.groupKey).sort(),
+      [userId, otherUserId],
+    );
+
     const adminUsageUsers = await getUsageUsers(
       {
         from: new Date('2026-03-01T00:00:00.000Z'),
@@ -445,6 +465,18 @@ async function main() {
     assert.equal(alphaUsageUser?.lastUsageAt, '2026-03-11T08:00:00.000Z');
     assert.equal(otherUsageUser?.usageEventCount, 1);
     assert.equal(adminUsageUser?.usageEventCount, 0);
+
+    const providerFilteredUsageUsers = await getUsageUsers(
+      {
+        from: new Date('2026-03-01T00:00:00.000Z'),
+        to: new Date('2026-03-31T23:59:59.999Z'),
+        groupBy: 'day',
+        provider: 'openai',
+      },
+      { id: adminId, role: 'admin' },
+    );
+    assert.equal(providerFilteredUsageUsers.users.find((usageUser) => usageUser.id === userId)?.usageEventCount, 1);
+    assert.equal(providerFilteredUsageUsers.users.find((usageUser) => usageUser.id === otherUserId)?.usageEventCount, 0);
 
     await assert.rejects(
       getUsageUsers(

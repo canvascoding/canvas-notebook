@@ -6,7 +6,9 @@ import { piUsageEvents, user } from '../db/schema';
 import type {
   SerializedUsageFilters,
   UsageEventsResponse,
+  UsageDashboardResponse,
   UsageFilters,
+  UsageDashboardBreakdownBy,
   UsageSummaryGroupBy,
   UsageSummaryResponse,
   UsageTotals,
@@ -17,6 +19,7 @@ const DEFAULT_WINDOW_DAYS = 30;
 const DEFAULT_PAGE_SIZE = 50;
 const MAX_PAGE_SIZE = 200;
 const DEFAULT_SUMMARY_LIMIT = 100;
+const DASHBOARD_BREAKDOWN_LIMIT = 8;
 
 type UsageAccess = {
   effectiveUserId?: string;
@@ -158,13 +161,13 @@ export function resolveUsageAccess(
   };
 }
 
-function buildWhere(filters: UsageFilters, access: UsageAccess) {
+function buildWhere(filters: UsageFilters, access: UsageAccess, includeUserFilter = true) {
   const conditions = [
     sql`${piUsageEvents.assistantTimestamp} >= ${toUnixSeconds(filters.from)}`,
     sql`${piUsageEvents.assistantTimestamp} <= ${toUnixSeconds(filters.to)}`,
   ];
 
-  if (access.effectiveUserId) {
+  if (includeUserFilter && access.effectiveUserId) {
     conditions.push(eq(piUsageEvents.userId, access.effectiveUserId));
   }
 
@@ -211,6 +214,30 @@ function buildWhere(filters: UsageFilters, access: UsageAccess) {
   }
 
   return and(...conditions);
+}
+
+function mapSummaryRow(row: {
+  groupKey: string;
+  label: string;
+  totalCost: unknown;
+  totalTokens: unknown;
+  inputTokens: unknown;
+  outputTokens: unknown;
+  cacheTokens: unknown;
+  sessionCount: unknown;
+  eventCount: unknown;
+}) {
+  return {
+    groupKey: row.groupKey,
+    label: row.label,
+    totalCost: toNumber(row.totalCost),
+    totalTokens: toNumber(row.totalTokens),
+    inputTokens: toNumber(row.inputTokens),
+    outputTokens: toNumber(row.outputTokens),
+    cacheTokens: toNumber(row.cacheTokens),
+    sessionCount: toNumber(row.sessionCount),
+    eventCount: toNumber(row.eventCount),
+  };
 }
 
 async function loadTotals(whereClause: ReturnType<typeof buildWhere>): Promise<UsageTotals> {
@@ -311,13 +338,11 @@ function getGrouping(filters: UsageFilters) {
   }
 }
 
-export async function getUsageSummary(
+async function loadSummaryRows(
   filters: UsageFilters,
-  viewer: { id: string; role?: string | null },
-): Promise<UsageSummaryResponse> {
-  const access = resolveUsageAccess(filters, viewer);
-  const whereClause = buildWhere(filters, access);
-  const totals = await loadTotals(whereClause);
+  whereClause: ReturnType<typeof buildWhere>,
+  limit = DEFAULT_SUMMARY_LIMIT,
+) {
   const grouping = getGrouping(filters);
   const totalCostExpr = sql<number>`coalesce(sum(${piUsageEvents.totalCost}), 0)`;
   const totalTokensExpr = sql<number>`coalesce(sum(${piUsageEvents.totalTokens}), 0)`;
@@ -345,22 +370,47 @@ export async function getUsageSummary(
     .where(whereClause)
     .groupBy(grouping.groupKey, grouping.label)
     .orderBy(grouping.orderBy)
-    .limit(DEFAULT_SUMMARY_LIMIT);
+    .limit(limit);
+
+  return rows.map(mapSummaryRow);
+}
+
+export async function getUsageSummary(
+  filters: UsageFilters,
+  viewer: { id: string; role?: string | null },
+): Promise<UsageSummaryResponse> {
+  const access = resolveUsageAccess(filters, viewer);
+  const whereClause = buildWhere(filters, access);
+  const totals = await loadTotals(whereClause);
 
   return {
     filters: serializeUsageFilters(filters, access),
     totals,
-    rows: rows.map((row) => ({
-      groupKey: row.groupKey,
-      label: row.label,
-      totalCost: toNumber(row.totalCost),
-      totalTokens: toNumber(row.totalTokens),
-      inputTokens: toNumber(row.inputTokens),
-      outputTokens: toNumber(row.outputTokens),
-      cacheTokens: toNumber(row.cacheTokens),
-      sessionCount: toNumber(row.sessionCount),
-      eventCount: toNumber(row.eventCount),
-    })),
+    rows: await loadSummaryRows(filters, whereClause),
+  };
+}
+
+export async function getUsageDashboard(
+  filters: UsageFilters,
+  viewer: { id: string; role?: string | null },
+): Promise<UsageDashboardResponse> {
+  const access = resolveUsageAccess(filters, viewer);
+  const whereClause = buildWhere(filters, access);
+  const breakdownBy: UsageDashboardBreakdownBy =
+    access.isAdmin && !access.effectiveUserId ? 'user' : filters.model ? 'provider' : 'model';
+
+  const [totals, timeline, breakdown] = await Promise.all([
+    loadTotals(whereClause),
+    loadSummaryRows({ ...filters, groupBy: 'day' }, whereClause),
+    loadSummaryRows({ ...filters, groupBy: breakdownBy }, whereClause, DASHBOARD_BREAKDOWN_LIMIT),
+  ]);
+
+  return {
+    filters: serializeUsageFilters(filters, access),
+    totals,
+    timeline,
+    breakdownBy,
+    breakdown,
   };
 }
 
@@ -446,6 +496,12 @@ export async function getUsageUsers(
   const usageEventCountExpr = sql<number>`count(${piUsageEvents.id})`;
   const lastUsageAtExpr = sql<number | null>`max(${piUsageEvents.assistantTimestamp})`;
 
+  const userFilterClause = buildWhere(
+    { ...filters, userId: undefined },
+    { isAdmin: true },
+    false,
+  );
+
   const rows = await db
     .select({
       id: user.id,
@@ -460,8 +516,7 @@ export async function getUsageUsers(
       piUsageEvents,
       and(
         eq(piUsageEvents.userId, user.id),
-        sql`${piUsageEvents.assistantTimestamp} >= ${toUnixSeconds(filters.from)}`,
-        sql`${piUsageEvents.assistantTimestamp} <= ${toUnixSeconds(filters.to)}`,
+        userFilterClause,
       ),
     )
     .groupBy(user.id, user.name, user.email, user.role)

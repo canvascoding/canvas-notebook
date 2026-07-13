@@ -4510,9 +4510,10 @@
   },
   "usage": {
     "title": "Usage",
+    "eyebrow": "Runtime monitoring",
     "header": {
       "title": "Usage Analytics",
-      "description": "Tokens and costs based on PI usage events since the ledger rollout."
+      "description": "Keep tokens, cost, and agent activity in view—starting with the trend, down to individual events when needed."
     },
     "presets": {
       "lastDays": "Last {days}d"
@@ -4527,16 +4528,29 @@
       "session": "Session",
       "sessionPlaceholder": "Session title or ID",
       "stopReason": "Stop Reason",
+      "agent": "Agent",
+      "agentPlaceholder": "canvas-agent, research-agent",
+      "workspaceType": "Workspace Type",
+      "allWorkspaceTypes": "All workspace types",
+      "workspaceTypes": {
+        "personal": "Personal",
+        "team": "Team",
+        "organization": "Organization",
+        "project": "Project"
+      },
       "groupBy": "Group By",
       "user": "User",
       "allUsers": "All users",
       "userOption": "{label} · {count} events",
       "userId": "User ID",
-      "userIdPlaceholder": "Optional admin-wide filter"
+      "userIdPlaceholder": "Optional admin-wide filter",
+      "title": "Refine analysis",
+      "description": "Filters apply to metrics, charts, and detail data at the same time."
     },
     "actions": {
       "applyFilters": "Apply filters",
-      "reset": "Reset"
+      "reset": "Reset",
+      "filters": "Filters"
     },
     "scope": {
       "title": "Active Scope",
@@ -4544,6 +4558,8 @@
       "provider": "Provider: {value}",
       "model": "Model: {value}",
       "session": "Session: {value}",
+      "workspaceType": "Workspace: {value}",
+      "agent": "Agent: {value}",
       "stopReason": "Stop reason: {value}",
       "groupedBy": "Grouped by: {value}",
       "userScope": "User scope: {value}",
@@ -4579,6 +4595,7 @@
     },
     "summary": {
       "title": "Grouped Summary",
+      "description": "The full breakdown for the selected point of view.",
       "columns": {
         "group": "Group",
         "cost": "Cost",
@@ -4592,6 +4609,7 @@
     },
     "events": {
       "title": "Recent Usage Events",
+      "description": "The most recent records in the filtered time range.",
       "previous": "Previous",
       "next": "Next",
       "page": "Page {page}",
@@ -4616,7 +4634,38 @@
       "session": "Session",
       "user": "User"
     },
+    "overview": {
+      "label": "Current usage metrics"
+    },
+    "charts": {
+      "input": "Input",
+      "output": "Output",
+      "cache": "Cache",
+      "tokens": "Tokens",
+      "loading": "Loading usage data…",
+      "empty": "There is no data to chart for the current filters yet.",
+      "trend": {
+        "title": "Token trend",
+        "description": "Daily usage split into input, output, and cache.",
+        "ariaLabel": "Stacked chart of daily token usage"
+      },
+      "breakdown": {
+        "description": "The eight highest-consumption groups by token use.",
+        "users": "Most active users",
+        "providers": "Provider comparison",
+        "models": "Model comparison",
+        "ariaLabel": "Bar chart of token distribution by {group}"
+      }
+    },
+    "details": {
+      "title": "Details & events",
+      "description": "Open the tabular breakdown and individual usage events when you need them.",
+      "toggle": "Toggle details and events",
+      "show": "Show details",
+      "hide": "Hide details"
+    },
     "errors": {
+      "loadDashboard": "Failed to load dashboard ({status}).",
       "loadSummary": "Failed to load summary ({status}).",
       "loadEvents": "Failed to load events ({status}).",
       "loadUsers": "Failed to load users ({status})."

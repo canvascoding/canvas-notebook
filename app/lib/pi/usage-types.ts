@@ -38,6 +38,16 @@ export type UsageSummaryRow = {
   eventCount: number;
 };
 
+export type UsageDashboardBreakdownBy = 'provider' | 'model' | 'user';
+
+export type UsageDashboardResponse = {
+  filters: SerializedUsageFilters;
+  totals: UsageTotals;
+  timeline: UsageSummaryRow[];
+  breakdownBy: UsageDashboardBreakdownBy;
+  breakdown: UsageSummaryRow[];
+};
+
 export type SerializedUsageFilters = {
   from: string;
   to: string;

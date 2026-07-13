@@ -80,6 +80,9 @@ async function main() {
 
   const route = await resolveNotificationDeliveryRoute('recipient-without-mailbox', 'recipient@example.test');
   assert.deepEqual(route, { kind: 'system_smtp' });
+  if (route.kind !== 'system_smtp') {
+    throw new Error(`Expected the system SMTP route, received ${route.kind}.`);
+  }
 
   const verifiedConnection = await verifySystemSmtpConnection();
   assert.equal(verified, 1);
