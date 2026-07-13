@@ -27,7 +27,7 @@ export async function POST(request: NextRequest) {
         teamFeaturesEnabled: admin.state.teamFeaturesEnabled,
         createdByUserId: admin.session.user.id,
         createdByEmail: admin.session.user.email,
-        createdByRole: admin.permission.role,
+        createdByRole: admin.role,
       },
     });
     await recordAuditEvent({

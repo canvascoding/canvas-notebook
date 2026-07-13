@@ -359,6 +359,11 @@ const WorkspaceSettingsPanel = dynamic(
   { loading: SettingsTabLoader },
 );
 
+const SystemMigrationPanel = dynamic(
+  () => import('@/app/components/settings/WorkspaceSettingsPanel').then((module) => module.SystemMigrationPanel),
+  { loading: SettingsTabLoader },
+);
+
 const KnowledgeSettingsPanel = dynamic(
   () => import('@/app/components/settings/KnowledgeSettingsPanel').then((module) => module.KnowledgeSettingsPanel),
   { loading: SettingsTabLoader },
@@ -2291,6 +2296,7 @@ export function IntegrationsSettingsClient({
   const visibleSettingsTabItems = useMemo(
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
       if (tab.value === 'user-management') return isAdmin;
+      if (tab.value === 'data-migration') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
       if (tab.value === 'system-email') return isAdmin;
       if (tab.value === 'knowledge') return isAdmin || organizationPermission?.canEnableKnowledge === true;
@@ -3102,7 +3108,6 @@ export function IntegrationsSettingsClient({
           {renderLazyTabContent('workspace', (
             <WorkspaceSettingsPanel
               isAdmin={isAdmin}
-              organizationPermission={organizationPermission}
               workspaceManagementOpen={workspaceManagementOpen}
               createWorkspaceOpen={createWorkspaceOpen}
             />
@@ -3129,6 +3134,8 @@ export function IntegrationsSettingsClient({
           ))}
 
           {renderLazyTabContent('system-email', <SystemEmailSettingsPanel />)}
+
+          {renderLazyTabContent('data-migration', <SystemMigrationPanel isAdmin={isAdmin} />)}
 
           {renderLazyTabContent('channels', <ChannelsPanel isAdmin={isAdmin} />)}
 

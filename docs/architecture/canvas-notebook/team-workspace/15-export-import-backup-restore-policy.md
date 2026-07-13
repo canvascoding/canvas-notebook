@@ -42,7 +42,7 @@ Secrets und externe Connections werden nur als Reconnect-Hinweis oder redacted M
 
 ## Admin- und Migration-Export
 
-Owner/Admins oder User mit expliziter Export-Permission duerfen einen granularen Organization Export ausfuehren.
+VM-Migrationen duerfen nur globale App-Administratoren ausfuehren. Delegierte Organization-Export-Permissions reichen dafuer nicht aus; sie bleiben fuer spaetere, separat modellierte Organization-Exports reserviert.
 
 Exportierbare Bereiche:
 

@@ -5,28 +5,14 @@ import { createReadStream, getFileStats, validatePath } from '@/app/lib/filesyst
 import { Readable } from 'stream';
 import ZipStream from 'zip-stream';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
-import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import {
+  requireRequestPersonalWorkspace,
+  requireRequestWorkspace,
+  workspaceFileOptions,
+} from '@/app/lib/workspaces/request';
 
 const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024;
 const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024;
-
-function getRuntimeCwd(): string {
-  return Reflect.apply(process.cwd, process, []) as string;
-}
-
-function getDataRoot(): string {
-  const configuredDataRoot = process.env.DATA?.trim();
-  if (!configuredDataRoot || configuredDataRoot === './data' || configuredDataRoot === 'data') {
-    return path.join(getRuntimeCwd(), 'data');
-  }
-
-  if (path.isAbsolute(configuredDataRoot)) {
-    return configuredDataRoot;
-  }
-
-  return path.join(getRuntimeCwd(), 'data');
-}
 
 function resolveDownloadName(filePath: string): string {
   const basename = path.posix.basename(filePath);
@@ -110,7 +96,18 @@ function createZipResponse(fullPath: string, downloadName: string) {
 }
 
 export async function GET(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const { searchParams } = new URL(request.url);
+  const scope = searchParams.get('scope');
+  if (scope === 'data') {
+    return NextResponse.json(
+      { success: false, error: 'Full data downloads are no longer available. Use an administrator migration or backup instead.' },
+      { status: 410 },
+    );
+  }
+
+  const workspaceResult = scope === 'personal'
+    ? await requireRequestPersonalWorkspace(request, { permissions: 'canRead' })
+    : await requireRequestWorkspace(request, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
   const { workspace } = workspaceResult;
   const fileOptions = workspaceFileOptions(workspace);
@@ -124,38 +121,15 @@ export async function GET(request: NextRequest) {
     return limited.response;
   }
 
-  const { searchParams } = new URL(request.url);
   const filePath = searchParams.get('path');
-  const scope = searchParams.get('scope');
-
-  if (scope === 'data') {
-    const exportPermission = await requireOrganizationPermission(request, 'canExport', {
-      errorMessage: 'Forbidden: export permission required',
-    });
-    if (!exportPermission.ok) return exportPermission.response;
-
-    try {
-      const dataRoot = getDataRoot();
-      const stats = await fs.stat(dataRoot);
-      if (!stats.isDirectory()) {
-        return NextResponse.json({ success: false, error: 'Data directory does not exist' }, { status: 404 });
-      }
-
-      return createZipResponse(dataRoot, 'data');
-    } catch (error) {
-      console.error('[API] Data download error:', error);
-      const message = error instanceof Error ? error.message : 'Failed to download data directory';
-      return NextResponse.json({ success: false, error: message }, { status: 500 });
-    }
-  }
-
-  if (!filePath) {
+  const effectiveFilePath = scope === 'personal' ? '.' : filePath;
+  if (!effectiveFilePath) {
     return NextResponse.json({ success: false, error: 'Path parameter is required' }, { status: 400 });
   }
 
   try {
-    const stats = await getFileStats(filePath, fileOptions);
-    const downloadName = resolveDownloadName(filePath);
+    const stats = await getFileStats(effectiveFilePath, fileOptions);
+    const downloadName = scope === 'personal' ? 'workspace' : resolveDownloadName(effectiveFilePath);
 
     if (stats.isDirectory) {
       if (stats.size > MAX_ZIP_DOWNLOAD_SIZE) {
@@ -165,7 +139,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const fullPath = validatePath(filePath, fileOptions);
+      const fullPath = validatePath(effectiveFilePath, fileOptions);
       return createZipResponse(fullPath, downloadName);
     } else {
       if (stats.size > MAX_SINGLE_FILE_SIZE) {
@@ -175,7 +149,7 @@ export async function GET(request: NextRequest) {
         );
       }
 
-      const { stream } = await createReadStream(filePath, undefined, fileOptions);
+      const { stream } = await createReadStream(effectiveFilePath, undefined, fileOptions);
       const webStream = Readable.toWeb(stream) as ReadableStream<Uint8Array>;
 
       return new NextResponse(webStream, {

@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { promises as fs } from 'fs';
-import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
+import {
+  requireRequestPersonalWorkspace,
+  requireRequestWorkspace,
+} from '@/app/lib/workspaces/request';
 
 const IGNORED_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
 
@@ -44,7 +47,10 @@ function formatSize(bytes: number): string {
 }
 
 export async function GET(request: NextRequest) {
-  const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canRead' });
+  const scope = request.nextUrl.searchParams.get('scope');
+  const workspaceResult = scope === 'personal'
+    ? await requireRequestPersonalWorkspace(request, { permissions: 'canRead' })
+    : await requireRequestWorkspace(request, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
 
   try {

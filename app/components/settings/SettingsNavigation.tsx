@@ -9,6 +9,7 @@ import {
   Cpu,
   FolderCog,
   Globe,
+  HardDrive,
   Mail,
   Menu,
   PanelLeftClose,
@@ -50,6 +51,7 @@ export type SettingsTab =
   | 'workspace'
   | 'knowledge'
   | 'user-management'
+  | 'data-migration'
   | 'ai-providers'
   | 'system-email'
   | 'channels'
@@ -161,6 +163,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.userManagement',
     group: 'system',
     icon: Users,
+  },
+  {
+    value: 'data-migration',
+    labelKey: 'tabs.dataMigration',
+    descriptionKey: 'navigation.descriptions.dataMigration',
+    group: 'system',
+    icon: HardDrive,
   },
   {
     value: 'usage',

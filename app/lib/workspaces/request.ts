@@ -12,8 +12,14 @@ import {
   openOrganizationBootstrapDatabase,
 } from '@/app/lib/organization/bootstrap';
 import { assertWorkspacePermission } from './permissions';
-import { resolvePostgresWorkspaceForActor } from './postgres-runtime';
-import { resolveWorkspaceContextById } from './service';
+import {
+  getPostgresWorkspaceState,
+  resolvePostgresWorkspaceForActor,
+} from './postgres-runtime';
+import {
+  resolveDefaultWorkspaceContext,
+  resolveWorkspaceContextById,
+} from './service';
 import type { WorkspaceContext, WorkspacePermissions } from './types';
 
 export type RequestWorkspaceSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
@@ -177,6 +183,92 @@ export async function requireRequestWorkspace(
   }
 
   return result;
+}
+
+export async function requireRequestPersonalWorkspace(
+  request: NextRequest,
+  options: {
+    permissions?: RequestWorkspacePermission | RequestWorkspacePermission[];
+  } = {},
+): Promise<RequestWorkspaceResult> {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) {
+    return {
+      session: null,
+      workspace: null,
+      response: NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }),
+    };
+  }
+
+  const actor = resolveWorkspaceActor({
+    id: session.user.id,
+    email: session.user.email,
+    role: session.user.role,
+  });
+  let workspace: WorkspaceContext | null = null;
+
+  if (getDatabaseProvider() === 'postgres') {
+    try {
+      workspace = (await getPostgresWorkspaceState(actor)).defaultWorkspace;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Could not resolve personal workspace';
+      return {
+        session: null,
+        workspace: null,
+        response: NextResponse.json({ success: false, error: message }, { status: 500 }),
+      };
+    }
+  } else {
+    const sqlite = openOrganizationBootstrapDatabase();
+    try {
+      sqlite.exec('BEGIN IMMEDIATE');
+      const status = ensureOrganizationBootstrapForUser(sqlite, session.user.id);
+      if (!status.organizationId) {
+        sqlite.exec('ROLLBACK');
+        return {
+          session: null,
+          workspace: null,
+          response: NextResponse.json({ success: false, error: 'Organization is not configured' }, { status: 409 }),
+        };
+      }
+      workspace = resolveDefaultWorkspaceContext(sqlite, {
+        actor,
+        organizationId: status.organizationId,
+      });
+      sqlite.exec('COMMIT');
+    } catch (error) {
+      if (sqlite.inTransaction) {
+        sqlite.exec('ROLLBACK');
+      }
+      const message = error instanceof Error ? error.message : 'Could not resolve personal workspace';
+      return {
+        session: null,
+        workspace: null,
+        response: NextResponse.json({ success: false, error: message }, { status: 500 }),
+      };
+    } finally {
+      sqlite.close();
+    }
+  }
+
+  if (!workspace || workspace.workspaceType !== 'personal' || workspace.ownerUserId !== session.user.id) {
+    return {
+      session: null,
+      workspace: null,
+      response: NextResponse.json({ success: false, error: 'Personal workspace not found' }, { status: 404 }),
+    };
+  }
+
+  const permissionResponse = assertWorkspacePermissions(workspace, options.permissions);
+  if (permissionResponse) {
+    return {
+      session: null,
+      workspace: null,
+      response: permissionResponse,
+    };
+  }
+
+  return { session, workspace, response: null };
 }
 
 export function workspaceFileOptions(workspace: WorkspaceContext) {

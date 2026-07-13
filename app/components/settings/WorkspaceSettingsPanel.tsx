@@ -49,12 +49,17 @@ interface WorkspaceStats {
 
 interface WorkspaceSettingsPanelProps {
   isAdmin?: boolean;
-  organizationPermission?: OrganizationBootstrapStatus['permission'];
   workspaceManagementOpen?: boolean;
   createWorkspaceOpen?: boolean;
 }
 
-type DownloadScope = 'workspace' | 'data';
+type SettingsDataSection = 'workspace' | 'system';
+
+type SettingsDataContentProps = WorkspaceSettingsPanelProps & {
+  section: SettingsDataSection;
+};
+
+type DownloadScope = 'personal';
 
 interface OrganizationBootstrapStatus {
   configured: boolean;
@@ -115,15 +120,34 @@ function progressPercent(processed: number, total: number): number {
 
 export function WorkspaceSettingsPanel({
   isAdmin = false,
-  organizationPermission = null,
   workspaceManagementOpen = false,
   createWorkspaceOpen = false,
 }: WorkspaceSettingsPanelProps) {
+  return (
+    <SettingsDataContent
+      section="workspace"
+      isAdmin={isAdmin}
+      workspaceManagementOpen={workspaceManagementOpen}
+      createWorkspaceOpen={createWorkspaceOpen}
+    />
+  );
+}
+
+export function SystemMigrationPanel({ isAdmin = false }: Pick<WorkspaceSettingsPanelProps, 'isAdmin'>) {
+  return <SettingsDataContent section="system" isAdmin={isAdmin} />;
+}
+
+function SettingsDataContent({
+  section,
+  isAdmin = false,
+  workspaceManagementOpen = false,
+  createWorkspaceOpen = false,
+}: SettingsDataContentProps) {
   const t = useTranslations('settings');
   const [stats, setStats] = useState<WorkspaceStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
   const [organizationStatus, setOrganizationStatus] = useState<OrganizationBootstrapStatus | null>(null);
-  const [isOrganizationLoading, setIsOrganizationLoading] = useState(isAdmin);
+  const [isOrganizationLoading, setIsOrganizationLoading] = useState(section === 'system' && isAdmin);
   const [organizationError, setOrganizationError] = useState<string | null>(null);
   const [activeDownload, setActiveDownload] = useState<DownloadScope | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -148,8 +172,8 @@ export function WorkspaceSettingsPanel({
   );
 
   const inspection: MigrationInspection | undefined = uploadStatus?.inspection;
-  const canExportData = organizationPermission?.canExport ?? isAdmin;
-  const canRecoverWorkspaces = organizationPermission?.canRecoverWorkspaces ?? isAdmin;
+  const canExportData = isAdmin;
+  const canRecoverWorkspaces = isAdmin;
 
   const loadOrganizationStatus = useCallback(async () => {
     if (!isAdmin) return;
@@ -177,7 +201,7 @@ export function WorkspaceSettingsPanel({
     setIsLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/files/workspace-stats', { credentials: 'include' });
+      const response = await fetch('/api/files/workspace-stats?scope=personal', { credentials: 'include' });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || t('workspacePanel.errors.loadStats'));
@@ -192,13 +216,14 @@ export function WorkspaceSettingsPanel({
   }, [t]);
 
   useEffect(() => {
+    if (section !== 'workspace') return;
     startTransition(() => { void loadStats(); });
-  }, [loadStats]);
+  }, [loadStats, section]);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (section !== 'system' || !isAdmin) return;
     startTransition(() => { void loadOrganizationStatus(); });
-  }, [isAdmin, loadOrganizationStatus]);
+  }, [isAdmin, loadOrganizationStatus, section]);
 
   useEffect(() => {
     if (!exportJob || !['queued', 'running'].includes(exportJob.status)) return;
@@ -222,12 +247,10 @@ export function WorkspaceSettingsPanel({
     setActiveDownload(scope);
     setError(null);
     try {
-      const url = scope === 'data'
-        ? '/api/files/download?scope=data&download=1'
-        : '/api/files/download?path=/&download=1';
+      const url = '/api/files/download?scope=personal&download=1';
       const anchor = document.createElement('a');
       anchor.href = url;
-      anchor.download = scope === 'data' ? 'data.zip' : 'workspace.zip';
+      anchor.download = 'workspace.zip';
       anchor.rel = 'noopener';
       document.body.appendChild(anchor);
       anchor.click();
@@ -405,7 +428,7 @@ export function WorkspaceSettingsPanel({
 
   return (
     <div className="space-y-4">
-      {isAdmin ? (
+      {section === 'system' && isAdmin ? (
         <Card>
           <CardHeader className="px-4 sm:px-6">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -534,10 +557,12 @@ export function WorkspaceSettingsPanel({
         </Card>
       ) : null}
 
+      {section === 'workspace' ? (
+        <>
       <Card>
         <CardHeader className="px-4 sm:px-6">
-          <CardTitle>{t('workspacePanel.title')}</CardTitle>
-          <CardDescription>{t('workspacePanel.description')}</CardDescription>
+          <CardTitle>{t('workspacePanel.personalExport.title')}</CardTitle>
+          <CardDescription>{t('workspacePanel.personalExport.description')}</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
           {isLoading ? (
@@ -573,29 +598,15 @@ export function WorkspaceSettingsPanel({
               <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
                 <Button
                   className="w-full justify-center sm:w-auto"
-                  onClick={() => handleDownload('workspace')}
+                  onClick={() => handleDownload('personal')}
                   disabled={activeDownload !== null || stats.fileCount === 0}
                 >
-                  {activeDownload === 'workspace' ? (
+                  {activeDownload === 'personal' ? (
                     <Loader2 className="mr-2 h-4 w-4 animate-spin" />
                   ) : (
                     <Download className="mr-2 h-4 w-4" />
                   )}
-                  {activeDownload === 'workspace' ? t('workspacePanel.downloading') : t('workspacePanel.downloadZip')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-center sm:w-auto"
-                  onClick={() => handleDownload('data')}
-                  disabled={activeDownload !== null || !canExportData}
-                >
-                  {activeDownload === 'data' ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <FolderArchive className="mr-2 h-4 w-4" />
-                  )}
-                  {activeDownload === 'data' ? t('workspacePanel.downloading') : t('workspacePanel.downloadDataZip')}
+                  {activeDownload === 'personal' ? t('workspacePanel.downloading') : t('workspacePanel.downloadZip')}
                 </Button>
                 <Button
                   type="button"
@@ -608,7 +619,7 @@ export function WorkspaceSettingsPanel({
                   {t('workspacePanel.refresh')}
                 </Button>
               </div>
-              <p className="text-sm text-muted-foreground">{t(canExportData ? 'workspacePanel.dataZipHint' : 'workspacePanel.adminOnlyHint')}</p>
+              <p className="text-sm text-muted-foreground">{t('workspacePanel.personalExport.hint')}</p>
 
               {stats.fileCount === 0 && (
                 <p className="text-sm text-muted-foreground">{t('workspacePanel.emptyWorkspace')}</p>
@@ -625,6 +636,10 @@ export function WorkspaceSettingsPanel({
         openCreateDialog={createWorkspaceOpen}
       />
 
+        </>
+      ) : null}
+
+      {section === 'system' ? (
       <Card>
         <CardHeader className="px-4 sm:px-6">
           <CardTitle>{t('workspacePanel.migration.title')}</CardTitle>
@@ -918,6 +933,7 @@ export function WorkspaceSettingsPanel({
           {migrationMessage ? <p className="text-sm text-muted-foreground">{migrationMessage}</p> : null}
         </CardContent>
       </Card>
+      ) : null}
     </div>
   );
 }
