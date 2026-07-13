@@ -81,6 +81,7 @@ function FileTreeNodeComponent({
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const hasLoadedChildren = Array.isArray(node.children);
   const childNodes = node.children ?? [];
+  const childSelectionOrder = childNodes.map((child) => child.path);
   const displayName = getFileDisplayName(node);
   const extensionIndex = node.name.lastIndexOf('.');
   const typeLabel = isDirectory
@@ -465,7 +466,7 @@ function FileTreeNodeComponent({
                     browserMode={browserMode}
                     onNavigateInto={onNavigateInto}
                     onOpenFile={onOpenFile}
-                    selectionOrder={selectionOrder}
+                    selectionOrder={childSelectionOrder}
                     showPath={showPath}
                     openOnSingleClick={openOnSingleClick}
                     showListMetadata={showListMetadata}

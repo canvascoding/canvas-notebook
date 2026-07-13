@@ -72,6 +72,7 @@ export function FileGridView({
     searchResultNodes,
     setFileSort,
     treeError,
+    treeSelectionOrder,
     visibleSearchResultCount,
   } = useFileExplorerViewModel({ containerRef, variant });
 
@@ -512,7 +513,13 @@ export function FileGridView({
           <SidebarGroupContent>
             <SidebarMenu className="space-y-0.5" role="tree" aria-label={t('fileTreeLabel')}>
               {searchResultNodes.map((node) => (
-                <FileTreeNode key={node.path} node={node} onOpenFile={handleFileOpen} showPath={Boolean(normalizedSearchQuery)} />
+                <FileTreeNode
+                  key={node.path}
+                  node={node}
+                  onOpenFile={handleFileOpen}
+                  selectionOrder={treeSelectionOrder}
+                  showPath={Boolean(normalizedSearchQuery)}
+                />
               ))}
             </SidebarMenu>
           </SidebarGroupContent>

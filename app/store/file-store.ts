@@ -1117,6 +1117,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       if (!isMultiSelectMode) {
         set({ isMultiSelectMode: true, multiSelectPaths: new Set([lastSelectedPath]) });
       }
+      const hasExplicitSelectionOrder = Array.isArray(selectionOrder);
       const visibleRangePaths = selectionOrder && selectionOrder.length > 0
         ? getSelectionRangePaths(selectionOrder, lastSelectedPath, node.path)
         : [];
@@ -1126,6 +1127,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           for (const path of visibleRangePaths) newMultiSelectPaths.add(path);
           return { multiSelectPaths: newMultiSelectPaths };
         });
+      } else if (hasExplicitSelectionOrder) {
+        // The previous anchor belongs to another directory level or view.
+        // Keep both explicit endpoints without sweeping through hidden descendants.
+        set((state) => ({
+          multiSelectPaths: new Set([...state.multiSelectPaths, node.path]),
+        }));
       } else {
         get().selectRange(lastSelectedPath, node.path, get().fileTree);
       }

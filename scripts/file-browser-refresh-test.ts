@@ -190,6 +190,68 @@ async function main() {
       'shift range selection should follow the visible view order when provided',
     );
 
+    const expandedFolder: FileNode = {
+      name: '00_dashboard',
+      path: 'files/00_dashboard',
+      type: 'directory',
+      children: [
+        { name: 'daily.html', path: 'files/00_dashboard/daily.html', type: 'file' },
+        { name: 'daily.md', path: 'files/00_dashboard/daily.md', type: 'file' },
+      ],
+    };
+    const siblingFolder: FileNode = {
+      name: '01_brand',
+      path: 'files/01_brand',
+      type: 'directory',
+    };
+    const siblingFile: FileNode = {
+      name: '00_readme-first.md',
+      path: 'files/00_readme-first.md',
+      type: 'file',
+    };
+    const siblingOrder = [expandedFolder.path, siblingFolder.path, siblingFile.path];
+    useFileStore.setState({
+      fileTree: [expandedFolder, siblingFolder, siblingFile],
+      selectedNode: null,
+      isMultiSelectMode: false,
+      multiSelectPaths: new Set<string>(),
+      lastSelectedPath: null,
+    });
+
+    useFileStore.getState().selectNode(expandedFolder, false, false, siblingOrder, true);
+    useFileStore.getState().selectNode(siblingFile, false, true, siblingOrder, true);
+    assert.deepEqual(
+      Array.from(useFileStore.getState().multiSelectPaths),
+      siblingOrder,
+      'tree shift selection should stay on the anchor directory level',
+    );
+    assert.equal(
+      useFileStore.getState().multiSelectPaths.has('files/00_dashboard/daily.html'),
+      false,
+      'tree shift selection must not include expanded descendants',
+    );
+
+    useFileStore.setState({
+      selectedNode: null,
+      isMultiSelectMode: false,
+      multiSelectPaths: new Set<string>(),
+      lastSelectedPath: expandedFolder.path,
+    });
+    const childTarget = expandedFolder.children?.[1];
+    assert.ok(childTarget);
+    useFileStore.getState().selectNode(
+      childTarget,
+      false,
+      true,
+      expandedFolder.children?.map((node) => node.path),
+      true,
+    );
+    assert.deepEqual(
+      Array.from(useFileStore.getState().multiSelectPaths),
+      [expandedFolder.path, childTarget.path],
+      'cross-level shift selection should add only the explicit target',
+    );
+
     const selectedDirectory: FileNode = { name: 'docs', path: 'docs', type: 'directory' };
     useFileStore.setState({ currentDirectory: '.', selectedNode: null, isMultiSelectMode: false });
     useFileStore.getState().selectNode(selectedDirectory, false, false, undefined, true);

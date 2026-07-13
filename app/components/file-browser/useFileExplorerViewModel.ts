@@ -357,6 +357,11 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     [filteredListChildren]
   );
 
+  const treeSelectionOrder = useMemo(
+    () => searchResultNodes.map((node) => node.path),
+    [searchResultNodes]
+  );
+
   useEffect(() => {
     if (!selectedNode || isRestoring || isLoadingTree) return;
 
@@ -392,5 +397,6 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     searchResultNodes,
     setFileSort,
     treeError,
+    treeSelectionOrder,
   };
 }
