@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { FileWatcherClient } from '../app/lib/file-watcher/client';
+import { LocalFileWriteTracker } from '../app/lib/files/local-write-tracker';
 import { useFileStore } from '../app/store/file-store';
 import { useWorkspaceStore } from '../app/store/workspace-store';
 
@@ -42,6 +43,58 @@ function delay(ms: number) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function testLocalWriteTracker() {
+  const tracker = new LocalFileWriteTracker();
+  const path = 'notes/todos.md';
+
+  tracker.record(path, '- [x] ship', 100);
+  tracker.record(path, '- [ ] ship', 110);
+
+  assert.equal(
+    tracker.consumeMatchingWrite(path, '- [x] ship', 120),
+    true,
+    'the first local autosave must not be treated as an external change',
+  );
+  assert.equal(
+    tracker.consumeMatchingWrite(path, '- [ ] ship', 130),
+    true,
+    'the quick follow-up autosave must also be recognized as local',
+  );
+  assert.equal(
+    tracker.consumeMatchingWrite(path, 'changed in another tab', 140),
+    false,
+    'unrelated watcher content must still be treated as external',
+  );
+
+  tracker.record(path, 'first', 200);
+  tracker.record(path, 'second', 210);
+  assert.equal(
+    tracker.consumeMatchingWrite(path, 'second', 220),
+    true,
+    'a coalesced watcher event must consume all older local writes',
+  );
+  assert.equal(
+    tracker.consumeMatchingWrite(path, 'first', 230),
+    false,
+    'superseded writes must not mask a later external change',
+  );
+
+  tracker.record(path, 'failed write', 240);
+  tracker.discard(path, 'failed write');
+  assert.equal(
+    tracker.consumeMatchingWrite(path, 'failed write', 250),
+    false,
+    'a failed save must not suppress the following external change',
+  );
+
+  tracker.record(path, 'expired', 300);
+  assert.equal(
+    tracker.consumeMatchingWrite(path, 'expired', 10_301),
+    false,
+    'stale local writes must not suppress later external changes',
+  );
+}
+
 async function main() {
   const originalFetch = globalThis.fetch;
   const OriginalEventSource = globalThis.EventSource;
@@ -73,6 +126,8 @@ async function main() {
   });
 
   try {
+    testLocalWriteTracker();
+
     const client = new FileWatcherClient();
     client.acquire();
 

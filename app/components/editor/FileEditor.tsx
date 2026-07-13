@@ -13,6 +13,7 @@ import {
   isWorkspaceFileRevisionConflictError,
   readWorkspaceFile,
 } from '@/app/lib/files/client';
+import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
@@ -443,6 +444,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
   const saveTimeoutRef = useRef<number | null>(null);
   const externalReloadTimeoutRef = useRef<number | null>(null);
+  const localWriteTrackerRef = useRef(new LocalFileWriteTracker());
   const imagePreviewRef = useRef<HTMLDivElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
   const [htmlViewPreference, setHtmlViewPreference] = useState<{ path: string | null; mode: HtmlViewMode }>({
@@ -488,6 +490,13 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     const latestEditorState = useEditorStore.getState();
     if (latestEditorState.activePath !== path) return null;
 
+    if (
+      source === 'watch' &&
+      localWriteTrackerRef.current.consumeMatchingWrite(path, serverFile.content)
+    ) {
+      return serverFile;
+    }
+
     if (serverFile.content === latestEditorState.draft) {
       setExternalTextChange((current) => current?.path === path ? null : current);
       return serverFile;
@@ -502,6 +511,16 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     });
     return serverFile;
   }, []);
+
+  const saveTrackedFile = useCallback(async (path: string, content: string) => {
+    localWriteTrackerRef.current.record(path, content);
+    try {
+      await saveFile(path, content);
+    } catch (error) {
+      localWriteTrackerRef.current.discard(path, content);
+      throw error;
+    }
+  }, [saveFile]);
 
   const handleSaveError = useCallback((error: unknown, path: string) => {
     const message = getSaveErrorMessage(error);
@@ -562,7 +581,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       markSaving();
 
       try {
-        await saveFile(pathToSave, contentToSave);
+        await saveTrackedFile(pathToSave, contentToSave);
         const latestState = useEditorStore.getState();
         if (
           latestState.activePath === pathToSave &&
@@ -582,7 +601,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [activeExternalTextChangePath, activePath, draft, handleSaveError, isDirty, markSaved, markSaving, saveFile, setSaveError]);
+  }, [activeExternalTextChangePath, activePath, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
 
   const extension = useMemo(() => {
     if (!currentFile) return '';
@@ -754,7 +773,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
       updateDraft(merged.content);
       markSaving();
-      await saveFile(change.path, merged.content);
+      await saveTrackedFile(change.path, merged.content);
 
       const savedState = useEditorStore.getState();
       if (savedState.activePath === change.path && savedState.draft === merged.content) {
@@ -774,7 +793,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     markSaved,
     markSaving,
     refreshCurrentFileContent,
-    saveFile,
+    saveTrackedFile,
     setActiveFile,
     setSaveError,
     t,
@@ -789,7 +808,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     try {
       const latestEditorState = useEditorStore.getState();
       const copyPath = buildConflictCopyPath(change.path);
-      await saveFile(copyPath, latestEditorState.draft);
+      await saveTrackedFile(copyPath, latestEditorState.draft);
       setExternalTextChange(null);
       await revealAndLoadFile(copyPath);
       toast.success(t('externalChangeCopySaved'));
@@ -800,7 +819,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     } finally {
       setIsResolvingExternalTextChange(false);
     }
-  }, [activeExternalTextChange, revealAndLoadFile, saveFile, setSaveError, t]);
+  }, [activeExternalTextChange, revealAndLoadFile, saveTrackedFile, setSaveError, t]);
 
   const handleClosePreview = useCallback(async () => {
     if (isClosingPreview) return;
@@ -828,7 +847,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         }
 
         markSaving();
-        await saveFile(pathToSave, contentToSave);
+        await saveTrackedFile(pathToSave, contentToSave);
         const latestState = useEditorStore.getState();
         if (
           latestState.activePath === pathToSave &&
@@ -850,7 +869,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     } finally {
       setIsClosingPreview(false);
     }
-  }, [activeExternalTextChangePath, getSaveErrorMessage, handleSaveError, isClosingPreview, markSaved, markSaving, onClosePreview, saveFile, setSaveError, t]);
+  }, [activeExternalTextChangePath, getSaveErrorMessage, handleSaveError, isClosingPreview, markSaved, markSaving, onClosePreview, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -866,7 +885,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           return;
         }
         markSaving();
-        saveFile(pathToSave, contentToSave)
+        saveTrackedFile(pathToSave, contentToSave)
           .then(() => {
             const latestState = useEditorStore.getState();
             if (
@@ -884,7 +903,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [activeExternalTextChangePath, handleSaveError, markSaved, markSaving, saveFile, setSaveError, t]);
+  }, [activeExternalTextChangePath, handleSaveError, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     if (!isImage) return;
