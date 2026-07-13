@@ -97,6 +97,14 @@ const teamWorkspace = {
   },
 };
 
+const additionalPersonalWorkspace = {
+  ...personalWorkspace,
+  id: 'ws_personal_research',
+  name: 'Research Workspace',
+  rootRelativePath: 'workspaces/personal/user_1/research/files',
+  isDefault: false,
+};
+
 (globalThis as unknown as { fetch: typeof fetch }).fetch = async () => (
   new Response(
     JSON.stringify({
@@ -119,6 +127,10 @@ async function main() {
     selectActiveWorkspace,
     useWorkspaceStore,
   } = await import('../app/store/workspace-store');
+  const { hasWorkspaceSwitcherOptions } = await import('../app/components/workspaces/WorkspaceSwitcher');
+
+  assert.equal(hasWorkspaceSwitcherOptions([personalWorkspace]), false);
+  assert.equal(hasWorkspaceSwitcherOptions([personalWorkspace, additionalPersonalWorkspace]), true);
 
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, personalWorkspace.id);
@@ -148,6 +160,30 @@ async function main() {
 
   const unchanged = useWorkspaceStore.getState().setActiveWorkspace(personalWorkspace.id, 'test');
   assert.equal(unchanged, false);
+
+  (globalThis as unknown as { fetch: typeof fetch }).fetch = async () => (
+    new Response(
+      JSON.stringify({
+        success: true,
+        organizationId: 'org_1',
+        teamFeaturesEnabled: false,
+        databaseProvider: 'sqlite',
+        activeWorkspaceId: personalWorkspace.id,
+        defaultWorkspace: personalWorkspace,
+        workspaces: [personalWorkspace, additionalPersonalWorkspace],
+        warnings: [],
+      }),
+      { status: 200, headers: { 'content-type': 'application/json' } }
+    )
+  );
+
+  await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
+  assert.equal(useWorkspaceStore.getState().teamFeaturesEnabled, false);
+  assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.id, personalWorkspace.id);
+  const personalWorkspaceChanged = useWorkspaceStore.getState().setActiveWorkspace(additionalPersonalWorkspace.id, 'test');
+  assert.equal(personalWorkspaceChanged, true);
+  assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.id, additionalPersonalWorkspace.id);
+  assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.type, 'personal');
 
   (globalThis as unknown as { fetch: typeof fetch }).fetch = async () => (
     new Response(

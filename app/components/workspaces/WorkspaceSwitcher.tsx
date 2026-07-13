@@ -62,9 +62,9 @@ function getSwitchableWorkspaces(workspaces: ClientWorkspaceSummary[]) {
   return workspaces.filter((workspace) => workspace.status === 'active' && workspace.permissions.canRead);
 }
 
-function hasWorkspaceSwitcherOptions(workspaces: ClientWorkspaceSummary[]) {
+export function hasWorkspaceSwitcherOptions(workspaces: ClientWorkspaceSummary[]) {
   const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
-  return switchableWorkspaces.length > 1 && switchableWorkspaces.some((workspace) => workspace.type !== 'personal');
+  return switchableWorkspaces.length > 1;
 }
 
 export function useShouldShowWorkspaceSwitcher() {
