@@ -549,12 +549,11 @@ export function CreateAgentDialog({
   }
 
   return (
-    <>
-      <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent
-          layout="viewport"
-          className="h-[100dvh] w-full max-w-full bg-background p-0 sm:h-[calc(100dvh-2rem)] md:h-[calc(100dvh-3rem)] lg:h-[calc(100dvh-4rem)]"
-        >
+    <Dialog open={open} onOpenChange={handleOpenChange}>
+      <DialogContent
+        layout="viewport"
+        className="h-[100dvh] w-full max-w-full bg-background p-0 sm:h-[calc(100dvh-2rem)] md:h-[calc(100dvh-3rem)] lg:h-[calc(100dvh-4rem)]"
+      >
           <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
             <DialogHeader className="shrink-0 border-b px-4 py-3 pr-14 sm:px-5 sm:py-4">
               <DialogTitle>{t('title')}</DialogTitle>
@@ -770,15 +769,14 @@ export function CreateAgentDialog({
               </Button>
             </DialogFooter>
           </div>
-        </DialogContent>
-      </Dialog>
 
-      <AgentIconPickerDialog
-        open={iconPickerOpen}
-        value={iconId}
-        onOpenChange={setIconPickerOpen}
-        onValueChange={setIconId}
-      />
-    </>
+        <AgentIconPickerDialog
+          open={iconPickerOpen}
+          value={iconId}
+          onOpenChange={setIconPickerOpen}
+          onValueChange={setIconId}
+        />
+      </DialogContent>
+    </Dialog>
   );
 }
