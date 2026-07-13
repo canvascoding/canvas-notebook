@@ -11,6 +11,22 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.13.1] - 2026-07-13
+
+### Added
+
+- Added durable operation locks, checkpoints, and recovery handling for managed Canvas Notebook updates.
+- Added CLI coverage for database reconciliation, backup, rollback, cross-platform host commands, and control-plane release payloads.
+
+### Changed
+
+- Reworked managed updates to stage release-pinned payloads atomically while coordinating CLI self-updates, database setup, and systemd lifecycle handoffs.
+- Updated the multi-architecture build workflow to package managed release payloads for Control Plane consumption.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.12.1] - 2026-07-12
 
 ### Added
