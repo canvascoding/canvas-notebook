@@ -459,10 +459,6 @@ export function ChatModelSelector({
             </>
           ) : null}
 
-          <DropdownMenuSeparator className="mx-2 my-1.5" />
-          <div className="px-2.5 py-1 text-[10px] leading-4 text-muted-foreground">
-            {sessionId ? t('runtimeAppliesToSession') : t('runtimeAppliesToNewSession')}
-          </div>
           {visibleError ? (
             <div className="mx-1.5 mt-1 rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1.5 text-[11px] leading-4 text-destructive" role="alert">
               {visibleError}
