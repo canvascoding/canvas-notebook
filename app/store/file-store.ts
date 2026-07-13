@@ -1035,7 +1035,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         workspaceId,
       });
 
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return result;
+      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
 
       // Update current file if it's the same path
       const { currentFile } = get();
@@ -1168,7 +1168,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         const failedPaths = result.failed.map((f: { path: string; error: string }) => f.path).join(', ');
         throw new Error(`Failed to delete: ${failedPaths}`);
       }
-      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
+      if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return result;
 
       for (const deletedPath of pathsToDelete) {
         const { selectedNode, currentFile, currentDirectory, setCurrentDirectory } = get();
