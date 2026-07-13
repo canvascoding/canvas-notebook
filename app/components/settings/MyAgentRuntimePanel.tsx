@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   AlertCircle,
+  ArrowRight,
   Bot,
   BrainCircuit,
   Building2,
@@ -28,6 +29,7 @@ import type {
   AiCatalogModel,
   AiEffectiveCatalogProvider,
   AiEffectiveRuntimeResolution,
+  AiRuntimeResolutionIssue,
   AiRuntimeSelection,
   AiRuntimeSelectionSource,
 } from '@/app/lib/agent-runtime-policy/types';
@@ -131,13 +133,19 @@ type PanelCopy = {
     noModel: string;
     resolvedFrom: (source: string) => string;
     unresolvedDescription: string;
-    catalogRevision: (revision: number) => string;
-    policyRevision: (revision: number) => string;
     valid: string;
     actionRequired: string;
     issuesAria: string;
     cannotRun: string;
     unavailable: string;
+    setupRequiredTitle: string;
+    setupRequiredAdmin: string;
+    setupRequiredMember: string;
+    setupAction: string;
+    missingConnection: string;
+    unavailableModel: string;
+    unavailableProvider: string;
+    unsupportedIntelligence: string;
   };
   preference: {
     section: string;
@@ -147,9 +155,8 @@ type PanelCopy = {
     providerHelp: string;
     model: string;
     selectModel: string;
-    installation: string;
-    credentialScope: string;
-    readiness: string;
+    connection: string;
+    availability: string;
     credentialAvailable: string;
     credentialMissing: string;
     intelligence: string;
@@ -182,9 +189,9 @@ const DE_COPY: PanelCopy = {
   source: {
     session: 'Sitzungsauswahl',
     user_preference: 'Meine Präferenz',
-    agent_default: 'Agent-Standard',
-    workspace_default: 'Workspace-Standard',
-    app_default: 'App-Standard',
+    agent_default: 'Standard für diesen Agent',
+    workspace_default: 'Standard für diesen Workspace',
+    app_default: 'Standard der Organisation',
   },
   workspaceType: {
     personal: 'Persönlicher Workspace',
@@ -235,7 +242,7 @@ const DE_COPY: PanelCopy = {
     settings: 'Meine Einstellungen',
     runtime: 'Agent-Runtime',
     title: 'Meine Agent-Runtime',
-    description: 'Wähle für jeden Workspace und Agent eine freigegebene Provider-Installation und ein Modell. App- und Workspace-Richtlinien bleiben immer maßgeblich.',
+    description: 'Wähle das KI-Modell, mit dem dein Agent in diesem Workspace arbeitet. Verfügbare Optionen werden von deiner Organisation bereitgestellt.',
     reload: 'Neu laden',
   },
   context: {
@@ -255,27 +262,32 @@ const DE_COPY: PanelCopy = {
     noModel: 'Kein Modell ausgewählt',
     resolvedFrom: (source) => `Für den gewählten Kontext aus „${source}“ aufgelöst.`,
     unresolvedDescription: 'Für diesen Kontext ist noch kein gültiger Runtime-Standard festgelegt.',
-    catalogRevision: (revision) => `Katalog r${revision}`,
-    policyRevision: (revision) => `Richtlinie r${revision}`,
     valid: 'Gültig',
     actionRequired: 'Aktion erforderlich',
-    issuesAria: 'Probleme mit der Runtime-Richtlinie',
-    cannotRun: 'Diese Auswahl kann noch nicht ausgeführt werden',
-    unavailable: 'Runtime-Präferenz nicht verfügbar',
+    issuesAria: 'Hinweise zur Agent-Runtime',
+    cannotRun: 'Deine Agent-Runtime benötigt Aufmerksamkeit',
+    unavailable: 'Agent-Runtime nicht verfügbar',
+    setupRequiredTitle: 'Die KI-Einrichtung ist noch nicht vollständig',
+    setupRequiredAdmin: 'Lege unter „KI-Provider & Modelle“ einen verfügbaren Anbieter und ein Standardmodell für die App fest. Danach können Mitglieder hier ihr bevorzugtes Modell auswählen.',
+    setupRequiredMember: 'Für diesen Workspace ist noch kein verwendbares KI-Modell eingerichtet. Bitte wende dich an deine:n Systemadministrator:in.',
+    setupAction: 'KI-Provider & Modelle öffnen',
+    missingConnection: 'Die zentral verwaltete Verbindung für diese KI-Auswahl ist noch nicht verfügbar.',
+    unavailableModel: 'Das ausgewählte Modell ist in diesem Workspace nicht verfügbar.',
+    unavailableProvider: 'Der ausgewählte KI-Anbieter ist in diesem Workspace nicht verfügbar.',
+    unsupportedIntelligence: 'Die gewählte Intelligence-Stufe wird von diesem Modell nicht unterstützt.',
   },
   preference: {
     section: 'Meine Präferenz',
-    providerInstallation: 'Provider-Installation',
-    selectProvider: 'Freigegebenen Provider auswählen',
+    providerInstallation: 'KI-Anbieter',
+    selectProvider: 'KI-Anbieter auswählen',
     unavailable: 'Nicht verfügbar',
-    providerHelp: 'Aufgeführt werden nur Installationen, die von App- und Workspace-Richtlinie freigegeben sind.',
-    model: 'Modell',
-    selectModel: 'Modell auswählen',
-    installation: 'Installation',
-    credentialScope: 'Credential-Scope',
-    readiness: 'Bereitschaft',
-    credentialAvailable: 'Zugangsdaten verfügbar',
-    credentialMissing: 'Zugangsdaten fehlen',
+    providerHelp: 'Diese Auswahl wird von deiner Organisation für diesen Workspace bereitgestellt.',
+    model: 'KI-Modell',
+    selectModel: 'KI-Modell auswählen',
+    connection: 'Verbindung',
+    availability: 'Status',
+    credentialAvailable: 'Verfügbar',
+    credentialMissing: 'Nicht verfügbar',
     intelligence: 'Intelligence',
     intelligenceHelp: 'Die verfügbaren Stufen stammen aus dem gewählten Modell. Ein Modellwechsel kann diese Auswahl verändern.',
     useInherited: 'Geerbten Standard verwenden',
@@ -308,7 +320,7 @@ const EN_COPY: PanelCopy = {
     user_preference: 'My preference',
     agent_default: 'Agent default',
     workspace_default: 'Workspace default',
-    app_default: 'App default',
+    app_default: 'Organization default',
   },
   workspaceType: {
     personal: 'Personal workspace',
@@ -359,7 +371,7 @@ const EN_COPY: PanelCopy = {
     settings: 'My settings',
     runtime: 'Agent runtime',
     title: 'My agent runtime',
-    description: 'Choose an approved provider installation and model for each workspace and agent. App and workspace policy always remain authoritative.',
+    description: 'Choose the AI model your agent uses in this workspace. Available options are provided by your organization.',
     reload: 'Reload',
   },
   context: {
@@ -379,27 +391,32 @@ const EN_COPY: PanelCopy = {
     noModel: 'No model selected',
     resolvedFrom: (source) => `Resolved from ${source.toLocaleLowerCase()} for the selected context.`,
     unresolvedDescription: 'No valid runtime default has been configured for this context yet.',
-    catalogRevision: (revision) => `Catalog r${revision}`,
-    policyRevision: (revision) => `Policy r${revision}`,
-    valid: 'Valid',
+    valid: 'Ready',
     actionRequired: 'Action required',
-    issuesAria: 'Runtime policy issues',
-    cannotRun: 'This selection cannot run yet',
-    unavailable: 'Runtime preference unavailable',
+    issuesAria: 'Agent runtime guidance',
+    cannotRun: 'Your agent runtime needs attention',
+    unavailable: 'Agent runtime unavailable',
+    setupRequiredTitle: 'AI setup is not complete yet',
+    setupRequiredAdmin: 'Set up an available provider and an app default under “AI providers & models”. Members can then choose their preferred model here.',
+    setupRequiredMember: 'No usable AI model has been configured for this workspace yet. Please contact your system administrator.',
+    setupAction: 'Open AI providers & models',
+    missingConnection: 'The centrally managed connection for this AI selection is not available yet.',
+    unavailableModel: 'The selected model is not available in this workspace.',
+    unavailableProvider: 'The selected AI provider is not available in this workspace.',
+    unsupportedIntelligence: 'The selected intelligence level is not supported by this model.',
   },
   preference: {
     section: 'My preference',
-    providerInstallation: 'Provider installation',
-    selectProvider: 'Select an approved provider',
+    providerInstallation: 'AI provider',
+    selectProvider: 'Select an AI provider',
     unavailable: 'Unavailable',
-    providerHelp: 'Only installations allowed by the app and workspace policy are listed.',
-    model: 'Model',
-    selectModel: 'Select a model',
-    installation: 'Installation',
-    credentialScope: 'Credential scope',
-    readiness: 'Readiness',
-    credentialAvailable: 'Credential available',
-    credentialMissing: 'Credential missing',
+    providerHelp: 'These options are provided by your organization for this workspace.',
+    model: 'AI model',
+    selectModel: 'Select an AI model',
+    connection: 'Connection',
+    availability: 'Status',
+    credentialAvailable: 'Available',
+    credentialMissing: 'Not available',
     intelligence: 'Intelligence',
     intelligenceHelp: 'Available levels come from the selected model; changing the model can change this list.',
     useInherited: 'Use inherited default',
@@ -428,6 +445,8 @@ const EN_COPY: PanelCopy = {
 
 export type MyAgentRuntimePanelProps = {
   locale?: string;
+  canManageRuntimeCatalog?: boolean;
+  onOpenRuntimeCatalog?: () => void;
   onPreferenceSaved?: (context: { workspaceId: string; agentId: string }) => void;
 };
 
@@ -458,6 +477,16 @@ async function readJson<T>(response: Response, fallback: string): Promise<T> {
 
 function sourceLabel(source: AiRuntimeSelectionSource | null, copy: PanelCopy): string {
   return source ? copy.source[source] : copy.effective.unavailable;
+}
+
+function userFacingIssueMessage(issue: AiRuntimeResolutionIssue, copy: PanelCopy): string {
+  if (issue.code === 'CREDENTIAL_NOT_AVAILABLE') return copy.effective.missingConnection;
+  if (issue.code === 'MODEL_NOT_ALLOWED') return copy.effective.unavailableModel;
+  if (issue.code === 'PROVIDER_INSTALLATION_NOT_ALLOWED' || issue.code === 'PROVIDER_NOT_READY') {
+    return copy.effective.unavailableProvider;
+  }
+  if (issue.code === 'INVALID_INTELLIGENCE') return copy.effective.unsupportedIntelligence;
+  return issue.message;
 }
 
 function sameSelection(left: AiRuntimeSelection | null, right: AiRuntimeSelection | null): boolean {
@@ -591,18 +620,12 @@ function SelectionSummary({
               <span className="block truncate font-medium" title={provider?.name || selection.providerId}>
                 {provider?.name || selection.providerId}
               </span>
-              <span className="mt-0.5 block break-all font-mono text-[11px] text-muted-foreground">
-                {selection.providerInstallationId}
-              </span>
             </dd>
           </div>
           <div className="grid min-w-0 gap-3 sm:grid-cols-2 lg:grid-cols-1">
             <div className="min-w-0">
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{copy.selectionSummary.model}</dt>
               <dd className="mt-1 break-words font-medium">{model?.name || selection.modelId}</dd>
-              {model?.name && model.name !== selection.modelId && (
-                <dd className="break-all font-mono text-[11px] text-muted-foreground">{selection.modelId}</dd>
-              )}
             </div>
             <div>
               <dt className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{copy.selectionSummary.intelligence}</dt>
@@ -619,7 +642,12 @@ function SelectionSummary({
   );
 }
 
-export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntimePanelProps = {}) {
+export function MyAgentRuntimePanel({
+  locale,
+  canManageRuntimeCatalog = false,
+  onOpenRuntimeCatalog,
+  onPreferenceSaved,
+}: MyAgentRuntimePanelProps = {}) {
   const copy = copyForLocale(locale);
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [agents, setAgents] = useState<AgentItem[]>([]);
@@ -803,6 +831,11 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
       && selectedModel.thinkingLevels.includes(draft.thinkingLevel),
   );
   const controlsDisabled = sourcesLoading || resolutionLoading || mutation !== null;
+  const administrationRequiredIssue = resolution?.issues.find((issue) => (
+    issue.code === 'RUNTIME_CATALOG_NOT_CONFIGURED'
+    || (issue.code === 'CREDENTIAL_NOT_AVAILABLE' && selectedProvider?.credentialScope !== 'user')
+  )) ?? null;
+  const visibleIssues = resolution?.issues.filter((issue) => issue !== administrationRequiredIssue) ?? [];
 
   const applyRuntimeResponse = (next: AiEffectiveRuntimeResolution) => {
     setResolution(next);
@@ -1078,11 +1111,6 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
                 </CardDescription>
               </div>
               <div className="flex flex-wrap items-center gap-2">
-                <Badge variant="outline" className="gap-1.5">
-                  <Layers3 className="h-3 w-3" aria-hidden="true" />
-                  {copy.effective.catalogRevision(resolution.catalogRevision)}
-                </Badge>
-                <Badge variant="outline">{copy.effective.policyRevision(resolution.policyRevision)}</Badge>
                 <Badge
                   variant={resolution.valid ? 'default' : 'destructive'}
                   className="gap-1.5"
@@ -1097,18 +1125,36 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
           </CardHeader>
 
           <CardContent className="space-y-6 px-4 sm:px-6">
-            {resolution.issues.length > 0 && (
+            {administrationRequiredIssue && (
+              <div className="flex min-w-0 flex-col gap-4 rounded-lg border border-primary/30 bg-primary/[0.04] p-4 sm:flex-row sm:items-center sm:justify-between" role="alert">
+                <div className="flex min-w-0 items-start gap-3">
+                  <ShieldCheck className="mt-0.5 h-5 w-5 shrink-0 text-primary" aria-hidden="true" />
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">{copy.effective.setupRequiredTitle}</p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {canManageRuntimeCatalog ? copy.effective.setupRequiredAdmin : copy.effective.setupRequiredMember}
+                    </p>
+                  </div>
+                </div>
+                {canManageRuntimeCatalog && onOpenRuntimeCatalog ? (
+                  <Button type="button" onClick={onOpenRuntimeCatalog} className="w-full shrink-0 sm:w-auto">
+                    {copy.effective.setupAction}
+                    <ArrowRight />
+                  </Button>
+                ) : null}
+              </div>
+            )}
+
+            {visibleIssues.length > 0 && (
               <div className="rounded-lg border border-destructive/30 bg-destructive/5 p-4" role="alert" aria-label={copy.effective.issuesAria}>
                 <div className="flex items-start gap-3">
                   <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
                   <div className="min-w-0">
                     <p className="text-sm font-semibold">{copy.effective.cannotRun}</p>
                     <ul className="mt-2 space-y-2 text-sm text-muted-foreground">
-                      {resolution.issues.map((issue, index) => (
+                      {visibleIssues.map((issue, index) => (
                         <li key={`${issue.code}-${index}`} className="min-w-0">
-                          <span className="font-mono text-[11px] text-destructive">{issue.code}</span>
-                          <span className="mx-2 text-border" aria-hidden="true">/</span>
-                          <span className="break-words">{issue.message}</span>
+                          <span className="break-words">{userFacingIssueMessage(issue, copy)}</span>
                         </li>
                       ))}
                     </ul>
@@ -1117,7 +1163,7 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
               </div>
             )}
 
-            <div className="grid min-w-0 gap-4 lg:grid-cols-[minmax(0,1fr)_minmax(17rem,0.42fr)]">
+            <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_18rem]">
               <div className="min-w-0 space-y-5">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                   <span className="flex h-5 w-5 items-center justify-center rounded-full border bg-muted text-[10px]">03</span>
@@ -1150,7 +1196,7 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
                           value={provider.installationId}
                           disabled={!canPrepareProvider(provider)}
                         >
-                          {provider.name} · {copy.credentialScope[provider.credentialScope] || provider.credentialScope}
+                          {provider.name}
                           {!provider.selectable ? ` · ${copy.providerStatus[provider.status] || provider.status}` : ''}
                         </option>
                       ))}
@@ -1182,28 +1228,19 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
                         </option>
                       ))}
                     </select>
-                    {selectedModel && (
-                      <p className="break-all font-mono text-[11px] leading-5 text-muted-foreground">
-                        {selectedModel.id}
-                      </p>
-                    )}
                   </div>
                 </div>
 
                 {selectedProvider && (
-                  <div className="grid min-w-0 gap-3 rounded-lg border bg-muted/15 p-3 sm:grid-cols-3">
+                  <div className="grid min-w-0 gap-3 rounded-lg border bg-muted/15 p-3 sm:grid-cols-2">
                     <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{copy.preference.installation}</p>
-                      <p className="mt-1 break-all font-mono text-[11px]">{selectedProvider.installationId}</p>
-                    </div>
-                    <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{copy.preference.credentialScope}</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{copy.preference.connection}</p>
                       <p className="mt-1 text-sm font-medium">
                         {copy.credentialScope[selectedProvider.credentialScope] || selectedProvider.credentialScope}
                       </p>
                     </div>
                     <div className="min-w-0">
-                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{copy.preference.readiness}</p>
+                      <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{copy.preference.availability}</p>
                       <div className="mt-1 flex flex-wrap gap-1.5">
                         <Badge variant={selectedProvider.selectable ? 'secondary' : 'outline'}>
                           {copy.providerStatus[selectedProvider.status] || selectedProvider.status}
@@ -1336,7 +1373,7 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
                 </div>
               </div>
 
-              <aside className="min-w-0 space-y-3" aria-label={copy.summary.aria}>
+              <aside className="grid min-w-0 gap-3 sm:grid-cols-2 2xl:block 2xl:space-y-3" aria-label={copy.summary.aria}>
                 <SelectionSummary
                   title={copy.summary.effectiveTitle}
                   description={copy.summary.effectiveDescription}
@@ -1354,7 +1391,7 @@ export function MyAgentRuntimePanel({ locale, onPreferenceSaved }: MyAgentRuntim
                   subdued
                   copy={copy}
                 />
-                <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground">
+                <div className="rounded-lg border border-dashed p-4 text-xs leading-5 text-muted-foreground sm:col-span-2">
                   <div className="mb-2 flex items-center gap-2 font-semibold text-foreground">
                     <ShieldCheck className="h-4 w-4 text-primary" aria-hidden="true" />
                     {copy.summary.policyTitle}

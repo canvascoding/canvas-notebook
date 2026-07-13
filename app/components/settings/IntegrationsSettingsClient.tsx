@@ -276,6 +276,11 @@ type AiProvidersModelsPanelProps = {
 type AiProviderCredentialsPanelProps = {
   locale?: string;
 };
+type MyAgentRuntimePanelProps = {
+  locale?: string;
+  canManageRuntimeCatalog?: boolean;
+  onOpenRuntimeCatalog?: () => void;
+};
 type AgentSettingsPanelProps = {
   canManageAgentDefaults?: boolean;
 };
@@ -315,7 +320,7 @@ const AgentSettingsPanel = dynamic<AgentSettingsPanelProps>(
   { loading: SettingsTabLoader },
 );
 
-const MyAgentRuntimePanel = dynamic(
+const MyAgentRuntimePanel = dynamic<MyAgentRuntimePanelProps>(
   () => import('@/app/components/settings/MyAgentRuntimePanel').then((module) => module.MyAgentRuntimePanel),
   { loading: SettingsTabLoader },
 );
@@ -3075,7 +3080,13 @@ export function IntegrationsSettingsClient({
             <AgentSettingsPanel canManageAgentDefaults={canManageAgentDefaults} />
           ))}
 
-          {renderLazyTabContent('my-agent-runtime', <MyAgentRuntimePanel locale={locale} />)}
+          {renderLazyTabContent('my-agent-runtime', (
+            <MyAgentRuntimePanel
+              locale={locale}
+              canManageRuntimeCatalog={canManageAgentDefaults}
+              onOpenRuntimeCatalog={() => handleTabChange('ai-providers')}
+            />
+          ))}
 
           {renderLazyTabContent('browser', <BrowserSettingsPanel isAdmin={isAdmin} />)}
 
