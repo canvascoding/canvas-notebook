@@ -20,6 +20,7 @@ import {
   getDatabaseProviderProblemMessages,
   resolveDatabaseProviderGate,
 } from '@/app/lib/db/provider';
+import { getDefaultWorkspaceIcon, isWorkspaceIcon, type WorkspaceIcon } from './icons';
 import { resolveWorkspacePermissions } from './permissions';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
@@ -115,7 +116,6 @@ type WorkspaceMemberCandidateRow = {
   email: string | null;
   role: string;
   status: string;
-};
   banned: unknown;
 };
 
@@ -123,6 +123,7 @@ type WorkspaceMemberCandidateEligibilityRow = {
   organization_role: string | null;
   organization_status: string | null;
   banned: unknown;
+};
 
 type WorkspaceRow = {
   id: string;
@@ -133,6 +134,7 @@ type WorkspaceRow = {
   project_id: string | null;
   root_relative_path: string;
   display_name: string;
+  workspace_icon: string | null;
   status: string;
   is_default: number;
   created_at: number;
@@ -169,12 +171,12 @@ function normalizeWorkspaceStatus(value: string): WorkspaceStatus {
   return 'active';
 }
 
-function normalizeWorkspaceMemberRole(value: string): WorkspaceMemberRecord['role'] {
-  if (value === 'owner' || value === 'admin' || value === 'external') return value;
 function isBannedWorkspaceUser(value: unknown): boolean {
   return value === true || value === 1 || value === '1' || value === 'true';
 }
 
+function normalizeWorkspaceMemberRole(value: string): WorkspaceMemberRecord['role'] {
+  if (value === 'owner' || value === 'admin' || value === 'external') return value;
   return 'member';
 }
 
@@ -230,6 +232,7 @@ function rowToWorkspaceRecord(row: WorkspaceRow) {
     projectId: row.project_id,
     rootRelativePath: row.root_relative_path,
     displayName: row.display_name,
+    icon: isWorkspaceIcon(row.workspace_icon) ? row.workspace_icon : getDefaultWorkspaceIcon(row.type),
     status: normalizeWorkspaceStatus(row.status),
     isDefault: row.is_default === 1,
     createdAt: row.created_at,
@@ -263,9 +266,6 @@ function rowToWorkspaceMemberCandidate(row: WorkspaceMemberCandidateRow): Worksp
   };
 }
 
-function ensureWorkspaceDirectory(rootRelativePath: string): void {
-  mkdirSync(workspaceAbsoluteRoot(rootRelativePath), { recursive: true });
-}
 async function ensurePostgresWorkspaceMemberCandidate(
   database: RuntimeDb,
   params: { organizationId: string; userId: string },
@@ -308,6 +308,9 @@ async function ensurePostgresWorkspaceMemberCandidate(
   );
 }
 
+function ensureWorkspaceDirectory(rootRelativePath: string): void {
+  mkdirSync(workspaceAbsoluteRoot(rootRelativePath), { recursive: true });
+}
 
 function normalizeWorkspaceName(value: unknown): string {
   if (typeof value !== 'string') {
@@ -328,6 +331,12 @@ function normalizeWorkspaceName(value: unknown): string {
     throw new WorkspaceOperationError('WORKSPACE_NAME_INVALID', 'Workspace name is invalid.', 400);
   }
   return name;
+}
+
+function normalizeWorkspaceIcon(value: unknown, type: WorkspaceType): WorkspaceIcon {
+  if (value === undefined || value === null) return getDefaultWorkspaceIcon(type);
+  if (isWorkspaceIcon(value)) return value;
+  throw new WorkspaceOperationError('WORKSPACE_ICON_INVALID', 'Workspace icon is invalid.', 400);
 }
 
 export async function getPostgresAuthUserCount(database: RuntimeDb): Promise<number> {
@@ -525,7 +534,7 @@ async function ensurePermissionRow(
 async function getWorkspaceById(database: RuntimeDb, workspaceId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE id = ?
       LIMIT 1
@@ -539,7 +548,7 @@ async function getWorkspaceById(database: RuntimeDb, workspaceId: string) {
 async function getPersonalWorkspace(database: RuntimeDb, userId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE type = 'personal' AND owner_user_id = ?
       ORDER BY is_default DESC, created_at ASC
@@ -554,7 +563,7 @@ async function getPersonalWorkspace(database: RuntimeDb, userId: string) {
 async function getOrganizationWorkspace(database: RuntimeDb, organizationId: string) {
   const row = await database.get(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE type = 'organization' AND organization_id = ?
       ORDER BY is_default DESC, created_at ASC
@@ -572,6 +581,7 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   ownerUserId: string | null;
   rootRelativePath: string;
   displayName: string;
+  icon: WorkspaceIcon;
   isDefault?: boolean;
   preserveExistingRoot?: boolean;
 }) {
@@ -594,10 +604,10 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   await database.run(
     `
       INSERT INTO canvas_workspaces (
-        id, organization_id, type, owner_user_id, root_relative_path, display_name, status, is_default, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+        id, organization_id, type, owner_user_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
     `,
-    [id, input.organizationId, input.type, input.ownerUserId, input.rootRelativePath, input.displayName, input.isDefault ? 1 : 0, now, now],
+    [id, input.organizationId, input.type, input.ownerUserId, input.rootRelativePath, input.displayName, input.icon, input.isDefault ? 1 : 0, now, now],
   );
   ensureWorkspaceDirectory(input.rootRelativePath);
   return await getWorkspaceById(database, id);
@@ -632,6 +642,7 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
   projectId?: string | null;
   rootRelativePath: string;
   displayName: string;
+  icon: WorkspaceIcon;
   isDefault?: boolean;
 }) {
   const id = `ws_${randomUUID()}`;
@@ -639,8 +650,8 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
   await database.run(
     `
       INSERT INTO canvas_workspaces (
-        id, organization_id, type, owner_user_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+        id, organization_id, type, owner_user_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
     `,
     [
       id,
@@ -650,6 +661,7 @@ async function insertWorkspaceRecord(database: RuntimeDb, input: {
       input.projectId ?? null,
       input.rootRelativePath,
       input.displayName,
+      input.icon,
       input.isDefault ? 1 : 0,
       now,
       now,
@@ -986,6 +998,7 @@ function workspaceContextFromRecord(
     rootPath: workspaceAbsoluteRoot(record.rootRelativePath),
     rootRelativePath: record.rootRelativePath,
     displayName: record.displayName,
+    icon: record.icon,
     status: record.status,
     isDefault: record.isDefault,
     actor,
@@ -1095,7 +1108,7 @@ async function listWorkspaceContextsForUser(
 ): Promise<WorkspaceContext[]> {
   const rows = await database.all(
     `
-      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, status, is_default, created_at, updated_at
+      SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
       FROM canvas_workspaces
       WHERE organization_id = ? AND status = 'active'
         AND (type != 'personal' OR owner_user_id = ?)
@@ -1266,6 +1279,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
     ownerUserId: ownerUser.id,
     rootRelativePath: personalWorkspaceRootRelativePath(ownerUser.id),
     displayName: 'Personal Workspace',
+    icon: getDefaultWorkspaceIcon('personal'),
     isDefault: true,
   });
   if (teamFeaturesEnabled) {
@@ -1275,6 +1289,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
       ownerUserId: null,
       rootRelativePath: organizationWorkspaceRootRelativePath(organization.organization_id),
       displayName: 'Organization Workspace',
+      icon: getDefaultWorkspaceIcon('organization'),
       isDefault: true,
       preserveExistingRoot: true,
     });
@@ -1286,6 +1301,7 @@ export async function ensurePostgresOrganizationBootstrapForUser(
       ownerUserId: targetUser.id,
       rootRelativePath: personalWorkspaceRootRelativePath(targetUser.id),
       displayName: 'Personal Workspace',
+      icon: getDefaultWorkspaceIcon('personal'),
       isDefault: true,
     });
   }
@@ -1323,6 +1339,7 @@ export async function createPostgresWorkspaceForActor(
   input: {
     type: WorkspaceType;
     name: unknown;
+    icon?: unknown;
     projectFeaturesEnabled?: boolean;
     projectId?: string | null;
   },
@@ -1340,6 +1357,7 @@ export async function createPostgresWorkspaceForActor(
     }
 
     const name = normalizeWorkspaceName(input.name);
+    const icon = normalizeWorkspaceIcon(input.icon, input.type);
     if (input.type === 'organization') {
       throw new WorkspaceOperationError(
         'WORKSPACE_ORGANIZATION_CREATE_FORBIDDEN',
@@ -1421,6 +1439,7 @@ export async function createPostgresWorkspaceForActor(
       projectId: input.type === 'project' ? project?.id ?? null : input.projectId ?? null,
       rootRelativePath,
       displayName: name,
+      icon,
       isDefault: false,
     });
 
@@ -1462,6 +1481,62 @@ export async function createPostgresWorkspaceForActor(
     if (!workspace) {
       throw new WorkspaceOperationError('WORKSPACE_CREATE_FAILED', 'Workspace was created but could not be resolved.', 500);
     }
+    await database.run('COMMIT');
+    return workspace;
+  } catch (error) {
+    try {
+      await database.run('ROLLBACK');
+    } catch {
+      // Preserve the original failure.
+    }
+    throw error;
+  } finally {
+    await database.close();
+  }
+}
+
+export async function updatePostgresWorkspaceForActor(
+  actor: WorkspaceActor,
+  workspaceId: string,
+  input: {
+    name?: unknown;
+    icon?: unknown;
+  },
+): Promise<WorkspaceContext> {
+  const database = await openDb();
+  try {
+    await database.run('BEGIN');
+    await ensurePostgresOrganizationBootstrapForUser(database, actor.userId);
+    const record = await getWorkspaceById(database, workspaceId);
+    if (!record || record.status === 'disabled' || record.status === 'archived') {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+    }
+    if (record.status !== 'active') {
+      throw new WorkspaceOperationError('WORKSPACE_NOT_ACTIVE', 'Workspace is not active.', 409);
+    }
+
+    const context = await resolveWorkspaceContextById(database, actor, workspaceId);
+    if (!context || !context.permissions.canManageWorkspace) {
+      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
+    }
+
+    const nextName = input.name === undefined ? record.displayName : normalizeWorkspaceName(input.name);
+    const nextIcon = input.icon === undefined ? record.icon : normalizeWorkspaceIcon(input.icon, record.type);
+    if (nextName !== record.displayName || nextIcon !== record.icon) {
+      await database.run(
+        'UPDATE canvas_workspaces SET display_name = ?, workspace_icon = ?, updated_at = ? WHERE id = ?',
+        [nextName, nextIcon, Date.now(), record.id],
+      );
+    }
+
+    const updated = await getWorkspaceById(database, record.id);
+    if (!updated) throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
+    const permission = await getPermissionRow(database, updated.organizationId, actor.userId);
+    const teamPermission = updated.type === 'team'
+      ? await getTeamWorkspacePermissionRow(database, updated.id, actor.userId)
+      : null;
+    const projectPermission = await getProjectPermissionRow(database, updated.organizationId, updated.projectId, actor.userId);
+    const workspace = workspaceContextFromRecord(updated, actor, permission, teamPermission, projectPermission);
     await database.run('COMMIT');
     return workspace;
   } catch (error) {
@@ -1866,6 +1941,10 @@ export async function upsertPostgresWorkspaceMemberForActor(
     if (workspace.workspaceType === 'project' && !workspace.projectId) {
       throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
     }
+    const organizationId = workspace.organizationId;
+    if (!organizationId) {
+      throw new WorkspaceOperationError('WORKSPACE_ORGANIZATION_REQUIRED', 'Workspace organization id is required.', 409);
+    }
     if (workspace.workspaceType === 'project') {
       const project = await database.get(
         `
@@ -1874,7 +1953,7 @@ export async function upsertPostgresWorkspaceMemberForActor(
           WHERE organization_id = ? AND id = ? AND status = 'active'
           LIMIT 1
         `,
-        [workspace.organizationId, workspace.projectId],
+        [organizationId, workspace.projectId],
       ) as { id: string } | undefined;
       if (!project) {
         throw new WorkspaceOperationError('WORKSPACE_PROJECT_NOT_FOUND', 'Project not found.', 404);
@@ -1886,7 +1965,7 @@ export async function upsertPostgresWorkspaceMemberForActor(
       throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
     }
     await ensurePostgresWorkspaceMemberCandidate(database, {
-      organizationId: workspace.organizationId,
+      organizationId,
       userId,
     });
 

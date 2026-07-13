@@ -1,5 +1,7 @@
 import 'server-only';
 
+import type { WorkspaceIcon } from './icons';
+
 export type WorkspaceType = 'personal' | 'organization' | 'team' | 'project';
 
 export type WorkspaceStatus = 'active' | 'archived' | 'disabled' | 'recovery_locked';
@@ -27,6 +29,7 @@ export interface WorkspaceContext {
   rootPath: string;
   rootRelativePath?: string;
   displayName?: string;
+  icon?: WorkspaceIcon;
   status?: WorkspaceStatus;
   isDefault?: boolean;
   actor?: WorkspaceActor;

@@ -1,3 +1,5 @@
+import type { WorkspaceIcon } from '@/app/lib/workspaces/icons';
+
 export type ClientWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
 
 export type ClientWorkspaceStatus = 'active' | 'archived' | 'disabled' | 'recovery_locked';
@@ -20,6 +22,7 @@ export interface ClientWorkspaceSummary {
   projectId?: string | null;
   ownerUserId?: string | null;
   rootRelativePath?: string;
+  icon?: WorkspaceIcon;
   status: ClientWorkspaceStatus;
   isDefault?: boolean;
   permissions: ClientWorkspacePermissions;

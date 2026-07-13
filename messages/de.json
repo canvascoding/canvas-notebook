@@ -514,6 +514,11 @@
     "rename": "Umbenennen",
     "move": "Verschieben",
     "download": "Herunterladen",
+    "zipPreviewTitle": "ZIP-Archiv entpacken?",
+    "zipPreviewDescription": "Die enthaltenen Dateien werden in \"{directory}\" entpackt. Vorhandene Dateien werden nicht überschrieben.",
+    "zipExtractHere": "Hier entpacken",
+    "zipExtracted": "{count, plural, one {# Datei wurde entpackt.} other {# Dateien wurden entpackt.}}",
+    "zipExtractFailed": "ZIP-Archiv konnte nicht entpackt werden.",
     "share": "Teilen",
     "shareImage": "Bild teilen",
     "openInStudio": "Als Referenz in Studio öffnen",
@@ -930,6 +935,20 @@
     "agentLabel": "Agent",
     "agentSelectTitle": "Agent auswählen",
     "createAgent": "Neuen Agenten anlegen",
+    "editAgent": "{name} bearbeiten",
+    "agentCreateFailed": "Agent konnte nicht erstellt werden.",
+    "agentEdit": {
+      "title": "Agent bearbeiten",
+      "description": "Name und Icon für {name} anpassen.",
+      "descriptionFallback": "Name und Icon des Agents anpassen.",
+      "iconHint": "Wähle ein Icon, an dem du diesen Agent im Chat schnell wiedererkennst.",
+      "save": "Änderungen speichern",
+      "errors": {
+        "nameRequired": "Name ist erforderlich.",
+        "nameTooLong": "Name darf höchstens 80 Zeichen lang sein.",
+        "saveFailed": "Agent konnte nicht aktualisiert werden."
+      }
+    },
     "modelLabel": "Modell",
     "newChatTitle": "Neuer Chat",
     "newChatShort": "Neu",
@@ -2595,6 +2614,7 @@
         "description": "Workspaces anlegen, löschen und Zugriffsstatus prüfen.",
         "refresh": "Aktualisieren",
         "createWorkspace": "Neuen Workspace anlegen",
+        "editWorkspace": "Bearbeiten",
         "loading": "Workspaces werden geladen...",
         "empty": "Keine Workspaces verfügbar.",
         "deleteWorkspace": "{name} löschen",
@@ -2610,6 +2630,7 @@
         "fields": {
           "name": "Name",
           "namePlaceholder": "z.B. Kampagnen-Workspace",
+          "icon": "Icon",
           "type": "Typ",
           "project": "Projekt",
           "projectPlaceholder": "Projekt auswählen"
@@ -2617,6 +2638,26 @@
         "hints": {
           "teamProjectAccess": "Zugriff kann nach der Erstellung verwaltet werden.",
           "personalOnly": "Personal-Workspaces sind nur für dich zugänglich."
+        },
+        "iconPicker": {
+          "hint": "Wähle ein Icon, an dem du den Workspace überall schnell wiedererkennst.",
+          "icons": {
+            "notebook-pen": "Canvas Notebook",
+            "code-2": "Entwicklung",
+            "briefcase-business": "IT-Agentur",
+            "megaphone": "Marketing-Agentur",
+            "palette": "Design und Marke",
+            "rocket": "Produkt und Start-up",
+            "chart-no-axes-combined": "Analytics und Reporting",
+            "graduation-cap": "Lernen und Forschung",
+            "heart-handshake": "Beratung und Kundenerfolg",
+            "folder-kanban": "Kundenprojekt",
+            "workflow": "Operations und Prozesse",
+            "landmark": "Organisation",
+            "users-round": "Team",
+            "user-round": "Persönlich",
+            "building-2": "Unternehmen"
+          }
         },
         "badges": {
           "default": "Standard"
@@ -2680,6 +2721,13 @@
           "description": "Lege einen weiteren persönlichen Workspace oder einen Team-Workspace an.",
           "cancel": "Abbrechen"
         },
+        "editDialog": {
+          "title": "Workspace bearbeiten",
+          "description": "Name und Icon für {name} anpassen.",
+          "descriptionFallback": "Name und Icon des Workspace anpassen.",
+          "cancel": "Abbrechen",
+          "save": "Änderungen speichern"
+        },
         "typeChange": {
           "action": "Typ ändern",
           "title": "Workspace-Typ ändern",
@@ -2708,6 +2756,7 @@
           "nameTooLong": "Name darf höchstens 80 Zeichen lang sein.",
           "projectRequired": "Projekt ist erforderlich.",
           "createFailed": "Workspace konnte nicht erstellt werden.",
+          "updateFailed": "Workspace konnte nicht aktualisiert werden.",
           "deleteFailed": "Workspace konnte nicht gelöscht werden.",
           "isDefault": "Standard-Workspaces können nicht gelöscht werden.",
           "organizationNotDeletable": "Organisations-Workspace kann nicht gelöscht werden.",

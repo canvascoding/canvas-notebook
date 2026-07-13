@@ -171,6 +171,7 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   projectId: text("project_id").references(() => canvasProjects.id, { onDelete: 'cascade' }),
   rootRelativePath: text("root_relative_path").notNull(),
   displayName: text("display_name").notNull(),
+  workspaceIcon: text("workspace_icon").notNull().default("user-round"),
   status: text("status").notNull().default("active"),
   isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),

@@ -15,7 +15,9 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
 import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/workspaces/client-types';
+import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
 
 type CreateWorkspaceType = Extract<ClientWorkspaceType, 'personal' | 'team' | 'project'>;
 
@@ -48,6 +50,8 @@ export function CreateWorkspaceDialog({
   const typeId = useId();
   const [name, setName] = useState('');
   const [type, setType] = useState<CreateWorkspaceType>('personal');
+  const [icon, setIcon] = useState<WorkspaceIcon>(getDefaultWorkspaceIcon('personal'));
+  const [iconCustomized, setIconCustomized] = useState(false);
   const [projectId, setProjectId] = useState('');
   const [projects, setProjects] = useState<ProjectOption[]>([]);
   const [projectsLoading, setProjectsLoading] = useState(false);
@@ -111,6 +115,8 @@ export function CreateWorkspaceDialog({
   const resetForm = () => {
     setName('');
     setType('personal');
+    setIcon(getDefaultWorkspaceIcon('personal'));
+    setIconCustomized(false);
     setProjectId('');
     setError(null);
     setIsSubmitting(false);
@@ -146,7 +152,12 @@ export function CreateWorkspaceDialog({
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, type, projectId: type === 'project' ? projectId : undefined }),
+        body: JSON.stringify({
+          name: trimmedName,
+          type,
+          icon,
+          projectId: type === 'project' ? projectId : undefined,
+        }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.workspace) {
@@ -191,7 +202,11 @@ export function CreateWorkspaceDialog({
               <select
                 id={typeId}
                 value={type}
-                onChange={(event) => setType(event.target.value as CreateWorkspaceType)}
+                onChange={(event) => {
+                  const nextType = event.target.value as CreateWorkspaceType;
+                  setType(nextType);
+                  if (!iconCustomized) setIcon(getDefaultWorkspaceIcon(nextType));
+                }}
                 className="h-9 w-full min-w-0 rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 {availableTypes.map((option) => (
@@ -204,6 +219,15 @@ export function CreateWorkspaceDialog({
                 {type === 'team' || type === 'project' ? t('hints.teamProjectAccess') : t('hints.personalOnly')}
               </p>
             </div>
+
+            <WorkspaceIconPicker
+              value={icon}
+              onChange={(nextIcon) => {
+                setIcon(nextIcon);
+                setIconCustomized(true);
+              }}
+              disabled={isSubmitting}
+            />
 
             {type === 'project' ? (
               <div className="flex flex-col gap-2">

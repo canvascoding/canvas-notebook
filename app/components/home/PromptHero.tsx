@@ -558,6 +558,9 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
               className="max-w-[11rem] bg-background"
               testId="home-agent-id"
               onSelectAgent={handleAgentSelect}
+              onReloadAgents={async () => {
+                setAvailableAgents(await fetchChatAgents());
+              }}
             />
           </div>
 

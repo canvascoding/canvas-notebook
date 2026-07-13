@@ -176,6 +176,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       project_id TEXT,
       root_relative_path TEXT NOT NULL,
       display_name TEXT NOT NULL,
+      workspace_icon TEXT NOT NULL DEFAULT 'user-round',
       status TEXT NOT NULL DEFAULT 'active',
       is_default INTEGER NOT NULL DEFAULT 0,
       created_at INTEGER NOT NULL,
@@ -1230,6 +1231,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'canvas_workspaces', {
     customer_id: 'TEXT',
     project_id: 'TEXT',
+    workspace_icon: "TEXT NOT NULL DEFAULT 'user-round'",
     is_default: 'INTEGER NOT NULL DEFAULT 0',
   });
 

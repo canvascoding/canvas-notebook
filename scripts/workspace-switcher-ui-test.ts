@@ -129,10 +129,15 @@ async function main() {
     selectActiveWorkspace,
     useWorkspaceStore,
   } = await import('../app/store/workspace-store');
-  const { hasWorkspaceSwitcherOptions } = await import('../app/components/workspaces/WorkspaceSwitcher');
+  const {
+    hasWorkspaceManagementControls,
+    hasWorkspaceSwitcherOptions,
+  } = await import('../app/components/workspaces/WorkspaceSwitcher');
 
   assert.equal(hasWorkspaceSwitcherOptions([personalWorkspace]), false);
   assert.equal(hasWorkspaceSwitcherOptions([personalWorkspace, additionalPersonalWorkspace]), true);
+  assert.equal(hasWorkspaceManagementControls([personalWorkspace]), true);
+  assert.equal(hasWorkspaceManagementControls([teamWorkspace]), false);
 
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, personalWorkspace.id);
