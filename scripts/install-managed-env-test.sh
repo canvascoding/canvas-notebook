@@ -62,7 +62,11 @@ configure_compose_values
 configure_database_values
 config_json_to_env
 mkdir -p "$(dirname "$CANVAS_CLI_PATH")"
-install_management_cli >/dev/null
+if ! install_management_cli > "$TMP_DIR/install-management-cli.log" 2>&1; then
+  cat "$TMP_DIR/install-management-cli.log" >&2
+  exit 1
+fi
+printf 'managed env CLI installation completed\n'
 
 file_mode() {
   stat -c '%a' "$1" 2>/dev/null || stat -f '%Lp' "$1"
@@ -91,6 +95,7 @@ expected_host_owner="$(id -u):$(id -g)"
 [[ "$(file_owner "$CANVAS_INSTALL_DIR/lib/systemd.sh")" == "$expected_host_owner" ]]
 [[ "$(file_owner "$CANVAS_INSTALL_DIR/templates/canvas-notebook.service")" == "$expected_host_owner" ]]
 [[ "$(env -u CANVAS_HOST_CODE_OWNER bash -c '. "$1"; _host_code_owner' _ "$ROOT_DIR/install/lib/shared/config_json.sh")" == "root:root" ]]
+printf 'managed env file modes and ownership verified\n'
 last_config_inode="$(stat -c '%i' "$CANVAS_CONFIG_JSON" 2>/dev/null || stat -f '%i' "$CANVAS_CONFIG_JSON")"
 [[ "$first_config_inode" != "$last_config_inode" ]]
 config_json_managed_by_control_plane
@@ -102,6 +107,7 @@ if find "$CANVAS_INSTALL_DIR" -maxdepth 1 -name '.*.tmp.*' -print -quit | grep -
   echo "atomic config write left a temporary file behind" >&2
   exit 1
 fi
+printf 'managed env config invariants verified\n'
 
 jq -e '
   .env.CANVAS_DEPLOYMENT_MODE == "managed-team" and
@@ -127,4 +133,5 @@ grep -q '^CANVAS_TEAM_WORKSPACE_ENABLED=true$' "$CANVAS_CONFIG_ENV"
 grep -q '^CANVAS_ORGANIZATION_ID=00000000-0000-4000-8000-000000000002$' "$CANVAS_CONFIG_ENV"
 grep -q '^DATABASE_URL=postgresql://canvas:safe-postgres-password@postgres:5432/canvas_notebook$' "$CANVAS_CONFIG_ENV"
 
+printf 'managed env output verified\n'
 echo "install managed env tests passed"
