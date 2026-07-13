@@ -1,6 +1,6 @@
 # Canvas Notebook Team Workspace
 
-Stand: 2026-06-20
+Stand: 2026-07-13
 
 Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau in Canvas Notebook.
 
@@ -24,7 +24,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `15-export-import-backup-restore-policy.md`: Personal/Admin Export, Import-Mapping, Public-Link-Ausschluss, Full Backup, Restore und Verschluesselungsgrenzen.
 - `16-offboarding-and-recovery-policy.md`: User-Archivierung, Offboarding-Preflight, Credential-Revocation, Automation-/To-do-Review und Personal-Workspace-Recovery.
 - `17-database-provider-postgres-rag-collaboration-policy.md`: SQLite/Postgres-Entscheidung, pgvector, RAG-/Collaboration-Gates, Installer, Control Plane Provisioning, DB-Migration und DB-aware Backup.
-- `18-collaboration-and-file-conflict-policy.md`: CRDT/Yjs-Grundlage fuer Markdown/Text, Locks/Revisionen fuer Office/PDF/Assets, Agent-Write-Konflikte und Presence/Conflict-UI.
+- `18-collaboration-and-file-conflict-policy.md`: vollstaendiger Ziel- und Ausfuehrungsplan fuer Yjs/Tiptap/CodeMirror/Hocuspocus, Postgres-Persistenz, Workspace-weite File-Tree-Presence vor dem Oeffnen, Checkpoints, Agent-Patches sowie Locks/Revisionen fuer Office/PDF/Assets.
 - `19-agent-skill-creation-install-policy.md`: dedizierter Agent-Flow fuer validierte Skill-Erstellung und Installation ohne generische `/data/users/{userId}/skills`-Writes.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
@@ -56,7 +56,9 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Export-/Import-/Backup-/Restore-Policy ist dokumentiert.
 - Offboarding- und Recovery-Policy ist dokumentiert.
 - Database-Provider-Policy fuer SQLite, Postgres, RAG, Collaboration, Installer und Control Plane ist dokumentiert.
-- Collaboration- und File-Conflict-Policy fuer Text, Office/PDF und Assets ist dokumentiert.
+- Collaboration- und File-Conflict-Policy fuer Text, Office/PDF und Assets ist dokumentiert und auf den aktuellen Foundation-Stand abgegrenzt.
+- Revisionen, Locks, Konflikt-Guards und Yjs-Metadaten sind als Foundation umgesetzt; echte Yjs-Synchronisation, Hocuspocus, Awareness und File-Tree-Presence sind noch nicht implementiert.
+- Der vollstaendige Folgeplan fuer Live-Collaboration inklusive farbiger aktiver Nutzer im File Tree ist in Aufgabe `48` erfasst.
 - Agent Skill Creation und Install Policy fuer user-scoped lokale Skills ist dokumentiert.
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
 - Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
@@ -66,4 +68,4 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Globaler Workspace-Switcher, Workspace-Badge, clientseitiger Workspace-Store und Chat-Neustart bei Workspace-Wechsel sind eingefuehrt.
 - Kopieraktionen zwischen Personal und Team Workspace sind fuer File Browser und Studio-Importe umgesetzt.
 - Agent-Runtime-Einstellungen und Agent-Sessions sind an User-/Workspace-Kontext gebunden.
-- Naechster Schritt: Plugins, Skills und Agent-Definitionen auf User-Scope mit optionaler Organization-Teilung migrieren.
+- Live-Collaboration darf erst nach Abschluss der in `18-collaboration-and-file-conflict-policy.md` definierten Phasen als aktiv oder produktionsbereit ausgewiesen werden.

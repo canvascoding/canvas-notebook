@@ -1,6 +1,6 @@
 # Canvas Notebook Architecture Plan
 
-Stand: 2026-06-17
+Stand: 2026-07-13
 
 Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 
@@ -20,7 +20,7 @@ Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 - `team-workspace/15-export-import-backup-restore-policy.md`: verbindliche Regeln fuer Personal/Admin Export, Import-Mapping, Public-Link-Ausschluss, Full Backup, Restore und Verschluesselungsgrenzen.
 - `team-workspace/16-offboarding-and-recovery-policy.md`: verbindliche Regeln fuer User-Archivierung, Offboarding-Preflight, Credential-Revocation, Automation-/To-do-Review und Personal-Workspace-Recovery.
 - `team-workspace/17-database-provider-postgres-rag-collaboration-policy.md`: verbindliche Regeln fuer SQLite/Postgres-Provider, Postgres-Pflicht bei Team/Advanced/RAG, pgvector, Installer, Control Plane Provisioning, Migration und DB-aware Backup.
-- `team-workspace/18-collaboration-and-file-conflict-policy.md`: verbindliche Regeln fuer CRDT/Yjs bei Markdown/Text, Locks/Revisionen fuer Office/PDF/Assets, Agent-Konflikte und Collaboration-UI.
+- `team-workspace/18-collaboration-and-file-conflict-policy.md`: verbindlicher Vollplan fuer echte Yjs-/Hocuspocus-Collaboration bei Markdown/Text, Postgres-State und Datei-Checkpoints, farbige Workspace-Presence im File Tree vor dem Oeffnen, Agent-Patches sowie Locks/Revisionen fuer Office/PDF/Assets.
 - `team-workspace/19-agent-skill-creation-install-policy.md`: verbindliche Regeln fuer Agent-erstellte lokale Skills ueber dedizierte, validierende Install-Tools statt generischer Runtime-Dateiwrites.
 - `todo.json`: maschinenlesbarer Aufgabenindex ueber Notebook-, Control-Plane- und Cross-Repo-Aufgaben.
 

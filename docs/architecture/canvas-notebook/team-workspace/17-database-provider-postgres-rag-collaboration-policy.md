@@ -1,6 +1,6 @@
 # Database Provider, Postgres, RAG und Collaboration Policy
 
-Stand: 2026-07-08
+Stand: 2026-07-13
 
 ## Zweck
 
@@ -550,22 +550,32 @@ Postgres/pgvector-Mode:
 
 ## Collaboration und Multi-User-Edits
 
-V1 startet nicht mit echter Realtime-Collaboration fuer alle Dateitypen. Fuer Markdown/Text soll aber direkt die richtige Grundlage gelegt werden, damit Team-Arbeit nicht auf reine Last-Write-Wins-Revisionen reduziert wird.
+V1 startet nicht mit echter Realtime-Collaboration fuer alle Dateitypen. Fuer Markdown/Text wird die vorhandene Revision-/Lock-/Metadaten-Foundation in einem eigenen Folgebaustein zu echter Yjs-/Hocuspocus-Collaboration ausgebaut. Der vollstaendige Implementierungsplan steht in `18-collaboration-and-file-conflict-policy.md`.
 
 V1-Regeln:
 
-- Markdown- und reine Textdateien bekommen eine CRDT/Yjs- oder kompatible Operation-Log-Grundlage fuer Live-/Near-Live-Collaboration.
+- Markdown- und reine Textdateien bekommen einen persistierten Yjs-Dokumentzustand mit Tiptap- oder CodeMirror-Binding.
 - QMD-, JSON-, YAML- und Code-Dateien bleiben in V1 revision- und konfliktgeschuetzt, aber nicht live kollaborativ.
 - Office-Dateien, PDFs, Bilder, Videos, Audio und sonstige Binary Assets werden nicht live gemerged.
 - Office-/PDF-/Asset-Bearbeitung nutzt Locks, Check-out, Revision Checks und Konfliktkopien.
 - Team-Dateien bekommen Revision Checks auch dann, wenn der konkrete Editor noch kein CRDT nutzt.
 - Konflikte werden sichtbar, wenn zwei Sessions auf unterschiedlichen Revisionen speichern.
+- Workspace-Dateien bleiben als materialisierte Checkpoints erhalten; bei aktiver Collaboration ist der binaere Yjs-State die schreibbare Wahrheit.
+- File Tree, Listen- und Grid-Ansicht erhalten workspace-weite Presence-Snapshots und Deltas, damit aktive User schon vor dem Oeffnen einer Datei sichtbar sind.
+- File-Tree-Presence erzeugt keine Dokument-Room-Verbindung fuer den betrachtenden User. Die Dokument-WebSocket-Verbindung beginnt erst beim Oeffnen.
 
 Postgres-Abhaengigkeit:
 
 - SQLite kann einfache Revision Checks fuer Single-User oder kleine lokale Nutzung tragen.
-- Produktive Multi-User-Collaboration mit Presence, Edit Events, CRDT/OT-State oder vielen parallelen Writes braucht Postgres.
+- Produktive Multi-User-Collaboration mit Presence, Edit Events, CRDT/OT-State oder vielen parallelen Writes braucht Postgres. `collaboration_documents` speichert dafuer den binaeren Yjs-State und nicht nur Provider-Metadaten.
 - Redis ist fuer V1 keine Pflicht. Leichte Events koennen zunaechst ueber App-WebSockets und Postgres-Tabellen/Notifications geplant werden. Wenn spaeter Multi-Node oder hohe Eventlast entsteht, kann Redis/NATS separat entschieden werden.
+
+Presence-Persistenz:
+
+- Awareness und aktuelle File-Tree-Presence bleiben fluechtig und werden nicht als Mitarbeiteraktivitaets-Historie in Postgres gespeichert.
+- Postgres speichert Dokumentzustand, State-Version, Representation und Checkpoint-Revision.
+- Der File Explorer erhaelt einen permission-geprueften Initial-Snapshot und anschliessend kleine Presence-Deltas ueber einen workspace-weiten Kanal.
+- Backup und Restore muessen den Yjs-State aus Postgres und die materialisierten Workspace-Dateien gemeinsam sichern.
 
 ## SQLite zu Postgres Migration
 

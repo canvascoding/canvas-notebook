@@ -1,6 +1,6 @@
 # Workspace Switching UI und Agent-Kontext
 
-Stand: 2026-06-17
+Stand: 2026-07-13
 
 ## Zweck
 
@@ -111,6 +111,15 @@ Anforderungen:
 - `currentDirectory`, Search Query, Selection, Multi-Select und Preview werden beim Wechsel zurueckgesetzt oder workspace-spezifisch gespeichert.
 - Uploads, Create, Rename, Delete, Copy und Public Share verwenden den aktiven `workspaceId`.
 - Copy Personal <-> Team ist eine explizite Aktion, kein Nebeneffekt des Umschaltens.
+- Der File Tree, die Listenansicht und die Grid-Ansicht zeigen fuer berechtigte Teamdateien kleine farbige Nutzerhinweise, wenn andere User die Datei ansehen oder aktiv bearbeiten.
+- Diese Hinweise werden ueber einen workspace-weiten Presence-Snapshot plus Presence-Deltas geladen. Der betrachtende User tritt dadurch nicht dem Collaboration-Dokument-Room bei.
+- Die eigentliche Yjs-/Hocuspocus-WebSocket-Verbindung fuer ein Dokument wird erst beim Oeffnen des Editors aufgebaut.
+- Bis zu drei User werden als stabile Avatar-/Initial-Farbmarker gezeigt; weitere User erscheinen als `+N`. Tooltip oder Popover nennen Anzeigename und `viewing`-/`editing`-Status.
+- Farbe ist nicht der einzige Informationstraeger. Marker brauchen Initialen/Avatar, Tooltip, Screenreader-Label und ausreichenden Kontrast in Light/Dark Mode.
+- Workspace-Wechsel leert den alten Presence-State sofort und abonniert nur Presence des neuen Workspace.
+- Lock-Owner und Live-Presence bleiben getrennte UI-Zustaende und duerfen nicht mit demselben Symbol dargestellt werden.
+
+Die verbindliche Presence-Architektur, Datenschutzregeln, TTLs und Abnahmetests stehen in `18-collaboration-and-file-conflict-policy.md`.
 
 ## Agent Runtime
 
@@ -193,6 +202,8 @@ Pflichttests fuer die Umsetzung:
 
 - Workspace Store uebernimmt serverseitigen Default.
 - Workspace-Wechsel im File Browser aktualisiert globalen State.
+- File Tree zeigt aktive Nutzer vor dem Oeffnen, ohne den betrachtenden User als Dokument-Viewer zu registrieren.
+- Workspace-Wechsel entfernt Presence-Marker des vorherigen Workspace ohne stale Zwischenzustand.
 - Workspace-Wechsel im Chat startet eine neue Session.
 - Bestehende Sessions behalten ihren `workspaceId`.
 - Neue Chats nach globalem Wechsel verwenden den neuen Workspace.

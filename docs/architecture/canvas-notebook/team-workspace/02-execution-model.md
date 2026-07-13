@@ -1,6 +1,6 @@
 # Team Workspace Execution Model
 
-Stand: 2026-06-17
+Stand: 2026-07-13
 
 ## Ziel
 
@@ -231,6 +231,42 @@ Tests:
 - Regressionstests fuer Delete/Move/Public-Link-Sync.
 - `npm run build`.
 
+### P7b Echte Text-Collaboration und Workspace Presence
+
+Zweck: Die in P7 vorbereiteten Revisionen, Locks, Yjs-Metadaten und Konflikt-Guards zu echter Real-Time Collaboration fuer Markdown/Text ausbauen.
+
+Diese Phase beginnt erst, wenn P7 abgeschlossen ist. Ihre interne Reihenfolge ist verbindlich und wird nicht parallelisiert:
+
+1. Postgres Collaboration Repository, binaerer Yjs-State, stabile Dokument-ID und Schema-Version.
+2. WebSocket-Upgrade-Router und Hocuspocus unter `/ws/collaboration` mit Ticket-, Auth-, Permission- und Revocation-Flow.
+3. Tiptap-`Y.XmlFragment`- und CodeMirror-`Y.Text`-Bindings; Whole-File-Autosave im Collaboration-Modus entfernen.
+4. Materialisierte `.md`-/`.txt`-Checkpoints mit Revision, Audit, File Watcher, Public Links, Knowledge und Backup integrieren.
+5. Workspace Presence Registry, Initial-Snapshot und Presence-Deltas fuer File Tree, List und Grid umsetzen.
+6. Farbige User-Marker mit `viewing`/`editing`, Tooltip, `+N`, Light/Dark Mode und Accessibility integrieren.
+7. Agent-/Automation-Direct-Connection und Review-Patch-Flow bauen.
+8. Offline/Reconnect, grosse Dokumente, Lifecycle, Observability und Preview-Rollout hardenen.
+
+File-Tree-Invariante:
+
+- Ein User sieht aktive Bearbeiter bereits vor dem Oeffnen einer Datei.
+- Der File Explorer tritt dafuer nicht dem Dokument-Room bei und wird nicht selbst als Viewer angezeigt.
+- Die eigentliche Yjs-/Hocuspocus-WebSocket-Verbindung wird erst beim Oeffnen des Editors erstellt.
+- Presence wird nur fuer berechtigte Pfade im aktiven Workspace ausgeliefert und bei Workspace-Wechsel vollstaendig verworfen.
+
+Tests:
+
+- Zwei-Client-Konvergenz fuer Tiptap und Raw Text.
+- Offline-/Reconnect- und Server-Restart-Persistenztests.
+- Ticket-, Permission-, Workspace-Isolation- und Revocation-Tests.
+- Checkpoint-/Markdown-Roundtrip- und File-Watcher-Loop-Tests.
+- Presence-Snapshot-/Delta-, Deduplizierungs-, Disconnect-/TTL-, Rename- und Workspace-Wechsel-Tests.
+- File Tree zeigt User B bei User A vor dem Oeffnen, ohne User A dem Dokument-Room hinzuzufuegen.
+- Agent Write wird bei aktiver menschlicher Bearbeitung blockiert oder als Review-Patch bereitgestellt.
+- `npm run build`.
+- Sichtbare UI-/E2E-Pruefung erst nach expliziter Freigabe.
+
+Die vollstaendige technische Policy, Datenmodelle, UI-Regeln und Abnahmekriterien stehen in `18-collaboration-and-file-conflict-policy.md`.
+
 ### P8 Export, Import, Backup und Restore
 
 Zweck: Team-Instanzen sicher migrieren und wiederherstellen koennen.
@@ -314,8 +350,10 @@ Minimal je Change:
 4. P4: File-API, globaler Workspace Store und UI-Switcher.
 5. P5: Agent Runtime, Session-Workspace und Agent-Dateioperationen.
 6. P6: Feature-Migrationen einzeln.
-7. P7/P8: Audit, Revisionen, Retention, Export/Import, Backup/Restore.
-8. P9: Hardening und Release Readiness.
+7. P7: Audit, Revisionen, Locks und Retention.
+8. P7b: echte Text-Collaboration, Datei-Checkpoints, File-Tree-Presence und Agent-Patches.
+9. P8: Export/Import und Backup/Restore inklusive Yjs-State.
+10. P9: Hardening und Release Readiness.
 
 ## Naechster konkreter Schritt
 
@@ -343,3 +381,5 @@ Die Resource-Entscheidung in `13-resource-aware-ingestion-and-job-backpressure.m
 Die Settings- und Logging-Entscheidung ist Teil dieser Resource-Policy: Schwere Knowledge-/Parsing-Funktionen sind default `off`, muessen sichtbar aktivierbar/deaktivierbar sein und brauchen strukturierte redacted Logs fuer Diagnose.
 
 Die Database-Provider-Entscheidung in `17-database-provider-postgres-rag-collaboration-policy.md` ist verbindlich fuer Deployment Mode, Notebook CLI, Control Plane Provisioning, RAG/Embeddings, Collaboration und Backup: SQLite bleibt fuer Community/Single-User; Team/Advanced/RAG braucht Postgres mit pgvector und einen provider-aware Backup-/Migration-Flow.
+
+Die Collaboration-Entscheidung in `18-collaboration-and-file-conflict-policy.md` ist verbindlich fuer P7b: Der Yjs-State ist waehrend aktiver Collaboration die schreibbare Wahrheit, Workspace-Dateien sind materialisierte Checkpoints, und der File Explorer erhaelt workspace-weite Presence ohne selbst Dokument-Rooms zu oeffnen.

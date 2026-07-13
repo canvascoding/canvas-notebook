@@ -891,9 +891,17 @@
     },
     {
       "id": 44,
-      "title": "Markdown-/Text-Collaboration mit CRDT/Yjs und Lock-/Revision-Policy fuer Office/PDF/Assets bauen",
+      "title": "Collaboration Foundation mit Revisionen, Locks, Yjs-Metadaten und File-Conflict-Guards bauen",
       "status": "completed",
       "repo": "canvasstudios-notebook",
+      "completionScope": [
+        "Revision- und SHA-basierter Konfliktschutz fuer Team-Dateien",
+        "Lock-Metadaten und Lock-API fuer lockpflichtige Dateiarten",
+        "Collaboration-Dokument-Metadaten mit provider=yjs, aber ohne binaeren Yjs-State",
+        "Editor-Hinweise fuer Collaboration-Strategie und Revision",
+        "Agent-Guards gegen aktive Locks und veraltete Revisionen",
+        "Keine echte Yjs-Synchronisation, kein Hocuspocus, keine Awareness und keine File-Tree-Presence; diese folgen in Aufgabe 48"
+      ],
       "planningArtifacts": [
         "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
         "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md"
@@ -1081,6 +1089,85 @@
         "npm run test:cli:portable",
         "npm run lint",
         "npm run build"
+      ]
+    },
+    {
+      "id": 48,
+      "title": "Echte Markdown-/Text-Live-Collaboration mit Yjs, Hocuspocus und File-Tree-Presence umsetzen",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [
+        34,
+        38,
+        42,
+        43,
+        44
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/02-execution-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/06-workspace-switching-ux.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/15-export-import-backup-restore-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md"
+      ],
+      "implementationTargets": [
+        "package.json",
+        "server.js",
+        "server/collaboration-server.ts",
+        "app/lib/collaboration/*",
+        "app/lib/db/schema.ts",
+        "app/lib/db/postgres.ts",
+        "app/api/files/collaboration/session/route.ts",
+        "app/api/files/collaboration/checkpoint/route.ts",
+        "app/api/files/presence/route.ts",
+        "app/api/files/watch/route.ts",
+        "app/lib/file-watcher/client.ts",
+        "app/lib/files/collaboration-policy.ts",
+        "app/lib/files/client.ts",
+        "app/lib/files/types.ts",
+        "app/store/file-store.ts",
+        "app/store/editor-store.ts",
+        "app/components/editor/FileEditor.tsx",
+        "app/components/editor/MarkdownEditor.tsx",
+        "app/components/editor/CodeEditor.tsx",
+        "app/components/file-browser/FileTreeNode.tsx",
+        "app/components/file-browser/FileGridView.tsx",
+        "app/lib/pi/agent-file-operations.ts",
+        "messages/de.json",
+        "messages/en.json",
+        "scripts/file-live-collaboration-test.ts",
+        "scripts/file-presence-policy-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Markdown und reine Textdateien nutzen in berechtigten Postgres-Team-Workspaces einen echten persistierten Yjs-Dokumentzustand statt Whole-File-Autosave",
+        "Rich-faehiges Markdown verwendet Tiptap Collaboration mit Y.XmlFragment; Raw Text und source-only Markdown verwenden ein CodeMirror-Binding an Y.Text",
+        "Hocuspocus laeuft unter /ws/collaboration auf demselben App-Port, waehrend /ws/chat protokollseitig getrennt bleibt",
+        "Kurzlebige serverseitig ausgestellte Tickets binden User, Workspace, Dokument, Permission, Session und Schema-Version und werden beim Connect revalidiert",
+        "Binaerer Yjs-State roundtript exakt durch Postgres und ueberlebt Server-Neustart, Offline-Reconnect und kontrollierten Shutdown",
+        "Workspace-Dateien werden als versionierte Markdown-/Text-Checkpoints materialisiert und bleiben mit Public Links, Knowledge, Backup, Export und File Watcher konsistent",
+        "Whole-File-Autosave und externe setContent-Synchronisierung laufen fuer aktive Collaboration-Dokumente nicht parallel weiter",
+        "Der File Tree, die Listenansicht und die Grid-Ansicht zeigen bereits vor dem Oeffnen kleine farbige User-Marker fuer viewing und editing",
+        "Der File Explorer erhaelt Presence ueber einen workspace-weiten Snapshot plus Deltas und tritt fuer die Anzeige nicht selbst dem Dokument-Room bei",
+        "Bis zu drei User werden mit stabilen Farben/Initialen oder Avatar angezeigt; weitere User erscheinen als +N und ein Tooltip nennt Anzeigename und Aktivitaet",
+        "Farbe ist nicht der einzige Informationstraeger; Presence ist in Light/Dark Mode, per Tastatur und fuer Screenreader zugaenglich",
+        "Mehrere Tabs desselben Users werden dedupliziert; Disconnect, Browser-Crash, TTL, Rename und Workspace-Wechsel aktualisieren Presence ohne stale Doppelanzeige",
+        "Presence wird nur an berechtigte Workspace-Mitglieder ausgeliefert, bleibt fluechtig und wird nicht als Mitarbeiteraktivitaets-Historie gespeichert",
+        "Agenten und Automations koennen aktive menschliche Bearbeitung nicht per Whole-File-Write ueberschreiben und verwenden Yjs Direct Connection oder Review-Patches",
+        "Rename und Move behalten die Collaboration-Dokument-ID; Copy forkt einen neuen State; Delete und Restore flushen beziehungsweise reaktivieren konsistent",
+        "Bei Collaboration-Ausfall faellt ein aktives Yjs-Dokument nicht still auf Whole-File-Autosave zurueck, sondern zeigt offline, reconnecting, read-only oder degraded",
+        "Produktstatus enabled setzt Postgres, aktuelle Migrationen, WebSocket-Health, Persistence-Health, Team-Capability und Organization-Gate voraus"
+      ],
+      "verification": [
+        "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
+        "tsx --conditions react-server scripts/file-presence-policy-test.ts",
+        "npm run test:files:collaboration",
+        "npm run test:editor:markdown",
+        "npm run test:websocket:origin",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build",
+        "UI-/E2E-Multi-User-Test mit Playwright oder Chrome DevTools nach expliziter Freigabe"
       ]
     }
   ]

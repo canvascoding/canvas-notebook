@@ -1,6 +1,6 @@
 # Team Workspace Scope Matrix
 
-Stand: 2026-06-17
+Stand: 2026-07-13
 
 ## Zweck
 
@@ -81,7 +81,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Studio Outputs/Assets Files | globale `data/studio/...` Pfade | `organization` Asset Store, optional Workspace-Verknuepfung | Organizationweite Asset-Sammlung, Creator bleibt erhalten, Offboarding loescht Assets nicht | P6 |
 | Studio Save to Workspace | globaler Workspace, `targetPath` | expliziter `targetWorkspaceId` plus `targetPath` | Pflichtdialog fuer Personal/Team-Ziel und serverseitige Permission | P4/P6 |
 | Studio References | globale Upload-/Reference-Bereiche | `user` Intake, `organization` Asset Visibility | Reference Ownership speichern | P6 |
-| Text Collaboration | nicht vorhanden | `workspace` Datei plus Collaboration-Dokument | CRDT/Yjs fuer Markdown/Text vorbereiten, Snapshots als Revisionen speichern | P7/P9 |
+| Text Collaboration | Revision-/Lock-/Metadaten-Foundation vorhanden, noch keine Live-Synchronisation | `workspace` Datei plus persistiertes Yjs-Collaboration-Dokument, Datei-Checkpoints und workspace-weite Presence | Foundation in P7 beibehalten; echte Yjs-/Hocuspocus-Synchronisation, Tiptap-/CodeMirror-Bindings und File-Tree-Presence in P7b/Aufgabe `48` umsetzen | P7/P7b/P9 |
 | Office/PDF/Asset Konflikte | nicht vorhanden | `workspace` Datei mit Lock/Revision | Word/Excel/PPT/PDF/Bilder/Videos ueber Lock, Check-out, Revision und Konfliktkopie schuetzen | P7 |
 | Personal Workspace Export | globaler Export/adminnah | User darf eigenen Personal Workspace exportieren | Self-service Export ohne Team-/Org-Daten und ohne Secrets | P8 |
 | Migration Export | `instance` Komponenten | Admin-only `organization` Export mit User/Workspace/Reference Mapping | Public Links auslassen, Secrets redacted, Personal Workspaces nur expliziter Full/Admin Export | P8 |
@@ -129,6 +129,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 17. Knowledge-Ingestion darf nur nach Scope, Scan-Policy und Provider-Gate indexieren; Retrieval muss ACLs vor Rueckgabe erzwingen.
 18. Offboarding darf Personal Workspaces nicht normal fuer Admins sichtbar machen; Zugriff nur ueber Recovery-Flow mit Audit.
 19. Markdown-/Text-Collaboration braucht CRDT-/Revision-Schutz; Office/PDF/Binary-Dateien duerfen nicht still gemerged werden.
+20. File-Tree-Presence darf nur berechtigte Workspace-Dateien und minimale fluechtige Anzeigenamen-/Farb-Metadaten liefern; der reine Tree-Abonnent tritt keinem Dokument-Room bei.
 
 ## Migrationsreihenfolge fuer Datenmodell
 
@@ -144,8 +145,9 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 10. Audit Event und Tool-Run Tabellen mit kleinen Metadaten, Hashes und Artefakt-Referenzen.
 11. `organizationId` und `createdByUserId` an teamfaehige Feature-Tabellen.
 12. Revision/Lock/Trash Tabellen.
-13. Retention-/Cleanup-/Usage-Rollup-Jobs.
-14. Export/Import Manifest-Version erhoehen.
+13. Postgres-Yjs-State, Collaboration-Checkpoint-Referenzen und fluechtige Workspace-Presence anbinden.
+14. Retention-/Cleanup-/Usage-Rollup-Jobs.
+15. Export/Import Manifest-Version inklusive Collaboration-State erhoehen.
 
 ## Minimaler V1-Scope
 
@@ -172,7 +174,7 @@ Fuer eine erste robuste Team-Version sollten diese Bereiche enthalten sein:
 - SQLite bleibt nur fuer Community/Single-User; produktive Team Knowledge, Embeddings, RAG und Knowledge Graph brauchen Postgres/pgvector.
 - Public Links mit `workspaceId`, Latest-Verhalten und Deaktivierung bei Move/Delete.
 - Team-Public-Links in V1 fuer aktive interne User mit Team-Workspace-Zugriff; Member ohne Team-Zugriff, Externals oder User mit deaktiviertem `canCreatePublicLinks` sind blockiert.
-- Markdown/Text bekommt CRDT-/Yjs-Grundlage oder harte Revision-Checks; Office/PDF/Assets bekommen Lock-/Revision-Policy.
+- Markdown/Text besitzt fuer die Team-Baseline harte Revision-Checks und Yjs-Metadaten; echte Yjs-/Hocuspocus-Collaboration inklusive File-Tree-Presence folgt kontrolliert in P7b/Aufgabe `48`. Office/PDF/Assets behalten die Lock-/Revision-Policy.
 - Audit fuer Admin-Aktionen, File Writes, Agent File Writes und Public Links, ohne grosse Payloads dauerhaft in der DB zu speichern.
 - Retention Defaults fuer Raw Tool Payloads, Runtime Events, Trash/Revisions und Usage-Einzelereignisse.
 - Export mindestens fuer Workspaces, DB, Audit und Team-relevante Metadaten mit Secret-Redaction.
@@ -182,7 +184,7 @@ Nicht zwingend fuer V1:
 
 - External Users.
 - Projekt-/Kunden-Workspaces.
-- Echte Realtime Collaboration.
+- Produktive Aktivierung echter Realtime Collaboration vor Abschluss aller Gates aus P7b/Aufgabe `48`.
 - Organization-geteilte Composio/E-Mail-Team-Mailboxen.
 - Vollstaendige Skills-/Plugin-Registry pro Organization, solange globale Installation fuer Community/Legacy weiter existiert und Team-Gates restriktiv sind.
 

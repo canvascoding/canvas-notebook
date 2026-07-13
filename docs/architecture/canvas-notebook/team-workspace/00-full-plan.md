@@ -1,6 +1,6 @@
 # Canvas Notebook Team Workspace Plan
 
-Stand: 2026-06-17
+Stand: 2026-07-13
 
 ## Zielbild
 
@@ -513,7 +513,7 @@ Fuer viele Marketing-Dateien ist Locking besser als Live-Merging:
 - generierte Projektdateien,
 - binaere Dateien.
 
-Fuer Textdateien, Markdown und Knowledge-Base-Inhalte kann spaeter echte Real-Time Collaboration ergaenzt werden. Dafuer sollte dann eine dedizierte Collaboration Engine wie CRDT/OT genutzt werden, nicht ein simples gemeinsames Schreiben auf dieselbe Datei.
+Fuer Markdown und reine Textdateien wird echte Real-Time Collaboration als eigener Folgebaustein umgesetzt. Die verbindliche Zielarchitektur nutzt Yjs, Tiptap Collaboration beziehungsweise ein CodeMirror-Yjs-Binding, Hocuspocus auf dem bestehenden App-WebSocket-Port und Postgres fuer den binaeren Dokumentzustand. Ein simples gemeinsames Schreiben auf dieselbe Datei bleibt ausgeschlossen.
 
 Datenbank-Folge:
 
@@ -522,6 +522,11 @@ Datenbank-Folge:
 - Markdown/Text soll eine CRDT-Grundlage bekommen, bevorzugt Yjs, weil autosave-/dirty-basierte Komplettdatei-Saves im Team riskant sind.
 - Word, Excel, PowerPoint, PDF, Bilder, Videos und Audio werden in V1 ueber Locks, Check-out, Revisionen und Konfliktanzeige behandelt, nicht live gemerged.
 - Redis ist fuer V1 keine Pflicht. Leichte Events koennen zunaechst ueber App-WebSockets und Postgres-Tabellen/Notifications geplant werden; Multi-Node oder hohe Eventlast wird spaeter separat entschieden.
+- Ein aktives Yjs-Dokument ist waehrend der Collaboration die schreibbare Wahrheit; die `.md`-/`.txt`-Datei wird als versionierter Checkpoint fuer Download, Public Links, Agent-Reader, Knowledge, Backup und Export materialisiert.
+- Der bestehende Whole-File-Autosave darf fuer verbundene Collaboration-Dokumente nicht parallel weiterlaufen.
+- Workspace-weite Presence zeigt im File Tree bereits vor dem Oeffnen farbige Nutzerhinweise fuer `viewing` und `editing`. Der File Explorer nutzt dafuer einen Presence-Snapshot und kleine Deltas, ohne selbst dem Dokument-Room beizutreten.
+- Die eigentliche Yjs-/Hocuspocus-Verbindung wird erst beim Oeffnen des Dokuments aufgebaut.
+- Agenten und Automations schreiben aktive Collaboration-Dokumente nur ueber serverseitige Yjs-Transaktionen oder Review-Patches, niemals ueber stilles Whole-File-Overwrite.
 
 Die Detailpolicy steht in `18-collaboration-and-file-conflict-policy.md`.
 
@@ -801,12 +806,12 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 
 ## Offene Entscheidungen
 
-- Ob der Team Workspace in der ersten Version nur ein lokaler Serverordner ist oder bereits eine interne Revisionstabelle fuer Dateien bekommt.
+- Revisionstabelle und Lock-/Conflict-Foundation sind umgesetzt; offen ist nur die spaetere produktive Aktivierung der in Aufgabe `48` geplanten Yjs-/Hocuspocus-Live-Collaboration.
 - Wie granular Rechte im Team Workspace sein sollen: global, Ordner, Projekt oder Datei.
 - Ob es direkt `project` Workspaces fuer Kunden/Kampagnen geben soll oder erst nach dem Team Workspace.
 - Wie stark Better Auth Organizations/Teams in Canvas Notebook selbst genutzt werden.
 - Ob der Agent im Team Workspace nur nach expliziter Auswahl schreiben darf oder ob Admins Default-Policies setzen koennen.
-- Welche Dateitypen in V1 Locks bekommen und welche nur per Revision/Konflikt behandelt werden.
+- Die Dateiarten-Strategie ist in `18-collaboration-and-file-conflict-policy.md` entschieden: Markdown/Text live kollaborativ, Office/PDF/Assets per Lock, QMD/MDX/JSON/YAML/Code per Revision/Konflikt.
 - Ob Team Knowledge Base als Teil des Team Workspace oder als eigene Datenquelle modelliert wird.
 - Welche gepinnte Postgres-/pgvector-Image-Linie fuer den ersten produktiven Installer verwendet wird.
 - Ob `CANVAS_TEAM_FEATURES_ENABLED` und verwandte Boolean-ENV-Keys langfristig benoetigt werden oder ob Canvas Notebook vollstaendig ueber `CANVAS_DEPLOYMENT_MODE` plus `CANVAS_LICENSE_CERT` entscheidet.
@@ -886,8 +891,9 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 41. SQLite-zu-Postgres-Migrationstool mit Maintenance Mode, Snapshot, Referenzpruefung und Reindex-Status bauen.
 42. Export/Import/Backup/Restore provider-aware machen, inklusive Postgres-Dump und Provider-Kompatibilitaetspruefung.
 43. RAG, Embeddings, Knowledge Graph und echte Collaboration serverseitig an Postgres/pgvector-Gates binden.
-44. Markdown-/Text-Collaboration mit CRDT/Yjs-Grundlage und File-Lock-/Revision-Policy fuer Office/PDF/Assets implementieren.
+44. Collaboration Foundation mit Revisionen, Locks, Yjs-Metadaten und File-Conflict-Guards fuer Text, Office/PDF und Assets implementieren.
 45. Agent-faehige Skill-Erstellung und Organization Shared Skills ueber dedizierte validierende Installer und Skill-Policies implementieren.
+46. Echte Markdown-/Text-Live-Collaboration mit Yjs, Tiptap/CodeMirror, Hocuspocus, Postgres-Persistenz, Datei-Checkpoints, Agent-Patches und workspace-weiten farbigen Nutzerhinweisen im File Tree implementieren.
 
 ## Bezug zu bestehenden Control-Plane-Dokumenten
 

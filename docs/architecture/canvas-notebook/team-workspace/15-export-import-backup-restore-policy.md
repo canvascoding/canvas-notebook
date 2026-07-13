@@ -1,6 +1,6 @@
 # Export, Import, Backup und Restore Policy
 
-Stand: 2026-07-08
+Stand: 2026-07-13
 
 ## Zweck
 
@@ -199,6 +199,7 @@ Mindestinhalt:
 - Secrets/OAuth-State fuer Full Disaster Recovery, mit klarer Warnung, wenn lokale V1-Backups unverschluesselt sind,
 - Public Links inklusive Tokens nur fuer gleiche Disaster-Recovery-Ziele,
 - Audit/Usage/Retention-Metadaten,
+- persistierter binaerer Yjs-State, Dokument-Representation, Schema-Version und Checkpoint-Referenzen fuer Collaboration-Dokumente,
 - Backup Manifest mit Version, Checksums, CreatedAt, Source Instance, Datenbankprovider und Schema-Version.
 
 Trigger:
@@ -211,9 +212,11 @@ Trigger:
 Anforderungen:
 
 - Backup muss die Datenbank konsistent sichern: SQLite Snapshot/WAL-Checkpoint oder Postgres Dump/Snapshot.
+- Vor einem Collaboration-faehigen Postgres-Backup muessen pending Hocuspocus-/Yjs-Stores und faellige Workspace-Datei-Checkpoints kontrolliert geflusht oder im Manifest als noch nicht materialisiert ausgewiesen werden.
 - V1 setzt die laufende App fuer Backup nicht in Maintenance Mode und stoppt sie nicht.
 - Ohne Maintenance Mode ist die Datenbank konsistent, waehrend Dateien unter `/data` als Online-Best-Effort-Snapshot gesichert werden. Das Manifest muss diesen Konsistenzmodus ausweisen.
 - Im Postgres-Mode reicht ein Backup von `/data` nicht aus. Der Postgres-Dump bzw. das Postgres-Volume gehoert zwingend zum Full Backup.
+- Collaboration-Restore muss Yjs-State und materialisierte Workspace-Datei als zusammengehoerigen Zustand behandeln. Fehlt einer der Teile oder passen State-/Checkpoint-Referenzen nicht, stoppt der Restore-Dry-Run mit Konflikt statt ein neues Y-Dokument still aus einer veralteten Datei zu erzeugen.
 - Postgres-Backups muessen Rollen-/Extension-/Schema-Informationen enthalten, damit pgvector beim Restore vorhanden ist.
 - Vor Postgres-Backups muss der Provider-Prepare-Pfad bestaetigen, dass Runtime-Env, `DATABASE_URL` und das echte Postgres-Rollenpasswort synchron sind.
 - Backup-Jobs laufen als schwere Jobs mit Resource Budget und Logging.
