@@ -41,6 +41,7 @@ let accounts: unknown[] = [{
 const drafts: DraftInput[] = [];
 const sentDrafts: Array<{ accountId: string; draftId: string }> = [];
 const sentMessages: DraftInput[] = [];
+const systemMessages: Array<{ to: unknown; subject: string; html?: string; headers?: Record<string, string> }> = [];
 
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') {
@@ -203,6 +204,36 @@ async function main() {
   assert.match(sentMessages[1].body, /Open to-do/);
   assert.match(sentMessages[1].body, /\/en\/todos\?todo=todo-email-english/);
 
+  const assigneeUserId = 'todo-email-assignee';
+  await db.insert(user).values({
+    id: assigneeUserId,
+    name: 'Assigned Todo User',
+    email: 'assigned@example.test',
+    emailVerified: true,
+    createdAt: new Date(now.getTime() + 2),
+    updatedAt: new Date(now.getTime() + 2),
+  });
+  const [assignedTodo] = await db.insert(todoItems).values({
+    ...agentTodo,
+    id: 'todo-email-assigned',
+    assigneeUserId,
+    title: 'Assigned to another user',
+    emailNotificationSentAt: null,
+    emailNotificationError: null,
+    createdAt: new Date(now.getTime() + 2),
+    updatedAt: new Date(now.getTime() + 2),
+  }).returning();
+
+  const assignedResult = await sendTodoCreatedEmailNotification(userId, {
+    ...assignedTodo,
+    ...todoRelations,
+    assignee: { id: assigneeUserId, name: 'Assigned Todo User', email: 'assigned@example.test' },
+  });
+
+  assert.equal(assignedResult.status, 'sent');
+  assert.equal(sentMessages.length, 3);
+  assert.deepEqual(sentMessages[2].to, ['assigned@example.test']);
+
   accounts = [];
   const [skippedTodo] = await db.insert(todoItems).values({
     ...agentTodo,
@@ -220,7 +251,7 @@ async function main() {
   });
 
   assert.equal(skipped.status, 'skipped');
-  assert.equal(sentMessages.length, 2);
+  assert.equal(sentMessages.length, 3);
   const storedSkippedTodo = await db.query.todoItems.findFirst({ where: eq(todoItems.id, skippedTodo.id) });
   assert.equal(storedSkippedTodo?.emailNotificationSentAt, null);
   assert.match(storedSkippedTodo?.emailNotificationError || '', /No active email account/);
@@ -249,11 +280,58 @@ async function main() {
   });
 
   assert.equal(policyAllowed.status, 'sent');
-  assert.equal(sentMessages.length, 3);
-  assert.deepEqual(sentMessages[2].to, ['owner@example.test']);
+  assert.equal(sentMessages.length, 4);
+  assert.deepEqual(sentMessages[3].to, ['owner@example.test']);
   const storedPolicyTodo = await db.query.todoItems.findFirst({ where: eq(todoItems.id, policyTodo.id) });
   assert.ok(storedPolicyTodo?.emailNotificationSentAt);
   assert.equal(storedPolicyTodo?.emailNotificationError, null);
+
+  const { saveSystemSmtpConfiguration, clearSystemSmtpConfiguration } = await import('../app/lib/email/system-smtp-config');
+  const { setSmtpTransportFactoryForTests } = await import('../app/lib/email/smtp-transport');
+  setSmtpTransportFactoryForTests(() => ({
+    verify: async () => undefined,
+    sendMail: async (message: { to: unknown; subject: string; html?: string; headers?: Record<string, string> }) => {
+      systemMessages.push(message);
+      return { messageId: '<system-todo-message@example.test>' };
+    },
+    close: () => undefined,
+  }) as never);
+  await saveSystemSmtpConfiguration({
+    host: 'smtp.example.test',
+    port: 587,
+    secure: false,
+    username: 'notifications@example.test',
+    password: 'test-password',
+    fromAddress: 'notifications@example.test',
+  });
+  const watcherCountBeforeSystemDelivery = (await db.select().from(todoEmailReplyWatchers)).length;
+  const [systemTodo] = await db.insert(todoItems).values({
+    ...agentTodo,
+    id: 'todo-email-system-smtp',
+    title: 'System SMTP notification',
+    emailNotificationSentAt: null,
+    emailNotificationError: null,
+    createdAt: new Date(now.getTime() + 4),
+    updatedAt: new Date(now.getTime() + 4),
+  }).returning();
+  const systemResult = await sendTodoCreatedEmailNotification(userId, {
+    ...systemTodo,
+    ...todoRelations,
+  });
+
+  assert.equal(systemResult.status, 'sent');
+  assert.equal(systemResult.delivery, 'system_smtp');
+  assert.equal(systemResult.accountId, null);
+  assert.equal(systemResult.replyToken, null);
+  assert.equal(sentMessages.length, 4);
+  assert.equal(systemMessages.length, 1);
+  assert.deepEqual(systemMessages[0]?.to, ['owner@example.test']);
+  assert.doesNotMatch(systemMessages[0]?.subject || '', /\[CTD-[A-F0-9]{8}\]$/);
+  assert.doesNotMatch(systemMessages[0]?.html || '', /Antwort-Code|direkt auf diese E-Mail antworten/);
+  const watcherCountAfterSystemDelivery = (await db.select().from(todoEmailReplyWatchers)).length;
+  assert.equal(watcherCountAfterSystemDelivery, watcherCountBeforeSystemDelivery);
+  await clearSystemSmtpConfiguration();
+  setSmtpTransportFactoryForTests(null);
 
   console.log('Todo email notification test passed.');
 }

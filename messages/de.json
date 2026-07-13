@@ -1781,6 +1781,7 @@
       "knowledge": "Knowledge",
       "userManagement": "Benutzer",
       "aiProviders": "KI-Provider & Modelle",
+      "systemEmail": "System-E-Mail",
       "channels": "Channels",
       "usage": "Nutzung",
       "skills": "Plugins",
@@ -1812,6 +1813,7 @@
         "channels": "Externe Kommunikationskanäle und Benutzerverknüpfungen verwalten.",
         "userManagement": "Benutzerkonten, Rollen, Rechte und Zugriff verwalten.",
         "aiProviders": "Appweit verfügbare KI-Provider, Modelle und Standards administrieren.",
+        "systemEmail": "Den systemweiten SMTP-Absender für App-Benachrichtigungen konfigurieren.",
         "usage": "Tokenverbrauch, Kosten und Laufzeitereignisse analysieren.",
         "license": "Lizenzstatus und Aktivierung dieser Instanz verwalten."
       }
@@ -1855,6 +1857,40 @@
         "passwordUpdated": "Passwort geändert. Andere aktive Sitzungen wurden abgemeldet.",
         "passwordUpdateFailed": "Passwort konnte nicht geändert werden.",
         "saving": "Speichert…"
+      }
+    },
+    "systemEmail": {
+      "title": "System-Benachrichtigungen per E-Mail",
+      "description": "Dieser SMTP-Absender gehört zur gesamten virtuellen Maschine. Er versendet ausschließlich App-Benachrichtigungen und empfängt keine E-Mails.",
+      "fallbackDescription": "Wenn kein System-Absender eingerichtet ist, verwendet Canvas für Benachrichtigungen das primäre, versandfähige persönliche E-Mail-Konto des jeweiligen Empfängers. Bei einer aktivierten System-Konfiguration erfolgt kein stiller Fallback nach einem Versandfehler.",
+      "statusConfigured": "System-SMTP aktiv",
+      "statusNotConfigured": "Nicht eingerichtet",
+      "host": "SMTP-Host",
+      "port": "SMTP-Port",
+      "username": "SMTP-Benutzername",
+      "password": "SMTP-Passwort",
+      "passwordUnchanged": "Unverändert lassen",
+      "passwordHint": "Leer lassen, um das gespeicherte Passwort beizubehalten.",
+      "fromAddress": "Absender-E-Mail-Adresse",
+      "fromName": "Absendername (optional)",
+      "replyTo": "Antwortadresse (optional)",
+      "replyToPlaceholder": "Leer lassen, wenn Antworten nicht vorgesehen sind",
+      "replyToHint": "Die System-E-Mail-Adresse wird nicht abgerufen. Eine Antwortadresse ist nur nötig, wenn Empfänger gezielt antworten können sollen.",
+      "secure": "TLS ab Verbindung starten",
+      "secureHint": "Aktiv für implizites TLS (häufig Port 465); für STARTTLS auf Port 587 deaktiviert lassen.",
+      "reload": "Neu laden",
+      "testConnection": "Verbindung testen",
+      "remove": "Konfiguration entfernen",
+      "save": "Konfiguration speichern",
+      "saved": "System-SMTP-Konfiguration gespeichert.",
+      "tested": "SMTP-Verbindung erfolgreich geprüft.",
+      "removed": "System-SMTP-Konfiguration entfernt.",
+      "incompleteConfiguration": "Die gespeicherte System-SMTP-Konfiguration ist unvollständig oder ungültig: {error}",
+      "errors": {
+        "load": "System-E-Mail-Einstellungen konnten nicht geladen werden.",
+        "save": "System-E-Mail-Einstellungen konnten nicht gespeichert werden.",
+        "test": "SMTP-Verbindung konnte nicht geprüft werden.",
+        "remove": "System-E-Mail-Einstellungen konnten nicht entfernt werden."
       }
     },
     "users": {

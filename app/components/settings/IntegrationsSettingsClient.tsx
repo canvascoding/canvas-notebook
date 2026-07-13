@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, Copy, ExternalLink, Eye, EyeOff, Loader2, Mail, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
+import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
 import {
   McpServerDialog,
   collectMcpEnvEntries,
@@ -2277,6 +2278,7 @@ export function IntegrationsSettingsClient({
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
       if (tab.value === 'user-management') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
+      if (tab.value === 'system-email') return isAdmin;
       if (tab.value === 'knowledge') return isAdmin || organizationPermission?.canEnableKnowledge === true;
       return true;
     }),
@@ -3101,6 +3103,8 @@ export function IntegrationsSettingsClient({
               <AiProviderCredentialsPanel locale={locale} />
             </>
           ))}
+
+          {renderLazyTabContent('system-email', <SystemEmailSettingsPanel />)}
 
           {renderLazyTabContent('channels', <ChannelsPanel isAdmin={isAdmin} />)}
 

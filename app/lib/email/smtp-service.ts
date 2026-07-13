@@ -1,8 +1,5 @@
 import 'server-only';
 
-import nodemailer from 'nodemailer';
-import type SMTPTransport from 'nodemailer/lib/smtp-transport';
-
 import {
   getEmailAccountForUser,
   publicStoredEmailAccount,
@@ -27,6 +24,12 @@ import {
 import { normalizeEmailCustomHeaders, type EmailCustomHeaders } from '@/app/lib/email/headers';
 import { verifyImapSecret } from '@/app/lib/email/imap-service';
 import type { EmailAccountSmtpSecret } from '@/app/lib/email/secret-store';
+import {
+  createSmtpTransport,
+  type SmtpTransportConfig,
+} from '@/app/lib/email/smtp-transport';
+
+export { setSmtpTransportFactoryForTests } from '@/app/lib/email/smtp-transport';
 
 export type SmtpAccountInput = {
   accountId?: string;
@@ -48,14 +51,6 @@ export type SmtpAccountInput = {
 type SmtpEmailInput = LocalEmailDraftInput & {
   headers?: EmailCustomHeaders;
 };
-
-type SmtpTransportFactory = (options: SMTPTransport.Options) => nodemailer.Transporter;
-
-let smtpTransportFactory: SmtpTransportFactory = (options) => nodemailer.createTransport(options);
-
-export function setSmtpTransportFactoryForTests(factory: SmtpTransportFactory | null): void {
-  smtpTransportFactory = factory || ((options) => nodemailer.createTransport(options));
-}
 
 function normalizeHost(value: unknown, label: string): string {
   if (typeof value !== 'string') throw new Error(`${label} is required.`);
@@ -152,25 +147,12 @@ function normalizeSmtpInput(input: SmtpAccountInput, existingSecret?: EmailAccou
   };
 }
 
-function smtpTransportOptions(secret: EmailAccountSmtpSecret): SMTPTransport.Options {
-  return {
-    host: secret.smtp.host,
-    port: secret.smtp.port,
-    secure: secret.smtp.secure,
-    auth: {
-      user: secret.smtp.username,
-      pass: secret.smtp.password,
-    },
-    connectionTimeout: 15_000,
-    greetingTimeout: 15_000,
-    socketTimeout: 30_000,
-    disableFileAccess: true,
-    disableUrlAccess: true,
-  };
+function smtpTransportConfig(secret: EmailAccountSmtpSecret): SmtpTransportConfig {
+  return secret.smtp;
 }
 
 async function verifySmtpSecret(secret: EmailAccountSmtpSecret): Promise<void> {
-  const transporter = smtpTransportFactory(smtpTransportOptions(secret));
+  const transporter = createSmtpTransport(smtpTransportConfig(secret));
   try {
     await transporter.verify();
   } finally {
@@ -292,7 +274,7 @@ export async function updateSmtpEmailDraft(userId: string, draftId: string, inpu
 }
 
 async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: string | null; address: string }, input: SmtpEmailInput) {
-  const transporter = smtpTransportFactory(smtpTransportOptions(secret));
+  const transporter = createSmtpTransport(smtpTransportConfig(secret));
   try {
     const attachments = await resolveEmailAttachments(input.attachments);
     return await transporter.sendMail({

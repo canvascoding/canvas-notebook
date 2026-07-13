@@ -9,6 +9,7 @@ import {
   Cpu,
   FolderCog,
   Globe,
+  Mail,
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
@@ -50,6 +51,7 @@ export type SettingsTab =
   | 'knowledge'
   | 'user-management'
   | 'ai-providers'
+  | 'system-email'
   | 'channels'
   | 'usage'
   | 'skills'
@@ -145,6 +147,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.aiProviders',
     group: 'system',
     icon: Cpu,
+  },
+  {
+    value: 'system-email',
+    labelKey: 'tabs.systemEmail',
+    descriptionKey: 'navigation.descriptions.systemEmail',
+    group: 'system',
+    icon: Mail,
   },
   {
     value: 'user-management',

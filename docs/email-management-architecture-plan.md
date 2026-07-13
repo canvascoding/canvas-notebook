@@ -2,7 +2,7 @@
 
 Stand: 2026-07-13
 
-Status: verbindlicher Umsetzungsplan
+Status: P0 sowie die Kernumsetzung von P1 und P2 sind implementiert; P3-P5 bleiben der weitere Ausbauplan.
 
 ## Beschlossene Architektur
 
@@ -45,9 +45,10 @@ Ein SMTP-Fehler eines konfigurierten Systemsenders loest **keinen** stillen Fall
 ### To-do-Benachrichtigungen
 
 - Aktuell werden nur durch Agents angelegte To-dos per E-Mail benachrichtigt.
-- Die bestehende Logik nimmt die Login-Adresse des Users als Empfaenger und dessen Main Email als Sender.
-- Hat der User kein sendefaehiges Standardpostfach, wird die Mail mit `No active email account connected` uebersprungen.
-- Bei einem persoenlichen Konto mit IMAP kann die bestehende Reply-by-email-Logik einen Reply-Watcher anlegen.
+- Der Empfaenger ist der Assignee, wenn vorhanden, sonst der Owner (`assigneeUserId ?? userId`); die Zieladresse ist immer dessen Login-Adresse.
+- Ein System-SMTP-Sender wird vor einer persoenlichen Main Email des Empfaengers bevorzugt.
+- Hat die VM keinen Systemsender und der Empfaenger kein sendefaehiges Standardpostfach, wird die Mail mit `No active email account connected` uebersprungen.
+- Bei Systemversand gibt es keinen Reply-Token und keinen Reply-Watcher. Beim persoenlichen Fallback bleibt Reply-by-email erhalten.
 
 ### Berechtigungen und Settings
 
@@ -87,7 +88,7 @@ Die Konfiguration wird in zwei Teile getrennt:
 
 | Daten | Ablage | Rueckgabe an UI |
 | --- | --- | --- |
-| Host, Port, TLS, From, From-Name, Reply-To und Username | zentrale Integrationskonfiguration | nur maskiert und nur fuer Admins |
+| Host, Port, TLS, From, From-Name, Reply-To und Username | zentrale Integrationskonfiguration | nur fuer Admins |
 | SMTP-Passwort | zentrale Integrations-Secret-Verwaltung | niemals zurueckgeben; nur `passwordConfigured: true/false` |
 | letzter Test, letzte erfolgreiche Zustellung, letzter Fehlercode | serverweite, nicht-sensitive Settings | Admins duerfen Status sehen |
 
@@ -180,12 +181,11 @@ In der bestehenden Settings-Navigation wird ein eigener, admin-sichtbarer Tab in
 
 Der Tab zeigt:
 
-- Status `Nicht eingerichtet`, `Eingerichtet`, `Letzter Test erfolgreich` oder `Letzter Test fehlgeschlagen`
+- Status `Nicht eingerichtet` oder `Eingerichtet` sowie einen direkten Verbindungstest
 - From-Adresse, Anzeigename und optional Reply-To
 - SMTP Host, Port, TLS-Modus und Username
 - Passwortfeld mit `Bestehendes Passwort beibehalten`
 - `Verbindung testen`
-- `Testmail an meine Login-Adresse senden`
 - erklaerenden Hinweis zur Fallback-Reihenfolge
 - letzte erfolgreiche Zustellung und einen sicheren, gekuerzten Fehlerhinweis
 
@@ -249,9 +249,11 @@ Status: umgesetzt
 
 ### P1: System-SMTP als VM-Administration
 
+Status: Kern umgesetzt
+
 1. Admin-geschuetzte Konfigurations- und Status-Service-Schicht erstellen.
 2. Zentrale `CANVAS_SYSTEM_SMTP_*`-Secrets ueber die bestehende Integrations-Secret-Verwaltung speichern; Passwoerter nie lesen oder ausgeben.
-3. System-E-Mail-Tab unter **System** implementieren, einschliesslich Verbindungstest und Testmail an den eingeloggten Admin.
+3. System-E-Mail-Tab unter **System** implementieren, einschliesslich Verbindungstest.
 4. Gemeinsamen SMTP-Transport extrahieren, ohne persoenliche Account-Policies in Systemversand zu uebernehmen.
 5. `notification-delivery-service` mit der verbindlichen System-then-personal-Fallback-Reihenfolge implementieren.
 6. Dokumentation fuer Absenderfreigabe und DNS-Anforderungen ergaenzen.
@@ -264,10 +266,12 @@ Akzeptanz:
 
 ### P2: To-do-Migration
 
+Status: Kern umgesetzt
+
 1. Empfaenger auf `assigneeUserId ?? userId` aufloesen.
 2. Bestehendes Agent-To-do-Template ueber den Delivery-Service versenden.
 3. System-SMTP bevorzugen; persoenlichen Fallback nur bei fehlender Systemkonfiguration nutzen.
-4. Versandquelle und Fehlerzustand am To-do speichern und in der UI anzeigen.
+4. Versandquelle und Fehlerzustand am To-do speichern und in der UI anzeigen. (Versandquelle ist bereits im Service-Ergebnis vorhanden; dauerhafte UI-Auditierung folgt mit der Outbox.)
 5. Reply-Watcher nur noch fuer personal fallback erzeugen; Systemmails verlinken in die App.
 6. Bestehende To-do-Mail-Tests auf beide Senderpfade erweitern.
 
