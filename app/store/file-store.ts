@@ -352,6 +352,7 @@ interface FileStoreState {
   markDirectoryStale: (path: string) => void;
   clearMultiSelect: () => void;
   toggleMultiSelectMode: () => void;
+  setMultiSelectPaths: (paths: Iterable<string>, activateMode?: boolean) => void;
   toggleMultiSelectPath: (path: string) => void;
   setLastSelectedPath: (path: string | null) => void;
   selectRange: (startPath: string, endPath: string, currentTree: FileNode[]) => void;
@@ -1438,6 +1439,16 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   // Multi-select actions
   toggleMultiSelectMode: () => {
     set((state) => ({ isMultiSelectMode: !state.isMultiSelectMode }));
+  },
+
+  setMultiSelectPaths: (paths: Iterable<string>, activateMode) => {
+    const multiSelectPaths = new Set(paths);
+    set({
+      selectedNode: null,
+      multiSelectPaths,
+      isMultiSelectMode: activateMode ?? multiSelectPaths.size > 0,
+      lastSelectedPath: null,
+    });
   },
 
   toggleMultiSelectPath: (path: string) => {

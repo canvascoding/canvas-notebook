@@ -252,6 +252,23 @@ async function main() {
       'cross-level shift selection should add only the explicit target',
     );
 
+    useFileStore.setState({
+      selectedNode: expandedFolder,
+      isMultiSelectMode: false,
+      multiSelectPaths: new Set<string>(),
+      lastSelectedPath: expandedFolder.path,
+    });
+    useFileStore.getState().setMultiSelectPaths([expandedFolder.path, siblingFolder.path], false);
+    assert.equal(useFileStore.getState().selectedNode, null, 'live marquee selection should clear single selection');
+    assert.equal(useFileStore.getState().isMultiSelectMode, false, 'live marquee selection may defer the selection toolbar');
+    assert.deepEqual(
+      Array.from(useFileStore.getState().multiSelectPaths),
+      [expandedFolder.path, siblingFolder.path],
+    );
+    useFileStore.getState().setMultiSelectPaths([expandedFolder.path, siblingFolder.path], true);
+    assert.equal(useFileStore.getState().isMultiSelectMode, true, 'finished marquee selection should activate multi-select mode');
+    assert.equal(useFileStore.getState().lastSelectedPath, null, 'marquee selection should not create a shift-click anchor');
+
     const selectedDirectory: FileNode = { name: 'docs', path: 'docs', type: 'directory' };
     useFileStore.setState({ currentDirectory: '.', selectedNode: null, isMultiSelectMode: false });
     useFileStore.getState().selectNode(selectedDirectory, false, false, undefined, true);

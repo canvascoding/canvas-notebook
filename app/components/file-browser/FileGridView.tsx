@@ -20,6 +20,7 @@ import { BulkMoveDialog } from './BulkMoveDialog';
 import { FileGridItem } from './FileGridItem';
 import { BackgroundContextMenu } from './BackgroundContextMenu';
 import { useFileExplorerViewModel } from './useFileExplorerViewModel';
+import { useMarqueeSelection } from './useMarqueeSelection';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -75,6 +76,7 @@ export function FileGridView({
     treeSelectionOrder,
     visibleSearchResultCount,
   } = useFileExplorerViewModel({ containerRef, variant });
+  const { marqueeHandlers, marqueeOverlayRect } = useMarqueeSelection(containerRef);
 
   const handleFileOpen = useCallback((path: string) => {
     if (onOpenFile) {
@@ -180,7 +182,12 @@ export function FileGridView({
   }, [browserMode, focusItem]);
 
   const searchSummary = normalizedSearchQuery ? (
-    <div className="mb-3 rounded-md border border-border/70 bg-muted/35 px-3 py-2" role="status" aria-live="polite">
+    <div
+      className="mb-3 rounded-md border border-border/70 bg-muted/35 px-3 py-2"
+      role="status"
+      aria-live="polite"
+      data-marquee-ignore
+    >
       <p className="truncate text-xs font-medium text-foreground">
         {t('searchResultsSummary', { count: visibleSearchResultCount, query: searchQuery.trim() })}
       </p>
@@ -260,6 +267,7 @@ export function FileGridView({
       className="hidden grid-cols-[minmax(0,1fr)_7rem_10rem_5rem_2.5rem] items-center gap-3 border-y border-border/70 bg-muted/30 px-2 py-1 md:grid"
       role="toolbar"
       aria-label={t('sortFiles')}
+      data-marquee-ignore
     >
       {renderSortColumn('name', 'sortName', 'pl-7')}
       {renderSortColumn('type', 'sortType')}
@@ -294,6 +302,15 @@ export function FileGridView({
       )}
     </div>
   );
+
+  const marqueeOverlay = marqueeOverlayRect ? (
+    <div
+      className="pointer-events-none fixed z-50 rounded-[2px] border border-primary/70 bg-primary/10 shadow-[inset_0_0_0_1px_hsl(var(--background)/0.35)]"
+      style={marqueeOverlayRect}
+      aria-hidden="true"
+      data-marquee-overlay
+    />
+  ) : null;
 
   if (isLoadingTree || isRestoring) {
     return (
@@ -348,10 +365,12 @@ export function FileGridView({
         ref={containerRef}
         className="relative h-full overflow-y-auto focus:outline-none"
         onContextMenu={handleBackgroundContextMenu}
+        {...marqueeHandlers}
         tabIndex={0}
         aria-label={browserMode === 'grid' ? t('fileGridLabel') : browserMode === 'list' ? t('fileListLabel') : t('fileTreeLabel')}
       >
         {renderEmptyState()}
+        {marqueeOverlay}
         <BackgroundContextMenu />
       </div>
     );
@@ -365,6 +384,7 @@ export function FileGridView({
         onContextMenu={handleBackgroundContextMenu}
         onFocus={handleContainerFocus}
         onKeyDown={handleContainerKeyDown}
+        {...marqueeHandlers}
         tabIndex={0}
         aria-label={t('fileGridLabel')}
       >
@@ -409,6 +429,7 @@ export function FileGridView({
             <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>
           </div>
         )}
+        {marqueeOverlay}
         <FileContextMenu />
         <BackgroundContextMenu />
         <BulkMoveDialog />
@@ -425,6 +446,7 @@ export function FileGridView({
         onContextMenu={handleBackgroundContextMenu}
         onFocus={handleContainerFocus}
         onKeyDown={handleContainerKeyDown}
+        {...marqueeHandlers}
         aria-label={t('fileListLabel')}
       >
         <div className="px-2">{searchSummary}</div>
@@ -481,6 +503,7 @@ export function FileGridView({
             <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>
           </div>
         )}
+        {marqueeOverlay}
         <FileContextMenu />
         <BackgroundContextMenu />
         <BulkMoveDialog />
@@ -505,6 +528,7 @@ export function FileGridView({
       onContextMenu={handleBackgroundContextMenu}
       onFocus={handleContainerFocus}
       onKeyDown={handleContainerKeyDown}
+      {...marqueeHandlers}
       aria-label={t('fileTreeLabel')}
     >
       <div className="px-2">{searchSummary}</div>
@@ -541,6 +565,7 @@ export function FileGridView({
           <p className="text-xs text-muted-foreground/60">{t('noFilesMatch', { query: searchQuery })}</p>
         </div>
       )}
+      {marqueeOverlay}
       <FileContextMenu />
       <BackgroundContextMenu />
       <BulkMoveDialog />
