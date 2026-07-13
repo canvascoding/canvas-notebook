@@ -59,6 +59,7 @@ async function main() {
 
     const oauth = await import('../app/lib/pi/oauth');
     const { resolveScopedPiOAuthStatesDir } = await import('../app/lib/runtime-data-paths');
+    const { normalizeOAuthFlowId, resolvePiOAuthFlowPaths } = await import('../app/lib/pi/oauth-flow-files');
     const provider = 'openai-codex';
     const userA = { userId: 'oauth_user_a' };
     const userB = { userId: 'oauth_user_b' };
@@ -101,6 +102,13 @@ async function main() {
       resolveScopedPiOAuthStatesDir(userA),
       path.join(dataRoot, 'users', 'oauth_user_a', 'settings', 'pi-oauth-states'),
     );
+    assert.equal(normalizeOAuthFlowId(' flow_123 '), 'flow_123');
+    assert.equal(normalizeOAuthFlowId('../flow'), null);
+    const flowPaths = resolvePiOAuthFlowPaths(resolveScopedPiOAuthStatesDir(userA), 'flow_123');
+    assert.equal(flowPaths.stateFile, path.join(resolveScopedPiOAuthStatesDir(userA), 'flow_123.json'));
+    assert.equal(flowPaths.codeFile, path.join(resolveScopedPiOAuthStatesDir(userA), 'flow_123_code.txt'));
+    assert.equal(flowPaths.tempAuthPath, path.join(resolveScopedPiOAuthStatesDir(userA), 'flow_123_oauth', 'credentials.json'));
+    assert.throws(() => resolvePiOAuthFlowPaths(resolveScopedPiOAuthStatesDir(userA), '../flow'), /Invalid OAuth flow id/u);
 
     console.log('pi-oauth-user-scope-test: ok');
   } finally {

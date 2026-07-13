@@ -5,6 +5,9 @@ import {
   resolveValidatedUserUploadStudioRefPath,
   resolveValidatedWorkspaceFilePath,
 } from '@/app/lib/integrations/studio-paths';
+import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
+import { isPathInside } from '@/app/lib/security/safe-paths';
+import { getWorkspacePath } from '@/app/lib/utils/workspace-manager';
 
 export type StudioImportFile = {
   buffer: Buffer;
@@ -12,12 +15,39 @@ export type StudioImportFile = {
   mimeType: string;
 };
 
-function resolveAllowedFilePath(filePath: string): string | null {
+type AllowedFileLocation = {
+  filePath: string;
+  root: string;
+};
+
+function resolveAllowedFilePath(filePath: string): AllowedFileLocation | null {
   if (filePath.startsWith('user-uploads/studio-references/')) {
-    return resolveValidatedUserUploadStudioRefPath(filePath.slice('user-uploads/studio-references/'.length));
+    const root = getUserUploadsStudioRefRoot();
+    const resolvedPath = resolveValidatedUserUploadStudioRefPath(filePath.slice('user-uploads/studio-references/'.length));
+    return resolvedPath ? { filePath: resolvedPath, root } : null;
   }
-  return resolveValidatedWorkspaceFilePath(filePath)
-    ?? resolveValidatedUserUploadStudioRefPath(filePath);
+  const workspacePath = resolveValidatedWorkspaceFilePath(filePath);
+  if (workspacePath) {
+    return { filePath: workspacePath, root: getWorkspacePath() };
+  }
+
+  const uploadPath = resolveValidatedUserUploadStudioRefPath(filePath);
+  return uploadPath ? { filePath: uploadPath, root: getUserUploadsStudioRefRoot() } : null;
+}
+
+async function resolveExistingAllowedFilePath(filePath: string): Promise<string | null> {
+  const location = resolveAllowedFilePath(filePath);
+  if (!location) return null;
+
+  try {
+    const [realRoot, realPath] = await Promise.all([
+      fs.realpath(location.root),
+      fs.realpath(location.filePath),
+    ]);
+    return isPathInside(realRoot, realPath) ? realPath : null;
+  } catch {
+    return null;
+  }
 }
 
 function mimeTypeFromFileName(fileName: string): string {
@@ -29,11 +59,11 @@ function mimeTypeFromFileName(fileName: string): string {
 }
 
 export async function readStudioImportFile(filePath: string): Promise<StudioImportFile | null> {
-  const resolvedPath = resolveAllowedFilePath(filePath);
+  const resolvedPath = await resolveExistingAllowedFilePath(filePath);
   if (!resolvedPath) return null;
 
   const buffer = await fs.readFile(resolvedPath);
-  const fileName = path.basename(filePath) || 'imported.jpg';
+  const fileName = path.basename(resolvedPath) || 'imported.jpg';
   return {
     buffer,
     fileName,

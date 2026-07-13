@@ -1,17 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { readFile } from 'fs/promises';
-import { join } from 'path';
 import { resolveScopedPiOAuthStatesDir } from '@/app/lib/runtime-data-paths';
-
-function normalizeOAuthFlowId(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return /^[A-Za-z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
-}
+import { normalizeOAuthFlowId, resolvePiOAuthFlowPaths } from '@/app/lib/pi/oauth-flow-files';
 
 /**
  * GET /api/oauth/pi/poll?flowId=xxx
@@ -38,7 +29,10 @@ export async function GET(request: NextRequest) {
       );
     }
 
-    const stateFile = join(resolveScopedPiOAuthStatesDir({ userId: session.user.id }), `${flowId}.json`);
+    const { stateFile } = resolvePiOAuthFlowPaths(
+      resolveScopedPiOAuthStatesDir({ userId: session.user.id }),
+      flowId,
+    );
 
     try {
       const stateContent = await readFile(stateFile, 'utf-8');
