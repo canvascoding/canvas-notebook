@@ -57,7 +57,6 @@ SUPPORT_DIR="$ROOT_DIR/install"
 . "$ROOT_DIR/install/lib/systemd.sh"
 
 config_json_init
-first_config_inode="$(stat -c '%i' "$CANVAS_CONFIG_JSON" 2>/dev/null || stat -f '%i' "$CANVAS_CONFIG_JSON")"
 configure_compose_values
 configure_database_values
 config_json_to_env
@@ -96,11 +95,16 @@ expected_host_owner="$(id -u):$(id -g)"
 [[ "$(file_owner "$CANVAS_INSTALL_DIR/templates/canvas-notebook.service")" == "$expected_host_owner" ]]
 [[ "$(env -u CANVAS_HOST_CODE_OWNER bash -c '. "$1"; _host_code_owner' _ "$ROOT_DIR/install/lib/shared/config_json.sh")" == "root:root" ]]
 printf 'managed env file modes and ownership verified\n'
-last_config_inode="$(stat -c '%i' "$CANVAS_CONFIG_JSON" 2>/dev/null || stat -f '%i' "$CANVAS_CONFIG_JSON")"
-if [[ "$first_config_inode" == "$last_config_inode" ]]; then
-  echo "atomic config write did not replace the config file (inode: ${first_config_inode})" >&2
+
+config_before_atomic_write="$TMP_DIR/config-before-atomic-write.json"
+ln "$CANVAS_CONFIG_JSON" "$config_before_atomic_write"
+config_json_write env.CANVAS_MANAGED_BACKUPS_ENABLED false
+if cmp -s "$CANVAS_CONFIG_JSON" "$config_before_atomic_write"; then
+  echo "atomic config write updated the existing config file instead of replacing it" >&2
   exit 1
 fi
+config_json_write env.CANVAS_MANAGED_BACKUPS_ENABLED true
+config_json_to_env
 if ! config_json_managed_by_control_plane; then
   echo "managed install config was not marked as control-plane managed" >&2
   exit 1
