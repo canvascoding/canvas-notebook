@@ -117,6 +117,13 @@ type WorkspaceMemberCandidateRow = {
 };
 
 export type CreateWorkspaceRecordType = 'personal' | 'team' | 'project';
+  banned: unknown;
+};
+
+type WorkspaceMemberCandidateEligibilityRow = {
+  organization_role: string | null;
+  organization_status: string | null;
+  banned: unknown;
 
 export class WorkspaceOperationError extends Error {
   code: string;
@@ -148,6 +155,10 @@ function normalizeWorkspaceStatus(value: string): WorkspaceStatus {
 function rowToWorkspaceRecord(row: WorkspaceRow): WorkspaceRecord {
   return {
     id: row.id,
+function isBannedWorkspaceUser(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
     organizationId: row.organization_id,
     type: normalizeWorkspaceType(row.type),
     ownerUserId: row.owner_user_id,
@@ -1378,20 +1389,59 @@ export function listWorkspaceMemberCandidates(
 ): WorkspaceMemberCandidate[] {
   const rows = sqlite.prepare(`
     SELECT
-      p.user_id,
+      u.id AS user_id,
       u.name,
       u.email,
-      p.role,
-      COALESCE(p.status, 'active') AS status
-    FROM organization_user_permissions p
-    LEFT JOIN user u ON u.id = p.user_id
-    WHERE p.organization_id = ?
-      AND COALESCE(p.status, 'active') = 'active'
-      AND p.role != 'external'
-    ORDER BY lower(COALESCE(u.email, u.name, p.user_id)) ASC
+      COALESCE(p.role, 'member') AS role,
+      COALESCE(p.status, 'active') AS status,
+      u.banned
+    FROM user u
+    LEFT JOIN organization_user_permissions p
+      ON p.user_id = u.id AND p.organization_id = ?
+    WHERE COALESCE(p.status, 'active') = 'active'
+      AND COALESCE(p.role, 'member') != 'external'
+    ORDER BY lower(COALESCE(u.email, u.name, u.id)) ASC
   `).all(organizationId) as WorkspaceMemberCandidateRow[];
 
-  return rows.map(rowToWorkspaceMemberCandidate);
+  return rows
+    .filter((row) => !isBannedWorkspaceUser(row.banned))
+    .map(rowToWorkspaceMemberCandidate);
+}
+
+function ensureWorkspaceMemberCandidate(
+  sqlite: Database.Database,
+  params: { organizationId: string; userId: string },
+): void {
+  const candidate = sqlite.prepare(`
+    SELECT
+      p.role AS organization_role,
+      p.status AS organization_status,
+      u.banned
+    FROM user u
+    LEFT JOIN organization_user_permissions p
+      ON p.user_id = u.id AND p.organization_id = ?
+    WHERE u.id = ?
+    LIMIT 1
+  `).get(params.organizationId, params.userId) as WorkspaceMemberCandidateEligibilityRow | undefined;
+
+  if (
+    !candidate ||
+    isBannedWorkspaceUser(candidate.banned) ||
+    (candidate.organization_status !== null && candidate.organization_status !== 'active') ||
+    candidate.organization_role === 'external'
+  ) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_NOT_ELIGIBLE', 'User is unavailable for workspace access.', 400);
+  }
+
+  if (candidate.organization_role !== null) return;
+
+  const now = Date.now();
+  sqlite.prepare(`
+    INSERT INTO organization_user_permissions (
+      organization_id, user_id, role, status, created_at, updated_at
+    ) VALUES (?, ?, 'member', 'active', ?, ?)
+    ON CONFLICT(organization_id, user_id) DO NOTHING
+  `).run(params.organizationId, params.userId, now, now);
 }
 
 export function listTeamWorkspaceMembers(
@@ -1472,15 +1522,7 @@ export function upsertTeamWorkspaceMember(
   if (!userId) {
     throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
   }
-  const candidate = sqlite.prepare(`
-    SELECT user_id, role, COALESCE(status, 'active') AS status
-    FROM organization_user_permissions
-    WHERE organization_id = ? AND user_id = ?
-    LIMIT 1
-  `).get(params.organizationId, userId) as { user_id: string; role: string; status: string } | undefined;
-  if (!candidate || candidate.status !== 'active' || candidate.role === 'external') {
-    throw new WorkspaceOperationError('WORKSPACE_MEMBER_NOT_ELIGIBLE', 'User is not an active organization member.', 400);
-  }
+  ensureWorkspaceMemberCandidate(sqlite, { organizationId: params.organizationId, userId });
 
   const role = typeof params.role === 'string' ? normalizeWorkspaceRole(params.role) : 'member';
   const canManage = Boolean(params.canManage);
@@ -1554,15 +1596,7 @@ export function upsertProjectWorkspaceMember(
   if (!userId) {
     throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
   }
-  const candidate = sqlite.prepare(`
-    SELECT user_id, role, COALESCE(status, 'active') AS status
-    FROM organization_user_permissions
-    WHERE organization_id = ? AND user_id = ?
-    LIMIT 1
-  `).get(params.organizationId, userId) as { user_id: string; role: string; status: string } | undefined;
-  if (!candidate || candidate.status !== 'active' || candidate.role === 'external') {
-    throw new WorkspaceOperationError('WORKSPACE_MEMBER_NOT_ELIGIBLE', 'User is not an active organization member.', 400);
-  }
+  ensureWorkspaceMemberCandidate(sqlite, { organizationId: params.organizationId, userId });
 
   const role = typeof params.role === 'string' ? normalizeWorkspaceRole(params.role) : 'member';
   const canManage = Boolean(params.canManage);

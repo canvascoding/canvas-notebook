@@ -2634,7 +2634,7 @@
           "currentMembers": "People with access",
           "currentMembersDescription": "Set one access level per person. Managers can update workspace members and settings.",
           "addMember": "Add member",
-          "addMemberDescription": "Select an active organization user and their access level.",
+          "addMemberDescription": "Select an available user and their access level.",
           "selectUser": "Select user",
           "accessLevel": "Access level",
           "person": "Person",
@@ -2644,7 +2644,7 @@
           "loading": "Loading members...",
           "noMembers": "No members.",
           "noCandidates": "No more users available",
-          "noCandidatesDescription": "All active organization users already have access to this workspace.",
+          "noCandidatesDescription": "All available users already have access to this workspace.",
           "close": "Close",
           "cancel": "Cancel",
           "accessLevels": {

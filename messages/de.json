@@ -2633,7 +2633,7 @@
           "currentMembers": "Personen mit Zugriff",
           "currentMembersDescription": "Wähle pro Person eine Zugriffsrolle. Personen mit Vollzugriff können Mitglieder und Workspace-Einstellungen verwalten.",
           "addMember": "Member hinzufügen",
-          "addMemberDescription": "Wähle einen aktiven Organisationsnutzer und dessen Zugriffsrolle.",
+          "addMemberDescription": "Wähle einen verfügbaren Nutzer und dessen Zugriffsrolle.",
           "selectUser": "Nutzer auswählen",
           "accessLevel": "Zugriffsrolle",
           "person": "Person",
@@ -2643,7 +2643,7 @@
           "loading": "Member werden geladen...",
           "noMembers": "Keine Member vorhanden.",
           "noCandidates": "Keine weiteren Nutzer verfügbar",
-          "noCandidatesDescription": "Alle aktiven Organisationsnutzer haben bereits Zugriff auf diesen Workspace.",
+          "noCandidatesDescription": "Alle verfügbaren Nutzer haben bereits Zugriff auf diesen Workspace.",
           "close": "Schließen",
           "cancel": "Abbrechen",
           "accessLevels": {

@@ -81,19 +81,6 @@ function insertUser(sqlite: Database.Database, userId: string, name: string, ema
   `).run(userId, name, email, role, now, now);
 }
 
-function insertOrganizationMember(sqlite: Database.Database, organizationId: string, userId: string, role = 'member') {
-  const now = Date.now();
-  sqlite.prepare(`
-    INSERT INTO organization_user_permissions (
-      organization_id, user_id, role, status,
-      can_write_team_workspace, can_create_public_links, can_create_team_automations,
-      can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
-      can_manage_backups, can_migrate_database, can_enable_knowledge, can_recover_workspaces,
-      created_at, updated_at
-    ) VALUES (?, ?, ?, 'active', 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, ?, ?)
-  `).run(organizationId, userId, role, now, now);
-}
-
 function request(url: string, init: RouteRequestInit = {}) {
   const headers = new Headers(init.headers);
   if (!headers.has('content-type')) {
@@ -215,14 +202,6 @@ async function main() {
   assert.equal(organizationDefault.isDefault, true);
   assert.equal(typeof initialList.organizationId, 'string');
 
-  const orgId = initialList.organizationId as string;
-  const setupDb = new Database(path.join(dataRoot, 'sqlite.db'));
-  try {
-    insertOrganizationMember(setupDb, orgId, 'member-user');
-  } finally {
-    setupDb.close();
-  }
-
   const teamCreateResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
     type: 'team',
     name: 'Route Team',
@@ -323,6 +302,9 @@ async function main() {
   try {
     sessionDb.prepare(`
       INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
+  assert.ok(memberList.candidates.some((candidate) => (
+    expectObject(candidate, 'workspace member candidate').userId === 'member-user'
+  )));
       VALUES ('member-session-route-test', ?, 'member-token-route-test', ?, ?, 'member-user')
     `).run(Date.now() + 60_000, Date.now(), Date.now());
   } finally {

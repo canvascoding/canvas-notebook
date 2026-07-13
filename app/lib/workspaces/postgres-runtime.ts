@@ -116,6 +116,13 @@ type WorkspaceMemberCandidateRow = {
   role: string;
   status: string;
 };
+  banned: unknown;
+};
+
+type WorkspaceMemberCandidateEligibilityRow = {
+  organization_role: string | null;
+  organization_status: string | null;
+  banned: unknown;
 
 type WorkspaceRow = {
   id: string;
@@ -164,6 +171,10 @@ function normalizeWorkspaceStatus(value: string): WorkspaceStatus {
 
 function normalizeWorkspaceMemberRole(value: string): WorkspaceMemberRecord['role'] {
   if (value === 'owner' || value === 'admin' || value === 'external') return value;
+function isBannedWorkspaceUser(value: unknown): boolean {
+  return value === true || value === 1 || value === '1' || value === 'true';
+}
+
   return 'member';
 }
 
@@ -255,6 +266,48 @@ function rowToWorkspaceMemberCandidate(row: WorkspaceMemberCandidateRow): Worksp
 function ensureWorkspaceDirectory(rootRelativePath: string): void {
   mkdirSync(workspaceAbsoluteRoot(rootRelativePath), { recursive: true });
 }
+async function ensurePostgresWorkspaceMemberCandidate(
+  database: RuntimeDb,
+  params: { organizationId: string; userId: string },
+): Promise<void> {
+  const candidate = await database.get(
+    `
+      SELECT
+        p.role AS organization_role,
+        p.status AS organization_status,
+        u.banned
+      FROM "user" u
+      LEFT JOIN organization_user_permissions p
+        ON p.user_id = u.id AND p.organization_id = ?
+      WHERE u.id = ?
+      LIMIT 1
+    `,
+    [params.organizationId, params.userId],
+  ) as WorkspaceMemberCandidateEligibilityRow | undefined;
+
+  if (
+    !candidate ||
+    isBannedWorkspaceUser(candidate.banned) ||
+    (candidate.organization_status !== null && candidate.organization_status !== 'active') ||
+    candidate.organization_role === 'external'
+  ) {
+    throw new WorkspaceOperationError('WORKSPACE_MEMBER_NOT_ELIGIBLE', 'User is unavailable for workspace access.', 400);
+  }
+
+  if (candidate.organization_role !== null) return;
+
+  const now = Date.now();
+  await database.run(
+    `
+      INSERT INTO organization_user_permissions (
+        organization_id, user_id, role, status, created_at, updated_at
+      ) VALUES (?, ?, 'member', 'active', ?, ?)
+      ON CONFLICT(organization_id, user_id) DO NOTHING
+    `,
+    [params.organizationId, params.userId, now, now],
+  );
+}
+
 
 function normalizeWorkspaceName(value: unknown): string {
   if (typeof value !== 'string') {
@@ -1750,17 +1803,18 @@ export async function listPostgresWorkspaceMembersForActor(
     const candidateRows = await database.all(
       `
         SELECT
-          p.user_id,
+          u.id AS user_id,
           u.name,
           u.email,
-          p.role,
-          COALESCE(p.status, 'active') AS status
-        FROM organization_user_permissions p
-        LEFT JOIN "user" u ON u.id = p.user_id
-        WHERE p.organization_id = ?
-          AND COALESCE(p.status, 'active') = 'active'
-          AND p.role != 'external'
-        ORDER BY lower(COALESCE(u.email, u.name, p.user_id)) ASC
+          COALESCE(p.role, 'member') AS role,
+          COALESCE(p.status, 'active') AS status,
+          u.banned
+        FROM "user" u
+        LEFT JOIN organization_user_permissions p
+          ON p.user_id = u.id AND p.organization_id = ?
+        WHERE COALESCE(p.status, 'active') = 'active'
+          AND COALESCE(p.role, 'member') != 'external'
+        ORDER BY lower(COALESCE(u.email, u.name, u.id)) ASC
       `,
       [workspace.organizationId],
     ) as WorkspaceMemberCandidateRow[];
@@ -1768,7 +1822,9 @@ export async function listPostgresWorkspaceMembersForActor(
     return {
       workspace,
       members: rows.map(rowToWorkspaceMemberRecord),
-      candidates: candidateRows.map(rowToWorkspaceMemberCandidate),
+      candidates: candidateRows
+        .filter((row) => !isBannedWorkspaceUser(row.banned))
+        .map(rowToWorkspaceMemberCandidate),
     };
   } catch (error) {
     try {
@@ -1829,18 +1885,10 @@ export async function upsertPostgresWorkspaceMemberForActor(
     if (!userId) {
       throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
     }
-    const candidate = await database.get(
-      `
-        SELECT user_id, role, COALESCE(status, 'active') AS status
-        FROM organization_user_permissions
-        WHERE organization_id = ? AND user_id = ?
-        LIMIT 1
-      `,
-      [workspace.organizationId, userId],
-    ) as { user_id: string; role: string; status: string } | undefined;
-    if (!candidate || candidate.status !== 'active' || candidate.role === 'external') {
-      throw new WorkspaceOperationError('WORKSPACE_MEMBER_NOT_ELIGIBLE', 'User is not an active organization member.', 400);
-    }
+    await ensurePostgresWorkspaceMemberCandidate(database, {
+      organizationId: workspace.organizationId,
+      userId,
+    });
 
     const role = typeof input.role === 'string' ? normalizeWorkspaceMemberRole(input.role) : 'member';
     const canManage = Boolean(input.canManage);
