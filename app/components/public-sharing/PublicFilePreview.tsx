@@ -13,6 +13,7 @@ import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import { MediaViewer } from '@/app/components/editor/MediaViewer';
 import { PdfViewer } from '@/app/components/editor/PdfViewer';
 import { ShareMarkdownDialog } from '@/app/components/file-browser/ShareMarkdownDialog';
+import { PublicMarpPreview } from '@/app/components/public-sharing/PublicMarpPreview';
 import type { PublicPreviewKind } from '@/app/lib/public-sharing/public-preview-types';
 import type { PublicShareSecurityMode } from '@/app/lib/public-sharing/public-share-security';
 
@@ -36,6 +37,7 @@ interface PublicFilePreviewProps {
   securityMode?: PublicShareSecurityMode;
   markdownExportUrl?: string;
   markdownPdfUrl?: string;
+  marpPreviewUrl?: string;
 }
 
 type HtmlMode = 'preview' | 'code';
@@ -105,6 +107,7 @@ export function PublicFilePreview({
   securityMode = 'strict',
   markdownExportUrl,
   markdownPdfUrl,
+  marpPreviewUrl,
 }: PublicFilePreviewProps) {
   const t = useTranslations('notebook');
   const [htmlMode, setHtmlMode] = useState<HtmlMode>('preview');
@@ -124,7 +127,9 @@ export function PublicFilePreview({
     : '';
 
   let body: ReactNode;
-  if ((previewKind === 'markdown' || previewKind === 'marp') && canShowTextContent) {
+  if (previewKind === 'marp' && marpPreviewUrl) {
+    body = <PublicMarpPreview fileName={fileName} previewUrl={marpPreviewUrl} />;
+  } else if (previewKind === 'markdown' && canShowTextContent) {
     body = <MarkdownEditor value={content} readOnly />;
   } else if ((previewKind === 'code' || (previewKind === 'html' && htmlMode === 'code')) && canShowTextContent) {
     body = <CodeEditor value={content} onChange={() => {}} readOnly path={fileName} />;

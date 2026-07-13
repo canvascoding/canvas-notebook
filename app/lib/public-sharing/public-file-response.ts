@@ -17,6 +17,7 @@ import {
 import {
   isInteractiveHtmlPublicShare,
   resolvePublicHtmlSiteAssetWorkspacePath,
+  type PublicShareSecurityMode,
 } from '@/app/lib/public-sharing/public-share-security';
 
 function parseRange(rangeHeader: string | null, fileSize: number): { start: number; end: number } | null | 'invalid' {
@@ -55,7 +56,7 @@ export function publicShareErrorResponse(resolved: Extract<PublicShareResolution
   );
 }
 
-function publicShareNotFoundResponse() {
+export function publicShareNotFoundResponse() {
   return NextResponse.json(
     { success: false, error: 'Public file not found.' },
     {
@@ -125,21 +126,21 @@ async function resolveResponseFile(
   };
 }
 
-export async function publicShareFileResponse(
+export type PublicShareResponseFile = {
+  workspacePath: string;
+  fileName: string;
+  fullPath: string;
+  sizeBytes: number;
+  mimeType: string;
+  asSiteAsset: boolean;
+};
+
+export function publicShareFileStreamResponse(
   request: NextRequest,
-  resolved: PublicShareResolution,
+  responseFile: PublicShareResponseFile,
   method: 'GET' | 'HEAD',
-  options: { requestedPathParts?: string[] } = {},
+  securityMode: PublicShareSecurityMode,
 ) {
-  if (!resolved.ok) {
-    return publicShareErrorResponse(resolved);
-  }
-
-  const responseFile = await resolveResponseFile(resolved, options.requestedPathParts);
-  if (!responseFile) {
-    return publicShareNotFoundResponse();
-  }
-
   const range = parseRange(request.headers.get('range'), responseFile.sizeBytes);
   if (range === 'invalid') {
     return new NextResponse(null, {
@@ -157,7 +158,7 @@ export async function publicShareFileResponse(
     mimeType: responseFile.mimeType,
     sizeBytes: responseFile.sizeBytes,
     range: range ? { ...range, total: responseFile.sizeBytes } : undefined,
-    securityMode: resolved.share.securityMode,
+    securityMode,
     asSiteAsset: responseFile.asSiteAsset,
     forceAttachment: request.nextUrl.searchParams.get('download') === '1',
   });
@@ -172,4 +173,22 @@ export async function publicShareFileResponse(
   const webStream = Readable.toWeb(nodeStream) as ReadableStream<Uint8Array>;
 
   return new NextResponse(webStream, { status: range ? 206 : 200, headers });
+}
+
+export async function publicShareFileResponse(
+  request: NextRequest,
+  resolved: PublicShareResolution,
+  method: 'GET' | 'HEAD',
+  options: { requestedPathParts?: string[] } = {},
+) {
+  if (!resolved.ok) {
+    return publicShareErrorResponse(resolved);
+  }
+
+  const responseFile = await resolveResponseFile(resolved, options.requestedPathParts);
+  if (!responseFile) {
+    return publicShareNotFoundResponse();
+  }
+
+  return publicShareFileStreamResponse(request, responseFile, method, resolved.share.securityMode);
 }

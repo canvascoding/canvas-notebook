@@ -294,7 +294,15 @@ async function main() {
       syncPublicSharesAfterMove,
       syncPublicSharesAfterWrite,
     } = await import('../app/lib/public-sharing/public-file-shares');
-    const { getPublicMarkdownExport } = await import('../app/lib/public-sharing/public-markdown-export');
+    const {
+      getPublicMarkdownExport,
+      getPublicMarpPreview,
+    } = await import('../app/lib/public-sharing/public-markdown-export');
+    const {
+      rewritePublicMarkdownImageSources,
+    } = await import('../app/lib/public-sharing/public-markdown-images');
+    const publicMarkdownAssetsRoute = await import('../app/public/markdown-assets/[token]/[...assetPath]/route');
+    const publicMarpPreviewRoute = await import('../app/public/marp-preview/[token]/route');
 
     const personalCreate = await createPublicFileShares({
       paths: ['docs/report.txt'],
@@ -378,6 +386,75 @@ async function main() {
       assert.match(teamMarkdownExport.html, /team scoped content/);
       assert.doesNotMatch(teamMarkdownExport.html, /personal scoped content/);
     }
+
+    await mkdir(path.join(ownerPersonal.rootPath, 'docs', 'images'), { recursive: true });
+    const publishedImage = Buffer.from([0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A]);
+    await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'images', 'published.png'), publishedImage);
+    await writeFile(path.join(ownerPersonal.rootPath, 'docs', 'images', 'unshared.png'), Buffer.from('private image'));
+    await writeFile(
+      path.join(ownerPersonal.rootPath, 'docs', 'with-images.md'),
+      '# Public images\n\n![Inline image](images/published.png)\n\n![Reference image][published]\n\n[published]: <images/published.png>\n\n<img src="images/published.png" alt="HTML image">\n',
+    );
+    const markdownImageShare = await createPublicFileShares({
+      paths: ['docs/with-images.md'],
+      createdByUserId: 'user-owner',
+      workspace: ownerPersonal,
+      source: 'ui',
+      confirmPublicExposure: true,
+      baseUrl: 'https://notebook.example.test',
+    });
+    assert.equal(markdownImageShare.shares.length, 1);
+    const markdownImageToken = tokenFromPublicUrl(markdownImageShare.shares[0].publicUrl);
+    const rewrittenMarkdown = rewritePublicMarkdownImageSources(
+      await readFile(path.join(ownerPersonal.rootPath, 'docs', 'with-images.md'), 'utf8'),
+      'docs/with-images.md',
+      markdownImageToken,
+    );
+    assert.match(
+      rewrittenMarkdown,
+      new RegExp(`/public/markdown-assets/${markdownImageToken}/docs/images/published\\.png`),
+    );
+
+    const publishedImageResponse = await publicMarkdownAssetsRoute.GET(
+      routeRequest(`http://localhost/public/markdown-assets/${markdownImageToken}/docs/images/published.png`),
+      { params: Promise.resolve({ token: markdownImageToken, assetPath: ['docs', 'images', 'published.png'] }) },
+    );
+    assert.equal(publishedImageResponse.status, 200);
+    assert.deepEqual(Buffer.from(await publishedImageResponse.arrayBuffer()), publishedImage);
+    assert.equal(publishedImageResponse.headers.get('content-type'), 'image/png');
+
+    const unsharedImageResponse = await publicMarkdownAssetsRoute.GET(
+      routeRequest(`http://localhost/public/markdown-assets/${markdownImageToken}/docs/images/unshared.png`),
+      { params: Promise.resolve({ token: markdownImageToken, assetPath: ['docs', 'images', 'unshared.png'] }) },
+    );
+    assert.equal(unsharedImageResponse.status, 404);
+
+    await writeFile(
+      path.join(ownerPersonal.rootPath, 'docs', 'public-slides.marp.md'),
+      '---\nmarp: true\n---\n\n# Public slides\n\n![Logo](images/published.png)\n',
+    );
+    const publicMarpShare = await createPublicFileShares({
+      paths: ['docs/public-slides.marp.md'],
+      createdByUserId: 'user-owner',
+      workspace: ownerPersonal,
+      source: 'ui',
+      confirmPublicExposure: true,
+      baseUrl: 'https://notebook.example.test',
+    });
+    assert.equal(publicMarpShare.shares.length, 1);
+    const publicMarpToken = tokenFromPublicUrl(publicMarpShare.shares[0].publicUrl);
+    const publicMarpPreview = await getPublicMarpPreview(publicMarpToken);
+    assert.equal(publicMarpPreview.ok, true);
+    if (publicMarpPreview.ok) {
+      assert.match(publicMarpPreview.html, /Public slides/);
+      assert.match(publicMarpPreview.html, /data:image\/png;base64,/);
+    }
+    const publicMarpRouteResponse = await publicMarpPreviewRoute.GET(
+      routeRequest(`http://localhost/public/marp-preview/${publicMarpToken}`),
+      { params: Promise.resolve({ token: publicMarpToken }) },
+    );
+    assert.equal(publicMarpRouteResponse.status, 200);
+    assert.match(await publicMarpRouteResponse.text(), /Public slides/);
 
     await writeFile(path.join(ownerTeam.rootPath, 'docs', 'agent-root.txt'), 'team agent root\n');
     const ownerTeamWithoutRelativePath: WorkspaceContext = {
