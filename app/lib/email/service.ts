@@ -37,6 +37,7 @@ import {
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
 import { resolveEmailAttachments } from '@/app/lib/email/attachments';
+import { logEmailClientEvent } from '@/app/lib/email/logging';
 import {
   getManagedEmailOAuthRedirectUri,
   isManagedEmailAvailable,
@@ -159,7 +160,29 @@ async function listManagedEmailAccounts(userId: string): Promise<ManagedEmailAcc
     : [];
 }
 
+function emailAccountId(account: unknown): string {
+  if (!account || typeof account !== 'object' || Array.isArray(account)) return '';
+  const value = (account as { id?: unknown }).id;
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function accountEmailAddress(account: unknown): string {
+  if (!account || typeof account !== 'object' || Array.isArray(account)) return '';
+  const value = (account as { emailAddress?: unknown }).emailAddress;
+  return typeof value === 'string' ? value.trim().toLowerCase() : '';
+}
+
+function isPrimaryAccount(account: unknown): boolean {
+  return Boolean(account && typeof account === 'object' && !Array.isArray(account) && (account as { isPrimary?: unknown }).isPrimary);
+}
+
 async function findManagedEmailAccount(userId: string, accountId?: string): Promise<ManagedEmailAccount | null> {
+  const localAccounts = await listLocalEmailAccounts(userId);
+  const localDefault = localAccounts.find(isPrimaryAccount) || localAccounts[0];
+  if (accountId ? localAccounts.some((account) => emailAccountId(account) === accountId) : localDefault) {
+    return null;
+  }
+
   const accounts = await listManagedEmailAccounts(userId);
   if (!accountId) return accounts[0] || null;
   return accounts.find((account) => account.id === accountId) || null;
@@ -259,21 +282,38 @@ export async function getEmailOAuthStatus(params: {
 }
 
 export async function listEmailAccounts(userId: string) {
+  const localAccounts = await listLocalEmailAccounts(userId);
   if (isManagedEmailAvailable()) {
-    const [managedAccounts, localAccounts] = await Promise.all([
-      listManagedEmailAccounts(userId),
-      listLocalEmailAccounts(userId).catch(() => []),
-    ]);
+    let managedAccounts: ManagedEmailAccount[];
+    try {
+      managedAccounts = await listManagedEmailAccounts(userId);
+    } catch (error) {
+      logEmailClientEvent('warn', 'managed-accounts-fallback', {
+        error,
+        mode: 'local',
+        operation: 'list-accounts',
+        status: 'failed',
+      });
+      return emailAccountsResponse({ accounts: localAccounts }, 'local');
+    }
+
+    const localIds = new Set(localAccounts.map(emailAccountId).filter(Boolean));
+    const localAddresses = new Set(localAccounts.map(accountEmailAddress).filter(Boolean));
+    const distinctManagedAccounts = managedAccounts.filter((account) => {
+      const id = emailAccountId(account);
+      const emailAddress = accountEmailAddress(account);
+      return (!id || !localIds.has(id)) && (!emailAddress || !localAddresses.has(emailAddress));
+    });
     const hasLocalPrimary = localAccounts.some((account) => Boolean((account as { isPrimary?: unknown }).isPrimary));
     return {
       accounts: [
-        ...managedAccounts.map((account, index) => ({ ...account, isPrimary: !hasLocalPrimary && index === 0 })),
-        ...localAccounts,
+        ...(hasLocalPrimary ? localAccounts : []),
+        ...distinctManagedAccounts.map((account, index) => ({ ...account, isPrimary: !hasLocalPrimary && index === 0 })),
+        ...(!hasLocalPrimary ? localAccounts : []),
       ].filter(isConnectedEmailAccount),
       mode: 'managed' as const,
     };
   }
-  const localAccounts = await listLocalEmailAccounts(userId);
   return emailAccountsResponse({ accounts: localAccounts }, 'local');
 }
 

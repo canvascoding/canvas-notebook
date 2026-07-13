@@ -555,9 +555,6 @@ async function main() {
   assert.equal((sentReadResult as { message?: { folder?: string } }).message?.folder, 'Sent');
   await assert.rejects(() => readEmailMessage('owner-user', smtpImapAccount.id, '1001'), /sender is not allowed/i);
 
-  setImapClientFactoryForTests(null);
-  setSmtpTransportFactoryForTests(null);
-
   const originalFetch = globalThis.fetch;
   const managedEnvKeys = [
     'CANVAS_MANAGED_SERVICES_ENABLED',
@@ -579,6 +576,7 @@ async function main() {
 
   const ownerManagedAccountId = '11111111-1111-4111-8111-111111111111';
   const otherManagedAccountId = '22222222-2222-4222-8222-222222222222';
+  const duplicateManagedAccountId = '33333333-3333-4333-8333-333333333333';
   const managedAccountsByUser = new Map([
     [ownerManagedUserId, {
       id: ownerManagedAccountId,
@@ -602,6 +600,7 @@ async function main() {
     status,
     headers: { 'Content-Type': 'application/json' },
   });
+  let managedAccountsFailureStatus = 0;
   let managedSearchFailureStatus = 0;
 
   globalThis.fetch = (async (input: Parameters<typeof fetch>[0], init?: Parameters<typeof fetch>[1]) => {
@@ -613,7 +612,21 @@ async function main() {
     managedRequests.push({ url, method, userId, body });
 
     if (url === 'https://control.example.test/v1/managed/email/accounts') {
-      return jsonResponse({ accounts: userId ? [managedAccountsByUser.get(userId)].filter(Boolean) : [] });
+      if (managedAccountsFailureStatus) {
+        return jsonResponse({ error: 'Mail service not enabled' }, managedAccountsFailureStatus);
+      }
+      const accounts = userId ? [managedAccountsByUser.get(userId)].filter(Boolean) : [];
+      if (userId === ownerManagedUserId) {
+        accounts.push({
+          id: duplicateManagedAccountId,
+          provider: 'google',
+          emailAddress: smtpImapAccount.emailAddress,
+          displayName: 'Duplicate Managed Account',
+          status: 'active',
+          policy: { readFrom: [], sendTo: [] },
+        });
+      }
+      return jsonResponse({ accounts });
     }
     if (url === 'https://control.example.test/v1/managed/email/oauth/start') {
       return jsonResponse({
@@ -652,9 +665,19 @@ async function main() {
     assert.equal(ownerManagedAccounts.mode, 'managed');
     assert.equal(otherManagedAccounts.mode, 'managed');
     assert.ok(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === ownerManagedAccountId));
+    assert.equal((ownerManagedAccounts.accounts[0] as { id?: string }).id, smtpImapAccount.id);
+    assert.equal(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === duplicateManagedAccountId), false);
     assert.equal(ownerManagedAccounts.accounts.some((account) => (account as { id?: string }).id === otherManagedAccountId), false);
     assert.ok(otherManagedAccounts.accounts.some((account) => (account as { id?: string }).id === otherManagedAccountId));
     assert.equal(otherManagedAccounts.accounts.some((account) => (account as { id?: string }).id === ownerManagedAccountId), false);
+
+    const managedSearchRequestsBeforeLocalSearch = managedRequests.filter((request) => request.url.endsWith('/v1/managed/email/search')).length;
+    const localDefaultSearch = await searchEmail('owner-user', { query: 'IMAP', limit: 5 });
+    assert.equal((localDefaultSearch as { account?: { id?: string } }).account?.id, smtpImapAccount.id);
+    assert.equal(
+      managedRequests.filter((request) => request.url.endsWith('/v1/managed/email/search')).length,
+      managedSearchRequestsBeforeLocalSearch,
+    );
 
     const managedOAuthStart = await startEmailOAuth('owner-user', { provider: 'google', requestOrigin: 'https://canvas.example.com' });
     assert.equal(managedOAuthStart.authorizationUrl, 'https://accounts.example.test/oauth');
@@ -669,12 +692,21 @@ async function main() {
       /Managed email request to Control Plane failed \(500\) for \/v1\/managed\/email\/search: Internal Server Error/u,
     );
 
+    managedAccountsFailureStatus = 409;
+    const localFallbackAccounts = await listEmailAccounts('owner-user');
+    assert.equal(localFallbackAccounts.mode, 'local');
+    assert.equal((localFallbackAccounts.accounts[0] as { id?: string }).id, smtpImapAccount.id);
+    const localListWithManagedEmailDisabled = await listEmailMessages('owner-user', { accountId: smtpImapAccount.id, limit: 5 });
+    assert.equal((localListWithManagedEmailDisabled as { account?: { id?: string } }).account?.id, smtpImapAccount.id);
+
     assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/accounts') && request.userId === ownerManagedUserId));
     assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/accounts') && request.userId === otherManagedUserId));
     assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/oauth/start') && request.userId === ownerManagedUserId));
     assert.ok(managedRequests.some((request) => request.url.endsWith('/v1/managed/email/search') && request.userId === ownerManagedUserId));
   } finally {
     globalThis.fetch = originalFetch;
+    setImapClientFactoryForTests(null);
+    setSmtpTransportFactoryForTests(null);
     for (const key of managedEnvKeys) {
       const previous = previousManagedEnv[key];
       if (previous === undefined) {
