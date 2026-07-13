@@ -25,14 +25,14 @@ const releaseTagUrl = `${repositoryUrl}/releases/tag/${releaseTag}`;
 
 export default async function Home() {
   const tHome = await getTranslations('home');
-  const onboardingEnabled = isOnboardingHintsEnabled();
+  const onboardingHintsEnabled = isOnboardingHintsEnabled();
   const session = await requirePageSession({ allowUnlicensed: true });
   const licenseStatus = await getLicenseStatus();
   const userOnboarding = session ? await getUserOnboardingState(session.user.id) : null;
   const showPersonalTour = userOnboarding?.tour === 'started';
 
   return (
-    <HomeHintProvider enabled={onboardingEnabled || showPersonalTour}>
+    <HomeHintProvider enabled={onboardingHintsEnabled}>
       <div className="fixed inset-0 overflow-hidden bg-background text-foreground">
         <div className="flex h-full min-h-0 flex-col">
           {!licenseStatus.licensed && <LicenseBanner status={licenseStatus} />}
