@@ -71,6 +71,7 @@ const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState =
 function getFallbackAgentSectionOpenState(requestedPanel: string | null): AgentSettingsSectionOpenState {
   return {
     ...DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE,
+    runtime: requestedPanel === 'runtime',
     doctor: SHOW_AGENT_DOCTOR_SECTION && requestedPanel === 'doctor',
   };
 }
@@ -402,6 +403,13 @@ export function AgentSettingsPanel({
     if (agentId === selectedAgentId) return;
     resetAgentScopedState();
     setSelectedAgentId(agentId);
+    if (agentId !== DEFAULT_AGENT_ID) {
+      setAgentSectionOpenById((current) => {
+        const nextState = { ...current, runtime: true };
+        window.localStorage.setItem(AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY, JSON.stringify(nextState));
+        return nextState;
+      });
+    }
   }, [resetAgentScopedState, selectedAgentId]);
 
   const selectedAgent = useMemo(

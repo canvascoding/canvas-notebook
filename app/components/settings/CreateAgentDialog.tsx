@@ -215,6 +215,7 @@ type CreateAgentSectionProps = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   enabled?: boolean;
+  showWhenDisabled?: boolean;
   onEnabledChange?: (enabled: boolean) => void;
   children: ReactNode;
 };
@@ -226,10 +227,11 @@ function CreateAgentSection({
   open,
   onOpenChange,
   enabled = true,
+  showWhenDisabled = false,
   onEnabledChange,
   children,
 }: CreateAgentSectionProps) {
-  const contentAvailable = enabled;
+  const contentAvailable = enabled || showWhenDisabled;
 
   return (
     <section className="min-w-0 overflow-hidden rounded-md border bg-muted/10">
@@ -321,7 +323,7 @@ export function CreateAgentDialog({
   const [selectedConnections, setSelectedConnections] = useState<string[]>([]);
   const [connectionsOverrideEnabled, setConnectionsOverrideEnabled] = useState(false);
   const [modelOverrideEnabled, setModelOverrideEnabled] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(true);
   const [modelCatalog, setModelCatalog] = useState<AiAppRuntimeCatalog | null>(null);
   const [modelDraft, setModelDraft] = useState<AgentCatalogModelSelection | null>(null);
   const [modelLoading, setModelLoading] = useState(false);
@@ -405,10 +407,10 @@ export function CreateAgentDialog({
   }, [canManageAgentDefaults, t]);
 
   useEffect(() => {
-    if (!canManageAgentDefaults || !open || !modelOverrideEnabled || modelLoadRequestedRef.current) return;
+    if (!canManageAgentDefaults || !open || (!modelOverrideEnabled && !modelOpen) || modelLoadRequestedRef.current) return;
     modelLoadRequestedRef.current = true;
     void loadModelOptions();
-  }, [canManageAgentDefaults, loadModelOptions, modelOverrideEnabled, open]);
+  }, [canManageAgentDefaults, loadModelOptions, modelOpen, modelOverrideEnabled, open]);
 
   useEffect(() => {
     if (!open || !toolsOverrideEnabled || toolsLoadRequestedRef.current) return;
@@ -490,7 +492,7 @@ export function CreateAgentDialog({
     setConnectionsOverrideEnabled(false);
     setConnectionsOpen(false);
     setModelOverrideEnabled(false);
-    setModelOpen(false);
+    setModelOpen(true);
     setModelCatalog(null);
     setModelDraft(null);
     setModelError(null);
@@ -634,13 +636,20 @@ export function CreateAgentDialog({
                       open={modelOpen}
                       onOpenChange={setModelOpen}
                       enabled={modelOverrideEnabled}
+                      showWhenDisabled
                       onEnabledChange={setModelOverrideEnabled}
                     >
+                      {!modelOverrideEnabled && (
+                        <p className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
+                          {t('model.inheritedDefault')}
+                        </p>
+                      )}
                       <AgentCatalogModelOverrideEditor
                         catalog={modelCatalog}
                         selection={modelDraft}
                         loading={modelLoading}
                         error={modelError}
+                        disabled={!modelOverrideEnabled}
                         onSelectionChange={setModelDraft}
                         onRetry={loadModelOptions}
                       />

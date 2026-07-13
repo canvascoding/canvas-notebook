@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { AlertTriangle, BrainCircuit, DatabaseZap, Loader2, RefreshCw, Save } from 'lucide-react';
+import { AlertTriangle, BrainCircuit, Loader2, RefreshCw, Save } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import type {
@@ -97,7 +97,7 @@ export function AgentCatalogModelOverrideEditor({
     : null;
   const valid = isAgentCatalogSelectionValid(catalog, selection);
 
-  if (loading && !catalog) {
+  if (!catalog && (loading || !error)) {
     return (
       <div className="flex min-h-28 items-center justify-center gap-2 rounded-lg border border-dashed bg-muted/20 text-sm text-muted-foreground">
         <Loader2 className="size-4 animate-spin" aria-hidden="true" />
@@ -152,20 +152,19 @@ export function AgentCatalogModelOverrideEditor({
   return (
     <div className="space-y-4">
       <div className="rounded-lg border bg-muted/20 p-3">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <div className="flex items-center gap-2 text-sm font-medium">
-            <DatabaseZap className="size-4 text-muted-foreground" aria-hidden="true" />
-            {t('catalogRevision', { revision: catalog.revision })}
-          </div>
-          <Badge variant="outline">{t('exactInstallation')}</Badge>
-        </div>
+        <p className="text-sm font-medium">{t('catalogReadyTitle')}</p>
         <p className="mt-1 text-xs leading-relaxed text-muted-foreground">{t('catalogOnlyHint')}</p>
       </div>
 
       {providers.length === 0 && (
-        <div className="flex items-start gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-950 dark:text-amber-100" role="status">
-          <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
-          <span>{t('catalogEmpty')}</span>
+        <div className="space-y-3 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-950 dark:text-amber-100" role="status">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" aria-hidden="true" />
+            <span>{t('catalogEmpty')}</span>
+          </div>
+          <Button type="button" variant="outline" size="sm" asChild>
+            <a href="?tab=ai-providers">{t('openProviders')}</a>
+          </Button>
         </div>
       )}
 
@@ -227,15 +226,6 @@ export function AgentCatalogModelOverrideEditor({
           </select>
         </label>
       </div>
-
-      {selectedProvider && (
-        <div className="grid gap-2 rounded-lg border bg-background p-3 text-xs text-muted-foreground sm:grid-cols-[auto_minmax(0,1fr)]">
-          <span className="font-medium text-foreground">{t('installationId')}</span>
-          <code className="break-all">{selectedProvider.installationId}</code>
-          <span className="font-medium text-foreground">{t('providerId')}</span>
-          <code className="break-all">{selectedProvider.providerId}</code>
-        </div>
-      )}
 
       {selection && !valid && (
         <div className="flex items-start gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive" role="alert">
@@ -389,9 +379,7 @@ export function AgentCatalogModelOverrideCard({
   };
 
   const summary = overrideEnabled
-    ? selection
-      ? `${selection.providerId} / ${selection.modelId}`
-      : t('legacyOverride')
+    ? t('usesDedicatedModel')
     : t('inheritsAppDefault');
 
   if (!canManage) {
@@ -414,9 +402,8 @@ export function AgentCatalogModelOverrideCard({
           </div>
           {storedSelection && (
             <div className="flex flex-wrap gap-2" aria-label={t('storedModelDefault')}>
-              <Badge variant="secondary">{storedSelection.providerId}</Badge>
+              <Badge variant="secondary">{t('dedicatedModel')}</Badge>
               <Badge variant="outline">{storedSelection.modelId}</Badge>
-              <Badge variant="outline">{storedSelection.thinkingLevel}</Badge>
             </div>
           )}
         </div>
@@ -454,19 +441,26 @@ export function AgentCatalogModelOverrideCard({
         />
       </div>
 
-      {overrideEnabled && (
-        <AgentCatalogModelOverrideEditor
-          catalog={catalog}
-          selection={selection}
-          loading={loading}
-          error={error}
-          disabled={saving}
-          onSelectionChange={(nextSelection) => {
-            setSelection(nextSelection);
-            setSuccess(null);
-          }}
-          onRetry={() => void loadCatalog()}
-        />
+      {(overrideEnabled || isOpen) && (
+        <>
+          {!overrideEnabled && (
+            <p className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
+              {t('inheritedDefaultPreview')}
+            </p>
+          )}
+          <AgentCatalogModelOverrideEditor
+            catalog={catalog}
+            selection={selection}
+            loading={loading}
+            error={error}
+            disabled={saving || !overrideEnabled}
+            onSelectionChange={(nextSelection) => {
+              setSelection(nextSelection);
+              setSuccess(null);
+            }}
+            onRetry={() => void loadCatalog()}
+          />
+        </>
       )}
 
       {!overrideEnabled && error && (
