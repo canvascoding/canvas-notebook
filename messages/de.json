@@ -1013,11 +1013,17 @@
     "selectModel": "Modell auswählen",
     "noModelsAvailable": "Keine Modelle verfügbar",
     "runtimeSelectorAria": "Provider, Modell und Intelligence für diese Session auswählen",
+    "runtimeProviderSelectorAria": "Provider für diesen Chat auswählen",
+    "runtimeModelSelectorAria": "Modell und Intelligence für diesen Chat auswählen",
     "runtimeSelectorTitle": "Modell für diesen Chat",
+    "runtimeSelectorBack": "Zurück zur Modellübersicht",
     "runtimeSelectionTitle": "{provider} / {model} / {intelligence} · Quelle: {source}",
     "runtimeProviderLabel": "Provider",
+    "runtimeProviderDescription": "Wähle einen freigegebenen Provider für diesen Chat.",
     "runtimeModelLabel": "Modell",
+    "runtimeModelDescription": "Wähle ein Modell von {provider}.",
     "runtimeIntelligenceLabel": "Intelligence",
+    "runtimeIntelligenceDescription": "Lege fest, wie viel Denkaufwand {model} verwenden soll.",
     "runtimeNoProviders": "Keine freigegebenen Provider verfügbar",
     "runtimeAppliesToSession": "Nur dieser Chat verwendet dieses Modell. Agent- und persönliche Standards bleiben unverändert.",
     "runtimeAppliesToNewSession": "Dieses Modell wird beim Start dieses Chats verwendet. Agent- und persönliche Standards bleiben unverändert.",
@@ -4642,6 +4648,78 @@
     },
     "overview": {
       "label": "Kennzahlen zur aktuellen Nutzung"
+    },
+    "studio": {
+      "title": "Studio-Medien",
+      "description": "Tatsächlich erzeugte Bilder, Videos und Sounds – getrennt von der Token- und Kostenauswertung.",
+      "toggle": "Studio-Medien ein- oder ausblenden",
+      "overviewLabel": "Kennzahlen zur Studio-Mediennutzung",
+      "outputsUnit": "Outputs",
+      "media": {
+        "image": "Bilder",
+        "video": "Videos",
+        "sound": "Sounds"
+      },
+      "filters": {
+        "mediaType": "Medientyp",
+        "allMedia": "Alle Medien",
+        "status": "Studio-Status",
+        "allStatuses": "Alle Studio-Status"
+      },
+      "status": {
+        "completed": "Abgeschlossen",
+        "failed": "Fehlgeschlagen",
+        "pending": "Ausstehend",
+        "generating": "Wird generiert"
+      },
+      "scope": {
+        "mediaType": "Studio: {value}",
+        "status": "Studio-Status: {value}"
+      },
+      "stats": {
+        "generations": {
+          "title": "Generierungsaufträge",
+          "subtitle": "{count} abgeschlossen"
+        },
+        "outputs": {
+          "title": "Erzeugte Medien",
+          "subtitle": "Gespeicherte Outputs"
+        },
+        "images": {
+          "title": "Bilder",
+          "subtitle": "Erzeugte Bild-Outputs"
+        },
+        "videos": {
+          "title": "Videos",
+          "subtitle": "Erzeugte Video-Outputs"
+        },
+        "sound": {
+          "title": "Sounds",
+          "subtitle": "Erzeugte Audio-Outputs"
+        },
+        "failed": {
+          "title": "Fehlgeschlagen",
+          "subtitle": "Generierungsaufträge"
+        }
+      },
+      "charts": {
+        "empty": "Für die aktuellen Studio-Filter gibt es noch keine erzeugten Medien.",
+        "trend": {
+          "title": "Medien-Verlauf",
+          "description": "Tatsächlich gespeicherte Outputs pro Tag, aufgeteilt nach Medientyp.",
+          "ariaLabel": "Gestapeltes Diagramm erzeugter Studio-Medien pro Tag"
+        },
+        "breakdown": {
+          "description": "Die acht stärksten Gruppen nach erzeugten Medien.",
+          "users": "Aktivste Ersteller",
+          "providers": "Provider im Vergleich",
+          "models": "Modelle im Vergleich",
+          "ariaLabel": "Balkendiagramm erzeugter Studio-Medien nach {group}"
+        }
+      },
+      "errors": {
+        "load": "Studio-Auswertung konnte nicht geladen werden ({status})."
+      }
     },
     "charts": {
       "input": "Input",

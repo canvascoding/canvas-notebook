@@ -1014,11 +1014,17 @@
     "selectModel": "Select a model",
     "noModelsAvailable": "No models available",
     "runtimeSelectorAria": "Select the provider, model, and intelligence for this session",
+    "runtimeProviderSelectorAria": "Select the provider for this chat",
+    "runtimeModelSelectorAria": "Select the model and intelligence for this chat",
     "runtimeSelectorTitle": "Model for this chat",
+    "runtimeSelectorBack": "Back to the model overview",
     "runtimeSelectionTitle": "{provider} / {model} / {intelligence} · Source: {source}",
     "runtimeProviderLabel": "Provider",
+    "runtimeProviderDescription": "Choose an approved provider for this chat.",
     "runtimeModelLabel": "Model",
+    "runtimeModelDescription": "Choose a model from {provider}.",
     "runtimeIntelligenceLabel": "Intelligence",
+    "runtimeIntelligenceDescription": "Choose how much reasoning {model} should use.",
     "runtimeNoProviders": "No approved providers available",
     "runtimeAppliesToSession": "Only this chat uses this model. Your agent and personal defaults stay unchanged.",
     "runtimeAppliesToNewSession": "This model will be used when you start this chat. Your agent and personal defaults stay unchanged.",
@@ -4643,6 +4649,78 @@
     },
     "overview": {
       "label": "Current usage metrics"
+    },
+    "studio": {
+      "title": "Studio media",
+      "description": "Actually generated images, videos, and sounds—kept separate from token and cost reporting.",
+      "toggle": "Toggle Studio media",
+      "overviewLabel": "Studio media usage metrics",
+      "outputsUnit": "Outputs",
+      "media": {
+        "image": "Images",
+        "video": "Videos",
+        "sound": "Sounds"
+      },
+      "filters": {
+        "mediaType": "Media type",
+        "allMedia": "All media",
+        "status": "Studio status",
+        "allStatuses": "All Studio statuses"
+      },
+      "status": {
+        "completed": "Completed",
+        "failed": "Failed",
+        "pending": "Pending",
+        "generating": "Generating"
+      },
+      "scope": {
+        "mediaType": "Studio: {value}",
+        "status": "Studio status: {value}"
+      },
+      "stats": {
+        "generations": {
+          "title": "Generation requests",
+          "subtitle": "{count} completed"
+        },
+        "outputs": {
+          "title": "Generated media",
+          "subtitle": "Stored outputs"
+        },
+        "images": {
+          "title": "Images",
+          "subtitle": "Generated image outputs"
+        },
+        "videos": {
+          "title": "Videos",
+          "subtitle": "Generated video outputs"
+        },
+        "sound": {
+          "title": "Sounds",
+          "subtitle": "Generated audio outputs"
+        },
+        "failed": {
+          "title": "Failed",
+          "subtitle": "Generation requests"
+        }
+      },
+      "charts": {
+        "empty": "There is no generated Studio media for the current filters yet.",
+        "trend": {
+          "title": "Media trend",
+          "description": "Actually stored outputs per day, split by media type.",
+          "ariaLabel": "Stacked chart of generated Studio media per day"
+        },
+        "breakdown": {
+          "description": "The eight highest-volume groups by generated media.",
+          "users": "Most active creators",
+          "providers": "Provider comparison",
+          "models": "Model comparison",
+          "ariaLabel": "Bar chart of generated Studio media by {group}"
+        }
+      },
+      "errors": {
+        "load": "Failed to load Studio analytics ({status})."
+      }
     },
     "charts": {
       "input": "Input",
