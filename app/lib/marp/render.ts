@@ -378,12 +378,13 @@ async function inlineCssUrls(
   return nextCss;
 }
 
-function wrapMarpSlides(html: string): string {
+function appendMarpSlideCaptions(html: string): string {
   let slideIndex = 0;
 
   return html.replace(/(<svg\b(?=[^>]*\bdata-marpit-svg\b)[\s\S]*?<\/svg>)/g, (svg) => {
     slideIndex += 1;
-    return `<figure class="marp-slide-frame" data-marp-slide="${slideIndex}" aria-label="Slide ${slideIndex}"><div class="marp-slide-surface">${svg}</div><figcaption class="marp-slide-caption">Slide ${slideIndex}</figcaption></figure>`;
+    const accessibleSvg = svg.replace('<svg', `<svg role="img" aria-label="Slide ${slideIndex}"`);
+    return `${accessibleSvg}<p class="marp-slide-caption" aria-hidden="true">Slide ${slideIndex}</p>`;
   });
 }
 
@@ -405,7 +406,7 @@ export async function renderMarpMarkdownToHtmlDocument(
   const baseDir = path.dirname(options.filePath);
   const marp = createMarpRenderer();
   const rendered = marp.render(markdown);
-  const html = wrapMarpSlides(await inlineHtmlAssetSources(rendered.html, baseDir, options.fileOptions));
+  const html = appendMarpSlideCaptions(await inlineHtmlAssetSources(rendered.html, baseDir, options.fileOptions));
   const css = await inlineCssUrls(rendered.css, baseDir, options.fileOptions);
   const title = options.title || path.basename(options.filePath);
 
@@ -454,33 +455,10 @@ export async function renderMarpMarkdownToHtmlDocument(
       min-height: 100%;
       flex-direction: column;
       align-items: center;
-      gap: clamp(14px, 3vw, 28px);
+      gap: 6px;
       overflow: visible;
     }
 
-    .marp-slide-frame {
-      display: grid;
-      width: 100%;
-      max-width: 1280px;
-      min-width: 0;
-      margin: 0;
-      gap: 8px;
-      justify-items: center;
-      overflow: visible;
-    }
-
-    .marp-slide-surface {
-      display: flex;
-      width: 100%;
-      max-width: 100%;
-      min-width: 0;
-      overflow: visible;
-      background: #fff;
-      box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
-    }
-
-    .marp-slide-surface > svg,
-    svg[data-marpit-svg],
     .marpit > svg {
       display: block;
       width: 100% !important;
@@ -493,10 +471,16 @@ export async function renderMarpMarkdownToHtmlDocument(
 
     .marpit > svg {
       max-width: min(100%, 1280px) !important;
+      margin: 0;
       box-shadow: 0 20px 48px rgba(0, 0, 0, 0.32);
     }
 
+    .marpit > svg:not(:first-child) {
+      margin-top: clamp(8px, 2vw, 22px);
+    }
+
     .marp-slide-caption {
+      margin: 0;
       color: #cbd5e1;
       font-size: 12px;
       line-height: 1;
@@ -508,15 +492,7 @@ export async function renderMarpMarkdownToHtmlDocument(
       }
 
       .marpit {
-        gap: 12px;
-      }
-
-      .marp-slide-frame {
-        gap: 6px;
-      }
-
-      .marp-slide-surface {
-        box-shadow: 0 10px 24px rgba(0, 0, 0, 0.28);
+        gap: 4px;
       }
 
       .marp-slide-caption {
@@ -540,20 +516,12 @@ export async function renderMarpMarkdownToHtmlDocument(
         min-height: 0;
       }
 
-      .marp-slide-frame {
-        display: block;
+      .marpit > svg {
         width: 100%;
         break-after: page;
         page-break-after: always;
       }
 
-      .marp-slide-surface,
-      .marpit > svg {
-        width: 100%;
-        box-shadow: none;
-      }
-
-      .marp-slide-surface > svg,
       .marpit > svg {
         box-shadow: none;
       }
@@ -562,7 +530,7 @@ export async function renderMarpMarkdownToHtmlDocument(
         display: none;
       }
 
-      .marp-slide-frame:last-child {
+      .marpit > svg:last-of-type {
         break-after: auto;
         page-break-after: auto;
       }
