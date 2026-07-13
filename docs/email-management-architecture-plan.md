@@ -1,309 +1,337 @@
-# E-Mail-Management: Status quo und Zielarchitektur
+# E-Mail-Management: Systemsender, Postfaecher und Benachrichtigungen
 
 Stand: 2026-07-13
 
-Status: Entscheidungsentwurf nach Analyse des lokalen und Managed-Mailpfads
+Status: verbindlicher Umsetzungsplan
 
-## Ziel
+## Beschlossene Architektur
 
-Canvas Notebook braucht E-Mail fuer zwei unterschiedliche Produktbereiche:
+Canvas Notebook unterscheidet dauerhaft zwischen drei Dingen:
 
-1. **System- und Benachrichtigungsmails** der App, zum Beispiel Passwort-Reset, Verifikation, Team-Einladung und To-do-Benachrichtigungen.
-2. **Persoenliche Postfaecher** eines Users fuer Inbox, Suche, Compose, Antworten, Agent-Tools und Automationen.
+1. **Login- und Empfaengeradresse eines Users**: `user.email` darf eine beliebige Adresse sein. Sie ist die Standardadresse fuer Passwort-Reset, Verifikation und Benachrichtigungen. Der User muss sie nicht als Postfach in Canvas verbinden.
+2. **Persoenliches Postfach eines Users**: optionales Google-, Microsoft- oder SMTP/IMAP-Konto fuer E-Mail-App, Agent-Tools, eigenes Senden und optional Reply-by-email.
+3. **System-SMTP-Sender der VM**: genau eine, vom Instanz-Administrator konfigurierte, ausgehende SMTP-Verbindung. Sie dient der gesamten Canvas-Instanz als technischer Absender und hat weder OAuth noch IMAP noch Inbox-Funktionen.
 
-Diese Bereiche sollen dieselbe robuste Provider- und Versandmechanik wiederverwenden, aber getrennte Ownership-, Berechtigungs- und Ausfallregeln besitzen. Die erste Ausbaustufe soll klein bleiben und spaetere Provider, mehrere Organisationen und zusaetzliche Notification-Kanaele nicht blockieren.
-
-## Bestaetigter Status quo
-
-### Persoenliche E-Mail-Konten
-
-- Lokale Konten liegen user-spezifisch in `email_accounts`.
-- Unterstuetzt werden Google OAuth, Microsoft OAuth und SMTP mit optionalem IMAP.
-- Ein User kann mehrere Konten und genau eine lokale `Main Email` besitzen.
-- SMTP-only kann senden; SMTP plus IMAP kann zusaetzlich Inbox, Suche und Lesen.
-- Secrets werden nicht in der Datenbank oder im Browser gespeichert, sondern ueber verschluesselte Secret-Referenzen geladen.
-- `readFrom`- und `sendTo`-Policies werden serverseitig erzwungen.
-- E-Mail-Client und Agent-Tools verwenden die `Main Email`, wenn keine `accountId` angegeben ist.
-
-### Managed OAuth
-
-- Bei einer Managed-Instanz liegen OAuth-Tokens fuer Google oder Microsoft im Control Plane.
-- Das Notebook sendet eine pseudonyme, instanzgebundene User-ID an `/v1/managed/email/*`.
-- Managed Accounts werden zur Laufzeit mit lokalen Accounts zusammengefuehrt, liegen aber nicht als lokale `email_accounts`-Zeilen vor.
-- Der globale Managed-Modus sagt nur, dass das Control Plane erreichbar ist. Er sagt nicht, dass jedes angezeigte Mailkonto oder jede Mail-Capability funktioniert.
-
-### System- und To-do-Mails
-
-- Fuer System-Mail existiert noch kein eigener organisationsweiter Delivery-Transport.
-- To-do-Mail wird aktuell nur fuer durch Agents erstellte To-dos versendet.
-- Empfaenger ist die Login-Adresse des Users; Absender ist dessen aktive `Main Email`.
-- Antworten auf To-do-Mails koennen ueber IMAP-Polling wieder einer Agent-Session zugeordnet werden.
-- Die Reply-Watcher referenzieren lokale `email_accounts`. Managed Accounts sind dadurch fuer diesen Teil noch kein vollwertiger Ersatz.
-- Der Versand erfolgt im To-do-Flow ohne allgemeine Outbox, Retry-Queue oder organisationsweite Notification-Praeferenzen.
-
-### Auth und Team
-
-- Better Auth hat E-Mail/Passwort aktiviert und Sign-up deaktiviert.
-- Das Schema kennt `emailVerified` und Verification-Records.
-- Ein produktiver Versand-Callback fuer Passwort-Reset oder E-Mail-Verifikation ist noch nicht konfiguriert.
-- Team-/Workspace-Mitglieder und Zuweisungen existieren, aber es gibt noch keinen gemeinsamen Mail-Notification-Service fuer Einladungen, Rollenwechsel oder Zuweisungen.
-- Ein User besitzt derzeit genau eine Login-E-Mail in `user.email`; verifizierte Aliase und getrennte Notification-Adressen existieren noch nicht.
-
-## Ursache des aktuellen Produktionsfehlers
-
-Das Control Plane kann einen zuvor verbundenen Managed-OAuth-Account weiterhin aus seiner Datenbank listen. Eine anschliessende Microsoft-Graph-Mailoperation kann trotzdem mit `MailboxNotEnabledForRESTAPI` beziehungsweise `Mail service not enabled` scheitern. Das Control Plane bildet diesen Providerfehler korrekt auf HTTP 409 ab.
-
-Im Notebook wurde der globale Managed-Modus bei der Kontenauflösung zu stark gewichtet. Dadurch konnte eine Operation an `/v1/managed/email/search` gehen, obwohl eine lokale SMTP/IMAP-Main-Email vorhanden war.
-
-Der umgesetzte Hotfix stellt deshalb folgende Invarianten her:
-
-- Explizit lokale `accountId` bedeutet immer lokaler Providerpfad.
-- Eine lokale Main Email ist auch in einer Managed-Instanz der Default.
-- Ein lokales Konto gewinnt gegen einen Managed-Duplikateintrag mit derselben Adresse.
-- Ist der Managed-Maildienst nicht verfuegbar, bleibt die lokale Kontenverwaltung nutzbar.
-- Ein echter Managed Account liefert Managed-Fehler weiterhin sichtbar zurueck; es gibt kein stilles Umschalten auf ein anderes Postfach.
-
-## Fachliche Trennung
-
-### 1. Organization Delivery Profile
-
-Ein organisations- beziehungsweise instanzweites Versandprofil ist ein technischer Absender der App. Es ist **kein Postfach** und darf nicht in der persoenlichen Inbox oder in Agent-Tools auftauchen.
-
-Verwendungszwecke:
-
-- Passwort-Reset und Login-Sicherheit
-- E-Mail-Verifikation und Aenderung der Login-Adresse
-- Team- und Workspace-Einladungen
-- Rollen-, Berechtigungs- und Offboarding-Hinweise
-- To-do-Zuweisung, Faelligkeit und Abschluss
-- Automation-Fehler und wichtige Runtime-/Backup-Warnungen
-- spaeter optionale Digests
-
-V1 braucht genau ein aktives Delivery Profile pro Organisation. SMTP reicht als erster Provider. Ein spaeterer Managed-Transactional-Provider kann hinter derselben Service-Schnittstelle ergaenzt werden.
-
-### 2. Personal Mailbox Connection
-
-Ein persoenliches Postfach gehoert genau einem User. Es kann je nach Provider folgende Capabilities haben:
-
-- `send`
-- `draft`
-- `read`
-- `folders`
-- `messageActions`
-- `replyPolling`
-
-Die UI und alle Services muessen Capabilities anzeigen und pruefen, statt nur `local` oder `managed` zu unterscheiden. Ein SMTP-only-Konto ist zum Beispiel gesund fuer `send`, aber nicht fuer `read`.
-
-### 3. User Email Address
-
-Eine Login- oder Notification-Adresse ist keine Mailbox-Verbindung. Sie besitzt keine Provider-Tokens und kein SMTP-Passwort.
-
-Mittelfristig soll ein User haben koennen:
-
-- eine primaere Login-Adresse,
-- null oder mehrere verifizierte Aliase,
-- eine bevorzugte Notification-Adresse,
-- Notification-Praeferenzen pro Ereigniskategorie.
-
-Damit muss ein User nicht sein privates oder berufliches Postfach mit Inbox-Rechten verbinden, nur um App-Benachrichtigungen zu empfangen.
-
-## Zielbild
+Die System-SMTP-Verbindung hat Vorrang. Ist sie nicht eingerichtet, bleibt das bereits vorhandene persoenliche Standardpostfach des jeweiligen Empfaengers als Fallback aktiv. Damit bleibt das heutige Verhalten erhalten, ohne Nutzer ohne Mailbox-Verknuepfung auszuschliessen, sobald ein Systemsender eingerichtet ist.
 
 ```text
-Auth / Team / To-do / Automationen
-                |
-                v
-       Domain-Orchestrierung
-       (warum und wann senden)
-                |
-                v
-     Transactional Mail Service --------> Organization Delivery Profile
-     Template, Outbox, Retry, Audit         SMTP, spaeter Managed Provider
-
-E-Mail-App / Agent-Tools / Mail-Automationen
-                |
-                v
-        Mailbox Account Resolver
-        accountId, source, capabilities
-             /                 \
-            v                   v
-   Local OAuth/SMTP/IMAP   Managed OAuth im Control Plane
+To-do / Auth / Team / Automation
+            |
+            v
+Notification Delivery Service
+            |
+            +-- System-SMTP der VM vorhanden --> senden von notifications@domain
+            |
+            +-- System-SMTP nicht eingerichtet --> persoenliches Standardpostfach
+            |                                      des Empfaengers, sofern sendefaehig
+            |
+            +-- kein Sender verfuegbar --> nachvollziehbar ueberspringen/fehlschlagen
+            v
+      Empfaenger: user.email
 ```
 
-Die Domain-Orchestrierung entscheidet Empfaenger, Template, Prioritaet und fachliche Fehlerbehandlung. Gemeinsame Services besitzen Providerzugriff, MIME/Template-Rendering, Timeout, Retry, Health und strukturierte Ergebnisse.
+Ein SMTP-Fehler eines konfigurierten Systemsenders loest **keinen** stillen Fallback auf ein persoenliches Postfach aus. Sonst koennte dieselbe Nachricht doppelt oder aus einem unerwarteten Absender versendet werden. Der Fallback gilt ausschliesslich, wenn auf der VM gar kein System-SMTP konfiguriert ist.
 
-## Schlankes Datenmodell
+## Aktueller Stand
 
-### Phase 1: Delivery und Outbox
+### Persoenliche Mailboxen
 
-`organization_email_delivery_settings`
+- `email_accounts` ist user-spezifisch und erlaubt mehrere Google-, Microsoft- sowie SMTP/IMAP-Konten.
+- Ein Konto kann als `Main Email` markiert sein; E-Mail-App und Agent-Tools nutzen es als Default.
+- SMTP-only kann senden. IMAP ist nur fuer Inbox, Suche, Lesen und Reply-Polling erforderlich.
+- Die Konten und ihre Secrets sind von der Login-Adresse getrennt.
+- Der Managed-OAuth-Pfad ist ausschliesslich ein weiterer Weg fuer persoenliche Mailboxen; er ist kein Systemversand.
 
-- `organizationId`
-- `provider` (`smtp`, spaeter `managed_transactional`)
-- `fromAddress`, `fromName`, `replyTo`
-- `secretRef`
-- `status`
-- `lastTestedAt`, `lastSuccessAt`, `lastErrorCode`
-- `createdAt`, `updatedAt`
+### To-do-Benachrichtigungen
 
-`email_outbox`
+- Aktuell werden nur durch Agents angelegte To-dos per E-Mail benachrichtigt.
+- Die bestehende Logik nimmt die Login-Adresse des Users als Empfaenger und dessen Main Email als Sender.
+- Hat der User kein sendefaehiges Standardpostfach, wird die Mail mit `No active email account connected` uebersprungen.
+- Bei einem persoenlichen Konto mit IMAP kann die bestehende Reply-by-email-Logik einen Reply-Watcher anlegen.
 
-- `organizationId`, optional `userId`
-- `purpose` (`auth_reset`, `verification`, `invite`, `todo_assigned`, ...)
-- `recipient`, `locale`, `templateDataJson`
-- `status`, `attemptCount`, `nextAttemptAt`
-- `idempotencyKey`
-- `lastErrorCode`, `createdAt`, `sentAt`
+### Berechtigungen und Settings
 
-Provider-Credentials bleiben verschluesselt hinter `secretRef`. Falls ein Provider einen instanzweiten API-Key als Environment-Variable benoetigt, wird er ueber den Integrations-Tab und `/data/secrets/Canvas-Integrations.env` verwaltet.
+- Es gibt bereits eine Instanz-Admin-Pruefung (`isAdminUser`/`requireInstanceAdmin`) sowie serverweite Settings.
+- Systemweite Credentials duerfen nicht im Browser, in Prompt-Kontexten oder als Klartext in einer normalen Settings-Datei landen.
+- Die zentrale Verwaltung von Integrations-Variablen erfolgt ueber `/data/secrets/Canvas-Integrations.env` und die vorhandenen Integrations-APIs.
 
-### Phase 2: Adressen und Praeferenzen
+## System-SMTP-Profil der VM
 
-`user_email_addresses`
+### Scope und Rechte
 
-- `userId`, `emailAddress`
-- `kind` (`login`, `alias`, `notification`)
-- `isPrimary`, `isVerified`, `verifiedAt`
+- Es gibt genau **ein** System-SMTP-Profil pro Canvas-Notebook-VM.
+- Nur Instanz-Administratoren duerfen es lesen, speichern, testen oder loeschen.
+- Normale User sehen weder den Systemsender noch SMTP-Host, Benutzername oder einen Secret-Status.
+- Das Profil gehoert zur VM, nicht zu einem User und nicht zu einem persoenlichen E-Mail-Konto.
 
-`user_notification_preferences`
+### Ausschliesslich SMTP
 
-- `userId`
-- `category` (`security`, `collaboration`, `tasks`, `automations`, `digest`)
-- `emailEnabled`
-- optional spaeter Frequenz und Quiet Hours
+Der Systemsender unterstuetzt in dieser Ausbaustufe nur:
 
-### Managed-Account-Projektion
+- SMTP Host und Port
+- TLS/SMTPS beziehungsweise STARTTLS-Konfiguration
+- SMTP Username und Passwort
+- Absenderadresse, Absendername und optional `Reply-To`
 
-Die aktuelle Runtime-Zusammenfuehrung reicht fuer den Hotfix. Bevor Managed Accounts als Reply-Watcher, dauerhafte Main Email oder Fremdschluesselziel dienen, braucht das Notebook eine lokale Projektion mit `source`, `externalAccountId`, Capabilities und Health. Provider-Tokens bleiben trotzdem ausschliesslich im Control Plane.
+Er unterstuetzt bewusst nicht:
 
-## Settings-Struktur
+- Google- oder Microsoft-OAuth
+- IMAP, Inbox, Suche oder Agent-Tools
+- Shared Inbox, Mailbox-Polling oder E-Mail-Empfang
 
-Die bestehende E-Mail-Karte unter Integrationen mischt heute Systemversand und persoenliche Postfaecher gedanklich zu stark. Empfohlen ist ein eigener Bereich **E-Mail & Benachrichtigungen** mit progressiver Anzeige.
+Die Absenderadresse muss beim SMTP-Provider zum authentifizierten Konto passen oder dort explizit freigegeben sein. Bei einer eigenen Domain gehoeren SPF, DKIM und DMARC zur Betriebsdokumentation, aber nicht zur Canvas-Konfiguration selbst.
 
-### Systemversand
+### Speicherung
 
-Nur fuer Organization Owner/Admin sichtbar:
+Die Konfiguration wird in zwei Teile getrennt:
 
-- Absendername und Absenderadresse
-- Reply-To
-- SMTP Host, Port, TLS, Username und Passwort
-- `Verbindung testen` und `Testmail senden`
-- klarer Health-Status mit letzter erfolgreicher Zustellung
-- Liste der Verwendungszwecke
+| Daten | Ablage | Rueckgabe an UI |
+| --- | --- | --- |
+| Host, Port, TLS, From, From-Name, Reply-To und Username | zentrale Integrationskonfiguration | nur maskiert und nur fuer Admins |
+| SMTP-Passwort | zentrale Integrations-Secret-Verwaltung | niemals zurueckgeben; nur `passwordConfigured: true/false` |
+| letzter Test, letzte erfolgreiche Zustellung, letzter Fehlercode | serverweite, nicht-sensitive Settings | Admins duerfen Status sehen |
 
-Im Single-User-Modus lautet die Beschriftung `System-E-Mail`; im Team-Modus `Organisations-Absender`.
+Vorgesehene, zentral verwaltete Keys in `/data/secrets/Canvas-Integrations.env`:
 
-### Meine Postfaecher
+```text
+CANVAS_SYSTEM_SMTP_HOST
+CANVAS_SYSTEM_SMTP_PORT
+CANVAS_SYSTEM_SMTP_SECURE
+CANVAS_SYSTEM_SMTP_USERNAME
+CANVAS_SYSTEM_SMTP_PASSWORD
+CANVAS_SYSTEM_EMAIL_FROM
+CANVAS_SYSTEM_EMAIL_FROM_NAME
+CANVAS_SYSTEM_EMAIL_REPLY_TO
+```
 
-Fuer jeden User privat:
+Die Admin-UI schreibt diese Werte ausschliesslich ueber eine serverseitige, admin-geschuetzte API. Sie benutzt nicht den persoenlichen Mailbox-Speicher und zeigt gespeicherte Passwoerter nie wieder an.
 
-- Quelle: Lokal oder Managed
-- Provider und Adresse
-- Capabilities als lesbare Badges
-- Health mit konkretem Fehler und passender Handlung
-- `Standardpostfach` statt des unklaren Begriffs `Main Email`
-- SMTP/IMAP, Google OAuth und spaeter Microsoft OAuth hinzufuegen
-- Richtlinien fuer Agent-Lesen und Agent-Senden
+## Sender- und Empfaengeraufloesung
 
-Bei einem Managed-Microsoft-Konto ohne Exchange-Mailbox soll die UI `Postfach beim Provider nicht aktiviert` anzeigen, Inbox-Aktionen deaktivieren und nicht den Eindruck eines gesunden Kontos erwecken.
+### Einheitliche Delivery-Schnittstelle
 
-### Meine Adressen und Benachrichtigungen
+Alle fachlichen Bereiche rufen eine gemeinsame Schnittstelle auf:
 
-- Login-Adresse mit Verifikationsstatus
-- spaeter verifizierte Notification-Aliase
-- Kategorien fuer Security, Team, To-dos und Automationen
-- keine Provider-Credentials in diesem Abschnitt
+```ts
+deliverNotification({
+  recipientUserId,
+  purpose: 'todo_created' | 'todo_assigned' | 'auth_reset' | 'email_verification' | 'invite' | 'automation_alert',
+  subject,
+  html,
+  text,
+  locale,
+})
+```
 
-## To-do-Notification-Regeln
+Der aufrufende Fachbereich entscheidet nur **wann** und **an wen** eine Mail gehen soll. Die Delivery-Schicht entscheidet **wie** gesendet wird und liefert ein strukturiertes Ergebnis zurueck.
 
-V1 sollte die Regeln explizit machen:
+### Verbindliche Reihenfolge
 
-- Persoenliches Agent-To-do: Empfaenger ist der Owner.
-- Team-To-do mit Assignee: Empfaenger ist der Assignee.
-- Nicht zugewiesenes Team-To-do: standardmaessig keine E-Mail, spaeter optional Workspace-Admin.
-- Abschlussmail an Creator/Assignee erst nach eigener Preference.
-- Reply-by-email wird nur angeboten, wenn ein expliziter Rueckkanal mit `replyPolling` existiert.
-- Ohne Rueckkanal enthaelt die Mail nur einen sicheren Link zum To-do in Canvas.
+1. Lade die Empfaengeradresse aus `user.email`. Fehlt oder ist sie unbrauchbar, wird die Benachrichtigung mit einem eindeutigen Grund uebersprungen.
+2. Wenn die VM ein vollstaendig konfiguriertes System-SMTP-Profil besitzt, sende darueber an `user.email`.
+3. Wenn kein System-SMTP-Profil konfiguriert ist, suche das persoenliche Main Email-Konto **des Empfaengers**. Nur ein Konto mit Send-Capability darf genutzt werden.
+4. Gibt es auch dieses Konto nicht, speichere den Zustand `no_delivery_sender`; die App-Benachrichtigung und das To-do selbst bleiben davon unberuehrt.
 
-Der Transactional-Absender und der Inbound-Reply-Kanal sind getrennte Konzepte. V1 soll sie nicht durch implizite Nutzung eines persoenlichen Postfachs koppeln.
+Die Senderwahl ist explizit im Ergebnis sichtbar:
 
-## Zuverlaessigkeit und Sicherheit
+```ts
+type NotificationDeliveryResult =
+  | { status: 'sent'; source: 'system_smtp'; messageId: string | null; from: string }
+  | { status: 'sent'; source: 'personal_fallback'; accountId: string; messageId: string | null; from: string }
+  | { status: 'skipped'; reason: 'missing_recipient' | 'no_delivery_sender' }
+  | { status: 'failed'; source: 'system_smtp' | 'personal_fallback'; error: string };
+```
 
-- Asynchrone Outbox mit Idempotency-Key pro fachlichem Ereignis.
-- Exponentielle Retries fuer temporaere Netzwerk-/4xx-Providerlimits; keine Retries fuer permanente Adress- oder Policyfehler.
-- Generische Auth-Antworten, damit Passwort-Reset keine User-Existenz verraet.
-- Signierte, kurzlebige Reset-, Verify- und Invite-Tokens.
-- Rate Limits pro Organisation, User, Adresse und Purpose.
-- Strukturierte Delivery-Ergebnisse statt ungefilterter Providerfehler im UI.
-- Audit-Events ohne Passwoerter, Tokens oder Mailinhalte.
-- E-Mail-Inhalte aus persoenlichen Postfaechern bleiben untrusted content.
-- Organization Admins duerfen den Delivery-Status sehen, aber keine privaten Mailbox-Inhalte oder Credentials anderer User.
+### Wichtiges Verhalten
 
-## Priorisierter Umsetzungsplan
+- Ein konfigurierter Systemsender wird immer bevorzugt, auch wenn der Empfaenger ein persoenliches Postfach verbunden hat.
+- Der persoenliche Fallback sendet im bisherigen Modell typischerweise von der eigenen Adresse des Empfaengers an dessen `user.email`. Das bleibt nur eine Kompatibilitaetsfunktion.
+- Ein persoenliches Konto wird nie als Fallback fuer einen anderen User verwendet.
+- `sendTo`-Policies gelten weiter fuer persoenliche Fallback-Konten. Sie gelten nicht fuer den Systemsender; dessen Berechtigung wird durch Admin-Rechte, feste Mail-Purposes und Templates begrenzt.
+- Ein defekter, aber konfigurierte Systemsender meldet einen Fehler. Er wechselt nicht auf persoenlichen Versand.
 
-### P0: Routing-Hotfix
+## To-do-spezifische Regeln
+
+Die bestehende To-do-Logik wird nicht einfach auf den neuen Sender umgestellt, sondern auch beim Empfaenger korrigiert.
+
+| Situation | Empfaenger | bevorzugter Sender | Fallback |
+| --- | --- | --- | --- |
+| Persoenliches Agent-To-do | Owner (`todo.userId`) | System-SMTP | Main Email des Owners |
+| Team-/Projekt-To-do mit Assignee | Assignee | System-SMTP | Main Email des Assignees |
+| Team-/Projekt-To-do ohne Assignee | zunaechst keine E-Mail | keiner | keiner |
+| To-do-Abschluss | spaeter per Preference Creator und/oder Assignee | System-SMTP | persoenlich nur ohne System-SMTP |
+
+In der ersten Umsetzungsstufe bleibt der Trigger auf Agent-To-dos beschraenkt, damit sich das Produktverhalten nicht ungefragt ausweitet. Die Entscheidung, ob auch manuell erstellte oder neu zugewiesene To-dos Mails erzeugen, folgt mit Notification-Praeferenzen.
+
+### Reply-by-email
+
+Ein System-SMTP-Sender kann nicht empfangen. Daher gilt:
+
+- Bei Versand ueber `system_smtp` wird kein IMAP-Reply-Watcher angelegt und kein Reply-Token versprochen.
+- Die Mail enthaelt einen sicheren Link zum To-do in Canvas.
+- Bei `personal_fallback` bleibt die bestehende Reply-by-email-Funktion moeglich, aber nur bei einem geeigneten lokalen IMAP-Konto.
+- Ein spaeterer dedizierter Inbound-Reply-Kanal ist ein eigenes Feature; er ist kein Bestandteil dieser SMTP-Ausbaustufe.
+
+## Zielbild der Settings
+
+### Neuer System-Tab: `System-E-Mail`
+
+In der bestehenden Settings-Navigation wird ein eigener, admin-sichtbarer Tab in der Gruppe **System** ergaenzt. Er gehoert nicht in `Integrationen > E-Mail-Konten`, weil diese Seite weiterhin nur persoenliche Mailboxen verwaltet.
+
+Der Tab zeigt:
+
+- Status `Nicht eingerichtet`, `Eingerichtet`, `Letzter Test erfolgreich` oder `Letzter Test fehlgeschlagen`
+- From-Adresse, Anzeigename und optional Reply-To
+- SMTP Host, Port, TLS-Modus und Username
+- Passwortfeld mit `Bestehendes Passwort beibehalten`
+- `Verbindung testen`
+- `Testmail an meine Login-Adresse senden`
+- erklaerenden Hinweis zur Fallback-Reihenfolge
+- letzte erfolgreiche Zustellung und einen sicheren, gekuerzten Fehlerhinweis
+
+Nicht-Administratoren sehen den Tab nicht. Direkte API-Aufrufe werden trotzdem serverseitig mit 403 abgewiesen.
+
+### Bestehende persoenliche E-Mail-Einstellungen
+
+Die Karte unter `Integrationen > E-Mail-Konten` bleibt fuer persoenliche Mailboxen bestehen. Ihre Beschriftung wird spaeter auf `Meine Postfaecher` und `Standardpostfach` praezisiert. Sie darf nicht den Eindruck erzeugen, dass sie fuer Reset-, Invite- oder Systemmails erforderlich ist.
+
+## Technischer Zuschnitt
+
+Der gemeinsame Versandmechanismus wird klein und explizit aufgebaut. Domain-Code besitzt keine Nodemailer- oder Credential-Details.
+
+| Bereich | Neue oder angepasste Komponente | Verantwortung |
+| --- | --- | --- |
+| SMTP-Transport | `app/lib/email/smtp-transport.ts` | gemeinsame Nodemailer-Optionen, Verify und Send ohne User-/DB-Zugriff |
+| Systemkonfiguration | `app/lib/email/system-smtp-config.ts` | Keys laden, validieren, maskierten Admin-Status erzeugen |
+| Systemversand | `app/lib/email/system-smtp-service.ts` | From/Reply-To festlegen, System-SMTP senden und Fehler klassifizieren |
+| Senderwahl | `app/lib/email/notification-delivery-service.ts` | System-SMTP-vor-persoenlichem-Fallback, strukturiertes Ergebnis |
+| Admin-API | `app/api/admin/system-email/*` | Status, Speichern, Verbindungstest und Testmail mit `requireInstanceAdmin` |
+| Admin-UI | `SystemEmailSettingsPanel` und Settings-Navigation | nur Administratoren, keine Secret-Rueckgabe |
+| To-dos | `app/lib/todos/email-notifications.ts`, `app/lib/todos/store.ts` | Empfaenger bestimmen, Delivery-Service aufrufen, Reply nur bei personal fallback |
+| Auth/Team | `app/lib/auth.ts` und kuenftige Invite-Flows | nach dem Kernservice Reset, Verify und Einladungen anbinden |
+| Lokalisierung | `messages/de.json`, `messages/en.json` | Admin-, Status-, Fehler- und Fallback-Texte |
+
+`smtp-service.ts` fuer persoenliche Konten soll nicht zu einem globalen God-Service werden. Gemeinsame, providernahe Nodemailer-Mechanik wird in `smtp-transport.ts` extrahiert; Account-Auswahl, Richtlinien und Entwuerfe bleiben in ihren jeweiligen Fachservices.
+
+## Daten, Migration und Audit
+
+### Kernimplementierung
+
+Die erste Stufe benoetigt keine neue `email_accounts`-Zeile und keine Inbox-Datenbank fuer den Systemsender. Das ist wichtig: Der Systemsender ist kein Benutzerkonto.
+
+Nicht-sensitive Health-Metadaten werden serverweit gespeichert, zum Beispiel:
+
+- `systemEmailLastTestedAt`
+- `systemEmailLastTestSucceededAt`
+- `systemEmailLastDeliveryAt`
+- `systemEmailLastErrorCode`
+
+Fuer To-dos wird eine kleine Migration vorbereitet, um die Quelle nachvollziehen zu koennen:
+
+- `email_notification_delivery_kind` (`system_smtp` oder `personal_fallback`)
+- `email_notification_from`
+
+Die bestehenden Felder `emailNotificationSentAt` und `emailNotificationError` bleiben kompatibel.
+
+### Spaetere Zuverlaessigkeit
+
+Erst nach dem funktionierenden Kernversand wird eine Outbox eingefuehrt. Dann entstehen `email_outbox` und `email_delivery_attempts` mit Purpose, Idempotency-Key, Retry-Zeit und anonymisierten Fehlerdaten. Die fachliche Erstellung eines To-dos darf danach nicht mehr auf eine SMTP-Antwort warten.
+
+## Vollstaendiger Umsetzungsplan
+
+### P0: Managed-/lokales Mailbox-Routing
 
 Status: umgesetzt
 
-- Konkrete Account-Quelle vor globalem Managed-Modus aufloesen.
-- Lokale Main Email priorisieren.
-- Duplikate lokal vor managed priorisieren.
-- Managed-Ausfall darf lokale Accounts nicht blockieren.
-- Regressionstests fuer SMTP/IMAP plus Managed 409.
+- Lokale `accountId` und lokale Main Email gewinnen gegen den globalen Managed-Modus.
+- Managed-Duplikate einer lokalen Adresse werden nicht verwendet.
+- Ein 409 des Managed-Maildienstes blockiert lokale SMTP/IMAP-Konten nicht.
 
-### P1: Transparenz und Capability Health
+### P1: System-SMTP als VM-Administration
 
-- Account-DTO um `source`, `capabilities` und strukturierten `health` erweitern.
-- Settings und E-Mail-App zeigen Quelle und Capability-Status.
-- Managed 409 in einen handlungsorientierten Account-Status uebersetzen.
-- Begriff `Main Email` in `Standardpostfach` aendern.
-- Kein neues Datenmodell fuer Aliase oder Notification-Routing in diesem Schritt.
+1. Admin-geschuetzte Konfigurations- und Status-Service-Schicht erstellen.
+2. Zentrale `CANVAS_SYSTEM_SMTP_*`-Secrets ueber die bestehende Integrations-Secret-Verwaltung speichern; Passwoerter nie lesen oder ausgeben.
+3. System-E-Mail-Tab unter **System** implementieren, einschliesslich Verbindungstest und Testmail an den eingeloggten Admin.
+4. Gemeinsamen SMTP-Transport extrahieren, ohne persoenliche Account-Policies in Systemversand zu uebernehmen.
+5. `notification-delivery-service` mit der verbindlichen System-then-personal-Fallback-Reihenfolge implementieren.
+6. Dokumentation fuer Absenderfreigabe und DNS-Anforderungen ergaenzen.
 
-Akzeptanz: Ein User kann vor jeder Aktion erkennen, welches Konto und welcher Providerpfad verwendet werden.
+Akzeptanz:
 
-### P2: Organization Delivery Profile
+- Ein Admin kann die VM-SMTP-Verbindung einrichten und testen.
+- Kein normaler User kann Konfiguration oder Secret-Status lesen.
+- Ein User ohne verbundenes Postfach kann eine Testbenachrichtigung an seine Login-Adresse erhalten.
 
-- Eine organisationsweite SMTP-Konfiguration mit Testmail einfuehren.
-- Gemeinsamen Transactional-Mail-Service als kleine Provider-Adapter-Schicht bauen.
-- Auth-, Invite- und To-do-Orchestrierung rufen diesen Service auf.
-- Single-User-Kompatibilitaet: vorhandene Main Email nur waehrend einer dokumentierten Migration als Fallback; Team-Modus verlangt ein Delivery Profile.
+### P2: To-do-Migration
 
-Akzeptanz: Passwort-Reset und Team-Einladung haengen nicht von einem persoenlichen Postfach ab.
+1. Empfaenger auf `assigneeUserId ?? userId` aufloesen.
+2. Bestehendes Agent-To-do-Template ueber den Delivery-Service versenden.
+3. System-SMTP bevorzugen; persoenlichen Fallback nur bei fehlender Systemkonfiguration nutzen.
+4. Versandquelle und Fehlerzustand am To-do speichern und in der UI anzeigen.
+5. Reply-Watcher nur noch fuer personal fallback erzeugen; Systemmails verlinken in die App.
+6. Bestehende To-do-Mail-Tests auf beide Senderpfade erweitern.
 
-### P3: Outbox und Notification Preferences
+Akzeptanz:
 
-- Outbox, Idempotency, Retry und Delivery-Audit.
-- Task-Zuweisungen und Automation-Fehler migrieren.
-- Preferences pro User und Kategorie.
-- Monitoring fuer Queue-Tiefe und permanente Fehler.
+- Ein Assignee ohne persoehnliche Mailbox bekommt bei eingerichtetem System-SMTP seine Mail.
+- Ein User mit persoenlicher Main Email behaelt ohne System-SMTP das heutige Verhalten.
+- Ein defekter System-SMTP erzeugt einen klaren Fehler statt eines stillen Absenderwechsels.
 
-Akzeptanz: Ein temporaerer SMTP-Ausfall verliert keine Benachrichtigung und blockiert keine fachliche API-Anfrage.
+### P3: Auth und Team
 
-### P4: Verifizierte User-Adressen
+1. Passwort-Reset und E-Mail-Verifikation an den Delivery-Service anbinden.
+2. Team-/Workspace-Einladungen und Berechtigungshinweise als eigene Mail-Purposes einführen.
+3. Alle Auth-Antworten bleiben generisch, damit keine E-Mail-Adressen oder Accounts enumerierbar sind.
+4. Template-Sprache aus User- oder Invite-Kontext bestimmen.
 
-- Login-Adresse, Aliase und bevorzugte Notification-Adresse trennen.
-- Verify- und Change-Email-Flows anbinden.
-- Team-Einladungen an noch nicht vorhandene User robust abbilden.
+Akzeptanz:
 
-### P5: Managed Transactional Provider und Inbound Routing
+- Reset und Einladung funktionieren ohne persoenliches Mailbox-Konto des Empfaengers.
+- Systemmails kommen immer vom VM-Sender, wenn dieser konfiguriert ist.
 
-- Optionalen Managed-Systemversand ueber das Control Plane anbieten.
-- Inbound Reply Address oder Provider-Webhook statt generischem IMAP-Polling evaluieren.
-- Erst dann Managed Accounts als dauerhafte Reply-Watcher voll integrieren.
+### P4: Outbox, Retry und Notification-Praeferenzen
 
-## Bewusste Nicht-Ziele fuer die erste Version
+1. Asynchrone Outbox mit Idempotency-Key und begrenzten Retries aufbauen.
+2. Dauerhafte versus temporaere SMTP-Fehler trennen.
+3. Praeferenzen fuer To-dos, Team, Automationen und Digests einführen.
+4. Queue-Tiefe, letzte Fehler und Zustellraten fuer Admins sichtbar machen.
 
-- Kein Newsletter- oder Marketing-System.
-- Keine beliebig vielen Organization-Sender oder komplexen Routingregeln.
-- Kein Shared-Inbox-/Helpdesk-Produkt.
-- Keine automatische Freigabe persoenlicher Postfaecher fuer Organization Admins.
-- Kein stiller Provider-Fallback, der E-Mails aus einem unerwarteten Absenderkonto sendet.
+Akzeptanz:
 
-## Empfohlene Entscheidungen
+- Temporäre SMTP-Ausfaelle verlieren keine Benachrichtigung.
+- Eine Mail wird trotz Wiederholung nicht doppelt gesendet.
 
-1. Systemversand und persoenliche Postfaecher werden fachlich getrennt.
-2. V1 besitzt genau ein Organization Delivery Profile, zunaechst SMTP.
-3. Die `Standardpostfach`-Auswahl bleibt pro User und steuert Mail-App sowie Agent-Tools, nicht Passwort-Reset oder Einladungen.
-4. Mehrere User-Adressen werden erst nach dem Delivery Profile eingefuehrt.
-5. Reply-by-email bleibt optional und capability-basiert; es darf den normalen Notification-Versand nicht blockieren.
-6. Das Control Plane ist nur dann Providerpfad, wenn das konkrete Konto beziehungsweise Delivery Profile als managed aufgeloest wurde.
+### P5: Optionale Erweiterungen
+
+- Verifizierte zusaetzliche Notification-Adressen eines Users.
+- Eigener Inbound-Reply-Kanal, falls Reply-by-email fuer Systemmails gewuenscht ist.
+- Weitere Notification-Kanaele; sie verwenden dieselbe Domain-Orchestrierung, nicht dieselbe SMTP-Konfiguration.
+
+## Testplan
+
+### Unit- und Service-Tests
+
+- Systemkonfiguration: unvollstaendig, gueltig, Passwort beibehalten, keine Secret-Leaks.
+- Berechtigungen: GET/PATCH/Test als Admin erlaubt, alle Varianten als Nicht-Admin verboten.
+- SMTP: TLS/Port-Validierung, Verify, Send, permanente und temporaere Fehler.
+- Senderauflösung: System konfiguriert, System nicht konfiguriert plus persoenlicher Fallback, kein Sender, Systemfehler ohne Fallback.
+- To-dos: Owner, Assignee, fehlender Assignee, Fallback, Systemversand ohne Reply-Watcher, persoenlicher IMAP-Fallback mit Reply-Watcher.
+- Auth/Invite: generische Antworten und korrekter Mail-Purpose.
+
+### UI- und End-to-End-Pruefung
+
+- Admin sieht und speichert den System-E-Mail-Tab; Nicht-Admin sieht ihn nicht.
+- Passwort wird nach Reload nie angezeigt.
+- Testmail trifft den Test-SMTP-Adapter mit der Login-Adresse des Admins.
+- To-do fuer einen User ohne Mailbox zeigt nach Systemversand einen erfolgreichen Zustellstatus.
+- Der bestehende E-Mail-Client funktioniert unveraendert fuer persoenliche SMTP/IMAP-Konten.
+
+Vor jedem Container-Build wird `npm run build` ausgefuehrt. Container werden fuer diese Aufgabe nur auf ausdruecklichen Auftrag gebaut oder gestartet.
+
+## Bewusste Nicht-Ziele
+
+- Kein OAuth fuer den VM-Systemsender.
+- Kein IMAP, keine Inbox und kein E-Mail-Empfang fuer den VM-Systemsender.
+- Kein Newsletter-, Kampagnen- oder Helpdesk-System.
+- Keine stillen Fallbacks bei einem fehlerhaften konfigurierten Systemsender.
+- Keine Freigabe persoenlicher Postfaecher fuer Administratoren oder andere Teammitglieder.
