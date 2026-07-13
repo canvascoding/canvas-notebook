@@ -67,6 +67,8 @@ Regeln:
 
 Schreiben ist nur im `writeWorkspaceId` erlaubt. Dieser Wert ist immer der gespeicherte Workspace der Agent-Session.
 
+Fuer ein als Yjs-Collaboration-Dokument aktiviertes Markdown-/Textdokument reicht die Workspace-Berechtigung nicht aus. Jeder Agent-Write muss ueber den Collaboration-Agent-Service laufen und entweder als zielverankerte Yjs-Transaktion oder als Review-Patch enden. Ein direkter Whole-File-Write auf den materialisierten Checkpoint ist verboten.
+
 Nicht erlaubt:
 
 - Schreiben in einen anderen Workspace,
@@ -111,16 +113,34 @@ Regeln:
 - Shell bekommt keine ungefilterte Secret-Env.
 - Shell bekommt nur explizit erlaubte Env-Werte fuer den konkreten Tool-Call.
 - Shell-Ausgaben werden als untrusted behandelt und duerfen keine neuen Permissions erzeugen.
+- Agent-Shells erhalten keinen ungefilterten Read-Write-Bind-Mount auf den echten Team-Workspace, sobald Collaboration-Dateien unterstuetzt werden.
+- Benoetigte Shell-Writes laufen in einem Copy-on-Write-Overlay oder einem gleichwertigen isolierten Arbeitsbereich. Der resultierende Diff wird vor Uebernahme durch den zentralen Workspace-/Collaboration-Write-Broker geprueft.
+- Erkennt der Broker ein Collaboration-Dokument, wird ein Shell-Diff nicht direkt materialisiert, sondern in eine zielverankerte Agent-Operation beziehungsweise einen Review-Patch ueberfuehrt. Bis dieser Broker existiert, sind Shell-Writes auf Collaboration-Dokumente blockiert.
 
 Begruendung: Shell-Kommandos sind schwer granular zu begrenzen. Fuer Cross-Workspace-Reads werden dedizierte File-Tools genutzt, nicht Shell.
+
+### Collaboration-Agent-Service und Write-Broker
+
+Der Broker ist die einzige Commit-Grenze fuer Agent-, Shell-, Automation- und Integrations-Writes auf Teamdateien.
+
+Pflichtregeln:
+
+- Unmittelbar vor Apply werden User, Session, Agent, Workspace, Permission, Dokument-ID und aktuelle Collaboration-Representation revalidiert.
+- Ein expliziter Auftrag eines Users traegt duale Attribution: `actorType=agent` und `initiatedByUserId`.
+- Absatz-/Selection-Ziele verwenden Tiptap-Node-IDs und/oder Yjs Relative Positions plus Base-Target-Hash; rohe Snapshot-Offsets reichen nicht.
+- Eine nicht ueberlappende, deterministisch rebasierbare Operation darf trotz anderer aktiver User als Yjs-Transaktion angewendet werden.
+- Eine geloeschte, inkompatibel geaenderte oder mehrdeutige Zielregion fuehrt zu `needs_review` und niemals zu Whole-File-Fallback.
+- Autonome Agent-/Automation-Runs erzeugen bei aktiven Menschen standardmaessig einen Review-Patch.
+- Der serverseitige Transaction Origin enthaelt Auftraggeber, Agent, Run und Session und kann nicht vom LLM oder Client ueberschrieben werden.
+- Direkte Workspace-Dateisystem-Aenderungen ausserhalb des Brokers gelten als externe Writes und werden bei aktivem Dokument als Konflikt behandelt.
 
 ## Tool-Klassen
 
 | Tool-Klasse | Read | Write | Secret-Zugriff | Besondere Regeln |
 |---|---|---|---|---|
 | File Read | Session Workspace plus `readGrants` | nein | nein | mehrere explizite Dateien/Ordner erlaubt |
-| File Write/Edit/Delete | nur Session Workspace | nur Session Workspace | nein | vor Commit Workspace, Revision, Lock und Collaboration-State pruefen |
-| Shell/Terminal | nur Session Workspace | nur Session Workspace | nur Allowlist | keine Cross-Workspace-Reads |
+| File Write/Edit/Delete | nur Session Workspace | nur Session Workspace | nein | vor Commit Workspace, Revision, Lock und Collaboration-State pruefen; Collaboration-Dokumente nur ueber Agent-Service |
+| Shell/Terminal | nur Session Workspace | nur isoliertes Overlay mit Broker-Commit | nur Allowlist | keine Cross-Workspace-Reads; kein direkter Whole-File-Write auf Collaboration-Dokumente |
 | MCP | tool-spezifisch | tool-spezifisch | User/Org Secret-Refs | Connection ist user-scoped; jeder Call revalidiert |
 | E-Mail | eigene User-Mailbox oder erlaubte Team-Mailbox | senden nur erlaubter Account | Mail Secret-Refs | AccountId anderer User gilt als nicht vorhanden |
 | Studio | erlaubte Source Assets | Ziel nur erlaubter Workspace/Asset-Scope | Provider Secret-Refs | Save-to-Workspace braucht `targetWorkspaceId` |
@@ -171,6 +191,7 @@ Permission-Entzug:
 - Jeder neue Tool-Call muss Permission neu pruefen und bei Entzug blockieren.
 - Riskante Write-/Send-/Delete-Tools pruefen direkt vor dem finalen Commit erneut.
 - File-Write-Tools pruefen direkt vor Commit aktive Locks, aktuelle Revision und bei kollaborativen Textdateien den erlaubten Patch-/Operation-Flow.
+- Collaboration-Agent-Operationen revalidieren unmittelbar vor der Yjs-Transaktion auch `initiatedByUserId`, Agent-Run, Zielanker, Base-Target-Hash und aktuelle Write Permission; Presence allein autorisiert keinen Apply.
 
 Secret-Rotation oder Secret-Revocation:
 

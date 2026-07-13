@@ -1137,7 +1137,8 @@
         "messages/de.json",
         "messages/en.json",
         "scripts/file-live-collaboration-test.ts",
-        "scripts/file-presence-policy-test.ts"
+        "scripts/file-presence-policy-test.ts",
+        "scripts/file-agent-coauthoring-test.ts"
       ],
       "acceptanceCriteria": [
         "Markdown und reine Textdateien nutzen in berechtigten Postgres-Team-Workspaces einen echten persistierten Yjs-Dokumentzustand statt Whole-File-Autosave",
@@ -1147,13 +1148,20 @@
         "Binaerer Yjs-State roundtript exakt durch Postgres und ueberlebt Server-Neustart, Offline-Reconnect und kontrollierten Shutdown",
         "Workspace-Dateien werden als versionierte Markdown-/Text-Checkpoints materialisiert und bleiben mit Public Links, Knowledge, Backup, Export und File Watcher konsistent",
         "Whole-File-Autosave und externe setContent-Synchronisierung laufen fuer aktive Collaboration-Dokumente nicht parallel weiter",
-        "Der File Tree, die Listenansicht und die Grid-Ansicht zeigen bereits vor dem Oeffnen kleine farbige User-Marker fuer viewing und editing",
+        "Der File Tree, die Listenansicht und die Grid-Ansicht zeigen bereits vor dem Oeffnen kleine farbige User-Marker fuer viewing, editing und agent_editing",
         "Der File Explorer erhaelt Presence ueber einen workspace-weiten Snapshot plus Deltas und tritt fuer die Anzeige nicht selbst dem Dokument-Room bei",
         "Bis zu drei User werden mit stabilen Farben/Initialen oder Avatar angezeigt; weitere User erscheinen als +N und ein Tooltip nennt Anzeigename und Aktivitaet",
         "Farbe ist nicht der einzige Informationstraeger; Presence ist in Light/Dark Mode, per Tastatur und fuer Screenreader zugaenglich",
         "Mehrere Tabs desselben Users werden dedupliziert; Disconnect, Browser-Crash, TTL, Rename und Workspace-Wechsel aktualisieren Presence ohne stale Doppelanzeige",
         "Presence wird nur an berechtigte Workspace-Mitglieder ausgeliefert, bleibt fluechtig und wird nicht als Mitarbeiteraktivitaets-Historie gespeichert",
+        "Ein explizit von User B beauftragter Agent kann waehrend manueller Arbeit von User A einen stabil verankerten, nicht ueberlappenden Absatz als atomare Yjs-Transaktion aendern; beide Clients konvergieren",
+        "Agent-Presence, Editor-UI, Transaction Origin und Audit zeigen actorType=agent plus initiatedByUserId als KI-Agent im Auftrag von User B und geben die Aenderung nicht als manuelles Tippen von B aus",
+        "Tiptap-Node-IDs beziehungsweise Yjs Relative Positions, Base-State-Vector und Base-Target-Hash schuetzen Absatz-/Selection-Ziele gegen verschobene Snapshot-Offsets",
+        "Inkompatible parallele Aenderungen desselben Zielabschnitts werden nicht erraten oder ueberschrieben, sondern wechseln fuer den Auftraggeber auf needs_review",
+        "Autonome Agent-/Automation-Runs verwenden bei aktiven Menschen standardmaessig Review-Patches; explizite User-Auftraege duerfen nur nach serverseitiger Permission-, Target-, Overlap- und Rebase-Pruefung direkt angewendet werden",
         "Agenten und Automations koennen aktive menschliche Bearbeitung nicht per Whole-File-Write ueberschreiben und verwenden Yjs Direct Connection oder Review-Patches",
+        "File-Tools, Agent-Shells, Automations und Integrationen koennen den Collaboration-Agent-Service nicht umgehen; Shell-Writes laufen ueber isoliertes Overlay und Broker-Commit",
+        "Agent-Transaktionen landen nicht in fremden lokalen Undo-Stacks; eine dedizierte Revert-Aktion prueft den aktuellen Yjs-State und wechselt bei Ueberlappung auf Review",
         "Rename und Move behalten die Collaboration-Dokument-ID; Copy forkt einen neuen State; Delete und Restore flushen beziehungsweise reaktivieren konsistent",
         "Bei Collaboration-Ausfall faellt ein aktives Yjs-Dokument nicht still auf Whole-File-Autosave zurueck, sondern zeigt offline, reconnecting, read-only oder degraded",
         "Produktstatus enabled setzt Postgres, aktuelle Migrationen, WebSocket-Health, Persistence-Health, Team-Capability und Organization-Gate voraus"
@@ -1161,6 +1169,10 @@
       "verification": [
         "tsx --conditions react-server scripts/file-live-collaboration-test.ts",
         "tsx --conditions react-server scripts/file-presence-policy-test.ts",
+        "tsx --conditions react-server scripts/file-agent-coauthoring-test.ts",
+        "Multi-Actor-Test: User A tippt, waehrend Agent im Auftrag von User B einen anderen Absatz direkt anwendet; Attribution und State konvergieren",
+        "Overlap-Test: User A und Agent B aendern denselben Zielabschnitt inkompatibel; Agent-Run endet in needs_review ohne verlorene User-Aenderung",
+        "Bypass-Test: File-Tool, Shell, Automation und Integration koennen aktive Collaboration-Dateien nicht direkt als Whole File ueberschreiben",
         "npm run test:files:collaboration",
         "npm run test:editor:markdown",
         "npm run test:websocket:origin",

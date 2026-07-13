@@ -242,8 +242,8 @@ Diese Phase beginnt erst, wenn P7 abgeschlossen ist. Ihre interne Reihenfolge is
 3. Tiptap-`Y.XmlFragment`- und CodeMirror-`Y.Text`-Bindings; Whole-File-Autosave im Collaboration-Modus entfernen.
 4. Materialisierte `.md`-/`.txt`-Checkpoints mit Revision, Audit, File Watcher, Public Links, Knowledge und Backup integrieren.
 5. Workspace Presence Registry, Initial-Snapshot und Presence-Deltas fuer File Tree, List und Grid umsetzen.
-6. Farbige User-Marker mit `viewing`/`editing`, Tooltip, `+N`, Light/Dark Mode und Accessibility integrieren.
-7. Agent-/Automation-Direct-Connection und Review-Patch-Flow bauen.
+6. Farbige User-Marker mit `viewing`/`editing`/`agent_editing`, dualer Agent-Attribution, Tooltip, `+N`, Light/Dark Mode und Accessibility integrieren.
+7. Agent-/Automation-Direct-Connection, stabile Zielanker, Overlap-/Rebase-Gate, duale Attribution und Review-Patch-Flow bauen.
 8. Offline/Reconnect, grosse Dokumente, Lifecycle, Observability und Preview-Rollout hardenen.
 
 File-Tree-Invariante:
@@ -261,7 +261,9 @@ Tests:
 - Checkpoint-/Markdown-Roundtrip- und File-Watcher-Loop-Tests.
 - Presence-Snapshot-/Delta-, Deduplizierungs-, Disconnect-/TTL-, Rename- und Workspace-Wechsel-Tests.
 - File Tree zeigt User B bei User A vor dem Oeffnen, ohne User A dem Dokument-Room hinzuzufuegen.
-- Agent Write wird bei aktiver menschlicher Bearbeitung blockiert oder als Review-Patch bereitgestellt.
+- User A tippt manuell, waehrend ein explizit von User B beauftragter Agent einen anderen Absatz als zielverankerte Yjs-Transaktion aendert; beide Clients konvergieren und zeigen `Agent im Auftrag von User B`.
+- Gleichzeitige inkompatible Aenderungen desselben Zielabschnitts wechseln auf `needs_review`; autonome Agent-Runs erhalten bei aktiven Menschen standardmaessig einen Review-Patch.
+- Shell- und generische File-Write-Pfade koennen den Collaboration-Agent-Service nicht per Whole-File-Write umgehen.
 - `npm run build`.
 - Sichtbare UI-/E2E-Pruefung erst nach expliziter Freigabe.
 

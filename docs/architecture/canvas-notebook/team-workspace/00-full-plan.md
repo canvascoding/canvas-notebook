@@ -524,9 +524,10 @@ Datenbank-Folge:
 - Redis ist fuer V1 keine Pflicht. Leichte Events koennen zunaechst ueber App-WebSockets und Postgres-Tabellen/Notifications geplant werden; Multi-Node oder hohe Eventlast wird spaeter separat entschieden.
 - Ein aktives Yjs-Dokument ist waehrend der Collaboration die schreibbare Wahrheit; die `.md`-/`.txt`-Datei wird als versionierter Checkpoint fuer Download, Public Links, Agent-Reader, Knowledge, Backup und Export materialisiert.
 - Der bestehende Whole-File-Autosave darf fuer verbundene Collaboration-Dokumente nicht parallel weiterlaufen.
-- Workspace-weite Presence zeigt im File Tree bereits vor dem Oeffnen farbige Nutzerhinweise fuer `viewing` und `editing`. Der File Explorer nutzt dafuer einen Presence-Snapshot und kleine Deltas, ohne selbst dem Dokument-Room beizutreten.
+- Workspace-weite Presence zeigt im File Tree bereits vor dem Oeffnen farbige Nutzerhinweise fuer `viewing`, `editing` und `agent_editing`. Agent-Aktivitaet wird als `KI-Agent im Auftrag von <User>` dual attribuiert. Der File Explorer nutzt dafuer einen Presence-Snapshot und kleine Deltas, ohne selbst dem Dokument-Room beizutreten.
 - Die eigentliche Yjs-/Hocuspocus-Verbindung wird erst beim Oeffnen des Dokuments aufgebaut.
-- Agenten und Automations schreiben aktive Collaboration-Dokumente nur ueber serverseitige Yjs-Transaktionen oder Review-Patches, niemals ueber stilles Whole-File-Overwrite.
+- Ein explizit von User B beauftragter Agent darf waehrend paralleler manueller Arbeit von User A einen stabil verankerten, nicht ueberlappenden Absatz ueber eine serverseitige Yjs-Transaktion aendern. UI, Presence und Audit zeigen dabei `Agent im Auftrag von User B`.
+- Mehrdeutige oder semantisch ueberlappende Zielaenderungen wechseln auf Review; Agenten und Automations verwenden niemals stilles Whole-File-Overwrite.
 
 Die Detailpolicy steht in `18-collaboration-and-file-conflict-policy.md`.
 

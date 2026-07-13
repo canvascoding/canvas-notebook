@@ -24,7 +24,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `15-export-import-backup-restore-policy.md`: Personal/Admin Export, Import-Mapping, Public-Link-Ausschluss, Full Backup, Restore und Verschluesselungsgrenzen.
 - `16-offboarding-and-recovery-policy.md`: User-Archivierung, Offboarding-Preflight, Credential-Revocation, Automation-/To-do-Review und Personal-Workspace-Recovery.
 - `17-database-provider-postgres-rag-collaboration-policy.md`: SQLite/Postgres-Entscheidung, pgvector, RAG-/Collaboration-Gates, Installer, Control Plane Provisioning, DB-Migration und DB-aware Backup.
-- `18-collaboration-and-file-conflict-policy.md`: vollstaendiger Ziel- und Ausfuehrungsplan fuer Yjs/Tiptap/CodeMirror/Hocuspocus, Postgres-Persistenz, Workspace-weite File-Tree-Presence vor dem Oeffnen, Checkpoints, Agent-Patches sowie Locks/Revisionen fuer Office/PDF/Assets.
+- `18-collaboration-and-file-conflict-policy.md`: vollstaendiger Ziel- und Ausfuehrungsplan fuer Yjs/Tiptap/CodeMirror/Hocuspocus, Postgres-Persistenz, Workspace-weite File-Tree-Presence vor dem Oeffnen, paralleles User-/Agent-Co-Authoring mit dualer Attribution, Checkpoints sowie Locks/Revisionen fuer Office/PDF/Assets.
 - `19-agent-skill-creation-install-policy.md`: dedizierter Agent-Flow fuer validierte Skill-Erstellung und Installation ohne generische `/data/users/{userId}/skills`-Writes.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 

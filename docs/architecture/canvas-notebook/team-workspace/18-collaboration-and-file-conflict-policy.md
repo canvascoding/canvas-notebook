@@ -119,6 +119,7 @@ Technische Grundlage:
 - Yjs als CRDT.
 - `@tiptap/extension-collaboration` fuer strukturierte Markdown-Dokumente.
 - `@tiptap/extension-collaboration-caret` fuer Remote-Cursor und Selections.
+- `@tiptap/extension-unique-id` fuer stabile Absatz-/Block-IDs, insbesondere als Zielanker fuer Agent-Operationen.
 - eine Yjs-Bindung fuer den vorhandenen CodeMirror-6-Editor bei `Y.Text`.
 - Hocuspocus als selbst gehostetes Yjs-WebSocket-Backend.
 - Hocuspocus Database Extension oder eine gleichwertige eigene Persistence Extension fuer Postgres.
@@ -134,6 +135,7 @@ Vor Phase 2 werden die konkreten Paketversionen noch einmal gegen den Lockfile-S
 
 - alle `@hocuspocus/*` Pakete verwenden denselben Major,
 - `@tiptap/extension-collaboration` und `@tiptap/extension-collaboration-caret` folgen der vorhandenen Tiptap-v3-Linie,
+- `@tiptap/extension-unique-id` folgt derselben Tiptap-v3-Linie; der Editor wird erst nach Provider-Sync gemountet, damit die ID-Erweiterung keinen leeren Anfangszustand persistiert,
 - genau eine kompatible Yjs-Version wird im Client- und Server-Bundle aufgeloest,
 - die CodeMirror-6-Bindung wird mit dem vorhandenen `@uiw/react-codemirror`-Wrapper in einem kleinen Spike getestet,
 - Upgrade-Router, Provider und Server bestehen vor Editor-Integration einen Protokoll-/Reconnect-Smoke-Test.
@@ -145,6 +147,7 @@ Verbindliche Herstellerhinweise:
 - `beforeHandleAwareness` und `onAwarenessUpdate` sind die vorgesehenen Hooks zum Validieren und Aggregieren fluechtiger Presence.
 - `openDirectConnection` ist der vorgesehene serverseitige Pfad fuer Agent-/Automation-Transaktionen, die weiterhin Hooks, Synchronisation und Persistenz ausloesen sollen.
 - Tiptap Collaboration verwendet eigene History; normales StarterKit Undo/Redo wird im Collaboration-Modus deaktiviert.
+- Yjs Relative Positions werden fuer verschiebungsstabile Text-/Selection-Anker verwendet; normale Integer-Offsets sind bei parallelen Edits nicht stabil.
 
 ## Dokumentidentitaet
 
@@ -270,12 +273,15 @@ Der File Tree und alle File-Explorer-Darstellungen zeigen bereits vor dem Oeffne
 
 ### Presence-Zustaende
 
-Pro User und Dokument werden zwei sichtbare Zustaende unterschieden:
+Pro User und Dokument werden menschliche Aktivitaet und beauftragte Agent-Aktivitaet getrennt modelliert:
 
-- `editing`: Editor fokussiert oder kuerzlich eine lokale Aenderung erzeugt.
-- `viewing`: Dokument-Room verbunden, aber aktuell nicht aktiv schreibend.
+- `editing`: User hat den Editor fokussiert oder kuerzlich eine lokale Aenderung erzeugt.
+- `viewing`: User ist mit dem Dokument-Room verbunden, aber aktuell nicht aktiv schreibend.
+- `agent_editing`: Ein serverseitig verifizierter Agent-Run bearbeitet das Dokument im Auftrag dieses Users.
 
-Ein User mit mehreren Tabs erscheint nur einmal. Der Server fuehrt intern die Connection-Anzahl, damit der User erst nach dem letzten Tab verschwindet.
+`agent_editing` darf einen User nicht als manuell tippend ausgeben. Die UI zeigt deshalb immer die duale Attribution, zum Beispiel `KI-Agent im Auftrag von Mia Schmidt`. Ist Mia gleichzeitig als User verbunden, erscheint sie nur einmal und ihr Marker erhaelt ein zusaetzliches KI-Badge. Ist sie nicht im Dokument-Room, darf die laufende Agent-Aktivitaet trotzdem als kurzlebiger, serverseitig erzeugter Presence-Eintrag sichtbar sein.
+
+Ein User mit mehreren Tabs erscheint nur einmal. Der Server fuehrt intern die Connection-Anzahl, damit der menschliche User erst nach dem letzten Tab verschwindet; ein laufender Agent-Run hat einen eigenen Lifecycle und TTL.
 
 ### Server Presence Registry
 
@@ -289,8 +295,13 @@ userId
 displayName
 avatarRef?
 colorToken
-activity: viewing | editing
+humanActivity: viewing | editing | none
 connectionCount
+agentActivity?:
+  agentId
+  agentRunId
+  phase: preparing | applying
+  startedAt
 lastSeenAt
 ```
 
@@ -302,6 +313,8 @@ Regeln:
 - Rename/Move aktualisiert den aufgeloesten Pfad, ohne Presence zu verlieren.
 - Nur berechtigte Workspace-Mitglieder erhalten Presence fuer sichtbare Dateien.
 - E-Mail-Adressen, Tokens, Session-IDs und Dokumentinhalte werden nicht an andere Clients verteilt.
+- Agent-Presence wird ausschliesslich serverseitig aus einem autorisierten Agent-Run erzeugt und kann nicht durch Client-Awareness vorgetaeuscht werden.
+- Agent-Presence endet bei Apply, Review-Uebergabe, Abbruch oder Fehler und wird bei verlorenen Runs per TTL entfernt.
 
 ### File-Tree-Datenfluss
 
@@ -323,6 +336,7 @@ Jede aktive Datei kann rechts am Dateinamen eine kompakte Presence-Gruppe zeigen
 - voller Name und Aktivitaet im Tooltip/Popover,
 - solide farbige Markierung fuer `editing`,
 - dezentere oder umrandete Markierung fuer `viewing`,
+- KI-Badge oder Sparkle am User-Marker fuer `agent_editing`,
 - eigener Nutzer optional mit zusaetzlichem Ring, aber nicht doppelt,
 - Lock-Symbol separat von Presence, damit Lock und Live-Collaboration nicht verwechselt werden.
 
@@ -347,6 +361,7 @@ Der Tooltip kann beispielsweise anzeigen:
 ```txt
 Frank Weber - bearbeitet gerade
 Mia Schmidt - sieht die Datei an
+KI-Agent im Auftrag von Alex Kim - ueberarbeitet einen Abschnitt
 2 weitere Personen
 ```
 
@@ -356,6 +371,7 @@ Nach dem Oeffnen zeigt der Editor Header:
 
 - aktive Nutzer mit denselben Farben wie im File Tree,
 - Remote-Cursor und Selections,
+- laufende Agent-Aktivitaet mit `Agent im Auftrag von <User>`, Zielabschnitt und Status `preparing | applying`; eine getrennte Review-Karte zeigt anschliessend gegebenenfalls `needs_review`,
 - Connection State: `connecting | synced | reconnecting | offline | denied`,
 - Persistence State: `pending | checkpointing | saved | error`,
 - Workspace und letzte materialisierte Revision,
@@ -389,20 +405,67 @@ Word/Excel/PowerPoint:
 
 ## Agenten, Automations und aktive Bearbeitung
 
-Agenten sind eigene Actors, duerfen aber keine User-Arbeit verlieren lassen.
+Agenten sind eigene Actors, duerfen aber keine User-Arbeit verlieren lassen. Ein von einem User explizit beauftragter Agent ist ein kollaborativer Co-Autor mit dualer Attribution: technisch handelt `actorType=agent`, fachlich `initiatedByUserId=<auftraggebender User>`. Der Agent darf niemals so protokolliert oder dargestellt werden, als haette der User die Zeichen selbst getippt.
 
 Regeln:
 
 - Agent-Dateioperationen pruefen aktuelle Revision, Lock, Collaboration-Dokument und Presence.
 - Lockpflichtige Dateien blockieren Agent Writes bei fremdem aktivem Lock.
 - Aktive CRDT-Textdokumente duerfen nicht ueber `fs.writeFile()` oder den normalen Whole-File-Save ueberschrieben werden.
-- Ohne aktive menschliche Bearbeitung darf ein Agent ueber eine serverseitige Hocuspocus-/Yjs-Direct-Connection eine nachvollziehbare Transaktion anwenden.
-- Bei aktiven Menschen erzeugt der Agent standardmaessig einen Review-Patch mit Diff, Annahme und Ablehnung.
-- Ein explizit vom User angeforderter Agent-Apply muss trotzdem gegen den aktuellen Yjs-State laufen; eine alte File Revision reicht nicht.
+- Explizit von einem schreibberechtigten User angeforderte, zielgenau verankerte Agent-Aenderungen duerfen auch bei weiteren aktiven Menschen ueber eine serverseitige Hocuspocus-/Yjs-Direct-Connection angewendet werden.
+- Presence ist dabei nur UX-Signal und niemals Lock oder alleinige Sicherheitsentscheidung. Die Apply-Entscheidung wird unmittelbar gegen den aktuellen Yjs-State getroffen.
+- Autonome, zeitgesteuerte oder nicht eindeutig auf einen User-Auftrag zurueckfuehrbare Aenderungen werden bei aktiven Menschen als Review-Patch bereitgestellt.
+- Wenn Zielanker fehlen, der Zielabschnitt geloescht wurde oder seit Agent-Start semantisch ueberlappend geaendert wurde, wechselt der Run auf `needs_review`; der Agent darf den aktuellen Inhalt nicht erraten oder per Whole-File-Merge ersetzen.
 - Bis Direct-Connection und Review-Patch existieren, werden Agent Writes an aktiv geoeffneten CRDT-Dateien blockiert.
-- Jede angewendete Agent-Aenderung speichert `userId`, `sessionId`, `agentId`, `workspaceId`, Dokument-ID, vorherigen/nachfolgenden State Vector und Checkpoint-Revision.
+- Jede angewendete Agent-Aenderung speichert `initiatedByUserId`, `sessionId`, `agentId`, `agentRunId`, `workspaceId`, Dokument-ID, Zielanker, vorherigen/nachfolgenden State Vector und Checkpoint-Revision.
+- Agent-Transaktionen werden nicht in die lokalen Undo-Stacks anderer User aufgenommen. Der Auftraggeber erhaelt eine eigene Aktion `Agent-Aenderung rueckgaengig machen`, die erneut serverseitig gegen den aktuellen State prueft und bei Ueberlappung einen Review-Diff oeffnet.
 
 Dieselben Regeln gelten fuer Automations und serverseitige Integrationen. Sie erhalten eigene Actor-/Origin-Metadaten.
+
+### Kritischer Co-Authoring-Flow: User A, User B und Agent B
+
+Verbindliches Szenario:
+
+1. User A und User B arbeiten im selben Yjs-Dokument.
+2. User A tippt manuell an einer Stelle. User B markiert einen bestimmten Absatz oder referenziert ihn eindeutig und beauftragt seinen Agenten mit einer Ueberarbeitung.
+3. Der Server erfasst fuer den Agent-Run den aktuellen State Vector, stabile Zielanker und einen Hash des gelesenen Zielinhalts. Reine Zeilen-/Zeichenoffsets aus einem Markdown-Snapshot sind nicht zulaessig.
+4. Fuer strukturiertes Markdown verwenden Zielanker persistente Tiptap-Node-IDs und/oder Yjs Relative Positions. Fuer `Y.Text` werden Yjs Relative Positions fuer Start und Ende verwendet.
+5. Solange der Agent arbeitet, sehen A und B `KI-Agent im Auftrag von User B` am Dokument und am betroffenen Abschnitt. Diese Anzeige stammt aus serverseitiger Agent-Presence, nicht aus frei gesetzter Client-Awareness.
+6. Direkt vor Apply prueft der Server erneut Membership, Write Permission, Agent-Run, Dokument-ID, Representation, aktuellen State Vector, Zielanker und Zielinhalt.
+7. Hat A ausserhalb des Zielabschnitts gearbeitet oder kann der Agent-Patch deterministisch auf den aktuellen Zielabschnitt rebased werden, wird er als eine atomare Yjs-Transaktion mit Agent-Origin angewendet und sofort an A und B synchronisiert.
+8. Hat A denselben Zielabschnitt inkompatibel geaendert, wurde der Absatz geloescht oder ist der Rebase mehrdeutig, wird nichts direkt geschrieben. User B erhaelt einen Review-Patch gegen den aktuellen Inhalt.
+9. Nach erfolgreichem Apply werden Agent-Operation, duale Attribution, State-Vectors, Zielhash und spaetere Checkpoint-Revision auditiert. Agent-Presence wird beendet.
+
+Yjs garantiert dabei die technische Konvergenz gleichzeitiger Operationen, aber nicht automatisch die semantische Qualitaet zweier widerspruechlicher Absatz-Ueberarbeitungen. Deshalb ist die Ueberlappungs-/Rebase-Pruefung ein Pflicht-Gate und kein optionales UI-Feature.
+
+### Struktur einer Agent-Operation
+
+Der Agent liefert keine komplette neue Markdown-Datei, sondern eine begrenzte Operation:
+
+```txt
+agentRunId
+initiatedByUserId
+agentId
+sessionId
+collaborationDocumentId
+baseStateVector
+targetAnchors[]
+baseTargetHash
+operations[]
+requestedMode: direct_apply | review
+```
+
+Der Server setzt fuer die Yjs-Transaktion einen nicht vom Client kontrollierbaren Origin:
+
+```txt
+source: agent
+initiatedByUserId
+agentId
+agentRunId
+sessionId
+```
+
+Operationen ausserhalb der autorisierten Zielanker werden abgelehnt. `requestedMode=direct_apply` ist nur eine Anfrage; die finale Entscheidung trifft der Server nach Revalidierung und Overlap-Pruefung.
 
 ## Externe Dateiaenderungen und Konflikte
 
@@ -483,10 +546,16 @@ collaboration_documents
 collaboration_events
 - id
 - documentId
-- actorUserId?
+- initiatedByUserId?
 - actorSessionId?
-- actorType
+- actorType: user | agent | automation | system
+- agentId?
+- agentRunId?
+- transactionOrigin
 - sequence
+- baseStateVectorHash?
+- resultingStateVectorHash?
+- targetAnchorHash?
 - payloadRef?
 - payloadHash?
 - expiresAt?
@@ -495,12 +564,15 @@ collaboration_events
 
 Presence bleibt fluechtig und ist keine Pflicht-Datenbanktabelle.
 
+Fuer laenger laufende oder reviewpflichtige Agent-Aenderungen wird zusaetzlich eine kleine `collaboration_agent_operations`-Entitaet geplant. Sie speichert Status, duale Attribution, Dokument, Target-/State-Hashes und Checkpoint-Referenz; vorgeschlagener Text beziehungsweise Raw-Operations liegen nur kurzlebig ueber `payloadRef` vor und folgen der Content-Retention.
+
 ## API- und Event-Vertraege
 
 Geplante APIs:
 
 - `POST /api/files/collaboration/session`: prueft Gate, initialisiert Dokument und liefert Ticket/Room-Konfiguration.
 - `POST /api/files/collaboration/checkpoint`: nur interner oder kontrollierter Flush; kein frei vertrauenswuerdiger Client-Overwrite.
+- interner Collaboration-Agent-Service: erstellt zielverankerte Agent-Operationen, revalidiert sie und wendet sie ueber Hocuspocus Direct Connection an oder erzeugt einen Review-Patch.
 - `GET /api/files/presence`: permission-gepruefter Initial-Snapshot fuer sichtbare Workspace-Dateien.
 - bestehende Lock-API bleibt fuer lockpflichtige Dateien.
 - bestehende Read-API liefert Collaboration-Capability, Dokument-ID, Representation und Health, aber keinen geheimen Ticketwert.
@@ -514,6 +586,10 @@ collaboration_checkpoint
 collaboration_conflict
 collaboration_document_moved
 collaboration_document_archived
+collaboration_agent_started
+collaboration_agent_applied
+collaboration_agent_needs_review
+collaboration_agent_finished
 ```
 
 Alle Events tragen mindestens `workspaceId`, Dokument-ID beziehungsweise Pfad, Zeit und eine monotone oder vergleichbare Version. Clients ignorieren Events aus einem nicht mehr aktiven Workspace.
@@ -610,6 +686,7 @@ Abnahme:
 ### Phase 4: Editor-Bindings
 
 - Tiptap Collaboration und Caret fuer `Y.XmlFragment` integrieren.
+- UniqueID fuer freigegebene Blocktypen konfigurieren und den Editor erst nach Provider-Sync mounten.
 - StarterKit Undo/Redo im Collaboration-Modus deaktivieren und Yjs History verwenden.
 - CodeMirror an `Y.Text` binden.
 - Whole-File-Autosave und externe `setContent`-Synchronisierung im Collaboration-Modus abschalten.
@@ -640,7 +717,7 @@ Abnahme:
 - initiale Presence-API und Workspace-Deltas anbinden.
 - File Store um separaten Presence-State erweitern.
 - Tree-, List- und Grid-Ansicht mit farbigen User-Hinweisen ausstatten.
-- Tooltips, `+N`, viewing/editing, Dark Mode und Accessibility umsetzen.
+- Tooltips, `+N`, viewing/editing/agent_editing, duale Agent-Attribution, Dark Mode und Accessibility umsetzen.
 - Rename, Workspace-Wechsel, Disconnect und TTL behandeln.
 
 Abnahme:
@@ -649,19 +726,25 @@ Abnahme:
 - A tritt durch die reine File-Tree-Anzeige nicht dem Dokument-Room bei.
 - Tree Presence verschwindet nach dem letzten Disconnect oder TTL.
 - mehrere Tabs desselben Users erzeugen nur einen sichtbaren Nutzer.
+- ein laufender Agent-Run erscheint mit KI-Badge am Auftraggeber, auch wenn dieser nicht im Dokument-Room ist, und verschwindet nach Apply, Review-Uebergabe, Abbruch, Fehler oder TTL.
 - User sehen keine Presence aus unberechtigten Workspaces oder Dateien.
 
 ### Phase 7: Agent-/Automation-Patch-Flow
 
 - direkte Whole-File-Writes an aktive Collaboration-Dokumente blockieren.
-- serverseitige Yjs Direct Connection fuer sichere, inaktive Dokumente bauen.
-- Review-Patch mit Diff, Accept/Reject und aktuellem State Vector bauen.
-- Agent-Origin und Checkpoint-Revision auditieren.
+- serverseitige Yjs Direct Connection fuer explizit beauftragte, zielverankerte Agent-Operationen bauen.
+- Tiptap-Node-IDs/Yjs Relative Positions, Base-Target-Hash und Overlap-/Rebase-Pruefung implementieren.
+- duale Attribution `Agent im Auftrag von User`, Agent-Presence und serverseitig gestempelten Transaction Origin umsetzen.
+- Review-Patch mit Diff, Accept/Reject und aktuellem State Vector fuer mehrdeutige oder autonome Aenderungen bauen.
+- separates Rueckgaengigmachen von Agent-Aenderungen und Ausschluss aus fremden lokalen Undo-Stacks umsetzen.
+- Agent-Origin, Auftraggeber, Zielanker, State-Vectors und Checkpoint-Revision auditieren.
 
 Abnahme:
 
 - Agent kann aktive menschliche Edits nicht ueberschreiben.
-- angenommene Patches erscheinen live bei allen Clients.
+- User A kann manuell tippen, waehrend ein von User B beauftragter Agent einen anderen Absatz als Yjs-Transaktion aendert; beide Clients konvergieren und zeigen die korrekte duale Attribution.
+- gleichzeitige inkompatible Aenderungen desselben Zielabschnitts wechseln fuer User B auf `needs_review`, ohne Aenderungen von User A zu verlieren.
+- direkt angewendete und angenommene Agent-Patches erscheinen live bei allen Clients.
 - abgelehnte Patches aendern weder Yjs-State noch Workspace-Datei.
 
 ### Phase 8: Hardening und Rollout
@@ -704,6 +787,7 @@ Abnahme:
 - Presence ist vor dem Oeffnen der Datei sichtbar,
 - Tree-Abonnent ist nicht als Dokument-Viewer sichtbar,
 - `editing` und `viewing` werden unterscheidbar dargestellt,
+- `agent_editing` zeigt `KI-Agent im Auftrag von <User>` und kann nicht durch Client-Awareness vorgetaeuscht werden,
 - farbige Marker stimmen zwischen File Tree und Editor ueberein,
 - drei Nutzer plus Overflow zeigen `+N`,
 - Tooltip nennt erlaubte Anzeigenamen und Aktivitaet,
@@ -718,7 +802,13 @@ Abnahme:
 
 - Agent Whole-File-Write wird bei aktivem Collaboration-Dokument blockiert,
 - serverseitige Agent-Yjs-Transaktion konvergiert bei leerem Room,
-- aktive Menschen erhalten Review-Patch statt silent write,
+- User A tippt, waehrend der von User B beauftragte Agent einen nicht ueberlappenden Absatz live aendert; beide Clients konvergieren,
+- Transaktion, UI und Audit zeigen `Agent im Auftrag von User B`, nicht eine manuelle Aenderung von B,
+- Agent-Zielanker bleiben bei parallelen Einfuegungen vor dem Absatz stabil,
+- parallele inkompatible Aenderung desselben Absatzes erzeugt `needs_review` statt Direkt-Apply,
+- autonome Agent-Runs erhalten bei aktiven Menschen einen Review-Patch statt silent write,
+- fremde lokale Undo-Stacks nehmen die Agent-Transaktion nicht auf; die dedizierte Revert-Aktion prueft den aktuellen State,
+- Shell-, File-Tool-, Automation- und Integrationspfade koennen den Collaboration-Agent-Service nicht per Whole-File-Write umgehen,
 - externe Datei-Aenderung bei aktivem Room erzeugt Konfliktstatus,
 - Force-Overwrite braucht Admin, Audit und trennt Clients kontrolliert.
 
@@ -752,5 +842,7 @@ UI- und End-to-End-Pruefungen werden gemaess Repository-Regeln erst nach explizi
 - [Hocuspocus: Generic Database Extension](https://tiptap.dev/docs/hocuspocus/server/extensions/database)
 - [Hocuspocus: v4 Upgrade und Node.js-Anforderung](https://tiptap.dev/docs/hocuspocus/getting-started/upgrade)
 - [Tiptap: Collaboration Caret](https://tiptap.dev/docs/editor/extensions/functionality/collaboration-caret)
+- [Tiptap: UniqueID und Verwendung mit Collaboration](https://tiptap.dev/docs/editor/extensions/functionality/uniqueid)
 - [Yjs: Shared Types](https://docs.yjs.dev/getting-started/working-with-shared-types)
+- [Yjs: Relative Positions](https://docs.yjs.dev/api/relative-positions)
 - [Yjs: CodeMirror-6-Binding](https://github.com/yjs/y-codemirror.next)
