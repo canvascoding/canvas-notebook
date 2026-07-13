@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.13.11] - 2026-07-13
+
+### Added
+
+- Added editable agent profiles and workspace icons with workspace creation and editing flows.
+- Added safe ZIP extraction for workspace files, including path validation and focused extraction tests.
+
+### Changed
+
+- Expanded workspace access management, workspace switching, file previews, and agent selection flows.
+- Improved workspace persistence and database-provider handling across SQLite and Postgres, with updated English and German translations.
+
+### Fixed
+
+- Fixed workspace API validation, workspace member handling, file operation behavior, and related UI state synchronization.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.13.10] - 2026-07-13
 
 ### Added
