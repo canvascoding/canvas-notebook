@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.13.7] - 2026-07-13
+## [2026.7.13.8] - 2026-07-13
 
 ### Added
 
@@ -30,6 +30,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Fixed mobile agent template picking, public short-link previews, Marp preview themes, managed-mode email routing, and rapid editor autosaves.
 - Fixed trash-delete result propagation and workspace-switcher fixture behavior.
+- Declared `react-is` as an explicit production dependency so clean container installs resolve Recharts' peer import.
 
 ### Verification
 
