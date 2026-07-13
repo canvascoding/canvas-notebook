@@ -371,7 +371,7 @@ Nach dem Oeffnen zeigt der Editor Header:
 
 - aktive Nutzer mit denselben Farben wie im File Tree,
 - Remote-Cursor und Selections,
-- laufende Agent-Aktivitaet mit `Agent im Auftrag von <User>`, Zielabschnitt und Status `preparing | applying`; eine getrennte Review-Karte zeigt anschliessend gegebenenfalls `needs_review`,
+- laufende Agent-Aktivitaet mit `Agent im Auftrag von <User>`, Anzahl und Hervorhebung der Zielabschnitte sowie Status `preparing | applying`; eine getrennte Review-Karte zeigt anschliessend gegebenenfalls `needs_review`, `partially_applied` oder `semantic_conflict`,
 - Connection State: `connecting | synced | reconnecting | offline | denied`,
 - Persistence State: `pending | checkpointing | saved | error`,
 - Workspace und letzte materialisierte Revision,
@@ -415,7 +415,7 @@ Regeln:
 - Explizit von einem schreibberechtigten User angeforderte, zielgenau verankerte Agent-Aenderungen duerfen auch bei weiteren aktiven Menschen ueber eine serverseitige Hocuspocus-/Yjs-Direct-Connection angewendet werden.
 - Presence ist dabei nur UX-Signal und niemals Lock oder alleinige Sicherheitsentscheidung. Die Apply-Entscheidung wird unmittelbar gegen den aktuellen Yjs-State getroffen.
 - Autonome, zeitgesteuerte oder nicht eindeutig auf einen User-Auftrag zurueckfuehrbare Aenderungen werden bei aktiven Menschen als Review-Patch bereitgestellt.
-- Wenn Zielanker fehlen, der Zielabschnitt geloescht wurde oder seit Agent-Start semantisch ueberlappend geaendert wurde, wechselt der Run auf `needs_review`; der Agent darf den aktuellen Inhalt nicht erraten oder per Whole-File-Merge ersetzen.
+- Wenn Zielanker fehlen, ein Zielabschnitt geloescht wurde oder seit Agent-Start semantisch ueberlappend geaendert wurde, wechselt die betroffene atomare Operationsgruppe auf `needs_review`; der Agent darf den aktuellen Inhalt nicht erraten oder per Whole-File-Merge ersetzen.
 - Bis Direct-Connection und Review-Patch existieren, werden Agent Writes an aktiv geoeffneten CRDT-Dateien blockiert.
 - Jede angewendete Agent-Aenderung speichert `initiatedByUserId`, `sessionId`, `agentId`, `agentRunId`, `workspaceId`, Dokument-ID, Zielanker, vorherigen/nachfolgenden State Vector und Checkpoint-Revision.
 - Agent-Transaktionen werden nicht in die lokalen Undo-Stacks anderer User aufgenommen. Der Auftraggeber erhaelt eine eigene Aktion `Agent-Aenderung rueckgaengig machen`, die erneut serverseitig gegen den aktuellen State prueft und bei Ueberlappung einen Review-Diff oeffnet.
@@ -428,10 +428,10 @@ Verbindliches Szenario:
 
 1. User A und User B arbeiten im selben Yjs-Dokument.
 2. User A tippt manuell an einer Stelle. User B markiert einen bestimmten Absatz oder referenziert ihn eindeutig und beauftragt seinen Agenten mit einer Ueberarbeitung.
-3. Der Server erfasst fuer den Agent-Run den aktuellen State Vector, stabile Zielanker und einen Hash des gelesenen Zielinhalts. Reine Zeilen-/Zeichenoffsets aus einem Markdown-Snapshot sind nicht zulaessig.
+3. Der Server erfasst fuer den Agent-Run den aktuellen State Vector, stabile Zielanker und einen eigenen Hash fuer jeden gelesenen Zielbereich. Reine Zeilen-/Zeichenoffsets aus einem Markdown-Snapshot sind nicht zulaessig.
 4. Fuer strukturiertes Markdown verwenden Zielanker persistente Tiptap-Node-IDs und/oder Yjs Relative Positions. Fuer `Y.Text` werden Yjs Relative Positions fuer Start und Ende verwendet.
 5. Solange der Agent arbeitet, sehen A und B `KI-Agent im Auftrag von User B` am Dokument und am betroffenen Abschnitt. Diese Anzeige stammt aus serverseitiger Agent-Presence, nicht aus frei gesetzter Client-Awareness.
-6. Direkt vor Apply prueft der Server erneut Membership, Write Permission, Agent-Run, Dokument-ID, Representation, aktuellen State Vector, Zielanker und Zielinhalt.
+6. Direkt vor Apply prueft der Server erneut Membership, Write Permission, Agent-Run, Dokument-ID, Representation, aktuellen State Vector sowie jeden Zielanker und Zielinhalt.
 7. Hat A ausserhalb des Zielabschnitts gearbeitet oder kann der Agent-Patch deterministisch auf den aktuellen Zielabschnitt rebased werden, wird er als eine atomare Yjs-Transaktion mit Agent-Origin angewendet und sofort an A und B synchronisiert.
 8. Hat A denselben Zielabschnitt inkompatibel geaendert, wurde der Absatz geloescht oder ist der Rebase mehrdeutig, wird nichts direkt geschrieben. User B erhaelt einen Review-Patch gegen den aktuellen Inhalt.
 9. Nach erfolgreichem Apply werden Agent-Operation, duale Attribution, State-Vectors, Zielhash und spaetere Checkpoint-Revision auditiert. Agent-Presence wird beendet.
@@ -449,9 +449,16 @@ agentId
 sessionId
 collaborationDocumentId
 baseStateVector
-targetAnchors[]
-baseTargetHash
-operations[]
+operationGroups[]:
+  groupId
+  atomicity: all_or_nothing | independent
+  targets[]:
+    targetId
+    nodeIds[]?
+    relativeStart
+    relativeEnd
+    baseTargetHash
+    operations[]
 requestedMode: direct_apply | review
 ```
 
@@ -466,6 +473,50 @@ sessionId
 ```
 
 Operationen ausserhalb der autorisierten Zielanker werden abgelehnt. `requestedMode=direct_apply` ist nur eine Anfrage; die finale Entscheidung trifft der Server nach Revalidierung und Overlap-Pruefung.
+
+### Mehrere Zielbereiche und atomare Gruppen
+
+Ein Agent-Auftrag darf beliebig viele getrennte Bereiche adressieren, zum Beispiel den Einleitungstext und einen spaeteren Ergebnisabschnitt. Sichtbare Zeilenangaben wie `1-3` und `20-30` sind nur UI-Eingaben. Beim Start werden sie in stabile Block-IDs beziehungsweise Yjs Relative Positions umgewandelt.
+
+Regeln:
+
+- Jeder Zielbereich besitzt eigene Start-/Endanker, `targetId`, `baseTargetHash` und begrenzte Operationen.
+- Alle Bereiche eines einzelnen User-Auftrags bilden standardmaessig eine `all_or_nothing`-Gruppe. Kollidiert ein Bereich, wird kein anderer Bereich dieser Gruppe teilweise angewendet.
+- Nur fachlich unabhaengige Aenderungen duerfen vor dem Apply in getrennte `independent`-Gruppen zerlegt werden. Diese Zerlegung muss in Agent-Plan und UI sichtbar sein und darf nicht nach einem Konflikt still erfunden werden.
+- Alle Zielanker werden vor der ersten Mutation aufgeloest. Ueberlappende oder verschachtelte Agent-Ziele muessen zu einer eindeutigen Operation normalisiert werden oder werden als mehrdeutig abgelehnt.
+- Fuer `Y.Text` werden validierte, nicht ueberlappende Ersetzungen innerhalb der Transaktion in absteigender aktueller Dokumentposition angewendet, damit eine fruehe Ersetzung keinen spaeteren Zielbereich verschiebt.
+- Fuer `Y.XmlFragment` werden Block-/Node-IDs und Baumbeziehungen validiert; konkurrierende Operationen auf Parent und Child desselben Teilbaums sind ohne explizite normalisierte Baumoperation nicht zulaessig.
+- Innerhalb einer Gruppe werden Validierung und Apply in einer serverseitig serialisierten Document-Apply-Section ausgefuehrt. Zwischen letzter Overlap-Pruefung und `ydoc.transact(...)` darf kein anderer serverseitiger Apply eingeschoben werden.
+- Eine erfolgreiche Gruppe wird als genau eine Yjs-Transaktion angewendet. So sehen alle Clients entweder die komplette fachliche Gruppe oder nichts davon.
+- Bei mehreren unabhaengigen Gruppen duerfen sichere Gruppen angewendet werden, waehrend kollidierende Gruppen auf `needs_review` wechseln. Der Gesamtstatus lautet dann `partially_applied`; UI und Audit nennen exakt angewendete und offene Gruppen.
+- Lokale Selection-/Cursor-Presence anderer User kann frueh vor moeglicher Ueberlappung warnen, ist aber kein verlaesslicher Konfliktnachweis und kein Lock.
+
+Beispiel: User B beauftragt den Agenten mit Aenderungen an den in der UI als Zeilen `1-3` und `20-30` sichtbaren Bereichen. User A bearbeitet gleichzeitig Text in beiden Bereichen. Der Server arbeitet nicht mit diesen Zeilennummern weiter, sondern mit den beim Auftrag erzeugten Ankern. Sind beide Ziele Teil derselben Standardgruppe, wird bei einer inkompatiblen Aenderung keines der beiden Agent-Ergebnisse direkt angewendet. Sind sie vorher explizit als zwei unabhaengige Gruppen modelliert, wird jede Gruppe einzeln bewertet; ein Teil-Apply ist dann sichtbar und nie still.
+
+Konfliktmatrix:
+
+| Zustand pro Operationsgruppe | Ergebnis |
+|---|---|
+| Kein Ziel seit `baseStateVector` relevant geaendert | direkte atomare Yjs-Transaktion |
+| Nur Einfuegungen ausserhalb der stabilen Zielanker | Anker neu aufloesen und direkt anwenden |
+| Zielaenderung ist deterministisch und semantisch sicher rebasierbar | rebased atomar anwenden und auditieren |
+| Ein Ziel einer `all_or_nothing`-Gruppe ist inkompatibel geaendert oder geloescht | gesamte Gruppe `needs_review`, nichts anwenden |
+| Eine `independent`-Gruppe kollidiert, andere nicht | sichere Gruppen anwenden, kollidierende Gruppe Review, Gesamtstatus `partially_applied` |
+| Zielanker lassen sich nicht mehr eindeutig aufloesen | betroffene Gruppe `needs_review` |
+
+### In-Flight-, Offline- und Spaetankunfts-Races
+
+Yjs-Updates koennen den Server erreichen, waehrend der Agent rechnet oder unmittelbar nach dessen Apply eintreffen. Deshalb fuehrt der Collaboration-Service fuer laufende Agent-Operationen ein kurzlebiges Change Window pro Dokument und Zielgruppe:
+
+- Bereits empfangene User-Transaktionen seit `baseStateVector` werden vor Apply ueber aktuelle Zielhashes und betroffene Yjs-/Tiptap-Typen geprueft.
+- Revalidierung und Agent-Transaktion laufen in derselben serialisierten Apply-Section auf demselben serverseitigen `Y.Doc`.
+- Der Server vergibt eine monotone `documentSequence` fuer relevante User-/Agent-Transaktionen. Eine connection-gebundene Sync-Epoch oder gleichwertige Companion-/Stateless-Metadaten halten fest, bis zu welcher Sequence ein Client den Dokumentzustand gesehen hatte.
+- Trifft danach eine User- oder Offline-Transaktion ein, deren bestaetigte Sync-Epoch vor dem Agent-Apply lag und die dieselben Zielanker beruehrt, bleibt der Yjs-State technisch konvergent, aber der Server erzeugt `collaboration_semantic_conflict`.
+- Kann die Ausgangs-Epoch einer spaeten ueberlappenden Transaktion technisch nicht verlaesslich bestimmt werden, gilt konservativ ebenfalls `collaboration_semantic_conflict`; fehlende Metadaten duerfen keinen stillen Erfolg erzeugen.
+- Bei `collaboration_semantic_conflict` wird nichts automatisch zurueckgerollt. A und B sehen den zusammengefuehrten aktuellen Zustand sowie einen gezielten Vergleich der betroffenen Gruppe und koennen bewusst bestaetigen oder korrigieren.
+- Change-Window-Metadaten enthalten IDs, State-/Target-Hashes, Actor und Zeit, aber keine dauerhaft gespeicherten Dokumentinhalte.
+
+Damit werden auch echte Gleichzeitigkeit, Netzwerklatenz und ein spaeter reconnectender User beruecksichtigt. CRDT-Konvergenz bleibt garantiert; semantische Ueberlappung wird sichtbar und reviewbar statt still als korrekt angenommen.
 
 ## Externe Dateiaenderungen und Konflikte
 
@@ -552,7 +603,10 @@ collaboration_events
 - agentId?
 - agentRunId?
 - transactionOrigin
-- sequence
+- documentSequence
+- clientSyncEpoch?
+- operationGroupId?
+- targetIds?
 - baseStateVectorHash?
 - resultingStateVectorHash?
 - targetAnchorHash?
@@ -564,7 +618,7 @@ collaboration_events
 
 Presence bleibt fluechtig und ist keine Pflicht-Datenbanktabelle.
 
-Fuer laenger laufende oder reviewpflichtige Agent-Aenderungen wird zusaetzlich eine kleine `collaboration_agent_operations`-Entitaet geplant. Sie speichert Status, duale Attribution, Dokument, Target-/State-Hashes und Checkpoint-Referenz; vorgeschlagener Text beziehungsweise Raw-Operations liegen nur kurzlebig ueber `payloadRef` vor und folgen der Content-Retention.
+Fuer laenger laufende oder reviewpflichtige Agent-Aenderungen wird zusaetzlich eine kleine `collaboration_agent_operations`-Entitaet geplant. Sie speichert Status (`preparing | applying | applied | partially_applied | needs_review | semantic_conflict | rejected | reverted`), duale Attribution, Dokument, Operationsgruppen, Atomicity, Target-/State-Hashes und Checkpoint-Referenz. Vorgeschlagener Text beziehungsweise Raw-Operations liegen nur kurzlebig ueber `payloadRef` vor und folgen der Content-Retention.
 
 ## API- und Event-Vertraege
 
@@ -588,8 +642,10 @@ collaboration_document_moved
 collaboration_document_archived
 collaboration_agent_started
 collaboration_agent_applied
+collaboration_agent_partially_applied
 collaboration_agent_needs_review
 collaboration_agent_finished
+collaboration_semantic_conflict
 ```
 
 Alle Events tragen mindestens `workspaceId`, Dokument-ID beziehungsweise Pfad, Zeit und eine monotone oder vergleichbare Version. Clients ignorieren Events aus einem nicht mehr aktiven Workspace.
@@ -733,7 +789,8 @@ Abnahme:
 
 - direkte Whole-File-Writes an aktive Collaboration-Dokumente blockieren.
 - serverseitige Yjs Direct Connection fuer explizit beauftragte, zielverankerte Agent-Operationen bauen.
-- Tiptap-Node-IDs/Yjs Relative Positions, Base-Target-Hash und Overlap-/Rebase-Pruefung implementieren.
+- Tiptap-Node-IDs/Yjs Relative Positions, per-Target-Hashes, Multi-Range-Operationsgruppen und Overlap-/Rebase-Pruefung implementieren.
+- `all_or_nothing` als Default, explizite `independent`-Gruppen, serialisierte Document-Apply-Section und Change Windows fuer In-Flight-/Offline-Races umsetzen.
 - duale Attribution `Agent im Auftrag von User`, Agent-Presence und serverseitig gestempelten Transaction Origin umsetzen.
 - Review-Patch mit Diff, Accept/Reject und aktuellem State Vector fuer mehrdeutige oder autonome Aenderungen bauen.
 - separates Rueckgaengigmachen von Agent-Aenderungen und Ausschluss aus fremden lokalen Undo-Stacks umsetzen.
@@ -744,6 +801,9 @@ Abnahme:
 - Agent kann aktive menschliche Edits nicht ueberschreiben.
 - User A kann manuell tippen, waehrend ein von User B beauftragter Agent einen anderen Absatz als Yjs-Transaktion aendert; beide Clients konvergieren und zeigen die korrekte duale Attribution.
 - gleichzeitige inkompatible Aenderungen desselben Zielabschnitts wechseln fuer User B auf `needs_review`, ohne Aenderungen von User A zu verlieren.
+- ein Agent-Auftrag fuer mehrere getrennte Bereiche wird standardmaessig all-or-nothing angewendet; ein Konflikt in einem Bereich erzeugt keinen stillen Teil-Apply der restlichen Bereiche.
+- explizit unabhaengige Gruppen koennen teilweise angewendet werden, zeigen dann aber `partially_applied` mit exakter Gruppenauflistung.
+- spaet eintreffende oder Offline-User-Aenderungen an bereits vom Agent angewendeten Zielbereichen erzeugen `collaboration_semantic_conflict` und einen gezielten Vergleich.
 - direkt angewendete und angenommene Agent-Patches erscheinen live bei allen Clients.
 - abgelehnte Patches aendern weder Yjs-State noch Workspace-Datei.
 
@@ -805,7 +865,15 @@ Abnahme:
 - User A tippt, waehrend der von User B beauftragte Agent einen nicht ueberlappenden Absatz live aendert; beide Clients konvergieren,
 - Transaktion, UI und Audit zeigen `Agent im Auftrag von User B`, nicht eine manuelle Aenderung von B,
 - Agent-Zielanker bleiben bei parallelen Einfuegungen vor dem Absatz stabil,
+- zwei Agent-Zielbereiche in `Y.Text` werden vor Mutation gemeinsam aufgeloest und in sicherer Reihenfolge angewendet; der erste Write verschiebt nicht den zweiten,
+- ueberlappende Agent-Zielbereiche beziehungsweise Parent-/Child-Baumoperationen werden normalisiert oder abgelehnt,
 - parallele inkompatible Aenderung desselben Absatzes erzeugt `needs_review` statt Direkt-Apply,
+- Agent adressiert zwei getrennte Bereiche; parallele User-Aenderung in einem Bereich blockiert bei `all_or_nothing` beide Agent-Aenderungen,
+- dieselbe Situation mit zwei vorab explizit unabhaengigen Gruppen wendet nur die sichere Gruppe an und meldet `partially_applied`,
+- parallele User-Aenderungen in beiden Agent-Zielbereichen erzeugen pro Gruppe korrekte Konfliktzuordnung,
+- ein User-Update, das zwischen letzter Vorpruefung und Apply eintrifft, wird durch die serialisierte Apply-Section vor dem Agent-Commit beruecksichtigt,
+- ein Offline-Update mit altem Ausgangs-State trifft nach Agent-Apply am selben Ziel ein und erzeugt `collaboration_semantic_conflict`,
+- fehlende oder unklare Client-Sync-Epoch bei spaeter Zielueberlappung fuehrt konservativ zu `collaboration_semantic_conflict`,
 - autonome Agent-Runs erhalten bei aktiven Menschen einen Review-Patch statt silent write,
 - fremde lokale Undo-Stacks nehmen die Agent-Transaktion nicht auf; die dedizierte Revert-Aktion prueft den aktuellen State,
 - Shell-, File-Tool-, Automation- und Integrationspfade koennen den Collaboration-Agent-Service nicht per Whole-File-Write umgehen,

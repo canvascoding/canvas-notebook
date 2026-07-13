@@ -527,6 +527,7 @@ Datenbank-Folge:
 - Workspace-weite Presence zeigt im File Tree bereits vor dem Oeffnen farbige Nutzerhinweise fuer `viewing`, `editing` und `agent_editing`. Agent-Aktivitaet wird als `KI-Agent im Auftrag von <User>` dual attribuiert. Der File Explorer nutzt dafuer einen Presence-Snapshot und kleine Deltas, ohne selbst dem Dokument-Room beizutreten.
 - Die eigentliche Yjs-/Hocuspocus-Verbindung wird erst beim Oeffnen des Dokuments aufgebaut.
 - Ein explizit von User B beauftragter Agent darf waehrend paralleler manueller Arbeit von User A einen stabil verankerten, nicht ueberlappenden Absatz ueber eine serverseitige Yjs-Transaktion aendern. UI, Presence und Audit zeigen dabei `Agent im Auftrag von User B`.
+- Mehrere getrennte Agent-Ziele verwenden eigene Yjs-Anker und Target-Hashes. Sie werden standardmaessig als eine `all_or_nothing`-Gruppe behandelt; nur vorab fachlich getrennte Gruppen duerfen mit sichtbarem Status `partially_applied` teilweise landen.
 - Mehrdeutige oder semantisch ueberlappende Zielaenderungen wechseln auf Review; Agenten und Automations verwenden niemals stilles Whole-File-Overwrite.
 
 Die Detailpolicy steht in `18-collaboration-and-file-conflict-policy.md`.

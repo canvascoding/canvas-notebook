@@ -243,7 +243,7 @@ Diese Phase beginnt erst, wenn P7 abgeschlossen ist. Ihre interne Reihenfolge is
 4. Materialisierte `.md`-/`.txt`-Checkpoints mit Revision, Audit, File Watcher, Public Links, Knowledge und Backup integrieren.
 5. Workspace Presence Registry, Initial-Snapshot und Presence-Deltas fuer File Tree, List und Grid umsetzen.
 6. Farbige User-Marker mit `viewing`/`editing`/`agent_editing`, dualer Agent-Attribution, Tooltip, `+N`, Light/Dark Mode und Accessibility integrieren.
-7. Agent-/Automation-Direct-Connection, stabile Zielanker, Overlap-/Rebase-Gate, duale Attribution und Review-Patch-Flow bauen.
+7. Agent-/Automation-Direct-Connection, stabile Multi-Range-Zielanker, atomare Operationsgruppen, Overlap-/Rebase-/Race-Gates, duale Attribution und Review-Patch-Flow bauen.
 8. Offline/Reconnect, grosse Dokumente, Lifecycle, Observability und Preview-Rollout hardenen.
 
 File-Tree-Invariante:
@@ -263,6 +263,8 @@ Tests:
 - File Tree zeigt User B bei User A vor dem Oeffnen, ohne User A dem Dokument-Room hinzuzufuegen.
 - User A tippt manuell, waehrend ein explizit von User B beauftragter Agent einen anderen Absatz als zielverankerte Yjs-Transaktion aendert; beide Clients konvergieren und zeigen `Agent im Auftrag von User B`.
 - Gleichzeitige inkompatible Aenderungen desselben Zielabschnitts wechseln auf `needs_review`; autonome Agent-Runs erhalten bei aktiven Menschen standardmaessig einen Review-Patch.
+- Multi-Range-Test: Agent B zielt auf zwei getrennte Bereiche, waehrend User A einen oder beide Bereiche aendert; `all_or_nothing`, explizite unabhaengige Gruppen und `partially_applied` verhalten sich deterministisch.
+- In-Flight-/Offline-Test: spaet eintreffende User-Aenderung an einem bereits angewendeten Agent-Ziel erzeugt einen sichtbaren `semantic_conflict` statt stiller Erfolgsmeldung.
 - Shell- und generische File-Write-Pfade koennen den Collaboration-Agent-Service nicht per Whole-File-Write umgehen.
 - `npm run build`.
 - Sichtbare UI-/E2E-Pruefung erst nach expliziter Freigabe.

@@ -128,8 +128,10 @@ Pflichtregeln:
 - Unmittelbar vor Apply werden User, Session, Agent, Workspace, Permission, Dokument-ID und aktuelle Collaboration-Representation revalidiert.
 - Ein expliziter Auftrag eines Users traegt duale Attribution: `actorType=agent` und `initiatedByUserId`.
 - Absatz-/Selection-Ziele verwenden Tiptap-Node-IDs und/oder Yjs Relative Positions plus Base-Target-Hash; rohe Snapshot-Offsets reichen nicht.
+- Mehrere Zielbereiche eines Auftrags bilden standardmaessig eine atomare `all_or_nothing`-Gruppe. Nur vorab als fachlich unabhaengig ausgewiesene Gruppen duerfen getrennt angewendet werden.
 - Eine nicht ueberlappende, deterministisch rebasierbare Operation darf trotz anderer aktiver User als Yjs-Transaktion angewendet werden.
 - Eine geloeschte, inkompatibel geaenderte oder mehrdeutige Zielregion fuehrt zu `needs_review` und niemals zu Whole-File-Fallback.
+- Revalidierung aller Zielbereiche und `ydoc.transact(...)` laufen in derselben serialisierten Document-Apply-Section; ein kurzlebiges Change Window mit `documentSequence` und connection-gebundener Sync-Epoch erkennt spaet eintreffende oder unklare Ueberlappungen als `semantic_conflict`.
 - Autonome Agent-/Automation-Runs erzeugen bei aktiven Menschen standardmaessig einen Review-Patch.
 - Der serverseitige Transaction Origin enthaelt Auftraggeber, Agent, Run und Session und kann nicht vom LLM oder Client ueberschrieben werden.
 - Direkte Workspace-Dateisystem-Aenderungen ausserhalb des Brokers gelten als externe Writes und werden bei aktivem Dokument als Konflikt behandelt.
