@@ -1,25 +1,19 @@
 'use client';
 
-import { useMemo, useState, useTransition } from 'react';
+import { FormEvent, useMemo, useState, useTransition } from 'react';
 import { useParams } from 'next/navigation';
 import { usePathname } from '@/i18n/navigation';
 import { routing } from '@/i18n/routing';
 import { buildLocalePath } from '@/app/lib/locale-path';
 import { useTranslations } from 'next-intl';
-import { Clock3, ExternalLink, KeyRound, Info, Languages, Mail, User } from 'lucide-react';
+import { Clock3, KeyRound, Languages, Mail, User } from 'lucide-react';
 import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
-
-const CONTROL_PANEL_DASHBOARD_URL = 'https://canvasnotebook.app/dashboard';
-
-const LOGIN_ENV_KEYS = [
-  { key: 'BOOTSTRAP_ADMIN_EMAIL', translationKey: 'general.loginInfo.emailKey' },
-  { key: 'BOOTSTRAP_ADMIN_PASSWORD', translationKey: 'general.loginInfo.passwordKey' },
-  { key: 'BOOTSTRAP_ADMIN_NAME', translationKey: 'general.loginInfo.nameKey' },
-] as const;
 
 async function saveUserPreferences(payload: { locale?: string }): Promise<void> {
   const response = await fetch('/api/user-preferences', {
@@ -47,16 +41,42 @@ async function saveServerPreferredTimeZone(timeZone: string): Promise<void> {
   }
 }
 
+async function updateLoginEmail(payload: { newEmail: string; currentPassword: string }): Promise<void> {
+  const response = await fetch('/api/account/email', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload),
+  });
+  const body = await response.json().catch(() => ({})) as { success?: boolean; error?: string };
+
+  if (!response.ok || !body.success) {
+    throw new Error(body.error || `Failed to update login email (${response.status}).`);
+  }
+}
+
+async function updatePassword(payload: { currentPassword: string; newPassword: string }): Promise<void> {
+  const response = await fetch('/api/auth/change-password', {
+    method: 'POST',
+    credentials: 'include',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ...payload, revokeOtherSessions: true }),
+  });
+  const body = await response.json().catch(() => ({})) as { message?: string };
+
+  if (!response.ok) {
+    throw new Error(body.message || `Failed to update password (${response.status}).`);
+  }
+}
+
 export function GeneralSettingsPanel({
   userName = '',
   userEmail = '',
-  isManagedControlPlane = false,
   isAdmin = false,
   initialTimeZone,
 }: {
   userName?: string;
   userEmail?: string;
-  isManagedControlPlane?: boolean;
   isAdmin?: boolean;
   initialTimeZone?: string;
 }) {
@@ -68,6 +88,14 @@ export function GeneralSettingsPanel({
   const currentLocale = (params.locale as string) || routing.defaultLocale;
   const [timeZone, setTimeZone] = useState(() => normalizeTimeZone(initialTimeZone));
   const timeZoneOptions = useMemo(() => getSupportedTimeZones(timeZone), [timeZone]);
+  const [loginEmail, setLoginEmail] = useState(userEmail);
+  const [emailPassword, setEmailPassword] = useState('');
+  const [isSavingEmail, setIsSavingEmail] = useState(false);
+  const [emailChangeComplete, setEmailChangeComplete] = useState(false);
+  const [currentPassword, setCurrentPassword] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [isSavingPassword, setIsSavingPassword] = useState(false);
 
   async function handleSelectLocale(locale: string) {
     if (locale === currentLocale || isSavingLocale) return;
@@ -91,6 +119,60 @@ export function GeneralSettingsPanel({
         toast.error(t('general.timeZoneSaveFailed'));
       });
     });
+  }
+
+  async function handleEmailSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSavingEmail || emailChangeComplete) return;
+
+    const nextEmail = loginEmail.trim().toLowerCase();
+    if (!nextEmail || !emailPassword) {
+      toast.error(t('general.account.emailValidation'));
+      return;
+    }
+
+    setIsSavingEmail(true);
+    try {
+      await updateLoginEmail({ newEmail: nextEmail, currentPassword: emailPassword });
+      setEmailChangeComplete(true);
+      setEmailPassword('');
+      toast.success(t('general.account.emailUpdated'));
+      window.setTimeout(() => {
+        window.location.assign(buildLocalePath(currentLocale, '/login'));
+      }, 900);
+    } catch (error) {
+      console.warn('[Settings] Failed to update login email:', error);
+      toast.error(error instanceof Error ? error.message : t('general.account.emailUpdateFailed'));
+      setIsSavingEmail(false);
+    }
+  }
+
+  async function handlePasswordSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    if (isSavingPassword) return;
+
+    if (!currentPassword || newPassword.length < 8) {
+      toast.error(t('general.account.passwordValidation'));
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      toast.error(t('general.account.passwordMismatch'));
+      return;
+    }
+
+    setIsSavingPassword(true);
+    try {
+      await updatePassword({ currentPassword, newPassword });
+      setCurrentPassword('');
+      setNewPassword('');
+      setConfirmPassword('');
+      toast.success(t('general.account.passwordUpdated'));
+    } catch (error) {
+      console.warn('[Settings] Failed to update password:', error);
+      toast.error(error instanceof Error ? error.message : t('general.account.passwordUpdateFailed'));
+    } finally {
+      setIsSavingPassword(false);
+    }
   }
 
   return (
@@ -122,38 +204,96 @@ export function GeneralSettingsPanel({
               )}
             </div>
           )}
-          <div className="rounded-lg border border-border bg-muted/40 p-3">
-            <div className="flex items-start gap-2">
-              <Info className="h-4 w-4 text-muted-foreground shrink-0 mt-0.5" />
-              <div className="space-y-3">
-                <p className="text-xs text-muted-foreground leading-relaxed">
-                  {t(isManagedControlPlane ? 'general.loginInfoManagedNote' : 'general.loginInfoSelfHostedNote')}
-                </p>
-                {isManagedControlPlane && (
-                  <Button asChild size="sm" variant="outline" className="h-8">
-                    <a href={CONTROL_PANEL_DASHBOARD_URL} target="_blank" rel="noreferrer">
-                      {t('general.loginInfoControlPanelLink')}
-                      <ExternalLink className="ml-2 h-3.5 w-3.5" />
-                    </a>
-                  </Button>
-                )}
-              </div>
-            </div>
-          </div>
-          {!isManagedControlPlane && (
+          <form onSubmit={handleEmailSubmit} className="grid gap-3 rounded-lg border border-border bg-muted/25 p-3 sm:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto] sm:items-end">
             <div className="space-y-2">
-              <span className="text-xs font-bold uppercase tracking-widest text-muted-foreground">{t('general.loginInfoEnvKeys')}</span>
-              <div className="space-y-1.5">
-                {LOGIN_ENV_KEYS.map(({ key, translationKey }) => (
-                  <div key={key} className="flex items-center gap-2 text-sm">
-                    <KeyRound className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs font-mono">{key}</code>
-                    <span className="text-muted-foreground">— {t(translationKey)}</span>
-                  </div>
-                ))}
-              </div>
+              <Label htmlFor="settings-login-email">{t('general.account.newEmail')}</Label>
+              <Input
+                id="settings-login-email"
+                type="email"
+                autoComplete="email"
+                value={loginEmail}
+                onChange={(event) => setLoginEmail(event.target.value)}
+                disabled={isSavingEmail || emailChangeComplete}
+                required
+              />
             </div>
-          )}
+            <div className="space-y-2">
+              <Label htmlFor="settings-email-current-password">{t('general.account.currentPassword')}</Label>
+              <Input
+                id="settings-email-current-password"
+                type="password"
+                autoComplete="current-password"
+                value={emailPassword}
+                onChange={(event) => setEmailPassword(event.target.value)}
+                disabled={isSavingEmail || emailChangeComplete}
+                required
+              />
+            </div>
+            <Button type="submit" disabled={isSavingEmail || emailChangeComplete}>
+              {emailChangeComplete ? t('general.account.emailRedirecting') : isSavingEmail ? t('general.account.saving') : t('general.account.saveEmail')}
+            </Button>
+            <p className="text-xs leading-5 text-muted-foreground sm:col-span-3">
+              {emailChangeComplete ? t('general.account.emailUpdateComplete') : t('general.account.emailHint')}
+            </p>
+          </form>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader className="px-4 sm:px-6">
+          <div className="flex items-center gap-2">
+            <KeyRound className="h-5 w-5 text-muted-foreground" />
+            <CardTitle>{t('general.account.passwordTitle')}</CardTitle>
+          </div>
+          <CardDescription>{t('general.account.passwordDescription')}</CardDescription>
+        </CardHeader>
+        <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
+          <form onSubmit={handlePasswordSubmit} className="grid gap-3 sm:grid-cols-2">
+            <div className="space-y-2 sm:col-span-2">
+              <Label htmlFor="settings-current-password">{t('general.account.currentPassword')}</Label>
+              <Input
+                id="settings-current-password"
+                type="password"
+                autoComplete="current-password"
+                value={currentPassword}
+                onChange={(event) => setCurrentPassword(event.target.value)}
+                disabled={isSavingPassword}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-new-password">{t('general.account.newPassword')}</Label>
+              <Input
+                id="settings-new-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={newPassword}
+                onChange={(event) => setNewPassword(event.target.value)}
+                disabled={isSavingPassword}
+                required
+              />
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="settings-confirm-password">{t('general.account.confirmPassword')}</Label>
+              <Input
+                id="settings-confirm-password"
+                type="password"
+                autoComplete="new-password"
+                minLength={8}
+                value={confirmPassword}
+                onChange={(event) => setConfirmPassword(event.target.value)}
+                disabled={isSavingPassword}
+                required
+              />
+            </div>
+            <div className="flex flex-wrap items-center justify-between gap-3 sm:col-span-2">
+              <p className="text-xs leading-5 text-muted-foreground">{t('general.account.passwordHint')}</p>
+              <Button type="submit" disabled={isSavingPassword}>
+                {isSavingPassword ? t('general.account.saving') : t('general.account.savePassword')}
+              </Button>
+            </div>
+          </form>
         </CardContent>
       </Card>
 

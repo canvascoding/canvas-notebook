@@ -256,6 +256,30 @@ async function main() {
   assertOrganizationBootstrapState(migrated, owner.id, 'override@example.test', { canManageBackups: 0 });
   migrated.close();
 
+  execFileSync('node', ['scripts/bootstrap-admin.js', '--ensure'], {
+    cwd: process.cwd(),
+    stdio: 'pipe',
+    env: {
+      ...process.env,
+      DATA: dataDir,
+      BOOTSTRAP_ADMIN_EMAIL: 'would-overwrite@example.test',
+      BOOTSTRAP_ADMIN_PASSWORD: 'WouldOverwritePassword123!',
+      BOOTSTRAP_ADMIN_NAME: 'Would Overwrite',
+    },
+  });
+
+  const ensured = new Database(path.join(dataDir, 'sqlite.db'));
+  const ensuredUser = ensured.prepare('SELECT email, name FROM user WHERE id = ?').get(owner.id) as { email: string; name: string };
+  assert.equal(ensuredUser.email, 'override@example.test');
+  assert.equal(ensuredUser.name, 'Override Admin');
+  const ensuredAccount = ensured.prepare(`
+    SELECT password
+    FROM account
+    WHERE user_id = ? AND provider_id = 'credential'
+  `).get(owner.id) as { password: string };
+  assert.equal(await verifyPassword({ hash: ensuredAccount.password, password: 'OverridePassword123!' }), true);
+  ensured.close();
+
   execFileSync('node', ['scripts/bootstrap-admin.js', '--email', 'cli-reset@example.test', '--name', 'CLI Reset Admin', '--password-stdin'], {
     cwd: process.cwd(),
     input: 'CliResetPassword123!\n',

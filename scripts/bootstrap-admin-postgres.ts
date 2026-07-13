@@ -10,6 +10,7 @@ import {
 import {
   ensurePostgresCredentialPassword,
   ensurePostgresOrganizationBootstrapForUser,
+  getPostgresAuthUserCount,
   findPostgresBootstrapTargetUser,
   findPostgresUserByEmail,
   insertPostgresAuthUser,
@@ -34,7 +35,12 @@ function getBootstrapAdminConfig() {
   const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
   const name = (process.env.BOOTSTRAP_ADMIN_NAME || 'Administrator').trim() || 'Administrator';
   if (!email || !password) return null;
-  return { email, password, name };
+  return {
+    email,
+    password,
+    name,
+    ensureOnly: process.env.BOOTSTRAP_ADMIN_ENSURE_ONLY === 'true',
+  };
 }
 
 function translateSqlitePlaceholders(sql: string): string {
@@ -76,8 +82,22 @@ async function main() {
 
   try {
     const { email, password, name } = bootstrapAdmin;
-    const passwordHash = await hashPassword(password);
     await database.run('BEGIN');
+
+    if (bootstrapAdmin.ensureOnly) {
+      const existingUserCount = await getPostgresAuthUserCount(database);
+      if (existingUserCount > 0) {
+        const existingUser = await findPostgresBootstrapTargetUser(database);
+        if (existingUser) {
+          await ensurePostgresOrganizationBootstrapForUser(database, existingUser.id);
+        }
+        await database.run('COMMIT');
+        console.log('[bootstrap-admin] Existing user preserved.');
+        return;
+      }
+    }
+
+    const passwordHash = await hashPassword(password);
 
     const existingUser = await findPostgresUserByEmail(database, email);
     if (existingUser) {

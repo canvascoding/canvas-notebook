@@ -3015,7 +3015,6 @@ export function IntegrationsSettingsClient({
             <GeneralSettingsPanel
               userName={userName}
               userEmail={userEmail}
-              isManagedControlPlane={isManagedControlPlane}
               isAdmin={isAdmin}
               initialTimeZone={initialTimeZone}
             />,

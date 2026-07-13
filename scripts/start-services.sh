@@ -105,7 +105,7 @@ step_ok
 # ─── Step 2: Bootstrap admin ─────────────────────────────────────────────
 if [ -n "${BOOTSTRAP_ADMIN_EMAIL:-}" ] && [ -n "${BOOTSTRAP_ADMIN_PASSWORD:-}" ]; then
   step "Bootstrap admin"
-  if node scripts/bootstrap-admin.js >> "$STARTUP_LOG" 2>&1; then
+  if node scripts/bootstrap-admin.js --ensure >> "$STARTUP_LOG" 2>&1; then
     step_ok
   else
     step_fail

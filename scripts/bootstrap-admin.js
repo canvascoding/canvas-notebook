@@ -39,9 +39,11 @@ function readStdin() {
 function printCliUsage() {
   console.log(`Usage:
   node scripts/bootstrap-admin.js
+  node scripts/bootstrap-admin.js --ensure
   node scripts/bootstrap-admin.js --email <email> [--name <name>] --password-stdin
 
-Without CLI options, BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD are read from the environment.`);
+Without CLI options, BOOTSTRAP_ADMIN_EMAIL and BOOTSTRAP_ADMIN_PASSWORD are read from the environment.
+--ensure creates the first admin when needed without overwriting an existing user's login details.`);
 }
 
 async function getBootstrapAdminConfigFromArgs(args) {
@@ -49,6 +51,7 @@ async function getBootstrapAdminConfigFromArgs(args) {
   let name = 'Administrator';
   let passwordStdin = false;
   let hasCliOptions = false;
+  let ensureOnly = false;
 
   for (let index = 0; index < args.length; index += 1) {
     const arg = args[index];
@@ -91,6 +94,12 @@ async function getBootstrapAdminConfigFromArgs(args) {
       continue;
     }
 
+    if (arg === '--ensure') {
+      hasCliOptions = true;
+      ensureOnly = true;
+      continue;
+    }
+
     if (arg === '-h' || arg === '--help') {
       printCliUsage();
       process.exit(0);
@@ -101,6 +110,13 @@ async function getBootstrapAdminConfigFromArgs(args) {
 
   if (!hasCliOptions) {
     return null;
+  }
+
+  if (ensureOnly) {
+    if (args.length !== 1) {
+      throw new Error('--ensure cannot be combined with other CLI bootstrap options.');
+    }
+    return { ensureOnly: true };
   }
 
   const normalizedEmail = normalizeEmail(email);
@@ -126,6 +142,13 @@ async function getBootstrapAdminConfigFromArgs(args) {
 
 async function getBootstrapAdminConfig() {
   const cliConfig = await getBootstrapAdminConfigFromArgs(process.argv.slice(2));
+  if (cliConfig?.ensureOnly) {
+    const email = normalizeEmail(process.env.BOOTSTRAP_ADMIN_EMAIL);
+    const password = process.env.BOOTSTRAP_ADMIN_PASSWORD;
+    const name = (process.env.BOOTSTRAP_ADMIN_NAME || 'Administrator').trim() || 'Administrator';
+    if (!email || !password) return null;
+    return { email, password, name, ensureOnly: true };
+  }
   if (cliConfig) {
     return cliConfig;
   }
@@ -138,7 +161,7 @@ async function getBootstrapAdminConfig() {
     return null;
   }
 
-  return { email, password, name };
+  return { email, password, name, ensureOnly: false };
 }
 
 function getSqlitePath() {
@@ -162,6 +185,7 @@ function runPostgresBootstrapAdmin(bootstrapAdmin) {
         BOOTSTRAP_ADMIN_EMAIL: bootstrapAdmin.email,
         BOOTSTRAP_ADMIN_PASSWORD: bootstrapAdmin.password,
         BOOTSTRAP_ADMIN_NAME: bootstrapAdmin.name,
+        BOOTSTRAP_ADMIN_ENSURE_ONLY: bootstrapAdmin.ensureOnly ? 'true' : '',
       },
       stdio: 'inherit',
     },
@@ -1016,8 +1040,19 @@ async function main() {
 
   try {
     const { email, password, name } = bootstrapAdmin;
-    const passwordHash = await hashPassword(password);
     db.exec('BEGIN IMMEDIATE');
+
+    if (bootstrapAdmin.ensureOnly) {
+      const existingUser = findBootstrapTargetUser(db);
+      if (existingUser) {
+        ensureOrganizationBootstrap(db, existingUser.id);
+        db.exec('COMMIT');
+        console.log(`[bootstrap-admin] Existing user preserved: ${existingUser.email}`);
+        return;
+      }
+    }
+
+    const passwordHash = await hashPassword(password);
 
     const existingUser = findUserByEmail(db, email);
     if (existingUser) {
