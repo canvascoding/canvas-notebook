@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
-import { Trash2 } from 'lucide-react';
+import { Loader2, Trash2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import {
   AlertDialog,
@@ -27,21 +27,25 @@ interface DeleteConfirmDialogProps {
 export function DeleteConfirmDialog({ open, onOpenChange, paths, skippedCount, onConfirm }: DeleteConfirmDialogProps) {
   const t = useTranslations('notebook');
   const [isDeleting, setIsDeleting] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (open) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
+      /* eslint-disable react-hooks/set-state-in-effect */
       setIsDeleting(false);
+      setError('');
+      /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open]);
 
   const handleConfirm = async () => {
     setIsDeleting(true);
+    setError('');
     try {
       await onConfirm();
       onOpenChange(false);
-    } catch {
-      onOpenChange(false);
+    } catch (deleteError) {
+      setError(deleteError instanceof Error ? deleteError.message : t('deleteFailed'));
     } finally {
       setIsDeleting(false);
     }
@@ -62,7 +66,12 @@ export function DeleteConfirmDialog({ open, onOpenChange, paths, skippedCount, o
   }
 
   return (
-    <AlertDialog open={open} onOpenChange={onOpenChange}>
+    <AlertDialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!isDeleting || nextOpen) onOpenChange(nextOpen);
+      }}
+    >
       <AlertDialogContent>
         <AlertDialogHeader>
           <AlertDialogMedia>
@@ -80,9 +89,18 @@ export function DeleteConfirmDialog({ open, onOpenChange, paths, skippedCount, o
             </ul>
           </div>
         )}
+        {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
         <AlertDialogFooter>
           <AlertDialogCancel disabled={isDeleting}>{t('cancel')}</AlertDialogCancel>
-          <AlertDialogAction variant="destructive" onClick={handleConfirm} disabled={isDeleting}>
+          <AlertDialogAction
+            variant="destructive"
+            onClick={(event) => {
+              event.preventDefault();
+              void handleConfirm();
+            }}
+            disabled={isDeleting}
+          >
+            {isDeleting && <Loader2 className="h-4 w-4 animate-spin" />}
             {isDeleting ? t('deleting') : t('delete')}
           </AlertDialogAction>
         </AlertDialogFooter>

@@ -103,8 +103,12 @@ export function FileActionsDropdown({
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveName, setMoveName] = useState('');
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
+  const [moveError, setMoveError] = useState('');
+  const [isMoving, setIsMoving] = useState(false);
   const [renameOpen, setRenameOpen] = useState(false);
   const [newName, setNewName] = useState('');
+  const [renameError, setRenameError] = useState('');
+  const [isRenaming, setIsRenaming] = useState(false);
   const [deleteOpen, setDeleteOpen] = useState(false);
   const [shareOpen, setShareOpen] = useState(false);
   const [marpExportOpen, setMarpExportOpen] = useState(false);
@@ -251,20 +255,36 @@ export function FileActionsDropdown({
     }
 
     if (node) setNewName(node.name);
+    setRenameError('');
+    setIsRenaming(false);
     setRenameOpen(true);
     closeMenu();
   };
 
   const handleConfirmRename = async () => {
-    if (!node || !newName || newName === node.name) {
+    if (!node) return;
+    const trimmedName = newName.trim();
+    if (!trimmedName) {
+      setRenameError(t('pleaseEnterName'));
+      return;
+    }
+    if (trimmedName === node.name) {
       setRenameOpen(false);
       return;
     }
 
-    const newPath = joinWorkspacePath(getParentDirectory(node.path), newName);
-    await renamePath(node.path, newPath);
-    setRenameOpen(false);
-    onAfterRename?.(node.path, newPath, node);
+    const newPath = joinWorkspacePath(getParentDirectory(node.path), trimmedName);
+    setIsRenaming(true);
+    setRenameError('');
+    try {
+      await renamePath(node.path, newPath);
+      setRenameOpen(false);
+      onAfterRename?.(node.path, newPath, node);
+    } catch (renameOperationError) {
+      setRenameError(renameOperationError instanceof Error ? renameOperationError.message : t('renameFailed'));
+    } finally {
+      setIsRenaming(false);
+    }
   };
 
   const handleMove = () => {
@@ -276,6 +296,8 @@ export function FileActionsDropdown({
     if (node) setMoveName(node.name);
     if (node) setMoveTarget(getParentDirectory(node.path));
     setMoveExpandedDirs(new Set());
+    setMoveError('');
+    setIsMoving(false);
     setMoveOpen(true);
     closeMenu();
   };
@@ -445,7 +467,9 @@ export function FileActionsDropdown({
     try {
       await duplicatePath(node.path);
       closeMenu();
-    } catch {}
+    } catch (duplicateError) {
+      toast.error(duplicateError instanceof Error ? duplicateError.message : t('duplicateFailed'));
+    }
   };
 
   const handleShare = () => {
@@ -479,7 +503,7 @@ export function FileActionsDropdown({
     if (!node) return;
     const trimmedName = moveName.trim();
     if (!trimmedName) {
-      toast.error(t('pleaseEnterName'));
+      setMoveError(t('pleaseEnterName'));
       return;
     }
     const destination = resolveMoveDestination(moveTarget, trimmedName);
@@ -488,12 +512,20 @@ export function FileActionsDropdown({
       return;
     }
     if (node.type === 'directory' && isMoveIntoSelf(node.path, destination)) {
-      toast.error(t('moveIntoSelf'));
+      setMoveError(t('moveIntoSelf'));
       return;
     }
-    await renamePath(node.path, destination);
-    onAfterMove?.(node.path, destination, node);
-    setMoveOpen(false);
+    setIsMoving(true);
+    setMoveError('');
+    try {
+      await renamePath(node.path, destination);
+      onAfterMove?.(node.path, destination, node);
+      setMoveOpen(false);
+    } catch (moveOperationError) {
+      setMoveError(moveOperationError instanceof Error ? moveOperationError.message : t('moveFailed'));
+    } finally {
+      setIsMoving(false);
+    }
   };
 
   return (
@@ -622,7 +654,12 @@ export function FileActionsDropdown({
         onConfirm={handleConfirmDelete}
       />
 
-      <Dialog open={renameOpen} onOpenChange={setRenameOpen}>
+      <Dialog
+        open={renameOpen}
+        onOpenChange={(nextOpen) => {
+          if (!isRenaming || nextOpen) setRenameOpen(nextOpen);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle>{node ? t('renameTitle', { name: node.name }) : ''}</DialogTitle>
@@ -633,20 +670,35 @@ export function FileActionsDropdown({
             <Input
               id="newName"
               value={newName}
-              onChange={(e) => setNewName(e.target.value)}
+              onChange={(e) => {
+                setNewName(e.target.value);
+                if (renameError) setRenameError('');
+              }}
               className="mt-1"
-              onKeyDown={(e) => e.key === 'Enter' && handleConfirmRename()}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter' && !isRenaming) void handleConfirmRename();
+              }}
               autoFocus
+              disabled={isRenaming}
             />
+            {renameError && <p className="mt-1.5 text-xs text-destructive" role="alert">{renameError}</p>}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setRenameOpen(false)}>{t('cancel')}</Button>
-            <Button variant="secondary" onClick={handleConfirmRename}>{t('rename')}</Button>
+            <Button variant="ghost" onClick={() => setRenameOpen(false)} disabled={isRenaming}>{t('cancel')}</Button>
+            <Button variant="secondary" onClick={() => void handleConfirmRename()} disabled={isRenaming}>
+              {isRenaming && <Loader2 className="h-4 w-4 animate-spin" />}
+              {t('rename')}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={moveOpen} onOpenChange={setMoveOpen}>
+      <Dialog
+        open={moveOpen}
+        onOpenChange={(nextOpen) => {
+          if (!isMoving || nextOpen) setMoveOpen(nextOpen);
+        }}
+      >
         <DialogContent className="max-w-xl">
           <DialogHeader>
             <DialogTitle>{node ? t('moveTitle', { name: node.name }) : ''}</DialogTitle>
@@ -654,34 +706,51 @@ export function FileActionsDropdown({
           </DialogHeader>
           <div className="space-y-4">
             <div>
-              <label className="text-xs text-muted-foreground">{t('destinationFolder')}</label>
+              <label htmlFor="moveTarget" className="text-xs text-muted-foreground">{t('destinationFolder')}</label>
               <Input
+                id="moveTarget"
                 value={moveTarget}
-                onChange={(event) => setMoveTarget(event.target.value)}
+                onChange={(event) => {
+                  setMoveTarget(event.target.value);
+                  if (moveError) setMoveError('');
+                }}
                 className="mt-1"
+                disabled={isMoving}
               />
             </div>
             <div>
-              <label className="text-xs text-muted-foreground">{t('name')}</label>
+              <label htmlFor="moveName" className="text-xs text-muted-foreground">{t('name')}</label>
               <Input
+                id="moveName"
                 value={moveName}
-                onChange={(event) => setMoveName(event.target.value)}
+                onChange={(event) => {
+                  setMoveName(event.target.value);
+                  if (moveError) setMoveError('');
+                }}
                 className="mt-1"
+                disabled={isMoving}
               />
             </div>
-            <DirectoryBrowser
-              tree={fileTree}
-              selectedPath={moveTarget}
-              onSelect={setMoveTarget}
-              expandedDirs={moveExpandedDirs}
-              onToggleDir={toggleMoveDir}
-            />
+            <div className={isMoving ? 'pointer-events-none opacity-60' : undefined}>
+              <DirectoryBrowser
+                tree={fileTree}
+                selectedPath={moveTarget}
+                onSelect={(path) => {
+                  setMoveTarget(path);
+                  if (moveError) setMoveError('');
+                }}
+                expandedDirs={moveExpandedDirs}
+                onToggleDir={toggleMoveDir}
+              />
+            </div>
+            {moveError && <p className="text-sm text-destructive" role="alert">{moveError}</p>}
           </div>
           <DialogFooter className="gap-2">
-            <Button variant="ghost" onClick={() => setMoveOpen(false)}>
+            <Button variant="ghost" onClick={() => setMoveOpen(false)} disabled={isMoving}>
               {t('cancel')}
             </Button>
-            <Button variant="secondary" onClick={handleConfirmMove}>
+            <Button variant="secondary" onClick={() => void handleConfirmMove()} disabled={isMoving}>
+              {isMoving && <Loader2 className="h-4 w-4 animate-spin" />}
               {t('move')}
             </Button>
           </DialogFooter>

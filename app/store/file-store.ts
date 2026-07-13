@@ -523,8 +523,6 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to paste files';
-      set({ treeError: message });
       throw error;
     }
   },
@@ -544,8 +542,6 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         await get().refreshDirectory(parentDir, true, workspaceId);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to duplicate file';
-      set({ treeError: message });
       throw error;
     }
   },
@@ -1167,7 +1163,6 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   createPath: async (path: string, type: 'file' | 'directory', options = {}) => {
-    set({ treeError: null });
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
     try {
@@ -1179,17 +1174,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         await get().refreshDirectory(parentDir, true, workspaceId);
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to create path';
-      set({
-        treeError: message,
-      });
       throw error;
     }
   },
 
   deletePath: async (paths: string | string[]) => {
-    set({ treeError: null });
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
     const pathsToDelete = Array.isArray(paths) ? paths : [paths];
@@ -1238,14 +1227,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       }
       return result;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to delete path';
-      set({ treeError: message });
       throw error;
     }
   },
 
   renamePath: async (oldPath: string, newPath: string, overwrite = false, refreshTree = true) => {
-    set({ treeError: null });
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
     try {
@@ -1293,17 +1279,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         }
       }
     } catch (error) {
-      const message =
-        error instanceof Error ? error.message : 'Failed to rename path';
-      set({
-        treeError: message,
-      });
       throw error;
     }
   },
 
   uploadFile: async (file: File | File[], targetDir: string, pathMap?: Map<File, string>, convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[]) => {
-    set({ treeError: null, uploadProgress: 0 });
+    set({ uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
@@ -1320,8 +1301,6 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         await get().refreshDirectory(targetDir, true, workspaceId);
       }
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to upload files';
-      set({ treeError: message });
       throw error;
     } finally {
       set({ uploadProgress: null });

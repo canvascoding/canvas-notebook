@@ -2,7 +2,7 @@
 
 import { useRef, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { ArrowDown, ArrowUp, ArrowUpDown, Check, Loader2, AlertCircle, FolderOpen } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, Loader2, AlertCircle, FolderOpen, FolderPlus, Upload } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   SidebarMenu,
@@ -11,6 +11,7 @@ import {
   SidebarProvider,
 } from '@/components/ui/sidebar';
 import { Button } from '@/components/ui/button';
+import { Skeleton } from '@/components/ui/skeleton';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode as FileNodeType } from '@/app/lib/files/types';
 import { FileTreeNode } from './FileTreeNode';
@@ -30,6 +31,8 @@ import type { FileSortKey } from '@/app/lib/files/sort';
 interface FileGridViewProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
   onOpenFile?: (path: string) => void;
+  onUpload?: () => void;
+  onCreateFolder?: () => void;
 }
 
 const FILE_SORT_OPTIONS: Array<{ key: FileSortKey; labelKey: string }> = [
@@ -39,7 +42,12 @@ const FILE_SORT_OPTIONS: Array<{ key: FileSortKey; labelKey: string }> = [
   { key: 'size', labelKey: 'sortSize' },
 ];
 
-export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewProps) {
+export function FileGridView({
+  variant = 'default',
+  onOpenFile,
+  onUpload,
+  onCreateFolder,
+}: FileGridViewProps) {
   const t = useTranslations('notebook');
   const containerRef = useRef<HTMLDivElement>(null);
   const {
@@ -260,10 +268,63 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     </div>
   );
 
+  const renderEmptyState = (compact = false) => (
+    <div className={cn('flex h-full flex-col items-center justify-center p-4 text-center', compact ? 'min-h-40' : 'min-h-64')}>
+      <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-muted/40">
+        <FolderOpen className="h-6 w-6 text-muted-foreground" />
+      </div>
+      <p className="mt-3 text-sm font-medium text-foreground">{t('noFilesFound')}</p>
+      <p className="mt-1 max-w-64 text-xs text-muted-foreground">{t('uploadFilesToGetStarted')}</p>
+      {(onCreateFolder || onUpload) && (
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          {onCreateFolder && (
+            <Button type="button" variant="outline" size="sm" onClick={onCreateFolder}>
+              <FolderPlus className="h-4 w-4" />
+              {t('newFolder')}
+            </Button>
+          )}
+          {onUpload && (
+            <Button type="button" variant="secondary" size="sm" onClick={onUpload}>
+              <Upload className="h-4 w-4" />
+              {t('upload')}
+            </Button>
+          )}
+        </div>
+      )}
+    </div>
+  );
+
   if (isLoadingTree || isRestoring) {
     return (
-      <div className="flex h-full items-center justify-center">
-        <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
+      <div className="h-full overflow-hidden p-3 md:p-4" role="status" aria-label={t('loadingFiles')}>
+        <span className="sr-only">{t('loadingFiles')}</span>
+        {browserMode === 'grid' ? (
+          <div
+            className={cn(
+              'grid gap-3',
+              variant === 'fullscreen' && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8',
+            )}
+            style={variant !== 'fullscreen' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' } : undefined}
+            aria-hidden="true"
+          >
+            {Array.from({ length: variant === 'fullscreen' ? 12 : 6 }, (_, index) => (
+              <div key={index} className="space-y-2 rounded-lg border border-border/60 p-3">
+                <Skeleton className="aspect-[4/3] w-full" />
+                <Skeleton className="h-3 w-3/4" />
+                <Skeleton className="h-2.5 w-1/2" />
+              </div>
+            ))}
+          </div>
+        ) : (
+          <div className="space-y-2" aria-hidden="true">
+            {Array.from({ length: 8 }, (_, index) => (
+              <div key={index} className="flex items-center gap-3 rounded-md px-2 py-1.5">
+                <Skeleton className="h-5 w-5 shrink-0" />
+                <Skeleton className="h-3.5" style={{ width: `${48 + (index % 4) * 9}%` }} />
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     );
   }
@@ -281,13 +342,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
   }
 
   if (fileTree.length === 0) {
-    return (
-      <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
-        <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
-        <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
-        <p className="text-xs text-muted-foreground/60">{t('uploadFilesToGetStarted')}</p>
-      </div>
-    );
+    return renderEmptyState();
   }
 
   if (browserMode === 'grid') {
@@ -303,11 +358,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
       >
         {searchSummary}
         {gridItems.length === 0 && !searchQuery ? (
-          <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
-            <FolderOpen className="h-10 w-10 text-muted-foreground/50" />
-            <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
-            <p className="text-xs text-muted-foreground/60">{t('uploadFilesToGetStarted')}</p>
-          </div>
+          renderEmptyState()
         ) : (
           <div
             className={cn('grid gap-3', variant === 'fullscreen' && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8')}
@@ -383,10 +434,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
             <SidebarGroupContent>
               <SidebarMenu className="space-y-0.5" role="listbox" aria-label={t('fileListLabel')}>
                 {filteredListChildren && filteredListChildren.length === 0 && !searchQuery && (
-                  <div className="flex h-24 flex-col items-center justify-center gap-2 p-4 text-center">
-                    <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
-                    <p className="text-sm text-muted-foreground">{t('noFilesFound')}</p>
-                  </div>
+                  <li role="presentation">{renderEmptyState(true)}</li>
                 )}
                 {filteredListChildren?.map((node: FileNodeType) => (
                   <FileTreeNode

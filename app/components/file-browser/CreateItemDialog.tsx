@@ -1,6 +1,7 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -91,15 +92,15 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
         type === 'excalidraw' ? { template: 'excalidraw' } : undefined
       );
       onOpenChange(false);
-    } catch {
-      setError(t('createFailed'));
+    } catch (createError) {
+      setError(createError instanceof Error ? createError.message : t('createFailed'));
     } finally {
       setIsCreating(false);
     }
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === 'Enter') {
+    if (e.key === 'Enter' && !isCreating) {
       e.preventDefault();
       void handleCreate();
     }
@@ -127,7 +128,12 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
     : null;
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!isCreating || nextOpen) onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>
@@ -164,9 +170,10 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
                     : t('folderNamePlaceholder')
               }
               autoFocus
+              disabled={isCreating}
             />
             {error && (
-              <p className="mt-1.5 text-xs text-destructive">{error}</p>
+              <p className="mt-1.5 text-xs text-destructive" role="alert">{error}</p>
             )}
             {resolvedPreview && !error && (
               <p className="mt-1.5 text-xs text-muted-foreground">
@@ -175,26 +182,31 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
             )}
           </div>
           <div>
-            <label className="text-xs text-muted-foreground">{t('saveIn')}</label>
+            <label htmlFor="createItemTargetDir" className="text-xs text-muted-foreground">{t('saveIn')}</label>
             <Input
+              id="createItemTargetDir"
               value={targetDir}
               onChange={(e) => setTargetDir(e.target.value)}
               className="mt-1"
+              disabled={isCreating}
             />
           </div>
-          <DirectoryBrowser
-            tree={fileTree}
-            selectedPath={targetDir}
-            onSelect={setTargetDir}
-            expandedDirs={expandedDirs}
-            onToggleDir={toggleDir}
-          />
+          <div className={isCreating ? 'pointer-events-none opacity-60' : undefined}>
+            <DirectoryBrowser
+              tree={fileTree}
+              selectedPath={targetDir}
+              onSelect={setTargetDir}
+              expandedDirs={expandedDirs}
+              onToggleDir={toggleDir}
+            />
+          </div>
         </div>
         <DialogFooter className="gap-2">
           <Button variant="ghost" onClick={() => onOpenChange(false)} disabled={isCreating}>
             {t('cancel')}
           </Button>
           <Button variant="secondary" onClick={() => void handleCreate()} disabled={isCreating}>
+            {isCreating && <Loader2 className="h-4 w-4 animate-spin" />}
             {type === 'excalidraw'
               ? t('createExcalidraw')
               : type === 'file'

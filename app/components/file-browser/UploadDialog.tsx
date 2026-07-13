@@ -1,7 +1,7 @@
 'use client';
 
 import { useRef, useState, useEffect } from 'react';
-import { Upload, FolderPlus } from 'lucide-react';
+import { Upload, FolderPlus, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { useFileStore } from '@/app/store/file-store';
 import { DirectoryBrowser } from './DirectoryBrowser';
+import { UploadProgress } from './UploadProgress';
 
 interface UploadDialogProps {
   open: boolean;
@@ -32,6 +33,7 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
   const [targetDir, setTargetDir] = useState(defaultPath);
   const [expandedDirs, setExpandedDirs] = useState(new Set<string>());
   const [isUploading, setIsUploading] = useState(false);
+  const [error, setError] = useState('');
 
   useEffect(() => {
     if (open) {
@@ -39,6 +41,7 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
       setTargetDir(defaultPath);
       setExpandedDirs(new Set());
       setIsUploading(false);
+      setError('');
       /* eslint-enable react-hooks/set-state-in-effect */
     }
   }, [open, defaultPath]);
@@ -64,9 +67,12 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
 
   const performUpload = async (files: File[]) => {
     setIsUploading(true);
+    setError('');
     try {
       await onUpload(files, targetDir);
       onOpenChange(false);
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : t('uploadFailed'));
     } finally {
       setIsUploading(false);
     }
@@ -81,7 +87,12 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
   };
 
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog
+      open={open}
+      onOpenChange={(nextOpen) => {
+        if (!isUploading || nextOpen) onOpenChange(nextOpen);
+      }}
+    >
       <DialogContent className="max-w-xl">
         <DialogHeader>
           <DialogTitle>{t('uploadTitle')}</DialogTitle>
@@ -89,28 +100,26 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
         </DialogHeader>
         <div className="space-y-4">
           <div>
-            <label className="text-xs text-muted-foreground">{t('uploadTo')}</label>
+            <label htmlFor="uploadTargetDir" className="text-xs text-muted-foreground">{t('uploadTo')}</label>
             <Input
+              id="uploadTargetDir"
               value={targetDir}
               onChange={(e) => setTargetDir(e.target.value)}
               className="mt-1"
+              disabled={isUploading}
             />
           </div>
-          <DirectoryBrowser
-            tree={fileTree}
-            selectedPath={targetDir}
-            onSelect={setTargetDir}
-            expandedDirs={expandedDirs}
-            onToggleDir={toggleDir}
-          />
-          {isUploading && uploadProgress !== null && (
-            <div className="h-1 w-full overflow-hidden bg-muted">
-              <div
-                className="h-full bg-primary transition-all"
-                style={{ width: `${uploadProgress}%` }}
-              />
-            </div>
-          )}
+          <div className={isUploading ? 'pointer-events-none opacity-60' : undefined}>
+            <DirectoryBrowser
+              tree={fileTree}
+              selectedPath={targetDir}
+              onSelect={setTargetDir}
+              expandedDirs={expandedDirs}
+              onToggleDir={toggleDir}
+            />
+          </div>
+          {isUploading && uploadProgress !== null && <UploadProgress value={uploadProgress} />}
+          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
         </div>
         <input
           ref={fileInputRef}
@@ -132,11 +141,11 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
             {t('cancel')}
           </Button>
           <Button variant="outline" onClick={handleSelectFolder} disabled={isUploading}>
-            <FolderPlus className="mr-2 h-4 w-4" />
+            {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <FolderPlus className="mr-2 h-4 w-4" />}
             {t('uploadFolder')}
           </Button>
           <Button variant="secondary" onClick={handleSelectFiles} disabled={isUploading}>
-            <Upload className="mr-2 h-4 w-4" />
+            {isUploading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Upload className="mr-2 h-4 w-4" />}
             {t('uploadFileAction')}
           </Button>
         </DialogFooter>

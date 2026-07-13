@@ -32,6 +32,7 @@ import { useEditorStore } from '@/app/store/editor-store';
 import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-file-paths';
 import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
+import { UploadProgress } from './UploadProgress';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
@@ -184,13 +185,17 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     event.preventDefault();
     dragCounter.current = 0;
     setIsDragging(false);
-    const dropped = await getDroppedFiles(event.dataTransfer);
-    if (dropped.length === 0) return;
-    const files = dropped.map((d) => d.file);
-    const pathMap = new Map<File, string>();
-    for (const d of dropped) { pathMap.set(d.file, d.relativePath); }
-    const targetDir = resolveTargetDir();
-    await imagePreprocess.handleFiles(files, targetDir, pathMap);
+    try {
+      const dropped = await getDroppedFiles(event.dataTransfer);
+      if (dropped.length === 0) return;
+      const files = dropped.map((d) => d.file);
+      const pathMap = new Map<File, string>();
+      for (const d of dropped) { pathMap.set(d.file, d.relativePath); }
+      const targetDir = resolveTargetDir();
+      await imagePreprocess.handleFiles(files, targetDir, pathMap);
+    } catch (uploadError) {
+      toast.error(uploadError instanceof Error ? uploadError.message : t('uploadFailed'));
+    }
   };
 
   const handleDeleteClick = () => {
@@ -445,15 +450,18 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
             )}
           </div>
           {uploadProgress !== null && (
-            <div className="mt-2 h-1 w-full overflow-hidden bg-muted">
-              <div className="h-full bg-primary transition-all" style={{ width: `${uploadProgress}%` }} />
-            </div>
+            <UploadProgress value={uploadProgress} className="mt-2" />
           )}
         </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto">
-        <FileGridView variant={variant} onOpenFile={handleOpenFile} />
+        <FileGridView
+          variant={variant}
+          onOpenFile={handleOpenFile}
+          onUpload={handleUploadClick}
+          onCreateFolder={handleNewFolder}
+        />
       </div>
 
       <CreateItemDialog {...createDialogProps} defaultPath={resolveTargetDir()} />
