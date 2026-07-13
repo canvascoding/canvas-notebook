@@ -24,10 +24,13 @@ function runtimeValue(config: CanvasCliConfig, key: string, fallback = ''): stri
 }
 
 export function postgresRuntimeDesired(config: CanvasCliConfig): boolean {
-  return normalized(config.env.CANVAS_DATABASE_PROVIDER) === 'postgres' ||
-    truthy(config.env.CANVAS_POSTGRES_REQUIRED) ||
+  if (truthy(config.env.CANVAS_POSTGRES_REQUIRED) ||
     truthy(config.env.CANVAS_POSTGRES_VECTOR_ENABLED) ||
-    truthy(config.env.CANVAS_TEAM_FEATURES_ENABLED);
+    truthy(config.env.CANVAS_TEAM_FEATURES_ENABLED)) return true;
+  const provider = normalized(config.env.CANVAS_DATABASE_PROVIDER);
+  if (provider === 'postgres') return true;
+  if (provider === 'sqlite') return false;
+  return provider === '' && /^postgres(?:ql)?:\/\//iu.test(runtimeValue(config, 'DATABASE_URL'));
 }
 
 function postgresContainerName(config: CanvasCliConfig): string {
@@ -62,6 +65,23 @@ function ensurePostgresSecrets(config: CanvasCliConfig): void {
   if (databaseUrl === 'postgresql://***' || databaseUrl.includes('***')) {
     throw new Error('Postgres prepare requires an unredacted DATABASE_URL.');
   }
+  if (databaseUrl) {
+    let parsed: URL;
+    try {
+      parsed = new URL(databaseUrl);
+    } catch {
+      throw new Error('DATABASE_URL must include user, password, host, and database for managed Postgres.');
+    }
+    if (parsed.protocol !== 'postgres:' && parsed.protocol !== 'postgresql:') {
+      throw new Error('DATABASE_URL must use postgres:// or postgresql://');
+    }
+    const urlUser = decodeURIComponent(parsed.username || '');
+    const urlPassword = decodeURIComponent(parsed.password || '');
+    const urlDatabase = decodeURIComponent(parsed.pathname.replace(/^\/+|\/+$/gu, '').split('/')[0] || '');
+    if (urlUser !== postgresUser(config) || urlPassword !== password || urlDatabase !== postgresDatabase(config)) {
+      throw new Error('DATABASE_URL credentials must match CANVAS_POSTGRES_USER, CANVAS_POSTGRES_PASSWORD, and CANVAS_POSTGRES_DB.');
+    }
+  }
 }
 
 function postgresSqlLiteral(value: string): string {
@@ -84,9 +104,22 @@ async function inspectContainerStatus(docker: DockerManager, containerIdOrName: 
   return result.status === 0 ? result.stdout.trim() : '';
 }
 
-async function waitForPostgresRunning(docker: DockerManager, containerId: string, maxAttempts = 60): Promise<void> {
+async function waitForPostgresRunning(docker: DockerManager, config: CanvasCliConfig, containerId: string, maxAttempts = 60): Promise<void> {
   for (let attempt = 1; attempt <= maxAttempts; attempt += 1) {
-    if (await inspectContainerStatus(docker, containerId) === 'running') return;
+    if (await inspectContainerStatus(docker, containerId) === 'running') {
+      const ready = await docker.docker([
+        'exec',
+        '-u',
+        'postgres',
+        containerId,
+        'pg_isready',
+        '-U',
+        postgresUser(config),
+        '-d',
+        postgresDatabase(config),
+      ]);
+      if (ready.status === 0) return;
+    }
     await delay(1000);
   }
   throw new Error('Postgres container did not become running after prepare-postgres.');
@@ -151,6 +184,9 @@ export async function preparePostgresManagedRuntime(params: {
   config: CanvasCliConfig;
   stdio?: 'pipe' | 'inherit';
   ensurePgvector?: boolean;
+  reconcileAuth?: boolean;
+  timeoutSeconds?: number;
+  onPhase?: (phase: 'postgres_start' | 'postgres_ready' | 'alter_role' | 'verify' | 'pgvector') => void;
 }): Promise<PostgresPrepareResult> {
   if (!postgresRuntimeDesired(params.config)) {
     return {
@@ -163,21 +199,36 @@ export async function preparePostgresManagedRuntime(params: {
   }
 
   ensurePostgresSecrets(params.config);
-  await params.docker.composeOrThrow(params.config, ['--profile', 'postgres', 'up', '-d', 'postgres'], params.stdio ?? 'pipe');
+  params.onPhase?.('postgres_start');
+  await params.docker.composeOrThrow(params.config, ['--profile', 'postgres', 'up', '-d', '--no-recreate', 'postgres'], params.stdio ?? 'pipe');
   const containerId = await postgresContainerId(params.docker, params.config);
   if (!containerId) throw new Error('Postgres container was not found after prepare-postgres.');
-  await waitForPostgresRunning(params.docker, containerId);
-  await syncPostgresRolePassword(params.docker, params.config, containerId);
-  await verifyRuntimePassword(params.docker, params.config, containerId);
+  params.onPhase?.('postgres_ready');
+  await waitForPostgresRunning(params.docker, params.config, containerId, params.timeoutSeconds ?? 60);
+  const reconcileAuth = params.reconcileAuth ?? false;
+  if (reconcileAuth) {
+    params.onPhase?.('alter_role');
+    await syncPostgresRolePassword(params.docker, params.config, containerId);
+  }
+  params.onPhase?.('verify');
+  try {
+    await verifyRuntimePassword(params.docker, params.config, containerId);
+  } catch (error) {
+    if (!reconcileAuth) {
+      throw new Error('Postgres credentials do not match the initialized role. Run database reconcile-postgres-auth.');
+    }
+    throw error;
+  }
   const shouldEnsurePgvector = params.ensurePgvector ?? truthy(params.config.env.CANVAS_POSTGRES_VECTOR_ENABLED);
   if (shouldEnsurePgvector) {
+    params.onPhase?.('pgvector');
     await ensurePgvector(params.docker, params.config, containerId);
   }
 
   return {
     desired: true,
     containerId,
-    rolePasswordSynchronized: true,
+    rolePasswordSynchronized: reconcileAuth,
     passwordVerified: true,
     pgvectorEnsured: shouldEnsurePgvector,
   };

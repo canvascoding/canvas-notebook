@@ -11,7 +11,6 @@ CANVAS_SWAP_FILE="${CANVAS_SWAP_FILE:-/swapfile}"
 CANVAS_SWAP_SWAPPINESS="${CANVAS_SWAP_SWAPPINESS:-10}"
 SERVICE="${CANVAS_SERVICE:-canvas-notebook}"
 IMAGE_REF="${CANVAS_IMAGE:-ghcr.io/canvascoding/canvas-notebook:latest}"
-INSTALL_SCRIPT_URL="https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh"
 
 SHARED_DIR=""
 CLI_BIN_DIR="$(cd "$(dirname "$(readlink -f "$0" 2>/dev/null || echo "$0")")" 2>/dev/null && pwd)"
@@ -42,42 +41,7 @@ if [[ -n "$SHARED_DIR" ]]; then
   unset _systemd_lib
 
   _fix_config_perms() {
-    [[ "$(id -u)" -eq 0 ]] && return 0
-    local _owner _cfg_files _cfg_dirs _f _d
-    _owner="$(_install_user)"
-    _cfg_files=("$CONFIG_JSON_PATH" "$CONFIG_ENV_PATH" "$COMPOSE_ENV_PATH" "$COMPOSE_FILE")
-    for _f in "${_cfg_files[@]}"; do
-      if [[ -f "$_f" ]] && [[ ! -r "$_f" ]]; then
-        run_root chown "$_owner" "$_f" 2>/dev/null || true
-        run_root chmod 644 "$_f" 2>/dev/null || true
-      fi
-    done
-    _cfg_dirs=("$(dirname "$CONFIG_JSON_PATH")" "${INSTALL_DIR}/lib/shared" "${INSTALL_DIR}/lib/commands" "${INSTALL_DIR}/templates")
-    for _d in "${_cfg_dirs[@]}"; do
-      if [[ -d "$_d" ]] && [[ ! -w "$_d" ]]; then
-        run_root chown "$_owner" "$_d" 2>/dev/null || true
-        run_root chmod 755 "$_d" 2>/dev/null || true
-      fi
-    done
-    if [[ -d "${INSTALL_DIR}/lib/shared" ]] && [[ ! -r "${INSTALL_DIR}/lib/shared/config_json.sh" ]]; then
-      for _f in "${INSTALL_DIR}/lib/shared/"*.sh; do
-        run_root chown "$_owner" "$_f" 2>/dev/null || true
-        run_root chmod 644 "$_f" 2>/dev/null || true
-      done
-    fi
-    if [[ -d "${INSTALL_DIR}/lib/commands" ]] && [[ ! -r "${INSTALL_DIR}/lib/commands/caddy.sh" ]]; then
-      for _f in "${INSTALL_DIR}/lib/commands/"*.sh; do
-        run_root chown "$_owner" "$_f" 2>/dev/null || true
-        run_root chmod 644 "$_f" 2>/dev/null || true
-      done
-    fi
-    for _f in "${_cfg_files[@]}"; do
-      if [[ -f "$_f" ]] && [[ ! -r "$_f" ]]; then
-        printf '✗ Permission denied: %s\n' "$_f" >&2
-        printf '  Run with sudo or fix ownership: sudo chown %s %s\n' "$_owner" "$_f" >&2
-        exit 1
-      fi
-    done
+    _secure_config_file_permissions
   }
   _fix_config_perms
   unset -f _fix_config_perms
@@ -101,8 +65,6 @@ for _arg in "$@"; do
   esac
 done
 unset _arg
-
-config_json_init
 
 DEFAULT_HEALTH_ATTEMPTS="${CANVAS_HEALTH_MAX_ATTEMPTS:-180}"
 LOG_DIR="${CANVAS_MANAGER_LOG_DIR:-/var/log/canvas-notebook}"
@@ -166,6 +128,8 @@ case "$cmd" in
     ;;
 esac
 
+config_json_init
+
 cmd_file_for() {
   case "$1" in
     install|update) printf 'update\n' ;;
@@ -200,6 +164,59 @@ CMD_DIR="${CLI_BIN_DIR}/../lib/commands"
 if [[ ! -d "$CMD_DIR" ]]; then
   CMD_DIR="${INSTALL_DIR}/lib/commands"
 fi
+
+canvas_command_requires_operation_lock() {
+  local command_name="$1" subcommand="${CMD_ARGS[0]:-}"
+  case "$command_name" in
+    install|update|cli-update|config-set|config-migrate|start|restart|stop|down|admin|backup|cleanup-logs) return 0 ;;
+    env)
+      canvas_command_has_arg --sync || canvas_command_has_arg --render || canvas_command_has_arg --edit
+      ;;
+    database)
+      [[ "$subcommand" == "prepare-postgres" || "$subcommand" == "reconcile-postgres-auth" || "$subcommand" == "migrate-sqlite-to-postgres" ]]
+      ;;
+    service)
+      [[ "$subcommand" == "install" || "$subcommand" == "uninstall" ]]
+      ;;
+    swap-enable|swap-disable|caddy-reload|caddy-fix|auto-update-enable|auto-update-disable|auto-update-sync) return 0 ;;
+    *) return 1 ;;
+  esac
+}
+
+canvas_command_has_arg() {
+  local expected="$1" arg
+  if [[ "${#CMD_ARGS[@]}" -eq 0 ]]; then
+    return 1
+  fi
+  for arg in "${CMD_ARGS[@]}"; do
+    [[ "$arg" == "$expected" ]] && return 0
+  done
+  return 1
+}
+
+if canvas_command_requires_operation_lock "$cmd"; then
+  canvas_operation_lock_acquire "$cmd"
+fi
+
+pending_recovery_journal="${CANVAS_POSTGRES_RECONCILE_JOURNAL:-${INSTALL_DIR}/.postgres-auth-reconcile.json}"
+if [[ -f "$pending_recovery_journal" ]] && canvas_command_requires_operation_lock "$cmd"; then
+  pending_recovery_allowed=false
+  case "$cmd" in
+    update|start|restart|stop|cli-update) pending_recovery_allowed=true ;;
+    env)
+      if canvas_command_has_arg --sync || canvas_command_has_arg --edit; then
+        pending_recovery_allowed=true
+      fi
+      ;;
+    database)
+      [[ "${CMD_ARGS[0]:-}" == "reconcile-postgres-auth" ]] && pending_recovery_allowed=true
+      ;;
+  esac
+  if [[ "$pending_recovery_allowed" != "true" ]]; then
+    fail "An interrupted Postgres auth reconciliation is pending. Run database reconcile-postgres-auth first."
+  fi
+fi
+unset pending_recovery_journal pending_recovery_allowed
 
 if [[ -f "${CMD_DIR}/${cmd_file}.sh" ]]; then
   # shellcheck source=/dev/null

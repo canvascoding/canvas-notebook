@@ -3,22 +3,43 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import {
+  configSecretState,
   configureRuntimeAndDatabase,
   materializeConfig,
   materializePostgresInfrastructureConfig,
+  isSensitiveEnvKey,
+  isPinnedImageReference,
   loadConfig,
   parseCliDatabaseProvider,
   parseCliRuntimeMode,
   redactConfig,
   writeConfig,
   writeEnvFiles,
+  writeSecureFile,
   type CliDatabaseProvider,
   type CliRuntimeMode,
 } from './core/config';
 import { writeComposeFile } from './core/compose';
 import { DockerManager } from './core/docker';
+import {
+  acquireOperationLock,
+  commandCanRunWithPendingPostgresRecovery,
+  commandRequiresOperationLock,
+} from './core/operationLock';
 import { composePath, createRuntimeContext } from './core/platform';
-import { preparePostgresManagedRuntime } from './core/postgres';
+import { preparePostgresManagedRuntime, postgresRuntimeDesired } from './core/postgres';
+import {
+  assertPostgresRecoveryCompatible,
+  clearPostgresRecoveryJournal,
+  createPostgresRecoverySnapshot,
+  hasPostgresRecoveryJournal,
+  readPostgresRecoverySnapshot,
+  readPostgresRecoveryJournal,
+  restorePostgresRecoverySnapshot,
+  writePostgresRecoveryJournal,
+  type PostgresRecoveryJournal,
+  type PostgresRecoverySnapshot,
+} from './core/postgresRecovery';
 import { SpawnCommandRunner } from './core/process';
 import { reexecPortableCliIfUpdated, updatePortableCli } from './core/selfUpdate';
 import { ServiceManager } from './core/service';
@@ -40,6 +61,21 @@ interface BackupCreateOptions {
   output?: string;
   noWait: boolean;
   keepJobArtifacts: boolean;
+}
+
+interface EnvOptions {
+  mode: 'render' | 'sync';
+  timeoutSeconds: number;
+}
+
+export interface UpdateOptions {
+  image?: string;
+  requirePinned?: boolean;
+}
+
+interface UpdateDeadline {
+  deadlineMs: number | null;
+  rollbackReserveMs: number;
 }
 
 const LATEST_BACKUP_FILE_NAME = 'canvas-notebook-backup-latest.zip';
@@ -79,7 +115,8 @@ function printHelp(): void {
 Commands:
   install [--database sqlite|postgres] [--runtime personal|team]
                                   Generate config, pull image, start container
-  update                          Pull image and recreate only when needed
+  update [--image <name@sha256>] [--require-pinned]
+                                 Pull and apply an image with rollback protection
   start                           Start the container and wait for health
   restart                         Recreate the container and wait for health
   stop                            Stop the app service
@@ -88,14 +125,20 @@ Commands:
   health [--json]                 Check /api/health
   logs                            Follow app container logs
   manager-log                     Show host-side CLI log
-  env --sync                      Regenerate env files
-  config-show                     Print canvas-notebook-config.json with secrets masked
-  config-set <key> <value>        Set a top-level/env config value
+  env --render | env --sync --timeout <seconds>
+                                  Render only, or apply safely and wait for health
+  config-show --json --secret-state
+                                  Print masked config; optionally include secret fingerprints
+  config-set <key> <value> | config-set <key> --stdin
+                                  Set a config value; --stdin avoids secret argv exposure
   cli-update                      Update the portable management CLI bundle
   admin reset-password ...        Reset or create an admin in the container
   backup create [--output <path>] Create/replace the local latest full backup
   database status [--json]        Show configured database provider status
-  database prepare-postgres       Prepare local Postgres service without data migration
+  database prepare-postgres --timeout <seconds>
+                                  Prepare local Postgres without requiring old credentials
+  database reconcile-postgres-auth --timeout <seconds>
+                                  Reconcile Postgres auth, then apply the app
   database migrate-sqlite-to-postgres [args]
   service status|install|uninstall
 `);
@@ -113,11 +156,11 @@ async function readConfig(context: RuntimeContext): Promise<CanvasCliConfig> {
 async function syncFiles(
   context: RuntimeContext,
   config: CanvasCliConfig,
-  options: { postgresInfrastructureOnly?: boolean } = {},
+  options: { postgresInfrastructureOnly?: boolean; allowPostgresSecretGeneration?: boolean } = {},
 ): Promise<CanvasCliConfig> {
   const next = options.postgresInfrastructureOnly
     ? materializePostgresInfrastructureConfig(config)
-    : materializeConfig(config);
+    : materializeConfig(config, undefined, { allowPostgresSecretGeneration: options.allowPostgresSecretGeneration ?? false });
   const composeDataDir = composePath(next.dataDir, context.platform);
   await fs.mkdir(next.paths.installDir, { recursive: true });
   await fs.mkdir(next.paths.dataDir, { recursive: true });
@@ -125,6 +168,30 @@ async function syncFiles(
   await writeEnvFiles(next, composeDataDir);
   await writeComposeFile(next, context.platform);
   return next;
+}
+
+async function renderEnvFiles(
+  context: RuntimeContext,
+  config: CanvasCliConfig,
+): Promise<{ config: CanvasCliConfig; filesChanged: boolean }> {
+  const next = materializeConfig(config, undefined, { allowPostgresSecretGeneration: false });
+  const composeDataDir = composePath(next.dataDir, context.platform);
+  const [beforeContainerEnv, beforeComposeEnv] = await Promise.all([
+    fs.readFile(next.paths.containerEnvFile, 'utf8').catch(() => null),
+    fs.readFile(next.paths.composeEnvFile, 'utf8').catch(() => null),
+  ]);
+  await fs.mkdir(next.paths.installDir, { recursive: true });
+  await fs.mkdir(next.paths.dataDir, { recursive: true });
+  await writeConfig(next);
+  await writeEnvFiles(next, composeDataDir);
+  const [afterContainerEnv, afterComposeEnv] = await Promise.all([
+    fs.readFile(next.paths.containerEnvFile, 'utf8'),
+    fs.readFile(next.paths.composeEnvFile, 'utf8'),
+  ]);
+  return {
+    config: next,
+    filesChanged: beforeContainerEnv !== afterContainerEnv || beforeComposeEnv !== afterComposeEnv,
+  };
 }
 
 function readOptionValue(args: string[], index: number, option: string): { value: string; nextIndex: number } {
@@ -157,6 +224,179 @@ function parseInstallOptions(args: string[]): InstallOptions {
     }
   }
   return options;
+}
+
+function parseEnvOptions(args: string[]): EnvOptions {
+  let mode: EnvOptions['mode'] | undefined;
+  let timeoutSeconds = Number(process.env.CANVAS_ENV_SYNC_TIMEOUT || 900);
+  let timeoutSet = false;
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--render' || arg === '--sync') {
+      const nextMode = arg === '--render' ? 'render' : 'sync';
+      if (mode && mode !== nextMode) throw new Error('--render and --sync are mutually exclusive.');
+      mode = nextMode;
+    } else if (arg === '--timeout' || arg.startsWith('--timeout=')) {
+      const parsed = readOptionValue(args, i, '--timeout');
+      timeoutSeconds = Number(parsed.value);
+      timeoutSet = true;
+      i = parsed.nextIndex;
+    } else {
+      throw new Error(`Unknown env option: ${arg}`);
+    }
+  }
+  if (!mode) throw new Error('Usage: canvas-notebook env --render|--sync [--timeout <seconds>]');
+  if (timeoutSet && mode !== 'sync') throw new Error('--timeout requires --sync.');
+  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 7200) {
+    throw new Error('--timeout must be an integer from 1 to 7200 seconds.');
+  }
+  return { mode, timeoutSeconds };
+}
+
+function parseUpdateOptions(args: string[]): UpdateOptions {
+  const options: UpdateOptions = {};
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--image' || arg.startsWith('--image=')) {
+      if (options.image) throw new Error('--image can only be provided once.');
+      const parsed = readOptionValue(args, i, '--image');
+      options.image = parsed.value;
+      i = parsed.nextIndex;
+    } else if (arg === '--require-pinned') {
+      options.requirePinned = true;
+    } else {
+      throw new Error(`Unknown update option: ${arg}`);
+    }
+  }
+  if (options.image && !isPinnedImageReference(options.image)) {
+    throw new Error('--image must be an OCI image name pinned to a sha256 digest.');
+  }
+  return options;
+}
+
+function updatePostgresTimeoutSeconds(env: NodeJS.ProcessEnv = process.env): number {
+  const timeoutSeconds = Number(env.CANVAS_UPDATE_POSTGRES_TIMEOUT || 900);
+  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 7200) {
+    throw new Error('CANVAS_UPDATE_POSTGRES_TIMEOUT must be an integer from 1 to 7200 seconds.');
+  }
+  return timeoutSeconds;
+}
+
+function updateDeadline(env: NodeJS.ProcessEnv = process.env): UpdateDeadline {
+  const rawDeadline = String(env.CANVAS_UPDATE_DEADLINE_EPOCH_MS || '').trim();
+  const rollbackReserveSeconds = Number(env.CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS || 120);
+  if (!Number.isInteger(rollbackReserveSeconds) || rollbackReserveSeconds < 30 || rollbackReserveSeconds > 1800) {
+    throw new Error('CANVAS_UPDATE_ROLLBACK_RESERVE_SECONDS must be an integer from 30 to 1800 seconds.');
+  }
+  if (!rawDeadline) return { deadlineMs: null, rollbackReserveMs: rollbackReserveSeconds * 1000 };
+  const deadlineMs = Number(rawDeadline);
+  if (!Number.isSafeInteger(deadlineMs) || deadlineMs <= Date.now() + rollbackReserveSeconds * 1000) {
+    throw new Error('CANVAS_UPDATE_DEADLINE_EPOCH_MS must be a future epoch-millisecond deadline beyond the rollback reserve.');
+  }
+  return { deadlineMs, rollbackReserveMs: rollbackReserveSeconds * 1000 };
+}
+
+function remainingUpdateTime(deadline: UpdateDeadline, reserveRollback: boolean): number | undefined {
+  if (deadline.deadlineMs === null) return undefined;
+  const remaining = deadline.deadlineMs - Date.now() - (reserveRollback ? deadline.rollbackReserveMs : 0);
+  if (remaining < 1000) throw new Error(reserveRollback
+    ? 'Update forward deadline exhausted; rollback reserve is now active.'
+    : 'Update rollback deadline exhausted.');
+  return remaining;
+}
+
+function boundedHealthAttempts(timeoutMs: number | undefined): number {
+  const configured = Number(process.env.CANVAS_HEALTH_MAX_ATTEMPTS || 180);
+  const safeConfigured = Number.isInteger(configured) && configured > 0 ? configured : 180;
+  return timeoutMs === undefined ? safeConfigured : Math.max(1, Math.min(safeConfigured, Math.floor(timeoutMs / 1000)));
+}
+
+function managedByControlPlane(config: CanvasCliConfig): boolean {
+  const managed = String(config.env.CANVAS_MANAGED_SERVICES_ENABLED || '').trim().toLowerCase();
+  return ['true', '1', 'yes', 'on'].includes(managed) || String(config.env.CANVAS_CONTROL_PLANE_URL || '').trim().length > 0;
+}
+
+async function runEnvCommand(
+  context: RuntimeContext,
+  docker: DockerManager,
+  config: CanvasCliConfig,
+  args: string[],
+  json: boolean,
+): Promise<void> {
+  let phase = 'arguments';
+  let postgresAuthReconciled = false;
+  try {
+    const options = parseEnvOptions(args);
+    if (await hasPostgresRecoveryJournal(config)) {
+      if (options.mode !== 'sync') {
+        phase = 'recovery';
+        throw new Error('An interrupted Postgres auth reconciliation is pending; env --render is blocked.');
+      }
+      phase = 'recovery';
+      await reconcilePostgresAuth(context, docker, config, ['--timeout', String(options.timeoutSeconds)], json, true);
+      config = await readConfig(context);
+      postgresAuthReconciled = true;
+    } else if (options.mode === 'sync' && postgresRuntimeDesired(config)) {
+      const existingEnvFiles = await Promise.all([
+        fs.access(config.paths.containerEnvFile).then(() => true, () => false),
+        fs.access(config.paths.composeEnvFile).then(() => true, () => false),
+      ]);
+      if (existingEnvFiles.every(Boolean)) {
+        phase = 'postgres';
+        await reconcilePostgresAuth(context, docker, config, ['--timeout', String(options.timeoutSeconds)], json, true);
+        config = await readConfig(context);
+        postgresAuthReconciled = true;
+      }
+    }
+    phase = 'render';
+    const rendered = await renderEnvFiles(context, config);
+    if (options.mode === 'render') {
+      const result = { success: true, rendered: true, restarted: false, filesChanged: rendered.filesChanged };
+      console.log(json ? JSON.stringify(result) : 'Environment files rendered without restarting containers.');
+      return;
+    }
+
+    phase = 'compose';
+    await writeComposeFile(rendered.config, context.platform);
+    const beforeContainer = await docker.containerId(rendered.config);
+    const beforeRunning = await docker.isContainerRunning(beforeContainer);
+    phase = 'postgres';
+    const postgres = postgresAuthReconciled
+      ? { desired: true }
+      : await preparePostgresManagedRuntime({
+        docker,
+        config: rendered.config,
+        stdio: json ? 'pipe' : 'inherit',
+      });
+    phase = 'app';
+    await docker.composeOrThrow(rendered.config, ['up', '-d', '--no-deps', context.serviceName], json ? 'pipe' : 'inherit');
+    const afterContainer = await docker.containerId(rendered.config);
+    phase = 'health';
+    await docker.waitUntilHealthy(rendered.config, options.timeoutSeconds, options.timeoutSeconds * 1000);
+    const result = {
+      success: true,
+      rendered: true,
+      restarted: !beforeRunning || beforeContainer !== afterContainer,
+      filesChanged: rendered.filesChanged,
+      postgresReconciled: postgres.desired,
+      healthy: true,
+      timeoutSeconds: options.timeoutSeconds,
+    };
+    console.log(json ? JSON.stringify(result) : 'Canvas Notebook environment applied and healthy.');
+  } catch (error) {
+    if (!json) throw error;
+    const messages: Record<string, string> = {
+      arguments: error instanceof Error ? error.message : 'Invalid environment options.',
+      render: 'Environment render failed.',
+      compose: 'Compose configuration failed.',
+      postgres: 'Postgres credential reconciliation failed.',
+      recovery: error instanceof Error ? error.message : 'Interrupted Postgres auth reconciliation could not be completed.',
+      app: 'Canvas Notebook apply failed.',
+      health: 'Canvas Notebook did not become healthy within the configured timeout.',
+    };
+    console.log(JSON.stringify({ success: false, phase, error: messages[phase] || 'Environment synchronization failed.' }));
+    process.exitCode = 1;
+  }
 }
 
 function parseBackupCreateOptions(args: string[]): BackupCreateOptions {
@@ -208,7 +448,7 @@ async function copyFileAtomically(sourcePath: string, requestedOutputPath: strin
 
 async function install(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<void> {
   await appendLog(context, 'install started');
-  const next = await syncFiles(context, config);
+  const next = await syncFiles(context, config, { allowPostgresSecretGeneration: true });
   await docker.pull(next);
   await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
   await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
@@ -217,19 +457,127 @@ async function install(context: RuntimeContext, docker: DockerManager, config: C
   console.log(`Canvas Notebook is healthy: ${docker.healthUrl(next)}`);
 }
 
-async function update(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<void> {
+export async function update(
+  context: RuntimeContext,
+  docker: DockerManager,
+  config: CanvasCliConfig,
+  json: boolean,
+  options: UpdateOptions,
+): Promise<void> {
   await appendLog(context, 'update started');
-  const next = await syncFiles(context, config);
-  await docker.pull(next);
-  await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
-  if (await docker.needsRecreate(next)) {
-    await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
-  } else {
-    console.log('Container already runs the current healthy image; skipping recreate.');
+  const previousConfigImage = config.image;
+  const targetImage = options.image || previousConfigImage;
+  if ((options.requirePinned || managedByControlPlane(config)) && !isPinnedImageReference(targetImage)) {
+    throw new Error('Managed and scheduled updates require an image pinned to a sha256 digest.');
   }
-  await docker.waitUntilHealthy(next);
-  await appendLog(context, 'update completed');
-  console.log(`Canvas Notebook is healthy: ${docker.healthUrl(next)}`);
+  const previousContainer = await docker.containerId(config);
+  const previousImageId = await docker.containerImageId(previousContainer);
+  let phase = 'render';
+  let appliedNewImage = false;
+  let recreated = false;
+  let deadline: UpdateDeadline = { deadlineMs: null, rollbackReserveMs: 120000 };
+  try {
+    phase = 'arguments';
+    deadline = updateDeadline();
+    if (postgresRuntimeDesired(config)) {
+      phase = 'postgres_auth';
+      const forwardTimeoutMs = remainingUpdateTime(deadline, true);
+      const postgresTimeout = Math.min(
+        updatePostgresTimeoutSeconds(),
+        forwardTimeoutMs === undefined ? 7200 : Math.max(1, Math.floor(forwardTimeoutMs / 1000)),
+      );
+      await reconcilePostgresAuth(
+        context,
+        docker,
+        config,
+        ['--timeout', String(postgresTimeout)],
+        json,
+        true,
+      );
+      config = await readConfig(context);
+    }
+    remainingUpdateTime(deadline, true);
+    const next = await syncFiles(context, config);
+    const runConfig = structuredClone(next);
+    runConfig.image = targetImage;
+    const targetEnvironment = { ...process.env, CANVAS_IMAGE: targetImage };
+    phase = 'pull';
+    await docker.pull(runConfig, json ? 'pipe' : 'inherit', remainingUpdateTime(deadline, true), targetEnvironment);
+    if (await docker.needsRecreate(runConfig)) {
+      phase = 'apply';
+      appliedNewImage = true;
+      await docker.composeOrThrow(
+        runConfig,
+        ['up', '-d', '--force-recreate', '--no-deps', context.serviceName],
+        json ? 'pipe' : 'inherit',
+        remainingUpdateTime(deadline, true),
+        targetEnvironment,
+      );
+      recreated = true;
+    } else if (!json) {
+      console.log('Container already runs the current healthy image; skipping recreate.');
+    }
+    phase = 'health';
+    const forwardHealthTimeout = remainingUpdateTime(deadline, true);
+    await docker.waitUntilHealthy(runConfig, boundedHealthAttempts(forwardHealthTimeout), forwardHealthTimeout);
+    if (options.image) {
+      phase = 'finalize';
+      const finalizeTimeout = remainingUpdateTime(deadline, true);
+      const persisted = await readConfig(context);
+      if (previousConfigImage.includes('@sha256:')) {
+        persisted.image = targetImage;
+      } else {
+        const targetImageId = await docker.imageId(targetImage);
+        if (!targetImageId) throw new Error('Pinned image could not be resolved after the update.');
+        await docker.dockerOrThrow(['image', 'tag', targetImageId, previousConfigImage], { stdio: 'pipe', timeoutMs: finalizeTimeout });
+        persisted.image = previousConfigImage;
+      }
+      await writeConfig(persisted);
+      await writeEnvFiles(persisted, composePath(persisted.dataDir, context.platform));
+    }
+    await appendLog(context, 'update completed');
+    if (json) console.log(JSON.stringify({ success: true, recreated, healthy: true, rolledBack: false }));
+    else console.log(`Canvas Notebook is healthy: ${docker.healthUrl(runConfig)}`);
+  } catch {
+    let rolledBack = false;
+    if (appliedNewImage && previousImageId) {
+      try {
+        const rollback = await readConfig(context);
+        rollback.image = previousConfigImage;
+        if (!previousConfigImage.includes('@sha256:')) {
+          await docker.dockerOrThrow(['image', 'tag', previousImageId, previousConfigImage], {
+            stdio: 'pipe',
+            timeoutMs: remainingUpdateTime(deadline, false),
+          });
+        }
+        await writeConfig(rollback);
+        await writeEnvFiles(rollback, composePath(rollback.dataDir, context.platform));
+        await docker.composeOrThrow(
+          rollback,
+          ['up', '-d', '--force-recreate', '--no-deps', context.serviceName],
+          'pipe',
+          remainingUpdateTime(deadline, false),
+        );
+        const rollbackHealthTimeout = remainingUpdateTime(deadline, false);
+        await docker.waitUntilHealthy(rollback, boundedHealthAttempts(rollbackHealthTimeout), rollbackHealthTimeout);
+        rolledBack = true;
+      } catch {
+        rolledBack = false;
+      }
+    }
+    const failurePhase = appliedNewImage && !rolledBack ? 'rollback_failed' : phase;
+    const message = rolledBack
+      ? 'Updated image failed; the previous image was restored.'
+      : (appliedNewImage
+        ? 'Updated image failed and the previous image could not be restored.'
+        : `Update failed during ${phase}; the running container was not changed.`);
+    if (json) {
+      console.log(JSON.stringify({ success: false, phase: failurePhase, error: message, rolledBack }));
+      process.exitCode = 1;
+      return;
+    }
+    throw new Error(message);
+  }
 }
 
 async function statusJson(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<StatusJson> {
@@ -273,6 +621,18 @@ function setConfigValue(config: CanvasCliConfig, key: string, value: string): Ca
   throw new Error(`Unsupported config key: ${key}`);
 }
 
+async function readSingleLineStdin(): Promise<string> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of process.stdin) {
+    chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(String(chunk), 'utf8'));
+  }
+  const value = Buffer.concat(chunks).toString('utf8');
+  if (value.includes('\0') || value.includes('\n') || value.includes('\r')) {
+    throw new Error('config-set --stdin accepts a single-line value.');
+  }
+  return value;
+}
+
 function databaseStatusPayload(config: CanvasCliConfig) {
   const provider = String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite');
   const deploymentMode = String(config.env.CANVAS_DEPLOYMENT_MODE || 'single_user');
@@ -306,6 +666,236 @@ function printDatabaseStatus(config: CanvasCliConfig, json: boolean): void {
   console.log(`Postgres image: ${status.postgres.image || '(not set)'}`);
   console.log(`Postgres volume: ${status.postgres.dataVolume || '(not set)'}`);
   console.log(`DATABASE_URL: ${status.postgres.databaseUrlConfigured ? 'configured' : '(not set)'}`);
+}
+
+function parsePostgresReconcileTimeout(args: string[]): number {
+  let timeoutSeconds = Number(process.env.CANVAS_POSTGRES_RECONCILE_TIMEOUT || 900);
+  for (let i = 0; i < args.length; i += 1) {
+    const arg = args[i];
+    if (arg === '--timeout' || arg.startsWith('--timeout=')) {
+      const parsed = readOptionValue(args, i, '--timeout');
+      timeoutSeconds = Number(parsed.value);
+      i = parsed.nextIndex;
+    } else {
+      throw new Error(`Unknown reconcile-postgres-auth option: ${arg}`);
+    }
+  }
+  if (!Number.isInteger(timeoutSeconds) || timeoutSeconds < 1 || timeoutSeconds > 7200) {
+    throw new Error('--timeout must be an integer from 1 to 7200 seconds.');
+  }
+  return timeoutSeconds;
+}
+
+function envFileValue(content: string, key: string): string {
+  const prefix = `${key}=`;
+  const line = content.split(/\r?\n/u).find((entry) => entry.startsWith(prefix));
+  return line ? line.slice(prefix.length) : '';
+}
+
+function rollbackPostgresConfig(
+  desiredConfig: CanvasCliConfig,
+  oldUser: string,
+  oldDatabase: string,
+  oldPassword: string,
+  oldDatabaseUrl: string,
+): CanvasCliConfig {
+  const rollback = structuredClone(desiredConfig);
+  rollback.env.CANVAS_POSTGRES_USER = oldUser;
+  rollback.env.CANVAS_POSTGRES_DB = oldDatabase;
+  rollback.env.CANVAS_POSTGRES_PASSWORD = oldPassword;
+  rollback.env.DATABASE_URL = oldDatabaseUrl || `postgresql://${encodeURIComponent(oldUser)}:${encodeURIComponent(oldPassword)}@postgres:5432/${encodeURIComponent(oldDatabase)}`;
+  return rollback;
+}
+
+async function reconcilePostgresAuth(
+  context: RuntimeContext,
+  docker: DockerManager,
+  config: CanvasCliConfig,
+  args: string[],
+  json: boolean,
+  quiet = false,
+): Promise<boolean> {
+  if (args.includes('-h') || args.includes('--help')) {
+    console.log('Usage: canvas-notebook database reconcile-postgres-auth [--timeout <seconds>] [--json]');
+    return true;
+  }
+  let phase = 'arguments';
+  let rollbackConfig: CanvasCliConfig | null = null;
+  let oldContainerEnv = '';
+  let oldComposeEnv = '';
+  let roleMutationStarted = false;
+  let timeoutSeconds = 900;
+  let deadline = Date.now() + timeoutSeconds * 1000;
+  let forwardDeadline = deadline;
+  let recoveryJournal: PostgresRecoveryJournal | null = null;
+  let recoverySnapshot: PostgresRecoverySnapshot | null = null;
+  let journalArmed = false;
+  let journalWasPending = false;
+  const remainingSeconds = (target: number): number => Math.max(0, Math.ceil((target - Date.now()) / 1000));
+  try {
+    timeoutSeconds = parsePostgresReconcileTimeout(args);
+    const rollbackReserve = timeoutSeconds > 1 ? Math.min(30, Math.max(1, Math.floor(timeoutSeconds / 5))) : 0;
+    deadline = Date.now() + timeoutSeconds * 1000;
+    forwardDeadline = deadline - rollbackReserve * 1000;
+    phase = 'preflight';
+    if (!postgresRuntimeDesired(config)) throw new Error('Managed Postgres is not enabled for this installation.');
+    recoveryJournal = await readPostgresRecoveryJournal(config);
+    journalWasPending = recoveryJournal !== null;
+    if (recoveryJournal) {
+      await assertPostgresRecoveryCompatible(config, recoveryJournal);
+      recoverySnapshot = await readPostgresRecoverySnapshot(config, recoveryJournal);
+      rollbackConfig = recoverySnapshot.rollbackConfig;
+      oldContainerEnv = recoverySnapshot.containerEnv;
+      oldComposeEnv = recoverySnapshot.composeEnv;
+      if (recoveryJournal.state === 'rollback') {
+        phase = 'recovery_rollback';
+        await restorePostgresRecoverySnapshot(recoverySnapshot);
+        await writeComposeFile(rollbackConfig, context.platform);
+        const rollbackTimeout = remainingSeconds(deadline);
+        if (rollbackTimeout < 1) throw new Error('Recovery deadline exhausted before Postgres rollback.');
+        await preparePostgresManagedRuntime({
+          docker,
+          config: rollbackConfig,
+          stdio: json ? 'pipe' : 'inherit',
+          ensurePgvector: false,
+          reconcileAuth: true,
+          timeoutSeconds: rollbackTimeout,
+          onPhase: (nextPhase) => {
+            phase = `recovery_${nextPhase}`;
+            if (nextPhase === 'alter_role') roleMutationStarted = true;
+          },
+        });
+        phase = 'recovery_app';
+        await docker.composeOrThrow(rollbackConfig, ['up', '-d', '--no-deps', context.serviceName], json ? 'pipe' : 'inherit');
+        phase = 'recovery_health';
+        const rollbackHealthTimeout = remainingSeconds(deadline);
+        if (rollbackHealthTimeout < 1) throw new Error('Recovery deadline exhausted before app health verification.');
+        await docker.waitUntilHealthy(rollbackConfig, rollbackHealthTimeout, rollbackHealthTimeout * 1000);
+        await clearPostgresRecoveryJournal(config);
+        journalArmed = false;
+        const result = { success: true, recovered: 'rollback', healthy: true, rolledBack: true };
+        if (!quiet) console.log(json ? JSON.stringify(result) : 'Interrupted Postgres rollback recovered and verified.');
+        return true;
+      }
+    } else {
+      await clearPostgresRecoveryJournal(config);
+      [oldContainerEnv, oldComposeEnv] = await Promise.all([
+        fs.readFile(config.paths.containerEnvFile, 'utf8'),
+        fs.readFile(config.paths.composeEnvFile, 'utf8'),
+      ]);
+    }
+    const oldUser = envFileValue(oldComposeEnv, 'CANVAS_POSTGRES_USER');
+    const oldDatabase = envFileValue(oldComposeEnv, 'CANVAS_POSTGRES_DB');
+    const oldPassword = envFileValue(oldComposeEnv, 'CANVAS_POSTGRES_PASSWORD');
+    const oldDatabaseUrl = envFileValue(oldContainerEnv, 'DATABASE_URL');
+    const desiredUser = String(config.env.CANVAS_POSTGRES_USER || 'canvas');
+    const desiredDatabase = String(config.env.CANVAS_POSTGRES_DB || 'canvas_notebook');
+    if (!oldUser || !oldDatabase || oldPassword.length < 8 || oldPassword.includes('***')) {
+      throw new Error('Existing Postgres credentials are unavailable for safe rollback.');
+    }
+    if (oldUser !== desiredUser || oldDatabase !== desiredDatabase) {
+      throw new Error('CANVAS_POSTGRES_USER and CANVAS_POSTGRES_DB cannot be changed after initialization.');
+    }
+    rollbackConfig ??= rollbackPostgresConfig(config, oldUser, oldDatabase, oldPassword, oldDatabaseUrl);
+    recoverySnapshot ??= { rollbackConfig, containerEnv: oldContainerEnv, composeEnv: oldComposeEnv };
+    phase = 'compose';
+    await writeComposeFile(config, context.platform);
+    if (!journalWasPending) {
+      await createPostgresRecoverySnapshot(config, recoverySnapshot);
+    }
+    recoveryJournal = await writePostgresRecoveryJournal(config, rollbackConfig, 'forward', recoveryJournal);
+    journalArmed = true;
+    const postgresTimeout = remainingSeconds(forwardDeadline);
+    if (postgresTimeout < 1) throw new Error('Forward deadline exhausted before Postgres readiness.');
+    await preparePostgresManagedRuntime({
+      docker,
+      config,
+      stdio: json ? 'pipe' : 'inherit',
+      timeoutSeconds: postgresTimeout,
+      reconcileAuth: true,
+      onPhase: (nextPhase) => {
+        phase = nextPhase;
+        if (nextPhase === 'alter_role') roleMutationStarted = true;
+      },
+    });
+    phase = 'render';
+    const beforeContainer = await docker.containerId(config);
+    const beforeRunning = await docker.isContainerRunning(beforeContainer);
+    const rendered = await renderEnvFiles(context, config);
+    phase = 'app';
+    await docker.composeOrThrow(rendered.config, ['up', '-d', '--no-deps', context.serviceName], json ? 'pipe' : 'inherit');
+    const afterContainer = await docker.containerId(rendered.config);
+    phase = 'health';
+    const healthTimeout = remainingSeconds(forwardDeadline);
+    if (healthTimeout < 1) throw new Error('Forward deadline exhausted before health verification.');
+    await docker.waitUntilHealthy(rendered.config, healthTimeout, healthTimeout * 1000);
+    await clearPostgresRecoveryJournal(config);
+    journalArmed = false;
+    const result = {
+      success: true,
+      databaseProvider: String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite'),
+      postgresStarted: true,
+      rolePasswordSynchronized: true,
+      passwordVerified: true,
+      envRendered: true,
+      appRestarted: !beforeRunning || beforeContainer !== afterContainer,
+      healthy: true,
+    };
+    if (!quiet) console.log(json ? JSON.stringify(result) : 'Postgres credentials reconciled, verified, and applied.');
+    return true;
+  } catch (error) {
+    let rolledBack = false;
+    if (roleMutationStarted && rollbackConfig) {
+      try {
+        recoveryJournal = await writePostgresRecoveryJournal(config, rollbackConfig, 'rollback', recoveryJournal);
+        if (!recoverySnapshot) throw new Error('Postgres rollback recovery state is unavailable.');
+        await restorePostgresRecoverySnapshot(recoverySnapshot);
+        const rollbackPostgresTimeout = remainingSeconds(deadline);
+        if (rollbackPostgresTimeout < 1) throw new Error('Rollback deadline exhausted before Postgres restoration.');
+        await preparePostgresManagedRuntime({
+          docker,
+          config: rollbackConfig,
+          stdio: 'pipe',
+          ensurePgvector: false,
+          reconcileAuth: true,
+          timeoutSeconds: rollbackPostgresTimeout,
+        });
+        await docker.composeOrThrow(rollbackConfig, ['up', '-d', '--no-deps', context.serviceName], 'pipe');
+        const rollbackHealthTimeout = remainingSeconds(deadline);
+        if (rollbackHealthTimeout < 1) throw new Error('Rollback deadline exhausted before health verification.');
+        await docker.waitUntilHealthy(rollbackConfig, rollbackHealthTimeout, rollbackHealthTimeout * 1000);
+        await clearPostgresRecoveryJournal(config);
+        journalArmed = false;
+        rolledBack = true;
+      } catch {
+        rolledBack = false;
+      }
+    } else if (journalArmed && !journalWasPending) {
+      await clearPostgresRecoveryJournal(config).catch(() => undefined);
+      journalArmed = false;
+    }
+    const genericErrors: Record<string, string> = {
+      compose: 'Compose configuration failed.',
+      postgres_start: 'Postgres service could not be started without recreation.',
+      postgres_ready: 'Postgres did not become ready within the configured timeout.',
+      alter_role: 'Postgres role password reconciliation failed.',
+      verify: 'Postgres TCP login verification failed.',
+      pgvector: 'Postgres extension verification failed.',
+      render: 'Environment render failed after Postgres verification.',
+      app: 'Canvas Notebook apply failed after Postgres verification.',
+      health: 'Canvas Notebook did not become healthy within the configured timeout.',
+    };
+    const message = phase === 'arguments' || phase === 'preflight'
+      ? (error instanceof Error ? error.message : 'Postgres reconciliation preflight failed.')
+      : (genericErrors[phase] || 'Postgres credential reconciliation failed.');
+    if (quiet) throw new Error(message);
+    if (json) {
+      console.log(JSON.stringify({ success: false, phase, error: message, rolledBack }));
+      process.exitCode = 1;
+      return false;
+    }
+    throw new Error(message);
+  }
 }
 
 async function admin(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[]): Promise<void> {
@@ -354,7 +944,8 @@ async function admin(context: RuntimeContext, docker: DockerManager, config: Can
 async function database(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig, args: string[], json: boolean): Promise<void> {
   const subcommand = args.shift();
   if (!subcommand || subcommand === '-h' || subcommand === '--help') {
-    throw new Error('Usage: canvas-notebook database status|prepare-postgres|migrate-sqlite-to-postgres [options]');
+    console.log('Usage: canvas-notebook database status|prepare-postgres|reconcile-postgres-auth|migrate-sqlite-to-postgres [options]');
+    return;
   }
 
   if (subcommand === 'status') {
@@ -363,8 +954,36 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
   }
 
   if (subcommand === 'prepare-postgres') {
-    const next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
-    const prepare = await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
+    if (args.includes('-h') || args.includes('--help')) {
+      console.log('Usage: canvas-notebook database prepare-postgres [--timeout <seconds>] [--json]');
+      return;
+    }
+    if (await hasPostgresRecoveryJournal(config)) {
+      throw new Error('An interrupted Postgres auth reconciliation is pending. Run database reconcile-postgres-auth first.');
+    }
+    const timeoutSeconds = parsePostgresReconcileTimeout(args);
+    const existingEnvFiles = await Promise.all([
+      fs.readFile(config.paths.containerEnvFile, 'utf8').catch(() => null),
+      fs.readFile(config.paths.composeEnvFile, 'utf8').catch(() => null),
+    ]);
+    if (existingEnvFiles.every((content) => content !== null) && postgresRuntimeDesired(config)) {
+      await reconcilePostgresAuth(context, docker, config, ['--timeout', String(timeoutSeconds)], json, true);
+      config = await readConfig(context);
+    }
+    let next!: CanvasCliConfig;
+    let prepare!: Awaited<ReturnType<typeof preparePostgresManagedRuntime>>;
+    try {
+      next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
+      prepare = await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit', timeoutSeconds });
+    } catch (error) {
+      if (existingEnvFiles[0] !== null && existingEnvFiles[1] !== null) {
+        await Promise.all([
+          writeSecureFile(config.paths.containerEnvFile, existingEnvFiles[0]),
+          writeSecureFile(config.paths.composeEnvFile, existingEnvFiles[1]),
+        ]).catch(() => undefined);
+      }
+      throw error;
+    }
     if (json) {
       console.log(JSON.stringify({ success: true, prepare, ...databaseStatusPayload(next) }));
     } else {
@@ -373,8 +992,23 @@ async function database(context: RuntimeContext, docker: DockerManager, config: 
     return;
   }
 
+  if (subcommand === 'reconcile-postgres-auth') {
+    await reconcilePostgresAuth(context, docker, config, args, json);
+    return;
+  }
+
   if (subcommand !== 'migrate-sqlite-to-postgres') {
     throw new Error(`Unknown database subcommand: ${subcommand}`);
+  }
+  if (postgresRuntimeDesired(config)) {
+    const existingEnvFiles = await Promise.all([
+      fs.access(config.paths.containerEnvFile).then(() => true, () => false),
+      fs.access(config.paths.composeEnvFile).then(() => true, () => false),
+    ]);
+    if (existingEnvFiles.every(Boolean)) {
+      await reconcilePostgresAuth(context, docker, config, [], json, true);
+      config = await readConfig(context);
+    }
   }
   const next = await syncFiles(context, config, { postgresInfrastructureOnly: true });
   await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
@@ -403,6 +1037,16 @@ async function backup(context: RuntimeContext, docker: DockerManager, config: Ca
   }
 
   const options = parseBackupCreateOptions(args);
+  if (postgresRuntimeDesired(config)) {
+    const existingEnvFiles = await Promise.all([
+      fs.access(config.paths.containerEnvFile).then(() => true, () => false),
+      fs.access(config.paths.composeEnvFile).then(() => true, () => false),
+    ]);
+    if (existingEnvFiles.every(Boolean)) {
+      await reconcilePostgresAuth(context, docker, config, [], json, true);
+      config = await readConfig(context);
+    }
+  }
   const next = await syncFiles(context, config);
   await appendLog(context, 'backup create');
   await preparePostgresManagedRuntime({ docker, config: next, stdio: json ? 'pipe' : 'inherit' });
@@ -465,30 +1109,45 @@ async function main(): Promise<void> {
     return;
   }
 
-  if (parsed.command === 'update') {
-    await reexecPortableCliIfUpdated({
-      runner,
-      context,
-      command: 'update',
-      args: parsed.args,
-      json: parsed.json,
-      noBanner: parsed.noBanner,
-    });
-  }
+  const operationLock = commandRequiresOperationLock(parsed.command, parsed.args)
+    ? await acquireOperationLock(context, parsed.command)
+    : null;
+  try {
+    if (parsed.command === 'update') {
+      parseUpdateOptions(parsed.args);
+      await reexecPortableCliIfUpdated({
+        runner,
+        context,
+        command: 'update',
+        args: parsed.args,
+        json: parsed.json,
+        noBanner: parsed.noBanner,
+      });
+    }
+    const config = await readConfig(context);
+    if (await hasPostgresRecoveryJournal(config) && commandRequiresOperationLock(parsed.command, parsed.args) &&
+      !commandCanRunWithPendingPostgresRecovery(parsed.command, parsed.args)) {
+      throw new Error('An interrupted Postgres auth reconciliation is pending. Run database reconcile-postgres-auth first.');
+    }
 
-  const config = await readConfig(context);
-
-  switch (parsed.command) {
+    switch (parsed.command) {
     case 'install': {
       const options = parseInstallOptions(parsed.args);
       await install(context, docker, configureRuntimeAndDatabase(config, options));
       break;
     }
     case 'update':
-      await update(context, docker, config);
+      await update(context, docker, config, parsed.json, parseUpdateOptions(parsed.args));
       break;
     case 'start': {
-      const next = await syncFiles(context, config);
+      const hasExistingEnv = await Promise.all([
+        fs.access(config.paths.containerEnvFile).then(() => true, () => false),
+        fs.access(config.paths.composeEnvFile).then(() => true, () => false),
+      ]).then((states) => states.every(Boolean));
+      if (await hasPostgresRecoveryJournal(config) || (postgresRuntimeDesired(config) && hasExistingEnv)) {
+        await reconcilePostgresAuth(context, docker, config, [], parsed.json, true);
+      }
+      const next = await syncFiles(context, await readConfig(context));
       await appendLog(context, 'start');
       await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
       await docker.composeOrThrow(next, ['up', '-d'], 'inherit');
@@ -497,7 +1156,14 @@ async function main(): Promise<void> {
       break;
     }
     case 'restart': {
-      const next = await syncFiles(context, config);
+      const hasExistingEnv = await Promise.all([
+        fs.access(config.paths.containerEnvFile).then(() => true, () => false),
+        fs.access(config.paths.composeEnvFile).then(() => true, () => false),
+      ]).then((states) => states.every(Boolean));
+      if (await hasPostgresRecoveryJournal(config) || (postgresRuntimeDesired(config) && hasExistingEnv)) {
+        await reconcilePostgresAuth(context, docker, config, [], parsed.json, true);
+      }
+      const next = await syncFiles(context, await readConfig(context));
       await appendLog(context, 'restart');
       await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
       await docker.composeOrThrow(next, ['up', '-d', '--force-recreate'], 'inherit');
@@ -536,21 +1202,35 @@ async function main(): Promise<void> {
       console.log(await fs.readFile(context.paths.logFile, 'utf8').catch(() => ''));
       break;
     case 'env':
-      if (!parsed.args.includes('--sync')) throw new Error('Usage: canvas-notebook env --sync');
-      {
-        const next = await syncFiles(context, config);
-        await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
-        console.log(`Generated ${next.paths.composeEnvFile} and ${next.paths.containerEnvFile}`);
-      }
+      await runEnvCommand(context, docker, config, parsed.args, parsed.json);
       break;
-    case 'config-show':
-      console.log(JSON.stringify(redactConfig(config), null, 2));
+    case 'config-show': {
+      const includeSecretState = parsed.args.includes('--secret-state');
+      if (parsed.args.some((arg) => arg !== '--secret-state')) throw new Error('Usage: canvas-notebook config-show [--json] [--secret-state]');
+      if (includeSecretState && !parsed.json) throw new Error('--secret-state requires --json.');
+      const output = includeSecretState
+        ? { ...redactConfig(config), secretState: configSecretState(config) }
+        : redactConfig(config);
+      console.log(JSON.stringify(output, null, 2));
       break;
+    }
     case 'config-set': {
-      const [key, value] = parsed.args;
-      if (!key || value === undefined) throw new Error('Usage: canvas-notebook config-set <key> <value>');
-      const next = await syncFiles(context, setConfigValue(config, key, value));
-      console.log(`Set ${key} in ${next.paths.configFile}`);
+      const [key, positionalValue, ...extraArgs] = parsed.args;
+      if (!key || positionalValue === undefined) throw new Error('Usage: canvas-notebook config-set <key> <value|--stdin>');
+      if (extraArgs.length > 0) {
+        throw new Error(positionalValue === '--stdin'
+          ? '--stdin is mutually exclusive with a positional value.'
+          : 'A positional value cannot be combined with additional options.');
+      }
+      const value = positionalValue === '--stdin' ? await readSingleLineStdin() : positionalValue;
+      if (key.startsWith('env.') && isSensitiveEnvKey(key.slice(4)) && positionalValue !== '--stdin') {
+        throw new Error('Sensitive config values require --stdin.');
+      }
+      const next = setConfigValue(config, key, value);
+      await writeConfig(next);
+      console.log(positionalValue === '--stdin'
+        ? `Set ${key} from stdin in ${next.paths.configFile}`
+        : `Set ${key} in ${next.paths.configFile}`);
       break;
     }
     case 'cli-update': {
@@ -586,12 +1266,17 @@ async function main(): Promise<void> {
       else throw new Error('Usage: canvas-notebook service status|install|uninstall');
       break;
     }
-    default:
-      throw new Error(`Unknown command: ${parsed.command}`);
+      default:
+        throw new Error(`Unknown command: ${parsed.command}`);
+    }
+  } finally {
+    await operationLock?.release();
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : String(error));
-  process.exitCode = 1;
-});
+if (require.main === module) {
+  main().catch((error) => {
+    console.error(error instanceof Error ? error.message : String(error));
+    process.exitCode = 1;
+  });
+}

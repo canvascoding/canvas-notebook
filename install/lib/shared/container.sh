@@ -12,8 +12,9 @@ wait_for_healthy() {
   local max_attempts="$4"
   local log_file="${5:-}"
   local since_ts="${6:-$(date -u +%Y-%m-%dT%H:%M:%SZ)}"
+  local deadline_seconds="${7:-0}"
 
-  local log_pgid attempt
+  local log_pgid attempt remaining probe_timeout
 
   _wait_stop_log_stream() {
     if [[ -n "${log_pgid:-}" ]]; then
@@ -51,10 +52,19 @@ wait_for_healthy() {
   trap '_wait_stop_log_stream' RETURN
 
   for ((attempt=1; attempt<=max_attempts; attempt++)); do
-    if curl -fsS "$health_url" >/dev/null 2>&1; then
+    probe_timeout=2
+    if [[ "$deadline_seconds" -gt 0 ]]; then
+      remaining=$((deadline_seconds - $(date +%s)))
+      [[ "$remaining" -ge 1 ]] || break
+      [[ "$probe_timeout" -le "$remaining" ]] || probe_timeout="$remaining"
+    fi
+    if canvas_health_probe "$health_url" "$probe_timeout"; then
       _wait_stop_log_stream
       ok "Canvas Notebook is healthy"
       return 0
+    fi
+    if [[ "$deadline_seconds" -gt 0 && $((deadline_seconds - $(date +%s))) -lt 1 ]]; then
+      break
     fi
     sleep 1
   done

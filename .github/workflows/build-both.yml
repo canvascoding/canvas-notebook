@@ -10,18 +10,107 @@ on:
 
 permissions:
   contents: read
-  packages: write
 
 concurrency:
-  group: build-both-${{ github.ref }}
-  cancel-in-progress: true
+  group: build-both-production-publish
+  cancel-in-progress: false
 
 jobs:
+  source:
+    runs-on: ubuntu-latest
+    outputs:
+      commit_sha: ${{ steps.release.outputs.commit_sha }}
+      release_ref: ${{ steps.release.outputs.release_ref }}
+      release_tag: ${{ steps.release.outputs.release_tag }}
+      release_version: ${{ steps.release.outputs.release_version }}
+    steps:
+      - name: Checkout release metadata source
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Resolve immutable release source
+        id: release
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./package.json').version")"
+          release_tag="v${package_version}"
+          git fetch --force origin "refs/tags/${release_tag}:refs/tags/${release_tag}"
+          release_sha="$(git rev-parse "${release_tag}^{commit}")"
+          tagged_version="$(git show "${release_sha}:package.json" | node -e 'let data = ""; process.stdin.on("data", chunk => data += chunk); process.stdin.on("end", () => process.stdout.write(JSON.parse(data).version));')"
+          [[ "$tagged_version" == "$package_version" ]]
+          if [[ "${GITHUB_EVENT_NAME}" == "push" ]]; then
+            [[ "${GITHUB_REF}" == "refs/tags/${release_tag}" ]]
+            event_sha="$(git rev-parse "${GITHUB_SHA}^{commit}")"
+            [[ "$event_sha" == "$release_sha" ]]
+          fi
+          echo "commit_sha=${release_sha}" >> "$GITHUB_OUTPUT"
+          echo "release_ref=refs/tags/${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_tag=${release_tag}" >> "$GITHUB_OUTPUT"
+          echo "release_version=${package_version}" >> "$GITHUB_OUTPUT"
+
+  safety-tests:
+    runs-on: ubuntu-latest
+    needs: source
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.commit_sha }}
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Verify application production build
+        run: |
+          npm run lint
+          npm run build
+
+      - name: Build portable CLI
+        run: npm run cli:build
+
+      - name: Verify operation lock and Postgres recovery
+        run: |
+          npm run test:cli:operation-lock
+          npm run test:cli:postgres-recovery
+          npm run test:cli:postgres-reconcile
+          npm run test:cli:database
+          npm run test:cli:database-provider
+          npm run test:cli:admin
+          npm run test:cli:backup
+          npm run test:install:managed-env
+
+      - name: Verify update rollback and CLI artifact gate
+        run: |
+          npm run test:cli:update-rollback
+          npm run test:cli:update
+          npm run test:cli:portable-update
+          npm run test:cli:portable
+
+      - name: Verify deterministic release metadata and host CLI package
+        run: |
+          npm run test:release:payload
+          npm run test:release:host-cli
+
   build-amd64:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    needs: [source, safety-tests]
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.commit_sha }}
 
       - name: Set GHCR image name
         run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -41,17 +130,6 @@ jobs:
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
-
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: |
-            ${{ env.GHCR_IMAGE }}
-            canvascoding/canvas-notebook
-          tags: |
-            type=ref,event=tag
-            type=raw,value=amd64
 
       - name: Build and push
         id: build
@@ -61,8 +139,12 @@ jobs:
           file: ./Dockerfile
           push: true
           platforms: linux/amd64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.GHCR_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-amd64
+            canvascoding/canvas-notebook:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-amd64
+          labels: |
+            org.opencontainers.image.revision=${{ needs.source.outputs.commit_sha }}
+            org.opencontainers.image.version=${{ needs.source.outputs.release_version }}
           provenance: false
           sbom: false
           no-cache: ${{ github.event_name == 'schedule' }}
@@ -71,9 +153,17 @@ jobs:
 
   build-arm64:
     runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    needs: [source, safety-tests]
+    outputs:
+      digest: ${{ steps.build.outputs.digest }}
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.commit_sha }}
 
       - name: Set GHCR image name
         run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -94,17 +184,6 @@ jobs:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
 
-      - name: Extract Docker metadata
-        id: meta
-        uses: docker/metadata-action@v6
-        with:
-          images: |
-            ${{ env.GHCR_IMAGE }}
-            canvascoding/canvas-notebook
-          tags: |
-            type=ref,event=tag
-            type=raw,value=arm64
-
       - name: Build and push
         id: build
         uses: docker/build-push-action@v7
@@ -113,8 +192,12 @@ jobs:
           file: ./Dockerfile
           push: true
           platforms: linux/arm64
-          tags: ${{ steps.meta.outputs.tags }}
-          labels: ${{ steps.meta.outputs.labels }}
+          tags: |
+            ${{ env.GHCR_IMAGE }}:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-arm64
+            canvascoding/canvas-notebook:build-${{ github.run_id }}-${{ github.run_attempt }}-${{ needs.source.outputs.commit_sha }}-arm64
+          labels: |
+            org.opencontainers.image.revision=${{ needs.source.outputs.commit_sha }}
+            org.opencontainers.image.version=${{ needs.source.outputs.release_version }}
           provenance: false
           sbom: false
           no-cache: ${{ github.event_name == 'schedule' }}
@@ -123,10 +206,26 @@ jobs:
 
   merge:
     runs-on: ubuntu-latest
-    needs: [build-amd64, build-arm64]
+    permissions:
+      contents: write
+      packages: write
+    needs: [source, safety-tests, build-amd64, build-arm64]
     steps:
       - name: Checkout
         uses: actions/checkout@v6
+        with:
+          ref: ${{ needs.source.outputs.commit_sha }}
+
+      - name: Set up Node.js for release assets
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: actions/setup-node@v6
+        with:
+          node-version: 26
+          cache: npm
+
+      - name: Install release packaging dependencies
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm ci --ignore-scripts
 
       - name: Set GHCR image name
         run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
@@ -151,40 +250,49 @@ jobs:
         id: tag
         run: |
           if [ "${{ github.event_name }}" = "push" ] && [[ "${GITHUB_REF}" == refs/tags/v* ]]; then
-            MERGE_TAG="${GITHUB_REF_NAME}"
+            MERGE_TAG="${{ needs.source.outputs.release_tag }}"
           else
             MERGE_TAG="latest"
           fi
           echo "merge_tag=${MERGE_TAG}" >> "$GITHUB_OUTPUT"
           echo "Merging manifest for tag: ${MERGE_TAG}"
 
+      - name: Verify release tag matches package version
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          package_version="$(node -p "require('./package.json').version")"
+          [[ "${{ needs.source.outputs.release_version }}" == "$package_version" ]]
+          [[ "${{ needs.source.outputs.release_tag }}" == "v${package_version}" ]]
+
       - name: Create multi-arch manifest
         env:
           GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
           HUB_IMAGE: canvascoding/canvas-notebook
           MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
+          AMD64_DIGEST: ${{ needs.build-amd64.outputs.digest }}
+          ARM64_DIGEST: ${{ needs.build-arm64.outputs.digest }}
         run: |
           set -euo pipefail
+          [[ "$AMD64_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
+          [[ "$ARM64_DIGEST" =~ ^sha256:[a-f0-9]{64}$ ]]
 
-          # Always create a :latest multi-arch manifest
-          docker buildx imagetools create \
-            -t "${GHCR_IMAGE}:latest" \
-            -t "${HUB_IMAGE}:latest" \
-            "${GHCR_IMAGE}:amd64" \
-            "${GHCR_IMAGE}:arm64"
-
-          echo "Created multi-arch manifest: ${GHCR_IMAGE}:latest"
-
-          # If this is a tag push (v*), also create a version-tagged manifest
+          ghcr_tags=(-t "${GHCR_IMAGE}:latest")
+          hub_tags=(-t "${HUB_IMAGE}:latest")
           if [ "${MERGE_TAG}" != "latest" ]; then
-            docker buildx imagetools create \
-              -t "${GHCR_IMAGE}:${MERGE_TAG}" \
-              -t "${HUB_IMAGE}:${MERGE_TAG}" \
-              "${GHCR_IMAGE}:amd64" \
-              "${GHCR_IMAGE}:arm64"
-
-            echo "Created multi-arch manifest: ${GHCR_IMAGE}:${MERGE_TAG}"
+            ghcr_tags+=(-t "${GHCR_IMAGE}:${MERGE_TAG}")
+            hub_tags+=(-t "${HUB_IMAGE}:${MERGE_TAG}")
           fi
+          docker buildx imagetools create \
+            "${ghcr_tags[@]}" \
+            "${GHCR_IMAGE}@${AMD64_DIGEST}" \
+            "${GHCR_IMAGE}@${ARM64_DIGEST}"
+          docker buildx imagetools create \
+            "${hub_tags[@]}" \
+            "${HUB_IMAGE}@${AMD64_DIGEST}" \
+            "${HUB_IMAGE}@${ARM64_DIGEST}"
+
+          echo "Created multi-arch manifests from immutable architecture digests."
 
       - name: Verify multi-arch manifest
         env:
@@ -194,25 +302,73 @@ jobs:
           echo "Verifying ${GHCR_IMAGE}:latest ..."
           docker manifest inspect "${GHCR_IMAGE}:latest" | head -40
 
+      - name: Resolve immutable multi-arch digest
+        id: image
+        env:
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
+        run: |
+          set -euo pipefail
+          target_ref="${GHCR_IMAGE}:${MERGE_TAG}"
+          digest="$(docker buildx imagetools inspect "$target_ref" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+          echo "Resolved ${target_ref}@${digest}"
+
+      - name: Package Linux host CLI release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: npm run cli:package:host
+
+      - name: Resolve host CLI release metadata
+        id: cli
+        if: startsWith(github.ref, 'refs/tags/v')
+        run: |
+          set -euo pipefail
+          sha256="$(awk '$2 == "canvas-notebook-host-cli.tar.gz" { print $1 }' dist-host-cli/canvas-notebook-host-cli.sha256)"
+          [[ "$sha256" =~ ^[a-f0-9]{64}$ ]]
+          echo "version=${GITHUB_REF_NAME}" >> "$GITHUB_OUTPUT"
+          echo "sha256=${sha256}" >> "$GITHUB_OUTPUT"
+
+      - name: Publish Linux host CLI release asset
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            dist-host-cli/canvas-notebook-host-cli.tar.gz
+            dist-host-cli/canvas-notebook-host-cli.sha256
+
       - name: Notify Control Plane release webhook
         env:
           CONTROL_PLANE_RELEASE_WEBHOOK_URL: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_URL }}
           CONTROL_PLANE_RELEASE_WEBHOOK_SECRET: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET }}
           MERGE_TAG: ${{ steps.tag.outputs.merge_tag }}
           GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          HOST_CLI_VERSION: ${{ steps.cli.outputs.version }}
+          HOST_CLI_SHA256: ${{ steps.cli.outputs.sha256 }}
+          RELEASE_REF: ${{ needs.source.outputs.release_ref }}
+          RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
+          RELEASE_COMMIT_SHA: ${{ needs.source.outputs.commit_sha }}
         run: |
           if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_URL}" ]; then
             echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing; using the default Canvas Control Plane release webhook URL."
           fi
 
           if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_SECRET}" ]; then
-            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_SECRET secret is missing; skipping Control Plane release notification."
+            if [ "${MERGE_TAG}" != "latest" ]; then
+              echo "::error::CONTROL_PLANE_RELEASE_WEBHOOK_SECRET is required for tagged releases."
+              exit 1
+            fi
+            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_SECRET secret is missing; skipping non-release rebuild notification."
             exit 0
           fi
 
           node --input-type=module <<'NODE'
-          import crypto from 'node:crypto';
           import fs from 'node:fs';
+          import {
+            buildControlPlaneReleasePayload,
+            signControlPlaneReleasePayload,
+          } from './scripts/control-plane-release-payload.mjs';
 
           const defaultReleaseWebhookUrl = 'https://api.canvasnotebook.app/v1/webhooks/canvas-notebook-release';
           const releaseWebhookPath = '/v1/webhooks/canvas-notebook-release';
@@ -244,65 +400,45 @@ jobs:
             return url.toString();
           }
 
-          const mergeTag = process.env.MERGE_TAG || 'latest';
-          const isTag = mergeTag.startsWith('v') || mergeTag.match(/^v?\d/);
-          const tag = isTag ? mergeTag.replace(/^v/i, '') : '';
-          const event = isTag ? 'release_published' : 'image_rebuilt';
           const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
-          const version = tag || String(packageJson.version || '');
-
-          const ghcrImage = process.env.GHCR_IMAGE || '';
-          const tags = [`${ghcrImage}:latest`];
-          if (isTag) {
-            tags.push(`${ghcrImage}:${mergeTag}`);
-          }
-
-          const payload = {
-            event,
-            repository: process.env.GITHUB_REPOSITORY,
-            ref: process.env.GITHUB_REF,
-            tag: mergeTag || undefined,
-            version,
-            commitSha: process.env.GITHUB_SHA,
-            image: {
-              name: ghcrImage,
-              tags,
-            },
-            workflow: {
-              runId: process.env.GITHUB_RUN_ID,
-              runNumber: process.env.GITHUB_RUN_NUMBER,
-              runAttempt: process.env.GITHUB_RUN_ATTEMPT,
-            },
-            source: 'github_actions',
-            publishedAt: new Date().toISOString(),
-            metadata: {
-              actor: process.env.GITHUB_ACTOR,
-              eventName: process.env.GITHUB_EVENT_NAME,
-              workflow: process.env.GITHUB_WORKFLOW,
-            },
-          };
+          const payload = buildControlPlaneReleasePayload(process.env, packageJson.version);
           const body = JSON.stringify(payload);
           const timestamp = Math.floor(Date.now() / 1000).toString();
           const delivery = `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${process.env.GITHUB_SHA}`;
-          const signature = 'sha256=' + crypto
-            .createHmac('sha256', process.env.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET)
-            .update(`${timestamp}.${body}`)
-            .digest('hex');
-          const response = await fetch(releaseWebhookUrl(), {
-            method: 'POST',
-            headers: {
-              'content-type': 'application/json',
-              'x-canvas-delivery': delivery,
-              'x-canvas-timestamp': timestamp,
-              'x-canvas-signature': signature,
-            },
+          const signature = signControlPlaneReleasePayload(
+            process.env.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET,
+            timestamp,
             body,
-          });
-          const text = await response.text();
-          if (!response.ok) {
-            const summary = text.replace(/\s+/g, ' ').trim().slice(0, 1000);
-            console.warn(`::warning::Control Plane release webhook failed (${response.status}); manifest merge already completed. Response: ${summary}`);
-            process.exit(0);
+          );
+          let lastError;
+          for (let attempt = 1; attempt <= 4; attempt += 1) {
+            try {
+              const response = await fetch(releaseWebhookUrl(), {
+                method: 'POST',
+                headers: {
+                  'content-type': 'application/json',
+                  'x-canvas-delivery': delivery,
+                  'x-canvas-timestamp': timestamp,
+                  'x-canvas-signature': signature,
+                },
+                body,
+                signal: AbortSignal.timeout(15_000),
+              });
+              const text = await response.text();
+              if (response.ok) {
+                console.log(`Control Plane release webhook accepted: ${text}`);
+                process.exit(0);
+              }
+              const summary = text.replace(/\s+/g, ' ').trim().slice(0, 1000);
+              lastError = new Error(`Control Plane release webhook failed (${response.status}): ${summary}`);
+            } catch (error) {
+              lastError = error;
+            }
+            if (attempt < 4) {
+              const delayMs = 1_000 * (2 ** (attempt - 1));
+              console.warn(`::warning::Control Plane release webhook attempt ${attempt} failed; retrying in ${delayMs}ms.`);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
           }
-          console.log(`Control Plane release webhook accepted: ${text}`);
+          throw lastError || new Error('Control Plane release webhook failed without a response.');
           NODE

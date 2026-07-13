@@ -60,6 +60,7 @@ export interface RunOptions {
   env?: NodeJS.ProcessEnv;
   stdin?: string;
   stdio?: 'pipe' | 'inherit';
+  timeoutMs?: number;
 }
 
 export interface CommandRunner {

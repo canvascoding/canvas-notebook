@@ -29,7 +29,7 @@ _config_json_raw_write() {
     rm -f "$tmp"
     return 1
   fi
-  if ! _write_owned_file "$file" "$tmp" 600; then
+  if ! _write_secure_config_file "$file" "$tmp"; then
     rm -f "$tmp"
     return 1
   fi
@@ -41,7 +41,7 @@ install_manager_config_unlocked() {
   if [[ ! -f "$config_json_path" ]]; then
     _ensure_dir_writable "$(dirname "$config_json_path")" || return 1
     m_tmp="$(mktemp)" || return 1
-    if ! printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$m_tmp" || ! _write_owned_file "$config_json_path" "$m_tmp" 600; then
+    if ! printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$m_tmp" || ! _write_secure_config_file "$config_json_path" "$m_tmp"; then
       rm -f "$m_tmp"
       return 1
     fi

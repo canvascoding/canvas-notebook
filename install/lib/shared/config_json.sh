@@ -84,6 +84,58 @@ _install_user() {
   fi
 }
 
+_config_file_owner() {
+  printf '%s\n' "${CANVAS_CONFIG_FILE_OWNER:-root:root}"
+}
+
+_atomic_write_file() {
+  local dest="$1" src="$2" mode="$3" owner="$4" dir base tmp current_owner
+  dir="$(dirname "$dest")"
+  base="$(basename "$dest")"
+  current_owner="$(id -u):$(id -g)"
+  if [[ "$(id -u)" -eq 0 || "$owner" == "root:root" ]]; then
+    run_root mkdir -p "$dir" || return 1
+    tmp="$(run_root mktemp "${dir}/.${base}.tmp.XXXXXX")" || return 1
+    if ! run_root cp "$src" "$tmp" || ! run_root chown "$owner" "$tmp" || ! run_root chmod "$mode" "$tmp" || ! run_root mv -f "$tmp" "$dest"; then
+      run_root rm -f "$tmp" 2>/dev/null || true
+      return 1
+    fi
+  elif [[ "$owner" == "$current_owner" ]]; then
+    mkdir -p "$dir" || return 1
+    tmp="$(mktemp "${dir}/.${base}.tmp.XXXXXX")" || return 1
+    if ! cp "$src" "$tmp" || ! chmod "$mode" "$tmp" || ! mv -f "$tmp" "$dest"; then
+      rm -f "$tmp" 2>/dev/null || true
+      return 1
+    fi
+  else
+    return 1
+  fi
+}
+
+_write_secure_config_file() {
+  _atomic_write_file "$1" "$2" 600 "$(_config_file_owner)"
+}
+
+_read_config_file() {
+  local file="$1"
+  if [[ -r "$file" ]]; then cat "$file"; else run_root cat "$file"; fi
+}
+
+_secure_config_file_permissions() {
+  local file owner current_owner
+  owner="$(_config_file_owner)"
+  current_owner="$(id -u):$(id -g)"
+  for file in "$CONFIG_JSON_PATH" "$CONFIG_ENV_PATH" "$COMPOSE_ENV_PATH"; do
+    [[ -f "$file" ]] || continue
+    if [[ "$(id -u)" -eq 0 || "$owner" == "root:root" ]]; then
+      run_root chown "$owner" "$file" || return 1
+      run_root chmod 600 "$file" || return 1
+    elif [[ "$owner" == "$current_owner" ]]; then
+      chmod 600 "$file" || return 1
+    fi
+  done
+}
+
 _write_owned_file() {
   local dest="$1" src="$2" mode="${3:-644}" owner
   owner="$(_install_user)"
@@ -113,7 +165,7 @@ config_json_init() {
     _ensure_dir_writable "$(dirname "$CONFIG_JSON_PATH")" || return 1
     local tmp
     tmp="$(mktemp)" || return 1
-    if ! printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$tmp" || ! _write_owned_file "$CONFIG_JSON_PATH" "$tmp" 600; then
+    if ! printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$tmp" || ! _write_secure_config_file "$CONFIG_JSON_PATH" "$tmp"; then
       rm -f "$tmp"
       return 1
     fi
@@ -130,7 +182,7 @@ config_json_read() {
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" | jq -r --arg k "$key" 'getpath($k | split(".")) // empty'
     return
   fi
-  jq -r --arg k "$key" 'getpath($k | split(".")) // empty' "$CONFIG_JSON_PATH"
+  _read_config_file "$CONFIG_JSON_PATH" | jq -r --arg k "$key" 'getpath($k | split(".")) // empty'
 }
 
 config_json_read_raw() {
@@ -139,7 +191,11 @@ config_json_read_raw() {
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" | jq --arg k "$key" 'getpath($k | split("."))'
     return
   fi
-  jq --arg k "$key" 'getpath($k | split("."))' "$CONFIG_JSON_PATH"
+  _read_config_file "$CONFIG_JSON_PATH" | jq --arg k "$key" 'getpath($k | split("."))'
+}
+
+config_json_encode_string() {
+  jq -Rs '.'
 }
 
 config_json_write() {
@@ -201,11 +257,11 @@ config_json_write() {
       if [[ -n "$value" ]]; then
         local extracted_domain
         extracted_domain="$(printf '%s' "$value" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1)"
-        _config_json_write_raw "domain" "\"$extracted_domain\"" || return 1
+        _config_json_write_raw "domain" "$(printf '%s' "$extracted_domain" | config_json_encode_string)" || return 1
         local base_url
         base_url="$value"
-        _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\"" || return 1
-        _config_json_write_raw "env.BASE_URL" "\"$base_url\"" || return 1
+        _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "$(printf '%s' "$base_url" | config_json_encode_string)" || return 1
+        _config_json_write_raw "env.BASE_URL" "$(printf '%s' "$base_url" | config_json_encode_string)" || return 1
         return
       fi
       ;;
@@ -213,12 +269,12 @@ config_json_write() {
       if [[ -n "$value" ]]; then
         local extracted_domain
         extracted_domain="$(printf '%s' "$value" | sed -E 's|^https?://||' | cut -d/ -f1 | cut -d: -f1)"
-        _config_json_write_raw "domain" "\"$extracted_domain\"" || return 1
-        _config_json_write_raw "env.BASE_URL" "\"$value\"" || return 1
+        _config_json_write_raw "domain" "$(printf '%s' "$extracted_domain" | config_json_encode_string)" || return 1
+        _config_json_write_raw "env.BASE_URL" "$(printf '%s' "$value" | config_json_encode_string)" || return 1
         local current_auth_url
         current_auth_url="$(config_json_read env.BETTER_AUTH_BASE_URL)"
         if [[ -z "$current_auth_url" ]]; then
-          _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$value\"" || return 1
+          _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "$(printf '%s' "$value" | config_json_encode_string)" || return 1
         fi
         return
       fi
@@ -246,13 +302,13 @@ config_json_write() {
   elif [[ "$value" == "true" || "$value" == "false" ]]; then
     _config_json_write_raw "$key" "$value" || return 1
   else
-    _config_json_write_raw "$key" "\"$value\"" || return 1
+    _config_json_write_raw "$key" "$(printf '%s' "$value" | config_json_encode_string)" || return 1
   fi
 
   if [[ "$key" == "domain" ]] && [[ -n "$value" ]]; then
     local base_url="https://${value}"
-    _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "\"$base_url\"" || return 1
-    _config_json_write_raw "env.BASE_URL" "\"$base_url\"" || return 1
+    _config_json_write_raw "env.BETTER_AUTH_BASE_URL" "$(printf '%s' "$base_url" | config_json_encode_string)" || return 1
+    _config_json_write_raw "env.BASE_URL" "$(printf '%s' "$base_url" | config_json_encode_string)" || return 1
   fi
 }
 
@@ -264,6 +320,21 @@ config_json_normalize_database_provider() {
     postgres) printf 'postgres\n' ;;
     *) fail "Invalid CANVAS_DATABASE_PROVIDER '${value}'. Expected sqlite or postgres." ;;
   esac
+}
+
+config_json_managed_by_control_plane() {
+  local managed control_plane_url
+  managed="$(config_json_read env.CANVAS_MANAGED_SERVICES_ENABLED)"
+  control_plane_url="$(config_json_read env.CANVAS_CONTROL_PLANE_URL)"
+  case "$(printf '%s' "$managed" | tr '[:upper:]' '[:lower:]')" in
+    true|1|yes|on) return 0 ;;
+  esac
+  [[ -n "$control_plane_url" ]]
+}
+
+config_json_image_is_pinned() {
+  local image_ref="$1"
+  [[ "$image_ref" =~ ^[a-z0-9]+([._-][a-z0-9]+)*(:[0-9]+)?(/[a-z0-9]+([._-][a-z0-9]+)*)+(:[A-Za-z0-9_][A-Za-z0-9._-]{0,127})?@sha256:[a-f0-9]{64}$ ]]
 }
 
 config_json_deployment_requires_postgres() {
@@ -436,11 +507,11 @@ _config_json_write_raw() {
   fi
 
   tmp="$(mktemp)" || return 1
-  if ! jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' "$CONFIG_JSON_PATH" > "$tmp"; then
+  if ! _read_config_file "$CONFIG_JSON_PATH" | jq --arg k "$key" --argjson v "$json_value" 'setpath($k | split("."); $v)' > "$tmp"; then
     rm -f "$tmp"
     return 1
   fi
-  if ! _write_owned_file "$CONFIG_JSON_PATH" "$tmp" 600; then
+  if ! _write_secure_config_file "$CONFIG_JSON_PATH" "$tmp"; then
     rm -f "$tmp"
     return 1
   fi
@@ -448,7 +519,7 @@ _config_json_write_raw() {
 }
 
 config_json_write_swap() {
-  local enabled="$1" size="$2" file="$3" swappiness="$4" tmp target_tmp mode owner
+  local enabled="$1" size="$2" file="$3" swappiness="$4" tmp
   if declare -f swap_validate_config >/dev/null 2>&1; then
     swap_validate_config "$enabled" "$size" "$file" "$swappiness" || return 1
   fi
@@ -460,40 +531,27 @@ config_json_write_swap() {
     --arg file "$file" \
     --argjson swappiness "$swappiness" \
     '.swap = { enabled: $enabled, size: $size, file: $file, swappiness: $swappiness }' \
-    "$CONFIG_JSON_PATH" > "$tmp"; then
+    <(_read_config_file "$CONFIG_JSON_PATH") > "$tmp"; then
     rm -f "$tmp"
     return 1
   fi
-  mode=600
-  target_tmp="${CONFIG_JSON_PATH}.swap.$$"
-  if ! run_root install -m "$mode" "$tmp" "$target_tmp"; then
-    rm -f "$tmp"
-    run_root rm -f "$target_tmp" >/dev/null 2>&1 || true
-    return 1
-  fi
-  rm -f "$tmp"
-  if [[ -z "${CANVAS_SWAP_TEST_ROOT:-}" ]]; then
-    owner="$(_install_user)" || {
-      run_root rm -f "$target_tmp" >/dev/null 2>&1 || true
-      return 1
-    }
-    if ! run_root chown "$owner" "$target_tmp"; then
-      run_root rm -f "$target_tmp" >/dev/null 2>&1 || true
-      return 1
-    fi
-  fi
-  if ! run_root mv -f "$target_tmp" "$CONFIG_JSON_PATH"; then
-    run_root rm -f "$target_tmp" >/dev/null 2>&1 || true
-    return 1
-  fi
+  _write_secure_config_file "$CONFIG_JSON_PATH" "$tmp" || { rm -f "$tmp"; return 1; }
+  rm -f "$tmp" || true
 }
 
 config_json_show() {
   if [[ -f "$CONFIG_JSON_PATH" ]]; then
-    jq '.' "$CONFIG_JSON_PATH"
+    _read_config_file "$CONFIG_JSON_PATH" | jq '.'
   else
     printf '%s\n' "$CONFIG_JSON_DEFAULTS" | jq '.'
   fi
+}
+
+config_json_env_key_is_secret() {
+  local key="$1"
+  key="$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')"
+  [[ "$key" == "DATABASE_URL" ]] && return 0
+  [[ "$key" =~ (^|_)(PASSWORD|PASSWD|SECRET_KEY|SECRET|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY|LICENSE_CERT)$ ]]
 }
 
 config_json_to_env() {
@@ -545,7 +603,7 @@ config_json_to_env() {
     printf 'CANVAS_POSTGRES_USER=%s\n' "${postgres_user:-canvas}"
     printf 'CANVAS_POSTGRES_PASSWORD=%s\n' "$postgres_password"
   } >> "$compose_tmp"
-  _write_owned_file "$COMPOSE_ENV_PATH" "$compose_tmp" 600
+  _write_secure_config_file "$COMPOSE_ENV_PATH" "$compose_tmp"
   rm -f "$compose_tmp"
 
   local env_tmp
@@ -553,9 +611,9 @@ config_json_to_env() {
   {
     printf '# Auto-generated from canvas-notebook-config.json — do not edit manually\n'
     printf '# Run: canvas-notebook env --sync to regenerate\n\n'
-    jq -r '.env | to_entries[] | "\(.key)=\(.value)"' "$CONFIG_JSON_PATH"
+    _read_config_file "$CONFIG_JSON_PATH" | jq -r '.env | to_entries[] | "\(.key)=\(.value)"'
   } > "$env_tmp"
-  _write_owned_file "$CONFIG_ENV_PATH" "$env_tmp" 600
+  _write_secure_config_file "$CONFIG_ENV_PATH" "$env_tmp"
   rm -f "$env_tmp"
 
   if [[ "${OUTPUT_JSON:-false}" != "true" ]]; then
@@ -588,7 +646,7 @@ config_json_migrate() {
   local mig_tmp
   mig_tmp="$(mktemp)"
   printf '%s\n' "$CONFIG_JSON_DEFAULTS" > "$mig_tmp"
-  _write_owned_file "$migration_config_path" "$mig_tmp" 600
+  _write_secure_config_file "$migration_config_path" "$mig_tmp"
   rm -f "$mig_tmp"
   CONFIG_JSON_PATH="$migration_config_path"
 

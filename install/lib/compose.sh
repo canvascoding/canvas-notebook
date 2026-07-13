@@ -18,14 +18,14 @@ prepare_install_dir() {
 
   section "Install directory"
   run_root mkdir -p "$target_dir"
-  run_root chown "$(id -u):$(id -g)" "$target_dir"
+  run_root chown "$(_host_code_owner)" "$target_dir"
+  run_root chmod 755 "$target_dir"
 
   if [[ "$source_dir" != "$target_dir" ]]; then
     if [[ -f "${source_dir}/${COMPOSE_FILE_NAME}" ]]; then
       LEGACY_COMPOSE_PATH="${source_dir}/${COMPOSE_FILE_NAME}"
 
       if [[ ! -f "${target_dir}/${COMPOSE_FILE_NAME}" ]]; then
-        cp "${LEGACY_COMPOSE_PATH}" "${target_dir}/${COMPOSE_FILE_NAME}"
         _write_owned_file "${target_dir}/${COMPOSE_FILE_NAME}" "${LEGACY_COMPOSE_PATH}"
         ok "Migrated existing ${COMPOSE_FILE_NAME} to ${target_dir}"
       fi

@@ -1,0 +1,74 @@
+import assert from 'node:assert/strict';
+import { readFile } from 'node:fs/promises';
+
+import {
+  buildControlPlaneReleasePayload,
+  signControlPlaneReleasePayload,
+} from './control-plane-release-payload.mjs';
+
+const digest = `sha256:${'a'.repeat(64)}`;
+const cliSha256 = 'b'.repeat(64);
+const env = {
+  MERGE_TAG: 'v2026.7.11.1',
+  GHCR_IMAGE: 'ghcr.io/canvascoding/canvas-notebook',
+  IMAGE_DIGEST: digest,
+  HOST_CLI_VERSION: 'v2026.7.11.1',
+  HOST_CLI_SHA256: cliSha256,
+  GITHUB_REPOSITORY: 'canvascoding/canvas-notebook',
+  GITHUB_REF: 'refs/tags/v2026.7.11.1',
+  GITHUB_SHA: 'c'.repeat(40),
+  GITHUB_RUN_ID: '123',
+  GITHUB_RUN_NUMBER: '45',
+  GITHUB_RUN_ATTEMPT: '1',
+};
+const payload = buildControlPlaneReleasePayload(env, '2026.7.11.1', '2026-07-11T00:00:00.000Z');
+assert.equal(payload.image.digest, digest);
+assert.deepEqual(payload.cliArtifact, { version: 'v2026.7.11.1', sha256: cliSha256 });
+assert.equal(payload.image.tags.includes('ghcr.io/canvascoding/canvas-notebook:v2026.7.11.1'), true);
+const body = JSON.stringify(payload);
+assert.equal(
+  signControlPlaneReleasePayload('release-secret', '1720000000', body),
+  signControlPlaneReleasePayload('release-secret', '1720000000', body),
+);
+assert.throws(
+  () => buildControlPlaneReleasePayload({ ...env, IMAGE_DIGEST: '' }, '2026.7.11.1'),
+  /digest/u,
+);
+assert.throws(
+  () => buildControlPlaneReleasePayload({ ...env, HOST_CLI_SHA256: 'bad' }, '2026.7.11.1'),
+  /host CLI/u,
+);
+assert.throws(
+  () => buildControlPlaneReleasePayload(env, '2026.7.11.2'),
+  /does not match package version/u,
+);
+const rebuilt = buildControlPlaneReleasePayload({
+  ...env,
+  MERGE_TAG: 'latest',
+  GITHUB_REF: 'refs/heads/main',
+  RELEASE_REF: 'refs/tags/v2026.7.11.1',
+  RELEASE_TAG: 'v2026.7.11.1',
+  RELEASE_COMMIT_SHA: 'd'.repeat(40),
+  HOST_CLI_SHA256: '',
+}, '2026.7.11.1');
+assert.equal(rebuilt.event, 'image_rebuilt');
+assert.equal(rebuilt.cliArtifact, undefined);
+assert.equal(rebuilt.image.digest, digest);
+assert.equal(rebuilt.ref, 'refs/tags/v2026.7.11.1');
+assert.equal(rebuilt.tag, 'v2026.7.11.1');
+assert.equal(rebuilt.commitSha, 'd'.repeat(40));
+assert.deepEqual(rebuilt.image.tags, ['ghcr.io/canvascoding/canvas-notebook:latest']);
+assert.throws(
+  () => buildControlPlaneReleasePayload({
+    ...env,
+    MERGE_TAG: 'latest',
+    GITHUB_REF: 'refs/heads/main',
+    HOST_CLI_SHA256: '',
+  }, '2026.7.11.1'),
+  /provenance/u,
+);
+
+const workflow = await readFile(new URL('../.github/workflows/build-both.yml', import.meta.url), 'utf8');
+assert.match(workflow, /if \[ "\$\{MERGE_TAG\}" != "latest" \]; then\s+echo "::error::CONTROL_PLANE_RELEASE_WEBHOOK_SECRET is required for tagged releases\."\s+exit 1/su);
+
+console.log('control plane release payload tests passed');
