@@ -13,6 +13,7 @@ import {
 import { runDirectoryTasksByDepth } from '@/app/lib/files/tree-refresh';
 import { findPathInTree, flattenDirectoryChildren } from '@/app/lib/files/tree-utils';
 import { searchWorkspaceFileReferences } from '@/app/lib/files/client';
+import { sortFileNodes, sortFileTree } from '@/app/lib/files/sort';
 
 interface UseFileExplorerViewModelOptions {
   containerRef: RefObject<HTMLDivElement | null>;
@@ -85,6 +86,9 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     clearMultiSelect,
     searchQuery,
     browserMode,
+    fileSortKey,
+    fileSortDirection,
+    setFileSort,
   } = useFileStore(useShallow((state) => ({
     fileTree: state.fileTree,
     isLoadingTree: state.isLoadingTree,
@@ -100,6 +104,9 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     clearMultiSelect: state.clearMultiSelect,
     searchQuery: state.searchQuery,
     browserMode: state.browserMode,
+    fileSortKey: state.fileSortKey,
+    fileSortDirection: state.fileSortDirection,
+    setFileSort: state.setFileSort,
   })));
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
@@ -111,8 +118,12 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
   const searchError = searchState.query === normalizedSearchQuery ? searchState.error : null;
 
   const activeDirectoryChildren = useMemo(
-    () => browserMode === 'grid' ? flattenDirectoryChildren(fileTree, currentDirectory) : null,
-    [browserMode, currentDirectory, fileTree]
+    () => {
+      if (browserMode !== 'grid') return null;
+      const children = flattenDirectoryChildren(fileTree, currentDirectory);
+      return children ? sortFileNodes(children, fileSortKey, fileSortDirection) : null;
+    },
+    [browserMode, currentDirectory, fileSortDirection, fileSortKey, fileTree]
   );
 
   useEffect(() => {
@@ -293,20 +304,29 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
   }, [activeWorkspaceId, normalizedSearchQuery]);
 
   const filteredTree = useMemo(
-    () => normalizedSearchQuery ? filterTree(fileTree, normalizedSearchQueryLower) : fileTree,
-    [fileTree, normalizedSearchQuery, normalizedSearchQueryLower]
+    () => sortFileTree(
+      normalizedSearchQuery ? filterTree(fileTree, normalizedSearchQueryLower) : fileTree,
+      fileSortKey,
+      fileSortDirection,
+    ),
+    [fileSortDirection, fileSortKey, fileTree, normalizedSearchQuery, normalizedSearchQueryLower]
   );
 
   const searchResultNodes = useMemo(
-    () => normalizedSearchQuery ? (searchResults ?? filteredTree) : filteredTree,
-    [filteredTree, normalizedSearchQuery, searchResults]
+    () => normalizedSearchQuery && searchResults
+      ? sortFileNodes(searchResults, fileSortKey, fileSortDirection)
+      : filteredTree,
+    [fileSortDirection, fileSortKey, filteredTree, normalizedSearchQuery, searchResults]
   );
 
   const listDirectoryChildren = useMemo(
     () => browserMode === 'list'
-      ? flattenDirectoryChildren(fileTree, currentDirectory)
+      ? (() => {
+          const children = flattenDirectoryChildren(fileTree, currentDirectory);
+          return children ? sortFileNodes(children, fileSortKey, fileSortDirection) : null;
+        })()
       : null,
-    [browserMode, currentDirectory, fileTree]
+    [browserMode, currentDirectory, fileSortDirection, fileSortKey, fileTree]
   );
 
   const filteredListChildren = useMemo(
@@ -353,6 +373,8 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     browserMode,
     currentDirectory,
     fileTree,
+    fileSortDirection,
+    fileSortKey,
     filteredListChildren,
     gridItems,
     gridSelectionOrder,
@@ -368,6 +390,7 @@ export function useFileExplorerViewModel({ containerRef, variant }: UseFileExplo
     searchResultTotal,
     visibleSearchResultCount,
     searchResultNodes,
+    setFileSort,
     treeError,
   };
 }

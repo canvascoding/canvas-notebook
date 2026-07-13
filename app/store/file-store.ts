@@ -46,6 +46,7 @@ import {
   writeWorkspaceFile,
 } from '@/app/lib/files/client';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
+import type { FileSortDirection, FileSortKey } from '@/app/lib/files/sort';
 import { useEditorStore } from '@/app/store/editor-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 
@@ -176,6 +177,17 @@ function readClientBrowserMode(): BrowserMode {
   return window.innerWidth < 768 ? 'list' : 'tree';
 }
 
+function readClientFileSort(): { sortKey: FileSortKey; sortDirection: FileSortDirection } {
+  if (typeof window === 'undefined') return { sortKey: 'name', sortDirection: 'asc' };
+  const storedKey = window.localStorage.getItem('canvas-file-sort-key');
+  const storedDirection = window.localStorage.getItem('canvas-file-sort-direction');
+  const sortKey: FileSortKey = storedKey === 'type' || storedKey === 'modified' || storedKey === 'size'
+    ? storedKey
+    : 'name';
+  const sortDirection: FileSortDirection = storedDirection === 'desc' ? 'desc' : 'asc';
+  return { sortKey, sortDirection };
+}
+
 function areFileStatsEqual(left?: FileStats, right?: FileStats) {
   return (
     left?.size === right?.size &&
@@ -250,6 +262,9 @@ interface FileStoreState {
   // Browser mode
   browserMode: BrowserMode;
   setBrowserMode: (mode: BrowserMode) => void;
+  fileSortKey: FileSortKey;
+  fileSortDirection: FileSortDirection;
+  setFileSort: (sortKey: FileSortKey) => void;
   clientPreferencesHydratedFor: string | null | undefined;
   hydrateClientPreferences: (workspaceId?: string | null, force?: boolean) => void;
 
@@ -354,12 +369,26 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   fileRevisions: {},
 
   browserMode: 'tree',
+  fileSortKey: 'name',
+  fileSortDirection: 'asc',
   clientPreferencesHydratedFor: undefined,
   setBrowserMode: (mode: BrowserMode) => {
     if (typeof window !== 'undefined') {
       localStorage.setItem('canvas-browser-mode', mode);
     }
     set({ browserMode: mode });
+  },
+  setFileSort: (sortKey: FileSortKey) => {
+    set((state) => {
+      const fileSortDirection = state.fileSortKey === sortKey
+        ? (state.fileSortDirection === 'asc' ? 'desc' : 'asc')
+        : (sortKey === 'modified' ? 'desc' : 'asc');
+      if (typeof window !== 'undefined') {
+        window.localStorage.setItem('canvas-file-sort-key', sortKey);
+        window.localStorage.setItem('canvas-file-sort-direction', fileSortDirection);
+      }
+      return { fileSortKey: sortKey, fileSortDirection };
+    });
   },
   hydrateClientPreferences: (workspaceId, force = false) => {
     const resolvedWorkspaceId = workspaceId === undefined
@@ -368,8 +397,11 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     if (!force && get().clientPreferencesHydratedFor === resolvedWorkspaceId) return;
 
     const storedExplorerState = readStoredExplorerState(resolvedWorkspaceId);
+    const storedSort = readClientFileSort();
     set({
       browserMode: readClientBrowserMode(),
+      fileSortKey: storedSort.sortKey,
+      fileSortDirection: storedSort.sortDirection,
       currentDirectory: storedExplorerState.currentDirectory ?? '.',
       expandedDirs: new Set<string>(storedExplorerState.expandedDirs ?? []),
       clientPreferencesHydratedFor: resolvedWorkspaceId,

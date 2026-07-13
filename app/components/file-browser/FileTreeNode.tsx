@@ -23,9 +23,9 @@ import { cn } from '@/lib/utils';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { getFileDisplayName } from '@/app/lib/files/display-name';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
-import { formatCompactFileSize } from '@/app/lib/files/format';
+import { formatCompactFileDate, formatCompactFileSize } from '@/app/lib/files/format';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -36,6 +36,7 @@ interface FileTreeNodeProps {
   selectionOrder?: string[];
   showPath?: boolean;
   openOnSingleClick?: boolean;
+  showListMetadata?: boolean;
 }
 
 function FileTreeNodeComponent({
@@ -47,8 +48,10 @@ function FileTreeNodeComponent({
   selectionOrder,
   showPath = false,
   openOnSingleClick = true,
+  showListMetadata = false,
 }: FileTreeNodeProps) {
   const t = useTranslations('notebook');
+  const locale = useLocale();
   const {
     isExpanded,
     isLoading,
@@ -79,6 +82,13 @@ function FileTreeNodeComponent({
   const hasLoadedChildren = Array.isArray(node.children);
   const childNodes = node.children ?? [];
   const displayName = getFileDisplayName(node);
+  const extensionIndex = node.name.lastIndexOf('.');
+  const typeLabel = isDirectory
+    ? t('folder')
+    : extensionIndex > 0
+      ? node.name.slice(extensionIndex + 1).toUpperCase()
+      : t('file');
+  const modifiedLabel = formatCompactFileDate(node.modified, locale);
   const parentPath = getParentDirectory(node.path);
   const nameContent = (
     <span className="min-w-0 flex-1">
@@ -255,6 +265,34 @@ function FileTreeNodeComponent({
     });
   };
 
+  const renderListContent = (icon: React.ReactNode) => (
+    <>
+      <span className={showListMetadata ? 'flex min-w-0 items-center gap-2' : 'contents'}>
+        {icon}
+        {nameContent}
+        {isPublic && (
+          <Globe2
+            className="h-3.5 w-3.5 shrink-0 text-amber-600"
+            aria-label={t('publicShareBadge')}
+          />
+        )}
+      </span>
+      {showListMetadata && (
+        <>
+          <span className="hidden truncate text-xs text-muted-foreground md:block" title={typeLabel}>
+            {typeLabel}
+          </span>
+          <span className="hidden truncate text-xs text-muted-foreground md:block" title={modifiedLabel}>
+            {modifiedLabel || '—'}
+          </span>
+          <span className="hidden truncate text-right text-xs text-muted-foreground md:block">
+            {!isDirectory && node.size !== undefined ? formatCompactFileSize(node.size) : '—'}
+          </span>
+        </>
+      )}
+    </>
+  );
+
   if (isDirectory) {
     if (browserMode === 'list') {
       return (
@@ -273,6 +311,7 @@ function FileTreeNodeComponent({
               className={cn(
                 'min-w-0 flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
                 'min-h-[44px] py-2 md:min-h-0 md:py-0',
+                showListMetadata && 'md:grid md:grid-cols-[minmax(0,1fr)_7rem_10rem_5rem] md:gap-3',
                 isRowActive && 'text-foreground'
               )}
               onClick={handleListDirectoryClick}
@@ -282,12 +321,11 @@ function FileTreeNodeComponent({
               aria-selected={isRowActive}
               data-file-primary-action
             >
-              {isLoading ? (
+              {renderListContent(isLoading ? (
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
               ) : (
                 getFileIcon()
-              )}
-              {nameContent}
+              ))}
             </SidebarMenuButton>
             {isMultiSelectMode ? (
               <button
@@ -430,6 +468,7 @@ function FileTreeNodeComponent({
                     selectionOrder={selectionOrder}
                     showPath={showPath}
                     openOnSingleClick={openOnSingleClick}
+                    showListMetadata={showListMetadata}
                   />
                 ))
               )}
@@ -457,6 +496,7 @@ function FileTreeNodeComponent({
           className={cn(
             'min-w-0 flex-1 justify-start gap-2 bg-transparent text-foreground hover:!bg-transparent hover:text-foreground active:!bg-transparent data-[state=open]:hover:!bg-transparent',
             'min-h-[44px] py-2 md:min-h-0 md:py-0',
+            browserMode === 'list' && showListMetadata && 'md:grid md:grid-cols-[minmax(0,1fr)_7rem_10rem_5rem] md:gap-3',
             isRowActive && 'text-foreground'
           )}
           onClick={handleSelect}
@@ -467,16 +507,20 @@ function FileTreeNodeComponent({
           aria-selected={isRowActive}
           data-file-primary-action
         >
-          <span className="h-4 w-4 shrink-0 pl-3 md:pl-6" />
-          {getFileIcon()}
-          {nameContent}
-          {isPublic && (
+          {browserMode === 'list' ? renderListContent(getFileIcon()) : (
+            <>
+              <span className="h-4 w-4 shrink-0 pl-3 md:pl-6" />
+              {getFileIcon()}
+              {nameContent}
+            </>
+          )}
+          {browserMode === 'tree' && isPublic && (
             <Globe2
               className="h-3.5 w-3.5 shrink-0 text-amber-600"
               aria-label={t('publicShareBadge')}
             />
           )}
-          {!isDirectory && node.size !== undefined && (
+          {!showListMetadata && !isDirectory && node.size !== undefined && (
             <span className="ml-auto hidden shrink-0 text-xs text-muted-foreground md:inline">
               {formatCompactFileSize(node.size)}
             </span>

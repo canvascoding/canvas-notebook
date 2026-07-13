@@ -2,7 +2,7 @@
 
 import { useRef, useCallback } from 'react';
 import { useTranslations } from 'next-intl';
-import { Loader2, AlertCircle, FolderOpen } from 'lucide-react';
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, Loader2, AlertCircle, FolderOpen } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import {
   SidebarMenu,
@@ -19,11 +19,25 @@ import { BulkMoveDialog } from './BulkMoveDialog';
 import { FileGridItem } from './FileGridItem';
 import { BackgroundContextMenu } from './BackgroundContextMenu';
 import { useFileExplorerViewModel } from './useFileExplorerViewModel';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import type { FileSortKey } from '@/app/lib/files/sort';
 
 interface FileGridViewProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
   onOpenFile?: (path: string) => void;
 }
+
+const FILE_SORT_OPTIONS: Array<{ key: FileSortKey; labelKey: string }> = [
+  { key: 'name', labelKey: 'sortName' },
+  { key: 'type', labelKey: 'sortType' },
+  { key: 'modified', labelKey: 'sortModified' },
+  { key: 'size', labelKey: 'sortSize' },
+];
 
 export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewProps) {
   const t = useTranslations('notebook');
@@ -32,6 +46,8 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     browserMode,
     currentDirectory,
     fileTree,
+    fileSortDirection,
+    fileSortKey,
     filteredListChildren,
     gridItems,
     gridSelectionOrder,
@@ -46,6 +62,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     searchError,
     searchResultTotal,
     searchResultNodes,
+    setFileSort,
     treeError,
     visibleSearchResultCount,
   } = useFileExplorerViewModel({ containerRef, variant });
@@ -166,6 +183,83 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     </div>
   ) : null;
 
+  const activeSortLabel = t(
+    FILE_SORT_OPTIONS.find((option) => option.key === fileSortKey)?.labelKey ?? 'sortName',
+  );
+  const SortDirectionIcon = fileSortDirection === 'asc' ? ArrowUp : ArrowDown;
+  const sortMenu = (
+    <DropdownMenu modal={false}>
+      <DropdownMenuTrigger asChild>
+        <Button
+          variant="ghost"
+          size="sm"
+          className="h-8 gap-1.5 text-xs text-muted-foreground"
+          aria-label={t('sortByCurrent', {
+            field: activeSortLabel,
+            direction: t(fileSortDirection === 'asc' ? 'sortAscending' : 'sortDescending'),
+          })}
+        >
+          <ArrowUpDown className="h-3.5 w-3.5" />
+          <span>{activeSortLabel}</span>
+          <SortDirectionIcon className="h-3 w-3" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end" className="w-52">
+        {FILE_SORT_OPTIONS.map((option) => {
+          const isActive = fileSortKey === option.key;
+          return (
+            <DropdownMenuItem key={option.key} onSelect={() => setFileSort(option.key)}>
+              <span className="flex-1">{t(option.labelKey)}</span>
+              {isActive && (
+                <>
+                  <Check className="h-3.5 w-3.5" />
+                  <SortDirectionIcon className="h-3.5 w-3.5 text-muted-foreground" />
+                </>
+              )}
+            </DropdownMenuItem>
+          );
+        })}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+
+  const renderSortColumn = (key: FileSortKey, labelKey: string, className?: string) => {
+    const isActive = fileSortKey === key;
+    return (
+      <div className={className}>
+        <button
+          type="button"
+          className="inline-flex items-center gap-1 rounded px-1 py-1 text-xs font-medium text-muted-foreground hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50"
+          onClick={() => setFileSort(key)}
+          aria-pressed={isActive}
+          aria-label={t('sortByCurrent', {
+            field: t(labelKey),
+            direction: isActive
+              ? t(fileSortDirection === 'asc' ? 'sortAscending' : 'sortDescending')
+              : t('sortNotActive'),
+          })}
+        >
+          {t(labelKey)}
+          {isActive && <SortDirectionIcon className="h-3 w-3" />}
+        </button>
+      </div>
+    );
+  };
+
+  const detailedListHeader = (
+    <div
+      className="hidden grid-cols-[minmax(0,1fr)_7rem_10rem_5rem_2.5rem] items-center gap-3 border-y border-border/70 bg-muted/30 px-2 py-1 md:grid"
+      role="toolbar"
+      aria-label={t('sortFiles')}
+    >
+      {renderSortColumn('name', 'sortName', 'pl-7')}
+      {renderSortColumn('type', 'sortType')}
+      {renderSortColumn('modified', 'sortModified')}
+      {renderSortColumn('size', 'sortSize', 'text-right')}
+      <span aria-hidden="true" />
+    </div>
+  );
+
   if (isLoadingTree || isRestoring) {
     return (
       <div className="flex h-full items-center justify-center">
@@ -280,6 +374,10 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
             <span>↑ {t('goUpFolder')}</span>
           </button>
         )}
+        {variant === 'fullscreen' && detailedListHeader}
+        <div className={cn('flex justify-end px-2 pb-1', variant === 'fullscreen' && 'md:hidden')}>
+          {sortMenu}
+        </div>
         <SidebarProvider>
           <SidebarGroup className="p-0">
             <SidebarGroupContent>
@@ -300,6 +398,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
                     selectionOrder={listSelectionOrder}
                     showPath={Boolean(normalizedSearchQuery)}
                     openOnSingleClick={variant !== 'fullscreen'}
+                    showListMetadata={variant === 'fullscreen'}
                   />
                 ))}
               </SidebarMenu>
