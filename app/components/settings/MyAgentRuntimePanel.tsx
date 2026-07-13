@@ -116,6 +116,21 @@ type PanelCopy = {
     description: string;
     reload: string;
   };
+  onboarding: {
+    eyebrow: string;
+    title: string;
+    description: string;
+    context: string;
+    recommendationTitle: string;
+    personalTitle: string;
+    recommendationDescription: string;
+    personalDescription: string;
+    continueRecommended: string;
+    continuePersonal: string;
+    customize: string;
+    hideCustomize: string;
+    customizeDescription: string;
+  };
   context: {
     section: string;
     loadFailed: string;
@@ -244,6 +259,21 @@ const DE_COPY: PanelCopy = {
     title: 'Meine Agent-Runtime',
     description: 'Wähle das KI-Modell, mit dem dein Agent in diesem Workspace arbeitet. Verfügbare Optionen werden von deiner Organisation bereitgestellt.',
     reload: 'Neu laden',
+  },
+  onboarding: {
+    eyebrow: 'Dein Agent',
+    title: 'Dein Agent ist bereit',
+    description: 'Du kannst mit der empfohlenen Einstellung starten. Eigene Modell-Einstellungen sind jederzeit möglich.',
+    context: 'Dein persönlicher Workspace · Canvas Agent',
+    recommendationTitle: 'Empfohlene Einstellung',
+    personalTitle: 'Deine gespeicherte Einstellung',
+    recommendationDescription: 'Diese Auswahl wird von deiner Organisation bereitgestellt und verwaltet.',
+    personalDescription: 'Diese persönliche Auswahl wird für deinen Canvas Agent verwendet.',
+    continueRecommended: 'Mit empfohlener Einstellung fortfahren',
+    continuePersonal: 'Mit meiner Einstellung fortfahren',
+    customize: 'Eigene Einstellungen anpassen',
+    hideCustomize: 'Anpassung schließen',
+    customizeDescription: 'Wähle nur dann selbst einen Anbieter, ein Modell oder eine Intelligence-Stufe, wenn du eine persönliche Abweichung brauchst.',
   },
   context: {
     section: 'Runtime-Kontext',
@@ -374,6 +404,21 @@ const EN_COPY: PanelCopy = {
     description: 'Choose the AI model your agent uses in this workspace. Available options are provided by your organization.',
     reload: 'Reload',
   },
+  onboarding: {
+    eyebrow: 'Your agent',
+    title: 'Your agent is ready',
+    description: 'Start with the recommended setup. You can personalize the model at any time.',
+    context: 'Your personal workspace · Canvas Agent',
+    recommendationTitle: 'Recommended setup',
+    personalTitle: 'Your saved setup',
+    recommendationDescription: 'This selection is provided and managed by your organization.',
+    personalDescription: 'This personal selection will be used for your Canvas Agent.',
+    continueRecommended: 'Continue with recommended setup',
+    continuePersonal: 'Continue with my setup',
+    customize: 'Customize my settings',
+    hideCustomize: 'Close customization',
+    customizeDescription: 'Only choose a provider, model, or intelligence level if you need a personal deviation.',
+  },
   context: {
     section: 'Runtime context',
     loadFailed: 'Runtime contexts could not be loaded',
@@ -445,9 +490,15 @@ const EN_COPY: PanelCopy = {
 
 export type MyAgentRuntimePanelProps = {
   locale?: string;
+  presentation?: 'settings' | 'onboarding';
   canManageRuntimeCatalog?: boolean;
   onOpenRuntimeCatalog?: () => void;
   onPreferenceSaved?: (context: { workspaceId: string; agentId: string }) => void;
+  onOnboardingRuntimeChosen?: (choice: {
+    workspaceId: string;
+    agentId: string;
+    runtime: 'completed' | 'skipped';
+  }) => void | Promise<void>;
 };
 
 function copyForLocale(locale: string | undefined): PanelCopy {
@@ -644,11 +695,14 @@ function SelectionSummary({
 
 export function MyAgentRuntimePanel({
   locale,
+  presentation = 'settings',
   canManageRuntimeCatalog = false,
   onOpenRuntimeCatalog,
   onPreferenceSaved,
+  onOnboardingRuntimeChosen,
 }: MyAgentRuntimePanelProps = {}) {
   const copy = copyForLocale(locale);
+  const isOnboarding = presentation === 'onboarding';
   const [workspaces, setWorkspaces] = useState<WorkspaceItem[]>([]);
   const [agents, setAgents] = useState<AgentItem[]>([]);
   const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
@@ -662,6 +716,8 @@ export function MyAgentRuntimePanel({
   const [mutation, setMutation] = useState<MutationKind>(null);
   const [notice, setNotice] = useState<{ tone: 'success' | 'error'; message: string } | null>(null);
   const [resolutionReloadKey, setResolutionReloadKey] = useState(0);
+  const [showCustomization, setShowCustomization] = useState(false);
+  const [onboardingContinueLoading, setOnboardingContinueLoading] = useState(false);
   const sourcesRequestRef = useRef(0);
   const resolutionRequestRef = useRef(0);
   const credentialRefreshRef = useRef<{
@@ -694,10 +750,13 @@ export function MyAgentRuntimePanel({
           && workspace.permissions.canRead
           && workspace.permissions.canRunAgent,
       );
-      const preferredWorkspaceId = workspacePayload.activeWorkspaceId
-        ?? workspacePayload.defaultWorkspace?.id
-        ?? runnableWorkspaces[0]?.id
-        ?? '';
+      const personalWorkspaceId = runnableWorkspaces.find((workspace) => workspace.type === 'personal')?.id ?? '';
+      const preferredWorkspaceId = isOnboarding
+        ? personalWorkspaceId
+        : workspacePayload.activeWorkspaceId
+          ?? workspacePayload.defaultWorkspace?.id
+          ?? runnableWorkspaces[0]?.id
+          ?? '';
       const preferredAgentId = nextAgents.find((agent) => agent.agentId === 'canvas-agent')?.agentId
         ?? nextAgents[0]?.agentId
         ?? '';
@@ -721,7 +780,7 @@ export function MyAgentRuntimePanel({
     } finally {
       if (requestId === sourcesRequestRef.current) setSourcesLoading(false);
     }
-  }, [copy.errors.loadAgents, copy.errors.loadContexts, copy.errors.loadWorkspaces]);
+  }, [copy.errors.loadAgents, copy.errors.loadContexts, copy.errors.loadWorkspaces, isOnboarding]);
 
   useEffect(() => {
     const timeoutId = window.setTimeout(() => {
@@ -904,6 +963,7 @@ export function MyAgentRuntimePanel({
       if (!payload.data) throw new Error(copy.errors.missingSavedPreference);
       applyRuntimeResponse(payload.data);
       setNotice({ tone: 'success', message: copy.saveSuccess });
+      if (isOnboarding) setShowCustomization(false);
       onPreferenceSaved?.({ workspaceId: selectedWorkspaceId, agentId: selectedAgentId });
     } catch (error) {
       setNotice({
@@ -933,6 +993,7 @@ export function MyAgentRuntimePanel({
       if (!payload.data) throw new Error(copy.errors.missingInheritedSelection);
       applyRuntimeResponse(payload.data);
       setNotice({ tone: 'success', message: copy.resetSuccess });
+      if (isOnboarding) setShowCustomization(false);
     } catch (error) {
       setNotice({
         tone: 'error',
@@ -943,8 +1004,36 @@ export function MyAgentRuntimePanel({
     }
   };
 
+  const handleOnboardingContinue = async () => {
+    if (
+      !resolution?.valid
+      || !resolution.effectiveSelection
+      || !selectedWorkspaceId
+      || !selectedAgentId
+      || !onOnboardingRuntimeChosen
+      || onboardingContinueLoading
+    ) return;
+
+    setOnboardingContinueLoading(true);
+    try {
+      await onOnboardingRuntimeChosen({
+        workspaceId: selectedWorkspaceId,
+        agentId: selectedAgentId,
+        runtime: resolution.preference ? 'completed' : 'skipped',
+      });
+    } catch (error) {
+      setNotice({
+        tone: 'error',
+        message: error instanceof Error ? error.message : copy.errors.savePreference,
+      });
+    } finally {
+      setOnboardingContinueLoading(false);
+    }
+  };
+
   return (
     <section className="min-w-0 space-y-4" aria-labelledby="my-agent-runtime-title">
+      {!isOnboarding && (
       <Card className="min-w-0 overflow-hidden border-t-2 border-t-primary/70">
         <CardHeader className="border-b bg-muted/20 px-4 sm:px-6">
           <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
@@ -1065,8 +1154,27 @@ export function MyAgentRuntimePanel({
           )}
         </CardContent>
       </Card>
+      )}
 
-      {resolutionLoading && <RuntimeLoadingState copy={copy} />}
+      {isOnboarding && !sourcesLoading && sourcesError && (
+        <Card className="border-destructive/30" role="alert">
+          <CardContent className="flex flex-col gap-4 px-4 sm:flex-row sm:items-center sm:justify-between sm:px-6">
+            <div className="flex min-w-0 items-start gap-3">
+              <AlertCircle className="mt-0.5 h-5 w-5 shrink-0 text-destructive" aria-hidden="true" />
+              <div className="min-w-0">
+                <p className="text-sm font-semibold">{copy.context.loadFailed}</p>
+                <p className="mt-1 break-words text-sm text-muted-foreground">{sourcesError}</p>
+              </div>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => void loadSources()}>
+              <RefreshCw />
+              {copy.context.retry}
+            </Button>
+          </CardContent>
+        </Card>
+      )}
+
+      {(resolutionLoading || (isOnboarding && sourcesLoading)) && <RuntimeLoadingState copy={copy} />}
 
       {!resolutionLoading && resolutionError && (
         <Card className="border-destructive/30" role="alert">
@@ -1096,19 +1204,34 @@ export function MyAgentRuntimePanel({
           <CardHeader className="border-b px-4 sm:px-6">
             <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
-                <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                  <span className="flex h-5 w-5 items-center justify-center rounded-full border bg-muted text-[10px]">02</span>
-                  {copy.effective.section}
-                </div>
-                <CardTitle className="flex min-w-0 items-center gap-2">
-                  <Cpu className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
-                  <span className="truncate">{effectiveModel?.name || effectiveSelection?.modelId || copy.effective.noModel}</span>
-                </CardTitle>
-                <CardDescription className="mt-1">
-                  {resolution.source
-                    ? copy.effective.resolvedFrom(sourceLabel(resolution.source, copy))
-                    : copy.effective.unresolvedDescription}
-                </CardDescription>
+                {isOnboarding ? (
+                  <>
+                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      <Bot className="h-3.5 w-3.5" aria-hidden="true" />
+                      {copy.onboarding.eyebrow}
+                    </div>
+                    <CardTitle id="my-agent-runtime-title" className="text-xl">{copy.onboarding.title}</CardTitle>
+                    <CardDescription className="mt-1 max-w-2xl leading-5">
+                      {copy.onboarding.description}
+                    </CardDescription>
+                  </>
+                ) : (
+                  <>
+                    <div className="mb-2 flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                      <span className="flex h-5 w-5 items-center justify-center rounded-full border bg-muted text-[10px]">02</span>
+                      {copy.effective.section}
+                    </div>
+                    <CardTitle className="flex min-w-0 items-center gap-2">
+                      <Cpu className="h-5 w-5 shrink-0 text-muted-foreground" aria-hidden="true" />
+                      <span className="truncate">{effectiveModel?.name || effectiveSelection?.modelId || copy.effective.noModel}</span>
+                    </CardTitle>
+                    <CardDescription className="mt-1">
+                      {resolution.source
+                        ? copy.effective.resolvedFrom(sourceLabel(resolution.source, copy))
+                        : copy.effective.unresolvedDescription}
+                    </CardDescription>
+                  </>
+                )}
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <Badge
@@ -1163,6 +1286,69 @@ export function MyAgentRuntimePanel({
               </div>
             )}
 
+            {isOnboarding && (
+              <div className="rounded-xl border bg-muted/[0.18] p-4 sm:p-5">
+                <div className="flex min-w-0 flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-sm font-semibold">
+                      {resolution.preference ? copy.onboarding.personalTitle : copy.onboarding.recommendationTitle}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-muted-foreground">
+                      {resolution.preference ? copy.onboarding.personalDescription : copy.onboarding.recommendationDescription}
+                    </p>
+                    <p className="mt-3 flex min-w-0 items-center gap-2 text-sm font-medium">
+                      <Cpu className="h-4 w-4 shrink-0 text-primary" aria-hidden="true" />
+                      <span className="truncate">{effectiveModel?.name || effectiveSelection?.modelId || copy.effective.noModel}</span>
+                    </p>
+                    <p className="mt-1 text-xs text-muted-foreground">{copy.onboarding.context}</p>
+                  </div>
+                  <div className="flex shrink-0 flex-col gap-2 sm:items-end">
+                    <Button
+                      type="button"
+                      onClick={() => void handleOnboardingContinue()}
+                      disabled={!resolution.valid || !resolution.effectiveSelection || onboardingContinueLoading}
+                      className="w-full sm:w-auto"
+                    >
+                      {onboardingContinueLoading ? <Loader2 className="animate-spin" /> : <CheckCircle2 />}
+                      {resolution.preference ? copy.onboarding.continuePersonal : copy.onboarding.continueRecommended}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      onClick={() => setShowCustomization((current) => !current)}
+                      disabled={controlsDisabled || resolution.providers.length === 0}
+                    >
+                      {showCustomization ? copy.onboarding.hideCustomize : copy.onboarding.customize}
+                    </Button>
+                  </div>
+                </div>
+                {showCustomization && (
+                  <p className="mt-4 border-t pt-4 text-sm leading-6 text-muted-foreground">
+                    {copy.onboarding.customizeDescription}
+                  </p>
+                )}
+                {notice && !showCustomization && (
+                  <div
+                    role={notice.tone === 'error' ? 'alert' : 'status'}
+                    aria-live="polite"
+                    className={cn(
+                      'mt-4 flex items-start gap-2 rounded-md border p-3 text-sm',
+                      notice.tone === 'success'
+                        ? 'border-emerald-500/30 bg-emerald-500/5 text-emerald-700 dark:text-emerald-300'
+                        : 'border-destructive/30 bg-destructive/5 text-destructive',
+                    )}
+                  >
+                    {notice.tone === 'success'
+                      ? <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
+                      : <AlertCircle className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />}
+                    <span className="break-words">{notice.message}</span>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {(!isOnboarding || showCustomization) && (
             <div className="grid min-w-0 gap-5 2xl:grid-cols-[minmax(0,1fr)_18rem]">
               <div className="min-w-0 space-y-5">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">
@@ -1400,6 +1586,7 @@ export function MyAgentRuntimePanel({
                 </div>
               </aside>
             </div>
+            )}
           </CardContent>
         </Card>
       )}

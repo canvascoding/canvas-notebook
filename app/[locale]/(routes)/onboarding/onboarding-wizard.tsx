@@ -471,73 +471,36 @@ function PersonalRuntimeStep({
   onContinue: () => void;
 }) {
   const t = useTranslations('onboarding');
-  const [savedContext, setSavedContext] = useState<{ workspaceId: string; agentId: string } | null>(null);
-  const [saving, setSaving] = useState<'completed' | 'skipped' | null>(null);
-  const [error, setError] = useState<string | null>(null);
-  const handlePreferenceSaved = useCallback((context: { workspaceId: string; agentId: string }) => setSavedContext(context), []);
 
-  async function completeRuntimeChoice(runtime: 'completed' | 'skipped') {
-    if (saving) return;
-    setSaving(runtime);
-    setError(null);
-    try {
-      const response = await fetch('/api/onboarding/user', {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          step: 'profile',
-          runtime,
-          ...(runtime === 'completed' && savedContext ? savedContext : {}),
-        }),
-      });
-      const payload = await response.json().catch(() => null) as { error?: string } | null;
-      if (!response.ok) throw new Error(payload?.error || t('runtimeSaveFailed'));
-      onContinue();
-    } catch (runtimeError) {
-      setError(runtimeError instanceof Error ? runtimeError.message : t('runtimeSaveFailed'));
-    } finally {
-      setSaving(null);
-    }
+  async function completeRuntimeChoice(choice: {
+    workspaceId: string;
+    agentId: string;
+    runtime: 'completed' | 'skipped';
+  }) {
+    const response = await fetch('/api/onboarding/user', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        step: 'profile',
+        runtime: choice.runtime,
+        ...(choice.runtime === 'completed'
+          ? { workspaceId: choice.workspaceId, agentId: choice.agentId }
+          : {}),
+      }),
+    });
+    const payload = await response.json().catch(() => null) as { error?: string } | null;
+    if (!response.ok) throw new Error(payload?.error || t('runtimeSaveFailed'));
+    onContinue();
   }
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="mb-1 text-xl font-semibold">{t('runtimeTitle')}</h2>
-        <p className="text-sm text-muted-foreground">{t('runtimeDescription')}</p>
-      </div>
-
+    <div>
       <MyAgentRuntimePanel
         locale={locale}
-        onPreferenceSaved={handlePreferenceSaved}
+        presentation="onboarding"
+        onOnboardingRuntimeChosen={completeRuntimeChoice}
       />
-
-      {error && (
-        <div className="border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive" role="alert">
-          {error}
-        </div>
-      )}
-
-      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
-        <Button
-          type="button"
-          variant="outline"
-          onClick={() => void completeRuntimeChoice('skipped')}
-          disabled={saving !== null}
-        >
-          {saving === 'skipped' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {t('runtimeUseInherited')}
-        </Button>
-        <Button
-          type="button"
-          onClick={() => void completeRuntimeChoice('completed')}
-          disabled={!savedContext || saving !== null}
-        >
-          {saving === 'completed' && <Loader2 className="mr-2 h-4 w-4 animate-spin" />}
-          {t('runtimeContinue')}
-        </Button>
-      </div>
     </div>
   );
 }
