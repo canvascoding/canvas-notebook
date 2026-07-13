@@ -38,7 +38,6 @@ import {
   DialogTitle,
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { ScrollArea } from '@/components/ui/scroll-area';
 import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
@@ -572,23 +571,30 @@ export function CreateAgentDialog({
               <ScrollArea className="h-full min-h-0 max-w-full overflow-x-hidden">
                 <div className="mx-auto box-border flex w-[100dvw] max-w-[100dvw] min-w-0 flex-col gap-4 overflow-x-hidden p-3 pr-[calc(0.75rem+0.625rem)] sm:gap-5 sm:p-5 sm:pr-[calc(1.25rem+0.625rem)] md:w-full md:max-w-4xl">
                   <div className="md:hidden">
-                    <Popover open={templatePickerOpen} onOpenChange={setTemplatePickerOpen}>
-                      <PopoverTrigger asChild>
-                        <Button type="button" variant="outline" className="h-auto min-w-0 w-full justify-between gap-3 px-3 py-2 text-left">
-                          <span className="flex min-w-0 flex-1 items-center gap-2">
-                            <Menu className="h-4 w-4 shrink-0" />
-                            <span className="min-w-0 flex-1 overflow-hidden">
-                              <span className="block truncate text-sm font-medium">{t(`templates.${selectedTemplate.id}.name`)}</span>
-                              <span className="block truncate text-xs text-muted-foreground">{t(`templates.${selectedTemplate.id}.description`)}</span>
-                            </span>
+                    <div className="min-w-0 overflow-hidden rounded-md border bg-background">
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="h-auto min-w-0 w-full justify-between gap-3 rounded-md border-0 px-3 py-2 text-left shadow-none"
+                        aria-expanded={templatePickerOpen}
+                        aria-controls="create-agent-template-list"
+                        onClick={() => setTemplatePickerOpen((current) => !current)}
+                      >
+                        <span className="flex min-w-0 flex-1 items-center gap-2">
+                          <Menu className="h-4 w-4 shrink-0" />
+                          <span className="min-w-0 flex-1 overflow-hidden">
+                            <span className="block truncate text-sm font-medium">{t(`templates.${selectedTemplate.id}.name`)}</span>
+                            <span className="block truncate text-xs text-muted-foreground">{t(`templates.${selectedTemplate.id}.description`)}</span>
                           </span>
-                          <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
-                        </Button>
-                      </PopoverTrigger>
-                      <PopoverContent align="start" className="max-h-[min(28rem,calc(100dvh-8rem))] w-[calc(100vw-1.5rem)] overflow-y-auto p-2">
-                        <TemplateList selectedTemplate={selectedTemplate} onSelectTemplate={applyTemplate} compact />
-                      </PopoverContent>
-                    </Popover>
+                        </span>
+                        <ChevronDown className={cn('h-4 w-4 shrink-0 text-muted-foreground transition-transform', templatePickerOpen && 'rotate-180')} />
+                      </Button>
+                      {templatePickerOpen && (
+                        <div id="create-agent-template-list" className="max-h-[min(28rem,calc(100dvh-12rem))] overflow-y-auto border-t p-2">
+                          <TemplateList selectedTemplate={selectedTemplate} onSelectTemplate={applyTemplate} compact />
+                        </div>
+                      )}
+                    </div>
                   </div>
 
                   <section className="min-w-0 overflow-hidden rounded-md border bg-muted/10 p-3 sm:p-4">
