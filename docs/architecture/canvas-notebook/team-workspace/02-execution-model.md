@@ -243,8 +243,8 @@ Diese Phase beginnt erst, wenn P7 abgeschlossen ist. Ihre interne Reihenfolge is
 4. Materialisierte `.md`-/`.txt`-Checkpoints mit Revision, Audit, File Watcher, Public Links, Knowledge und Backup integrieren.
 5. Workspace Presence Registry, Initial-Snapshot und Presence-Deltas fuer File Tree, List und Grid umsetzen.
 6. Farbige User-Marker mit `viewing`/`editing`/`agent_editing`, dualer Agent-Attribution, Tooltip, `+N`, Light/Dark Mode und Accessibility integrieren.
-7. Agent-/Automation-Direct-Connection, stabile Multi-Range-Zielanker, atomare Operationsgruppen, Overlap-/Rebase-/Race-Gates, duale Attribution und Review-Patch-Flow bauen.
-8. Offline/Reconnect, grosse Dokumente, Lifecycle, Observability und Preview-Rollout hardenen.
+7. Agent-/Automation-Direct-Connection, stabile Multi-Range-Zielanker, atomare Operationsgruppen, Overlap-/Rebase-/Race-Gates, persistierte idempotente Operationszustandsmaschine, Cancel/Restart-Recovery, Preflight, duale Attribution und revalidierten Review-Patch-Flow bauen.
+8. Durability-Meilensteine, IME/Unicode/Boundary-Semantik, Encoding, GC/Compaction, Feedback-Loops, Limits/Fairness, Provider-Lifecycle, Datei-Generationen und Preview-Rollout hardenen.
 
 File-Tree-Invariante:
 
@@ -265,6 +265,12 @@ Tests:
 - Gleichzeitige inkompatible Aenderungen desselben Zielabschnitts wechseln auf `needs_review`; autonome Agent-Runs erhalten bei aktiven Menschen standardmaessig einen Review-Patch.
 - Multi-Range-Test: Agent B zielt auf zwei getrennte Bereiche, waehrend User A einen oder beide Bereiche aendert; `all_or_nothing`, explizite unabhaengige Gruppen und `partially_applied` verhalten sich deterministisch.
 - In-Flight-/Offline-Test: spaet eintreffende User-Aenderung an einem bereits angewendeten Agent-Ziel erzeugt einen sichtbaren `semantic_conflict` statt stiller Erfolgsmeldung.
+- Idempotenz-/Parallel-Run-Test: Ein Retry desselben Auftrags wendet ihn genau einmal an; parallele Agenten werden serialisiert und ueberlappende Ziele nicht per Last-Writer-Wins entschieden.
+- Cancel-/Recovery-Test: Cancel, Timeout, spaetes Ergebnis und Neustart koennen keinen terminalen oder bereits angewendeten Lauf blind erneut anwenden.
+- Durability-Test: UI und State unterscheiden live angewendet, in Postgres persistiert und als Datei materialisiert; Store-Fehler erzeugt `degraded`.
+- Review-/Preflight-Test: veraltetes Accept wird voll revalidiert; ungueltiges Schema, doppelte Stable IDs oder Operationen ausserhalb der Ziele erreichen den autoritativen Yjs-State nicht.
+- Editor-Hardening-Test: Grenzassoziation, IME-Composition, Unicode-Grapheme, CRLF/BOM, Provider-Doppelmount und abgebrochener Modellstream verhalten sich deterministisch.
+- Lifecycle-/Loop-Test: Delete/Restore/Schemawechsel invalidieren alte Runs; Checkpoint/File-Watcher/Knowledge/Automation erzeugen keinen kausalen Retrigger.
 - Shell- und generische File-Write-Pfade koennen den Collaboration-Agent-Service nicht per Whole-File-Write umgehen.
 - `npm run build`.
 - Sichtbare UI-/E2E-Pruefung erst nach expliziter Freigabe.

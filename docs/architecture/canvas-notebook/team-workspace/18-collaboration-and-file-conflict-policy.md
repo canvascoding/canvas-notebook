@@ -518,6 +518,90 @@ Yjs-Updates koennen den Server erreichen, waehrend der Agent rechnet oder unmitt
 
 Damit werden auch echte Gleichzeitigkeit, Netzwerklatenz und ein spaeter reconnectender User beruecksichtigt. CRDT-Konvergenz bleibt garantiert; semantische Ueberlappung wird sichtbar und reviewbar statt still als korrekt angenommen.
 
+## Verpflichtende Hardening-Gates fuer Agent-Koautorenschaft
+
+Die folgenden Regeln sind keine spaetere Komforterweiterung, sondern Bestandteil der Abnahme von Phase 7/8. Yjs garantiert die Konvergenz gueltiger CRDT-Updates, loest aber nicht automatisch Idempotenz eines fachlichen Agent-Auftrags, semantische Konflikte, Persistenzfehler oder Editor-Grenzfaelle.
+
+### Operationsidentitaet, Idempotenz und Zustandsmaschine
+
+- Jeder Agent-Auftrag erhaelt vor dem Modellaufruf eine serverseitige `operationId`, einen fuer Dokument und Auftraggeber eindeutigen `idempotencyKey` und eine `runGeneration`.
+- Ein Retry mit demselben `idempotencyKey` liefert die vorhandene Operation und darf weder einen zweiten Modelllauf noch eine zweite fachliche Aenderung erzeugen. Dasselbe binaere Yjs-Update ist zwar idempotent anwendbar; eine neu erzeugte semantische Ersetzung ist es nicht.
+- Alle Statuswechsel verwenden einen Compare-and-Swap auf `version`, `runGeneration` und erwarteten Vorstatus. Nur der Collaboration-Agent-Service darf terminale Status beziehungsweise Apply-/Persistenzstatus setzen.
+- Ein Operationsgruppen-Payload wird vor dem Apply kanonisch serialisiert und gehasht. Derselbe `operationId` darf nach `applied_to_ydoc` nicht mit anderem Payload fortgesetzt werden.
+- Accept, Reject, Cancel und Revert besitzen eigene Idempotenzschluessel. Doppelklick, HTTP-Retry oder Queue-Redelivery fuehren immer zu demselben Ergebnis.
+- Terminale Zustaende sind mindestens `cancelled`, `expired`, `superseded`, `failed`, `rejected` und `reverted`. Ein terminaler Lauf darf nicht durch ein spaetes Modell- oder Worker-Ergebnis wieder aktiv werden.
+
+### Mehrere parallele Agent-Runs
+
+- Mehrere Runs am selben Dokument duerfen planen, aber ihre Revalidierung und Yjs-Apply-Transaktionen werden pro Dokument serialisiert.
+- Zielabsichten koennen in Presence und Review-UI als weiche Hinweise erscheinen, sind jedoch keine Locks und blockieren menschliches Tippen nicht.
+- Zwei nicht ueberlappende, weiterhin gueltige Agent-Gruppen duerfen nacheinander direkt angewendet werden. Ueberlappende Gruppen werden in stabiler Reihenfolge gegen den dann aktuellen State neu bewertet.
+- Ein Run darf einen anderen nur mit expliziter, auditierter `supersedesOperationId` abloesen. Implizites Last-Writer-Wins zwischen Agenten ist verboten.
+- Nach einer begrenzten Zahl von Rebase-Versuchen oder bei fortlaufender menschlicher Aenderung desselben Ziels wechselt der Agent in `needs_review`; kein Run darf Menschen durch endlose Retries aushungern oder sich mit einem anderen Run gegenseitig neu basieren.
+
+### Cancel, Timeout, spaete Ergebnisse und Server-Neustart
+
+- Cancel vor Beginn der autoritativen Yjs-Transaktion setzt `cancelled`; ein spaeter Modell- oder Tool-Callback wird durch `runGeneration` und CAS verworfen.
+- Sobald die atomare Yjs-Transaktion committed ist, kann Cancel sie nicht unsichtbar zurueckdrehen. Die UI bietet stattdessen eine explizite, zustandsgepruefte Revert-Operation an.
+- Timeouts setzen `expired` oder `failed` und entfernen Agent-Presence. Ein Timeout darf keinen Hintergrund-Apply nach sich ziehen.
+- Beim Server-/Worker-Neustart werden nicht-terminale Operationen anhand ihres letzten dauerhaften Zustands rekonstruiert. `preparing` kann sicher auslaufen oder mit neuer Generation neu gestartet werden; `applying` wird ueber Payload-/State-Hash auf bereits erfolgten Commit geprueft und niemals blind erneut angewendet.
+- Vor jedem Apply werden ausser Permissions auch Dokumentgeneration, Existenz, Archive-/Delete-Zustand, Workspace, Representation und `schemaVersion` revalidiert. Rename/Move behaelt die Dokument-ID; Delete, Restore oder Schemawechsel koennen einen alten Run verfallen lassen.
+
+### Sichtbarkeit, Yjs-Persistenz und Datei-Checkpoint
+
+Ein Agent-Erfolg hat getrennte, monotone Meilensteine:
+
+1. `applied_to_ydoc`: Die Gruppe ist im autoritativen `Y.Doc` committed und fuer verbundene Clients sichtbar.
+2. `persisted_yjs`: Der resultierende Yjs-State beziehungsweise das Update ist durch den Persistence-Hook dauerhaft in Postgres bestaetigt.
+3. `checkpointed_file`: Die abgeleitete Markdown-/Textdatei und File Revision sind materialisiert.
+
+Regeln:
+
+- Die UI darf nach `applied_to_ydoc` "live angewendet" anzeigen, aber erst nach `persisted_yjs` "dauerhaft gespeichert" und erst nach `checkpointed_file` einen aktuellen Datei-/Download-Checkpoint behaupten.
+- Debounce, Retry und Queueing des Store-Hooks werden in Status und Metriken sichtbar. Ein fehlgeschlagener Checkpoint macht einen bereits persistierten Yjs-State nicht rueckgaengig.
+- Schlaegt die Yjs-Persistenz ueber das definierte Retry-/Zeitbudget hinaus fehl, wird das Dokument `degraded`; neue serverautorisierte Agent-/Automation-Writes werden blockiert, bis die Durability wieder gesund ist. Menschen erhalten einen klaren Reconnect-/Read-only-Hinweis statt eines falschen Saved-Status.
+- Recovery vergleicht `resultingStateVectorHash`, Yjs-State-Version und Checkpoint-Revision. Sie darf aus einem neueren Checkpoint keinen aelteren Yjs-State rekonstruieren.
+
+### Review-Accept, Reject und Revert gegen aktuellen State
+
+- Accept ist kein Apply des alten Diffs. Unmittelbar davor werden Permission, Dokumentgeneration, Schema, alle Anker, Target-Hashes, Gruppenatomicity, Overlap und aktuelle State Vector erneut geprueft.
+- Eine inzwischen kollidierende Review-Gruppe bleibt `needs_review` und zeigt einen aktualisierten Vergleich; sie wird nicht aufgrund einer alten Nutzeransicht erzwungen.
+- `independent`-Gruppen duerfen nur durch eine vorab deterministische Serverregel oder eine explizite Auswahl des Users getrennt werden. Das LLM darf nach einem Konflikt nicht allein eine atomare Gruppe aufspalten.
+- Reject aendert keinen Yjs-State. Revert ist eine neue, attribuierte Operation gegen den aktuellen State und wechselt bei fremden Folgeaenderungen auf Review, statt Bereiche blind zurueckzusetzen.
+
+### Schema-, Struktur- und Update-Preflight
+
+- Eine Agent-Gruppe wird zuerst auf einem isolierten Clone des aktuellen `Y.Doc` angewendet. Erst wenn Schema, Zielumfang und Serialisierung gueltig sind, darf dieselbe validierte Operationsgruppe in der autoritativen serialisierten Apply-Section ausgefuehrt werden.
+- Der Preflight prueft erlaubte Tiptap-Nodes/-Marks, `schemaVersion`, maximale Struktur-/Textgroesse, Markdown-Roundtrip, Target-Scope und dokumentweit eindeutige Node-IDs.
+- Stable IDs werden bei Aktivierung, Paste, Import, Split, Merge und Agent-Apply validiert. Bei Split/Merge ist deterministisch festgelegt, welcher Block seine ID behaelt; neue beziehungsweise duplizierte Bloecke erhalten serverseitig neue IDs oder die Operation wird abgelehnt.
+- Vom Client kommende Yjs-Updates und Awareness sind untrusted. Auth, Dokument-/Workspace-Scope, Byte-/Rate-Limits und erlaubte Message-Typen werden vor Annahme geprueft; rich-text-semantische Updates werden begrenzt auf einem Clone validiert, bevor sie den autoritativen State erreichen.
+- Ein nicht mehr eindeutig aufloesbarer Stable-ID-/Relative-Position-Anker fuehrt zu Review, nie zu heuristischer Ersetzung des "aehnlichsten" Absatzes.
+
+### Grenzen, IME und Unicode
+
+- Jeder Textanker speichert eine explizite `boundaryPolicy`, die auf die `assoc`-Semantik der Yjs Relative Positions abgebildet wird. Der sichere Default schliesst konkurrierende Einfuegungen direkt ausserhalb der Zielgrenzen nicht nachtraeglich in eine Agent-Ersetzung ein.
+- Ein Agent-Apply, der eine aktive IME-/Composition-Range eines Clients ueberlappt, wird bis zum Composition-Ende zurueckgestellt oder auf Review gesetzt. Nicht ueberlappende Gruppen duerfen weiterlaufen.
+- Textoperationen duerfen keine UTF-16-Surrogate, Combining-Sequenzen oder Grapheme-Cluster wie ZWJ-Emoji teilen. Selection-/Offset-Konvertierung verwendet die Editor-APIs beziehungsweise eine Grapheme-Segmentierung und wird nicht mit naiven String-Indizes implementiert.
+- Boundary-Tests umfassen Einfuegungen exakt vor, auf und nach Start/Ende sowie leere Ziele, Absatzanfang/-ende und geloeschte Grenzzeichen.
+
+### Streaming, Feedback-Loops und Ressourcenlimits
+
+- Gestreamte Modell-Tokens sind ausschliesslich Vorschau. Autoritativer Yjs-State wird erst mit einer vollstaendigen, validierten Operationsgruppe veraendert; ein abgebrochener Stream hinterlaesst keine Teiltransaktion.
+- Jeder Seiteneffekt traegt `correlationId`, `causationId`, `idempotencyKey` und eine begrenzte `triggerDepth`. Checkpoint, File Watcher, Knowledge-Indexing, Automation und Agent-Trigger duerfen dieselbe Kausalkette nicht erneut ausloesen.
+- Die Outbox darf technisch erneut zustellen; alle Consumer deduplizieren ueber die Kausalkette und fuehren den fachlichen Seiteneffekt dadurch effektiv genau einmal aus. Ein Retry des Checkpoints erzeugt nicht mehrere Agent-Runs oder doppelte Revisionen.
+- Pro Operation gelten konfigurierbare Obergrenzen fuer Payload-Bytes, Zielanzahl, Gruppenanzahl, Dokumentgroesse, Laufzeit, Rebase-Versuche und gleichzeitige Runs pro Dokument/User/Organization. Ueberschreitungen erzeugen Review oder einen klaren Fehler, keinen Whole-File-Fallback.
+- Backpressure priorisiert menschliche Updates und Persistenz vor Agent-Apply. Agent-Presence nennt `queued`, `applying` oder `needs_review`, damit Wartezeit nicht wie aktive Bearbeitung aussieht.
+
+### Encoding, GC, Datei-Lifecycle und Cross-Document-Operationen
+
+- V1-Collaboration akzeptiert nur valide UTF-8-Textrepraesentationen. Binaere oder nicht sicher dekodierbare `.txt`-Dateien bleiben im Revision-/Lock-Modus.
+- Im `Y.Text` gilt kanonisch LF ohne BOM. `lineEnding` (`lf | crlf`) und `bom` werden als Serialisierungsprofil getrennt gespeichert und beim Checkpoint reproduziert; kanonischer Inhalts-Hash und serialisierter Datei-Hash sind getrennt.
+- Yjs-Garbage-Collection bleibt in V1 aktiviert. Pending Reviews/Agent-Operationen duerfen nicht auf unbegrenzt erhaltene Tombstones vertrauen, sondern speichern kurzlebige, verschluesselte Payload-/Vergleichsartefakte mit TTL. Abgelaufene Anker wechseln auf `expired` oder erneuten Review.
+- State-Compaction erfolgt nur bei leerem Room und ohne laufende/pending Operationen, nach bestaetigtem Checkpoint und Backup-Marker. Revert basiert auf Revisionen beziehungsweise expliziten Gegenoperationen, nicht auf ewiger Yjs-Historie.
+- Rename/Move behaelt ID und Generation. Delete cancelt offene Operationen; Copy erzeugt einen neuen State ohne pending Agent-Runs; Restore erhoeht die Dokumentgeneration. Ein Representation-/Schemawechsel quiesziert den Room und setzt alte Operationen auf Review/Expired.
+- Ein Auftrag ueber mehrere Dokumente besitzt in V1 keine verteilte CRDT-Atomaritaet. Er wird als Saga mit Status pro Dokument, expliziter Kompensation beziehungsweise Review ausgefuehrt; gefordertes Cross-Document-`all_or_nothing` wird als nicht direkt unterstuetzt angezeigt.
+- Der Client besitzt pro geoeffnetem Dokument genau eine Provider-Instanz mit `connectionInstanceId`. React Strict Mode, Remount, Tab-Sleep und Reconnect duerfen keine doppelten Provider, Awareness-Eintraege oder Listener erzeugen; Cleanup und Event-Deduplizierung sind verbindlich.
+
 ## Externe Dateiaenderungen und Konflikte
 
 Auch bei Yjs bleiben externe Writes moeglich, etwa durch Restore, Import oder einen kontrollierten Host-Prozess.
@@ -578,15 +662,21 @@ collaboration_documents
 - organizationId
 - workspaceId
 - currentPath
+- lifecycleGeneration
 - provider: yjs
 - documentKind: tiptap_markdown | raw_text
 - schemaVersion
+- serializationEncoding: utf8
+- lineEnding: lf | crlf
+- bom: boolean
 - stateBinary: BYTEA
 - stateVectorBinary?: BYTEA
 - stateVersion
+- canonicalContentHash?
+- serializedContentHash?
 - snapshotRevisionId?
 - lastCheckpointAt?
-- status: active | archived | conflicted
+- status: active | degraded | archived | conflicted
 - createdAt
 - updatedAt
 ```
@@ -602,7 +692,12 @@ collaboration_events
 - actorType: user | agent | automation | system
 - agentId?
 - agentRunId?
+- operationId?
 - transactionOrigin
+- correlationId?
+- causationId?
+- idempotencyKey?
+- triggerDepth?
 - documentSequence
 - clientSyncEpoch?
 - operationGroupId?
@@ -618,7 +713,42 @@ collaboration_events
 
 Presence bleibt fluechtig und ist keine Pflicht-Datenbanktabelle.
 
-Fuer laenger laufende oder reviewpflichtige Agent-Aenderungen wird zusaetzlich eine kleine `collaboration_agent_operations`-Entitaet geplant. Sie speichert Status (`preparing | applying | applied | partially_applied | needs_review | semantic_conflict | rejected | reverted`), duale Attribution, Dokument, Operationsgruppen, Atomicity, Target-/State-Hashes und Checkpoint-Referenz. Vorgeschlagener Text beziehungsweise Raw-Operations liegen nur kurzlebig ueber `payloadRef` vor und folgen der Content-Retention.
+Fuer laenger laufende, direkte oder reviewpflichtige Agent-Aenderungen wird zusaetzlich folgende Entitaet geplant:
+
+```txt
+collaboration_agent_operations
+- id
+- organizationId
+- workspaceId
+- documentId
+- documentLifecycleGeneration
+- idempotencyKey: UNIQUE(documentId, initiatedByUserId, idempotencyKey)
+- runGeneration
+- version
+- initiatedByUserId
+- actorSessionId?
+- agentId
+- agentRunId
+- supersedesOperationId?
+- status: preparing | ready | applying | applied_to_ydoc | persisted_yjs | checkpointed_file | partially_applied | needs_review | semantic_conflict | cancel_requested | cancelled | expired | superseded | failed | rejected | reverted
+- atomicity: all_or_nothing | independent
+- baseStateVectorHash
+- baseDocumentSequence
+- operationGroupsRef
+- operationGroupsHash
+- resultingStateVectorHash?
+- checkpointRevisionId?
+- cancelRequestedAt?
+- appliedAt?
+- persistedAt?
+- checkpointedAt?
+- expiresAt?
+- errorCode?
+- createdAt
+- updatedAt
+```
+
+`version`, `runGeneration`, erwarteter Vorstatus und Payload-Hash bilden gemeinsam den CAS-Guard. Vorgeschlagener Text, Raw-Operations und Review-Vergleiche liegen nur kurzlebig ueber `operationGroupsRef` beziehungsweise `payloadRef` vor, sind verschluesselt und folgen der Content-Retention.
 
 ## API- und Event-Vertraege
 
@@ -642,10 +772,15 @@ collaboration_document_moved
 collaboration_document_archived
 collaboration_agent_started
 collaboration_agent_applied
+collaboration_agent_persisted
+collaboration_agent_checkpointed
 collaboration_agent_partially_applied
 collaboration_agent_needs_review
+collaboration_agent_cancelled
+collaboration_agent_superseded
 collaboration_agent_finished
 collaboration_semantic_conflict
+collaboration_persistence_error
 ```
 
 Alle Events tragen mindestens `workspaceId`, Dokument-ID beziehungsweise Pfad, Zeit und eine monotone oder vergleichbare Version. Clients ignorieren Events aus einem nicht mehr aktiven Workspace.
@@ -791,10 +926,13 @@ Abnahme:
 - serverseitige Yjs Direct Connection fuer explizit beauftragte, zielverankerte Agent-Operationen bauen.
 - Tiptap-Node-IDs/Yjs Relative Positions, per-Target-Hashes, Multi-Range-Operationsgruppen und Overlap-/Rebase-Pruefung implementieren.
 - `all_or_nothing` als Default, explizite `independent`-Gruppen, serialisierte Document-Apply-Section und Change Windows fuer In-Flight-/Offline-Races umsetzen.
+- persistierte Operationszustandsmaschine mit Idempotenzschluessel, CAS, `runGeneration`, Cancel/Timeout/Restart-Recovery und serialisierten parallelen Agent-Runs umsetzen.
+- Agent-Operationen zunaechst auf isoliertem Y.Doc-Clone gegen Schema, Stable-ID-Eindeutigkeit, Zielumfang, Groesse und Markdown-Roundtrip pruefen.
 - duale Attribution `Agent im Auftrag von User`, Agent-Presence und serverseitig gestempelten Transaction Origin umsetzen.
-- Review-Patch mit Diff, Accept/Reject und aktuellem State Vector fuer mehrdeutige oder autonome Aenderungen bauen.
+- Review-Patch mit Diff, idempotentem Accept/Reject und erneuter kompletter State-/Permission-/Target-Pruefung fuer mehrdeutige oder autonome Aenderungen bauen.
 - separates Rueckgaengigmachen von Agent-Aenderungen und Ausschluss aus fremden lokalen Undo-Stacks umsetzen.
-- Agent-Origin, Auftraggeber, Zielanker, State-Vectors und Checkpoint-Revision auditieren.
+- gestreamte Modellantwort nur als Vorschau behandeln und ausschliesslich vollstaendige validierte Operationsgruppen autoritativ anwenden.
+- Agent-Origin, Auftraggeber, Zielanker, State-Vectors, Kausalkette, Yjs-Persistenz und Checkpoint-Revision auditieren.
 
 Abnahme:
 
@@ -804,12 +942,19 @@ Abnahme:
 - ein Agent-Auftrag fuer mehrere getrennte Bereiche wird standardmaessig all-or-nothing angewendet; ein Konflikt in einem Bereich erzeugt keinen stillen Teil-Apply der restlichen Bereiche.
 - explizit unabhaengige Gruppen koennen teilweise angewendet werden, zeigen dann aber `partially_applied` mit exakter Gruppenauflistung.
 - spaet eintreffende oder Offline-User-Aenderungen an bereits vom Agent angewendeten Zielbereichen erzeugen `collaboration_semantic_conflict` und einen gezielten Vergleich.
+- derselbe Agent-Auftrag kann nach Client-/Queue-Retry nicht doppelt angewendet werden; parallele Agent-Runs werden gegen den jeweils aktuellen State serialisiert und ueberlappende Runs nicht per Last-Writer-Wins entschieden.
+- Cancel, Timeout, spaetes Modellresultat oder Server-Neustart erzeugen keinen unbemerkten Apply beziehungsweise Replay.
+- Review-Accept und Revert werden unmittelbar gegen den aktuellen Dokumentzustand revalidiert und sind idempotent.
+- die UI unterscheidet live angewendet, dauerhaft als Yjs gespeichert und als Datei-Checkpoint materialisiert; ein Persistenzfehler erzeugt `degraded` statt falschem Saved-Status.
 - direkt angewendete und angenommene Agent-Patches erscheinen live bei allen Clients.
 - abgelehnte Patches aendern weder Yjs-State noch Workspace-Datei.
 
 ### Phase 8: Hardening und Rollout
 
-- Offline/Reconnect, Backpressure, grosse Dokumente und Schema-Mismatch testen.
+- Offline/Reconnect, Backpressure, grosse Dokumente, Schema-Mismatch, IME/Unicode, Provider-Doppelmounts und Boundary-Semantik testen.
+- UTF-8-/LF-Kanonisierung, CRLF-/BOM-Reproduktion, Yjs-GC/Compaction, Review-TTL und Datei-Lifecycle-Generationen hardenen.
+- Ressourcenlimits und Fairness fuer Payload, Ziele, Laufzeit, Rebase-Versuche und parallele Runs festlegen.
+- Feedback-Loops zwischen Agent, Checkpoint, File Watcher, Knowledge und Automations ueber Kausalkette und Idempotenz verhindern.
 - Metrics, Alerts, Retention und Admin-Health fertigstellen.
 - Preview-Gate kontrolliert fuer Postgres-Team-Instanzen aktivieren.
 - Admin-/User-Dokumentation und Release Notes erstellen.
@@ -830,6 +975,10 @@ Abnahme:
 - Server-Neustart laedt denselben Yjs-State,
 - Pending Store wird bei kontrolliertem Shutdown geflusht,
 - Checkpoint erzeugt valide Markdown-/Textdatei und neue Revision,
+- UI-/Operationsstatus unterscheidet `applied_to_ydoc`, `persisted_yjs` und `checkpointed_file`; simulierter Store-Fehler erzeugt `degraded` und blockiert neue Agent-Writes,
+- Recovery nach Neustart erkennt einen bereits angewendeten, aber noch nicht als fertig markierten Run ueber State-/Payload-Hash und spielt ihn nicht erneut ab,
+- LF-internes Dokument wird gemaess gespeichertem Profil als LF oder CRLF und mit/ohne BOM reproduziert; kanonischer und serialisierter Hash bleiben korrekt,
+- Compaction laeuft nur bei leerem Room ohne pending Operationen und verliert weder bestaetigten State noch Review-/Revisionsreferenzen,
 - Tiptap-Markdown-Roundtrip bleibt fuer alle freigegebenen Nodes stabil,
 - Source-only- und Grossdatei-Fallback ist deterministisch.
 
@@ -874,6 +1023,17 @@ Abnahme:
 - ein User-Update, das zwischen letzter Vorpruefung und Apply eintrifft, wird durch die serialisierte Apply-Section vor dem Agent-Commit beruecksichtigt,
 - ein Offline-Update mit altem Ausgangs-State trifft nach Agent-Apply am selben Ziel ein und erzeugt `collaboration_semantic_conflict`,
 - fehlende oder unklare Client-Sync-Epoch bei spaeter Zielueberlappung fuehrt konservativ zu `collaboration_semantic_conflict`,
+- ein Retry mit demselben `idempotencyKey` startet und wendet denselben fachlichen Agent-Auftrag genau einmal an,
+- zwei parallele Agent-Runs auf nicht ueberlappenden Zielen werden nacheinander gegen aktuellen State angewendet; bei ueberlappenden Zielen entscheidet kein Last-Writer-Wins,
+- Cancel vor Apply, Timeout, spaetes Modellresultat und Worker-Neustart koennen keinen terminalen Run spaeter anwenden; Cancel nach Apply wird als neue Revert-Anfrage behandelt,
+- doppeltes oder veraltetes Review-Accept wird idempotent verarbeitet und revalidiert alle Gruppen gegen den aktuellen State,
+- Preflight lehnt ungueltiges Tiptap-Schema, Operationen ausserhalb der Ziele, duplizierte Stable IDs und nicht roundtrip-faehiges Markdown vor Mutation des autoritativen Y.Doc ab,
+- Stable IDs bleiben bei Paste, Import, Split und Merge dokumentweit eindeutig; unaufloesbare Anker wechseln auf Review,
+- Boundary-Tests vor/auf/nach Start und Ende folgen der festgelegten `assoc`-/`boundaryPolicy` und beziehen fremde Randeinfuegungen nicht versehentlich ein,
+- aktive IME-Composition am Ziel wird nicht zerstoert; Emoji-, Surrogate-, Combining- und ZWJ-Grapheme werden nie geteilt,
+- ein abgebrochener Modellstream hinterlaesst keine autoritative Teiloperation,
+- Checkpoint-, File-Watcher-, Knowledge- und Automation-Events mit derselben Kausalkette triggern keinen zweiten Agent-Run oder doppelte Revision,
+- Limits und Backpressure verhindern uebergrosse beziehungsweise endlos rebasierende Agent-Runs und priorisieren menschliche Updates,
 - autonome Agent-Runs erhalten bei aktiven Menschen einen Review-Patch statt silent write,
 - fremde lokale Undo-Stacks nehmen die Agent-Transaktion nicht auf; die dedizierte Revert-Aktion prueft den aktuellen State,
 - Shell-, File-Tool-, Automation- und Integrationspfade koennen den Collaboration-Agent-Service nicht per Whole-File-Write umgehen,
@@ -883,9 +1043,12 @@ Abnahme:
 ### Datei-Lifecycle und Backups
 
 - Rename/Move behaelt Dokument-ID und Presence,
-- Copy erzeugt unabhaengigen State,
-- Delete flusht und archiviert,
-- Restore reaktiviert den konsistenten Zustand,
+- Copy erzeugt unabhaengigen State ohne pending Agent-Operationen,
+- Delete flusht, archiviert und cancelt offene Operationen,
+- Restore reaktiviert den konsistenten Zustand mit neuer Lifecycle-Generation und laesst alte Runs nicht spaet anwenden,
+- Representation-/Schemawechsel quiesziert den Room und setzt alte Operationen kontrolliert auf Review oder Expired,
+- eine dokumentuebergreifende Agent-Saga weist Teilstatus und Kompensation/Review aus und behauptet keine verteilte Atomaritaet,
+- React-Strict-Mode, Remount, Tab-Sleep und Reconnect erzeugen pro Dokument keine doppelten Provider, Awareness-Eintraege oder Listener,
 - Full Backup enthaelt Postgres-Yjs-State und materialisierte Dateien,
 - Restore startet ohne doppelte Initialisierung oder verlorene History.
 
@@ -913,4 +1076,7 @@ UI- und End-to-End-Pruefungen werden gemaess Repository-Regeln erst nach explizi
 - [Tiptap: UniqueID und Verwendung mit Collaboration](https://tiptap.dev/docs/editor/extensions/functionality/uniqueid)
 - [Yjs: Shared Types](https://docs.yjs.dev/getting-started/working-with-shared-types)
 - [Yjs: Relative Positions](https://docs.yjs.dev/api/relative-positions)
+- [Yjs: Document Updates und Idempotenz](https://docs.yjs.dev/api/document-updates)
+- [Yjs: Y.Doc und Garbage Collection](https://docs.yjs.dev/api/y.doc)
 - [Yjs: CodeMirror-6-Binding](https://github.com/yjs/y-codemirror.next)
+- [CodeMirror 6 Reference: Composition, Text und Changes](https://codemirror.net/docs/ref/)

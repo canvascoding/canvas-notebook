@@ -132,6 +132,14 @@ Pflichtregeln:
 - Eine nicht ueberlappende, deterministisch rebasierbare Operation darf trotz anderer aktiver User als Yjs-Transaktion angewendet werden.
 - Eine geloeschte, inkompatibel geaenderte oder mehrdeutige Zielregion fuehrt zu `needs_review` und niemals zu Whole-File-Fallback.
 - Revalidierung aller Zielbereiche und `ydoc.transact(...)` laufen in derselben serialisierten Document-Apply-Section; ein kurzlebiges Change Window mit `documentSequence` und connection-gebundener Sync-Epoch erkennt spaet eintreffende oder unklare Ueberlappungen als `semantic_conflict`.
+- Jeder fachliche Auftrag besitzt eine persistierte `operationId`, einen eindeutigen `idempotencyKey`, `runGeneration`, Payload-Hash und CAS-Version. Retry, Queue-Redelivery, Doppelklick oder spaetes Worker-Ergebnis duerfen denselben Auftrag nicht ein zweites Mal anwenden.
+- Mehrere Agent-Runs am selben Dokument werden beim Apply serialisiert und gegen den jeweils aktuellen State revalidiert. Ueberlappende Runs verwenden weder implizites Last-Writer-Wins noch unbegrenzte gegenseitige Rebase-Schleifen.
+- Cancel vor der autoritativen Transaktion verhindert Apply; Cancel danach wird als neue, zustandsgepruefte Revert-Anfrage behandelt. Timeout, Restart und spaete Modellresultate koennen terminale Operationen nicht reaktivieren.
+- Agent-Operationen durchlaufen vor dem autoritativen Apply einen isolierten Y.Doc-Preflight fuer Schema, Stable-ID-Eindeutigkeit, Zielumfang, Groesse und Markdown-Roundtrip.
+- Gestreamte Tokens sind nur Vorschau. Ausschliesslich eine vollstaendige validierte Operationsgruppe darf als atomare Yjs-Transaktion in den gemeinsamen State gelangen.
+- Review-Accept, Reject und Revert sind idempotent; Accept und Revert revalidieren Permission, Dokumentgeneration, Schema, Anker, Hashes, Atomicity und aktuellen State erneut.
+- Der Broker unterscheidet `applied_to_ydoc`, `persisted_yjs` und `checkpointed_file`. Bei anhaltendem Persistence-Fehler wechselt das Dokument auf `degraded` und blockiert neue serverautorisierte Writes.
+- `correlationId`, `causationId`, `idempotencyKey` und begrenzte Trigger-Tiefe verhindern Feedback-Loops zwischen Agent, Checkpoint, File Watcher, Knowledge und Automation.
 - Autonome Agent-/Automation-Runs erzeugen bei aktiven Menschen standardmaessig einen Review-Patch.
 - Der serverseitige Transaction Origin enthaelt Auftraggeber, Agent, Run und Session und kann nicht vom LLM oder Client ueberschrieben werden.
 - Direkte Workspace-Dateisystem-Aenderungen ausserhalb des Brokers gelten als externe Writes und werden bei aktivem Dokument als Konflikt behandelt.
