@@ -11,6 +11,30 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.13.7] - 2026-07-13
+
+### Added
+
+- Added personal workspace switching and self-service account credential management.
+- Added public Markdown asset delivery, Marp preview routes, system SMTP notifications, and Studio media usage reporting.
+- Added trash undo support and sortable file-list metadata.
+
+### Changed
+
+- Redesigned the chat model selector and usage analytics dashboard, and clarified runtime and provider configuration flows.
+- Improved file explorer search, selection, mobile toolbar behavior, keyboard accessibility, and operation feedback.
+- Expanded collaboration, browser-lab, email-management, and agent coauthoring architecture documentation.
+- Updated compatible npm dependencies.
+
+### Fixed
+
+- Fixed mobile agent template picking, public short-link previews, Marp preview themes, managed-mode email routing, and rapid editor autosaves.
+- Fixed trash-delete result propagation and workspace-switcher fixture behavior.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.13.6] - 2026-07-13
 
 ### Added
