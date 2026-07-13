@@ -6,6 +6,8 @@ import {
   AlertTriangle,
   Check,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   Loader2,
   ShieldCheck,
 } from 'lucide-react';
@@ -18,6 +20,14 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
+import {
+  Sheet,
+  SheetContent,
+  SheetDescription,
+  SheetHeader,
+  SheetTitle,
+  SheetTrigger,
+} from '@/components/ui/sheet';
 import type {
   AiCatalogModel,
   AiEffectiveCatalogProvider,
@@ -27,6 +37,7 @@ import type {
 } from '@/app/lib/agent-runtime-policy/types';
 import { patchChatSessions } from '@/app/lib/chat/session-api';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 type ChatModelSelectorProps = {
@@ -51,6 +62,8 @@ type SelectorFeedback = {
   saved: boolean;
   error: string | null;
 };
+
+type RuntimeSelectorView = 'overview' | 'models' | 'intelligence';
 
 const THINKING_LEVELS: PiThinkingLevel[] = ['off', 'minimal', 'low', 'medium', 'high', 'xhigh'];
 
@@ -123,6 +136,7 @@ export function ChatModelSelector({
   onRuntimeStatusRefresh,
 }: ChatModelSelectorProps) {
   const t = useTranslations('chat');
+  const isMobile = useIsMobile();
   const contextKey = `${agentId}\0${sessionId ?? '__new__'}`;
   const latestContextKeyRef = useRef(contextKey);
   useLayoutEffect(() => {
@@ -134,6 +148,10 @@ export function ChatModelSelector({
     saved: false,
     error: null,
   });
+  const [providerSheetOpen, setProviderSheetOpen] = useState(false);
+  const [modelSheetOpen, setModelSheetOpen] = useState(false);
+  const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [selectorView, setSelectorView] = useState<RuntimeSelectorView>('overview');
   const currentFeedback = feedback.contextKey === contextKey
     ? feedback
     : { contextKey, pending: false, saved: false, error: null };
@@ -321,151 +339,358 @@ export function ChatModelSelector({
     source: currentSourceLabel,
   });
 
-  return (
-    <div className="flex min-w-0 items-center">
-      <DropdownMenu>
-        <DropdownMenuTrigger asChild disabled={!canChange}>
-          <button
-            type="button"
-            data-testid="chat-model-selector"
-            aria-label={t('runtimeSelectorAria')}
-            title={title}
-            className={cn(
-              'inline-flex min-w-0 items-center gap-1.5 rounded-md border bg-muted/60 text-foreground shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
-              compact ? 'max-w-[210px] px-2 py-1 text-[11px]' : 'max-w-[330px] px-2.5 py-1 text-xs',
-              visibleError ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border/60',
-            )}
-          >
-            {currentFeedback.pending ? (
-              <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
-            ) : currentFeedback.saved ? (
-              <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-            ) : validSelection ? (
-              <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" />
-            ) : (
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0" />
-            )}
-            {!compact ? (
-              <span className="min-w-0 truncate text-muted-foreground">{providerName}</span>
-            ) : null}
-            {!compact ? <span className="text-border">/</span> : null}
-            <span className="min-w-0 truncate font-mono font-medium">{getModelShortLabel(modelName)}</span>
-            {thinkingLevels.length > 0 ? (
-              <span className="shrink-0 text-muted-foreground">· {intelligenceName}</span>
-            ) : null}
-            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
-          </button>
-        </DropdownMenuTrigger>
+  const openSelectorView = (view: RuntimeSelectorView) => {
+    setSelectorView(view);
+  };
 
-        <DropdownMenuContent
-          align="start"
-          side="top"
-          collisionPadding={12}
-          className="max-h-[min(34rem,80vh)] w-[min(92vw,360px)] max-w-[calc(100vw-24px)] overflow-y-auto rounded-lg bg-popover/95 p-1.5 shadow-xl backdrop-blur"
+  const closeModelSheet = () => {
+    setModelSheetOpen(false);
+    setSelectorView('overview');
+  };
+
+  const selectorViewTitle = selectorView === 'models'
+    ? t('runtimeModelLabel')
+    : selectorView === 'intelligence'
+      ? t('runtimeIntelligenceLabel')
+      : t('runtimeSelectorTitle');
+  const selectorViewDescription = selectorView === 'models'
+    ? t('runtimeModelDescription', { provider: providerName })
+    : selectorView === 'intelligence'
+      ? t('runtimeIntelligenceDescription', { model: modelName })
+      : `${providerName} · ${modelName}`;
+
+  const providerTrigger = (
+    <button
+      type="button"
+      data-testid="chat-provider-selector"
+      aria-label={t('runtimeProviderSelectorAria')}
+      title={providerName}
+      disabled={!canChange}
+      className={cn(
+        'inline-flex min-w-0 items-center gap-1.5 rounded-md border bg-muted/60 px-2 py-1 text-foreground shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
+        compact ? 'max-w-[7.5rem] text-[11px]' : 'max-w-[12rem] text-xs',
+        visibleError ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border/60',
+      )}
+    >
+      <span className="min-w-0 truncate">{providerName}</span>
+      <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
+  );
+
+  const modelTrigger = (
+    <button
+      type="button"
+      data-testid="chat-model-selector"
+      aria-label={t('runtimeModelSelectorAria')}
+      title={title}
+      disabled={!canChange}
+      className={cn(
+        'inline-flex min-w-0 items-center gap-1.5 rounded-md border bg-muted/60 px-2 py-1 text-foreground shadow-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
+        compact ? 'max-w-[10.5rem] text-[11px]' : 'max-w-[17rem] text-xs',
+        visibleError ? 'border-destructive/40 bg-destructive/10 text-destructive' : 'border-border/60',
+      )}
+    >
+      {currentFeedback.pending ? (
+        <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" aria-hidden="true" />
+      ) : currentFeedback.saved ? (
+        <Check className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden="true" />
+      ) : validSelection ? (
+        <ShieldCheck className="h-3.5 w-3.5 shrink-0 text-emerald-500" aria-hidden="true" />
+      ) : (
+        <AlertTriangle className="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+      )}
+      <span className="min-w-0 truncate font-medium">
+        {compact ? getModelShortLabel(modelName) : modelName}
+      </span>
+      {thinkingLevels.length > 0 ? (
+        <span className="shrink-0 text-muted-foreground">· {intelligenceName}</span>
+      ) : null}
+      <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" aria-hidden="true" />
+    </button>
+  );
+
+  const renderProviderOptions = (mobile: boolean) => providers.length > 0 ? providers.map((provider) => {
+    const optionContent = (
+      <>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{provider.name}</span>
+          <span className={cn(
+            'block truncate text-[11px] leading-4',
+            provider.selectable ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-300',
+          )}>
+            {provider.selectable
+              ? credentialScopeLabel(provider)
+              : `${credentialScopeLabel(provider)} · ${statusLabel(provider)}`}
+          </span>
+        </span>
+        {selection?.providerInstallationId === provider.installationId ? (
+          <Check className="ml-2 h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />
+        ) : null}
+      </>
+    );
+
+    if (mobile) {
+      return (
+        <button
+          key={provider.installationId}
+          type="button"
+          disabled={!provider.selectable || currentFeedback.pending}
+          onClick={() => {
+            selectProvider(provider);
+            setProviderSheetOpen(false);
+          }}
+          className="flex min-h-14 w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
         >
-          <div className="px-2.5 pb-2 pt-1.5">
-            <div className="flex items-center justify-between gap-2">
-              <span className="text-[10px] font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                {t('runtimeSelectorTitle')}
-              </span>
-              <span className={cn(
-                'rounded-full border px-1.5 py-0.5 text-[9px] font-medium',
-                validSelection
-                  ? 'border-emerald-500/25 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
-                  : 'border-amber-500/25 bg-amber-500/10 text-amber-700 dark:text-amber-300',
-              )}>
-                {currentSourceLabel}
-              </span>
+          {optionContent}
+        </button>
+      );
+    }
+
+    return (
+      <DropdownMenuItem
+        key={provider.installationId}
+        disabled={!provider.selectable}
+        onSelect={() => selectProvider(provider)}
+        className="flex min-h-11 items-center rounded-md px-2.5 py-1.5 text-sm"
+      >
+        {optionContent}
+      </DropdownMenuItem>
+    );
+  }) : (
+    <div className="px-3 py-4 text-sm text-muted-foreground">{t('runtimeNoProviders')}</div>
+  );
+
+  const renderModelOptions = (mobile: boolean) => models.length > 0 ? models.map((model) => {
+    const optionContent = (
+      <>
+        <span className="min-w-0 flex-1">
+          <span className="block truncate">{model.name}</span>
+          {model.id !== model.name ? (
+            <span className="block truncate text-[11px] leading-4 text-muted-foreground">{model.id}</span>
+          ) : null}
+        </span>
+        {selection?.modelId === model.id ? (
+          <Check className="ml-2 h-4 w-4 shrink-0 text-emerald-500" aria-hidden="true" />
+        ) : null}
+      </>
+    );
+
+    if (mobile) {
+      return (
+        <button
+          key={model.id}
+          type="button"
+          disabled={currentFeedback.pending}
+          onClick={() => {
+            selectModel(model);
+            closeModelSheet();
+          }}
+          className="flex min-h-14 w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {optionContent}
+        </button>
+      );
+    }
+
+    return (
+      <DropdownMenuItem
+        key={model.id}
+        onSelect={() => selectModel(model)}
+        className="flex min-h-11 items-center rounded-md px-2.5 py-1.5 text-sm"
+      >
+        {optionContent}
+      </DropdownMenuItem>
+    );
+  }) : (
+    <div className="px-3 py-4 text-sm text-muted-foreground">{t('noModelsAvailable')}</div>
+  );
+
+  const renderIntelligenceOptions = (mobile: boolean) => (
+    THINKING_LEVELS.filter((level) => thinkingLevels.includes(level)).map((level) => {
+      const optionContent = (
+        <>
+          <span>{thinkingLabel(level)}</span>
+          {selection?.thinkingLevel === level ? (
+            <Check className="ml-auto h-4 w-4 text-emerald-500" aria-hidden="true" />
+          ) : null}
+        </>
+      );
+
+      if (mobile) {
+        return (
+          <button
+            key={level}
+            type="button"
+            disabled={currentFeedback.pending}
+            onClick={() => {
+              selectThinkingLevel(level);
+              closeModelSheet();
+            }}
+            className="flex min-h-12 w-full items-center rounded-md px-3 py-2 text-left text-sm transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {optionContent}
+          </button>
+        );
+      }
+
+      return (
+        <DropdownMenuItem
+          key={level}
+          onSelect={() => selectThinkingLevel(level)}
+          className="flex min-h-10 items-center rounded-md px-2.5 py-1.5 text-sm"
+        >
+          {optionContent}
+        </DropdownMenuItem>
+      );
+    })
+  );
+
+  const selectorOverview = (mobile: boolean) => (
+    <div className={cn('p-1.5', mobile && 'px-2 pb-3')}>
+      <button
+        type="button"
+        data-testid="chat-model-selector-model-row"
+        onClick={() => openSelectorView('models')}
+        className={cn(
+          'flex w-full items-center gap-3 rounded-md px-3 text-left transition-colors hover:bg-accent',
+          mobile ? 'min-h-14' : 'min-h-11',
+        )}
+      >
+        <span className="min-w-0 flex-1 text-sm font-medium">{t('runtimeModelLabel')}</span>
+        <span className="max-w-[60%] truncate text-sm text-muted-foreground">{modelName}</span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      </button>
+      <div className="mx-3 border-t border-border" />
+      <button
+        type="button"
+        data-testid="chat-model-selector-intelligence-row"
+        onClick={() => openSelectorView('intelligence')}
+        disabled={!selectedModel || thinkingLevels.length === 0}
+        className={cn(
+          'flex w-full items-center gap-3 rounded-md px-3 text-left transition-colors hover:bg-accent disabled:cursor-not-allowed disabled:opacity-50',
+          mobile ? 'min-h-14' : 'min-h-11',
+        )}
+      >
+        <span className="min-w-0 flex-1 text-sm font-medium">{t('runtimeIntelligenceLabel')}</span>
+        <span className="max-w-[60%] truncate text-sm text-muted-foreground">{intelligenceName}</span>
+        <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      </button>
+    </div>
+  );
+
+  const selectorOptions = (mobile: boolean) => selectorView === 'models'
+    ? renderModelOptions(mobile)
+    : selectorView === 'intelligence'
+      ? renderIntelligenceOptions(mobile)
+      : selectorOverview(mobile);
+
+  const selectorHeader = (mobile: boolean) => (
+    <div className={cn(
+      'flex items-start gap-2 border-b border-border px-3 py-3',
+      mobile && 'pr-12',
+    )}>
+      {selectorView !== 'overview' ? (
+        <button
+          type="button"
+          onClick={() => openSelectorView('overview')}
+          className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+          aria-label={t('runtimeSelectorBack')}
+        >
+          <ChevronLeft className="h-4 w-4" aria-hidden="true" />
+        </button>
+      ) : null}
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold">{selectorViewTitle}</p>
+        <p className="mt-0.5 truncate text-xs text-muted-foreground">{selectorViewDescription}</p>
+      </div>
+    </div>
+  );
+
+  const selectorError = visibleError ? (
+    <div className="mx-2 mb-2 rounded-md border border-destructive/25 bg-destructive/5 px-2.5 py-2 text-xs leading-4 text-destructive" role="alert">
+      {visibleError}
+    </div>
+  ) : null;
+
+  return (
+    <div className="flex max-w-full min-w-0 flex-wrap items-center gap-1.5">
+      {isMobile ? (
+        <Sheet open={providerSheetOpen} onOpenChange={setProviderSheetOpen}>
+          <SheetTrigger asChild>{providerTrigger}</SheetTrigger>
+          <SheetContent side="bottom" className="max-h-[78dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
+            <SheetHeader className="border-b border-border px-4 py-3 pr-12 text-left">
+              <SheetTitle>{t('runtimeProviderLabel')}</SheetTitle>
+              <SheetDescription>{t('runtimeProviderDescription')}</SheetDescription>
+            </SheetHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              {renderProviderOptions(true)}
+              {selectorError}
             </div>
-            <p className="mt-1 truncate text-xs text-foreground">{providerName} · {modelName}</p>
-          </div>
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>{providerTrigger}</DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            side="top"
+            collisionPadding={12}
+            className="max-h-[min(28rem,76vh)] w-[min(90vw,300px)] overflow-y-auto rounded-lg bg-popover/95 p-1.5 shadow-xl backdrop-blur"
+          >
+            <DropdownMenuLabel className="px-2.5 py-1.5 text-xs font-semibold">
+              {t('runtimeProviderLabel')}
+            </DropdownMenuLabel>
+            <DropdownMenuSeparator className="mx-2" />
+            {renderProviderOptions(false)}
+            {selectorError}
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
 
-          <DropdownMenuSeparator className="mx-2" />
-          <DropdownMenuLabel className="px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-            {t('runtimeProviderLabel')}
-          </DropdownMenuLabel>
-          {providers.length > 0 ? providers.map((provider) => (
-            <DropdownMenuItem
-              key={provider.installationId}
-              disabled={!provider.selectable}
-              onSelect={() => selectProvider(provider)}
-              className="flex min-h-10 items-center rounded-md px-2.5 py-1.5 text-sm"
-            >
-              <span className="min-w-0 flex-1">
-                <span className="block truncate">{provider.name}</span>
-                <span className={cn(
-                  'block truncate text-[10px] leading-4',
-                  provider.selectable ? 'text-muted-foreground' : 'text-amber-700 dark:text-amber-300',
-                )}>
-                  {provider.selectable
-                    ? credentialScopeLabel(provider)
-                    : `${credentialScopeLabel(provider)} · ${statusLabel(provider)}`}
-                </span>
-              </span>
-              {selection?.providerInstallationId === provider.installationId ? (
-                <Check className="ml-2 h-4 w-4 shrink-0 text-emerald-500" />
-              ) : null}
-            </DropdownMenuItem>
-          )) : (
-            <DropdownMenuItem disabled className="min-h-8 rounded-md px-2.5 py-1.5 text-sm">
-              {t('runtimeNoProviders')}
-            </DropdownMenuItem>
-          )}
-
-          {selectedProvider ? (
-            <>
-              <DropdownMenuSeparator className="mx-2 my-1.5" />
-              <DropdownMenuLabel className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {t('runtimeModelLabel')}
-              </DropdownMenuLabel>
-              {models.map((model) => (
-                <DropdownMenuItem
-                  key={model.id}
-                  onSelect={() => selectModel(model)}
-                  className="flex min-h-9 items-center rounded-md px-2.5 py-1.5 text-sm"
-                >
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate">{model.name}</span>
-                    {model.id !== model.name ? (
-                      <span className="block truncate font-mono text-[10px] leading-4 text-muted-foreground">{model.id}</span>
-                    ) : null}
-                  </span>
-                  {selection?.modelId === model.id ? (
-                    <Check className="ml-2 h-4 w-4 shrink-0 text-emerald-500" />
-                  ) : null}
-                </DropdownMenuItem>
-              ))}
-            </>
-          ) : null}
-
-          {selectedModel && thinkingLevels.length > 0 ? (
-            <>
-              <DropdownMenuSeparator className="mx-2 my-1.5" />
-              <DropdownMenuLabel className="px-2.5 py-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
-                {t('runtimeIntelligenceLabel')}
-              </DropdownMenuLabel>
-              {THINKING_LEVELS.filter((level) => thinkingLevels.includes(level)).map((level) => (
-                <DropdownMenuItem
-                  key={level}
-                  onSelect={() => selectThinkingLevel(level)}
-                  className="flex min-h-8 items-center rounded-md px-2.5 py-1.5 text-sm"
-                >
-                  <span>{thinkingLabel(level)}</span>
-                  {selection?.thinkingLevel === level ? (
-                    <Check className="ml-auto h-4 w-4 text-emerald-500" />
-                  ) : null}
-                </DropdownMenuItem>
-              ))}
-            </>
-          ) : null}
-
-          {visibleError ? (
-            <div className="mx-1.5 mt-1 rounded-md border border-destructive/25 bg-destructive/5 px-2 py-1.5 text-[11px] leading-4 text-destructive" role="alert">
-              {visibleError}
+      {isMobile ? (
+        <Sheet
+          open={modelSheetOpen}
+          onOpenChange={(open) => {
+            setModelSheetOpen(open);
+            if (!open) setSelectorView('overview');
+          }}
+        >
+          <SheetTrigger asChild>{modelTrigger}</SheetTrigger>
+          <SheetContent side="bottom" className="max-h-[82dvh] gap-0 overflow-hidden rounded-t-2xl p-0 pb-[env(safe-area-inset-bottom)]">
+            <SheetHeader className="sr-only">
+              <SheetTitle>{selectorViewTitle}</SheetTitle>
+              <SheetDescription>{selectorViewDescription}</SheetDescription>
+            </SheetHeader>
+            {selectorHeader(true)}
+            <div className="min-h-0 flex-1 overflow-y-auto p-2">
+              {selectorOptions(true)}
+              {selectorError}
             </div>
-          ) : null}
-        </DropdownMenuContent>
-      </DropdownMenu>
+          </SheetContent>
+        </Sheet>
+      ) : (
+        <DropdownMenu
+          open={modelMenuOpen}
+          onOpenChange={(open) => {
+            setModelMenuOpen(open);
+            if (!open) setSelectorView('overview');
+          }}
+        >
+          <DropdownMenuTrigger asChild>{modelTrigger}</DropdownMenuTrigger>
+          <DropdownMenuContent
+            align="start"
+            side="top"
+            collisionPadding={12}
+            className="w-[min(92vw,340px)] max-w-[calc(100vw-24px)] overflow-hidden rounded-lg bg-popover/95 p-0 shadow-xl backdrop-blur"
+          >
+            {selectorHeader(false)}
+            <div className="max-h-[min(28rem,76vh)] overflow-y-auto p-1.5">
+              {selectorOptions(false)}
+              {selectorError}
+            </div>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )}
     </div>
   );
 }

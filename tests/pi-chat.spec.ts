@@ -2150,6 +2150,7 @@ contentKind: document
     expect(savedLastActiveAgentId).toBe('research-agent');
 
     await page.getByTestId('chat-model-selector').click();
+    await page.getByTestId('chat-model-selector-model-row').click();
     await page.getByText('Claude Opus 4.1').click();
 
     await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Opus 4\.1/);
@@ -2266,6 +2267,17 @@ contentKind: document
     await expect(page.getByTestId('chat-agent-id')).toHaveCount(1);
     await expect(page.getByTestId('chat-session-id')).toHaveCount(1);
     await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);
+
+    await page.getByTestId('chat-provider-selector').click();
+    await expect(page.getByRole('heading', { name: 'Provider' })).toBeVisible();
+    await page.keyboard.press('Escape');
+
+    await page.getByTestId('chat-model-selector').click();
+    await expect(page.getByTestId('chat-model-selector-model-row')).toBeVisible();
+    await page.getByTestId('chat-model-selector-model-row').click();
+    await expect(page.getByRole('button', { name: /Claude Opus 4\.1/ })).toBeVisible();
+    await page.getByRole('button', { name: /Claude Opus 4\.1/ }).click();
+    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /Claude Opus 4\.1/);
   });
 
   test('should render a compaction break after manual canvas compact', async ({ page }) => {
