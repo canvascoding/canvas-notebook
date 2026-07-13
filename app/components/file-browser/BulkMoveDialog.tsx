@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { FileWarning } from 'lucide-react';
 import {
@@ -13,7 +13,12 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
-import { getWorkspacePathName, isMoveIntoSelf, resolveMoveDestination } from '@/app/lib/files/operation-flows';
+import {
+  compactWorkspaceSelection,
+  getWorkspacePathName,
+  isMoveIntoSelf,
+  resolveMoveDestination,
+} from '@/app/lib/files/operation-flows';
 import { toast } from 'sonner';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { useShallow } from 'zustand/react/shallow';
@@ -24,6 +29,7 @@ interface ConflictState {
   destPath: string;
   remainingPaths: string[];
   successCount: number;
+  skippedCount: number;
 }
 
 export function BulkMoveDialog() {
@@ -57,6 +63,11 @@ export function BulkMoveDialog() {
     setIsMoving(false);
   };
 
+  const selectedMovePaths = useMemo(
+    () => compactWorkspaceSelection(multiSelectPaths),
+    [multiSelectPaths],
+  );
+
   const closeDialog = () => {
     resetDialogState();
     setBulkMoveOpen(false);
@@ -74,15 +85,24 @@ export function BulkMoveDialog() {
     });
   };
 
-  const completeMove = async (successCount: number) => {
+  const completeMove = async (successCount: number, skippedCount: number) => {
     clearMultiSelect();
     await refreshVisibleTree();
     closeDialog();
+    if (skippedCount > 0) {
+      toast.warning(t('moveMultiplePartialSuccess', { moved: successCount, skipped: skippedCount }));
+      return;
+    }
     toast.success(t('moveMultipleSuccess', { count: successCount }));
   };
 
-  const processMoveQueue = async (pathsToMove: string[], initialSuccessCount = 0) => {
+  const processMoveQueue = async (
+    pathsToMove: string[],
+    initialSuccessCount = 0,
+    initialSkippedCount = 0,
+  ) => {
     let successCount = initialSuccessCount;
+    let skippedCount = initialSkippedCount;
 
     for (let index = 0; index < pathsToMove.length; index++) {
       const path = pathsToMove[index];
@@ -113,6 +133,7 @@ export function BulkMoveDialog() {
             destPath: err.destPath || destination,
             remainingPaths: pathsToMove.slice(index + 1),
             successCount,
+            skippedCount,
           });
           return;
         }
@@ -128,10 +149,8 @@ export function BulkMoveDialog() {
         }
 
         if (err.code === 'SOURCE_NOT_FOUND') {
-          if (successCount > 0) await refreshVisibleTree();
-          toast.error(t('sourceNotFoundError', { path: path || '' }));
-          setIsMoving(false);
-          return;
+          skippedCount += 1;
+          continue;
         }
 
         console.error(`Failed to move ${path}:`, error);
@@ -142,7 +161,7 @@ export function BulkMoveDialog() {
       }
     }
 
-    await completeMove(successCount);
+    await completeMove(successCount, skippedCount);
   };
 
   const handleConflictResolution = async (action: 'overwrite-selection' | 'overwrite-existing' | 'skip') => {
@@ -152,16 +171,28 @@ export function BulkMoveDialog() {
     setConflict(null);
 
     if (action === 'skip') {
-      await processMoveQueue(activeConflict.remainingPaths, activeConflict.successCount);
+      await processMoveQueue(
+        activeConflict.remainingPaths,
+        activeConflict.successCount,
+        activeConflict.skippedCount + 1,
+      );
     } else if (action === 'overwrite-selection') {
       try {
         await renamePath(activeConflict.sourcePath, activeConflict.destPath, true, false);
-        await processMoveQueue(activeConflict.remainingPaths, activeConflict.successCount + 1);
+        await processMoveQueue(
+          activeConflict.remainingPaths,
+          activeConflict.successCount + 1,
+          activeConflict.skippedCount,
+        );
       } catch (error) {
         await handleMoveError(error);
       }
     } else if (action === 'overwrite-existing') {
-      await processMoveQueue(activeConflict.remainingPaths, activeConflict.successCount);
+      await processMoveQueue(
+        activeConflict.remainingPaths,
+        activeConflict.successCount,
+        activeConflict.skippedCount + 1,
+      );
     }
   };
 
@@ -187,8 +218,16 @@ export function BulkMoveDialog() {
   };
 
   const handleConfirmMove = async () => {
+    const invalidSource = selectedMovePaths.find((path) => (
+      isMoveIntoSelf(path, resolveMoveDestination(moveTarget, getWorkspacePathName(path)))
+    ));
+    if (invalidSource) {
+      toast.error(t('moveIntoSelf'));
+      return;
+    }
+
     setIsMoving(true);
-    await processMoveQueue(Array.from(multiSelectPaths));
+    await processMoveQueue(selectedMovePaths);
   };
 
   const handleCancel = () => {
@@ -209,7 +248,7 @@ export function BulkMoveDialog() {
       >
         <DialogContent className="max-w-xl">
           <DialogHeader>
-            <DialogTitle>{t('moveMultiple', { count: multiSelectPaths.size })}</DialogTitle>
+            <DialogTitle>{t('moveMultiple', { count: selectedMovePaths.length })}</DialogTitle>
             <DialogDescription>
               {t('moveDescription')}
             </DialogDescription>
@@ -230,7 +269,11 @@ export function BulkMoveDialog() {
             <Button variant="ghost" onClick={handleCancel} disabled={isMoving}>
               {t('cancel')}
             </Button>
-            <Button variant="secondary" onClick={handleConfirmMove} disabled={isMoving}>
+            <Button
+              variant="secondary"
+              onClick={handleConfirmMove}
+              disabled={isMoving || selectedMovePaths.length === 0}
+            >
               {isMoving ? t('moving') : t('move')}
             </Button>
           </DialogFooter>
