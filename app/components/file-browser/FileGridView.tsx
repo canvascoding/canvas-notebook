@@ -342,7 +342,18 @@ export function FileGridView({
   }
 
   if (fileTree.length === 0) {
-    return renderEmptyState();
+    return (
+      <div
+        ref={containerRef}
+        className="relative h-full overflow-y-auto focus:outline-none"
+        onContextMenu={handleBackgroundContextMenu}
+        tabIndex={0}
+        aria-label={browserMode === 'grid' ? t('fileGridLabel') : browserMode === 'list' ? t('fileListLabel') : t('fileTreeLabel')}
+      >
+        {renderEmptyState()}
+        <BackgroundContextMenu />
+      </div>
+    );
   }
 
   if (browserMode === 'grid') {
