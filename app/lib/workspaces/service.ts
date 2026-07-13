@@ -114,16 +114,16 @@ type WorkspaceMemberCandidateRow = {
   email: string | null;
   role: string;
   status: string;
+  banned: unknown;
 };
 
 export type CreateWorkspaceRecordType = 'personal' | 'team' | 'project';
-  banned: unknown;
-};
 
 type WorkspaceMemberCandidateEligibilityRow = {
   organization_role: string | null;
   organization_status: string | null;
   banned: unknown;
+};
 
 export class WorkspaceOperationError extends Error {
   code: string;
@@ -152,13 +152,13 @@ function normalizeWorkspaceStatus(value: string): WorkspaceStatus {
   return 'active';
 }
 
-function rowToWorkspaceRecord(row: WorkspaceRow): WorkspaceRecord {
-  return {
-    id: row.id,
 function isBannedWorkspaceUser(value: unknown): boolean {
   return value === true || value === 1 || value === '1' || value === 'true';
 }
 
+function rowToWorkspaceRecord(row: WorkspaceRow): WorkspaceRecord {
+  return {
+    id: row.id,
     organizationId: row.organization_id,
     type: normalizeWorkspaceType(row.type),
     ownerUserId: row.owner_user_id,
@@ -401,6 +401,7 @@ function updateWorkspaceRoot(
   },
 ): WorkspaceRecord {
   const nextIsDefault = input.isDefault ?? record.isDefault;
+  const nextDisplayName = input.displayName ?? record.displayName;
   if (
     record.rootRelativePath === input.rootRelativePath &&
     record.displayName === nextDisplayName &&
@@ -414,7 +415,6 @@ function updateWorkspaceRoot(
     UPDATE canvas_workspaces
     SET root_relative_path = ?, display_name = ?, is_default = ?, updated_at = ?
     WHERE id = ?
-  const nextDisplayName = input.displayName ?? record.displayName;
   `).run(input.rootRelativePath, nextDisplayName, nextIsDefault ? 1 : 0, Date.now(), record.id);
 
   const updated = getWorkspaceById(sqlite, record.id);
@@ -444,6 +444,7 @@ export function ensureDefaultWorkspaceRecords(
         type: 'personal',
         ownerUserId: params.userId,
         rootRelativePath: personalRoot,
+        displayName: 'Personal Workspace',
         isDefault: true,
       });
 
@@ -464,6 +465,7 @@ export function ensureDefaultWorkspaceRecords(
         type: 'organization',
         ownerUserId: null,
         rootRelativePath: organizationRoot,
+        displayName: 'Organization Workspace',
         isDefault: true,
       });
 

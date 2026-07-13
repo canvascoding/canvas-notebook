@@ -115,7 +115,6 @@ type WorkspaceMemberCandidateRow = {
   email: string | null;
   role: string;
   status: string;
-};
   banned: unknown;
 };
 
@@ -123,6 +122,7 @@ type WorkspaceMemberCandidateEligibilityRow = {
   organization_role: string | null;
   organization_status: string | null;
   banned: unknown;
+};
 
 type WorkspaceRow = {
   id: string;
@@ -169,12 +169,12 @@ function normalizeWorkspaceStatus(value: string): WorkspaceStatus {
   return 'active';
 }
 
-function normalizeWorkspaceMemberRole(value: string): WorkspaceMemberRecord['role'] {
-  if (value === 'owner' || value === 'admin' || value === 'external') return value;
 function isBannedWorkspaceUser(value: unknown): boolean {
   return value === true || value === 1 || value === '1' || value === 'true';
 }
 
+function normalizeWorkspaceMemberRole(value: string): WorkspaceMemberRecord['role'] {
+  if (value === 'owner' || value === 'admin' || value === 'external') return value;
   return 'member';
 }
 
@@ -1866,6 +1866,10 @@ export async function upsertPostgresWorkspaceMemberForActor(
     if (workspace.workspaceType === 'project' && !workspace.projectId) {
       throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
     }
+    const organizationId = workspace.organizationId;
+    if (!organizationId) {
+      throw new WorkspaceOperationError('WORKSPACE_ORGANIZATION_REQUIRED', 'Workspace organization id is required.', 409);
+    }
     if (workspace.workspaceType === 'project') {
       const project = await database.get(
         `
@@ -1874,7 +1878,7 @@ export async function upsertPostgresWorkspaceMemberForActor(
           WHERE organization_id = ? AND id = ? AND status = 'active'
           LIMIT 1
         `,
-        [workspace.organizationId, workspace.projectId],
+        [organizationId, workspace.projectId],
       ) as { id: string } | undefined;
       if (!project) {
         throw new WorkspaceOperationError('WORKSPACE_PROJECT_NOT_FOUND', 'Project not found.', 404);
@@ -1886,7 +1890,7 @@ export async function upsertPostgresWorkspaceMemberForActor(
       throw new WorkspaceOperationError('WORKSPACE_MEMBER_USER_REQUIRED', 'User is required.', 400);
     }
     await ensurePostgresWorkspaceMemberCandidate(database, {
-      organizationId: workspace.organizationId,
+      organizationId,
       userId,
     });
 
