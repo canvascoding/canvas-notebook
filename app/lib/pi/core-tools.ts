@@ -82,11 +82,15 @@ export const piTools: AgentTool[] = [
         const entries = await fsPromises.readdir(fullPath, { withFileTypes: true });
         const files = await Promise.all(
           entries.map(async (entry) => {
-            const entryFullPath = path.join(fullPath, entry.name);
+            // Keep dynamic directory listings out of Turbopack's file tracing. `readdir`
+            // guarantees that entry names are a single path segment.
+            const entryFullPath = `${fullPath}${fullPath.endsWith(path.sep) ? '' : path.sep}${entry.name}`;
             const stats = await fsPromises.stat(entryFullPath);
             return {
               name: entry.name,
-              path: path.join(effectiveDir, entry.name),
+              path: effectiveDir === '.'
+                ? entry.name
+                : `${effectiveDir}${effectiveDir.endsWith(path.sep) ? '' : path.sep}${entry.name}`,
               type: entry.isDirectory() ? 'directory' : 'file',
               size: stats.size,
               modified: Math.floor(stats.mtimeMs / 1000),

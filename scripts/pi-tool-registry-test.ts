@@ -616,6 +616,10 @@ async function main() {
   await fs.writeFile(matchFile, 'const SearchToken = "needle";\nconst secondNeedle = "needle";\n', 'utf8');
   await fs.writeFile(otherFile, 'no interesting text here\n', 'utf8');
 
+  const lsResult = await lsTool.execute('ls-match', { path: tempDir });
+  assert.match(getText(lsResult), /match\.ts/);
+  assert.match(getText(lsResult), /other\.md/);
+
   const rgMatchResult = await rgTool.execute('rg-match', {
     pattern: 'needle',
     path: tempDir,
