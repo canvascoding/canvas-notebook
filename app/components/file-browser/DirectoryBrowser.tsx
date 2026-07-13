@@ -54,6 +54,8 @@ export function DirectoryBrowser({
             type="button"
             className="shrink-0 rounded p-1 hover:bg-accent/70"
             onClick={() => void handleToggleDir(entry.path, isExpanded)}
+            aria-label={t(isExpanded ? 'collapseFolder' : 'expandFolder', { name: entry.name })}
+            aria-expanded={isExpanded}
           >
             {isLoading ? (
               <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />

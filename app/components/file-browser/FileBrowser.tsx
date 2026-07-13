@@ -389,13 +389,13 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
             <div className="flex items-center gap-1">
               {multiSelectPaths.size > 0 && (
                 <>
-                  <Button variant="ghost" size="icon-sm" onClick={handleBulkMove} disabled={multiSelectProtection.hasProtected} title={t('move')}>
+                  <Button variant="ghost" size="icon-sm" onClick={handleBulkMove} disabled={multiSelectProtection.hasProtected} title={t('move')} aria-label={t('move')}>
                     <Move className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon-sm" onClick={() => void handleBulkDownload()} title={t('download')}>
+                  <Button variant="ghost" size="icon-sm" onClick={() => void handleBulkDownload()} title={t('download')} aria-label={t('download')}>
                     <Download className="h-3.5 w-3.5" />
                   </Button>
-                  <Button variant="ghost" size="icon-sm" onClick={handleBulkPublicShare} title={t('publicShareAction')}>
+                  <Button variant="ghost" size="icon-sm" onClick={handleBulkPublicShare} title={t('publicShareAction')} aria-label={t('publicShareAction')}>
                     <Globe2 className="h-3.5 w-3.5" />
                   </Button>
                 </>

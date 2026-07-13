@@ -14,7 +14,7 @@ export function FileBreadcrumb({ currentDirectory, onNavigate }: FileBreadcrumbP
 
   if (currentDirectory === '.') {
     return (
-      <nav className="flex min-w-0 flex-1 items-center gap-0.5">
+      <nav className="flex min-w-0 flex-1 items-center gap-0.5" aria-label={t('breadcrumbLabel')}>
         <button
           onClick={() => onNavigate('.')}
           className="flex shrink-0 items-center rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -29,7 +29,7 @@ export function FileBreadcrumb({ currentDirectory, onNavigate }: FileBreadcrumbP
   const segments = currentDirectory.split('/').filter(Boolean);
 
   return (
-    <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto scrollbar-none">
+    <nav className="flex min-w-0 flex-1 items-center gap-0.5 overflow-x-auto scrollbar-none" aria-label={t('breadcrumbLabel')}>
       <button
         onClick={() => onNavigate('.')}
         className="flex shrink-0 items-center rounded px-1.5 py-0.5 text-xs text-muted-foreground hover:bg-accent hover:text-foreground"
@@ -52,6 +52,7 @@ export function FileBreadcrumb({ currentDirectory, onNavigate }: FileBreadcrumbP
                   : 'text-muted-foreground hover:bg-accent hover:text-foreground'
               }`}
               title={dirPath}
+              aria-current={isLast ? 'page' : undefined}
             >
               {segment}
             </button>

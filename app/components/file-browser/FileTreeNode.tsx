@@ -177,6 +177,17 @@ function FileTreeNodeComponent({
     else void useFileStore.getState().revealAndLoadFile(node.path, { revealInTree: false });
   }, [browserMode, isDirectory, isMultiSelectMode, node, onNavigateInto, onOpenFile, openOnSingleClick]);
 
+  const handleListKeyDown = useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (browserMode !== 'list' || event.key !== 'Enter' || isMultiSelectMode) return;
+    event.preventDefault();
+    if (isDirectory) {
+      onNavigateInto?.(node);
+      return;
+    }
+    if (onOpenFile) onOpenFile(node.path);
+    else void useFileStore.getState().revealAndLoadFile(node.path, { revealInTree: false });
+  }, [browserMode, isDirectory, isMultiSelectMode, node, onNavigateInto, onOpenFile]);
+
   const handleCheckboxClick = (event: React.MouseEvent) => {
     event.stopPropagation();
     toggleMultiSelectPath(node.path);
@@ -247,7 +258,7 @@ function FileTreeNodeComponent({
   if (isDirectory) {
     if (browserMode === 'list') {
       return (
-        <SidebarMenuItem>
+        <SidebarMenuItem role="none">
           <div
             data-file-path={node.path}
             className={cn(
@@ -266,6 +277,10 @@ function FileTreeNodeComponent({
               )}
               onClick={handleListDirectoryClick}
               onDoubleClick={handleListDoubleClick}
+              onKeyDown={handleListKeyDown}
+              role="option"
+              aria-selected={isRowActive}
+              data-file-primary-action
             >
               {isLoading ? (
                 <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
@@ -276,8 +291,12 @@ function FileTreeNodeComponent({
             </SidebarMenuButton>
             {isMultiSelectMode ? (
               <button
+                type="button"
                 onClick={handleCheckboxClick}
-                className="ml-auto shrink-0 p-1 hover:bg-accent/70"
+                className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:h-7 md:w-7"
+                aria-label={t(isMultiSelected ? 'deselectItem' : 'selectItem', { name: displayName })}
+                aria-pressed={isMultiSelected}
+                data-file-action
               >
                 {isMultiSelected ? (
                   <CheckSquare className="h-4 w-4 text-primary" />
@@ -287,11 +306,15 @@ function FileTreeNodeComponent({
               </button>
             ) : (
               <button
+                type="button"
                 onClick={handleDotsClickForListMode}
                 className={cn(
-                  'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
-                  'opacity-100 md:opacity-0 md:group-hover:opacity-100'
+                  'ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 transition-opacity md:h-7 md:w-7',
+                  'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100'
                 )}
+                aria-label={t('moreActionsFor', { name: displayName })}
+                title={t('moreActionsFor', { name: displayName })}
+                data-file-action
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
@@ -304,7 +327,7 @@ function FileTreeNodeComponent({
     const showChildren = isExpanded && (hasLoadedChildren || isLoading || Boolean(directoryError));
     return (
       <Collapsible open={isExpanded} onOpenChange={handleToggle}>
-        <SidebarMenuItem>
+        <SidebarMenuItem role="none">
           <div
             data-file-path={node.path}
           className={cn(
@@ -324,6 +347,11 @@ function FileTreeNodeComponent({
                   isRowActive && 'text-foreground'
                 )}
                 onClick={handleSelect}
+                role="treeitem"
+                aria-level={depth + 1}
+                aria-expanded={isExpanded}
+                aria-selected={isRowActive}
+                data-file-primary-action
               >
                 {isLoading ? (
                   <Loader2 className="h-4 w-4 shrink-0 animate-spin text-muted-foreground" />
@@ -341,8 +369,12 @@ function FileTreeNodeComponent({
             </CollapsibleTrigger>
             {isMultiSelectMode ? (
               <button
+                type="button"
                 onClick={handleCheckboxClick}
-                className="ml-auto shrink-0 p-1 hover:bg-accent/70"
+                className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:h-7 md:w-7"
+                aria-label={t(isMultiSelected ? 'deselectItem' : 'selectItem', { name: displayName })}
+                aria-pressed={isMultiSelected}
+                data-file-action
               >
                 {isMultiSelected ? (
                   <CheckSquare className="h-4 w-4 text-primary" />
@@ -352,11 +384,15 @@ function FileTreeNodeComponent({
               </button>
             ) : (
               <button
+                type="button"
                 onClick={handleDotsClick}
                 className={cn(
-                  'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
-                  'opacity-100 md:opacity-0 md:group-hover:opacity-100'
+                  'ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 transition-opacity md:h-7 md:w-7',
+                  'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100'
                 )}
+                aria-label={t('moreActionsFor', { name: displayName })}
+                title={t('moreActionsFor', { name: displayName })}
+                data-file-action
               >
                 <MoreVertical className="h-4 w-4" />
               </button>
@@ -365,11 +401,11 @@ function FileTreeNodeComponent({
         </SidebarMenuItem>
         {showChildren && (
           <CollapsibleContent>
-            <SidebarMenuSub className="mx-0 mr-0 border-l-0 px-0 py-0 pr-0 md:ml-3.5 md:border-l md:pl-2.5">
+            <SidebarMenuSub className="mx-0 mr-0 border-l-0 px-0 py-0 pr-0 md:ml-3.5 md:border-l md:pl-2.5" role="group">
               {isLoading ? (
                 <div className="flex items-center gap-2 py-1 pl-[var(--tree-mobile-padding)] pr-2 text-xs text-muted-foreground md:px-2" style={childPaddingStyle}>
                   <Loader2 className="h-3 w-3 animate-spin" />
-                  <span>Loading...</span>
+                  <span>{t('loadingFolder')}</span>
                 </div>
               ) : directoryError ? (
                 <button
@@ -405,7 +441,7 @@ function FileTreeNodeComponent({
   }
 
   return (
-    <SidebarMenuItem>
+    <SidebarMenuItem role="none">
       <div
         data-file-path={node.path}
           className={cn(
@@ -425,6 +461,11 @@ function FileTreeNodeComponent({
           )}
           onClick={handleSelect}
           onDoubleClick={handleListDoubleClick}
+          onKeyDown={handleListKeyDown}
+          role={browserMode === 'list' ? 'option' : 'treeitem'}
+          aria-level={browserMode === 'tree' ? depth + 1 : undefined}
+          aria-selected={isRowActive}
+          data-file-primary-action
         >
           <span className="h-4 w-4 shrink-0 pl-3 md:pl-6" />
           {getFileIcon()}
@@ -432,7 +473,7 @@ function FileTreeNodeComponent({
           {isPublic && (
             <Globe2
               className="h-3.5 w-3.5 shrink-0 text-amber-600"
-              aria-label="Public"
+              aria-label={t('publicShareBadge')}
             />
           )}
           {!isDirectory && node.size !== undefined && (
@@ -443,8 +484,12 @@ function FileTreeNodeComponent({
         </SidebarMenuButton>
         {isMultiSelectMode ? (
           <button
+            type="button"
             onClick={handleCheckboxClick}
-            className="ml-auto shrink-0 p-1 hover:bg-accent/70"
+            className="ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:h-7 md:w-7"
+            aria-label={t(isMultiSelected ? 'deselectItem' : 'selectItem', { name: displayName })}
+            aria-pressed={isMultiSelected}
+            data-file-action
           >
             {isMultiSelected ? (
               <CheckSquare className="h-4 w-4 text-primary" />
@@ -454,11 +499,15 @@ function FileTreeNodeComponent({
           </button>
         ) : (
           <button
+            type="button"
             onClick={handleDotsClick}
             className={cn(
-              'ml-auto shrink-0 rounded p-1 text-muted-foreground hover:bg-accent/70 hover:text-foreground transition-opacity',
-              'opacity-100 md:opacity-0 md:group-hover:opacity-100'
+              'ml-auto flex h-10 w-10 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-accent/70 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 transition-opacity md:h-7 md:w-7',
+              'opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100'
             )}
+            aria-label={t('moreActionsFor', { name: displayName })}
+            title={t('moreActionsFor', { name: displayName })}
+            data-file-action
           >
             <MoreVertical className="h-4 w-4" />
           </button>

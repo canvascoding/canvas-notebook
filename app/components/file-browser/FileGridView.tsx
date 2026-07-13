@@ -92,6 +92,67 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
     useFileStore.getState().setCurrentDirectory(parentPath);
   }, [currentDirectory]);
 
+  const focusItem = useCallback((item: HTMLElement | undefined) => {
+    if (!item) return;
+    const focusTarget = item.matches('[tabindex]')
+      ? item
+      : item.querySelector<HTMLElement>('[data-file-primary-action]');
+    focusTarget?.focus();
+  }, []);
+
+  const handleContainerFocus = useCallback((event: React.FocusEvent<HTMLDivElement>) => {
+    if (event.target !== event.currentTarget) return;
+    const firstItem = event.currentTarget.querySelector<HTMLElement>('[data-file-path][aria-selected="true"]')
+      ?? event.currentTarget.querySelector<HTMLElement>('[data-file-path]');
+    focusItem(firstItem ?? undefined);
+  }, [focusItem]);
+
+  const handleContainerKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((event.target as HTMLElement).closest('[data-file-action]')) return;
+    const currentItem = (event.target as HTMLElement).closest<HTMLElement>('[data-file-path]');
+    if (!currentItem || !containerRef.current) return;
+
+    const items = Array.from(
+      containerRef.current.querySelectorAll<HTMLElement>('[data-file-path]'),
+    ).filter((item) => item.offsetParent !== null);
+    const currentIndex = items.indexOf(currentItem);
+    if (currentIndex < 0) return;
+
+    let nextIndex = currentIndex;
+    if (event.key === 'Home') nextIndex = 0;
+    else if (event.key === 'End') nextIndex = items.length - 1;
+    else if (event.key === 'ArrowUp') {
+      if (browserMode === 'grid') {
+        const grid = currentItem.closest<HTMLElement>('[data-file-grid]');
+        const columns = grid
+          ? Math.max(1, window.getComputedStyle(grid).gridTemplateColumns.split(' ').length)
+          : 1;
+        nextIndex = Math.max(0, currentIndex - columns);
+      } else {
+        nextIndex = Math.max(0, currentIndex - 1);
+      }
+    } else if (event.key === 'ArrowDown') {
+      if (browserMode === 'grid') {
+        const grid = currentItem.closest<HTMLElement>('[data-file-grid]');
+        const columns = grid
+          ? Math.max(1, window.getComputedStyle(grid).gridTemplateColumns.split(' ').length)
+          : 1;
+        nextIndex = Math.min(items.length - 1, currentIndex + columns);
+      } else {
+        nextIndex = Math.min(items.length - 1, currentIndex + 1);
+      }
+    } else if (browserMode === 'grid' && event.key === 'ArrowLeft') {
+      nextIndex = Math.max(0, currentIndex - 1);
+    } else if (browserMode === 'grid' && event.key === 'ArrowRight') {
+      nextIndex = Math.min(items.length - 1, currentIndex + 1);
+    } else {
+      return;
+    }
+
+    event.preventDefault();
+    focusItem(items[nextIndex]);
+  }, [browserMode, focusItem]);
+
   const searchSummary = normalizedSearchQuery ? (
     <div className="mb-3 rounded-md border border-border/70 bg-muted/35 px-3 py-2" role="status" aria-live="polite">
       <p className="truncate text-xs font-medium text-foreground">
@@ -137,7 +198,15 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
 
   if (browserMode === 'grid') {
     return (
-      <div ref={containerRef} className="h-full overflow-y-auto p-3 md:p-4" onContextMenu={handleBackgroundContextMenu}>
+      <div
+        ref={containerRef}
+        className="h-full overflow-y-auto p-3 md:p-4 focus:outline-none"
+        onContextMenu={handleBackgroundContextMenu}
+        onFocus={handleContainerFocus}
+        onKeyDown={handleContainerKeyDown}
+        tabIndex={0}
+        aria-label={t('fileGridLabel')}
+      >
         {searchSummary}
         {gridItems.length === 0 && !searchQuery ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-4 text-center">
@@ -149,6 +218,9 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
           <div
             className={cn('grid gap-3', variant === 'fullscreen' && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-8')}
             style={variant !== 'fullscreen' ? { gridTemplateColumns: 'repeat(auto-fill, minmax(140px, 1fr))' } : undefined}
+            role="grid"
+            aria-label={t('fileGridLabel')}
+            data-file-grid
           >
             {gridItems.map((node) => (
               <FileGridItem
@@ -189,7 +261,15 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
 
   if (browserMode === 'list') {
     const listContent = (
-      <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1} onContextMenu={handleBackgroundContextMenu}>
+      <div
+        ref={containerRef}
+        className="relative h-full overflow-y-auto py-2 focus:outline-none"
+        tabIndex={0}
+        onContextMenu={handleBackgroundContextMenu}
+        onFocus={handleContainerFocus}
+        onKeyDown={handleContainerKeyDown}
+        aria-label={t('fileListLabel')}
+      >
         <div className="px-2">{searchSummary}</div>
         {currentDirectory !== '.' && (
           <button
@@ -203,7 +283,7 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
         <SidebarProvider>
           <SidebarGroup className="p-0">
             <SidebarGroupContent>
-              <SidebarMenu className="space-y-0.5">
+              <SidebarMenu className="space-y-0.5" role="listbox" aria-label={t('fileListLabel')}>
                 {filteredListChildren && filteredListChildren.length === 0 && !searchQuery && (
                   <div className="flex h-24 flex-col items-center justify-center gap-2 p-4 text-center">
                     <FolderOpen className="h-8 w-8 text-muted-foreground/50" />
@@ -259,12 +339,20 @@ export function FileGridView({ variant = 'default', onOpenFile }: FileGridViewPr
 
   // tree view
   const treeContent = (
-    <div ref={containerRef} className="relative h-full overflow-y-auto py-2" tabIndex={-1} onContextMenu={handleBackgroundContextMenu}>
+    <div
+      ref={containerRef}
+      className="relative h-full overflow-y-auto py-2 focus:outline-none"
+      tabIndex={0}
+      onContextMenu={handleBackgroundContextMenu}
+      onFocus={handleContainerFocus}
+      onKeyDown={handleContainerKeyDown}
+      aria-label={t('fileTreeLabel')}
+    >
       <div className="px-2">{searchSummary}</div>
       <SidebarProvider>
         <SidebarGroup className="p-0">
           <SidebarGroupContent>
-            <SidebarMenu className="space-y-0.5">
+            <SidebarMenu className="space-y-0.5" role="tree" aria-label={t('fileTreeLabel')}>
               {searchResultNodes.map((node) => (
                 <FileTreeNode key={node.path} node={node} onOpenFile={handleFileOpen} showPath={Boolean(normalizedSearchQuery)} />
               ))}

@@ -264,6 +264,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
               className="h-7 w-7 rounded-sm"
               onClick={() => setBrowserMode(mode)}
               aria-label={t(labelKey)}
+              aria-pressed={browserMode === mode}
             >
               <Icon className="h-3.5 w-3.5" />
             </Button>
@@ -324,6 +325,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
                 className="h-6 w-6 rounded-sm"
                 onClick={() => setBrowserMode(mode)}
                 aria-label={t(labelKey)}
+                aria-pressed={browserMode === mode}
               >
                 <Icon className="h-3.5 w-3.5" />
               </Button>

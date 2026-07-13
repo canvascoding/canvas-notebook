@@ -77,6 +77,7 @@ function FileGridItemComponent({
   const handleClick = useCallback(
     (event: React.MouseEvent) => {
       if (event.button !== 0) return;
+      (event.currentTarget as HTMLDivElement).focus();
       if (contextMenuJustOpened.current) {
         contextMenuJustOpened.current = false;
         return;
@@ -120,6 +121,43 @@ function FileGridItemComponent({
     onOpenFile(node.path);
   }, [isDirectory, isMultiSelectMode, node.path, onOpenDirectory, onOpenFile, openOnSingleClick, toggleDirectory]);
 
+  const handleKeyboardOpen = useCallback(() => {
+    if (isMultiSelectMode) {
+      toggleMultiSelectPath(node.path);
+      return;
+    }
+    if (isDirectory) {
+      if (onOpenDirectory) onOpenDirectory(node.path);
+      else toggleDirectory(node.path);
+      return;
+    }
+    onOpenFile(node.path);
+  }, [isDirectory, isMultiSelectMode, node.path, onOpenDirectory, onOpenFile, toggleDirectory, toggleMultiSelectPath]);
+
+  const handleKeyDown = useCallback((event: React.KeyboardEvent<HTMLDivElement>) => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      handleKeyboardOpen();
+      return;
+    }
+    if (event.key === ' ') {
+      event.preventDefault();
+      selectNode(node, false, false, selectionOrder, true);
+      return;
+    }
+    if (event.key === 'ContextMenu' || (event.shiftKey && event.key === 'F10')) {
+      event.preventDefault();
+      const rect = event.currentTarget.getBoundingClientRect();
+      if (!isMultiSelected) {
+        useFileStore.getState().clearMultiSelect();
+        useFileStore.setState({
+          selectedNode: { path: node.path, type: node.type, name: node.name },
+        });
+      }
+      openContextMenu(node, { x: rect.left + 16, y: rect.top + 16 });
+    }
+  }, [handleKeyboardOpen, isMultiSelected, node, openContextMenu, selectNode, selectionOrder]);
+
   const handleContextMenu = useCallback(
     (event: React.MouseEvent) => {
       event.preventDefault();
@@ -152,8 +190,9 @@ function FileGridItemComponent({
     <div
       data-file-path={node.path}
       className={cn(
-        'group relative flex flex-col items-center rounded-lg border transition-all cursor-pointer',
+        'group relative flex flex-col items-center rounded-lg border transition-all cursor-pointer outline-none',
         'hover:bg-accent/50 hover:border-primary/30',
+        'focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50',
         isRowActive ? 'bg-accent/70 border-primary/50' : 'border-border bg-background',
         isDirectory && 'border-dashed',
         isPublic && 'border-amber-500 bg-amber-500/10 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)]'
@@ -161,6 +200,11 @@ function FileGridItemComponent({
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
       onContextMenu={handleContextMenu}
+      onKeyDown={handleKeyDown}
+      role="gridcell"
+      aria-selected={isRowActive}
+      aria-label={t(isDirectory ? 'folderItemLabel' : 'fileItemLabel', { name: displayName })}
+      tabIndex={isRowActive ? 0 : -1}
     >
       <div className="flex w-full items-center justify-end gap-0.5 px-1.5 pt-1.5 min-h-[20px]">
         {isPublic && (
@@ -174,8 +218,12 @@ function FileGridItemComponent({
         )}
         {isMultiSelectMode ? (
           <button
+            type="button"
             onClick={(e) => { e.stopPropagation(); toggleMultiSelectPath(node.path); }}
-            className="shrink-0"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:h-7 md:w-7"
+            aria-label={t(isMultiSelected ? 'deselectItem' : 'selectItem', { name: displayName })}
+            aria-pressed={isMultiSelected}
+            data-file-action
           >
             {isMultiSelected ? (
               <span className="flex h-4 w-4 items-center justify-center rounded bg-primary text-primary-foreground text-[10px]">&#10003;</span>
@@ -185,6 +233,7 @@ function FileGridItemComponent({
           </button>
         ) : (
           <button
+            type="button"
             onPointerDown={(e) => {
               e.stopPropagation();
             }}
@@ -201,8 +250,10 @@ function FileGridItemComponent({
               });
               openContextMenu(node, { x: e.clientX, y: e.clientY });
             }}
-            className="shrink-0 rounded p-1 opacity-100 transition-opacity hover:bg-accent/70 md:opacity-0 md:group-hover:opacity-100"
-            aria-label="More actions"
+            className="flex h-10 w-10 shrink-0 items-center justify-center rounded opacity-100 transition-opacity hover:bg-accent/70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/50 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+            aria-label={t('moreActionsFor', { name: displayName })}
+            title={t('moreActionsFor', { name: displayName })}
+            data-file-action
           >
             <MoreVertical className="h-3.5 w-3.5 text-muted-foreground" />
           </button>
