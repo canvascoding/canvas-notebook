@@ -5,6 +5,7 @@ export interface StudioProviderConfig {
     kie: boolean;
   };
   managedMediaAvailable: boolean;
+  canManageCentralCredentials: boolean;
 }
 
 export const EMPTY_STUDIO_PROVIDER_CONFIG: StudioProviderConfig = {
@@ -14,4 +15,5 @@ export const EMPTY_STUDIO_PROVIDER_CONFIG: StudioProviderConfig = {
     kie: false,
   },
   managedMediaAvailable: false,
+  canManageCentralCredentials: false,
 };

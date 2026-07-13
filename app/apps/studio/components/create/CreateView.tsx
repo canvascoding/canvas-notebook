@@ -259,7 +259,13 @@ function getMissingProviderRequirement(
   return null;
 }
 
-function ProviderRequirementNotice({ requirement }: { requirement: StudioProviderRequirement }) {
+function ProviderRequirementNotice({
+  requirement,
+  canManageCentralCredentials,
+}: {
+  requirement: StudioProviderRequirement;
+  canManageCentralCredentials: boolean;
+}) {
   const t = useTranslations('studio.providerRequirements');
   const showKieReferral = requirement === 'kie';
 
@@ -289,8 +295,8 @@ function ProviderRequirementNotice({ requirement }: { requirement: StudioProvide
           </Button>
         ) : null}
         <Button asChild size="sm" variant={showKieReferral ? 'outline' : 'default'} className="rounded-full">
-          <Link href="/settings?tab=integrations">
-            {t('openIntegrations')}
+          <Link href={canManageCentralCredentials ? '/settings?tab=ai-providers#studio-media-credentials' : '/settings?tab=integrations'}>
+            {canManageCentralCredentials ? t('openCentralCredentials') : t('openIntegrations')}
           </Link>
         </Button>
       </div>
@@ -1184,7 +1190,10 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
           />
 
           {shouldShowProviderRequirement ? (
-            <ProviderRequirementNotice requirement={missingProviderRequirement} />
+            <ProviderRequirementNotice
+              requirement={missingProviderRequirement}
+              canManageCentralCredentials={providerConfig.canManageCentralCredentials}
+            />
           ) : null}
 
           <ControlBar

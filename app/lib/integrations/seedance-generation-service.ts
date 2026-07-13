@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getKieApiKeyFromIntegrations, type EnvStorageScope } from '@/app/lib/integrations/env-config';
+import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import {
   ensureStudioOutputsWorkspace,
@@ -9,6 +9,7 @@ import {
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from '@/app/lib/integrations/managed-media-client';
+import { resolveStudioProviderCredential } from '@/app/lib/integrations/studio-provider-credentials';
 import { SEEDANCE_MAX_REFERENCE_IMAGES } from '@/app/lib/integrations/image-generation-constants';
 
 export const SEEDANCE_PROVIDER_ID = 'bytedance';
@@ -353,7 +354,7 @@ async function downloadVideo(url: string): Promise<{ bytes: Buffer; mimeType: st
 export async function generateSeedanceVideo(
   request: GenerateSeedanceVideoRequest,
 ): Promise<SeedanceVideoGenerationResult> {
-  const apiKey = await getKieApiKeyFromIntegrations(request.storageScope);
+  const apiKey = await resolveStudioProviderCredential('kie', request.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError(

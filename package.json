@@ -63,6 +63,7 @@
     "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
     "test:studio:organization-scope": "tsx --conditions react-server scripts/studio-organization-scope-test.ts",
+    "test:studio:provider-credentials": "tsx --conditions react-server scripts/studio-provider-credentials-test.ts",
     "test:knowledge:retrieval-scope": "tsx --conditions react-server scripts/knowledge-retrieval-scope-test.ts",
     "test:knowledge:settings": "tsx --conditions react-server scripts/knowledge-settings-test.ts",
     "test:knowledge:gates": "tsx --conditions react-server scripts/knowledge-feature-gates-test.ts",

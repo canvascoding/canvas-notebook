@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { isAdminUser } from '@/app/lib/admin-auth';
 import { getStudioProviderConfig } from '@/app/lib/integrations/studio-config';
 
 export async function GET(request: NextRequest) {
@@ -9,6 +10,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
 
-  const config = await getStudioProviderConfig({ userId: session.user.id });
+  const config = {
+    ...await getStudioProviderConfig({ userId: session.user.id }),
+    canManageCentralCredentials: isAdminUser(session.user),
+  };
   return NextResponse.json({ success: true, config });
 }

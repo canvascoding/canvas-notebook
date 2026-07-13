@@ -1,9 +1,10 @@
 import 'server-only';
 
 import { GoogleGenAI } from '@google/genai';
-import { getGeminiApiKeyFromIntegrations, type EnvStorageScope } from './env-config';
+import type { EnvStorageScope } from './env-config';
 import { IntegrationServiceError } from './integration-service-error';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from './managed-media-client';
+import { resolveStudioProviderCredential } from './studio-provider-credentials';
 
 export const LYRIA_CLIP_MODEL_ID = 'lyria-3-clip-preview';
 export const LYRIA_PRO_MODEL_ID = 'lyria-3-pro-preview';
@@ -85,7 +86,7 @@ export async function generateSound(request: GenerateSoundRequest): Promise<Gene
   const model = resolveModel(request.model);
   const outputFormat = resolveOutputFormat(model, request.outputFormat);
   const referenceImages = (request.referenceImages || []).slice(0, 10);
-  const apiKey = await getGeminiApiKeyFromIntegrations(request.storageScope);
+  const apiKey = await resolveStudioProviderCredential('gemini', request.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings?tab=integrations.', 400);

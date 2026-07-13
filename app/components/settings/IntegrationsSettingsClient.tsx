@@ -276,6 +276,10 @@ type AiProvidersModelsPanelProps = {
 type AiProviderCredentialsPanelProps = {
   locale?: string;
 };
+type StudioMediaCredentialsPanelProps = {
+  locale?: string;
+  managedControlPlaneAvailable?: boolean;
+};
 type MyAgentRuntimePanelProps = {
   locale?: string;
   canManageRuntimeCatalog?: boolean;
@@ -332,6 +336,11 @@ const AiProvidersModelsPanel = dynamic<AiProvidersModelsPanelProps>(
 
 const AiProviderCredentialsPanel = dynamic<AiProviderCredentialsPanelProps>(
   () => import('@/app/components/settings/AiProviderCredentialsPanel').then((module) => module.AiProviderCredentialsPanel),
+  { loading: SettingsTabLoader },
+);
+
+const StudioMediaCredentialsPanel = dynamic<StudioMediaCredentialsPanelProps>(
+  () => import('@/app/components/settings/StudioMediaCredentialsPanel').then((module) => module.StudioMediaCredentialsPanel),
   { loading: SettingsTabLoader },
 );
 
@@ -3112,6 +3121,10 @@ export function IntegrationsSettingsClient({
                 deploymentMode={isManagedControlPlane ? 'managed' : 'self-hosted'}
               />
               <AiProviderCredentialsPanel locale={locale} />
+              <StudioMediaCredentialsPanel
+                locale={locale}
+                managedControlPlaneAvailable={isManagedControlPlane}
+              />
             </>
           ))}
 

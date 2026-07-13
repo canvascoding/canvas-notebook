@@ -13,7 +13,7 @@ import {
   writeOutputFile,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
-import { getGeminiApiKeyFromIntegrations, type EnvStorageScope } from '@/app/lib/integrations/env-config';
+import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import {
   getVideoModelCapabilities,
@@ -23,6 +23,7 @@ import {
 } from '@/app/lib/integrations/image-generation-constants';
 import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 import { generateManagedMedia, isManagedMediaFallbackAvailable, type ManagedMediaReference } from '@/app/lib/integrations/managed-media-client';
+import { resolveStudioProviderCredential } from '@/app/lib/integrations/studio-provider-credentials';
 
 export type GenerationMode = 'text_to_video' | 'frames_to_video' | 'references_to_video' | 'extend_video';
 
@@ -149,7 +150,7 @@ export async function generateVideo(
   callerEmail = 'system',
   options: GenerateVideoOptions = {},
 ): Promise<VideoGenerationResultData> {
-  const apiKey = await getGeminiApiKeyFromIntegrations(body.storageScope);
+  const apiKey = await resolveStudioProviderCredential('gemini', body.storageScope);
   const useManagedFallback = !apiKey && isManagedMediaFallbackAvailable();
   if (!apiKey && !useManagedFallback) {
     throw new IntegrationServiceError('Gemini API key is missing. Configure GEMINI_API_KEY in /settings.', 400);

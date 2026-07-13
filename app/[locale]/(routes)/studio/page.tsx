@@ -1,5 +1,6 @@
 import { Suspense } from 'react';
 
+import { isAdminUser } from '@/app/lib/admin-auth';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { CreateView } from '@/app/apps/studio/components/create/CreateView';
 import { getStudioProviderConfig } from '@/app/lib/integrations/studio-config';
@@ -20,8 +21,12 @@ function StudioFallback() {
 }
 
 export default async function StudioPage() {
-  await requirePageSession();
-  const providerConfig = await getStudioProviderConfig();
+  const session = await requirePageSession();
+  const user = session!.user;
+  const providerConfig = {
+    ...await getStudioProviderConfig({ userId: user.id }),
+    canManageCentralCredentials: isAdminUser(user),
+  };
 
   return (
     <Suspense fallback={<StudioFallback />}>

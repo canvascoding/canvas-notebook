@@ -4205,17 +4205,18 @@
     },
     "providerRequirements": {
       "openIntegrations": "Integrationen öffnen",
+      "openCentralCredentials": "Zentrale Zugangsdaten öffnen",
       "gemini": {
         "title": "GEMINI_API_KEY fehlt",
-        "description": "Diese Self-Hosted Instanz benötigt einen GEMINI_API_KEY für Gemini-Bilder, Veo-Videos oder Lyria-Sound. Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback."
+        "description": "Auf einer Self-Hosted-Instanz konfiguriert der Administrator GEMINI_API_KEY zentral für Gemini-Bilder, Veo-Videos und Lyria-Sound. Ein persönlicher Key ist nur ein optionaler Override; Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback."
       },
       "openai": {
         "title": "OPENAI_API_KEY fehlt",
-        "description": "Diese Self-Hosted Instanz benötigt einen OPENAI_API_KEY, um OpenAI-Bildmodelle im Studio zu verwenden. Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback."
+        "description": "Auf einer Self-Hosted-Instanz konfiguriert der Administrator OPENAI_API_KEY zentral für OpenAI-Bildmodelle. Ein persönlicher Key ist nur ein optionaler Override; Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback."
       },
       "kie": {
         "title": "KIE_API_KEY für Seedance 2.0 fehlt",
-        "description": "Diese Self-Hosted Instanz benötigt einen KIE.ai API-Key, um Seedance 2.0 als Videomodell zu verwenden. Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback.",
+        "description": "Auf einer Self-Hosted-Instanz konfiguriert der Administrator KIE_API_KEY zentral für Seedance 2.0. Ein persönlicher Key ist nur ein optionaler Override; Managed Instanzen nutzen automatisch den Canvas Control Plane Fallback.",
         "getKey": "KIE.ai Key holen"
       }
     },
