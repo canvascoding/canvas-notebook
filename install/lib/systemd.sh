@@ -14,8 +14,10 @@ install_manager_config() {
     false|0|no|off|disabled) swap_enabled_val=false ;;
     *) fail "CANVAS_SWAP_ENABLED must be true or false" ;;
   esac
-  auto_update_enabled_val=true
-  is_false "${CANVAS_AUTO_UPDATE_ENABLED:-true}" && auto_update_enabled_val=false
+  auto_update_enabled_val=false
+  if ! is_false "${CANVAS_AUTO_UPDATE_ENABLED:-false}"; then
+    auto_update_enabled_val=true
+  fi
 
   with_canvas_swap_lock install_manager_config_unlocked "$config_json_path" "$data_dir_val" "$swap_enabled_val" "$auto_update_enabled_val" || return 1
 
@@ -54,19 +56,20 @@ install_manager_config_unlocked() {
 }
 
 install_management_cli() {
-  local bin_path fallback_bin_path shared_dir
+  local bin_path fallback_bin_path shared_dir code_owner
   bin_path="${CANVAS_CLI_PATH:-/usr/local/bin/canvas-notebook}"
   fallback_bin_path="/usr/bin/canvas-notebook"
+  code_owner="$(_host_code_owner)"
 
   section "Management CLI"
-  if [[ -w "$(dirname "$bin_path")" ]]; then
+  if [[ "$code_owner" != "root:root" && -w "$(dirname "$bin_path")" ]]; then
     install -m 755 "${SUPPORT_DIR}/bin/canvas-notebook" "$bin_path"
   else
-    run_root install -m 755 "${SUPPORT_DIR}/bin/canvas-notebook" "$bin_path"
+    run_root install -o "${code_owner%%:*}" -g "${code_owner#*:}" -m 755 "${SUPPORT_DIR}/bin/canvas-notebook" "$bin_path"
   fi
 
   if [[ "$bin_path" != "$fallback_bin_path" ]]; then
-    if [[ -w "$(dirname "$fallback_bin_path")" ]]; then
+    if [[ "$code_owner" != "root:root" && -w "$(dirname "$fallback_bin_path")" ]]; then
       ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
     else
       run_root ln -sf "$bin_path" "$fallback_bin_path" 2>/dev/null || true
@@ -81,6 +84,7 @@ install_management_cli() {
     fi
   done
   unset _lib
+  _write_owned_file "${INSTALL_DIR}/lib/systemd.sh" "${SUPPORT_DIR}/lib/systemd.sh"
 
   local commands_dir="${INSTALL_DIR}/lib/commands"
   _ensure_dir_writable "$commands_dir"
@@ -157,10 +161,10 @@ install_update_timer() {
 
   local update_enabled update_schedule
   if [[ -f "$config_json_path" ]]; then
-    update_enabled="$(jq -r '.autoUpdate.enabled // true' "$config_json_path")"
+    update_enabled="$(jq -r '.autoUpdate.enabled // false' "$config_json_path")"
     update_schedule="$(jq -r '.autoUpdate.schedule // "*-*-* 04:00:00"' "$config_json_path")"
   else
-    update_enabled="${CANVAS_AUTO_UPDATE_ENABLED:-true}"
+    update_enabled="${CANVAS_AUTO_UPDATE_ENABLED:-false}"
     update_schedule="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
   fi
 

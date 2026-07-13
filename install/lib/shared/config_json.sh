@@ -22,7 +22,7 @@ CONFIG_JSON_DEFAULTS='{
     "swappiness": 10
   },
   "autoUpdate": {
-    "enabled": true,
+    "enabled": false,
     "schedule": "*-*-* 04:00:00"
   },
   "env": {
@@ -88,6 +88,10 @@ _config_file_owner() {
   printf '%s\n' "${CANVAS_CONFIG_FILE_OWNER:-root:root}"
 }
 
+_host_code_owner() {
+  printf '%s\n' "${CANVAS_HOST_CODE_OWNER:-root:root}"
+}
+
 _atomic_write_file() {
   local dest="$1" src="$2" mode="$3" owner="$4" dir base tmp current_owner
   dir="$(dirname "$dest")"
@@ -137,25 +141,28 @@ _secure_config_file_permissions() {
 }
 
 _write_owned_file() {
-  local dest="$1" src="$2" mode="${3:-644}" owner
-  owner="$(_install_user)"
-  if cp "$src" "$dest" 2>/dev/null; then
-    chmod "$mode" "$dest" 2>/dev/null || return 1
-  else
-    run_root cp "$src" "$dest" || return 1
-    run_root chown "$owner" "$dest" 2>/dev/null || true
-    run_root chmod "$mode" "$dest" || return 1
-  fi
+  local dest="$1" src="$2"
+  _atomic_write_file "$dest" "$src" 644 "$(_host_code_owner)"
 }
 
 _ensure_dir_writable() {
-  local dir="$1" owner
-  owner="$(_install_user)"
+  local dir="$1" owner current_owner
+  owner="$(_host_code_owner)"
+  current_owner="$(id -u):$(id -g)"
   if [[ ! -d "$dir" ]]; then
-    run_root mkdir -p "$dir" || return 1
+    if [[ "$owner" == "$current_owner" ]]; then
+      mkdir -p "$dir" || return 1
+      chmod 755 "$dir" || return 1
+    else
+      run_root mkdir -p "$dir" || return 1
+      run_root chown "$owner" "$dir" || return 1
+      run_root chmod 755 "$dir" || return 1
+    fi
+  elif [[ "$(id -u)" -eq 0 || "$owner" == "root:root" ]]; then
     run_root chown "$owner" "$dir" || return 1
-  elif [[ ! -w "$dir" ]]; then
-    run_root chown "$owner" "$dir" || return 1
+    run_root chmod 755 "$dir" || return 1
+  elif [[ "$owner" == "$current_owner" ]]; then
+    chmod 755 "$dir" || return 1
   fi
 }
 
@@ -387,17 +394,35 @@ config_json_require_url_safe_postgres_part() {
 
 config_json_decode_postgres_url_part() {
   local key="$1" value="$2" decoded
-  decoded="$(config_json_url_decode_component "$value")"
-  config_json_require_url_safe_postgres_part "$key" "$decoded"
+  decoded="$(config_json_url_decode_component "$value")" || return 1
+  config_json_require_url_safe_postgres_part "$key" "$decoded" || return 1
+  printf '%s\n' "$decoded"
+}
+
+config_json_decode_postgres_password() {
+  local value="$1" decoded
+  if [[ "$value" =~ %([0][0AaDd]) ]]; then
+    fail "CANVAS_POSTGRES_PASSWORD contains unsafe control characters."
+  fi
+  decoded="$(config_json_url_decode_component "$value")" || return 1
+  if [[ "$decoded" == *$'\n'* || "$decoded" == *$'\r'* || "$decoded" == *"***"* || "$decoded" == "(not set)" ]]; then
+    fail "CANVAS_POSTGRES_PASSWORD contains unsafe or masked content."
+  fi
   printf '%s\n' "$decoded"
 }
 
 config_json_ensure_database_config() {
-  local deployment_mode team_features provider database_url pg_image pg_volume pg_db pg_user pg_password
+  local deployment_mode team_features provider provider_raw database_url pg_image pg_volume pg_db pg_user pg_password
   deployment_mode="$(config_json_read env.CANVAS_DEPLOYMENT_MODE)"
   deployment_mode="${deployment_mode:-single_user}"
   team_features="$(config_json_read env.CANVAS_TEAM_FEATURES_ENABLED)"
-  provider="$(config_json_normalize_database_provider "$(config_json_read env.CANVAS_DATABASE_PROVIDER)")"
+  provider_raw="$(config_json_read env.CANVAS_DATABASE_PROVIDER)"
+  database_url="$(config_json_read env.DATABASE_URL)"
+  if [[ -z "$(printf '%s' "$provider_raw" | xargs)" && "$database_url" =~ ^postgres(ql)?:// ]]; then
+    provider="postgres"
+  else
+    provider="$(config_json_normalize_database_provider "$provider_raw")" || return 1
+  fi
 
   if config_json_deployment_requires_postgres "$deployment_mode" "$team_features" && [[ "$provider" != "postgres" ]]; then
     if [[ "${CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE:-false}" != "true" ]]; then
@@ -423,12 +448,11 @@ config_json_ensure_database_config() {
   pg_user="$(config_json_read env.CANVAS_POSTGRES_USER)"
   pg_user="${pg_user:-canvas}"
   pg_password="$(config_json_read env.CANVAS_POSTGRES_PASSWORD)"
-  database_url="$(config_json_read env.DATABASE_URL)"
   if [[ -n "$database_url" ]]; then
     if [[ "$database_url" =~ ^postgres(ql)?://([^:/@]+):([^@]+)@[^/]+/([^/?#]+) ]]; then
-      pg_user="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_USER "${BASH_REMATCH[2]}")"
-      pg_password="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_PASSWORD "${BASH_REMATCH[3]}")"
-      pg_db="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_DB "${BASH_REMATCH[4]}")"
+      pg_user="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_USER "${BASH_REMATCH[2]}")" || return 1
+      pg_password="$(config_json_decode_postgres_password "${BASH_REMATCH[3]}")" || return 1
+      pg_db="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_DB "${BASH_REMATCH[4]}")" || return 1
     elif [[ "$database_url" =~ ^postgres(ql)?:// ]]; then
       fail "DATABASE_URL must include user, password, host, and database for managed Postgres."
     fi
@@ -436,6 +460,9 @@ config_json_ensure_database_config() {
 
   if [[ -z "$database_url" ]]; then
     if [[ -z "$pg_password" ]]; then
+      if [[ "${CANVAS_ALLOW_POSTGRES_SECRET_GENERATION:-true}" != "true" ]]; then
+        fail "Managed Postgres credentials are missing. Run: canvas-notebook database prepare-postgres"
+      fi
       pg_password="$(config_json_generate_secret)"
       config_json_write env.CANVAS_POSTGRES_PASSWORD "$pg_password"
     fi
@@ -470,9 +497,9 @@ config_json_ensure_postgres_infrastructure_config() {
   database_url="$(config_json_read env.DATABASE_URL)"
   if [[ -n "$database_url" ]]; then
     if [[ "$database_url" =~ ^postgres(ql)?://([^:/@]+):([^@]+)@[^/]+/([^/?#]+) ]]; then
-      pg_user="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_USER "${BASH_REMATCH[2]}")"
-      pg_password="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_PASSWORD "${BASH_REMATCH[3]}")"
-      pg_db="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_DB "${BASH_REMATCH[4]}")"
+      pg_user="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_USER "${BASH_REMATCH[2]}")" || return 1
+      pg_password="$(config_json_decode_postgres_password "${BASH_REMATCH[3]}")" || return 1
+      pg_db="$(config_json_decode_postgres_url_part CANVAS_POSTGRES_DB "${BASH_REMATCH[4]}")" || return 1
     elif [[ "$database_url" =~ ^postgres(ql)?:// ]]; then
       fail "DATABASE_URL must include user, password, host, and database for managed Postgres."
     fi
@@ -552,6 +579,23 @@ config_json_env_key_is_secret() {
   key="$(printf '%s' "$key" | tr '[:lower:]' '[:upper:]')"
   [[ "$key" == "DATABASE_URL" ]] && return 0
   [[ "$key" =~ (^|_)(PASSWORD|PASSWD|SECRET_KEY|SECRET|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY|LICENSE_CERT)$ ]]
+}
+
+config_json_mask_secrets() {
+  jq '
+    .env |= with_entries(
+      if ((.key | ascii_upcase) == "DATABASE_URL" or (.key | test("(^|_)(PASSWORD|PASSWD|SECRET_KEY|SECRET|TOKEN|API_KEY|PRIVATE_KEY|ACCESS_KEY|LICENSE_CERT)$"; "i"))) then
+        .value = (
+          if (.value == null or .value == "") then "(not set)"
+          elif (.key | ascii_upcase) == "DATABASE_URL" then "postgresql://***"
+          else ((.value | tostring) | .[0:4] + "***")
+          end
+        )
+      else . end
+    )
+    | reduce ["BETTER_AUTH_SECRET", "CANVAS_INTERNAL_API_KEY", "DATABASE_URL", "CANVAS_POSTGRES_PASSWORD"][] as $key
+        (. ; if (.env | has($key)) then . else .env[$key] = "(not set)" end)
+  '
 }
 
 config_json_to_env() {
