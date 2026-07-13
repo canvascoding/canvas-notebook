@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.13.1] - 2026-07-13
+## [2026.7.13.2] - 2026-07-13
 
 ### Added
 
@@ -23,9 +23,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Reworked managed updates to stage release-pinned payloads atomically while coordinating CLI self-updates, database setup, and systemd lifecycle handoffs.
 - Updated the multi-architecture build workflow to package managed release payloads for Control Plane consumption.
 
+### Fixed
+
+- Restored safe automatic-update defaults, Postgres credential reconciliation and redaction, and host CLI ownership after merging the managed-update workflow.
+
 ### Verification
 
 - `npm run build`
+- `npm run test:cli:operation-lock`
+- `npm run test:cli:postgres-recovery`
+- `npm run test:cli:postgres-reconcile`
+- `npm run test:cli:database`
+- `npm run test:cli:database-provider`
+- `npm run test:cli:admin`
+- `npm run test:cli:backup`
+- `npm run test:install:managed-env`
 
 ## [2026.7.12.1] - 2026-07-12
 
