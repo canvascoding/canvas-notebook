@@ -12,6 +12,8 @@ process.env.DATA = dataDir;
 process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
 process.env.CANVAS_DEPLOYMENT_MODE = 'single_user';
 
+const managedStreamCalls: string[] = [];
+
 const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
@@ -24,6 +26,11 @@ moduleInternals._load = (request, parent, isMain) => {
       getModels: () => [],
       getProviders: () => [],
       registerBuiltInApiProviders: () => undefined,
+      streamSimple: (model: { id: string }) => {
+        managedStreamCalls.push(model.id);
+        return {};
+      },
+      createAssistantMessageEventStream: () => ({ push: () => undefined }),
     };
   }
   return originalLoad(request, parent, isMain);
@@ -93,6 +100,7 @@ async function main() {
   const { readAppRuntimeCatalog } = await import('../app/lib/agent-runtime-policy/catalog-store');
   const {
     AiRuntimeExecutionError,
+    resolveExecutableAgentRuntime,
     resolveProviderInstallationModel,
   } = await import('../app/lib/agent-runtime-policy/provider-runtime');
   const { resolveEffectiveAgentRuntime } = await import('../app/lib/agent-runtime-policy/runtime-resolver');
@@ -216,15 +224,38 @@ async function main() {
   assert.equal(managed.catalog.providers[0].sourceRevision, 'managed-revision-1');
   assert.ok(managed.catalog.providers[0].lastSyncedAt);
 
+  const managedProvider = managed.catalog.providers[0];
+  const managedSecond = managedProvider.models.find((model) => model.id === 'managed-second')!;
+  const managedRuntime = await resolveExecutableAgentRuntime({
+    organizationId: organization.organizationId,
+    userId: owner.id,
+    workspaceId: personalWorkspace.id,
+    workspaceType: 'personal',
+    agentId: 'canvas-agent',
+  });
   payload = managedPayload({ revision: 'managed-revision-2' });
+  const compatibleManagedModel = await resolveProviderInstallationModel({
+    provider: managedProvider,
+    model: managedSecond,
+  });
+  assert.equal(compatibleManagedModel.id, 'managed-second');
+  await managedRuntime.streamFn(managedRuntime.model, { messages: [] });
+  assert.deepEqual(managedStreamCalls, ['managed-second']);
+  assert.equal(managedRuntime.requiresRecreation(), false);
+
+  payload = managedPayload({
+    revision: 'managed-revision-3',
+    defaultModelId: 'managed-first',
+    models: [{ id: 'managed-first', name: 'Managed First', provider: 'openrouter', reasoning: true }],
+  });
   await assert.rejects(
-    () => resolveProviderInstallationModel({
-      provider: managed.catalog.providers[0],
-      model: managed.catalog.providers[0].models.find((model) => model.id === 'managed-second')!,
-    }),
+    () => resolveProviderInstallationModel({ provider: managedProvider, model: managedSecond }),
     (error) => error instanceof AiRuntimeExecutionError
       && error.code === 'RUNTIME_MANAGED_CATALOG_CHANGED',
   );
+  await managedRuntime.streamFn(managedRuntime.model, { messages: [] });
+  assert.deepEqual(managedStreamCalls, ['managed-second']);
+  assert.equal(managedRuntime.requiresRecreation(), true);
   payload = managedPayload();
 
   await fs.rm(runtimeConfigPath, { force: true });

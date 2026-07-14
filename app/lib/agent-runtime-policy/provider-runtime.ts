@@ -41,8 +41,13 @@ import {
   CANVAS_CONTROL_PLANE_PROVIDER_ID,
   getCanvasControlPlaneCatalog,
   MANAGED_CATALOG_WARM_CACHE_MS,
+  type ManagedControlPlaneCatalog,
 } from '@/app/lib/managed/control-plane-models';
-import { getPiModels, resolvePiModel } from '@/app/lib/pi/model-resolver';
+import {
+  getPiModels,
+  modelSupportsImageInput,
+  resolvePiModel,
+} from '@/app/lib/pi/model-resolver';
 
 export class AiRuntimeExecutionError extends Error {
   readonly status = 409;
@@ -182,6 +187,66 @@ function runtimeErrorStream(model: Model<Api>, error: unknown): AssistantMessage
   return stream;
 }
 
+function managedCatalogChangedError(message = 'The selected managed model changed or was removed. Sync and review the app model catalog before trying again.') {
+  return new AiRuntimeExecutionError('RUNTIME_MANAGED_CATALOG_CHANGED', message);
+}
+
+function sameModelInput(left: Model<Api>, right: Model<Api>): boolean {
+  return left.input.length === right.input.length
+    && left.input.every((input) => right.input.includes(input));
+}
+
+function sameManagedCatalogModel(
+  catalogModel: AiCatalogModel,
+  managedModel: Model<Api>,
+): boolean {
+  return catalogModel.id === managedModel.id
+    && catalogModel.reasoning === managedModel.reasoning
+    && catalogModel.supportsVision === modelSupportsImageInput(managedModel)
+    && catalogModel.metadata.contextWindow === managedModel.contextWindow
+    && catalogModel.metadata.maxTokens === managedModel.maxTokens;
+}
+
+function sameManagedRuntimeModel(left: Model<Api>, right: Model<Api>): boolean {
+  return left.id === right.id
+    && left.provider === right.provider
+    && left.api === right.api
+    && left.baseUrl === right.baseUrl
+    && left.reasoning === right.reasoning
+    && sameModelInput(left, right)
+    && left.contextWindow === right.contextWindow
+    && left.maxTokens === right.maxTokens
+    && JSON.stringify(left.compat) === JSON.stringify(right.compat);
+}
+
+async function resolveManagedCatalogModel(input: {
+  provider: AiProviderInstallation;
+  model: AiCatalogModel;
+  managedCatalog: ManagedControlPlaneCatalog;
+}): Promise<Model<Api>> {
+  const { provider, model, managedCatalog } = input;
+  if (
+    managedCatalog.status !== 'ready'
+    || !managedCatalog.catalogRevision
+    || !provider.sourceRevision
+  ) {
+    throw managedCatalogChangedError(
+      'The managed AI catalog could not be validated. Sync and review the app model catalog before trying again.',
+    );
+  }
+
+  let resolved: Model<Api>;
+  try {
+    resolved = await resolvePiModel(provider.providerId, model.id, { managedCatalog });
+  } catch {
+    throw managedCatalogChangedError();
+  }
+  if (resolved.id !== model.id || !sameManagedCatalogModel(model, resolved)) {
+    throw managedCatalogChangedError();
+  }
+  return resolved;
+}
+
 /** Materialize an exact catalog model without legacy model-name fallbacks. */
 export async function resolveProviderInstallationModel(input: {
   provider: AiProviderInstallation;
@@ -192,24 +257,7 @@ export async function resolveProviderInstallationModel(input: {
     const managedCatalog = await getCanvasControlPlaneCatalog({
       maxAgeMs: options.managedCatalogMaxAgeMs,
     });
-    if (
-      managedCatalog.status !== 'ready'
-      || !provider.sourceRevision
-      || managedCatalog.catalogRevision !== provider.sourceRevision
-    ) {
-      throw new AiRuntimeExecutionError(
-        'RUNTIME_MANAGED_CATALOG_CHANGED',
-        'The managed AI catalog changed. Sync and review the app model catalog before trying again.',
-      );
-    }
-    const resolved = await resolvePiModel(provider.providerId, model.id, { managedCatalog });
-    if (resolved.id !== model.id) {
-      throw new AiRuntimeExecutionError(
-        'MODEL_NOT_AVAILABLE',
-        'The selected managed model is no longer available.',
-      );
-    }
-    return resolved;
+    return resolveManagedCatalogModel({ provider, model, managedCatalog });
   }
   if (provider.providerId === 'openai-compatible') {
     return openAiCompatibleModel(provider, model);
@@ -342,7 +390,7 @@ async function materializeResolution(
     policyRevision: number;
   }, options: { validateManagedCatalog?: boolean } = {}): Promise<AiProviderInstallation> => {
     // The pre-credential pass validates local policy without network work. The
-    // final pass fetches the remote managed revision first, then re-reads local
+    // final pass fetches the remote managed model first, then re-reads local
     // policy so revocations remain fail-closed and close to the provider call.
     let managedCatalog: Awaited<ReturnType<typeof getCanvasControlPlaneCatalog>> | null = null;
     if (
@@ -432,16 +480,18 @@ async function materializeResolution(
       options.validateManagedCatalog !== false
       && latestProvider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
     ) {
-      if (
-        !managedCatalog
-        || managedCatalog.status !== 'ready'
-        || !latestProvider.sourceRevision
-        || managedCatalog.catalogRevision !== latestProvider.sourceRevision
-      ) {
-        throw new AiRuntimeExecutionError(
-          'RUNTIME_MANAGED_CATALOG_CHANGED',
-          'The managed AI catalog changed. Sync and review the app model catalog before trying again.',
+      if (!managedCatalog) {
+        throw managedCatalogChangedError(
+          'The managed AI catalog could not be validated. Sync and review the app model catalog before trying again.',
         );
+      }
+      const latestManagedModel = await resolveManagedCatalogModel({
+        provider: latestProvider,
+        model: latestModel,
+        managedCatalog,
+      });
+      if (!sameManagedRuntimeModel(model, latestManagedModel)) {
+        throw managedCatalogChangedError();
       }
     }
 
@@ -482,8 +532,8 @@ async function materializeResolution(
     });
 
     // Credential/OAuth lookup can perform filesystem, database, or network
-    // work. Revalidate catalog, workspace policy, and managed source revision
-    // after it completes so revocations during that window fail closed.
+    // work. Revalidate catalog, workspace policy, and the selected managed
+    // model after it completes so revocations during that window fail closed.
     await assertRuntimeExecutionState(requestRevisions, {
       validateManagedCatalog: true,
     });
