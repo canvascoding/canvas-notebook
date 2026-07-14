@@ -2293,6 +2293,9 @@ export function IntegrationsSettingsClient({
   const createWorkspaceOpen = searchParams.get('createWorkspace') === '1';
   const canManageAgentDefaults = isAdmin
     && (organizationPermission?.role === 'owner' || organizationPermission?.role === 'admin');
+  const canManageOrganizationBrand = organizationPermission?.role === 'owner'
+    || organizationPermission?.role === 'admin'
+    || (isAdmin && !organizationPermission);
   const visibleSettingsTabItems = useMemo(
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
       if (tab.value === 'user-management') return isAdmin;
@@ -3112,7 +3115,9 @@ export function IntegrationsSettingsClient({
             />
           ))}
 
-          {renderLazyTabContent('brand-design', <BrandSettingsPanel />)}
+          {renderLazyTabContent('brand-design', (
+            <BrandSettingsPanel canManageOrganizationBrand={canManageOrganizationBrand} />
+          ))}
 
           {renderLazyTabContent('user-management',
             <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,

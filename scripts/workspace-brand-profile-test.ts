@@ -89,6 +89,10 @@ async function main() {
     assert.equal(normalized.colors.text, DEFAULT_WORKSPACE_BRAND_PROFILE.colors.text);
     assert.equal(normalized.logoPosition, 'left');
     assert.equal(normalizeWorkspaceBrandProfile({ logoPosition: 'center' }).logoPosition, 'right');
+    assert.equal(
+      normalizeWorkspaceBrandProfile({ typography: { bodyFont: 'georgia-serif' } }).typography.bodyFont,
+      'georgia-serif',
+    );
 
     assert.throws(
       () => validateWorkspaceBrandProfile({ colors: { accent: 'red; background: black' } }),

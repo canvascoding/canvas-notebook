@@ -9,6 +9,7 @@ import {
   createWorkspaceBrandHeaderHtml,
   createWorkspaceBrandPdfHeaderTemplate,
   getMarkdownPdfRenderOptions,
+  workspaceBrandFontStack,
 } from '../app/lib/pdf/markdown-brand';
 
 const corporate = cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.corporate);
@@ -27,6 +28,9 @@ assert.match(css, /margin: 28mm 18mm;/u);
 assert.match(css, /background: #fefcf7;/u);
 assert.match(css, /border-left: 4px solid #0f6cbd;/u);
 assert.match(css, /Avenir Next/u);
+assert.match(workspaceBrandFontStack('arial-sans'), /Liberation Sans/u);
+assert.match(workspaceBrandFontStack('georgia-serif'), /Liberation Serif/u);
+assert.match(workspaceBrandFontStack('courier-mono'), /Liberation Mono/u);
 
 const header = createWorkspaceBrandHeaderHtml({
   profile: corporate,

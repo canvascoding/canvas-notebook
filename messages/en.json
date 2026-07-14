@@ -2683,14 +2683,42 @@
       "loading": "Loading brand profile...",
       "saved": "Brand profile saved. New exports and agent messages use the changes immediately.",
       "resetDone": "The brand profile was reset to the Canvas default.",
-      "readOnly": "You can view this brand profile, but only workspace managers may change it.",
+      "readOnly": "You can view this brand profile, but you do not have permission to change it.",
       "save": "Save brand profile",
+      "saveOrganization": "Save organization design",
+      "saveWorkspace": "Save workspace design",
       "saving": "Saving...",
       "reset": "Reset to Canvas default",
+      "scope": {
+        "title": "Choose the brand scope",
+        "description": "Admins define the organization default. Each workspace can intentionally replace it with a complete override.",
+        "organization": "Organization",
+        "workspace": "Workspace",
+        "organizationTitle": "Edit the organization default",
+        "organizationDescription": "The selected workspace determines which organization's default is being edited."
+      },
       "workspace": {
         "title": "Choose a workspace",
-        "description": "Each workspace has its own brand profile for Markdown PDFs and agent output.",
+        "description": "Choose the workspace whose inheritance or individual brand profile you want to manage.",
         "select": "Select the workspace for this brand profile"
+      },
+      "inheritance": {
+        "inheritedTitle": "This workspace inherits its brand default",
+        "overrideTitle": "This workspace uses its own brand profile",
+        "organizationBadge": "Inherited from organization",
+        "canvasBadge": "Canvas default",
+        "overrideBadge": "Workspace override",
+        "organizationDescription": "PDF exports and the agent context automatically use the organization design. Changes to the default flow through without extra maintenance.",
+        "canvasDescription": "The organization does not have a brand profile yet, so the Canvas default applies.",
+        "overrideDescription": "All brand values in this workspace take precedence over the organization default.",
+        "createOverride": "Create workspace override",
+        "overrideCreated": "Workspace override created. You can now tailor the inherited design.",
+        "useOrganization": "Use organization default",
+        "inheritedAgain": "The workspace now uses the organization default again."
+      },
+      "organizationDefault": {
+        "title": "Default for every workspace in the organization",
+        "description": "Workspaces without their own override automatically inherit this design for PDF exports and the agent context."
       },
       "empty": {
         "title": "No workspace available",
@@ -2715,7 +2743,8 @@
         "brandNamePlaceholder": "e.g. Canvas Studios",
         "logo": {
           "uploadTitle": "Upload a logo",
-          "uploadHint": "PNG, JPG, or WebP up to 1 MB. It is optimized safely and limited to 28 × 9 mm in the PDF.",
+          "uploadHint": "Drag the logo here or choose a file. PNG, JPG, or WebP up to 1 MB; limited to 28 × 9 mm in the PDF.",
+          "dropNow": "Drop the logo to upload",
           "empty": "No logo",
           "ready": "Logo ready",
           "previewAlt": "Workspace logo preview",
@@ -2770,7 +2799,17 @@
         "humanist-sans": "Humanist Sans",
         "editorial-serif": "Editorial Serif",
         "classic-serif": "Classic Serif",
-        "technical-mono": "Technical Mono"
+        "technical-mono": "Technical Mono",
+        "arial-sans": "Arial",
+        "verdana-sans": "Verdana",
+        "trebuchet-sans": "Trebuchet MS",
+        "georgia-serif": "Georgia",
+        "times-serif": "Times New Roman",
+        "courier-mono": "Courier New"
+      },
+      "fontGroups": {
+        "curated": "Canvas font styles",
+        "standard": "Standard fonts"
       },
       "headingStyles": {
         "plain": "Plain",

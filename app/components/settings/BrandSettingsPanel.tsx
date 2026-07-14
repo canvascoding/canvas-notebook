@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlignLeft, AlignRight, CheckCircle2, FileImage, FileText, Loader2, Palette, RotateCcw, Save, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react';
+import { AlignLeft, AlignRight, Boxes, Building2, CheckCircle2, FileImage, FileText, Loader2, Palette, RotateCcw, Save, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -13,17 +13,19 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
 import {
-  WORKSPACE_BRAND_FONT_IDS,
+  WORKSPACE_BRAND_CURATED_FONT_IDS,
   WORKSPACE_BRAND_HEADING_STYLES,
   WORKSPACE_BRAND_LOGO_POSITIONS,
   WORKSPACE_BRAND_PAGE_SIZES,
   WORKSPACE_BRAND_PRESETS,
+  WORKSPACE_BRAND_STANDARD_FONT_IDS,
   cloneWorkspaceBrandProfile,
   type WorkspaceBrandFontId,
   type WorkspaceBrandHeadingStyle,
   type WorkspaceBrandLogoPosition,
   type WorkspaceBrandPageSize,
   type WorkspaceBrandProfile,
+  type WorkspaceBrandProfileSource,
   type WorkspaceBrandProfileState,
 } from '@/app/lib/workspaces/brand-profile';
 import { workspaceBrandFontStack } from '@/app/lib/pdf/markdown-brand';
@@ -34,6 +36,10 @@ type BrandApiResponse = WorkspaceBrandProfileState & {
   success: boolean;
   canManage: boolean;
   error?: string;
+  source?: WorkspaceBrandProfileSource;
+  organizationId?: string | null;
+  workspaceOverride?: WorkspaceBrandProfileState;
+  organizationDefault?: WorkspaceBrandProfileState;
 };
 
 type BrandLogoApiResponse = BrandApiResponse & {
@@ -47,6 +53,7 @@ type BrandLogoApiResponse = BrandApiResponse & {
 };
 
 type PresetId = keyof typeof WORKSPACE_BRAND_PRESETS;
+type BrandScope = 'workspace' | 'organization';
 
 const PRESET_IDS = Object.keys(WORKSPACE_BRAND_PRESETS) as PresetId[];
 
@@ -171,15 +178,31 @@ function BrandLogoControl({
           event.preventDefault();
           if (!disabled && !isUploading) setIsDragActive(true);
         }}
-        onDragOver={(event) => event.preventDefault()}
-        onDragLeave={() => setIsDragActive(false)}
+        onDragOver={(event) => {
+          event.preventDefault();
+          if (!disabled && !isUploading) setIsDragActive(true);
+        }}
+        onDragLeave={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+            setIsDragActive(false);
+          }
+        }}
         onDrop={handleDrop}
+        aria-disabled={disabled || isUploading}
         className={cn(
-          'grid min-h-36 gap-4 rounded-xl border border-dashed p-4 transition-colors sm:grid-cols-[148px_minmax(0,1fr)] sm:items-center',
+          'relative grid min-h-36 gap-4 overflow-hidden rounded-xl border border-dashed p-4 transition-colors sm:grid-cols-[148px_minmax(0,1fr)] sm:items-center',
           isDragActive ? 'border-primary bg-primary/5' : 'border-border bg-muted/20',
           disabled && 'opacity-60',
         )}
       >
+        {isDragActive ? (
+          <div className="pointer-events-none absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-background/95 text-primary backdrop-blur-sm">
+            <span className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+              <Upload className="h-5 w-5" />
+            </span>
+            <span className="text-sm font-semibold">{t('dropNow')}</span>
+          </div>
+        ) : null}
         <div className="flex h-24 items-center justify-center overflow-hidden rounded-lg border bg-background p-3 shadow-sm">
           {logoUrl ? (
             <Image
@@ -413,24 +436,31 @@ function BrandDocumentPreview({
   );
 }
 
-export function BrandSettingsPanel() {
+export function BrandSettingsPanel({
+  canManageOrganizationBrand = false,
+}: {
+  canManageOrganizationBrand?: boolean;
+}) {
   const t = useTranslations('settings.brandDesign');
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const initialized = useWorkspaceStore((state) => state.initialized);
   const isWorkspaceLoading = useWorkspaceStore((state) => state.isLoading);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
+  const [scope, setScope] = useState<BrandScope>('workspace');
   const [manualWorkspaceId, setManualWorkspaceId] = useState<string | null>(null);
   const [profile, setProfile] = useState<WorkspaceBrandProfile>(() => cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.canvas));
   const [configured, setConfigured] = useState(false);
+  const [profileSource, setProfileSource] = useState<WorkspaceBrandProfileSource>('default');
   const [profileRevision, setProfileRevision] = useState(0);
-  const [logoWorkspaceId, setLogoWorkspaceId] = useState<string | null>(null);
+  const [loadedLogoEntityKey, setLoadedLogoEntityKey] = useState<string | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const profileLoadIdRef = useRef(0);
 
   const selectedWorkspaceId = manualWorkspaceId
     || activeWorkspace?.id
@@ -440,22 +470,58 @@ export function BrandSettingsPanel() {
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) || null,
     [selectedWorkspaceId, workspaces],
   );
+  const selectedOrganizationId = selectedWorkspace?.organizationId || null;
+  const scopeEntityKey = scope === 'organization'
+    ? selectedOrganizationId ? `organization:${selectedOrganizationId}` : null
+    : selectedWorkspaceId ? `workspace:${selectedWorkspaceId}` : null;
+  const profileEndpoint = scope === 'organization'
+    ? selectedOrganizationId
+      ? `/api/organizations/${encodeURIComponent(selectedOrganizationId)}/brand`
+      : null
+    : selectedWorkspaceId
+      ? `/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand`
+      : null;
+  const logoEndpoint = profileEndpoint ? `${profileEndpoint}/logo` : null;
   const logoUrl = useMemo(() => {
-    if (!selectedWorkspaceId || logoWorkspaceId !== selectedWorkspaceId || !profile.logoPath) return null;
-    return `/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand/logo?v=${profileRevision}`;
-  }, [logoWorkspaceId, profile.logoPath, profileRevision, selectedWorkspaceId]);
+    if (!logoEndpoint || !scopeEntityKey || loadedLogoEntityKey !== scopeEntityKey || !profile.logoPath) return null;
+    return `${logoEndpoint}?v=${profileRevision}`;
+  }, [loadedLogoEntityKey, logoEndpoint, profile.logoPath, profileRevision, scopeEntityKey]);
 
   useEffect(() => {
     void hydrateWorkspaces();
   }, [hydrateWorkspaces]);
 
-  const loadProfile = useCallback(async (workspaceId: string) => {
+  const applyResponseState = useCallback((
+    payload: BrandApiResponse,
+    targetScope: BrandScope,
+    entityKey: string,
+  ) => {
+    const directlyConfigured = targetScope === 'workspace'
+      ? payload.workspaceOverride?.configured ?? payload.source === 'workspace'
+      : payload.configured;
+    setProfile(cloneWorkspaceBrandProfile(payload.profile));
+    setConfigured(Boolean(directlyConfigured));
+    setProfileSource(targetScope === 'workspace'
+      ? payload.source || (directlyConfigured ? 'workspace' : 'default')
+      : payload.configured ? 'organization' : 'default');
+    setProfileRevision(payload.revision);
+    setLoadedLogoEntityKey(entityKey);
+    setCanManage(payload.canManage);
+  }, []);
+
+  const loadProfile = useCallback(async (
+    endpoint: string,
+    entityKey: string,
+    targetScope: BrandScope,
+  ) => {
+    const loadId = profileLoadIdRef.current + 1;
+    profileLoadIdRef.current = loadId;
     setIsLoading(true);
-    setLogoWorkspaceId(null);
+    setLoadedLogoEntityKey(null);
     setError(null);
     setSuccess(null);
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/brand`, {
+      const response = await fetch(endpoint, {
         credentials: 'include',
         cache: 'no-store',
       });
@@ -463,23 +529,21 @@ export function BrandSettingsPanel() {
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || t('errors.load'));
       }
-      setProfile(cloneWorkspaceBrandProfile(payload.profile));
-      setConfigured(payload.configured);
-      setProfileRevision(payload.revision);
-      setLogoWorkspaceId(workspaceId);
-      setCanManage(payload.canManage);
+      if (loadId !== profileLoadIdRef.current) return;
+      applyResponseState(payload, targetScope, entityKey);
     } catch (loadError) {
+      if (loadId !== profileLoadIdRef.current) return;
       setError(loadError instanceof Error ? loadError.message : t('errors.load'));
       setCanManage(false);
     } finally {
-      setIsLoading(false);
+      if (loadId === profileLoadIdRef.current) setIsLoading(false);
     }
-  }, [t]);
+  }, [applyResponseState, t]);
 
   useEffect(() => {
-    if (!selectedWorkspaceId) return;
-    startTransition(() => { void loadProfile(selectedWorkspaceId); });
-  }, [loadProfile, selectedWorkspaceId]);
+    if (!profileEndpoint || !scopeEntityKey) return;
+    startTransition(() => { void loadProfile(profileEndpoint, scopeEntityKey, scope); });
+  }, [loadProfile, profileEndpoint, scope, scopeEntityKey]);
 
   const updateProfile = (updater: (current: WorkspaceBrandProfile) => WorkspaceBrandProfile) => {
     setProfile((current) => updater(cloneWorkspaceBrandProfile(current)));
@@ -500,13 +564,13 @@ export function BrandSettingsPanel() {
     }));
   };
 
-  const saveProfile = async () => {
-    if (!selectedWorkspaceId || !canManage) return;
+  const persistProfile = async (successMessage: string) => {
+    if (!profileEndpoint || !scopeEntityKey || !canManage) return;
     setIsSaving(true);
     setError(null);
     setSuccess(null);
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand`, {
+      const response = await fetch(profileEndpoint, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
@@ -516,11 +580,8 @@ export function BrandSettingsPanel() {
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || t('errors.save'));
       }
-      setProfile(cloneWorkspaceBrandProfile(payload.profile));
-      setConfigured(true);
-      setProfileRevision(payload.revision);
-      setLogoWorkspaceId(selectedWorkspaceId);
-      setSuccess(t('saved'));
+      applyResponseState(payload, scope, scopeEntityKey);
+      setSuccess(successMessage);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('errors.save'));
     } finally {
@@ -528,8 +589,12 @@ export function BrandSettingsPanel() {
     }
   };
 
+  const saveProfile = () => persistProfile(t('saved'));
+
+  const createWorkspaceOverride = () => persistProfile(t('inheritance.overrideCreated'));
+
   const uploadLogo = async (file: File) => {
-    if (!selectedWorkspaceId || !canManage) return;
+    if (!logoEndpoint || !scopeEntityKey || !canManage) return;
     const hasAllowedMimeType = ['image/png', 'image/jpeg', 'image/webp'].includes(file.type);
     const hasAllowedExtension = /\.(?:png|jpe?g|webp)$/iu.test(file.name);
     if (!hasAllowedMimeType && !hasAllowedExtension) {
@@ -549,7 +614,7 @@ export function BrandSettingsPanel() {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand/logo`, {
+      const response = await fetch(logoEndpoint, {
         method: 'POST',
         credentials: 'include',
         body: formData,
@@ -558,10 +623,7 @@ export function BrandSettingsPanel() {
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || t('identity.logo.errors.upload'));
       }
-      setProfile((current) => ({ ...current, logoPath: payload.profile.logoPath }));
-      setConfigured(payload.configured);
-      setProfileRevision(payload.revision);
-      setLogoWorkspaceId(selectedWorkspaceId);
+      applyResponseState(payload, scope, scopeEntityKey);
       setSuccess(t('identity.logo.uploaded'));
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : t('identity.logo.errors.upload'));
@@ -571,12 +633,12 @@ export function BrandSettingsPanel() {
   };
 
   const removeLogo = async () => {
-    if (!selectedWorkspaceId || !canManage) return;
+    if (!logoEndpoint || !scopeEntityKey || !canManage) return;
     setIsUploadingLogo(true);
     setError(null);
     setSuccess(null);
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand/logo`, {
+      const response = await fetch(logoEndpoint, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -584,10 +646,7 @@ export function BrandSettingsPanel() {
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || t('identity.logo.errors.remove'));
       }
-      setProfile((current) => ({ ...current, logoPath: '' }));
-      setConfigured(payload.configured);
-      setProfileRevision(payload.revision);
-      setLogoWorkspaceId(selectedWorkspaceId);
+      applyResponseState(payload, scope, scopeEntityKey);
       setSuccess(t('identity.logo.removed'));
     } catch (removeError) {
       setError(removeError instanceof Error ? removeError.message : t('identity.logo.errors.remove'));
@@ -597,12 +656,12 @@ export function BrandSettingsPanel() {
   };
 
   const resetProfile = async () => {
-    if (!selectedWorkspaceId || !canManage || !configured) return;
+    if (!profileEndpoint || !scopeEntityKey || !canManage || !configured) return;
     setIsSaving(true);
     setError(null);
     setSuccess(null);
     try {
-      const response = await fetch(`/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand`, {
+      const response = await fetch(profileEndpoint, {
         method: 'DELETE',
         credentials: 'include',
       });
@@ -610,11 +669,8 @@ export function BrandSettingsPanel() {
       if (!response.ok || !payload.success) {
         throw new Error(payload.error || t('errors.reset'));
       }
-      setProfile(cloneWorkspaceBrandProfile(payload.profile));
-      setConfigured(false);
-      setProfileRevision(payload.revision);
-      setLogoWorkspaceId(selectedWorkspaceId);
-      setSuccess(t('resetDone'));
+      applyResponseState(payload, scope, scopeEntityKey);
+      setSuccess(scope === 'workspace' ? t('inheritance.inheritedAgain') : t('resetDone'));
     } catch (resetError) {
       setError(resetError instanceof Error ? resetError.message : t('errors.reset'));
     } finally {
@@ -622,7 +678,12 @@ export function BrandSettingsPanel() {
     }
   };
 
-  const controlsDisabled = isLoading || isSaving || isUploadingLogo || !canManage;
+  const isInheritedWorkspace = scope === 'workspace' && !configured;
+  const controlsDisabled = isLoading
+    || isSaving
+    || isUploadingLogo
+    || !canManage
+    || isInheritedWorkspace;
 
   if (isWorkspaceLoading && !initialized) {
     return (
@@ -647,21 +708,63 @@ export function BrandSettingsPanel() {
   return (
     <div className="space-y-4">
       <Card className="overflow-hidden border-border/80">
-        <CardContent className="grid gap-5 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
-          <div className="flex min-w-0 items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-              <Palette className="h-5 w-5" />
+        <CardContent className="space-y-5 p-4 sm:p-6">
+          <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div className="flex min-w-0 items-start gap-3">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Palette className="h-5 w-5" />
+              </div>
+              <div className="min-w-0">
+                <p className="font-semibold">{t('scope.title')}</p>
+                <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('scope.description')}</p>
+              </div>
             </div>
-            <div className="min-w-0">
-              <p className="font-semibold">{t('workspace.title')}</p>
-              <p className="mt-1 text-sm leading-6 text-muted-foreground">{t('workspace.description')}</p>
-            </div>
+            {canManageOrganizationBrand && selectedOrganizationId ? (
+              <div className="inline-flex w-full rounded-xl border bg-muted/30 p-1 lg:w-auto">
+                <Button
+                  type="button"
+                  variant={scope === 'organization' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  aria-pressed={scope === 'organization'}
+                  className="flex-1 lg:flex-none"
+                  onClick={() => setScope('organization')}
+                >
+                  <Building2 className="h-4 w-4" />
+                  {t('scope.organization')}
+                </Button>
+                <Button
+                  type="button"
+                  variant={scope === 'workspace' ? 'secondary' : 'ghost'}
+                  size="sm"
+                  aria-pressed={scope === 'workspace'}
+                  className="flex-1 lg:flex-none"
+                  onClick={() => setScope('workspace')}
+                >
+                  <Boxes className="h-4 w-4" />
+                  {t('scope.workspace')}
+                </Button>
+              </div>
+            ) : null}
           </div>
-          <div className="w-full lg:w-72">
+
+          <div className="grid gap-3 border-t border-border/70 pt-5 sm:grid-cols-[minmax(0,1fr)_minmax(240px,288px)] sm:items-center">
+            <div>
+              <p className="text-sm font-semibold">
+                {scope === 'organization' ? t('scope.organizationTitle') : t('workspace.title')}
+              </p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                {scope === 'organization' ? t('scope.organizationDescription') : t('workspace.description')}
+              </p>
+            </div>
             <NativeSelect
               value={selectedWorkspaceId || ''}
               ariaLabel={t('workspace.select')}
-              onChange={(value) => setManualWorkspaceId(value)}
+              onChange={(value) => {
+                setManualWorkspaceId(value);
+                if (scope === 'organization' && !workspaces.find((workspace) => workspace.id === value)?.organizationId) {
+                  setScope('workspace');
+                }
+              }}
             >
               {workspaces.map((workspace) => (
                 <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
@@ -686,6 +789,69 @@ export function BrandSettingsPanel() {
           {t('readOnly')}
         </p>
       ) : null}
+
+      {scope === 'workspace' ? (
+        <Card className={cn(
+          'overflow-hidden',
+          configured ? 'border-primary/35 bg-primary/[0.025]' : 'border-border/80',
+        )}>
+          <CardContent className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className={cn(
+                'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
+                configured ? 'bg-primary/10 text-primary' : 'bg-muted text-muted-foreground',
+              )}>
+                {configured ? <Boxes className="h-4 w-4" /> : <Building2 className="h-4 w-4" />}
+              </span>
+              <div>
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="text-sm font-semibold">
+                    {configured ? t('inheritance.overrideTitle') : t('inheritance.inheritedTitle')}
+                  </p>
+                  <Badge variant={configured ? 'default' : 'secondary'}>
+                    {configured
+                      ? t('inheritance.overrideBadge')
+                      : profileSource === 'organization'
+                        ? t('inheritance.organizationBadge')
+                        : t('inheritance.canvasBadge')}
+                  </Badge>
+                </div>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">
+                  {configured
+                    ? t('inheritance.overrideDescription')
+                    : profileSource === 'organization'
+                      ? t('inheritance.organizationDescription')
+                      : t('inheritance.canvasDescription')}
+                </p>
+              </div>
+            </div>
+            {canManage ? (
+              <Button
+                type="button"
+                variant={configured ? 'outline' : 'default'}
+                size="sm"
+                disabled={isLoading || isSaving || isUploadingLogo}
+                onClick={() => void (configured ? resetProfile() : createWorkspaceOverride())}
+              >
+                {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : configured ? <RotateCcw className="h-4 w-4" /> : <Sparkles className="h-4 w-4" />}
+                {configured ? t('inheritance.useOrganization') : t('inheritance.createOverride')}
+              </Button>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : (
+        <Card className="border-primary/25 bg-primary/[0.025]">
+          <CardContent className="flex items-start gap-3 p-4 sm:p-5">
+            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+              <Building2 className="h-4 w-4" />
+            </span>
+            <div>
+              <p className="text-sm font-semibold">{t('organizationDefault.title')}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('organizationDefault.description')}</p>
+            </div>
+          </CardContent>
+        </Card>
+      )}
 
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.92fr)]">
         <div className="space-y-4">
@@ -744,7 +910,7 @@ export function BrandSettingsPanel() {
               <BrandLogoControl
                 logoUrl={logoUrl}
                 position={profile.logoPosition}
-                disabled={isLoading || isSaving || !canManage}
+                disabled={controlsDisabled}
                 isUploading={isUploadingLogo}
                 onUpload={uploadLogo}
                 onRemove={removeLogo}
@@ -806,7 +972,12 @@ export function BrandSettingsPanel() {
                     typography: { ...current.typography, bodyFont: value as WorkspaceBrandFontId },
                   }))}
                 >
-                  {WORKSPACE_BRAND_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
+                  <optgroup label={t('fontGroups.curated')}>
+                    {WORKSPACE_BRAND_CURATED_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
+                  </optgroup>
+                  <optgroup label={t('fontGroups.standard')}>
+                    {WORKSPACE_BRAND_STANDARD_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
+                  </optgroup>
                 </NativeSelect>
               </FieldGroup>
               <FieldGroup label={t('typography.headingFont')}>
@@ -819,7 +990,12 @@ export function BrandSettingsPanel() {
                     typography: { ...current.typography, headingFont: value as WorkspaceBrandFontId },
                   }))}
                 >
-                  {WORKSPACE_BRAND_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
+                  <optgroup label={t('fontGroups.curated')}>
+                    {WORKSPACE_BRAND_CURATED_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
+                  </optgroup>
+                  <optgroup label={t('fontGroups.standard')}>
+                    {WORKSPACE_BRAND_STANDARD_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
+                  </optgroup>
                 </NativeSelect>
               </FieldGroup>
               {([
@@ -957,7 +1133,7 @@ export function BrandSettingsPanel() {
               onClick={() => void resetProfile()}
             >
               <RotateCcw className="h-4 w-4" />
-              {t('reset')}
+              {scope === 'workspace' ? t('inheritance.useOrganization') : t('reset')}
             </Button>
             <Button
               type="button"
@@ -965,7 +1141,9 @@ export function BrandSettingsPanel() {
               onClick={() => void saveProfile()}
             >
               {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {isSaving ? t('saving') : t('save')}
+              {isSaving
+                ? t('saving')
+                : scope === 'organization' ? t('saveOrganization') : t('saveWorkspace')}
             </Button>
           </div>
         </div>

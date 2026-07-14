@@ -6,11 +6,17 @@ import {
 } from '@/app/lib/workspaces/brand-profile';
 
 const FONT_STACKS: Record<WorkspaceBrandFontId, string> = {
-  'canvas-sans': "Arial, Helvetica, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji'",
-  'humanist-sans': "'Avenir Next', Avenir, 'Segoe UI', Helvetica, Arial, sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji'",
-  'editorial-serif': "Georgia, Cambria, 'Times New Roman', Times, serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji'",
-  'classic-serif': "Baskerville, 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, serif, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji'",
-  'technical-mono': "'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', Consolas, 'Courier New', monospace, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji'",
+  'canvas-sans': "Arial, 'Liberation Sans', Helvetica, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif",
+  'humanist-sans': "'Avenir Next', Avenir, 'Segoe UI', 'DejaVu Sans', 'Liberation Sans', Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif",
+  'editorial-serif': "Georgia, Cambria, 'Liberation Serif', 'Times New Roman', Times, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', serif",
+  'classic-serif': "Baskerville, 'Iowan Old Style', 'Palatino Linotype', Palatino, Georgia, 'Liberation Serif', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', serif",
+  'technical-mono': "'SFMono-Regular', 'Cascadia Code', 'Roboto Mono', Consolas, 'Liberation Mono', 'Courier New', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', monospace",
+  'arial-sans': "Arial, 'Liberation Sans', Helvetica, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif",
+  'verdana-sans': "Verdana, 'DejaVu Sans', 'Liberation Sans', Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif",
+  'trebuchet-sans': "'Trebuchet MS', 'Liberation Sans', Arial, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', sans-serif",
+  'georgia-serif': "Georgia, 'Liberation Serif', 'Times New Roman', Times, 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', serif",
+  'times-serif': "'Times New Roman', Times, 'Liberation Serif', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', serif",
+  'courier-mono': "'Courier New', Courier, 'Liberation Mono', 'Apple Color Emoji', 'Segoe UI Emoji', 'Noto Color Emoji', monospace",
 };
 
 export type MarkdownPdfRenderOptions = {

@@ -2682,14 +2682,42 @@
       "loading": "Brand-Profil wird geladen...",
       "saved": "Brand-Profil gespeichert. Neue Exporte und Agent-Nachrichten verwenden die Änderungen sofort.",
       "resetDone": "Brand-Profil wurde auf den Canvas-Standard zurückgesetzt.",
-      "readOnly": "Du kannst dieses Brand-Profil ansehen, aber nur Workspace-Manager dürfen es ändern.",
+      "readOnly": "Du kannst dieses Brand-Profil ansehen, hast aber keine Berechtigung, es zu ändern.",
       "save": "Brand-Profil speichern",
+      "saveOrganization": "Organisationsdesign speichern",
+      "saveWorkspace": "Workspace-Design speichern",
       "saving": "Wird gespeichert...",
       "reset": "Auf Canvas-Standard zurücksetzen",
+      "scope": {
+        "title": "Brand-Ebene festlegen",
+        "description": "Admins definieren den Organisationsstandard. Jeder Workspace kann ihn gezielt und vollständig überschreiben.",
+        "organization": "Organisation",
+        "workspace": "Workspace",
+        "organizationTitle": "Organisationsstandard bearbeiten",
+        "organizationDescription": "Der ausgewählte Workspace bestimmt, für welche Organisation der Standard gilt."
+      },
       "workspace": {
         "title": "Workspace auswählen",
-        "description": "Jeder Workspace besitzt ein eigenes Brand-Profil für Markdown-PDFs und Agent-Ausgaben.",
+        "description": "Wähle den Workspace, dessen Vererbung oder individuelles Brand-Profil du bearbeiten möchtest.",
         "select": "Workspace für das Brand-Profil auswählen"
+      },
+      "inheritance": {
+        "inheritedTitle": "Dieser Workspace übernimmt seinen Brand-Standard",
+        "overrideTitle": "Dieser Workspace verwendet ein eigenes Brand-Profil",
+        "organizationBadge": "Von Organisation geerbt",
+        "canvasBadge": "Canvas-Standard",
+        "overrideBadge": "Workspace-Override",
+        "organizationDescription": "PDF-Exporte und Agent-Kontext verwenden automatisch das Organisationsdesign. Änderungen am Standard greifen hier ohne weitere Pflege.",
+        "canvasDescription": "Für die Organisation ist noch kein Brand-Profil gesetzt. Bis dahin gilt der Canvas-Standard.",
+        "overrideDescription": "Alle Brand-Werte dieses Workspaces haben Vorrang vor dem Organisationsstandard.",
+        "createOverride": "Workspace-Override anlegen",
+        "overrideCreated": "Workspace-Override angelegt. Du kannst das übernommene Design jetzt individuell anpassen.",
+        "useOrganization": "Organisationsstandard verwenden",
+        "inheritedAgain": "Der Workspace verwendet wieder den Organisationsstandard."
+      },
+      "organizationDefault": {
+        "title": "Standard für alle Workspaces der Organisation",
+        "description": "Workspaces ohne eigenen Override übernehmen dieses Design für PDF-Exporte und den Agent-Kontext automatisch."
       },
       "empty": {
         "title": "Kein Workspace verfügbar",
@@ -2714,7 +2742,8 @@
         "brandNamePlaceholder": "z. B. Canvas Studios",
         "logo": {
           "uploadTitle": "Logo hochladen",
-          "uploadHint": "PNG, JPG oder WebP bis 1 MB. Es wird sicher optimiert und im PDF auf maximal 28 × 9 mm begrenzt.",
+          "uploadHint": "Logo hier hineinziehen oder per Dateiauswahl hochladen. PNG, JPG oder WebP bis 1 MB; im PDF maximal 28 × 9 mm.",
+          "dropNow": "Logo zum Hochladen ablegen",
           "empty": "Kein Logo",
           "ready": "Logo bereit",
           "previewAlt": "Vorschau des Workspace-Logos",
@@ -2769,7 +2798,17 @@
         "humanist-sans": "Humanist Sans",
         "editorial-serif": "Editorial Serif",
         "classic-serif": "Classic Serif",
-        "technical-mono": "Technical Mono"
+        "technical-mono": "Technical Mono",
+        "arial-sans": "Arial",
+        "verdana-sans": "Verdana",
+        "trebuchet-sans": "Trebuchet MS",
+        "georgia-serif": "Georgia",
+        "times-serif": "Times New Roman",
+        "courier-mono": "Courier New"
+      },
+      "fontGroups": {
+        "curated": "Canvas-Schriftstile",
+        "standard": "Standardschriften"
       },
       "headingStyles": {
         "plain": "Pur",

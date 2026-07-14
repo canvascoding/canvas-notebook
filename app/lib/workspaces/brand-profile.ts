@@ -1,9 +1,23 @@
-export const WORKSPACE_BRAND_FONT_IDS = [
+export const WORKSPACE_BRAND_CURATED_FONT_IDS = [
   'canvas-sans',
   'humanist-sans',
   'editorial-serif',
   'classic-serif',
   'technical-mono',
+] as const;
+
+export const WORKSPACE_BRAND_STANDARD_FONT_IDS = [
+  'arial-sans',
+  'verdana-sans',
+  'trebuchet-sans',
+  'georgia-serif',
+  'times-serif',
+  'courier-mono',
+] as const;
+
+export const WORKSPACE_BRAND_FONT_IDS = [
+  ...WORKSPACE_BRAND_CURATED_FONT_IDS,
+  ...WORKSPACE_BRAND_STANDARD_FONT_IDS,
 ] as const;
 
 export type WorkspaceBrandFontId = (typeof WORKSPACE_BRAND_FONT_IDS)[number];
