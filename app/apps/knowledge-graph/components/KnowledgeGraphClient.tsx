@@ -23,7 +23,7 @@ import {
   type KnowledgeGraphColorMode,
   type KnowledgeGraphNode,
 } from '@/app/apps/knowledge-graph/lib/knowledge-graph-model';
-import { workspaceHeaders, withWorkspaceQuery } from '@/app/lib/files/client';
+import { loadWorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-client';
 import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Button } from '@/components/ui/button';
@@ -32,18 +32,20 @@ import { Switch } from '@/components/ui/switch';
 import { getPathname } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 
-type LinkIndexResponse = {
-  error?: string;
-  index?: WorkspaceLinkIndex;
-  success?: boolean;
-};
-
 const EMPTY_INDEX: WorkspaceLinkIndex = {
   backlinks: {},
   brokenLinks: [],
   documents: [],
   edges: [],
   generatedAt: new Date(0).toISOString(),
+  omittedDocuments: [],
+};
+
+type IndexRequestState = {
+  error: string | null;
+  index: WorkspaceLinkIndex | null;
+  refreshVersion: number;
+  workspaceId: string;
 };
 
 function ControlSection({
@@ -90,9 +92,7 @@ export function KnowledgeGraphClient() {
   const t = useTranslations('knowledgeGraph');
   const locale = useLocale();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const [index, setIndex] = useState<WorkspaceLinkIndex>(EMPTY_INDEX);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const [requestState, setRequestState] = useState<IndexRequestState | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [query, setQuery] = useState('');
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
@@ -111,28 +111,39 @@ export function KnowledgeGraphClient() {
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
-    const controller = new AbortController();
-    const url = withWorkspaceQuery('/api/markdown/link-index', activeWorkspaceId);
-    void fetch(url, {
-      cache: 'no-store',
-      credentials: 'include',
-      headers: workspaceHeaders(activeWorkspaceId),
-      signal: controller.signal,
-    }).then(async (response) => {
-      const payload = await response.json() as LinkIndexResponse;
-      if (!response.ok || !payload.success || !payload.index) {
-        throw new Error(payload.error || t('errors.load'));
-      }
-      setIndex(payload.index);
-      setError(null);
-      setLoading(false);
+    let cancelled = false;
+    const workspaceId = activeWorkspaceId;
+    const requestedRefreshVersion = refreshVersion;
+    void loadWorkspaceLinkIndex(workspaceId, { force: requestedRefreshVersion > 0 }).then((nextIndex) => {
+      if (cancelled) return;
+      setRequestState({
+        error: null,
+        index: nextIndex,
+        refreshVersion: requestedRefreshVersion,
+        workspaceId,
+      });
     }).catch((fetchError) => {
-      if (fetchError instanceof DOMException && fetchError.name === 'AbortError') return;
-      setError(fetchError instanceof Error ? fetchError.message : t('errors.load'));
-      setLoading(false);
+      if (cancelled) return;
+      setRequestState({
+        error: fetchError instanceof Error ? fetchError.message : t('errors.load'),
+        index: null,
+        refreshVersion: requestedRefreshVersion,
+        workspaceId,
+      });
     });
-    return () => controller.abort();
+    return () => {
+      cancelled = true;
+    };
   }, [activeWorkspaceId, refreshVersion, t]);
+
+  const requestIsCurrent = Boolean(
+    activeWorkspaceId
+    && requestState?.workspaceId === activeWorkspaceId
+    && requestState.refreshVersion === refreshVersion
+  );
+  const index = requestIsCurrent && requestState?.index ? requestState.index : EMPTY_INDEX;
+  const error = requestIsCurrent ? requestState?.error ?? null : null;
+  const loading = Boolean(activeWorkspaceId && !requestIsCurrent);
 
   const graphData = useMemo(() => buildKnowledgeGraphData(index, {
     colorMode,
@@ -177,7 +188,6 @@ export function KnowledgeGraphClient() {
     setQuery(node.label);
   };
   const refresh = () => {
-    setLoading(true);
     setRefreshVersion((version) => version + 1);
   };
 
@@ -188,7 +198,7 @@ export function KnowledgeGraphClient() {
   };
 
   return (
-    <div className="relative h-full min-h-[520px] overflow-hidden bg-[#071018] text-slate-100">
+    <div className="relative h-full min-h-0 overflow-hidden bg-[#071018] text-slate-100">
       <div
         className="pointer-events-none absolute inset-0 opacity-70"
         style={{
@@ -384,6 +394,32 @@ export function KnowledgeGraphClient() {
             <FolderTree className="mx-auto h-8 w-8 text-cyan-400" />
             <h2 className="mt-4 text-lg font-semibold">{t('empty.title')}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-400">{t('empty.description')}</p>
+          </div>
+        </div>
+      ) : null}
+      {!activeWorkspaceId ? (
+        <div className="absolute inset-0 z-30 grid place-items-center p-6">
+          <div className="max-w-lg border border-slate-700/70 bg-slate-950/90 p-8 text-center shadow-2xl">
+            <FolderTree className="mx-auto h-8 w-8 text-cyan-400" />
+            <h2 className="mt-4 text-lg font-semibold">{t('noWorkspace.title')}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{t('noWorkspace.description')}</p>
+          </div>
+        </div>
+      ) : null}
+      {!loading && !error && index.documents.length > 0 && graphData.nodes.length === 0 ? (
+        <div className="absolute inset-0 z-10 grid place-items-center p-6">
+          <div className="max-w-lg border border-slate-700/70 bg-slate-950/85 p-8 text-center shadow-2xl backdrop-blur-xl">
+            <Filter className="mx-auto h-8 w-8 text-cyan-400" />
+            <h2 className="mt-4 text-lg font-semibold">{t('filtered.title')}</h2>
+            <p className="mt-2 text-sm leading-6 text-slate-400">{t('filtered.description')}</p>
+          </div>
+        </div>
+      ) : null}
+      {!loading && !error && index.omittedDocuments.length > 0 ? (
+        <div className="absolute bottom-4 left-4 z-20 max-w-[min(420px,calc(100%-2rem))] border border-amber-400/30 bg-slate-950/90 px-3 py-2 text-xs text-amber-200 shadow-xl md:bottom-6 md:left-6">
+          <div className="flex items-start gap-2">
+            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
+            <span>{t('warnings.omitted', { count: index.omittedDocuments.length })}</span>
           </div>
         </div>
       ) : null}

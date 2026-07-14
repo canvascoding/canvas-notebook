@@ -58,6 +58,10 @@ export type WorkspaceLinkIndex = {
   documents: WorkspaceLinkDocument[];
   edges: WorkspaceLinkEdge[];
   generatedAt: string;
+  omittedDocuments: Array<{
+    path: string;
+    reason: 'too-large' | 'unreadable';
+  }>;
 };
 
 type ParsedLink = {
@@ -280,6 +284,7 @@ export function buildWorkspaceLinkIndexFromDocuments(
     documents: parsedDocuments.map(({ document }) => document),
     edges,
     generatedAt: now.toISOString(),
+    omittedDocuments: [],
   };
 }
 

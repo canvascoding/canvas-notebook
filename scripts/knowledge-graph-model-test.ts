@@ -7,6 +7,7 @@ const index = buildWorkspaceLinkIndexFromDocuments([
   { path: 'Research/Overview.md', content: '# Overview\n\n[[Research/Source]]\n[[Missing]]' },
   { path: 'Research/Source.md', content: '---\ntags: [reference]\n---\n\n# Source' },
   { path: 'Archive/Orphan.md', content: '# Orphan' },
+  { path: 'Archive/Broken only.md', content: '# Broken only\n\n[[Nowhere]]' },
 ], new Date('2026-07-14T12:00:00.000Z'));
 
 const graph = buildKnowledgeGraphData(index, {
@@ -14,9 +15,9 @@ const graph = buildKnowledgeGraphData(index, {
   showBroken: true,
   showOrphans: true,
 });
-assert.equal(graph.nodes.filter((node) => node.kind === 'document').length, 3);
-assert.equal(graph.nodes.filter((node) => node.kind === 'missing').length, 1);
-assert.equal(graph.edges.length, 2);
+assert.equal(graph.nodes.filter((node) => node.kind === 'document').length, 4);
+assert.equal(graph.nodes.filter((node) => node.kind === 'missing').length, 2);
+assert.equal(graph.edges.length, 3);
 assert.equal(graph.nodes.find((node) => node.path === 'Research/Overview.md')?.outgoing, 2);
 assert.equal(graph.nodes.find((node) => node.path === 'Research/Source.md')?.incoming, 1);
 
@@ -26,6 +27,7 @@ const connectedOnly = buildKnowledgeGraphData(index, {
   showOrphans: false,
 });
 assert.equal(connectedOnly.nodes.some((node) => node.path === 'Archive/Orphan.md'), false);
+assert.equal(connectedOnly.nodes.some((node) => node.path === 'Archive/Broken only.md'), false);
 assert.equal(connectedOnly.nodes.some((node) => node.kind !== 'document'), false);
 assert.equal(connectedOnly.edges.length, 1);
 assert.equal(

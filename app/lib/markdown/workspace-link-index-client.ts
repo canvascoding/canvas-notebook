@@ -148,11 +148,15 @@ export async function loadWorkspaceLinkIndex(
     if (!payload.success || !payload.index) {
       throw new Error(payload.error || 'Failed to load workspace link index');
     }
+    const index = {
+      ...payload.index,
+      omittedDocuments: payload.index.omittedDocuments ?? [],
+    };
     linkIndexCache.set(normalizedWorkspaceId, {
       expiresAt: Date.now() + LINK_INDEX_CACHE_TTL_MS,
-      value: payload.index,
+      value: index,
     });
-    return payload.index;
+    return index;
   }).catch((error) => {
     const current = linkIndexCache.get(normalizedWorkspaceId);
     if (current?.promise === promise) linkIndexCache.delete(normalizedWorkspaceId);

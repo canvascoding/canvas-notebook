@@ -1277,6 +1277,17 @@
       "title": "Noch keine Markdown-Dokumente",
       "description": "Sobald Markdown-Dateien im Workspace liegen, erscheinen sie hier als Knoten. Verknüpfe sie mit [[Dokumentname]]."
     },
+    "noWorkspace": {
+      "title": "Kein Workspace ausgewählt",
+      "description": "Wähle einen Workspace aus, um seinen Dokument-Graphen zu erstellen."
+    },
+    "filtered": {
+      "title": "Keine Dokumente entsprechen diesen Filtern",
+      "description": "Aktiviere unverlinkte oder fehlende Ziele, um ausgeblendete Knoten wieder anzuzeigen."
+    },
+    "warnings": {
+      "omitted": "{count, plural, one {# Markdown-Dokument wurde übersprungen, weil es zu groß oder nicht lesbar ist.} other {# Markdown-Dokumente wurden übersprungen, weil sie zu groß oder nicht lesbar sind.}}"
+    },
     "errors": {
       "load": "Der Linkindex konnte nicht geladen werden.",
       "webgl": "Der WebGL-Graph konnte nicht initialisiert werden"

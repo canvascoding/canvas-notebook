@@ -34,26 +34,40 @@ export async function buildWorkspaceLinkIndex(
   options?: WorkspaceFileOperationOptions,
 ): Promise<WorkspaceLinkIndex> {
   const entries = await getCachedFileReferenceEntries(false, options);
-  const markdownFiles = entries.filter((entry) => (
-    entry.type === 'file'
-    && isMarkdownPath(entry.path)
-    && (entry.size === undefined || entry.size <= MAX_INDEXED_MARKDOWN_BYTES)
+  const markdownEntries = entries.filter((entry) => entry.type === 'file' && isMarkdownPath(entry.path));
+  const omittedDocuments: WorkspaceLinkIndex['omittedDocuments'] = markdownEntries
+    .filter((entry) => entry.size !== undefined && entry.size > MAX_INDEXED_MARKDOWN_BYTES)
+    .map((entry) => ({ path: entry.path, reason: 'too-large' as const }));
+  const markdownFiles = markdownEntries.filter((entry) => (
+    entry.size === undefined || entry.size <= MAX_INDEXED_MARKDOWN_BYTES
   ));
   const semaphore = new AsyncSemaphore(LINK_INDEX_READ_CONCURRENCY);
   const sources = await Promise.all(markdownFiles.map((entry) => semaphore.run(async () => {
     try {
       const content = await readFile(entry.path, options);
-      if (content.byteLength > MAX_INDEXED_MARKDOWN_BYTES) return null;
+      if (content.byteLength > MAX_INDEXED_MARKDOWN_BYTES) {
+        omittedDocuments.push({ path: entry.path, reason: 'too-large' });
+        return null;
+      }
       return { content: content.toString('utf8'), path: entry.path };
     } catch (error) {
       console.warn(`[WorkspaceLinkIndex] Skipping unreadable Markdown file: ${entry.path}`, error);
+      omittedDocuments.push({ path: entry.path, reason: 'unreadable' });
       return null;
     }
   })));
 
-  return buildWorkspaceLinkIndexFromDocuments(
+  const index = buildWorkspaceLinkIndexFromDocuments(
     sources.filter((source): source is NonNullable<typeof source> => source !== null),
   );
+  return {
+    ...index,
+    omittedDocuments: omittedDocuments
+      .filter((entry, entryIndex, all) => (
+        all.findIndex((candidate) => candidate.path === entry.path) === entryIndex
+      ))
+      .sort((left, right) => left.path.localeCompare(right.path)),
+  };
 }
 
 export async function applyWorkspaceLinkRename(

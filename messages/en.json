@@ -1278,6 +1278,17 @@
       "title": "No Markdown documents yet",
       "description": "Markdown files will appear here as nodes. Connect them with [[Document name]]."
     },
+    "noWorkspace": {
+      "title": "No workspace selected",
+      "description": "Select a workspace to build its document graph."
+    },
+    "filtered": {
+      "title": "No documents match these filters",
+      "description": "Enable unlinked or missing targets to show hidden nodes again."
+    },
+    "warnings": {
+      "omitted": "{count, plural, one {# Markdown document was skipped because it is too large or unreadable.} other {# Markdown documents were skipped because they are too large or unreadable.}}"
+    },
     "errors": {
       "load": "The link index could not be loaded.",
       "webgl": "The WebGL graph could not be initialized"

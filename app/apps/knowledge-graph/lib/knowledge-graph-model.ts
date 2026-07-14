@@ -97,9 +97,12 @@ export function buildKnowledgeGraphData(
   index: WorkspaceLinkIndex,
   options: KnowledgeGraphOptions,
 ): KnowledgeGraphData {
+  const visibleEdges = options.showBroken
+    ? index.edges
+    : index.edges.filter((edge) => edge.status === 'resolved');
   const incoming = new Map<string, number>();
   const outgoing = new Map<string, number>();
-  for (const edge of index.edges) {
+  for (const edge of visibleEdges) {
     outgoing.set(edge.sourcePath, (outgoing.get(edge.sourcePath) ?? 0) + 1);
     if (edge.targetPath) incoming.set(edge.targetPath, (incoming.get(edge.targetPath) ?? 0) + 1);
   }
@@ -133,11 +136,10 @@ export function buildKnowledgeGraphData(
   const unresolvedNodes = new Map<string, KnowledgeGraphNode>();
   const edges: KnowledgeGraphEdge[] = [];
 
-  for (const edge of index.edges) {
+  for (const edge of visibleEdges) {
     if (!visibleNodeIds.has(edge.sourcePath)) continue;
     let targetId = edge.targetPath;
     if (!targetId) {
-      if (!options.showBroken) continue;
       targetId = unresolvedNodeId(edge);
       if (!unresolvedNodes.has(targetId)) {
         const position = initialPosition(targetId, nodes.length + unresolvedNodes.size, index.documents.length + index.brokenLinks.length);
