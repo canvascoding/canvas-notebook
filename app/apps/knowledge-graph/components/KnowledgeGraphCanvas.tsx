@@ -3,7 +3,7 @@
 import { LocateFixed, Minus, Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { useEffect, useRef, useState } from 'react';
-import type { AbstractGraph } from 'graphology-types';
+import type { MultiDirectedGraph } from 'graphology';
 import type ForceAtlas2LayoutSupervisor from 'graphology-layout-forceatlas2/worker';
 import type Sigma from 'sigma';
 import type { CameraState } from 'sigma/types';
@@ -25,7 +25,10 @@ type KnowledgeGraphCanvasProps = {
   showLabels: boolean;
 };
 
-type GraphInstance = AbstractGraph<KnowledgeGraphNode, { color: string; size: number }>;
+type GraphInstance = MultiDirectedGraph<KnowledgeGraphNode, { color: string; size: number }> & {
+  order: number;
+  size: number;
+};
 type SigmaInstance = Sigma<KnowledgeGraphNode, { color: string; size: number }>;
 type LayoutSupervisorConstructor = typeof ForceAtlas2LayoutSupervisor;
 type InferForceSettings = typeof import('graphology-layout-forceatlas2').inferSettings;
