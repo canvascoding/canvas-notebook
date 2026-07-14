@@ -6,6 +6,7 @@ import {
   rewriteWorkspaceWikiLinksForRename,
 } from '../app/lib/markdown/workspace-link-index-core';
 import {
+  getWorkspaceWikiCompletionItems,
   invalidateWorkspaceLinkIndexCache,
   loadWorkspaceLinkIndex,
   resolveWorkspaceLinkFromIndex,
@@ -80,6 +81,22 @@ const directoryRewrite = rewriteWorkspaceWikiLinksForRename(
 assert.equal(directoryRewrite.updatedLinks, 2);
 assert.match(directoryRewrite.content, /\[\[Archive\/Projects\/Plan#Outcome\|the plan\]\]/);
 assert.match(directoryRewrite.content, /\[\[Archive\/Projects\/Decision\]\]/);
+
+assert.equal(getWorkspaceWikiCompletionItems(index, {
+  fragmentQuery: null,
+  kind: 'document',
+  pathQuery: 'decision alias',
+})[0]?.target, 'Projects/Decision');
+assert.deepEqual(getWorkspaceWikiCompletionItems(index, {
+  fragmentQuery: 'out',
+  kind: 'heading',
+  pathQuery: 'Plan',
+}, 'Projects/Overview.md').map((item) => item.target), ['Projects/Plan#Outcome']);
+assert.deepEqual(getWorkspaceWikiCompletionItems(index, {
+  fragmentQuery: '^res',
+  kind: 'block',
+  pathQuery: 'Plan',
+}, 'Projects/Overview.md').map((item) => item.target), ['Projects/Plan#^result']);
 
 async function testWorkspaceLinkIndexClient(): Promise<void> {
   const originalFetch = globalThis.fetch;

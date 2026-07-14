@@ -248,7 +248,6 @@ export function parseObsidianBlockIds(markdown: string): ObsidianBlockId[] {
 export function hasObsidianRichEditorUnsupportedSyntax(markdown: string): boolean {
   const trimmed = markdown.trimStart();
   if (/^---[ \t]*\r?\n/.test(trimmed)) return true;
-  if (parseObsidianWikiLinks(markdown).length > 0) return true;
   if (parseObsidianCallouts(markdown).length > 0) return true;
   if (parseObsidianBlockIds(markdown).length > 0) return true;
 

@@ -1,10 +1,12 @@
 import { readApiError, readApiJson, workspaceHeaders, withWorkspaceQuery } from '@/app/lib/files/client';
 
 import {
+  getObsidianWikiCompletionInsertPath,
   resolveObsidianWikiLink,
   type ObsidianLinkResolution,
+  type ObsidianWikiCompletionContext,
 } from './obsidian-link-resolver';
-import type { WorkspaceLinkIndex } from './workspace-link-index-core';
+import type { WorkspaceLinkDocument, WorkspaceLinkIndex } from './workspace-link-index-core';
 
 const LINK_INDEX_CACHE_TTL_MS = 30_000;
 
@@ -22,6 +24,13 @@ type LinkIndexCacheEntry = {
 
 export type WorkspaceLinkIndexInvalidation = {
   workspaceId: string | null;
+};
+
+export type WorkspaceWikiCompletionItem = {
+  detail: string;
+  displayLabel: string;
+  kind: 'document' | 'heading' | 'block';
+  target: string;
 };
 
 const linkIndexCache = new Map<string, LinkIndexCacheEntry>();
@@ -112,4 +121,87 @@ export function resolveWorkspaceLinkFromIndex(
     })),
     sourcePath,
   );
+}
+
+function normalizedSearchValue(value: string): string {
+  return value.trim().toLocaleLowerCase();
+}
+
+function completionScore(document: WorkspaceLinkDocument, query: string): number {
+  if (!query) return 1;
+  const path = getObsidianWikiCompletionInsertPath(document.path).toLocaleLowerCase();
+  const basename = path.split('/').pop() || path;
+  const title = document.title.toLocaleLowerCase();
+  const aliases = document.aliases.map((alias) => alias.toLocaleLowerCase());
+  if (basename === query || title === query || aliases.includes(query)) return 0;
+  if (basename.startsWith(query) || title.startsWith(query) || aliases.some((alias) => alias.startsWith(query))) {
+    return 1;
+  }
+  if (path.includes(query) || title.includes(query) || aliases.some((alias) => alias.includes(query))) return 2;
+  return Number.POSITIVE_INFINITY;
+}
+
+function findCompletionDocument(
+  index: WorkspaceLinkIndex,
+  pathQuery: string,
+  sourcePath?: string | null,
+): WorkspaceLinkDocument | null {
+  const resolution = resolveWorkspaceLinkFromIndex(pathQuery, index, sourcePath);
+  if (resolution?.status !== 'resolved' || !resolution.path) return null;
+  return index.documents.find((document) => document.path === resolution.path) ?? null;
+}
+
+export function getWorkspaceWikiCompletionItems(
+  index: WorkspaceLinkIndex,
+  context: Pick<ObsidianWikiCompletionContext, 'fragmentQuery' | 'kind' | 'pathQuery'>,
+  sourcePath?: string | null,
+  limit = 100,
+): WorkspaceWikiCompletionItem[] {
+  const safeLimit = Math.max(1, limit);
+  if (context.kind === 'document') {
+    const query = normalizedSearchValue(context.pathQuery);
+    return index.documents
+      .map((document) => ({ document, score: completionScore(document, query) }))
+      .filter((entry) => Number.isFinite(entry.score))
+      .sort((left, right) => (
+        left.score - right.score || left.document.path.localeCompare(right.document.path)
+      ))
+      .slice(0, safeLimit)
+      .map(({ document }) => ({
+        detail: document.aliases.length > 0
+          ? `${document.path} · ${document.aliases.join(', ')}`
+          : document.path,
+        displayLabel: document.title,
+        kind: 'document' as const,
+        target: getObsidianWikiCompletionInsertPath(document.path),
+      }));
+  }
+
+  const document = findCompletionDocument(index, context.pathQuery, sourcePath);
+  if (!document) return [];
+  const canonicalPath = context.pathQuery
+    ? getObsidianWikiCompletionInsertPath(document.path)
+    : '';
+  const fragmentQuery = normalizedSearchValue(context.fragmentQuery ?? '');
+  const blockQuery = fragmentQuery.replace(/^\^/u, '');
+  const headings = context.kind === 'block'
+    ? []
+    : document.headings
+      .filter((heading) => normalizedSearchValue(heading.text).includes(fragmentQuery))
+      .map((heading) => ({
+        detail: `${document.path} · H${heading.depth}`,
+        displayLabel: heading.text,
+        kind: 'heading' as const,
+        target: `${canonicalPath}#${heading.text}`,
+      }));
+  const blocks = document.blockIds
+    .filter((blockId) => normalizedSearchValue(blockId).includes(blockQuery))
+    .map((blockId) => ({
+      detail: `${document.path} · ^${blockId}`,
+      displayLabel: `^${blockId}`,
+      kind: 'block' as const,
+      target: `${canonicalPath}#^${blockId}`,
+    }));
+
+  return [...headings, ...blocks].slice(0, safeLimit);
 }

@@ -83,6 +83,7 @@ import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
+import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import {
   clampEditorRangeToDoc,
   getSlashCommandDeletionRange,
@@ -125,6 +126,7 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditor';
+import { createObsidianWikiLinkExtensions } from './ObsidianWikiLinkExtension';
 
 interface MarkdownEditorProps {
   value: string;
@@ -1618,7 +1620,13 @@ function MarkdownBlockCommandMenu({
   );
 }
 
-function createEditorExtensions(filePath: string | undefined, labels: SlashCommandLabels, actions?: SlashCommandActions) {
+function createEditorExtensions(
+  filePath: string | undefined,
+  labels: SlashCommandLabels,
+  actions?: SlashCommandActions,
+  workspaceId: string | null = null,
+  wikiLabels: { empty: string; group: string } = { empty: '', group: '' },
+) {
   return [
     StarterKit.configure({
       codeBlock: false,
@@ -1660,6 +1668,7 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
     ColorSwatchDecorations,
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
+    ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
     Markdown.configure({
       markedOptions: {
         gfm: true,
@@ -3378,7 +3387,12 @@ function RichMarkdownEditor({
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
   const [mathEditRequest, setMathEditRequest] = useState<MathEditRequest | null>(null);
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const labels = useMemo(() => createSlashCommandLabels(t), [t]);
+  const wikiLabels = useMemo(() => ({
+    empty: t('markdownEditorWikiNoMatch'),
+    group: t('markdownEditorWikiSuggestions'),
+  }), [t]);
   const openImageDialogFromToolbar = useCallback((open: boolean, range?: Range) => {
     if (open) {
       setImageDialogSeed((current) => ({ id: current.id + 1, range }));
@@ -3429,8 +3443,14 @@ function RichMarkdownEditor({
     [editMath, openImageDialogFromSlash, openTableDialogFromSlash],
   );
   const extensions = useMemo(
-    () => createEditorExtensions(filePath, labels, slashCommandActions),
-    [filePath, labels, slashCommandActions],
+    () => createEditorExtensions(
+      filePath,
+      labels,
+      slashCommandActions,
+      activeWorkspaceId,
+      wikiLabels,
+    ),
+    [activeWorkspaceId, filePath, labels, slashCommandActions, wikiLabels],
   );
 
   const editor = useEditor({
@@ -3825,6 +3845,18 @@ export function MarkdownEditor({
     setSourceModeRequested(false);
     setMode('rich');
   }, [sourceModeRequired]);
+
+  if (readOnly && effectiveMode === 'source') {
+    return (
+      <div className="h-full min-h-0 overflow-auto bg-background">
+        <MarkdownRenderer
+          content={value}
+          sourcePath={filePath}
+          className="min-h-full p-5 text-base leading-relaxed md:pl-[4.75rem] [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold"
+        />
+      </div>
+    );
+  }
 
   if (effectiveMode === 'source') {
     return (

@@ -19,7 +19,10 @@ export type ObsidianLinkResolution = {
 
 export type ObsidianWikiCompletionContext = {
   embed: boolean;
+  fragmentQuery: string | null;
   from: number;
+  kind: 'document' | 'heading' | 'block';
+  pathQuery: string;
   query: string;
   to: number;
 };
@@ -161,12 +164,19 @@ export function findObsidianWikiCompletionContext(
   if (syntaxMask.slice(absoluteOpeningIndex, absoluteOpeningIndex + 2) !== '[[') return null;
 
   const rawQuery = linePrefix.slice(openingIndex + 2);
-  if (rawQuery.includes(']]') || rawQuery.includes('|') || rawQuery.includes('#')) return null;
+  if (rawQuery.includes(']]') || rawQuery.includes('|')) return null;
+
+  const hashIndex = rawQuery.indexOf('#');
+  const pathQuery = hashIndex >= 0 ? rawQuery.slice(0, hashIndex) : rawQuery;
+  const fragmentQuery = hashIndex >= 0 ? rawQuery.slice(hashIndex + 1) : null;
 
   const embed = openingIndex > 0 && linePrefix[openingIndex - 1] === '!';
   return {
     embed,
+    fragmentQuery,
     from: lineStart + openingIndex + 2,
+    kind: fragmentQuery === null ? 'document' : fragmentQuery.startsWith('^') ? 'block' : 'heading',
+    pathQuery,
     query: rawQuery,
     to: safeCursor,
   };

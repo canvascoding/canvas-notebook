@@ -102,7 +102,7 @@ assert.match(mask, /research\/Market Analysis/);
 
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Normal **GFM** with `$code` and $E=mc^2$.'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('A `code` span and\n\n```ts\nconst x = 1\n```'), false);
-assert.equal(hasObsidianRichEditorUnsupportedSyntax('See [[Note]].'), true);
+assert.equal(hasObsidianRichEditorUnsupportedSyntax('See [[Note]].'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Use ==highlight==.'), true);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Visible %% hidden %% text.'), true);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Paragraph ^block-id'), true);
@@ -134,12 +134,24 @@ assert.equal(resolveObsidianWikiLink('Missing', workspaceFiles)?.status, 'missin
 const completionSource = 'See [[proj';
 assert.deepEqual(findObsidianWikiCompletionContext(completionSource, completionSource.length), {
   embed: false,
+  fragmentQuery: null,
   from: 6,
+  kind: 'document',
+  pathQuery: 'proj',
   query: 'proj',
   to: completionSource.length,
 });
 assert.equal(findObsidianWikiCompletionContext('`[[ignored`', 11), null);
-assert.equal(findObsidianWikiCompletionContext('[[Plan#Heading', 14), null);
+assert.deepEqual(findObsidianWikiCompletionContext('[[Plan#Heading', 14), {
+  embed: false,
+  fragmentQuery: 'Heading',
+  from: 2,
+  kind: 'heading',
+  pathQuery: 'Plan',
+  query: 'Plan#Heading',
+  to: 14,
+});
+assert.equal(findObsidianWikiCompletionContext('[[Plan#^block', 14)?.kind, 'block');
 assert.equal(findObsidianWikiCompletionContext('[[Plan|Alias', 12), null);
 assert.equal(getObsidianWikiCompletionInsertPath('./projects/Plan.md'), 'projects/Plan');
 assert.equal(getWorkspaceMarkdownLinkTarget('../Shared.md#Reference', 'projects/Overview.md'), '../Shared.md#Reference');

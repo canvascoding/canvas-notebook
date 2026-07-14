@@ -686,6 +686,8 @@
     "markdownEditorImageSourceRequired": "Gib eine Bild-URL oder einen Pfad ein.",
     "markdownEditorImageImportError": "Bild konnte nicht importiert werden.",
     "markdownEditorNoCommandFound": "Kein Befehl gefunden.",
+    "markdownEditorWikiNoMatch": "Kein passendes Dokument, keine Überschrift und kein Block gefunden.",
+    "markdownEditorWikiSuggestions": "Workspace-Links",
     "markdownEditorPlaceholder": "Drücke /, um Formatierung hinzuzufügen",
     "markdownEditorSlashGroup": "Markdown",
     "markdownEditorLinkDialogTitle": "Link einfügen",

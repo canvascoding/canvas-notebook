@@ -25,15 +25,15 @@ import { toast } from 'sonner';
 import { useFileStore } from '@/app/store/file-store';
 import { useTheme } from '@/app/components/ThemeProvider';
 import { getTextEditorPerformanceProfile } from '@/app/lib/editor/text-editor-guards';
-import { searchWorkspaceFileReferences } from '@/app/lib/files/client';
 import {
   findObsidianWikiCompletionContext,
-  getObsidianWikiCompletionInsertPath,
-  isMarkdownReferenceEntry,
-  stripMarkdownExtension,
-  resolveObsidianWikiLink,
 } from '@/app/lib/markdown/obsidian-link-resolver';
 import { parseObsidianWikiLinks } from '@/app/lib/markdown/obsidian-flavored-markdown';
+import {
+  getWorkspaceWikiCompletionItems,
+  loadWorkspaceLinkIndex,
+  resolveWorkspaceLinkFromIndex,
+} from '@/app/lib/markdown/workspace-link-index-client';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
@@ -160,11 +160,7 @@ function isMarkdownPath(path: string | undefined): boolean {
   return extension === 'md' || extension === 'mdx' || extension === 'markdown';
 }
 
-function getBasename(path: string): string {
-  return path.replace(/\\/g, '/').split('/').pop() || path;
-}
-
-function createObsidianWikiCompletionSource(workspaceId: string) {
+function createObsidianWikiCompletionSource(workspaceId: string, sourcePath?: string) {
   return async (context: CompletionContext): Promise<CompletionResult | null> => {
     const completionContext = findObsidianWikiCompletionContext(
       context.state.doc.toString(),
@@ -172,37 +168,25 @@ function createObsidianWikiCompletionSource(workspaceId: string) {
     );
     if (!completionContext) return null;
 
-    const controller = new AbortController();
-    context.addEventListener('abort', () => controller.abort(), { onDocChange: true });
-
     try {
-      const page = await searchWorkspaceFileReferences({
-        query: completionContext.query,
-        limit: 200,
-        workspaceId,
-        signal: controller.signal,
-      });
+      const index = await loadWorkspaceLinkIndex(workspaceId);
       if (context.aborted) return null;
 
       return {
         from: completionContext.from,
         to: completionContext.to,
-        options: page.files
-          .filter(isMarkdownReferenceEntry)
-          .map((file) => {
-            const insertPath = getObsidianWikiCompletionInsertPath(file.path);
-            return {
-              label: insertPath,
-              displayLabel: stripMarkdownExtension(getBasename(file.path)),
-              detail: file.path,
-              type: 'text',
-              apply: `${insertPath}]]`,
-            };
-          }),
-        validFor: /^[^\]#|\r\n]*$/,
+        options: getWorkspaceWikiCompletionItems(index, completionContext, sourcePath, 200)
+          .map((item) => ({
+            label: item.target,
+            displayLabel: item.displayLabel,
+            detail: item.detail,
+            type: item.kind === 'document' ? 'text' : item.kind === 'heading' ? 'keyword' : 'variable',
+            apply: `${item.target}]]`,
+          })),
+        validFor: /^[^\]|\r\n]*$/,
       };
     } catch (error) {
-      if (controller.signal.aborted) return null;
+      if (context.aborted) return null;
       console.warn('[CodeEditor] Failed to load Obsidian wiki-link suggestions:', error);
       return null;
     }
@@ -216,10 +200,8 @@ async function openObsidianWikiLinkFromSource(
 ): Promise<void> {
   const parsedTarget = rawTarget.trim();
   const pathQuery = parsedTarget.split('#', 1)[0].trim();
-  const page = pathQuery
-    ? await searchWorkspaceFileReferences({ query: pathQuery, limit: 500, workspaceId })
-    : { files: [], total: 0 };
-  const resolution = resolveObsidianWikiLink(parsedTarget, page.files, sourcePath);
+  const index = await loadWorkspaceLinkIndex(workspaceId);
+  const resolution = resolveWorkspaceLinkFromIndex(parsedTarget, index, sourcePath);
   if (resolution?.status !== 'resolved' || !resolution.path) {
     toast.error(resolution?.status === 'ambiguous'
       ? `Ambiguous document link: ${resolution.candidates.join(', ')}`
@@ -255,7 +237,9 @@ function createObsidianWikiOpenExtension(workspaceId: string, sourcePath: string
 
       event.preventDefault();
       event.stopPropagation();
-      void openObsidianWikiLinkFromSource(workspaceId, sourcePath, wikiLink.target);
+      void openObsidianWikiLinkFromSource(workspaceId, sourcePath, wikiLink.target).catch((error) => {
+        toast.error(error instanceof Error ? error.message : 'Document link could not be opened');
+      });
       return true;
     },
   });
@@ -336,7 +320,7 @@ export function CodeEditor({
       && !performanceProfile.disableLanguageExtension
     ) {
       nextExtensions.push(autocompletion({
-        override: [createObsidianWikiCompletionSource(activeWorkspaceId)],
+        override: [createObsidianWikiCompletionSource(activeWorkspaceId, languagePath)],
       }));
       if (languagePath) {
         nextExtensions.push(createObsidianWikiOpenExtension(activeWorkspaceId, languagePath));

@@ -824,6 +824,29 @@ li.task-list-item > p {
   border-radius: 0.25rem;
 }
 
+.tiptap-wiki-link-node {
+  display: inline;
+}
+
+.tiptap-wiki-link-node-selected {
+  border-radius: 0.25rem;
+  outline: 2px solid color-mix(in oklab, var(--primary) 55%, transparent);
+  outline-offset: 2px;
+}
+
+.tiptap-wiki-link-suggestion {
+  background: color-mix(in oklab, var(--primary) 12%, var(--muted));
+  border-radius: 0.25rem;
+}
+
+.tiptap-wiki-link-menu {
+  max-width: calc(100vw - 1rem);
+  min-width: min(22rem, calc(100vw - 1rem));
+  overflow: hidden;
+  width: min(28rem, calc(100vw - 1rem));
+  z-index: 100;
+}
+
 .tiptap-block-controls {
   left: 0.75rem;
 }

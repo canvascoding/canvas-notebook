@@ -103,6 +103,8 @@ const sampleMarkdown = `# Title
 
 Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](https://example.com). ![Link preview: example.com](https://cdn.example.com/og.png)
 
+Workspace links [[Plan#Outcome|the plan]] and ![[Embed]].
+
 Inline math $E = mc^2$ remains in the paragraph.
 
 $$
@@ -164,6 +166,7 @@ async function main() {
   const { TaskList } = await import('@tiptap/extension-task-list');
   const { TaskItem } = await import('@tiptap/extension-task-item');
   const { TableKit } = await import('@tiptap/extension-table');
+  const { createObsidianWikiLinkExtensions } = await import('../app/components/editor/ObsidianWikiLinkExtension');
 
   const editor = new Editor({
     content: sampleMarkdown,
@@ -189,6 +192,10 @@ async function main() {
         nested: true,
       }),
       TableKit.configure({ table: { resizable: false } }),
+      ...createObsidianWikiLinkExtensions({
+        labels: { empty: 'No match', group: 'Workspace links' },
+        workspaceId: null,
+      }),
       Markdown.configure({
         markedOptions: {
           gfm: true,
@@ -209,6 +216,8 @@ async function main() {
   assert.match(output, /~~strike~~/);
   assert.match(output, /`code`/);
   assert.match(output, /\[link\]\(https:\/\/example\.com\)/);
+  assert.match(output, /\[\[Plan#Outcome\|the plan\]\]/);
+  assert.match(output, /!\[\[Embed\]\]/);
   assert.match(output, /Inline math \$E = mc\^2\$/);
   assert.ok(output.includes(String.raw`$$
 \int_0^1 x^2 \, dx = \frac{1}{3}
@@ -234,6 +243,11 @@ $$`));
   assert.ok(tableAlignments.includes('center'), 'GFM table alignment should preserve center cells');
   assert.ok(tableAlignments.includes('right'), 'GFM table alignment should preserve right cells');
   assert.ok(nodeTypes.includes('image'), 'Markdown images should parse as image nodes');
+  assert.equal(
+    nodeTypes.filter((type) => type === 'obsidianWikiLink').length,
+    2,
+    'wiki links and embeds should parse into rich-editor nodes',
+  );
   assert.ok(nodeTypes.includes('inlineMath'), 'inline LaTeX should parse as an editable math node');
   assert.ok(nodeTypes.includes('blockMath'), 'display LaTeX should parse as an editable math node');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');
