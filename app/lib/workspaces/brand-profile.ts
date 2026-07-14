@@ -66,6 +66,15 @@ export interface WorkspaceBrandProfileState {
   updatedAt: number | null;
 }
 
+export type WorkspaceBrandProfileSource = 'workspace' | 'organization' | 'default';
+
+export interface ResolvedWorkspaceBrandProfileState extends WorkspaceBrandProfileState {
+  source: WorkspaceBrandProfileSource;
+  organizationId: string | null;
+  workspaceOverride: WorkspaceBrandProfileState;
+  organizationDefault: WorkspaceBrandProfileState;
+}
+
 export const DEFAULT_WORKSPACE_BRAND_PROFILE: WorkspaceBrandProfile = {
   enabled: false,
   brandName: '',

@@ -117,6 +117,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (owner_user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS organization_brand_profiles (
+      organization_id TEXT PRIMARY KEY NOT NULL,
+      settings_json TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      updated_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (updated_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS canvas_customers (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT NOT NULL,
@@ -2038,6 +2049,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     DROP INDEX IF EXISTS idx_canvas_workspaces_team_organization;
 
     CREATE INDEX IF NOT EXISTS idx_canvas_org_settings_owner ON canvas_organization_settings (owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_organization_brand_profiles_updated ON organization_brand_profiles (updated_at);
     CREATE INDEX IF NOT EXISTS idx_canvas_customers_organization ON canvas_customers (organization_id, status, name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_customers_org_slug ON canvas_customers (organization_id, slug);
     CREATE INDEX IF NOT EXISTS idx_canvas_customers_creator ON canvas_customers (created_by_user_id, created_at);

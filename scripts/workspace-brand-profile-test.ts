@@ -57,8 +57,12 @@ async function main() {
       validateWorkspaceBrandProfile,
     } = await import('../app/lib/workspaces/brand-profile');
     const {
+      readOrganizationBrandProfile,
       readWorkspaceBrandProfile,
+      resetOrganizationBrandProfile,
       resetWorkspaceBrandProfile,
+      resolveWorkspaceBrandProfile,
+      updateOrganizationBrandProfile,
       updateWorkspaceBrandProfile,
       workspaceBrandProfileCacheKey,
     } = await importBrandService();
@@ -67,6 +71,9 @@ async function main() {
     assert.equal(defaults.configured, false);
     assert.deepEqual(defaults.profile, DEFAULT_WORKSPACE_BRAND_PROFILE);
     assert.equal(workspaceBrandProfileCacheKey(defaults), 'brand:default');
+    const resolvedDefaults = await resolveWorkspaceBrandProfile('brand-workspace');
+    assert.equal(resolvedDefaults.source, 'default');
+    assert.equal(resolvedDefaults.organizationId, 'brand-org');
 
     const normalized = normalizeWorkspaceBrandProfile({
       enabled: true,
@@ -92,6 +99,18 @@ async function main() {
       WorkspaceBrandProfileValidationError,
     );
 
+    const organizationProfile = await updateOrganizationBrandProfile({
+      organizationId: 'brand-org',
+      userId: 'brand-user',
+      profile: { ...normalized, brandName: 'Organization Brand' },
+    });
+    assert.equal(organizationProfile.configured, true);
+    assert.equal(organizationProfile.revision, 1);
+    const resolvedOrganization = await resolveWorkspaceBrandProfile('brand-workspace');
+    assert.equal(resolvedOrganization.source, 'organization');
+    assert.equal(resolvedOrganization.profile.brandName, 'Organization Brand');
+    assert.match(workspaceBrandProfileCacheKey(resolvedOrganization), /^brand:organization:workspace:default:organization:1:/u);
+
     const first = await updateWorkspaceBrandProfile({
       workspaceId: 'brand-workspace',
       userId: 'brand-user',
@@ -101,6 +120,9 @@ async function main() {
     assert.equal(first.revision, 1);
     assert.equal(first.profile.brandName, 'Canvas Studios');
     assert.match(workspaceBrandProfileCacheKey(first), /^brand:1:/u);
+    const resolvedWorkspace = await resolveWorkspaceBrandProfile('brand-workspace');
+    assert.equal(resolvedWorkspace.source, 'workspace');
+    assert.equal(resolvedWorkspace.profile.brandName, 'Canvas Studios');
 
     const second = await updateWorkspaceBrandProfile({
       workspaceId: 'brand-workspace',
@@ -113,10 +135,27 @@ async function main() {
     const reset = await resetWorkspaceBrandProfile('brand-workspace');
     assert.equal(reset.configured, false);
     assert.equal(reset.revision, 0);
+    const inheritedAgain = await resolveWorkspaceBrandProfile('brand-workspace');
+    assert.equal(inheritedAgain.source, 'organization');
+    assert.equal(inheritedAgain.profile.brandName, 'Organization Brand');
+
+    const organizationReset = await resetOrganizationBrandProfile('brand-org');
+    assert.equal(organizationReset.configured, false);
+    assert.equal((await readOrganizationBrandProfile('brand-org')).configured, false);
+    assert.equal((await resolveWorkspaceBrandProfile('brand-workspace')).source, 'default');
 
     sqlite.prepare('DELETE FROM canvas_workspaces WHERE id = ?').run('brand-workspace');
     const orphan = sqlite.prepare('SELECT workspace_id FROM workspace_brand_profiles WHERE workspace_id = ?').get('brand-workspace');
     assert.equal(orphan, undefined);
+
+    await updateOrganizationBrandProfile({
+      organizationId: 'brand-org',
+      userId: 'brand-user',
+      profile: normalized,
+    });
+    sqlite.prepare('DELETE FROM canvas_organization_settings WHERE organization_id = ?').run('brand-org');
+    const organizationOrphan = sqlite.prepare('SELECT organization_id FROM organization_brand_profiles WHERE organization_id = ?').get('brand-org');
+    assert.equal(organizationOrphan, undefined);
 
     sqlite.close();
     console.log('workspace-brand-profile-test: ok');

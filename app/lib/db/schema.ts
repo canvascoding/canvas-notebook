@@ -107,6 +107,17 @@ export const canvasOrganizationSettings = sqliteTable("canvas_organization_setti
   ownerIdx: index("idx_canvas_org_settings_owner").on(table.ownerUserId),
 }));
 
+export const organizationBrandProfiles = sqliteTable("organization_brand_profiles", {
+  organizationId: text("organization_id").primaryKey().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  settingsJson: text("settings_json").notNull(),
+  revision: integer("revision").notNull().default(1),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  updatedIdx: index("idx_organization_brand_profiles_updated").on(table.updatedAt),
+}));
+
 export const canvasCustomers = sqliteTable("canvas_customers", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
