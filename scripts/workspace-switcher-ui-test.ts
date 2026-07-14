@@ -68,6 +68,7 @@ const personalWorkspace: ClientWorkspaceSummary = {
   organizationId: 'org_1',
   ownerUserId: 'user_1',
   rootRelativePath: 'workspaces/personal/user_1/files',
+  icon: 'notebook-pen',
   status: 'active',
   legacy: false,
   permissions: {
@@ -142,6 +143,7 @@ async function main() {
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, personalWorkspace.id);
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.type, 'personal');
+  assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.icon, 'notebook-pen');
 
   localStorage.setItem('canvas.activeWorkspaceId', teamWorkspace.id);
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
