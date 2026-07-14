@@ -190,6 +190,17 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       CHECK (type != 'project' OR project_id IS NOT NULL)
     );
 
+    CREATE TABLE IF NOT EXISTS workspace_brand_profiles (
+      workspace_id TEXT PRIMARY KEY NOT NULL,
+      settings_json TEXT NOT NULL,
+      revision INTEGER NOT NULL DEFAULT 1,
+      updated_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (updated_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS canvas_workspace_members (
       organization_id TEXT NOT NULL,
       workspace_id TEXT NOT NULL,
@@ -2044,6 +2055,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_default_personal ON canvas_workspaces (owner_user_id) WHERE type = 'personal' AND is_default = 1;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_default_organization ON canvas_workspaces (organization_id) WHERE type = 'organization' AND is_default = 1;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_project_workspace ON canvas_workspaces (project_id) WHERE type = 'project';
+    CREATE INDEX IF NOT EXISTS idx_workspace_brand_profiles_updated ON workspace_brand_profiles (updated_at);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_org_user ON canvas_workspace_members (organization_id, user_id, status);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_workspace_status ON canvas_workspace_members (workspace_id, status);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_workspace_status ON workspace_trash_entries (workspace_id, status, deleted_at);
