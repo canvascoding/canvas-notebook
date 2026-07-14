@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.14.3] - 2026-07-14
+## [2026.7.14.4] - 2026-07-14
 
 ### Added
 
@@ -31,7 +31,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 ### Fixed
 
 - Fixed public Markdown export access checks, mobile workspace-sheet actions, workspace icon persistence, todo deep links, and automation workspace validation.
-- Fixed knowledge graph focus lookup to use renderer node data across clean production type environments.
+- Fixed knowledge graph typing for clean production builds while preserving renderer-based focus lookup.
 - Bounded composed agent prompts and persisted system-prompt snapshots to protect context budgets.
 - Fixed session history and title bootstrapping and workspace-scoped asset and file operations.
 
