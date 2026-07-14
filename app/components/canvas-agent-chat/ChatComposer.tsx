@@ -19,6 +19,7 @@ import {
 } from '@/app/components/canvas-agent-chat/ComposerReferencePicker';
 import { PlanModeToggle } from '@/app/components/canvas-agent-chat/PlanModeToggle';
 import { SkillReferenceChipRow } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
+import { TypewriterPromptSuggestion } from '@/app/components/canvas-agent-chat/TypewriterPromptSuggestion';
 import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
 import type {
   AiEffectiveRuntimeResolution,
@@ -118,6 +119,8 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   showComposerHint: boolean;
   onToggleComposerHint: () => void;
   composerHint: string;
+  promptSuggestions: string[];
+  showPromptSuggestions: boolean;
 }>(function ChatComposer({
   ariaHidden,
   isMobile,
@@ -175,12 +178,15 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   showComposerHint,
   onToggleComposerHint,
   composerHint,
+  promptSuggestions,
+  showPromptSuggestions,
 }, ref) {
   const t = useTranslations('chat');
   const { isDraggingFiles, dropHandlers } = useChatFileDrop({
     disabled: composerDisabled,
     onFiles: onFilesDrop,
   });
+  const showTypewriterSuggestion = showPromptSuggestions && input.length === 0 && !isWebSocketUnavailable;
 
   return (
     <div
@@ -290,11 +296,19 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
               style={{ height: `${textareaHeight}px` }}
               disabled={isWebSocketUnavailable}
               className={cn(
-                'w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs placeholder:text-muted-foreground focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm',
+                'w-full resize-none border bg-background p-2.5 text-base placeholder:text-xs focus:outline-none focus:ring-1 md:text-sm sm:placeholder:text-sm',
                 planningMode ? 'border-amber-500 focus:ring-amber-500' : 'border-border focus:ring-ring',
                 isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : null,
+                showTypewriterSuggestion ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground',
               )}
             />
+            {showTypewriterSuggestion ? (
+              <TypewriterPromptSuggestion
+                suggestions={promptSuggestions}
+                testId="chat-prompt-suggestion"
+                className="left-0 right-0 top-0 overflow-hidden whitespace-nowrap px-2.5 py-2.5 text-base leading-normal md:text-sm"
+              />
+            ) : null}
             {isDraggingFiles ? (
               <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border border-primary bg-background/90 text-xs font-medium text-primary">
                 <span className="inline-flex items-center gap-2">

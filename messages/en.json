@@ -1062,6 +1062,7 @@
     "openLatestSession": "Open latest session",
     "starterTitle": "What should Canvas Chat prepare for you?",
     "starterDescription": "Start with a template for campaigns, creatives, strategies, documents, or a better file organization.",
+    "starterPromptHint": "Just start typing.",
     "studioStarterTitle": "What should Canvas Studio create for you?",
     "studioStarterDescription": "Start with prompts for product photos, video generation, creative variants, presets, or improving existing Studio outputs.",
     "sessions": "Sessions",
@@ -1153,6 +1154,14 @@
     "composerHintBusyMobile": "Send queues the message. Steer in the queue sends it directly into the running agent loop.",
     "composerHintBusyDesktop": "Send queues the message. Steer in the queue sends it directly into the running agent loop.",
     "composerHintIdle": "Type @ for files, / for skills, or pick a quick action below.",
+    "promptSuggestions": {
+      "campaign": "Develop a campaign for …",
+      "creative": "Create ad creatives for …",
+      "strategy": "Help me plan the strategy for …",
+      "studioProduct": "Create a product visual for …",
+      "studioVideo": "Plan a short video for …",
+      "studioCreative": "Develop creative variants for …"
+    },
     "starterPrompts": {
       "sm-campaign": {
         "title": "Visual social campaign",

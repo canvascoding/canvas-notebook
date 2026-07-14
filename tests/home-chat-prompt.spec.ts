@@ -77,6 +77,7 @@ test.describe('Home chat prompt', () => {
 
     await page.goto('/', { waitUntil: 'networkidle' });
 
+    await expect(page.getByTestId('home-prompt-suggestion')).toHaveText(/.+/);
     await expect(page.getByTestId('home-agent-id')).toContainText('Canvas Agent');
     await page.getByTestId('home-agent-id').click();
     await page.getByRole('button', { name: /LinkedIn Agent\s+linkedin-agent/i }).click();

@@ -2026,19 +2026,21 @@ contentKind: document
     await expect(page.getByText(/No active agent run to steer/i)).toHaveCount(0);
   });
 
-  test('should show productive starter prompts and prefill the mobile composer without overflow', async ({ page }) => {
+  test('should show a calm typewriter suggestion in a new mobile chat without overflow', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockEmptyChatBootstrap(page);
 
     await page.goto('/chat');
 
-    await expect(page.getByTestId('chat-starter-prompts')).toBeVisible();
+    await expect(page.getByTestId('chat-starter-prompts')).toHaveCount(0);
+    await expect(page.getByTestId('chat-prompt-suggestion')).toHaveText(/.+/);
     await expect
       .poll(async () => page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth + 1))
       .toBeTruthy();
 
-    await page.getByTestId('chat-starter-prompt-sm-campaign').click();
-    await expect(page.getByTestId('chat-input')).toHaveValue(/visuelle Social-Media-Kampagne/);
+    const input = page.getByTestId('chat-input');
+    await input.fill('Ich möchte eine Kampagne für mein neues Produkt planen.\n\nBitte gib mir eine klare Struktur.');
+    await expect(page.getByTestId('chat-prompt-suggestion')).toHaveCount(0);
     await expect
       .poll(async () => (await getChatInputMetrics(page)).height, { timeout: 15000 })
       .toBeGreaterThan(56);

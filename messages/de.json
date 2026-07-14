@@ -1061,6 +1061,7 @@
     "openLatestSession": "Letzte Session öffnen",
     "starterTitle": "Was soll Canvas Chat für dich vorbereiten?",
     "starterDescription": "Starte mit einer Vorlage für Kampagnen, Creatives, Strategien, Dokumente oder eine bessere Dateiorganisation.",
+    "starterPromptHint": "Schreib einfach los.",
     "studioStarterTitle": "Was soll Canvas Studio für dich erzeugen?",
     "studioStarterDescription": "Starte mit Prompts für Produktfotos, Video-Generierung, Creative-Varianten, Presets oder die Optimierung bestehender Studio-Ergebnisse.",
     "sessions": "Sessions",
@@ -1152,6 +1153,14 @@
     "composerHintBusyMobile": "Senden reiht die Nachricht ein. Steer in der Queue gibt sie direkt in den laufenden Agent-Loop.",
     "composerHintBusyDesktop": "Senden reiht die Nachricht ein. Steer in der Queue gibt sie direkt in den laufenden Agent-Loop.",
     "composerHintIdle": "Tippe @ für Dateien, / für Skills oder wähle unten eine schnelle Aktion.",
+    "promptSuggestions": {
+      "campaign": "Entwickle eine Kampagne für …",
+      "creative": "Erstelle Creatives für …",
+      "strategy": "Hilf mir bei der Strategie für …",
+      "studioProduct": "Erstelle ein Produktmotiv für …",
+      "studioVideo": "Plane ein kurzes Video für …",
+      "studioCreative": "Entwickle Creative-Varianten für …"
+    },
     "starterPrompts": {
       "sm-campaign": {
         "title": "Visuelle SM-Kampagne",

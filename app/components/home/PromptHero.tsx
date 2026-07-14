@@ -8,6 +8,7 @@ import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
+import { TypewriterPromptSuggestion } from '@/app/components/canvas-agent-chat/TypewriterPromptSuggestion';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { useChatFileDrop } from '@/app/components/canvas-agent-chat/useChatFileDrop';
@@ -83,6 +84,11 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   ), [availableAgents]);
   const selectedAgent = agentOptions.find((agent) => agent.agentId === selectedAgentId);
   const selectedAgentName = selectedAgent?.name || getAgentDisplayName(selectedAgentId);
+  const promptSuggestions = useMemo(() => [
+    tChat('promptSuggestions.campaign'),
+    tChat('promptSuggestions.creative'),
+    tChat('promptSuggestions.strategy'),
+  ], [tChat]);
 
   useEffect(() => {
     let isActive = true;
@@ -485,10 +491,17 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
             placeholder={tHome('hero.placeholder')}
             data-prompt-hero-textarea
             disabled={licenseLocked}
-            className={`min-h-24 w-full resize-y rounded-lg border bg-background p-3 text-base placeholder:text-muted-foreground focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'}`}
+            className={`min-h-24 w-full resize-y rounded-lg border bg-background p-3 text-base focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'} ${prompt.length === 0 && !licenseLocked ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground'}`}
             rows={3}
             {...dropHandlers}
           />
+          {prompt.length === 0 && !licenseLocked ? (
+            <TypewriterPromptSuggestion
+              suggestions={promptSuggestions}
+              testId="home-prompt-suggestion"
+              className="left-0 right-0 top-0 overflow-hidden whitespace-nowrap px-3 py-3 text-base leading-normal"
+            />
+          ) : null}
           {isDraggingFiles ? (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border border-primary bg-background/90 text-xs font-medium text-primary">
               <span className="inline-flex items-center gap-2">

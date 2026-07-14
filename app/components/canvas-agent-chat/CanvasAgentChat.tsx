@@ -18,7 +18,6 @@ import { usePathname as useLocalePathname } from '@/i18n/navigation';
 import { useLocale } from 'next-intl';
 
 import { useIsMobile } from '@/hooks/use-mobile';
-import { BUSINESS_STARTER_PROMPTS, STUDIO_STARTER_PROMPTS } from '@/app/lib/chat/starter-prompts';
 import { AttachmentPreviewDialog } from '@/app/components/canvas-agent-chat/AttachmentPreviewDialog';
 import { useChatComposerLayout } from '@/app/components/canvas-agent-chat/useChatComposerLayout';
 import { useChatScrollController } from '@/app/components/canvas-agent-chat/useChatScrollController';
@@ -278,14 +277,10 @@ export default function CanvasAgentChat({
   const [expandedRunKeys, setExpandedRunKeys] = useState<Set<string>>(() => new Set());
 
   const isStudioChatContext = Boolean(requestContext?.currentPage?.startsWith('/studio') || pathname?.startsWith('/studio'));
-  const starterPromptSource = isStudioChatContext ? STUDIO_STARTER_PROMPTS : BUSINESS_STARTER_PROMPTS;
-  const starterPromptTranslationKey = isStudioChatContext ? 'studioStarterPrompts' : 'starterPrompts';
-  const localizedStarterPrompts = starterPromptSource.map((prompt) => ({
-    ...prompt,
-    title: t(`${starterPromptTranslationKey}.${prompt.id}.title`),
-    description: t(`${starterPromptTranslationKey}.${prompt.id}.description`),
-    prompt: t(`${starterPromptTranslationKey}.${prompt.id}.prompt`),
-  }));
+  const promptSuggestions = (isStudioChatContext
+    ? ['studioProduct', 'studioVideo', 'studioCreative']
+    : ['campaign', 'creative', 'strategy']
+  ).map((key) => t(`promptSuggestions.${key}`));
   const [showComposerHint, setShowComposerHint] = useState(false);
 
   const isWebSocketUnavailable = wsError?.code === 'AUTH_ERROR';
@@ -1037,15 +1032,6 @@ export default function CanvasAgentChat({
     });
   }, []);
 
-  const applyStarterPrompt = useCallback((value: string) => {
-    setInput(value);
-    // Always close history on mobile when applying starter prompt
-    if (isMobile || shouldShowHistoryAsOverlay) {
-      setShowHistory(false);
-    }
-    textareaRef.current?.focus();
-  }, [shouldShowHistoryAsOverlay, isMobile, textareaRef]);
-
   const composerPlaceholder = isMobile
     ? t('composerPlaceholderMobile')
     : isCompactComposer
@@ -1201,9 +1187,6 @@ export default function CanvasAgentChat({
               latestSession={latestSession}
               sessionBasePath={sessionBasePath}
               isStudioChatContext={isStudioChatContext}
-              prompts={localizedStarterPrompts}
-              isCompactView={isCompactView}
-              onSelectPrompt={applyStarterPrompt}
             />
             )}
 
@@ -1315,6 +1298,8 @@ export default function CanvasAgentChat({
         showComposerHint={showComposerHint}
         onToggleComposerHint={() => setShowComposerHint((current) => !current)}
         composerHint={composerHint}
+        promptSuggestions={promptSuggestions}
+        showPromptSuggestions={showStarterScreen}
       />
         </div>
       </div>
