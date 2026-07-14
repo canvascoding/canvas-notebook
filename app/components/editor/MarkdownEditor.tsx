@@ -111,6 +111,11 @@ import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-co
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
 import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
 import {
+  composeCanvasMarkdownDocument,
+  parseCanvasMarkdownDocument,
+  splitCanvasMarkdownForRichEditor,
+} from '@/app/lib/markdown/obsidian-metadata';
+import {
   consumeWorkspaceMarkdownLocation,
   getWorkspaceMarkdownLocationFromEvent,
   WORKSPACE_MARKDOWN_LOCATION_EVENT,
@@ -126,6 +131,7 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditor';
+import { MarkdownPropertiesPanel } from './MarkdownPropertiesPanel';
 import { createObsidianWikiLinkExtensions } from './ObsidianWikiLinkExtension';
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
 
@@ -281,16 +287,15 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
   cellAlign: null,
 };
 
-const FRONTMATTER_REGEX = /^---\s*\n[\s\S]*?\n---(?:\s*\n|$)/;
 const SLASH_COMMAND_PLUGIN_KEY = new PluginKey('markdownSlashCommands');
 const COLOR_SWATCH_PLUGIN_KEY = new PluginKey('markdownColorSwatches');
 const CANVAS_BLOCK_DRAG_DROP_GUARD_PLUGIN_KEY = new PluginKey('canvasBlockDragDropGuard');
 const MOBILE_KEYBOARD_RECHECK_DELAYS_MS = [60, 180, 360, 720];
 
-function shouldDefaultToSource(value: string, readOnly: boolean, filePath?: string) {
+function shouldDefaultToSource(readOnly: boolean, filePath?: string) {
   if (readOnly) return false;
   if (filePath && /\.mdx$/i.test(filePath)) return true;
-  return FRONTMATTER_REGEX.test(value.trimStart());
+  return false;
 }
 
 function asMarkdownEditor(editor: Editor | null): MarkdownEditorWithMarkdown | null {
@@ -3376,8 +3381,9 @@ function RichMarkdownEditor({
   onSourceMode: () => void;
 }) {
   const t = useTranslations('notebook');
+  const documentParts = useMemo(() => splitCanvasMarkdownForRichEditor(value), [value]);
   const latestValueRef = useRef(value);
-  const acceptedExternalValueRef = useRef(value);
+  const acceptedExternalValueRef = useRef(documentParts.body);
   const applyingExternalValueRef = useRef(false);
   const pendingBlockCommandMenuFrameRef = useRef<number | null>(null);
   const appliedMathEditRequestRef = useRef(0);
@@ -3457,7 +3463,7 @@ function RichMarkdownEditor({
 
   const editor = useEditor({
     extensions,
-    content: value,
+    content: documentParts.body,
     contentType: 'markdown',
     editable: !readOnly,
     immediatelyRender: false,
@@ -3466,12 +3472,19 @@ function RichMarkdownEditor({
 
       const markdownEditor = asMarkdownEditor(updateEditor);
       const markdown = markdownEditor?.getMarkdown() ?? '';
-      if (markdown !== latestValueRef.current) {
-        latestValueRef.current = markdown;
-        onChange?.(markdown);
+      const currentParts = splitCanvasMarkdownForRichEditor(latestValueRef.current);
+      const nextValue = composeCanvasMarkdownDocument(currentParts.prefix, markdown);
+      if (nextValue !== latestValueRef.current) {
+        latestValueRef.current = nextValue;
+        onChange?.(nextValue);
       }
     },
   });
+
+  const handlePropertiesChange = useCallback((nextValue: string) => {
+    latestValueRef.current = nextValue;
+    onChange?.(nextValue);
+  }, [onChange]);
 
   const markdownEditor = asMarkdownEditor(editor);
   useEffect(() => {
@@ -3601,18 +3614,18 @@ function RichMarkdownEditor({
 
     if (shouldDeferExternalSync) return;
 
-    acceptedExternalValueRef.current = value;
+    acceptedExternalValueRef.current = documentParts.body;
     latestValueRef.current = value;
 
-    if (currentMarkdown === value) return;
+    if (currentMarkdown === documentParts.body) return;
 
     applyingExternalValueRef.current = true;
-    markdownEditor.commands.setContent(value, {
+    markdownEditor.commands.setContent(documentParts.body, {
       contentType: 'markdown',
       emitUpdate: false,
     });
     applyingExternalValueRef.current = false;
-  }, [externalValueSync, markdownEditor, readOnly, value]);
+  }, [documentParts.body, externalValueSync, markdownEditor, readOnly, value]);
 
   useEffect(() => {
     editor?.setEditable(!readOnly);
@@ -3687,6 +3700,12 @@ function RichMarkdownEditor({
             </TooltipProvider>
           </div>
         ) : null}
+        <MarkdownPropertiesPanel
+          filePath={filePath}
+          onChange={handlePropertiesChange}
+          readOnly={readOnly}
+          value={value}
+        />
         <EditorContent editor={editor} className="tiptap-editor-shell" />
         {!readOnly && editor && blockCommandMenu ? (
           <MarkdownBlockCommandMenu
@@ -3802,14 +3821,15 @@ export function MarkdownEditor({
   useVisualViewportBottomOffset();
 
   const isMobileKeyboardActive = useMobileKeyboardActive();
+  const parsedDocument = useMemo(() => parseCanvasMarkdownDocument(value), [value]);
   const sourceModeReason = useMemo(() => getMarkdownSourceModeReason(value), [value]);
   const omfSourceModeRequired = useMemo(
-    () => hasObsidianRichEditorUnsupportedSyntax(value),
-    [value],
+    () => hasObsidianRichEditorUnsupportedSyntax(parsedDocument.body),
+    [parsedDocument.body],
   );
-  const sourceModeRequired = sourceModeReason !== null || omfSourceModeRequired;
+  const sourceModeRequired = parsedDocument.error !== null || sourceModeReason !== null || omfSourceModeRequired;
   const [mode, setMode] = useState<EditorMode>(() => (
-    sourceModeRequired || shouldDefaultToSource(value, readOnly, filePath) ? 'source' : 'rich'
+    sourceModeRequired || shouldDefaultToSource(readOnly, filePath) ? 'source' : 'rich'
   ));
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
   const [markdownNavigationTarget, setMarkdownNavigationTarget] = useState<WorkspaceMarkdownLocation | null>(() => (
@@ -3851,8 +3871,15 @@ export function MarkdownEditor({
   if (readOnly && effectiveMode === 'source') {
     return (
       <div className="h-full min-h-0 overflow-auto bg-background">
+        {!parsedDocument.error ? (
+          <MarkdownPropertiesPanel
+            filePath={filePath}
+            readOnly
+            value={value}
+          />
+        ) : null}
         <MarkdownRenderer
-          content={value}
+          content={parsedDocument.error ? value : parsedDocument.body}
           sourcePath={filePath}
           className="min-h-full p-5 text-base leading-relaxed md:pl-[4.75rem] [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold"
         />

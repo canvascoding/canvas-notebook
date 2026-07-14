@@ -14,6 +14,7 @@ import {
   normalizeCanvasTags,
   parseCanvasMarkdownDocument,
   parseObsidianFrontmatter,
+  splitCanvasMarkdownForRichEditor,
   updateCanvasMarkdownProperties,
 } from '../app/lib/markdown/obsidian-metadata';
 import {
@@ -90,6 +91,9 @@ assert.equal(
   composeCanvasMarkdownDocument(parsedDocument.frontmatterPrefix, parsedDocument.body),
   markdown,
 );
+const richDocument = splitCanvasMarkdownForRichEditor(markdown);
+assert.equal(richDocument.body.startsWith('# Intro'), true);
+assert.equal(composeCanvasMarkdownDocument(richDocument.prefix, richDocument.body), markdown);
 
 const updatedProperties = updateCanvasMarkdownProperties(`---
 # This comment must survive

@@ -188,6 +188,20 @@ export function composeCanvasMarkdownDocument(
   return `${frontmatterPrefix}${body}`;
 }
 
+export function splitCanvasMarkdownForRichEditor(markdown: string): {
+  body: string;
+  prefix: string;
+} {
+  const parsed = parseCanvasMarkdownDocument(markdown);
+  if (!parsed.frontmatter || parsed.error) return { body: markdown, prefix: '' };
+
+  const leadingBlankLines = parsed.body.match(/^(?:\r?\n)+/)?.[0] ?? '';
+  return {
+    body: parsed.body.slice(leadingBlankLines.length),
+    prefix: `${parsed.frontmatterPrefix}${leadingBlankLines}`,
+  };
+}
+
 function setDocumentValue(
   document: Document.Parsed,
   key: string,
