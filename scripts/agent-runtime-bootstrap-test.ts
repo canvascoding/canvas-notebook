@@ -89,6 +89,7 @@ async function main() {
     ManagedCatalogSyncError,
     syncManagedAgentRuntimeCatalog,
   } = await import('../app/lib/agent-runtime-policy/bootstrap-service');
+  const { parseAiCatalogUpdate, replaceAiAppRuntimeCatalog } = await import('../app/lib/agent-runtime-policy/catalog-service');
   const { readAppRuntimeCatalog } = await import('../app/lib/agent-runtime-policy/catalog-store');
   const {
     AiRuntimeExecutionError,
@@ -238,6 +239,62 @@ async function main() {
     setAsDefault: true,
   });
   assert.equal(idempotent.revision, 1);
+
+  const adminSelectedCatalog = await replaceAiAppRuntimeCatalog({
+    organizationId: organization.organizationId,
+    actorUserId: owner.id,
+    update: parseAiCatalogUpdate({
+      expectedRevision: 1,
+      providers: [{
+        providerId: 'canvas-control-plane',
+        enabled: true,
+        credentialScope: 'managed',
+        config: {},
+        modelIds: ['managed-first', 'managed-second'],
+        defaultModelId: 'managed-first',
+      }],
+      defaultSelection: {
+        providerId: 'canvas-control-plane',
+        modelId: 'managed-first',
+        thinkingLevel: 'high',
+      },
+    }),
+    discovery: {
+      'canvas-control-plane': {
+        id: 'canvas-control-plane',
+        name: 'Canvas Control Plane',
+        source: 'managed',
+        models: [
+          {
+            id: 'managed-first',
+            name: 'Managed First',
+            reasoning: true,
+            supportsVision: false,
+            contextWindow: 128_000,
+            maxTokens: 8_192,
+          },
+          {
+            id: 'managed-second',
+            name: 'Managed Second',
+            reasoning: true,
+            supportsVision: false,
+            contextWindow: 128_000,
+            maxTokens: 8_192,
+          },
+        ],
+      },
+    },
+  });
+  assert.equal(adminSelectedCatalog.defaultSelection?.modelId, 'managed-first');
+  const configuredChatRuntime = await resolveEffectiveAgentRuntime({
+    organizationId: organization.organizationId,
+    userId: owner.id,
+    workspaceId: personalWorkspace.id,
+    workspaceType: 'personal',
+    agentId: 'canvas-agent',
+  });
+  assert.equal(configuredChatRuntime.effectiveSelection?.selection.modelId, 'managed-first');
+  assert.equal((await readAppRuntimeCatalog(organization.organizationId)).revision, 2);
 
   resetRuntimeCatalog(sqlite);
   const chatRuntime = await resolveEffectiveAgentRuntime({
