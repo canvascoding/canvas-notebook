@@ -167,7 +167,7 @@ export function KnowledgeGraphClient() {
       locale,
       href: { pathname: '/notebook', query: { path } },
     });
-    window.open(notebookHref, '_blank', 'noopener,noreferrer');
+    window.open(notebookHref, '_blank', 'noopener,noreferrer,popup=yes');
   }, [locale]);
   const handleNodeHover = useCallback((node: KnowledgeGraphNode | null) => {
     setHoveredNode(node);
