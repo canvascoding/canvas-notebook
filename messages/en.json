@@ -3303,10 +3303,29 @@
       }
     },
     "agentPanel": {
-      "runtimeMoved": {
-        "title": "Manage your personal runtime separately",
-        "description": "The Canvas Agent uses the app-approved catalog and your personal workspace selection. Provider and model are no longer configured in Agent Settings.",
-        "action": "Open My Agent Runtime"
+      "runtimePreference": {
+        "title": "AI model",
+        "description": "Set the provider, model, and intelligence for {agentName}.",
+        "workspaceContext": "Personal runtime in the “{workspaceName}” workspace",
+        "workspaceUnavailable": "No active workspace available",
+        "provider": "Provider",
+        "selectProvider": "Select provider",
+        "model": "Model",
+        "selectModel": "Select model",
+        "intelligence": "Intelligence",
+        "loading": "Loading…",
+        "saving": "Saving…",
+        "saved": "Saved",
+        "personal": "Personal selection",
+        "inherited": "Using default",
+        "useDefault": "Use configured default",
+        "unavailable": "No valid runtime available",
+        "openProviders": "Open AI providers",
+        "errors": {
+          "load": "The runtime selection could not be loaded.",
+          "save": "The runtime selection could not be saved.",
+          "reset": "The runtime selection could not be reset."
+        }
       },
       "selector": {
         "title": "Agent Selection",

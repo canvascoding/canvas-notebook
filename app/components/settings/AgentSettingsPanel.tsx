@@ -23,6 +23,7 @@ import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabi
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
+import { AgentRuntimePreferenceCard } from './AgentRuntimePreferenceCard';
 import type { CreateAgentInput } from './CreateAgentDialog';
 import {
   AgentHeartbeatCard,
@@ -1259,21 +1260,14 @@ export function AgentSettingsPanel({
         </Card>
       )}
 
-      {isMainAgent && (
-        <Card id="onboarding-settings-agentSettings">
-          <CardHeader>
-            <CardTitle>{t('agentPanel.runtimeMoved.title')}</CardTitle>
-            <CardDescription>{t('agentPanel.runtimeMoved.description')}</CardDescription>
-          </CardHeader>
-          <CardContent>
-            <a
-              href="?tab=my-agent-runtime"
-              className="inline-flex h-9 items-center justify-center rounded-md bg-primary px-4 text-sm font-medium text-primary-foreground shadow-sm transition-colors hover:bg-primary/90 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-            >
-              {t('agentPanel.runtimeMoved.action')}
-            </a>
-          </CardContent>
-        </Card>
+      {isMainAgent && selectedAgent && (
+        <AgentRuntimePreferenceCard
+          agentId={selectedAgent.agentId}
+          agentName={selectedAgent.name}
+          canManageRuntimeCatalog={canManageAgentDefaults}
+          isOpen={agentSectionOpenById.runtime}
+          onOpenChange={(isOpen) => setAgentSectionOpen('runtime', isOpen)}
+        />
       )}
 
       {!isMainAgent && selectedAgent && (

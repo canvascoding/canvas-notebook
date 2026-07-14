@@ -3302,10 +3302,29 @@
       }
     },
     "agentPanel": {
-      "runtimeMoved": {
-        "title": "Persönliche Runtime getrennt verwalten",
-        "description": "Der Canvas Agent verwendet den appweit freigegebenen Katalog sowie deine persönliche Workspace-Auswahl. Provider und Modell werden nicht mehr in den Agent-Einstellungen konfiguriert.",
-        "action": "Meine Agent Runtime öffnen"
+      "runtimePreference": {
+        "title": "KI-Modell",
+        "description": "Lege Provider, Modell und Intelligence für {agentName} fest.",
+        "workspaceContext": "Persönliche Runtime im Workspace „{workspaceName}“",
+        "workspaceUnavailable": "Kein aktiver Workspace verfügbar",
+        "provider": "Provider",
+        "selectProvider": "Provider auswählen",
+        "model": "Modell",
+        "selectModel": "Modell auswählen",
+        "intelligence": "Intelligence",
+        "loading": "Lädt …",
+        "saving": "Speichert …",
+        "saved": "Gespeichert",
+        "personal": "Persönliche Auswahl",
+        "inherited": "Verwendet den Standard",
+        "useDefault": "Konfigurierten Standard verwenden",
+        "unavailable": "Keine gültige Runtime verfügbar",
+        "openProviders": "KI-Provider öffnen",
+        "errors": {
+          "load": "Die Runtime-Auswahl konnte nicht geladen werden.",
+          "save": "Die Runtime-Auswahl konnte nicht gespeichert werden.",
+          "reset": "Die Runtime-Auswahl konnte nicht zurückgesetzt werden."
+        }
       },
       "selector": {
         "title": "Agent-Auswahl",
