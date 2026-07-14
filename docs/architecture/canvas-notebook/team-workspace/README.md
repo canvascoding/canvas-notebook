@@ -1,6 +1,6 @@
 # Canvas Notebook Team Workspace
 
-Stand: 2026-07-13
+Stand: 2026-07-15
 
 Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau in Canvas Notebook.
 
@@ -26,6 +26,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `17-database-provider-postgres-rag-collaboration-policy.md`: SQLite/Postgres-Entscheidung, pgvector, RAG-/Collaboration-Gates, Installer, Control Plane Provisioning, DB-Migration und DB-aware Backup.
 - `18-collaboration-and-file-conflict-policy.md`: vollstaendiger Ziel- und Ausfuehrungsplan fuer Yjs/Tiptap/CodeMirror/Hocuspocus, Postgres-Persistenz, Workspace-weite File-Tree-Presence vor dem Oeffnen, paralleles User-/Agent-Co-Authoring mit dualer Attribution, Checkpoints sowie Locks/Revisionen fuer Office/PDF/Assets.
 - `19-agent-skill-creation-install-policy.md`: dedizierter Agent-Flow fuer validierte Skill-Erstellung und Installation ohne generische `/data/users/{userId}/skills`-Writes.
+- `20-organization-agent-provisioning-and-management-tools.md`: Personal-/Organization-Agenten, Mitarbeiter-/Workspace-Zuweisung, scope-aware Skill-/Plugin-Abhaengigkeiten und vollwertige Agent-Erstellung/-Bearbeitung durch den Standardagenten ueber Progressive Disclosure.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -60,6 +61,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Revisionen, Locks, Konflikt-Guards und Yjs-Metadaten sind als Foundation umgesetzt; echte Yjs-Synchronisation, Hocuspocus, Awareness und File-Tree-Presence sind noch nicht implementiert.
 - Der vollstaendige Folgeplan fuer Live-Collaboration inklusive farbiger aktiver Nutzer im File Tree ist in Aufgabe `48` erfasst.
 - Agent Skill Creation und Install Policy fuer user-scoped lokale Skills ist dokumentiert.
+- Organization Agent Provisioning und ein eigenes Progressive-Disclosure-Agent-Management-Toolset mit vollstaendiger UI-/API-Paritaet sind dokumentiert und in den Aufgaben `49` und `50` erfasst.
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
 - Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
 - Workspace-Modell, Workspace-Service, Bootstrap-Erzeugung und `/api/workspaces` in Canvas Notebook sind eingefuehrt.

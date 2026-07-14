@@ -1,5 +1,5 @@
 {
-  "updatedAt": "2026-07-08",
+  "updatedAt": "2026-07-15",
   "source": "Canvas Notebook Team Workspace Plan",
   "tasks": [
     {
@@ -1220,6 +1220,123 @@
         "npm run lint",
         "npm run build",
         "UI-/E2E-Multi-User-Test mit Playwright oder Chrome DevTools nach expliziter Freigabe"
+      ]
+    },
+    {
+      "id": 49,
+      "title": "Organization-Skills und -Plugins mit Policy-Resolver, stabilen Capability-Referenzen und konfliktfreier Kaskade umsetzen",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [
+        5,
+        17,
+        31,
+        46
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/19-agent-skill-creation-install-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/20-organization-agent-provisioning-and-management-tools.md",
+        "docs/dokumentation/canvas-skills-plugins-architecture.md"
+      ],
+      "implementationTargets": [
+        "app/lib/runtime-data-paths.ts",
+        "app/lib/skills/*",
+        "app/lib/plugins/*",
+        "app/lib/organization/permissions.ts",
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/db/postgres.ts",
+        "app/api/skills/*",
+        "app/api/plugins/*",
+        "app/components/settings/SkillsPanel.tsx",
+        "scripts/organization-capability-resolution-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Skills und Plugins besitzen einen eindeutigen user-, organization- oder system-scoped Besitz- und Installationskontext",
+        "Organization-Skills und -Plugins werden zentral versioniert gespeichert und nicht als frei editierbare Kopie in jeden User-Scope geschrieben",
+        "Organization-Policies koennen Ressourcen fuer Organization, Rolle, Workspace, Projekt oder User optional, default-enabled, required oder blocked setzen",
+        "Core/System, Organization Standalone, Organization Plugin, Personal Standalone und Personal Plugin werden durch einen gemeinsamen Effective-Capability-Resolver aufgeloest",
+        "Blocked gewinnt immer, Required kann nicht persoenlich deaktiviert werden und Personal- oder Plugin-Ressourcen koennen Core-/Organization-Namen nicht still ueberschreiben",
+        "Namenskonflikte werden mit Quelle, Scope und Version sichtbar blockiert statt durch eine implizite Praezedenzregel versteckt",
+        "Agenten und andere Konsumenten koennen stabile scope-aware Skill-/Plugin-Referenzen statt loser Namenslisten speichern",
+        "Organization-Plugin-Pakete teilen keine privaten User-Secrets oder OAuth-Tokens; Connection Readiness wird fuer den ausfuehrenden User aufgeloest",
+        "Updates erzeugen eine neue Revision und laufende Agent-Turns behalten ihren gespeicherten Capability-Snapshot",
+        "Audit speichert Scope, Quelle, Version, Checksum, Policy und Actor ohne Paketinhalt oder Secrets"
+      ],
+      "verification": [
+        "tsx --conditions react-server scripts/organization-capability-resolution-test.ts",
+        "npm run test:skills:core",
+        "npm run test:skills:store",
+        "npm run test:plugins:runtime",
+        "npm run test:pi:tools",
+        "npm run lint",
+        "npm run build"
+      ]
+    },
+    {
+      "id": 50,
+      "title": "Personal-/Organization-Agenten provisionieren und vollwertige Agent-Erstellung/-Bearbeitung als Progressive-Disclosure-Tool bereitstellen",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [
+        5,
+        16,
+        17,
+        31,
+        49
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/04-auth-roles-model.md",
+        "docs/architecture/canvas-notebook/team-workspace/08-user-scoped-secrets-runtime.md",
+        "docs/architecture/canvas-notebook/team-workspace/10-agent-tool-execution-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/20-organization-agent-provisioning-and-management-tools.md"
+      ],
+      "implementationTargets": [
+        "app/lib/agents/management-actions.ts",
+        "app/lib/agents/access.ts",
+        "app/lib/agents/registry.ts",
+        "app/lib/agents/storage.ts",
+        "app/lib/agents/system-prompt.ts",
+        "app/lib/pi/agent-management-tools.ts",
+        "app/lib/pi/progressive-tool-gateway.ts",
+        "app/lib/pi/tool-registry.ts",
+        "app/lib/pi/toolsets.ts",
+        "app/lib/pi/planning-mode.ts",
+        "app/lib/db/schema.ts",
+        "app/lib/db/migrate.ts",
+        "app/lib/db/postgres.ts",
+        "app/api/agents/*",
+        "app/components/settings/*",
+        "app/components/agents/*",
+        "scripts/agent-management-service-test.ts",
+        "scripts/agent-management-tool-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Agenten besitzen einen eindeutigen user-, organization- oder system-scoped Owner-, Organization- und Creator-Kontext",
+        "Organization-Agenten koennen Organization, Rollen, Workspaces, Projekten und einzelnen Usern mit canUse, canEdit und canManage zugewiesen werden",
+        "Zentrale Organization-Agent-Definition und persoenliche Memory-/Preference-Daten werden getrennt gespeichert und aufgeloest",
+        "Settings UI, REST-API und Agent-Tool nutzen dieselben Management Actions, Validierungen, Permissions, Revisionen, Rollback- und Audit-Regeln",
+        "Die Tool-Registry besitzt eine eigene Gruppe Agents, ein Toolset agents, planning-safe list_agents/inspect_agent und das Progressive Gateway agent_manage fuer Mutationen",
+        "Der Standardagent kann nach explizitem Nutzerauftrag einen Agenten mit Name/Icon, Scope, Modell/Thinking, Tools, Skills, Plugins, Connections, Managed Files und initialen Grants erstellen",
+        "Agenten koennen mit kleineren Progressive-Disclosure-Operationen fuer Profil, Runtime, Capabilities, Files und Access vollstaendig bearbeitet werden",
+        "Spezial-Agenten erhalten agent_manage nicht automatisch und der Standardagent kann ueber das Tool weder geloescht noch durch eine neue Basisdefinition ersetzt werden",
+        "Organization-weite Access-Aenderungen und Loeschungen liefern eine Vorschau; Loeschung erfordert einen kurzlebigen revisionsgebundenen Bestaetigungstoken",
+        "Das Tool kann keine Workspace-, Secret-, Modell-, Skill-, Plugin- oder Agent-Permissions ueber die Rechte des ausloesenden Users hinaus erweitern",
+        "Agent-Capability-Readiness meldet verfuegbar, fehlt, blockiert oder persoenliche Verbindung erforderlich",
+        "Neue Mitarbeiter koennen ueber ein Ausstattungspaket Agent, Workspace, Skills, Plugins und Connection-Anforderungen erhalten, ohne private Secrets des Owners zu kopieren"
+      ],
+      "verification": [
+        "tsx --conditions react-server scripts/agent-management-service-test.ts",
+        "tsx --conditions react-server scripts/agent-management-tool-test.ts",
+        "npm run test:agent:access",
+        "npm run test:pi:tools",
+        "npm run test:agents:runtime",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build",
+        "UI-/E2E-Test mit Playwright oder Chrome DevTools nach expliziter Freigabe"
       ]
     }
   ]

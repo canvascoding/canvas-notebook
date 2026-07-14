@@ -1,6 +1,6 @@
 # Canvas Notebook Architecture Plan
 
-Stand: 2026-07-13
+Stand: 2026-07-15
 
 Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 
@@ -22,6 +22,7 @@ Der aktive Architekturplan fuer den Team-Workspace-Umbau liegt im Unterprojekt:
 - `team-workspace/17-database-provider-postgres-rag-collaboration-policy.md`: verbindliche Regeln fuer SQLite/Postgres-Provider, Postgres-Pflicht bei Team/Advanced/RAG, pgvector, Installer, Control Plane Provisioning, Migration und DB-aware Backup.
 - `team-workspace/18-collaboration-and-file-conflict-policy.md`: verbindlicher Vollplan fuer echte Yjs-/Hocuspocus-Collaboration bei Markdown/Text, Postgres-State und Datei-Checkpoints, farbige Workspace-Presence im File Tree vor dem Oeffnen, paralleles User-/Agent-Co-Authoring mit dualer Attribution sowie Locks/Revisionen fuer Office/PDF/Assets.
 - `team-workspace/19-agent-skill-creation-install-policy.md`: verbindliche Regeln fuer Agent-erstellte lokale Skills ueber dedizierte, validierende Install-Tools statt generischer Runtime-Dateiwrites.
+- `team-workspace/20-organization-agent-provisioning-and-management-tools.md`: verbindliche Regeln fuer Personal-/Organization-Agenten, Grants an User/Rollen/Workspaces/Projekte, scope-aware Capability-Referenzen und Agent-Erstellung/-Bearbeitung durch den Standardagenten ueber ein eigenes Progressive-Disclosure-Gateway.
 - `todo.json`: maschinenlesbarer Aufgabenindex ueber Notebook-, Control-Plane- und Cross-Repo-Aufgaben.
 
 Dieses Unterprojekt ist bewusst getrennt, weil der Umbau Fresh Install, Update-Migration, Auth, Rollen, Workspaces, Agent-Dateioperationen, Tool-Capabilities, Credentials, MCP, Plugins/Skills, Knowledge/Retrieval, Database Provider, Public Links, Automations, Webhooks, Studio, Export/Import, Audit und Backup/Restore beruehrt.
