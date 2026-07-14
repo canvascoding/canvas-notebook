@@ -98,6 +98,7 @@ async function main() {
   const { db } = await import('../app/lib/db');
   const { user: users, piSessions } = await import('../app/lib/db/schema');
   const { eq } = await import('drizzle-orm');
+  const { MAX_COMPOSED_SYSTEM_PROMPT_BYTES } = await import('../app/lib/agents/managed-file-limits');
   const {
     createPiSystemPromptSnapshot,
     ensurePiSessionSystemPromptSnapshot,
@@ -421,6 +422,36 @@ async function main() {
   const storedSnapshot = await ensurePiSessionSystemPromptSnapshot(snapshottedSession);
   assert.equal(storedSnapshot.systemPrompt, originalSnapshot.systemPrompt);
   assert.doesNotMatch(storedSnapshot.systemPrompt, /Changed after session start/);
+
+  const oversizedStoredPrompt = 'x'.repeat(MAX_COMPOSED_SYSTEM_PROMPT_BYTES + 1_024);
+  await db.insert(piSessions).values({
+    sessionId: 'oversized-snapshot-session',
+    userId: 'snapshot-user',
+    agentId: customAgent.agentId,
+    provider: 'google',
+    model: 'gemini-1.5-pro',
+    thinkingLevel: 'off',
+    title: 'Oversized Snapshot Test',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    systemPromptSnapshot: oversizedStoredPrompt,
+    systemPromptSnapshotHash: hashPiSystemPrompt(oversizedStoredPrompt),
+    systemPromptSnapshotCreatedAt: new Date(),
+  });
+  const oversizedSession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, 'oversized-snapshot-session'),
+  });
+  assert.ok(oversizedSession);
+  const boundedSnapshot = await ensurePiSessionSystemPromptSnapshot(oversizedSession);
+  assert.ok(Buffer.byteLength(boundedSnapshot.systemPrompt, 'utf8') <= MAX_COMPOSED_SYSTEM_PROMPT_BYTES);
+  assert.match(boundedSnapshot.systemPrompt, /Content truncated to keep the runtime context within its safety budget\./);
+  const persistedBoundedSession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, 'oversized-snapshot-session'),
+  });
+  assert.equal(persistedBoundedSession?.systemPromptSnapshot, boundedSnapshot.systemPrompt);
+  assert.equal(persistedBoundedSession?.systemPromptSnapshotHash, boundedSnapshot.systemPromptHash);
 
   await writeManagedAgentFile('AGENTS.md', 'Snapshot user scoped prompt.\n', customAgent.agentId, {
     userId: 'snapshot-user',

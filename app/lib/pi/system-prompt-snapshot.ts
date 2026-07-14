@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import type { AgentStorageScope } from '@/app/lib/agents/storage';
+import { truncateComposedSystemPrompt } from '@/app/lib/agents/system-prompt-shared';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
 
@@ -55,8 +56,9 @@ export async function ensurePiSessionSystemPromptSnapshot(
 ): Promise<PiSystemPromptSnapshot> {
   const existingPrompt = session.systemPromptSnapshot;
   if (existingPrompt && existingPrompt.length > 0) {
+    const boundedPrompt = truncateComposedSystemPrompt(existingPrompt);
     const snapshot = buildPiSystemPromptSnapshotFromText(
-      existingPrompt,
+      boundedPrompt,
       session.systemPromptSnapshotCreatedAt ?? new Date(),
     );
     const missingMetadata =
