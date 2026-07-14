@@ -28,6 +28,7 @@ import {
   resolveWorkspaceContextById,
 } from '@/app/lib/workspaces/service';
 import type { WorkspaceContext, WorkspacePermissions, WorkspaceType } from '@/app/lib/workspaces/types';
+import { getWorkspaceBrandPromptBlock } from '@/app/lib/agents/workspace-brand-context';
 import type { AgentExecutionContext } from './agent-execution-context';
 
 export type WorkspacePermissionRequirement = keyof WorkspacePermissions;
@@ -174,6 +175,7 @@ export function workspaceToChatRequestWorkspace(workspace: WorkspaceContext): No
     canWrite: workspace.permissions.canWrite,
     canDelete: workspace.permissions.canDelete,
     canShare: workspace.permissions.canCreatePublicLinks,
+    brandContext: workspace.brandContext,
   };
 }
 
@@ -199,6 +201,7 @@ export function workspaceToAgentExecutionContext(input: {
     canDelete: input.workspace.permissions.canDelete,
     canShare: input.workspace.permissions.canCreatePublicLinks,
     legacy: input.workspace.legacy,
+    brandContext: input.workspace.brandContext,
   };
 }
 
@@ -332,7 +335,8 @@ export async function ensurePiSessionWorkspaceSnapshot(input: {
       .where(eq(piSessions.id, session.id));
   }
 
-  return workspace;
+  const brandContext = await getWorkspaceBrandPromptBlock(workspace.workspaceId);
+  return brandContext ? { ...workspace, brandContext } : workspace;
 }
 
 export async function resolveAgentExecutionContextForSession(input: {

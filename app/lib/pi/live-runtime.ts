@@ -798,6 +798,9 @@ class LivePiRuntime {
     if (!this.workspaceContext.canShare) {
       lines.push('Public sharing is disabled for this session.');
     }
+    if (this.workspaceContext.brandContext) {
+      lines.push('', this.workspaceContext.brandContext);
+    }
 
     return lines.join('\n');
   }

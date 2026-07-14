@@ -15,6 +15,10 @@ import type {
   EmailComposeAgentResult,
   EmailComposeAgentUsedContext,
 } from '@/app/lib/email/compose-agent/types';
+import {
+  appendWorkspaceBrandPromptBlock,
+  getWorkspaceBrandPromptBlock,
+} from '@/app/lib/agents/workspace-brand-context';
 
 const AGENT_TIMEOUT_MS = 90_000;
 const MAX_TOOL_CALLS = 5;
@@ -174,6 +178,7 @@ export async function runEmailWorkspaceComposeAgent(
 
   if (requestSignal?.aborted) throw new Error('Email Workspace Agent request was aborted.');
   const runtime = await resolveScopedEmailAiRuntime({ userId, workspaceId: input.workspaceId });
+  const brandContext = await getWorkspaceBrandPromptBlock(runtime.workspace.workspaceId);
 
   const originalContext = await originalMessageContext(userId, input);
   if (requestSignal?.aborted) throw new Error('Email Workspace Agent request was aborted.');
@@ -194,7 +199,10 @@ export async function runEmailWorkspaceComposeAgent(
       initialState: {
         model: runtime.model,
         thinkingLevel: runtime.thinkingLevel,
-        systemPrompt: buildEmailComposeAgentSystemPrompt(input),
+        systemPrompt: appendWorkspaceBrandPromptBlock(
+          buildEmailComposeAgentSystemPrompt(input),
+          brandContext,
+        ),
         tools: createEmailWorkspaceTools({ userId, workspace: runtime.workspace }),
       },
       streamFn: runtime.streamFn,

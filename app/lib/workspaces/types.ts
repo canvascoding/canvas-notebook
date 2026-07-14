@@ -39,6 +39,7 @@ export interface WorkspaceContext {
   ownerUserId?: string | null;
   permissions: WorkspacePermissions;
   legacy: boolean;
+  brandContext?: string;
 }
 
 export interface WorkspacePathResolution {

@@ -20,6 +20,7 @@ export type AgentExecutionContext = {
   canDelete: boolean;
   canShare: boolean;
   legacy: boolean;
+  brandContext?: string;
 };
 
 const agentExecutionContextStorage = new AsyncLocalStorage<AgentExecutionContext>();

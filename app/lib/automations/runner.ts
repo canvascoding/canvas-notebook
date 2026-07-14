@@ -22,6 +22,10 @@ import {
 } from '@/app/lib/pi/session-store';
 import { runWithAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import {
+  appendWorkspaceBrandPromptBlock,
+  getWorkspaceBrandPromptBlock,
+} from '@/app/lib/agents/workspace-brand-context';
+import {
   workspaceToAgentExecutionContext,
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
@@ -420,7 +424,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         agentId: job.agentId,
       });
       assertAutomationExecutionActive(executionSignal);
-      const systemPrompt = promptSnapshot.systemPrompt;
+      const automationBrandContext = await getWorkspaceBrandPromptBlock(automationWorkspace.workspaceId);
+      const systemPrompt = appendWorkspaceBrandPromptBlock(
+        promptSnapshot.systemPrompt,
+        automationBrandContext,
+      );
       const promptMessage: AgentMessage = {
         role: 'user',
         content: promptText,

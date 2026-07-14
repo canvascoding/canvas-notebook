@@ -23,6 +23,7 @@ export interface ChatRequestContext {
     canWrite: boolean;
     canDelete: boolean;
     canShare: boolean;
+    brandContext?: string;
   };
   planningMode?: boolean;
   currentPage?: string;

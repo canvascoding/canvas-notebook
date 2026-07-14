@@ -13,6 +13,7 @@ import {
 } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
+import { appendWorkspaceBrandPromptBlock } from '@/app/lib/agents/workspace-brand-context';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { createPiSessionWithRuntimeSnapshot, savePiSession } from '@/app/lib/pi/session-store';
@@ -605,7 +606,11 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         const { systemPrompt: baseSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
           userId: request.userId,
         });
-        const systemPrompt = buildEphemeralSystemPrompt(baseSystemPrompt, request, tools);
+        const systemPrompt = buildEphemeralSystemPrompt(
+          appendWorkspaceBrandPromptBlock(baseSystemPrompt, childExecutionContext.brandContext),
+          request,
+          tools,
+        );
         const promptSnapshot = buildPiSystemPromptSnapshotFromText(systemPrompt);
         throwIfDelegationAborted(execution.controller.signal);
 
