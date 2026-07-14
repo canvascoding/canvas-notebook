@@ -69,7 +69,9 @@ if [[ "$8" != "0" ]]; then sleep "$8"; fi
 `;
 
 try {
+  const shellAcquirePath = path.join(tempRoot, 'shell-acquire.sh');
   await fs.mkdir(installDir, { recursive: true });
+  await fs.writeFile(shellAcquirePath, shellAcquire, { mode: 0o700 });
   assert.equal(parseOperationLockTimeout({ CANVAS_OPERATION_LOCK_TIMEOUT: '7' }), 7);
   assert.throws(() => parseOperationLockTimeout({ CANVAS_OPERATION_LOCK_TIMEOUT: '0' }), /1 to 7200/u);
   assert.equal(commandRequiresOperationLock('update', []), true);
@@ -80,7 +82,7 @@ try {
 
   const shellReady = path.join(tempRoot, 'shell-ready');
   const shellHolder = spawn('bash', [
-    '-c', shellAcquire, 'bash', outputLib, utilsLib, configLib, installDir, lockPath, '5', shellReady, '3',
+    shellAcquirePath, outputLib, utilsLib, configLib, installDir, lockPath, '5', shellReady, '3',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
   await waitFor(shellReady);
   await assert.rejects(
@@ -97,7 +99,7 @@ try {
     CANVAS_OPERATION_LOCK_TIMEOUT: '2',
   });
   const shellBlocked = spawn('bash', [
-    '-c', shellAcquire, 'bash', outputLib, utilsLib, configLib, installDir, lockPath, '1', '', '0',
+    shellAcquirePath, outputLib, utilsLib, configLib, installDir, lockPath, '1', '', '0',
   ], { stdio: ['ignore', 'ignore', 'pipe'] });
   const blockedResult = await waitForChild(shellBlocked);
   assert.notEqual(blockedResult.code, 0);
@@ -118,7 +120,9 @@ INSTALL_DIR="$4"
 canvas_operation_lock_acquire borrowed-child
 [[ "\${CANVAS_OPERATION_LOCK_BORROWED:-false}" == "true" ]]
 `;
-  const borrowedChild = spawn('bash', ['-c', borrowScript, 'bash', outputLib, utilsLib, configLib, installDir], {
+  const borrowScriptPath = path.join(tempRoot, 'borrow.sh');
+  await fs.writeFile(borrowScriptPath, borrowScript, { mode: 0o700 });
+  const borrowedChild = spawn('bash', [borrowScriptPath, outputLib, utilsLib, configLib, installDir], {
     env: {
       ...process.env,
       CANVAS_OPERATION_LOCK_ACQUIRED: 'true',
@@ -130,7 +134,7 @@ canvas_operation_lock_acquire borrowed-child
   });
   assert.equal((await waitForChild(borrowedChild)).code, 0);
   assert.equal(await fs.access(lockPath).then(() => true, () => false), true);
-  const rejectedBorrow = spawn('bash', ['-c', borrowScript, 'bash', outputLib, utilsLib, configLib, installDir], {
+  const rejectedBorrow = spawn('bash', [borrowScriptPath, outputLib, utilsLib, configLib, installDir], {
     env: {
       ...process.env,
       CANVAS_OPERATION_LOCK_ACQUIRED: 'true',
@@ -146,7 +150,7 @@ canvas_operation_lock_acquire borrowed-child
 
   const killedReady = path.join(tempRoot, 'killed-ready');
   const killedHolder = spawn('bash', [
-    '-c', shellAcquire, 'bash', outputLib, utilsLib, configLib, installDir, lockPath, '5', killedReady, '30',
+    shellAcquirePath, outputLib, utilsLib, configLib, installDir, lockPath, '5', killedReady, '30',
   ], { stdio: 'ignore' });
   await waitFor(killedReady);
   killedHolder.kill('SIGKILL');

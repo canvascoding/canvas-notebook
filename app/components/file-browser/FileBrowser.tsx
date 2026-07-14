@@ -350,6 +350,12 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     }
   }, [currentFile?.path, isRefreshing, refreshCurrentFileContent, refreshVisibleTree]);
 
+  const handleZipExtracted = useCallback(async (targetDir: string, fileCount: number) => {
+    await refreshDirectory(targetDir, true);
+    invalidateFileReferenceValidationCache();
+    toast.success(t('zipExtracted', { count: fileCount }));
+  }, [refreshDirectory, t]);
+
   const toolbarHandlers: FileToolbarHandlers = {
     onToggleMultiSelect: toggleMultiSelectMode,
     onNewFile: handleNewFile,
@@ -486,6 +492,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
           fileTree={fileTree}
           currentDirectory={currentDirectory}
           onClose={() => setActiveFilePath(null)}
+          onZipExtracted={handleZipExtracted}
         />
       )}
     </section>

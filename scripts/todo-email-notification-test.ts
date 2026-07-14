@@ -158,7 +158,7 @@ async function main() {
   assert.doesNotMatch(sentMessages[0].body, /fuer|Prioritaet|Faellig|oeffnen/);
   assert.match(sentMessages[0].body, /&lt;script&gt;alert\(1\)&lt;\/script&gt;/);
   assert.match(sentMessages[0].body, /Check &lt;b&gt;the draft&lt;\/b&gt;<br>Then approve\./);
-  assert.doesNotMatch(sentMessages[0].body, /<script>/);
+  assert.doesNotMatch(sentMessages[0].body, /<script\b/iu);
   assert.match(sentMessages[0].headers?.['X-Canvas-Reply-Token'] || '', /^CTD-[A-F0-9]{8}$/);
   assert.equal(sentMessages[0].headers?.['X-Canvas-Todo-Id'], agentTodo.id);
 

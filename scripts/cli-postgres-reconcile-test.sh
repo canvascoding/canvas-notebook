@@ -150,7 +150,7 @@ if ! "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$
   cat "$TMP_DIR/reconcile-success.json" "$TMP_DIR/reconcile-success.err" >&2
   exit 1
 fi
-jq -e '.success == true and .databaseProvider == "postgres" and .postgresStarted == true and .rolePasswordSynchronized == true and .passwordVerified == true and .envRendered == true and .healthy == true' "$TMP_DIR/reconcile-success.json" >/dev/null
+jq -e '.success == true and .databaseProvider == "postgres" and .postgresStarted == true and .roleAuthSynchronized == true and .authVerified == true and .envRendered == true and .healthy == true' "$TMP_DIR/reconcile-success.json" >/dev/null
 grep -q '^CANVAS_POSTGRES_PASSWORD=desired-password-456$' "$CANVAS_COMPOSE_ENV"
 grep -q '^DATABASE_URL=postgresql://canvas:desired-password-456@postgres:5432/canvas_notebook$' "$CANVAS_CONFIG_ENV"
 grep -q -- '--profile postgres up -d --no-recreate postgres' "$CANVAS_TEST_DOCKER_LOG"
@@ -166,7 +166,7 @@ fi
 
 : > "$CANVAS_TEST_DOCKER_LOG"
 "$cli" database reconcile-postgres-auth --timeout=5 --json --no-banner > "$TMP_DIR/reconcile-idempotent.json"
-jq -e '.success == true and .passwordVerified == true and .healthy == true' "$TMP_DIR/reconcile-idempotent.json" >/dev/null
+jq -e '.success == true and .authVerified == true and .healthy == true' "$TMP_DIR/reconcile-idempotent.json" >/dev/null
 if grep -Eq -- '--force-recreate| compose .* (down|rm) |volume (rm|prune)' "$CANVAS_TEST_DOCKER_LOG"; then
   echo "idempotent reconcile used a destructive Docker operation" >&2
   exit 1
@@ -176,7 +176,7 @@ fi
 "$cli" config-set env.CANVAS_POSTGRES_REQUIRED true --no-banner > /dev/null
 : > "$CANVAS_TEST_DOCKER_LOG"
 "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-required.json"
-jq -e '.success == true and .databaseProvider == "sqlite" and .passwordVerified == true' "$TMP_DIR/reconcile-required.json" >/dev/null
+jq -e '.success == true and .databaseProvider == "sqlite" and .authVerified == true' "$TMP_DIR/reconcile-required.json" >/dev/null
 grep -q -- '--profile postgres up -d --no-recreate postgres' "$CANVAS_TEST_DOCKER_LOG"
 
 "$cli" config-set env.CANVAS_POSTGRES_REQUIRED false --no-banner > /dev/null
@@ -194,7 +194,7 @@ jq 'del(.env.CANVAS_DATABASE_PROVIDER)' "$CANVAS_CONFIG_JSON" > "$TMP_DIR/config
 cp "$TMP_DIR/config-legacy-url-only.json" "$CANVAS_CONFIG_JSON"
 : > "$CANVAS_TEST_DOCKER_LOG"
 "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-legacy-url-only.json"
-jq -e '.success == true and .databaseProvider == "postgres" and .passwordVerified == true' "$TMP_DIR/reconcile-legacy-url-only.json" >/dev/null
+jq -e '.success == true and .databaseProvider == "postgres" and .authVerified == true' "$TMP_DIR/reconcile-legacy-url-only.json" >/dev/null
 jq -e '.env.CANVAS_DATABASE_PROVIDER == "postgres"' "$CANVAS_CONFIG_JSON" >/dev/null
 grep -q -- '--profile postgres up -d --no-recreate postgres' "$CANVAS_TEST_DOCKER_LOG"
 
@@ -298,7 +298,7 @@ printf '%s' "$health_password" | "$cli" config-set env.CANVAS_POSTGRES_PASSWORD 
 printf '%s' "$health_url" | "$cli" config-set env.DATABASE_URL --stdin --no-banner > /dev/null
 : > "$CANVAS_TEST_DOCKER_LOG"
 "$cli" database reconcile-postgres-auth --timeout 5 --json --no-banner > "$TMP_DIR/reconcile-retry.json"
-jq -e '.success == true and .passwordVerified == true and .healthy == true' "$TMP_DIR/reconcile-retry.json" >/dev/null
+jq -e '.success == true and .authVerified == true and .healthy == true' "$TMP_DIR/reconcile-retry.json" >/dev/null
 grep -q '^CANVAS_POSTGRES_PASSWORD=health-retry-password$' "$CANVAS_COMPOSE_ENV"
 
 rollback_crash_password='rollback-crash-password'

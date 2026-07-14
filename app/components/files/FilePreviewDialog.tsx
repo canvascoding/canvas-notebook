@@ -1,14 +1,16 @@
 'use client';
 
-import { useEffect, useMemo, useCallback } from 'react';
+import { useEffect, useMemo, useCallback, useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { Download, X } from 'lucide-react';
+import { Archive, Download, Loader2, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
 import { FileEditor } from '@/app/components/editor/FileEditor';
 import { useFileStore } from '@/app/store/file-store';
 import type { FileNode } from '@/app/lib/files/types';
 import { isExcalidrawFilePath } from '@/app/lib/excalidraw-file';
+import { extractWorkspaceZip } from '@/app/lib/files/client';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico']);
 
@@ -49,19 +51,28 @@ interface FilePreviewDialogProps {
   fileTree: FileNode[];
   currentDirectory: string;
   onClose: () => void;
+  onZipExtracted?: (targetDir: string, fileCount: number) => Promise<void>;
 }
 
-export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }: FilePreviewDialogProps) {
+export function FilePreviewDialog({
+  path,
+  fileTree,
+  currentDirectory,
+  onClose,
+  onZipExtracted,
+}: FilePreviewDialogProps) {
   const t = useTranslations('notebook');
   const { currentFile, isLoadingFile, loadingFilePath, loadFile, downloadFile, clearCurrentFile } = useFileStore();
+  const [isExtracting, setIsExtracting] = useState(false);
+  const isZipArchive = path ? getExtension(path) === 'zip' : false;
 
   useEffect(() => {
-    if (!path) return;
+    if (!path || isZipArchive) return;
     const state = useFileStore.getState();
     if (state.currentFile?.path === path || (state.isLoadingFile && state.loadingFilePath === path)) return;
     void loadFile(path, true);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- only react to path changes
-  }, [path]);
+  }, [path, isZipArchive]);
 
   const imagePaths = useMemo(
     () => flattenDirectoryImages(fileTree, currentDirectory),
@@ -76,6 +87,21 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
     clearCurrentFile();
     onClose();
   }, [clearCurrentFile, onClose]);
+
+  const handleExtractZip = useCallback(async () => {
+    if (!path || isExtracting) return;
+
+    setIsExtracting(true);
+    try {
+      const result = await extractWorkspaceZip(path, currentDirectory);
+      await onZipExtracted?.(result.targetDir, result.files.length);
+      handleClose();
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('zipExtractFailed'));
+    } finally {
+      setIsExtracting(false);
+    }
+  }, [currentDirectory, handleClose, isExtracting, onZipExtracted, path, t]);
 
   useEffect(() => {
     if (!path) return;
@@ -130,7 +156,28 @@ export function FilePreviewDialog({ path, fileTree, currentDirectory, onClose }:
         </div>
 
         <div className="relative min-h-0 flex-1 overflow-hidden">
-          <FileEditor />
+          {isZipArchive ? (
+            <div className="flex h-full flex-col items-center justify-center px-6 text-center">
+              <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-2xl border border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300">
+                <Archive className="h-8 w-8" aria-hidden="true" />
+              </div>
+              <h2 className="text-lg font-semibold">{t('zipPreviewTitle')}</h2>
+              <p className="mt-2 max-w-md text-sm leading-6 text-muted-foreground">
+                {t('zipPreviewDescription', { directory: currentDirectory === '.' ? t('workspaceRoot') : currentDirectory })}
+              </p>
+              <div className="mt-6 flex flex-wrap justify-center gap-2">
+                <Button variant="outline" onClick={handleClose} disabled={isExtracting}>
+                  {t('cancel')}
+                </Button>
+                <Button onClick={() => void handleExtractZip()} disabled={isExtracting}>
+                  {isExtracting ? <Loader2 className="h-4 w-4 animate-spin" /> : <Archive className="h-4 w-4" />}
+                  {t('zipExtractHere')}
+                </Button>
+              </div>
+            </div>
+          ) : (
+            <FileEditor />
+          )}
         </div>
       </DialogContent>
     </Dialog>

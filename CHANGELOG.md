@@ -11,6 +11,52 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.13.11] - 2026-07-13
+
+### Added
+
+- Added editable agent profiles and workspace icons with workspace creation and editing flows.
+- Added safe ZIP extraction for workspace files, including path validation and focused extraction tests.
+
+### Changed
+
+- Expanded workspace access management, workspace switching, file previews, and agent selection flows.
+- Improved workspace persistence and database-provider handling across SQLite and Postgres, with updated English and German translations.
+
+### Fixed
+
+- Fixed workspace API validation, workspace member handling, file operation behavior, and related UI state synchronization.
+
+### Verification
+
+- `npm run build`
+
+## [2026.7.13.10] - 2026-07-13
+
+### Added
+
+- Added desktop marquee and same-level range selection to the file explorer.
+- Added clearer workspace names in the switcher and expanded access management for available users.
+
+### Changed
+
+- Simplified personal runtime onboarding and completed the VM migration settings split.
+- Improved narrow-screen chat and settings layouts, file-upload refresh behavior, bulk file moves, and empty-workspace interactions.
+
+### Fixed
+
+- Preserved file revision lineage across rename, copy, delete, and trash-restore flows.
+- Fixed nested agent icon-picker dialogs, personal onboarding tour behavior, and a Turbopack file trace warning.
+- Restored workspace member type declarations, organization validation, and workspace update handling so production builds type-check cleanly.
+
+### Security
+
+- Hardened CLI security handling, OAuth and Studio import path scoping, and outbound external requests.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.13.9] - 2026-07-13
 
 ### Added

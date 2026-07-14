@@ -32,17 +32,21 @@ export function useChatAgentConfig({
   const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId);
   const preferredAgentLoadedRef = useRef(false);
 
+  const refreshAgents = useCallback(async () => {
+    setAvailableAgents(await fetchChatAgents());
+  }, []);
+
   useEffect(() => {
     const fetchAgents = async () => {
       try {
-        setAvailableAgents(await fetchChatAgents());
+        await refreshAgents();
       } catch (err) {
         console.error('Failed to fetch agents', err);
       }
     };
 
     void fetchAgents();
-  }, []);
+  }, [refreshAgents]);
 
   useEffect(() => {
     if (sessionId || preferredAgentLoadedRef.current) {
@@ -91,6 +95,7 @@ export function useChatAgentConfig({
     activeThinkingLevel,
     availableAgents,
     selectedAgentId,
+    refreshAgents,
     setActiveModel,
     setActiveProvider,
     setActiveThinkingLevel,

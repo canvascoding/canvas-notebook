@@ -64,6 +64,12 @@ export interface CopyWorkspacePathsResult {
   targetWorkspaceId?: string;
 }
 
+export interface ExtractWorkspaceZipResult {
+  targetDir: string;
+  files: string[];
+  directories: string[];
+}
+
 export interface WorkspacePathConflictError extends Error {
   code?: string;
   type?: string;
@@ -445,6 +451,39 @@ export async function copyWorkspacePaths(params: {
   }
 
   return readApiJson<CopyWorkspacePathsResult>(response, fallbackMessage);
+}
+
+export async function extractWorkspaceZip(
+  path: string,
+  targetDir: string,
+): Promise<ExtractWorkspaceZipResult> {
+  const response = await fetch('/api/files/extract', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
+    credentials: 'include',
+    body: JSON.stringify({ path, targetDir }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await readApiError(response, 'Failed to extract ZIP archive'));
+  }
+
+  const payload = await readApiJson<{
+    success?: boolean;
+    targetDir?: string;
+    files?: string[];
+    directories?: string[];
+    error?: string;
+  }>(response, 'Failed to extract ZIP archive');
+  if (!payload.success || !payload.targetDir || !Array.isArray(payload.files) || !Array.isArray(payload.directories)) {
+    throw new Error(payload.error || 'Failed to extract ZIP archive');
+  }
+
+  return {
+    targetDir: payload.targetDir,
+    files: payload.files,
+    directories: payload.directories,
+  };
 }
 
 export async function uploadWorkspaceFiles({

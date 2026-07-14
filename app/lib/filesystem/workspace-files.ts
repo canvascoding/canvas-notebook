@@ -177,6 +177,22 @@ export async function writeFile(
   await fs.writeFile(fullPath, buffer);
 }
 
+/**
+ * Creates a new workspace file without ever replacing an existing path.
+ *
+ * This is used for multi-file imports where a concurrent write must not turn
+ * a preflight collision check into an accidental overwrite.
+ */
+export async function writeFileIfAbsent(
+  filePath: string,
+  content: Buffer | string,
+  options?: WorkspaceFileOperationOptions
+): Promise<void> {
+  const fullPath = await resolveWritableWorkspacePath(filePath, options);
+  const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
+  await fs.writeFile(fullPath, buffer, { flag: 'wx' });
+}
+
 export async function writeDataFile(filePath: string, content: Buffer | string): Promise<void> {
   const fullPath = path.resolve(/*turbopackIgnore: true*/ getDataDir(), filePath);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);

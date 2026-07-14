@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, Loader2, Lock, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react';
+import { ArrowLeftRight, Loader2, Lock, Pencil, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -24,6 +24,7 @@ import {
   TooltipTrigger,
 } from '@/components/ui/tooltip';
 import { CreateWorkspaceDialog } from '@/app/components/settings/CreateWorkspaceDialog';
+import { EditWorkspaceDialog } from '@/app/components/settings/EditWorkspaceDialog';
 import { WorkspaceMembersDialog } from '@/app/components/settings/WorkspaceMembersDialog';
 import { WorkspaceTypeChangeDialog } from '@/app/components/settings/WorkspaceTypeChangeDialog';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
@@ -68,6 +69,7 @@ export function WorkspaceManagementCard({
   const cardRef = useRef<HTMLDivElement | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDeeplinkDismissed, setCreateDeeplinkDismissed] = useState(false);
+  const [editTarget, setEditTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [membersTarget, setMembersTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [typeChangeTarget, setTypeChangeTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClientWorkspaceSummary | null>(null);
@@ -116,6 +118,10 @@ export function WorkspaceManagementCard({
   }, [refreshWorkspaces]);
 
   const handleTypeChanged = useCallback(async () => {
+    await refreshWorkspaces();
+  }, [refreshWorkspaces]);
+
+  const handleWorkspaceUpdated = useCallback(async () => {
     await refreshWorkspaces();
   }, [refreshWorkspaces]);
 
@@ -255,6 +261,18 @@ export function WorkspaceManagementCard({
                       </div>
 
                       <div className="flex items-center justify-end gap-1">
+                        {workspace.permissions.canManageWorkspace ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setEditTarget(workspace)}
+                          >
+                            <Pencil data-icon="inline-start" />
+                            {t('editWorkspace')}
+                          </Button>
+                        ) : null}
                         {(workspace.type === 'team' || workspace.type === 'project') && workspace.permissions.canManageWorkspace ? (
                           <Button
                             type="button"
@@ -306,6 +324,15 @@ export function WorkspaceManagementCard({
         teamFeaturesEnabled={effectiveTeamFeaturesEnabled}
         projectFeaturesEnabled={projectFeaturesEnabled}
         onCreated={handleCreated}
+      />
+
+      <EditWorkspaceDialog
+        open={Boolean(editTarget)}
+        onOpenChange={(open) => {
+          if (!open) setEditTarget(null);
+        }}
+        workspace={editTarget}
+        onChanged={handleWorkspaceUpdated}
       />
 
       <WorkspaceMembersDialog

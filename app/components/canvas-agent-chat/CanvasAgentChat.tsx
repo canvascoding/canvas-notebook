@@ -221,6 +221,7 @@ export default function CanvasAgentChat({
     activeProvider,
     activeThinkingLevel,
     availableAgents,
+    refreshAgents,
     selectedAgentId,
     setActiveModel,
     setActiveProvider,
@@ -1105,6 +1106,7 @@ export default function CanvasAgentChat({
           closeReferencePicker();
           selectChatAgent(agentId);
         }}
+        onReloadAgents={refreshAgents}
         onSetShowHistory={setShowHistory}
         onStartNewChat={() => startNewChat()}
         runtimeStatus={runtimeStatus}

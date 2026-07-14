@@ -17,10 +17,12 @@ import {
   changePostgresWorkspaceTypeForActor,
   deletePostgresWorkspaceForActor,
   getPostgresWorkspaceState,
+  updatePostgresWorkspaceForActor,
 } from '@/app/lib/workspaces/postgres-runtime';
 import {
   changeWorkspaceType,
   deleteWorkspaceRecord,
+  updateWorkspaceRecord,
   WorkspaceOperationError,
 } from '@/app/lib/workspaces/service';
 
@@ -147,10 +149,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         const licenseResponse = await requireTeamRuntimeIfEnabled(state.status);
         if (licenseResponse) return licenseResponse;
 
-        const workspace = await changePostgresWorkspaceTypeForActor(actor, workspaceId, {
-          type: payload.type,
-          projectId: payload.projectId,
-        });
+        const workspace = Object.hasOwn(payload, 'type')
+          ? await changePostgresWorkspaceTypeForActor(actor, workspaceId, {
+              type: payload.type,
+              projectId: payload.projectId,
+            })
+          : await updatePostgresWorkspaceForActor(actor, workspaceId, {
+              name: payload.name,
+              icon: payload.icon,
+            });
         return NextResponse.json({ success: true, workspace });
       } catch (error) {
         if (error instanceof WorkspaceOperationError) {
@@ -170,13 +177,20 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         return licenseResponse;
       }
 
-      const workspace = changeWorkspaceType(sqlite, {
-        actor,
-        workspaceId,
-        type: payload.type,
-        projectId: payload.projectId,
-        teamFeaturesEnabled: status.teamFeaturesEnabled,
-      });
+      const workspace = Object.hasOwn(payload, 'type')
+        ? changeWorkspaceType(sqlite, {
+            actor,
+            workspaceId,
+            type: payload.type,
+            projectId: payload.projectId,
+            teamFeaturesEnabled: status.teamFeaturesEnabled,
+          })
+        : updateWorkspaceRecord(sqlite, {
+            actor,
+            workspaceId,
+            name: payload.name,
+            icon: payload.icon,
+          });
       sqlite.exec('COMMIT');
       return NextResponse.json({ success: true, workspace });
     } catch (error) {

@@ -835,8 +835,8 @@ async function reconcilePostgresAuth(
       success: true,
       databaseProvider: String(config.env.CANVAS_DATABASE_PROVIDER || 'sqlite'),
       postgresStarted: true,
-      rolePasswordSynchronized: true,
-      passwordVerified: true,
+      roleAuthSynchronized: true,
+      authVerified: true,
       envRendered: true,
       appRestarted: !beforeRunning || beforeContainer !== afterContainer,
       healthy: true,
@@ -1275,8 +1275,8 @@ async function main(): Promise<void> {
 }
 
 if (require.main === module) {
-  main().catch((error) => {
-    console.error(error instanceof Error ? error.message : String(error));
+  main().catch(() => {
+    console.error('Canvas Notebook command failed. Check the command arguments and the manager log for details.');
     process.exitCode = 1;
   });
 }

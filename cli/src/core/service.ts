@@ -53,7 +53,24 @@ ${argXml}
 }
 
 function windowsQuote(value: string): string {
-  return `"${value.replace(/"/g, '\\"')}"`;
+  let quoted = '"';
+  let backslashCount = 0;
+
+  for (const character of value) {
+    if (character === '\\') {
+      backslashCount += 1;
+      continue;
+    }
+    if (character === '"') {
+      quoted += '\\'.repeat(backslashCount * 2 + 1) + '"';
+      backslashCount = 0;
+      continue;
+    }
+    quoted += '\\'.repeat(backslashCount) + character;
+    backslashCount = 0;
+  }
+
+  return quoted + '\\'.repeat(backslashCount * 2) + '"';
 }
 
 export function windowsTaskCommand(cliPath: string): string {

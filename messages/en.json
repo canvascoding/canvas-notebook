@@ -515,6 +515,11 @@
     "rename": "Rename",
     "move": "Move",
     "download": "Download",
+    "zipPreviewTitle": "Extract ZIP archive?",
+    "zipPreviewDescription": "The files inside will be extracted to \"{directory}\". Existing files will not be overwritten.",
+    "zipExtractHere": "Extract here",
+    "zipExtracted": "{count, plural, one {# file was extracted.} other {# files were extracted.}}",
+    "zipExtractFailed": "The ZIP archive could not be extracted.",
     "share": "Share",
     "shareImage": "Share image",
     "openInStudio": "Open as reference in Studio",
@@ -931,6 +936,20 @@
     "agentLabel": "Agent",
     "agentSelectTitle": "Select agent",
     "createAgent": "Create new agent",
+    "editAgent": "Edit {name}",
+    "agentCreateFailed": "Failed to create agent.",
+    "agentEdit": {
+      "title": "Edit agent",
+      "description": "Update the name and icon for {name}.",
+      "descriptionFallback": "Update the agent name and icon.",
+      "iconHint": "Choose an icon that makes this agent easy to recognize in chat.",
+      "save": "Save changes",
+      "errors": {
+        "nameRequired": "Name is required.",
+        "nameTooLong": "Name must be 80 characters or fewer.",
+        "saveFailed": "Failed to update agent."
+      }
+    },
     "modelLabel": "Model",
     "newChatTitle": "New chat",
     "newChatShort": "New",
@@ -2596,6 +2615,7 @@
         "description": "Create and delete workspaces and review access status.",
         "refresh": "Refresh",
         "createWorkspace": "Create new workspace",
+        "editWorkspace": "Edit",
         "loading": "Loading workspaces...",
         "empty": "No workspaces available.",
         "deleteWorkspace": "Delete {name}",
@@ -2611,6 +2631,7 @@
         "fields": {
           "name": "Name",
           "namePlaceholder": "e.g. Campaign workspace",
+          "icon": "Icon",
           "type": "Type",
           "project": "Project",
           "projectPlaceholder": "Select project"
@@ -2618,6 +2639,26 @@
         "hints": {
           "teamProjectAccess": "Access can be managed after creation.",
           "personalOnly": "Personal workspaces are only accessible to you."
+        },
+        "iconPicker": {
+          "hint": "Choose an icon that makes this workspace easy to recognize everywhere.",
+          "icons": {
+            "notebook-pen": "Canvas Notebook",
+            "code-2": "Development",
+            "briefcase-business": "IT agency",
+            "megaphone": "Marketing agency",
+            "palette": "Design and brand",
+            "rocket": "Product and startup",
+            "chart-no-axes-combined": "Analytics and reporting",
+            "graduation-cap": "Learning and research",
+            "heart-handshake": "Consulting and customer success",
+            "folder-kanban": "Client project",
+            "workflow": "Operations and processes",
+            "landmark": "Organization",
+            "users-round": "Team",
+            "user-round": "Personal",
+            "building-2": "Company"
+          }
         },
         "badges": {
           "default": "Default"
@@ -2681,6 +2722,13 @@
           "description": "Create another personal workspace or a team workspace.",
           "cancel": "Cancel"
         },
+        "editDialog": {
+          "title": "Edit workspace",
+          "description": "Update the name and icon for {name}.",
+          "descriptionFallback": "Update the workspace name and icon.",
+          "cancel": "Cancel",
+          "save": "Save changes"
+        },
         "typeChange": {
           "action": "Change type",
           "title": "Change workspace type",
@@ -2709,6 +2757,7 @@
           "nameTooLong": "Name must be 80 characters or fewer.",
           "projectRequired": "Project is required.",
           "createFailed": "Failed to create workspace.",
+          "updateFailed": "Failed to update workspace.",
           "deleteFailed": "Failed to delete workspace.",
           "isDefault": "Default workspaces cannot be deleted.",
           "organizationNotDeletable": "Organization workspace cannot be deleted.",

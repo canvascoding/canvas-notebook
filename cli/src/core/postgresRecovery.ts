@@ -23,6 +23,9 @@ export interface PostgresRecoverySnapshot {
   composeEnv: string;
 }
 
+const CREDENTIAL_FINGERPRINT_DOMAIN = 'canvas-notebook/postgres-recovery/v1';
+const SCRYPT_OPTIONS = { N: 16_384, r: 8, p: 1, maxmem: 64 * 1024 * 1024 } as const;
+
 function recoveryJournalPath(config: CanvasCliConfig, env: NodeJS.ProcessEnv): string {
   return path.resolve(env.CANVAS_POSTGRES_RECONCILE_JOURNAL || path.join(config.paths.installDir, '.postgres-auth-reconcile.json'));
 }
@@ -74,12 +77,12 @@ export function postgresCredentialFingerprint(config: CanvasCliConfig): string {
     String(config.env.CANVAS_POSTGRES_PASSWORD || ''),
     String(config.env.DATABASE_URL || ''),
   ];
-  const hash = crypto.createHash('sha256');
-  for (const value of values) {
-    hash.update(value, 'utf8');
-    hash.update('\0');
-  }
-  return hash.digest('hex');
+  return crypto.scryptSync(
+    values.join('\0'),
+    CREDENTIAL_FINGERPRINT_DOMAIN + '\0' + config.paths.installDir,
+    32,
+    SCRYPT_OPTIONS,
+  ).toString('hex');
 }
 
 function parseJournal(raw: string): PostgresRecoveryJournal {

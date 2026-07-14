@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Check, ChevronsUpDown, Loader2, Lock, Plus, RefreshCw, Star } from 'lucide-react';
+import { Check, ChevronsUpDown, Loader2, Lock, Pencil, Plus, RefreshCw, Star } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Badge } from '@/components/ui/badge';
@@ -25,7 +25,8 @@ import {
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
 import { cn } from '@/lib/utils';
-import { Link } from '@/i18n/navigation';
+import { CreateWorkspaceDialog } from '@/app/components/settings/CreateWorkspaceDialog';
+import { EditWorkspaceDialog } from '@/app/components/settings/EditWorkspaceDialog';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import {
   getWorkspaceKindLabel,
@@ -67,6 +68,10 @@ export function hasWorkspaceSwitcherOptions(workspaces: ClientWorkspaceSummary[]
   return switchableWorkspaces.length > 1;
 }
 
+export function hasWorkspaceManagementControls(workspaces: ClientWorkspaceSummary[]) {
+  return workspaces.some((workspace) => workspace.status === 'active' && workspace.permissions.canManageWorkspace);
+}
+
 export function useShouldShowWorkspaceSwitcher() {
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const teamModeUnavailable = useWorkspaceStore((state) => state.teamModeUnavailable);
@@ -76,18 +81,25 @@ export function useShouldShowWorkspaceSwitcher() {
     void hydrateWorkspaces();
   }, [hydrateWorkspaces]);
 
-  return Boolean(teamModeUnavailable) || hasWorkspaceSwitcherOptions(workspaces);
+  return Boolean(teamModeUnavailable)
+    || hasWorkspaceSwitcherOptions(workspaces)
+    || hasWorkspaceManagementControls(workspaces);
 }
 
 export function WorkspaceSwitcher({ source, variant = 'default', className }: WorkspaceSwitcherProps) {
   const t = useTranslations('workspaces');
   const [mobileSheetOpen, setMobileSheetOpen] = useState(false);
+  const [desktopMenuOpen, setDesktopMenuOpen] = useState(false);
+  const [createDialogOpen, setCreateDialogOpen] = useState(false);
+  const [editTarget, setEditTarget] = useState<ClientWorkspaceSummary | null>(null);
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
   const isLoading = useWorkspaceStore((state) => state.isLoading);
   const initialized = useWorkspaceStore((state) => state.initialized);
   const error = useWorkspaceStore((state) => state.error);
   const teamModeUnavailable = useWorkspaceStore((state) => state.teamModeUnavailable);
+  const teamFeaturesEnabled = useWorkspaceStore((state) => state.teamFeaturesEnabled);
+  const projectFeaturesEnabled = useWorkspaceStore((state) => state.projectFeaturesEnabled);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const refreshWorkspaces = useWorkspaceStore((state) => state.refreshWorkspaces);
   const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
@@ -108,7 +120,10 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const isToolbar = variant === 'toolbar';
   const isMobileSheet = variant === 'mobile-sheet';
   const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
-  const canManageWorkspaces = switchableWorkspaces.some((workspace) => workspace.permissions.canManageWorkspace);
+  const canManageWorkspaces = hasWorkspaceManagementControls(workspaces);
+  const canCreateTeamWorkspace = workspaces.some(
+    (workspace) => workspace.type === 'organization' && workspace.permissions.canManageWorkspace,
+  );
   const kindLabels = {
     personal: t('types.personal'),
     organization: t('types.organization'),
@@ -124,7 +139,32 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const canSwitch = hasWorkspaceSwitcherOptions(workspaces);
   const showTeamModeNotice = Boolean(teamModeUnavailable);
 
-  if (!canSwitch && !showTeamModeNotice) {
+  const handleWorkspaceChanged = useCallback(async () => {
+    await refreshWorkspaces();
+  }, [refreshWorkspaces]);
+
+  const workspaceDialogs = (
+    <>
+      <CreateWorkspaceDialog
+        open={createDialogOpen}
+        onOpenChange={setCreateDialogOpen}
+        canCreateTeamWorkspace={canCreateTeamWorkspace}
+        teamFeaturesEnabled={teamFeaturesEnabled}
+        projectFeaturesEnabled={projectFeaturesEnabled}
+        onCreated={handleWorkspaceChanged}
+      />
+      <EditWorkspaceDialog
+        open={Boolean(editTarget)}
+        onOpenChange={(open) => {
+          if (!open) setEditTarget(null);
+        }}
+        workspace={editTarget}
+        onChanged={handleWorkspaceChanged}
+      />
+    </>
+  );
+
+  if (!canSwitch && !canManageWorkspaces && !showTeamModeNotice) {
     return null;
   }
 
@@ -132,6 +172,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
     const buttonTitle = activeWorkspace ? `${activeWorkspace.name} · ${getAccessLabel(activeWorkspace, accessLabels)}` : activeLabel;
 
     return (
+      <>
       <Sheet open={mobileSheetOpen} onOpenChange={setMobileSheetOpen}>
         <SheetTrigger asChild>
           <Button
@@ -172,14 +213,18 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
                 </SheetDescription>
               </div>
               {canManageWorkspaces ? (
-                <Link
-                  href="/settings?tab=workspace&workspaceManagement=1&createWorkspace=1"
+                <button
+                  type="button"
+                  onClick={() => {
+                    setMobileSheetOpen(false);
+                    setCreateDialogOpen(true);
+                  }}
                   className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   title={t('create')}
                   aria-label={t('create')}
                 >
                   <Plus className="h-4 w-4" />
-                </Link>
+                </button>
               ) : null}
             </div>
           </SheetHeader>
@@ -240,22 +285,41 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
                 </button>
               );
 
-              return disabled ? (
-                <div key={workspace.id}>{item}</div>
-              ) : (
-                <SheetClose key={workspace.id} asChild>
-                  {item}
-                </SheetClose>
+              return (
+                <div key={workspace.id} className="group flex min-w-0 items-center gap-1">
+                  <div className="min-w-0 flex-1">
+                    {disabled ? item : (
+                      <SheetClose asChild>{item}</SheetClose>
+                    )}
+                  </div>
+                  {workspace.permissions.canManageWorkspace ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMobileSheetOpen(false);
+                        setEditTarget(workspace);
+                      }}
+                      className="mr-1 inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                      title={t('edit')}
+                      aria-label={t('edit')}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </button>
+                  ) : null}
+                </div>
               );
             })}
           </div>
         </SheetContent>
       </Sheet>
+      {workspaceDialogs}
+      </>
     );
   }
 
   return (
-    <DropdownMenu modal={false}>
+    <>
+    <DropdownMenu modal={false} open={desktopMenuOpen} onOpenChange={setDesktopMenuOpen}>
       <DropdownMenuTrigger asChild>
         <Button
           type="button"
@@ -290,14 +354,18 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           <span>{t('label')}</span>
           <span className="flex items-center gap-1">
             {canManageWorkspaces ? (
-              <Link
-                href="/settings?tab=workspace&workspaceManagement=1&createWorkspace=1"
+              <button
+                type="button"
+                onClick={() => {
+                  setDesktopMenuOpen(false);
+                  setCreateDialogOpen(true);
+                }}
                 className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                 title={t('create')}
                 aria-label={t('create')}
               >
                 <Plus className="h-4 w-4" />
-              </Link>
+              </button>
             ) : null}
             <button
               type="button"
@@ -331,33 +399,50 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           const disabled = workspace.status !== 'active' || !workspace.permissions.canRead;
 
           return (
-            <DropdownMenuItem
-              key={workspace.id}
-              disabled={disabled}
-              onSelect={() => handleSelect(workspace)}
-              data-testid={`workspace-option-${workspace.id}`}
-              className="items-start gap-2"
-            >
-              {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4')}
-              <span className="min-w-0 flex-1">
-                <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
-                  <span className="min-w-0 truncate">{workspace.name}</span>
-                  {workspace.isDefault ? (
-                    <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
-                      <Star className="h-3 w-3" />
-                      {t('badge.default')}
-                    </Badge>
-                  ) : null}
+            <div key={workspace.id} className="group flex min-w-0 items-center gap-1">
+              <DropdownMenuItem
+                disabled={disabled}
+                onSelect={() => handleSelect(workspace)}
+                data-testid={`workspace-option-${workspace.id}`}
+                className="min-w-0 flex-1 items-start gap-2"
+              >
+                {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4')}
+                <span className="min-w-0 flex-1">
+                  <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
+                    <span className="min-w-0 truncate">{workspace.name}</span>
+                    {workspace.isDefault ? (
+                      <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
+                        <Star className="h-3 w-3" />
+                        {t('badge.default')}
+                      </Badge>
+                    ) : null}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {getWorkspaceKindLabel(workspace, kindLabels)} · {getAccessLabel(workspace, accessLabels)}
+                  </span>
                 </span>
-                <span className="block truncate text-[11px] text-muted-foreground">
-                  {getWorkspaceKindLabel(workspace, kindLabels)} · {getAccessLabel(workspace, accessLabels)}
-                </span>
-              </span>
-              {isActive ? <Check className="mt-0.5 h-4 w-4 text-primary" /> : null}
-            </DropdownMenuItem>
+                {isActive ? <Check className="mt-0.5 h-4 w-4 text-primary" /> : null}
+              </DropdownMenuItem>
+              {workspace.permissions.canManageWorkspace ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setDesktopMenuOpen(false);
+                    setEditTarget(workspace);
+                  }}
+                  className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-100 transition-all hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:focus-visible:opacity-100"
+                  title={t('edit')}
+                  aria-label={t('edit')}
+                >
+                  <Pencil className="h-3.5 w-3.5" />
+                </button>
+              ) : null}
+            </div>
           );
         })}
       </DropdownMenuContent>
     </DropdownMenu>
+    {workspaceDialogs}
+    </>
   );
 }

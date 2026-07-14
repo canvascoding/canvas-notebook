@@ -205,10 +205,52 @@ async function main() {
   const teamCreateResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
     type: 'team',
     name: 'Route Team',
+    icon: 'briefcase-business',
   }));
   assert.equal(teamCreateResponse.status, 201);
   const teamCreate = await responseJson(teamCreateResponse);
   const teamWorkspaceId = workspaceId(teamCreate);
+  assert.equal(expectObject(teamCreate.workspace, 'workspace').icon, 'briefcase-business');
+
+  const workspacePathsDb = new Database(path.join(dataRoot, 'sqlite.db'));
+  let personalWorkspacePath = '';
+  let teamWorkspacePath = '';
+  try {
+    personalWorkspacePath = (workspacePathsDb.prepare(
+      'SELECT root_relative_path AS rootRelativePath FROM canvas_workspaces WHERE id = ?',
+    ).get(personalDefault.id) as { rootRelativePath: string }).rootRelativePath;
+    teamWorkspacePath = (workspacePathsDb.prepare(
+      'SELECT root_relative_path AS rootRelativePath FROM canvas_workspaces WHERE id = ?',
+    ).get(teamWorkspaceId) as { rootRelativePath: string }).rootRelativePath;
+  } finally {
+    workspacePathsDb.close();
+  }
+  await fs.mkdir(path.join(dataRoot, personalWorkspacePath), { recursive: true });
+  await fs.mkdir(path.join(dataRoot, teamWorkspacePath), { recursive: true });
+  await fs.writeFile(path.join(dataRoot, personalWorkspacePath, 'personal-only.txt'), 'personal export');
+  await fs.writeFile(path.join(dataRoot, teamWorkspacePath, 'team-only.txt'), 'team workspace');
+
+  const personalStatsResponse = await workspaceStatsRoute.GET(
+    request(`http://localhost/api/files/workspace-stats?scope=personal&workspaceId=${teamWorkspaceId}`, {
+      headers: { 'x-canvas-workspace-id': teamWorkspaceId },
+    }),
+  );
+  assert.equal(personalStatsResponse.status, 200);
+  const personalStats = expectObject(await responseJson(personalStatsResponse), 'personal workspace stats');
+  assert.equal(expectObject(personalStats.data, 'personal workspace stats data').fileCount, 1);
+
+  const personalDownloadResponse = await downloadRoute.GET(
+    request(`http://localhost/api/files/download?scope=personal&workspaceId=${teamWorkspaceId}`, {
+      headers: { 'x-canvas-workspace-id': teamWorkspaceId },
+    }),
+  );
+  assert.equal(personalDownloadResponse.status, 200);
+  assert.equal(personalDownloadResponse.headers.get('content-disposition'), 'attachment; filename="workspace.zip"');
+
+  const retiredDataDownloadResponse = await downloadRoute.GET(
+    request('http://localhost/api/files/download?scope=data'),
+  );
+  assert.equal(retiredDataDownloadResponse.status, 410);
 
   const extraPersonalResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
     type: 'personal',
@@ -216,6 +258,25 @@ async function main() {
   }));
   assert.equal(extraPersonalResponse.status, 201);
   const extraPersonalId = workspaceId(await responseJson(extraPersonalResponse));
+
+  const workspaceUpdateResponse = await workspaceRoute.PATCH(
+    jsonRequest(`http://localhost/api/workspaces/${extraPersonalId}`, 'PATCH', {
+      name: 'Canvas Notebook',
+      icon: 'notebook-pen',
+    }),
+    { params: Promise.resolve({ id: extraPersonalId }) },
+  );
+  assert.equal(workspaceUpdateResponse.status, 200);
+  const updatedWorkspace = expectObject((await responseJson(workspaceUpdateResponse)).workspace, 'updated workspace');
+  assert.equal(updatedWorkspace.displayName, 'Canvas Notebook');
+  assert.equal(updatedWorkspace.icon, 'notebook-pen');
+
+  const invalidIconResponse = await workspaceRoute.PATCH(
+    jsonRequest(`http://localhost/api/workspaces/${extraPersonalId}`, 'PATCH', { icon: 'not-an-icon' }),
+    { params: Promise.resolve({ id: extraPersonalId }) },
+  );
+  assert.equal(invalidIconResponse.status, 400);
+  assert.equal((await responseJson(invalidIconResponse)).code, 'WORKSPACE_ICON_INVALID');
 
   const defaultTypeChangeResponse = await workspaceRoute.PATCH(
     jsonRequest(`http://localhost/api/workspaces/${personalDefault.id}`, 'PATCH', { type: 'team' }),
@@ -241,6 +302,9 @@ async function main() {
   assert.equal(memberList.success, true);
   assert.ok(Array.isArray(memberList.members));
   assert.ok(Array.isArray(memberList.candidates));
+  assert.ok(memberList.candidates.some((candidate) => (
+    expectObject(candidate, 'workspace member candidate').userId === 'member-user'
+  )));
 
   const personalMembersResponse = await membersRoute.GET(
     request(`http://localhost/api/workspaces/${personalDefault.id}/members`),
@@ -302,9 +366,6 @@ async function main() {
   try {
     sessionDb.prepare(`
       INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
-  assert.ok(memberList.candidates.some((candidate) => (
-    expectObject(candidate, 'workspace member candidate').userId === 'member-user'
-  )));
       VALUES ('member-session-route-test', ?, 'member-token-route-test', ?, ?, 'member-user')
     `).run(Date.now() + 60_000, Date.now(), Date.now());
   } finally {

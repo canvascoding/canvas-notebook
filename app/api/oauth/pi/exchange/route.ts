@@ -8,17 +8,8 @@ import {
 } from '@/app/lib/pi/oauth';
 import { readFile, writeFile, access, unlink } from 'fs/promises';
 import { constants } from 'fs';
-import { join } from 'path';
 import { resolveScopedPiOAuthStatesDir } from '@/app/lib/runtime-data-paths';
-
-function normalizeOAuthFlowId(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return /^[A-Za-z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
-}
+import { normalizeOAuthFlowId, resolvePiOAuthFlowPaths } from '@/app/lib/pi/oauth-flow-files';
 
 /**
  * POST /api/oauth/pi/exchange
@@ -61,10 +52,7 @@ export async function POST(request: NextRequest) {
     }
 
     const oauthStateDir = resolveScopedPiOAuthStatesDir({ userId: session.user.id });
-    const stateFile = join(oauthStateDir, `${flowId}.json`);
-    const codeFile = join(oauthStateDir, `${flowId}_code.txt`);
-    // Credentials are saved in the temp script directory by the background process
-    const tempAuthPath = join(oauthStateDir, `${flowId}_oauth`, 'credentials.json');
+    const { stateFile, codeFile, tempAuthPath } = resolvePiOAuthFlowPaths(oauthStateDir, flowId);
 
     // Check if flow exists
     try {

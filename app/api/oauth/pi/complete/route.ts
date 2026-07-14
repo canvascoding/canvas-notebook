@@ -6,17 +6,8 @@ import {
   saveProviderCredentials,
 } from '@/app/lib/pi/oauth';
 import { readFile, unlink } from 'fs/promises';
-import { join } from 'path';
 import { resolveScopedPiOAuthStatesDir } from '@/app/lib/runtime-data-paths';
-
-function normalizeOAuthFlowId(value: unknown): string | null {
-  if (typeof value !== 'string') {
-    return null;
-  }
-
-  const trimmed = value.trim();
-  return /^[A-Za-z0-9_-]{1,128}$/.test(trimmed) ? trimmed : null;
-}
+import { normalizeOAuthFlowId, resolvePiOAuthFlowPaths } from '@/app/lib/pi/oauth-flow-files';
 
 /**
  * POST /api/oauth/pi/complete
@@ -53,9 +44,7 @@ export async function POST(request: NextRequest) {
     }
 
     const oauthStateDir = resolveScopedPiOAuthStatesDir({ userId: session.user.id });
-    const stateFile = join(oauthStateDir, `${flowId}.json`);
-    const tempScriptDir = join(oauthStateDir, `${flowId}_oauth`);
-    const tempAuthPath = join(tempScriptDir, 'credentials.json');
+    const { stateFile, tempAuthPath } = resolvePiOAuthFlowPaths(oauthStateDir, flowId);
 
     // Check if flow exists and is completed
     try {

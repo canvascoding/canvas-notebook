@@ -36,6 +36,7 @@ type ChatHeaderProps = {
   isMobile: boolean;
   onCompact: () => void;
   onSelectAgent: (agentId: string) => void;
+  onReloadAgents: () => Promise<void>;
   onSetShowHistory: (value: boolean) => void;
   onStartNewChat: () => void;
   runtimeStatus: RuntimeStatus | null;
@@ -63,6 +64,7 @@ export function ChatHeader({
   isMobile,
   onCompact,
   onSelectAgent,
+  onReloadAgents,
   onSetShowHistory,
   onStartNewChat,
   runtimeStatus,
@@ -149,6 +151,7 @@ export function ChatHeader({
                 activeAgentIconId={activeAgentIconId}
                 agents={chatAgentOptions}
                 onSelectAgent={onSelectAgent}
+                onReloadAgents={onReloadAgents}
                 iconOnly={isMobile}
               />
             </div>

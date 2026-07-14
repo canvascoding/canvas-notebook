@@ -36,6 +36,7 @@ function serializeWorkspace(workspace: WorkspaceContext) {
     projectId: workspace.projectId,
     ownerUserId: workspace.ownerUserId,
     rootRelativePath: workspace.rootRelativePath,
+    icon: workspace.icon,
     status: workspace.status || 'active',
     isDefault: Boolean(workspace.isDefault),
     permissions: workspace.permissions,
@@ -177,6 +178,7 @@ export async function POST(request: Request) {
         const workspace = await createPostgresWorkspaceForActor(actor, {
           type,
           name: payload.name,
+          icon: payload.icon,
           projectFeaturesEnabled: areProjectFeaturesEnabled(),
           projectId,
         });
@@ -208,6 +210,7 @@ export async function POST(request: Request) {
         organizationId: status.organizationId,
         type,
         name: payload.name,
+        icon: payload.icon,
         teamFeaturesEnabled: status.teamFeaturesEnabled,
         projectFeaturesEnabled: areProjectFeaturesEnabled(),
         projectId,
