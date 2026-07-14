@@ -317,6 +317,26 @@ export async function sendMessage(
   });
 }
 
+export async function prewarmSessionRuntime(
+  sessionId: string,
+  userId: string,
+): Promise<PiRuntimeStatus> {
+  return withPiSessionOperationLock(sessionId, userId, async () => {
+    const timing = createOperationTiming();
+    const { runtime, created } = await getOrCreatePiRuntimeWithState(sessionId, userId);
+    timing.mark('getOrCreateRuntime');
+    const status = runtime.getStatus();
+
+    console.log('[AgentRuntimeTiming] session_prewarmed', {
+      sessionId,
+      created,
+      phase: status.phase,
+      timing: timing.snapshot(),
+    });
+    return status;
+  });
+}
+
 export async function sendFollowUpMessage(
   sessionId: string,
   userId: string,

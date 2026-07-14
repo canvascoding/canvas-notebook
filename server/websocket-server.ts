@@ -591,6 +591,26 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         sessionId: message.sessionId,
         isNew,
       });
+      void getRuntimeService()
+        .then((runtimeService) => runtimeService.prewarmSessionRuntime(message.sessionId, userId))
+        .then((status) => {
+          console.log('[WebSocket] subscribe runtime_prewarmed', {
+            connectionId: connection.id,
+            userId,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            phase: status.phase,
+          });
+        })
+        .catch((error) => {
+          console.warn('[WebSocket] subscribe runtime_prewarm_failed', {
+            connectionId: connection.id,
+            userId,
+            requestId: message.requestId,
+            sessionId: message.sessionId,
+            error: getErrorMessage(error),
+          });
+        });
       sendWs(ws, {
         type: 'subscribe_result',
         requestId: message.requestId,
