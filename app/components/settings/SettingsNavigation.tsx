@@ -13,6 +13,7 @@ import {
   Menu,
   PanelLeftClose,
   PanelLeftOpen,
+  Palette,
   Plug,
   Puzzle,
   Radio,
@@ -48,6 +49,7 @@ export type SettingsTab =
   | 'agent-settings'
   | 'browser'
   | 'workspace'
+  | 'brand-design'
   | 'user-management'
   | 'data-migration'
   | 'ai-providers'
@@ -98,6 +100,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.workspace',
     group: 'workspace',
     icon: FolderCog,
+  },
+  {
+    value: 'brand-design',
+    labelKey: 'tabs.brandDesign',
+    descriptionKey: 'navigation.descriptions.brandDesign',
+    group: 'workspace',
+    icon: Palette,
   },
   {
     value: 'agent-settings',

@@ -1924,6 +1924,7 @@
       "agentSettings": "Agent-Einstellungen",
       "browser": "Browser",
       "workspace": "Workspace",
+      "brandDesign": "Brand Design",
       "knowledge": "Knowledge",
       "userManagement": "Benutzer",
       "dataMigration": "Datenmigration",
@@ -1952,6 +1953,7 @@
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
         "myAgentRuntime": "Persönlichen Provider, Modell und Intelligence je Workspace und Agent auswählen.",
         "workspace": "Persönlichen Workspace exportieren und Workspace-Zugriffe verwalten.",
+        "brandDesign": "Markenauftritt für PDF-Exporte und den aktiven Agent-Kontext festlegen.",
         "knowledge": "Knowledge-Verarbeitung, Ressourcen und Feature-Gates konfigurieren.",
         "agentSettings": "Identität, Fähigkeiten, Tools und Laufzeitverhalten der Agents steuern.",
         "browser": "Browser-Laufzeit und Browser-Zugriff für Agents konfigurieren.",
@@ -2673,6 +2675,123 @@
       "disconnectError": "Trennung fehlgeschlagen.",
       "refreshError": "Aktualisierung fehlgeschlagen.",
       "disconnectConfirm": "{toolkit} trennen?"
+    },
+    "brandDesign": {
+      "loading": "Brand-Profil wird geladen...",
+      "saved": "Brand-Profil gespeichert. Neue Exporte und Agent-Nachrichten verwenden die Änderungen sofort.",
+      "resetDone": "Brand-Profil wurde auf den Canvas-Standard zurückgesetzt.",
+      "readOnly": "Du kannst dieses Brand-Profil ansehen, aber nur Workspace-Manager dürfen es ändern.",
+      "save": "Brand-Profil speichern",
+      "saving": "Wird gespeichert...",
+      "reset": "Auf Canvas-Standard zurücksetzen",
+      "workspace": {
+        "title": "Workspace auswählen",
+        "description": "Jeder Workspace besitzt ein eigenes Brand-Profil für Markdown-PDFs und Agent-Ausgaben.",
+        "select": "Workspace für das Brand-Profil auswählen"
+      },
+      "empty": {
+        "title": "Kein Workspace verfügbar",
+        "description": "Sobald du Zugriff auf einen Workspace hast, kannst du hier sein Brand-Profil konfigurieren."
+      },
+      "activation": {
+        "title": "Brand-Profil",
+        "description": "Aktiviert das Design für Markdown-PDFs und gibt die Markenrichtlinien dem Agenten im Workspace-Kontext mit.",
+        "on": "Aktiv",
+        "off": "Inaktiv"
+      },
+      "presets": {
+        "canvas": "Canvas Standard",
+        "editorial": "Editorial",
+        "corporate": "Corporate",
+        "minimal": "Minimal"
+      },
+      "identity": {
+        "title": "Markenidentität",
+        "description": "Name und Logo erscheinen im Dokumentkopf und helfen dem Agenten, die Marke eindeutig zuzuordnen.",
+        "brandName": "Markenname",
+        "brandNamePlaceholder": "z. B. Canvas Studios",
+        "logoPath": "Logo-Pfad im Workspace",
+        "logoPathHint": "Relativer Pfad zu PNG, JPG, WebP oder SVG. Das Logo wird beim Export sicher in die PDF eingebettet."
+      },
+      "colors": {
+        "title": "Farbwelt",
+        "description": "Eine konzentrierte Palette für Dokumentfläche, Hierarchie und funktionale Elemente.",
+        "fields": {
+          "pageBackground": "Seitenhintergrund",
+          "text": "Fließtext",
+          "heading": "Überschriften",
+          "accent": "Akzent",
+          "link": "Links",
+          "border": "Linien & Rahmen",
+          "surface": "Flächen",
+          "codeBackground": "Code-Hintergrund",
+          "tableHeader": "Tabellenkopf"
+        }
+      },
+      "typography": {
+        "title": "Typografie und Hierarchie",
+        "description": "Schriften, Größen und Überschriftenstile für wiedererkennbare PDF-Dokumente.",
+        "bodyFont": "Schrift für Fließtext",
+        "headingFont": "Schrift für Überschriften",
+        "bodySize": "Textgröße (pt)",
+        "lineHeight": "Zeilenhöhe",
+        "h1Size": "H1-Größe (pt)",
+        "h2Size": "H2-Größe (pt)",
+        "headingWeight": "Überschriftenstärke",
+        "h1Style": "H1-Stil",
+        "h2Style": "H2-Stil"
+      },
+      "fonts": {
+        "canvas-sans": "Canvas Sans",
+        "humanist-sans": "Humanist Sans",
+        "editorial-serif": "Editorial Serif",
+        "classic-serif": "Classic Serif",
+        "technical-mono": "Technical Mono"
+      },
+      "headingStyles": {
+        "plain": "Pur",
+        "underline": "Unterstrichen",
+        "accent-bar": "Akzentbalken"
+      },
+      "page": {
+        "title": "Seitenlayout",
+        "description": "Papierformat und Weißraum des exportierten Dokuments.",
+        "size": "Papierformat",
+        "verticalMargin": "Rand oben/unten (mm)",
+        "horizontalMargin": "Rand links/rechts (mm)"
+      },
+      "agent": {
+        "title": "Markensprache für den Agenten",
+        "description": "Diese Angaben werden dem Agenten bei jeder Nachricht in diesem Workspace als abgegrenzte Inhaltsrichtlinien mitgegeben.",
+        "targetAudience": "Zielgruppe",
+        "targetAudiencePlaceholder": "z. B. Marketing-Leads in mittelständischen Unternehmen",
+        "voice": "Tonalität",
+        "voicePlaceholder": "z. B. klar, selbstbewusst, nahbar und präzise",
+        "guidelines": "Schreibregeln",
+        "guidelinesHint": "Nur Marken- und Inhaltsvorgaben eintragen. Sicherheits-, Tool- und Systemregeln können hier nicht überschrieben werden.",
+        "guidelinesPlaceholder": "Kurze aktive Sätze. Konkrete Beispiele bevorzugen. Keine unnötigen Anglizismen."
+      },
+      "preview": {
+        "label": "Live-PDF-Vorschau",
+        "active": "Wird verwendet",
+        "inactive": "Entwurf",
+        "brandFallback": "Deine Marke",
+        "eyebrow": "Brand Report · 2026",
+        "title": "Klarheit, die sichtbar wird",
+        "intro": "Ein konsistentes Dokument verbindet starke Inhalte mit einer visuellen Sprache, die auf jeder Seite wiedererkennbar bleibt.",
+        "section": "Strategischer Fokus",
+        "tableLabel": "Merkmal",
+        "tableValue": "Ausprägung",
+        "tableAudience": "Zielgruppe",
+        "tableAudienceFallback": "Entscheider & Kreativteams",
+        "code": "accentColor = brand.identity",
+        "link": "Mehr zur Markenstrategie →"
+      },
+      "errors": {
+        "load": "Brand-Profil konnte nicht geladen werden.",
+        "save": "Brand-Profil konnte nicht gespeichert werden.",
+        "reset": "Brand-Profil konnte nicht zurückgesetzt werden."
+      }
     },
     "workspacePanel": {
       "title": "Workspace",

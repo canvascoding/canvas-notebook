@@ -1925,6 +1925,7 @@
       "agentSettings": "Agent Settings",
       "browser": "Browser",
       "workspace": "Workspace",
+      "brandDesign": "Brand Design",
       "knowledge": "Knowledge",
       "userManagement": "Users",
       "dataMigration": "Data Migration",
@@ -1953,6 +1954,7 @@
         "general": "Manage your account, language, and basic instance options.",
         "myAgentRuntime": "Choose your personal provider, model, and intelligence per workspace and agent.",
         "workspace": "Export your personal workspace and manage workspace access.",
+        "brandDesign": "Define the brand experience for PDF exports and the active agent context.",
         "knowledge": "Configure knowledge processing, resources, and feature gates.",
         "agentSettings": "Control agent identity, capabilities, tools, and runtime behavior.",
         "browser": "Configure the browser runtime and browser access for agents.",
@@ -2674,6 +2676,123 @@
       "disconnectError": "Failed to disconnect.",
       "refreshError": "Failed to refresh connection.",
       "disconnectConfirm": "Disconnect {toolkit}?"
+    },
+    "brandDesign": {
+      "loading": "Loading brand profile...",
+      "saved": "Brand profile saved. New exports and agent messages use the changes immediately.",
+      "resetDone": "The brand profile was reset to the Canvas default.",
+      "readOnly": "You can view this brand profile, but only workspace managers may change it.",
+      "save": "Save brand profile",
+      "saving": "Saving...",
+      "reset": "Reset to Canvas default",
+      "workspace": {
+        "title": "Choose a workspace",
+        "description": "Each workspace has its own brand profile for Markdown PDFs and agent output.",
+        "select": "Select the workspace for this brand profile"
+      },
+      "empty": {
+        "title": "No workspace available",
+        "description": "Once you can access a workspace, you can configure its brand profile here."
+      },
+      "activation": {
+        "title": "Brand profile",
+        "description": "Applies the design to Markdown PDFs and adds the brand guidelines to the agent's workspace context.",
+        "on": "Active",
+        "off": "Inactive"
+      },
+      "presets": {
+        "canvas": "Canvas Default",
+        "editorial": "Editorial",
+        "corporate": "Corporate",
+        "minimal": "Minimal"
+      },
+      "identity": {
+        "title": "Brand identity",
+        "description": "The name and logo appear in the document header and help the agent identify the brand.",
+        "brandName": "Brand name",
+        "brandNamePlaceholder": "e.g. Canvas Studios",
+        "logoPath": "Workspace logo path",
+        "logoPathHint": "Relative path to a PNG, JPG, WebP, or SVG. The logo is embedded safely into the exported PDF."
+      },
+      "colors": {
+        "title": "Color system",
+        "description": "A focused palette for the document canvas, hierarchy, and functional elements.",
+        "fields": {
+          "pageBackground": "Page background",
+          "text": "Body text",
+          "heading": "Headings",
+          "accent": "Accent",
+          "link": "Links",
+          "border": "Lines & borders",
+          "surface": "Surfaces",
+          "codeBackground": "Code background",
+          "tableHeader": "Table header"
+        }
+      },
+      "typography": {
+        "title": "Typography and hierarchy",
+        "description": "Fonts, sizes, and heading treatments for recognizable PDF documents.",
+        "bodyFont": "Body font",
+        "headingFont": "Heading font",
+        "bodySize": "Body size (pt)",
+        "lineHeight": "Line height",
+        "h1Size": "H1 size (pt)",
+        "h2Size": "H2 size (pt)",
+        "headingWeight": "Heading weight",
+        "h1Style": "H1 style",
+        "h2Style": "H2 style"
+      },
+      "fonts": {
+        "canvas-sans": "Canvas Sans",
+        "humanist-sans": "Humanist Sans",
+        "editorial-serif": "Editorial Serif",
+        "classic-serif": "Classic Serif",
+        "technical-mono": "Technical Mono"
+      },
+      "headingStyles": {
+        "plain": "Plain",
+        "underline": "Underline",
+        "accent-bar": "Accent bar"
+      },
+      "page": {
+        "title": "Page layout",
+        "description": "Paper format and whitespace for the exported document.",
+        "size": "Paper format",
+        "verticalMargin": "Top/bottom margin (mm)",
+        "horizontalMargin": "Left/right margin (mm)"
+      },
+      "agent": {
+        "title": "Brand language for the agent",
+        "description": "These values are passed to the agent with every message in this workspace as isolated content guidelines.",
+        "targetAudience": "Target audience",
+        "targetAudiencePlaceholder": "e.g. marketing leads at mid-sized companies",
+        "voice": "Tone of voice",
+        "voicePlaceholder": "e.g. clear, confident, approachable, and precise",
+        "guidelines": "Writing guidelines",
+        "guidelinesHint": "Add brand and content guidance only. Security, tool, and system instructions cannot be overridden here.",
+        "guidelinesPlaceholder": "Use short active sentences. Prefer concrete examples. Avoid unnecessary jargon."
+      },
+      "preview": {
+        "label": "Live PDF preview",
+        "active": "In use",
+        "inactive": "Draft",
+        "brandFallback": "Your brand",
+        "eyebrow": "Brand Report · 2026",
+        "title": "Clarity you can see",
+        "intro": "A consistent document connects strong content with a visual language that remains recognizable on every page.",
+        "section": "Strategic focus",
+        "tableLabel": "Attribute",
+        "tableValue": "Expression",
+        "tableAudience": "Audience",
+        "tableAudienceFallback": "Decision-makers & creative teams",
+        "code": "accentColor = brand.identity",
+        "link": "Explore the brand strategy →"
+      },
+      "errors": {
+        "load": "The brand profile could not be loaded.",
+        "save": "The brand profile could not be saved.",
+        "reset": "The brand profile could not be reset."
+      }
     },
     "workspacePanel": {
       "title": "Workspace",

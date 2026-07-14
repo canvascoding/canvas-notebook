@@ -359,6 +359,11 @@ const WorkspaceSettingsPanel = dynamic(
   { loading: SettingsTabLoader },
 );
 
+const BrandSettingsPanel = dynamic(
+  () => import('@/app/components/settings/BrandSettingsPanel').then((module) => module.BrandSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
 const SystemMigrationPanel = dynamic(
   () => import('@/app/components/settings/WorkspaceSettingsPanel').then((module) => module.SystemMigrationPanel),
   { loading: SettingsTabLoader },
@@ -3106,6 +3111,8 @@ export function IntegrationsSettingsClient({
               createWorkspaceOpen={createWorkspaceOpen}
             />
           ))}
+
+          {renderLazyTabContent('brand-design', <BrandSettingsPanel />)}
 
           {renderLazyTabContent('user-management',
             <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,
