@@ -135,7 +135,7 @@ export function ChatHeader({
                 )}
               </button>
             )}
-            <div className="flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
+            <div className="@container flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
               <div
                 data-testid="chat-session-id"
                 title={sessionId || t('newChatTitle')}
@@ -152,7 +152,7 @@ export function ChatHeader({
                 agents={chatAgentOptions}
                 onSelectAgent={onSelectAgent}
                 onReloadAgents={onReloadAgents}
-                iconOnly={isMobile}
+                adaptiveMobileLabel={isMobile}
               />
             </div>
           </div>

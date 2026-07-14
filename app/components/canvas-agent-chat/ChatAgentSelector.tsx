@@ -23,6 +23,7 @@ export function ChatAgentSelector({
   onSelectAgent,
   onReloadAgents,
   iconOnly = false,
+  adaptiveMobileLabel = false,
 }: {
   variant: 'desktop' | 'mobile' | 'compact';
   activeAgentId: string;
@@ -34,6 +35,7 @@ export function ChatAgentSelector({
   onSelectAgent: (agentId: string) => void;
   onReloadAgents?: () => Promise<void>;
   iconOnly?: boolean;
+  adaptiveMobileLabel?: boolean;
 }) {
   const t = useTranslations('chat');
   const compact = variant === 'mobile' || variant === 'compact';
@@ -81,6 +83,7 @@ export function ChatAgentSelector({
   }, [onReloadAgents]);
 
   const isMobileSelector = variant === 'mobile';
+  const shouldAdaptMobileLabel = adaptiveMobileLabel && isMobileSelector;
 
   return (
     <>
@@ -109,7 +112,14 @@ export function ChatAgentSelector({
           ) : null}
           <AgentIcon iconId={activeAgentIconId} className="h-3.5 w-3.5 shrink-0 text-muted-foreground" />
           {!iconOnly ? (
-            <span className={cn('min-w-0 truncate', compact ? 'max-w-[6rem]' : 'max-w-[9rem]')}>
+            <span className={cn(
+              'min-w-0 truncate',
+              shouldAdaptMobileLabel
+                ? 'hidden @[17rem]:block @[17rem]:max-w-[8rem]'
+                : compact
+                  ? 'max-w-[6rem]'
+                  : 'max-w-[9rem]',
+            )}>
               {activeAgentName}
             </span>
           ) : null}
