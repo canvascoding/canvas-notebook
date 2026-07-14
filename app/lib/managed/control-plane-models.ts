@@ -1,6 +1,7 @@
 import 'server-only';
 
 import type { Model } from '@earendil-works/pi-ai';
+import { createHash } from 'node:crypto';
 
 import { getManagedControlPlaneBaseUrl } from './control-plane-url';
 
@@ -32,6 +33,16 @@ export type ManagedControlPlaneCatalog = {
 };
 
 export const FALLBACK_CANVAS_CONTROL_PLANE_MODELS: ManagedControlPlaneModel[] = [];
+export const MANAGED_CATALOG_WARM_CACHE_MS = 30_000;
+
+type ManagedCatalogCacheEntry = {
+  key: string;
+  loadedAt: number;
+  catalog: ManagedControlPlaneCatalog;
+};
+
+let managedCatalogCache: ManagedCatalogCacheEntry | null = null;
+let managedCatalogRequest: { key: string; promise: Promise<ManagedControlPlaneCatalog> } | null = null;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -175,21 +186,15 @@ function normalizeThinkingLevel(value: unknown): ManagedControlPlaneCatalog['def
     : 'off';
 }
 
-export async function getCanvasControlPlaneCatalog(): Promise<ManagedControlPlaneCatalog> {
-  const startedAt = Date.now();
-  const controlPlaneUrl = getManagedControlPlaneBaseUrl();
-  const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
-  if (!controlPlaneUrl || !token) {
-    if (process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' || controlPlaneUrl || token) {
-      console.warn('[Canvas Control Plane] Managed model discovery skipped.', {
-        hasControlPlaneUrl: Boolean(controlPlaneUrl),
-        hasInstanceToken: Boolean(token),
-        managedServicesEnabled: process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
-      });
-    }
-    return unavailableCatalog('MANAGED_CONNECTION_INCOMPLETE');
-  }
+function managedCatalogCacheKey(controlPlaneUrl: string, token: string): string {
+  return createHash('sha256').update(`${controlPlaneUrl}\0${token}`).digest('hex');
+}
 
+async function fetchCanvasControlPlaneCatalog(
+  controlPlaneUrl: string,
+  token: string,
+): Promise<ManagedControlPlaneCatalog> {
+  const startedAt = Date.now();
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), 5000);
   try {
@@ -263,6 +268,62 @@ export async function getCanvasControlPlaneCatalog(): Promise<ManagedControlPlan
   } finally {
     clearTimeout(timeout);
   }
+}
+
+export async function getCanvasControlPlaneCatalog(
+  options: { maxAgeMs?: number } = {},
+): Promise<ManagedControlPlaneCatalog> {
+  const controlPlaneUrl = getManagedControlPlaneBaseUrl();
+  const token = process.env.CANVAS_INSTANCE_TOKEN?.trim();
+  if (!controlPlaneUrl || !token) {
+    if (process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' || controlPlaneUrl || token) {
+      console.warn('[Canvas Control Plane] Managed model discovery skipped.', {
+        hasControlPlaneUrl: Boolean(controlPlaneUrl),
+        hasInstanceToken: Boolean(token),
+        managedServicesEnabled: process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true',
+      });
+    }
+    return unavailableCatalog('MANAGED_CONNECTION_INCOMPLETE');
+  }
+
+  const key = managedCatalogCacheKey(controlPlaneUrl, token);
+  const maxAgeMs = Math.max(0, options.maxAgeMs ?? 0);
+  if (
+    maxAgeMs > 0
+    && managedCatalogCache?.key === key
+    && Date.now() - managedCatalogCache.loadedAt <= maxAgeMs
+  ) {
+    console.log('[Canvas Control Plane] Reusing warm managed model catalog.', {
+      ageMs: Date.now() - managedCatalogCache.loadedAt,
+      maxAgeMs,
+    });
+    return managedCatalogCache.catalog;
+  }
+
+  if (managedCatalogRequest?.key === key) {
+    console.log('[Canvas Control Plane] Joining in-flight managed model request.');
+    return managedCatalogRequest.promise;
+  }
+
+  const promise = fetchCanvasControlPlaneCatalog(controlPlaneUrl, token).then((catalog) => {
+    if (catalog.status === 'ready') {
+      managedCatalogCache = { key, loadedAt: Date.now(), catalog };
+    }
+    return catalog;
+  });
+  managedCatalogRequest = { key, promise };
+  void promise.finally(() => {
+    if (managedCatalogRequest?.promise === promise) managedCatalogRequest = null;
+  });
+  return promise;
+}
+
+export function primeCanvasControlPlaneCatalog(): Promise<ManagedControlPlaneCatalog> {
+  return getCanvasControlPlaneCatalog({ maxAgeMs: MANAGED_CATALOG_WARM_CACHE_MS });
+}
+
+export function invalidateCanvasControlPlaneCatalogCache(): void {
+  managedCatalogCache = null;
 }
 
 export async function getCanvasControlPlaneModels(): Promise<ManagedControlPlaneModel[]> {

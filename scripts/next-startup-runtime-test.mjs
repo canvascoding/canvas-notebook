@@ -10,6 +10,7 @@ const postgresMigrationFunctionIndex = serverSource.indexOf('async function runS
 const postgresMigrationAwaitIndex = serverSource.indexOf('await runStartupDatabaseMigrations()');
 const websocketStartupIndex = serverSource.indexOf("console.log('[Startup] Initializing WebSocket Server...')");
 const agentRuntimeWarmupIndex = serverSource.indexOf('preloadAgentRuntimeModules()');
+const managedCatalogWarmupIndex = serverSource.indexOf('primeCanvasControlPlaneCatalog()');
 const nextPrepareIndex = serverSource.indexOf('app.prepare(),');
 
 assert.notEqual(polyfillIndex, -1, 'server.js must polyfill globalThis.AsyncLocalStorage');
@@ -18,6 +19,7 @@ assert.notEqual(postgresMigrationFunctionIndex, -1, 'server.js must define start
 assert.notEqual(postgresMigrationAwaitIndex, -1, 'server.js must await startup database migrations');
 assert.notEqual(websocketStartupIndex, -1, 'server.js must initialize websocket startup after migrations');
 assert.notEqual(agentRuntimeWarmupIndex, -1, 'server.js must preload agent runtime modules');
+assert.notEqual(managedCatalogWarmupIndex, -1, 'server.js must prime the managed model catalog');
 assert.notEqual(nextPrepareIndex, -1, 'server.js must await Next preparation with runtime warmup');
 assert.ok(
   polyfillIndex < nextImportIndex,
@@ -34,6 +36,10 @@ assert.ok(
 assert.ok(
   websocketStartupIndex < agentRuntimeWarmupIndex && agentRuntimeWarmupIndex < nextPrepareIndex,
   'server.js must start runtime warmup after websocket initialization and await it before readiness',
+);
+assert.ok(
+  agentRuntimeWarmupIndex < managedCatalogWarmupIndex && managedCatalogWarmupIndex < nextPrepareIndex,
+  'server.js must start managed catalog warmup with local runtime warmup and await both before readiness',
 );
 assert.ok(
   !dbIndexSource.includes('runPostgresMigrations'),

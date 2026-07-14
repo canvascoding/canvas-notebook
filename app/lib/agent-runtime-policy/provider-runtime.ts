@@ -40,6 +40,7 @@ import type {
 import {
   CANVAS_CONTROL_PLANE_PROVIDER_ID,
   getCanvasControlPlaneCatalog,
+  MANAGED_CATALOG_WARM_CACHE_MS,
 } from '@/app/lib/managed/control-plane-models';
 import { getPiModels, resolvePiModel } from '@/app/lib/pi/model-resolver';
 
@@ -185,10 +186,12 @@ function runtimeErrorStream(model: Model<Api>, error: unknown): AssistantMessage
 export async function resolveProviderInstallationModel(input: {
   provider: AiProviderInstallation;
   model: AiCatalogModel;
-}): Promise<Model<Api>> {
+}, options: { managedCatalogMaxAgeMs?: number } = {}): Promise<Model<Api>> {
   const { provider, model } = input;
   if (provider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
-    const managedCatalog = await getCanvasControlPlaneCatalog();
+    const managedCatalog = await getCanvasControlPlaneCatalog({
+      maxAgeMs: options.managedCatalogMaxAgeMs,
+    });
     if (
       managedCatalog.status !== 'ready'
       || !provider.sourceRevision
@@ -322,7 +325,10 @@ async function materializeResolution(
   }
 
   const [model] = await Promise.all([
-    resolveProviderInstallationModel({ provider: providerInstallation, model: catalogModel }),
+    resolveProviderInstallationModel(
+      { provider: providerInstallation, model: catalogModel },
+      { managedCatalogMaxAgeMs: MANAGED_CATALOG_WARM_CACHE_MS },
+    ),
     runtimeAuth({
       provider: providerInstallation,
       organizationId: resolution.context.organizationId,
@@ -334,12 +340,15 @@ async function materializeResolution(
   const assertRuntimeExecutionState = async (expectedRevisions?: {
     catalogRevision: number;
     policyRevision: number;
-  }): Promise<AiProviderInstallation> => {
-    // Fetch the remote managed revision first, then read both local policy
-    // records. That leaves the final local authorization decision as close as
-    // possible to the provider call while still validating the remote source.
+  }, options: { validateManagedCatalog?: boolean } = {}): Promise<AiProviderInstallation> => {
+    // The pre-credential pass validates local policy without network work. The
+    // final pass fetches the remote managed revision first, then re-reads local
+    // policy so revocations remain fail-closed and close to the provider call.
     let managedCatalog: Awaited<ReturnType<typeof getCanvasControlPlaneCatalog>> | null = null;
-    if (providerInstallation.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
+    if (
+      options.validateManagedCatalog !== false
+      && providerInstallation.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
+    ) {
       try {
         managedCatalog = await getCanvasControlPlaneCatalog();
       } catch {
@@ -419,7 +428,10 @@ async function materializeResolution(
       );
     }
 
-    if (latestProvider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID) {
+    if (
+      options.validateManagedCatalog !== false
+      && latestProvider.providerId === CANVAS_CONTROL_PLANE_PROVIDER_ID
+    ) {
       if (
         !managedCatalog
         || managedCatalog.status !== 'ready'
@@ -460,7 +472,9 @@ async function materializeResolution(
       catalogRevision: latestResolution.catalogRevision,
       policyRevision: latestResolution.policyRevision,
     };
-    const latestProvider = await assertRuntimeExecutionState(requestRevisions);
+    const latestProvider = await assertRuntimeExecutionState(requestRevisions, {
+      validateManagedCatalog: false,
+    });
     const auth = await runtimeAuth({
       provider: latestProvider,
       organizationId: resolution.context.organizationId,
@@ -470,7 +484,9 @@ async function materializeResolution(
     // Credential/OAuth lookup can perform filesystem, database, or network
     // work. Revalidate catalog, workspace policy, and managed source revision
     // after it completes so revocations during that window fail closed.
-    await assertRuntimeExecutionState(requestRevisions);
+    await assertRuntimeExecutionState(requestRevisions, {
+      validateManagedCatalog: true,
+    });
     return auth;
   };
 

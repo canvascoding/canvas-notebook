@@ -655,6 +655,7 @@ async function startServer() {
   }
 
   let agentRuntimeWarmupPromise = null;
+  let managedCatalogWarmupPromise = null;
 
   console.log('[Startup] Initializing WebSocket Server...');
   try {
@@ -676,6 +677,15 @@ async function startServer() {
     agentRuntimeWarmupPromise = preloadAgentRuntimeModules().then((result) => {
       console.log('[Startup] Agent runtime modules preloaded', result);
       return result;
+    });
+    const { primeCanvasControlPlaneCatalog } = await import('./app/lib/managed/control-plane-models.ts');
+    managedCatalogWarmupPromise = primeCanvasControlPlaneCatalog().then((catalog) => {
+      console.log('[Startup] Managed model catalog warmup finished', {
+        status: catalog.status,
+        errorCode: catalog.errorCode,
+        modelCount: catalog.models.length,
+      });
+      return catalog;
     });
   } catch (error) {
     console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
@@ -702,6 +712,7 @@ async function startServer() {
   await Promise.all([
     app.prepare(),
     agentRuntimeWarmupPromise,
+    managedCatalogWarmupPromise,
   ]);
   console.log('[Startup] Next.js app prepared');
 
