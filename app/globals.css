@@ -33,6 +33,65 @@
   box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 35%, transparent);
 }
 
+.canvas-markdown-highlight {
+  border-radius: 0.2em;
+  background: color-mix(in oklab, #facc15 42%, transparent);
+  color: inherit;
+  padding-inline: 0.12em;
+}
+
+.canvas-wiki-link,
+.canvas-wiki-embed {
+  color: var(--primary);
+  font-weight: 500;
+  text-decoration-style: dotted;
+}
+
+.canvas-wiki-embed {
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--muted) 70%, transparent);
+  padding: 0.1rem 0.3rem;
+}
+
+.canvas-callout {
+  --canvas-callout-color: var(--primary);
+  border-left-color: var(--canvas-callout-color) !important;
+  border-radius: 0.375rem;
+  background: color-mix(in oklab, var(--canvas-callout-color) 10%, transparent);
+  padding-block: 0.65rem;
+  padding-right: 0.75rem;
+}
+
+.canvas-callout > p:first-child {
+  color: var(--canvas-callout-color);
+  font-weight: 650;
+}
+
+.canvas-callout-warning,
+.canvas-callout-caution,
+.canvas-callout-attention {
+  --canvas-callout-color: #f59e0b;
+}
+
+.canvas-callout-danger,
+.canvas-callout-error,
+.canvas-callout-failure,
+.canvas-callout-bug {
+  --canvas-callout-color: #ef4444;
+}
+
+.canvas-callout-success,
+.canvas-callout-check,
+.canvas-callout-done {
+  --canvas-callout-color: #22c55e;
+}
+
+.canvas-callout-question,
+.canvas-callout-help,
+.canvas-callout-faq {
+  --canvas-callout-color: #a855f7;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {

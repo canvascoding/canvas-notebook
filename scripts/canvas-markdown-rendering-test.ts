@@ -42,4 +42,23 @@ const streamingFragment = renderMarkdown('An unfinished formula $E = mc');
 assert.match(streamingFragment, /An unfinished formula/);
 assert.doesNotMatch(streamingFragment, /class="katex"/);
 
+const obsidianMarkdown = renderMarkdown(`---
+title: Hidden metadata
+---
+
+See [[research/Market Analysis#Results|the results]] and ==important text==. %%hidden comment%%
+
+> [!warning]- Check this
+> Callout body.
+
+Reusable paragraph ^decision-1`);
+assert.doesNotMatch(obsidianMarkdown, /Hidden metadata|hidden comment/);
+assert.match(obsidianMarkdown, /data-canvas-wiki-target="research\/Market Analysis#Results"/);
+assert.match(obsidianMarkdown, /class="canvas-wiki-link"/);
+assert.match(obsidianMarkdown, /<mark class="canvas-markdown-highlight">important text<\/mark>/);
+assert.match(obsidianMarkdown, /data-callout="warning"/);
+assert.match(obsidianMarkdown, /data-callout-fold="-"/);
+assert.match(obsidianMarkdown, /id="block-decision-1"/);
+assert.doesNotMatch(obsidianMarkdown, /\^decision-1/);
+
 console.log('canvas-markdown-rendering-test: ok');

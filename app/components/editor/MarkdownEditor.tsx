@@ -108,6 +108,7 @@ import {
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
+import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
 import { makeLinkPreviewImageAlt, parseLinkPreviewImageAlt } from '@/app/lib/markdown/link-preview-markdown';
 import {
   getWorkspaceTargetDirForMarkdown,
@@ -3740,7 +3741,11 @@ export function MarkdownEditor({
 
   const isMobileKeyboardActive = useMobileKeyboardActive();
   const sourceModeReason = useMemo(() => getMarkdownSourceModeReason(value), [value]);
-  const sourceModeRequired = sourceModeReason !== null;
+  const omfSourceModeRequired = useMemo(
+    () => hasObsidianRichEditorUnsupportedSyntax(value),
+    [value],
+  );
+  const sourceModeRequired = sourceModeReason !== null || omfSourceModeRequired;
   const [mode, setMode] = useState<EditorMode>(() => (
     sourceModeRequired || shouldDefaultToSource(value, readOnly, filePath) ? 'source' : 'rich'
   ));
