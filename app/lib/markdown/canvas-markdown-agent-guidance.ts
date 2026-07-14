@@ -1,4 +1,4 @@
-export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 1;
+export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 2;
 export const CANVAS_MARKDOWN_GUIDANCE_MARKER =
   `<!-- canvas-markdown-guidance:v${CANVAS_MARKDOWN_GUIDANCE_REVISION} -->`;
 
@@ -7,14 +7,39 @@ export const CANVAS_MARKDOWN_AGENT_GUIDANCE = `${CANVAS_MARKDOWN_GUIDANCE_MARKER
 
 Canvas renders GitHub Flavored Markdown plus Obsidian-style workspace notation and LaTeX math. Use these forms consistently in chat replies and Markdown documents:
 - Use headings, lists, task lists, tables, blockquotes, fenced code blocks, and ordinary Markdown links as usual.
-- Link workspace notes with \`[[path/to/note]]\`, sections with \`[[path/to/note#Heading]]\`, block IDs with \`[[path/to/note#^block-id]]\`, and optional labels with \`[[path/to/note|Label]]\`.
+- In saved Markdown documents, link workspace notes with \`[[path/to/note]]\`, sections with \`[[path/to/note#Heading]]\`, block IDs with \`[[path/to/note#^block-id]]\`, and optional labels with \`[[path/to/note|Label]]\`. Paths are workspace-relative and normally omit the \`.md\` suffix.
+- Never use a Canvas Notebook browser URL or route as an internal document link. Use wiki-links for workspace documents and ordinary Markdown links only for external websites or non-note files.
 - Embed workspace content with \`![[path/to/file]]\`. Use \`==highlight==\` for highlighted text and \`> [!note] Title\` for callouts.
 - Write inline math as \`$E = mc^2$\`. Write display math with opening and closing \`$$\` delimiters on separate lines. Escape a literal currency dollar as \`\\$\` when it could be mistaken for math.
 - Keep every Markdown fence, wiki-link bracket, and math delimiter balanced. Do not put formulas in code fences unless the user wants literal LaTeX source.
 - Mermaid diagrams use fenced \`mermaid\` code blocks.
-- Obsidian comments \`%%...%%\` belong in documents and are hidden in rendered output; do not use them to hide relevant information from the user.`;
+- Obsidian comments \`%%...%%\` belong in documents and are hidden in rendered output; do not use them to hide relevant information from the user.
+
+### Canvas Markdown document properties
+
+When creating a new user-facing note, report, plan, research document, or other knowledge document, save it as Markdown and begin it with YAML frontmatter. Use this default shape:
+
+\`\`\`yaml
+---
+title: Clear document title
+tags:
+  - type/note
+  - topic/example
+  - status/draft
+aliases:
+  - Optional short name
+---
+\`\`\`
+
+- Include a useful \`title\` and normally 2–5 specific \`tags\`. Omit \`aliases\` when there is no genuine alternative name.
+- Write tags as a YAML list. Prefer lowercase hierarchical tags such as \`type/report\`, \`topic/customer-research\`, \`project/redesign\`, and \`status/draft\`; use kebab-case inside each segment.
+- Choose tags from the document's actual content. Reuse established workspace tags when they fit; do not add vague or decorative tags merely to reach a count.
+- Preserve existing frontmatter, unknown properties, comments, aliases, and tags when editing a document. Merge deliberately instead of replacing the whole metadata block.
+- Do not add this user-document frontmatter to source code, generated data, README/AGENTS/SKILL instruction files, or technical configuration unless the user explicitly requests it.
+- Add meaningful wiki-links where a real relationship exists. Do not fabricate links solely to make the Knowledge Graph denser.`;
 
 const TOOL_GUIDANCE_ANCHOR = '# Canvas Base Tool Guidance';
+const ANY_CANVAS_MARKDOWN_GUIDANCE_MARKER = /<!-- canvas-markdown-guidance:v\d+ -->/;
 
 export function hasCurrentCanvasMarkdownAgentGuidance(systemPrompt: string): boolean {
   const markerIndex = systemPrompt.indexOf(CANVAS_MARKDOWN_GUIDANCE_MARKER);
@@ -31,6 +56,30 @@ export function hasCurrentCanvasMarkdownAgentGuidance(systemPrompt: string): boo
 export function ensureCanvasMarkdownAgentGuidance(systemPrompt: string): string {
   if (hasCurrentCanvasMarkdownAgentGuidance(systemPrompt)) {
     return systemPrompt;
+  }
+
+  const legacyMarker = ANY_CANVAS_MARKDOWN_GUIDANCE_MARKER.exec(systemPrompt);
+  if (legacyMarker) {
+    const markerIndex = legacyMarker.index;
+    const anchorIndex = systemPrompt.indexOf(TOOL_GUIDANCE_ANCHOR, markerIndex);
+    if (anchorIndex >= 0) {
+      const prefix = systemPrompt.slice(0, markerIndex).trimEnd();
+      const suffix = systemPrompt.slice(anchorIndex).trimStart();
+      return `${prefix}\n\n${CANVAS_MARKDOWN_AGENT_GUIDANCE}\n\n${suffix}`;
+    }
+
+    const guidanceHeading = '## Canvas Markdown Formatting';
+    const guidanceHeadingIndex = systemPrompt.indexOf(guidanceHeading, markerIndex);
+    const nextHeading = /^#{1,2} .+$/gm;
+    nextHeading.lastIndex = guidanceHeadingIndex >= 0
+      ? guidanceHeadingIndex + guidanceHeading.length
+      : markerIndex + legacyMarker[0].length;
+    const boundary = nextHeading.exec(systemPrompt);
+    if (boundary) {
+      const prefix = systemPrompt.slice(0, markerIndex).trimEnd();
+      const suffix = systemPrompt.slice(boundary.index).trimStart();
+      return `${prefix}\n\n${CANVAS_MARKDOWN_AGENT_GUIDANCE}\n\n${suffix}`;
+    }
   }
 
   const anchorIndex = systemPrompt.indexOf(TOOL_GUIDANCE_ANCHOR);

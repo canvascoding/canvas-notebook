@@ -7,7 +7,11 @@ import type { ManagedPromptFiles } from '../app/lib/agents/system-prompt-shared'
 import type { CanvasSkill } from '../app/lib/skills/canvas-skill-manifest';
 import { getSkillsContext } from '../app/lib/skills/skill-context';
 import { MAX_COMPOSED_SYSTEM_PROMPT_BYTES } from '../app/lib/agents/managed-file-limits';
-import { CANVAS_MARKDOWN_GUIDANCE_MARKER } from '../app/lib/markdown/canvas-markdown-agent-guidance';
+import {
+  CANVAS_MARKDOWN_AGENT_GUIDANCE,
+  CANVAS_MARKDOWN_GUIDANCE_MARKER,
+  ensureCanvasMarkdownAgentGuidance,
+} from '../app/lib/markdown/canvas-markdown-agent-guidance';
 
 function createFiles(overrides: Partial<ManagedPromptFiles> = {}): ManagedPromptFiles {
   return {
@@ -37,6 +41,11 @@ assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas 
 assert.match(populated.systemPrompt, /^# Canvas Notebook Runtime/);
 assert.match(populated.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 assert.match(populated.systemPrompt, /Write inline math as `\$E = mc\^2\$`/);
+assert.match(populated.systemPrompt, /title: Clear document title/);
+assert.match(populated.systemPrompt, /type\/note/);
+assert.match(populated.systemPrompt, /normally 2–5 specific `tags`/);
+assert.match(populated.systemPrompt, /Never use a Canvas Notebook browser URL or route as an internal document link/);
+assert.match(populated.systemPrompt, /Preserve existing frontmatter, unknown properties, comments, aliases, and tags/);
 assert.match(populated.systemPrompt, /# Canvas Base Tool Guidance/);
 assert.match(populated.systemPrompt, /Python 3 is available in the Linux container runtime/);
 assert.match(populated.systemPrompt, /## AGENTS\.md\n\n- Follow repo rules\./);
@@ -52,6 +61,42 @@ assert.doesNotMatch(populated.systemPrompt, /## Memory Management \(MEMORY\.md\)
 assert.match(populated.systemPrompt, /## File Access for Uploaded Attachments/);
 assert.match(populated.systemPrompt, /\*\*PDF\*\*: Use the `read` tool first for ordinary text extraction/);
 assert.doesNotMatch(populated.systemPrompt, /Use the `pdf` skill to read and extract content/);
+
+const legacyGuidance = `<!-- canvas-markdown-guidance:v1 -->
+## Canvas Markdown Formatting
+
+Legacy formatting instructions that must be replaced.
+
+# Canvas Base Tool Guidance
+
+Keep this tool guidance.`;
+const migratedGuidance = ensureCanvasMarkdownAgentGuidance(legacyGuidance);
+assert.match(migratedGuidance, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER));
+assert.match(migratedGuidance, /title: Clear document title/);
+assert.match(migratedGuidance, /Keep this tool guidance/);
+assert.doesNotMatch(migratedGuidance, /canvas-markdown-guidance:v1/);
+assert.doesNotMatch(migratedGuidance, /Legacy formatting instructions/);
+assert.equal(
+  ensureCanvasMarkdownAgentGuidance(migratedGuidance),
+  migratedGuidance,
+);
+assert.equal(
+  migratedGuidance.split(CANVAS_MARKDOWN_AGENT_GUIDANCE).length - 1,
+  1,
+);
+const migratedGuidanceWithoutToolAnchor = ensureCanvasMarkdownAgentGuidance(`Runtime header
+
+<!-- canvas-markdown-guidance:v1 -->
+## Canvas Markdown Formatting
+
+Legacy formatting instructions.
+
+## Agent-specific rules
+
+Keep these rules.`);
+assert.match(migratedGuidanceWithoutToolAnchor, /title: Clear document title/);
+assert.match(migratedGuidanceWithoutToolAnchor, /## Agent-specific rules/);
+assert.doesNotMatch(migratedGuidanceWithoutToolAnchor, /Legacy formatting instructions/);
 
 const oversized = composeManagedAgentSystemPrompt(createFiles({
   'AGENTS.md': 'a'.repeat(20_000),

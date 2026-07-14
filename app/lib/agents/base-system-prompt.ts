@@ -26,7 +26,7 @@ Use workspace-relative paths for normal file operations. Use absolute paths only
 
 ## Outputs
 
-When no specific output format is requested, create a Markdown document in the active workspace. Clean up temporary files after completion when they are no longer useful.
+When the user asks for a saved document and no specific output format is requested, create a Markdown document in the active workspace and follow the Canvas Markdown document-property contract below. Clean up temporary files after completion when they are no longer useful.
 
 ## Memory
 
@@ -44,7 +44,7 @@ Do not create to-dos for internal temporary steps. Never put secrets, tokens, cr
 
 User messages may reference files with @path and skills with /skill-name. Treat those as strong signals to inspect the referenced file or use the referenced enabled skill when relevant.
 
-When referencing workspace files in responses, use workspace-relative Markdown links such as [report.md](reports/report.md).`;
+When referencing workspace files in chat responses, use workspace-relative Markdown links such as [report.md](reports/report.md). Inside saved Markdown documents, use the Canvas wiki-link syntax described below for links between workspace notes.`;
 
 export const CANVAS_BASE_TOOL_GUIDANCE = `# Canvas Base Tool Guidance
 
