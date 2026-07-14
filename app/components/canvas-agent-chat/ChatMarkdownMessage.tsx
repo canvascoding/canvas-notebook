@@ -479,12 +479,14 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
   sourcePath,
   variant,
   onMediaClick,
+  className,
 }: {
   content: string;
   embedAncestorPaths?: string[];
   sourcePath?: string;
   variant: 'user' | 'assistant' | 'tool';
   onMediaClick?: (mediaUrl: string) => void;
+  className?: string;
 }) {
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const openFileReference = useOpenChatFileReference();
@@ -698,7 +700,7 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
   };
 
   return (
-    <div className={`${sharedClasses} ${toneClasses}`}>
+    <div className={cn(sharedClasses, toneClasses, className)}>
       <ReactMarkdown
         remarkPlugins={CANVAS_MARKDOWN_REMARK_PLUGINS}
         rehypePlugins={CANVAS_MARKDOWN_REHYPE_PLUGINS}

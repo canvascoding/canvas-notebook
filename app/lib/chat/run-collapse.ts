@@ -19,7 +19,19 @@ export function formatRunDuration(startedAt: number | null, endedAt: number | nu
   return `${seconds}s`;
 }
 
-export function buildCollapsedRunMap(messages: ChatMessage[], isRuntimeBusy: boolean): Map<string, CollapsedRun> {
+/**
+ * Groups completed agent steps under their final assistant response.
+ *
+ * An open tool detail view has to stay mounted while a late runtime-status
+ * update arrives. `protectedStepIds` lets the caller defer that one visual
+ * compaction until the user closes the detail view, without changing how
+ * already-collapsed historical runs are rendered.
+ */
+export function buildCollapsedRunMap(
+  messages: ChatMessage[],
+  isRuntimeBusy: boolean,
+  protectedStepIds: ReadonlySet<string> = new Set(),
+): Map<string, CollapsedRun> {
   const runs = new Map<string, CollapsedRun>();
 
   for (let index = 0; index < messages.length; index += 1) {
@@ -59,7 +71,7 @@ export function buildCollapsedRunMap(messages: ChatMessage[], isRuntimeBusy: boo
       (step.role === 'assistant' || step.role === 'toolResult' || step.role === 'system')
     ));
 
-    if (steps.length > 0) {
+    if (steps.length > 0 && !steps.some((step) => protectedStepIds.has(step.id))) {
       const finalAssistant = messages[finalAssistantIndex];
       runs.set(finalAssistant.id, {
         key: `${message.id}-${finalAssistant.id}`,

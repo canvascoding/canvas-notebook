@@ -33,6 +33,7 @@ const FILE_ACTION_RE = /^(Created|Updated|Checked) file:\s*(.+)$/m;
 const DIFF_FENCE_RE = /(?:^|\n)Diff:\s*\n```diff\n([\s\S]*?)\n```/;
 const MARKDOWN_FILE_RE = /\.(?:md|mdx|markdown)$/i;
 const MAX_MARKDOWN_PREVIEW_CHARS = 12000;
+const RICH_MARKDOWN_RE = /(?:^|\n)\s*(?:#{1,6}\s|[-*+]\s+|\d+\.\s+|>|```|\|.+\|)|\$\$[\s\S]+?\$\$|(?:^|[^\\])\$(?:[^$\n\\]|\\.)+\$|!?(?:\[[^\]]+\]\([^\s)]+\))/m;
 
 function getLineValue(source: string, label: string): string | null {
   const match = source.match(new RegExp(`^${label}:\\s*(.*)$`, 'm'));
@@ -134,6 +135,10 @@ function parseJsonOutput(content: string): unknown | null {
   } catch {
     return null;
   }
+}
+
+function isRichMarkdown(value: string): boolean {
+  return RICH_MARKDOWN_RE.test(value);
 }
 
 function getActionLabel(action: FileChangeAction, t: ReturnType<typeof useTranslations<'chat'>>) {
@@ -298,7 +303,22 @@ function FileChangeOutputView({
 export function ToolOutputView({ content, onMediaClick }: ToolOutputViewProps) {
   const parsedJson = parseJsonOutput(content);
   if (parsedJson !== null) {
-    return <ToolDataView data={parsedJson} />;
+    return (
+      <ToolDataView
+        data={parsedJson}
+        expandStrings
+        renderRichText={(value) => (
+          isRichMarkdown(value) ? (
+            <MarkdownMessage
+              content={value}
+              variant="tool"
+              onMediaClick={onMediaClick}
+              className="text-[13px] leading-6 [&_p+p]:mt-2 [&_ul]:my-2 [&_ol]:my-2 [&_.katex-display]:my-2"
+            />
+          ) : null
+        )}
+      />
+    );
   }
 
   const fileChanges = parseFileChangeOutput(content);

@@ -160,16 +160,21 @@ export function ToolCallPill({
   onMediaClick,
   onAttachmentOpen,
   previewGroup,
+  open,
+  onOpenChange,
 }: {
   message: ChatMessage;
   onMediaClick?: (mediaUrl: string) => void;
   onAttachmentOpen?: AttachmentOpenHandler;
   previewGroup?: Attachment[];
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
 }) {
   const t = useTranslations('chat');
   const locale = useLocale();
   const isMobile = useIsMobile();
   const [copied, setCopied] = useState(false);
+  const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const display = getToolDisplayInfo(message.toolName, locale, getPiMessageDetails(message.piMessage));
   const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
   const isRunning = message.status === 'sending' || message.status === 'aborting';
@@ -181,6 +186,14 @@ export function ToolCallPill({
   const imageAttachments = getPreviewableToolImageAttachments(message);
   const imagePreviewGroup = previewGroup?.length ? previewGroup : imageAttachments;
   const primaryAttachmentName = imageAttachments[0]?.name;
+  const isOpen = open ?? uncontrolledOpen;
+
+  const handleOpenChange = (nextOpen: boolean) => {
+    if (open === undefined) {
+      setUncontrolledOpen(nextOpen);
+    }
+    onOpenChange?.(nextOpen);
+  };
 
   const copyDetails = async () => {
     const sections = [
@@ -229,7 +242,7 @@ export function ToolCallPill({
 
   const detailsPanel = (
     <div data-testid="chat-tool-body" className="flex min-h-0 flex-1 flex-col">
-      <div className="shrink-0 border-b border-border/70 px-3 py-2">
+      <div className="shrink-0 border-b border-border/70 px-4 py-3 sm:px-3 sm:py-2">
         <div className="flex items-center justify-between gap-3">
           <div className="min-w-0">
             <div className="flex items-center gap-2 text-sm font-semibold text-foreground">
@@ -267,13 +280,17 @@ export function ToolCallPill({
           </div>
         </div>
       </div>
-      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-3">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto overscroll-contain p-4 sm:p-3">
         {message.toolArgs ? (
           <div className="rounded-md border border-border/60 bg-muted/30 p-3">
             <div className="mb-2 text-[10px] font-semibold uppercase tracking-wider text-muted-foreground/70">
               {t('toolInput')}
             </div>
-            <div className="max-h-52 overflow-auto pr-1">
+            <div className={cn(
+              isMobile
+                ? 'overflow-visible'
+                : 'max-h-[min(28rem,calc(100dvh-20rem))] overflow-auto pr-1',
+            )}>
               <ToolDataViewFromJson json={message.toolArgs} />
             </div>
           </div>
@@ -295,7 +312,11 @@ export function ToolCallPill({
               ))}
             </div>
           ) : null}
-          <div className="max-h-52 overflow-auto pr-1">
+          <div className={cn(
+            isMobile
+              ? 'overflow-visible'
+              : 'max-h-[min(32rem,calc(100dvh-18rem))] overflow-auto pr-1',
+          )}>
             <ToolOutputView content={bodyContent} onMediaClick={onMediaClick} />
           </div>
         </div>
@@ -306,7 +327,7 @@ export function ToolCallPill({
   return (
     <div key={message.id} data-testid="chat-tool-subtle" className="flex justify-start py-0.5">
       {isMobile ? (
-        <Dialog>
+        <Dialog open={isOpen} onOpenChange={handleOpenChange}>
           <DialogTrigger asChild>{renderTrigger()}</DialogTrigger>
           <DialogContent
             layout="viewport"
@@ -317,7 +338,7 @@ export function ToolCallPill({
           </DialogContent>
         </Dialog>
       ) : (
-        <Popover>
+        <Popover open={isOpen} onOpenChange={handleOpenChange}>
           <PopoverTrigger asChild>{renderTrigger()}</PopoverTrigger>
           <PopoverContent
             side="top"

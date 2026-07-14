@@ -218,7 +218,14 @@ export function ChatMessageList({
 }) {
   const t = useTranslations('chat');
   const skillReferenceCatalog = useSkillReferenceCatalog();
-  const collapsedRunMap = useMemo(() => buildCollapsedRunMap(messages, isRuntimeBusy), [messages, isRuntimeBusy]);
+  const [openDirectToolIds, setOpenDirectToolIds] = useState<Set<string>>(() => new Set());
+  const hasLiveRunMessage = messages.some((message) => (
+    message.status === 'sending' || message.status === 'aborting'
+  ));
+  const collapsedRunMap = useMemo(
+    () => buildCollapsedRunMap(messages, isRuntimeBusy || hasLiveRunMessage, openDirectToolIds),
+    [messages, hasLiveRunMessage, isRuntimeBusy, openDirectToolIds],
+  );
   const toolImagePreviewGroups = useMemo(() => buildToolImagePreviewGroups(messages), [messages]);
   const hiddenStepIds = useMemo(() => {
     const ids = new Set<string>();
@@ -229,6 +236,22 @@ export function ChatMessageList({
     }
     return ids;
   }, [collapsedRunMap]);
+  const handleDirectToolOpenChange = useCallback((messageId: string, open: boolean) => {
+    setOpenDirectToolIds((current) => {
+      const isAlreadyOpen = current.has(messageId);
+      if (open === isAlreadyOpen) {
+        return current;
+      }
+
+      const next = new Set(current);
+      if (open) {
+        next.add(messageId);
+      } else {
+        next.delete(messageId);
+      }
+      return next;
+    });
+  }, []);
 
   return (
     <TooltipProvider delayDuration={300}>
@@ -263,6 +286,8 @@ export function ChatMessageList({
               onMediaClick={onMediaClick}
               onAttachmentOpen={onAttachmentOpen}
               previewGroup={toolImagePreviewGroups.get(message.id)}
+              open={openDirectToolIds.has(message.id)}
+              onOpenChange={(open) => handleDirectToolOpenChange(message.id, open)}
             />
           );
         }

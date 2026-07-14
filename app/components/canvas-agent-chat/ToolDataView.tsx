@@ -46,7 +46,17 @@ function truncateId(value: string): string {
 /*  Scalar value renderer                                              */
 /* ------------------------------------------------------------------ */
 
-function Scalar({ value }: { value: unknown }) {
+type StringRenderer = (value: string) => React.ReactNode | null;
+
+function Scalar({
+  value,
+  expandStrings = false,
+  renderRichText,
+}: {
+  value: unknown;
+  expandStrings?: boolean;
+  renderRichText?: StringRenderer;
+}) {
   const locale = useLocale();
 
   if (value === null || value === undefined) {
@@ -82,7 +92,12 @@ function Scalar({ value }: { value: unknown }) {
       );
     }
 
-    if (value.length > 120) {
+    const richText = renderRichText?.(value);
+    if (richText) {
+      return <div className="min-w-0">{richText}</div>;
+    }
+
+    if (value.length > 120 && !expandStrings) {
       return (
         <span className="text-[11px] text-foreground/80" title={value}>
           {value.slice(0, 120)}…
@@ -90,7 +105,11 @@ function Scalar({ value }: { value: unknown }) {
       );
     }
 
-    return <span className="text-[11px] text-foreground/80">{value}</span>;
+    return (
+      <span className={expandStrings ? 'whitespace-pre-wrap break-words text-[11px] text-foreground/80' : 'text-[11px] text-foreground/80'}>
+        {value}
+      </span>
+    );
   }
 
   // Fallback for symbols / functions / anything else
@@ -107,10 +126,18 @@ interface NodeProps {
   isLast?: boolean;
 }
 
-export function ToolDataView({ data, level = 0 }: Omit<NodeProps, 'isLast'>) {
+export function ToolDataView({
+  data,
+  level = 0,
+  expandStrings = false,
+  renderRichText,
+}: Omit<NodeProps, 'isLast'> & {
+  expandStrings?: boolean;
+  renderRichText?: StringRenderer;
+}) {
   /* --- primitive ----------------------------------------------------- */
   if (data === null || data === undefined || typeof data !== 'object') {
-    return <Scalar value={data} />;
+    return <Scalar value={data} expandStrings={expandStrings} renderRichText={renderRichText} />;
   }
 
   /* --- array --------------------------------------------------------- */
@@ -130,9 +157,14 @@ export function ToolDataView({ data, level = 0 }: Omit<NodeProps, 'isLast'>) {
               </span>
               <div className="min-w-0 flex-1">
                 {isPrimitive ? (
-                  <Scalar value={item} />
+                  <Scalar value={item} expandStrings={expandStrings} renderRichText={renderRichText} />
                 ) : (
-                  <ToolDataView data={item} level={level + 1} />
+                  <ToolDataView
+                    data={item}
+                    level={level + 1}
+                    expandStrings={expandStrings}
+                    renderRichText={renderRichText}
+                  />
                 )}
               </div>
             </div>
@@ -156,17 +188,22 @@ export function ToolDataView({ data, level = 0 }: Omit<NodeProps, 'isLast'>) {
         const isNested = value !== null && typeof value === 'object';
 
         return (
-          <div key={key} className="flex items-start gap-2">
-            <div className="mt-0.5 shrink-0 max-w-[45%]">
+          <div key={key} className="flex flex-col gap-1 sm:flex-row sm:items-start sm:gap-2">
+            <div className="shrink-0 sm:mt-0.5 sm:max-w-[45%]">
               <span className="text-[11px] font-medium text-muted-foreground/80 break-words">
                 {key}
               </span>
             </div>
             <div className="min-w-0 flex-1">
               {isNested ? (
-                <ToolDataView data={value} level={level + 1} />
+                <ToolDataView
+                  data={value}
+                  level={level + 1}
+                  expandStrings={expandStrings}
+                  renderRichText={renderRichText}
+                />
               ) : (
-                <Scalar value={value} />
+                <Scalar value={value} expandStrings={expandStrings} renderRichText={renderRichText} />
               )}
             </div>
           </div>
