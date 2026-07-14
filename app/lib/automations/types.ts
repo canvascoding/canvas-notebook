@@ -199,3 +199,46 @@ export type CreateCustomWebhookAutomationJobInput = {
 export type UpdateAutomationJobInput = Partial<Omit<CreateAutomationJobInput, 'scope' | 'workspaceId'>> & {
   lastRunStatus?: AutomationRunStatus | null;
 };
+
+export type AutomationWorkspaceChangeIssueSeverity = 'info' | 'warning' | 'change' | 'blocker';
+
+export type AutomationWorkspaceChangeIssue = {
+  code:
+    | 'SAME_WORKSPACE'
+    | 'SCOPE_CHANGE'
+    | 'IN_FLIGHT_RUN'
+    | 'EXECUTOR_NO_ACCESS'
+    | 'AGENT_UNAVAILABLE'
+    | 'RUNTIME_UNAVAILABLE'
+    | 'CONTEXT_PATH_MISSING'
+    | 'OUTPUT_PATH_CONFLICT'
+    | 'SKILL_RESET'
+    | 'FIXED_SESSION_RESET'
+    | 'DELIVERY_UNAVAILABLE'
+    | 'COMPOSIO_CONNECTION_UNAVAILABLE';
+  severity: AutomationWorkspaceChangeIssueSeverity;
+  message: string;
+  field?: string;
+  value?: string;
+};
+
+export type AutomationWorkspaceChangePreview = {
+  jobId: string;
+  sourceWorkspace: {
+    id: string;
+    type: AutomationWorkspaceType;
+    name: string;
+  };
+  targetWorkspace: {
+    id: string;
+    type: AutomationWorkspaceType;
+    name: string;
+  };
+  nextScope: AutomationScope;
+  canChange: boolean;
+  issues: AutomationWorkspaceChangeIssue[];
+  changes: {
+    resetPreferredSkill: boolean;
+    resetFixedDeliverySession: boolean;
+  };
+};

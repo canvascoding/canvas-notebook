@@ -88,6 +88,26 @@ async function main() {
     assert.ok(memberPersonalWorkspace?.id);
     assert.ok(teamWorkspace?.id);
 
+    const privateTeamWorkspaceId = 'ws-private-automation-team';
+    sqlite.prepare(`
+      INSERT INTO canvas_workspaces (
+        id, organization_id, type, owner_user_id, root_relative_path, display_name,
+        workspace_icon, status, is_default, created_at, updated_at
+      ) VALUES (?, ?, 'team', NULL, ?, 'Private Automation Team', 'users-round', 'active', 0, ?, ?)
+    `).run(
+      privateTeamWorkspaceId,
+      organizationId,
+      `workspaces/team/${organizationId}/private-automation-team/files`,
+      now,
+      now,
+    );
+    sqlite.prepare(`
+      INSERT INTO canvas_workspace_members (
+        organization_id, workspace_id, user_id, role, status,
+        can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+      ) VALUES (?, ?, 'user-owner', 'admin', 'active', 1, 1, 1, 'user-owner', ?, ?)
+    `).run(organizationId, privateTeamWorkspaceId, now, now);
+
     sqlite.close();
 
     const setMemberCanCreateTeamAutomations = (enabled: boolean) => {
@@ -103,13 +123,38 @@ async function main() {
       }
     };
 
+    const setMemberPrivateTeamAccess = (enabled: boolean) => {
+      const permissionsDb = new Database(dbPath);
+      try {
+        if (enabled) {
+          permissionsDb.prepare(`
+            INSERT INTO canvas_workspace_members (
+              organization_id, workspace_id, user_id, role, status,
+              can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+            ) VALUES (?, ?, 'user-member', 'member', 'active', 1, 1, 0, 'user-owner', ?, ?)
+            ON CONFLICT(workspace_id, user_id) DO UPDATE SET
+              status = 'active', can_read = 1, can_write = 1, updated_at = excluded.updated_at
+          `).run(organizationId, privateTeamWorkspaceId, Date.now(), Date.now());
+        } else {
+          permissionsDb.prepare(`
+            DELETE FROM canvas_workspace_members
+            WHERE workspace_id = ? AND user_id = 'user-member'
+          `).run(privateTeamWorkspaceId);
+        }
+      } finally {
+        permissionsDb.close();
+      }
+    };
+
     const {
       createAutomationJob,
       getAutomationRun,
       listAutomationJobs,
+      moveAutomationJobToWorkspace,
       scheduleAutomationJobRun,
       upsertHeartbeatJob,
     } = await import('../app/lib/automations/store');
+    const { resolveAutomationScopeForWorkspaceChange } = await import('../app/lib/automations/policy');
 
     const memberPersonalJob = await createAutomationJob({
       name: 'Member personal job',
@@ -163,6 +208,54 @@ async function main() {
     const memberJobsWithOrgAccess = await listAutomationJobs('user-member');
     assert.ok(memberJobsWithOrgAccess.some((job) => job.id === memberOrganizationJob.id));
 
+    const privateTeamJob = await createAutomationJob({
+      name: 'Private team job',
+      prompt: 'Only members of this team workspace may see this automation.',
+      scope: 'team',
+      workspaceId: privateTeamWorkspaceId,
+      schedule: { kind: 'daily', times: ['10:45'], timeZone: 'UTC' },
+    }, { id: 'user-owner', role: 'admin', email: 'owner@example.test' });
+    assert.equal(privateTeamJob.workspaceType, 'team');
+    assert.equal(
+      (await listAutomationJobs('user-member')).some((job) => job.id === privateTeamJob.id),
+      false,
+      'organization permission alone must not expose a team-workspace automation',
+    );
+    setMemberPrivateTeamAccess(true);
+    assert.equal(
+      (await listAutomationJobs('user-member')).some((job) => job.id === privateTeamJob.id),
+      true,
+      'assigned team-workspace members with automation permission should see the automation',
+    );
+
+    const memberOrganizationTarget = await resolveAutomationScopeForWorkspaceChange(
+      teamWorkspace.id,
+      { id: 'user-member', role: 'member', email: 'member@example.test' },
+    );
+    const movedMemberJob = await moveAutomationJobToWorkspace(memberPersonalJob.id, memberOrganizationTarget, {
+      actorUserId: 'user-member',
+      responsibleUserId: 'user-member',
+    });
+    assert.equal(movedMemberJob.scope, 'organization');
+    assert.equal(movedMemberJob.ownerUserId, null);
+    assert.equal(movedMemberJob.workspaceId, teamWorkspace.id);
+    assert.equal(movedMemberJob.jobScope, `organization:${organizationId}:${teamWorkspace.id}`);
+
+    const memberPersonalTarget = await resolveAutomationScopeForWorkspaceChange(
+      memberPersonalWorkspace.id,
+      { id: 'user-member', role: 'member', email: 'member@example.test' },
+    );
+    const movedBackMemberJob = await moveAutomationJobToWorkspace(memberPersonalJob.id, memberPersonalTarget, {
+      actorUserId: 'user-member',
+      responsibleUserId: 'user-member',
+      resetPreferredSkill: true,
+      resetFixedDeliverySession: true,
+    });
+    assert.equal(movedBackMemberJob.scope, 'personal');
+    assert.equal(movedBackMemberJob.ownerUserId, 'user-member');
+    assert.equal(movedBackMemberJob.workspaceId, memberPersonalWorkspace.id);
+    assert.equal(movedBackMemberJob.jobScope, `personal:user-member:${memberPersonalWorkspace.id}`);
+
     setMemberCanCreateTeamAutomations(false);
 
     const ownerOrganizationJob = await createAutomationJob({
@@ -199,6 +292,19 @@ async function main() {
     assert.equal(run.actorType, 'user');
     assert.equal(run.actorUserId, 'user-owner');
     assert.equal(run.serviceActorId, null);
+
+    const ownerPrivateTeamTarget = await resolveAutomationScopeForWorkspaceChange(
+      privateTeamWorkspaceId,
+      { id: 'user-owner', role: 'admin', email: 'owner@example.test' },
+    );
+    await assert.rejects(
+      () => moveAutomationJobToWorkspace(ownerOrganizationJob.id, ownerPrivateTeamTarget, {
+        actorUserId: 'user-owner',
+        responsibleUserId: 'user-owner',
+      }),
+      /Wait until the current automation run has finished/,
+      'workspace changes must be blocked while a run is in flight',
+    );
 
     const loadedRun = await getAutomationRun(run.id);
     assert.equal(loadedRun?.workspaceId, teamWorkspace.id);

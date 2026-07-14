@@ -106,31 +106,11 @@ async function assertCanCreateOrganizationAutomation(user: AutomationPolicyUser)
   }
 }
 
-export async function getAutomationListAccess(userId: string): Promise<AutomationListAccess> {
-  const state = await readOrganizationPermissionForUser(userId);
-  // Organization automations expose shared prompts, schedules, and run history;
-  // keep read visibility aligned with the team-automation authoring permission.
-  const canReadOrganizationAutomations = Boolean(
-    state.organizationId &&
-    hasOrganizationPermission(state.permission, 'canCreateTeamAutomations'),
-  );
-
-  return {
-    userId,
-    organizationId: state.organizationId,
-    canReadOrganizationAutomations,
-  };
-}
-
-export async function resolveAutomationScopeForCreate(input: unknown, user: AutomationPolicyUser): Promise<ResolvedAutomationScope> {
-  const requestedScope = normalizeRequestedScope(input);
-  const workspaceId = normalizeWorkspaceId(input);
-  const workspace = await resolveAgentSessionWorkspaceForUser({
-    userId: user.id,
-    workspaceId,
-    permissions: ['canRead', 'canWrite', 'canRunAgent'],
-  });
-
+async function resolveAutomationScopeForWorkspace(
+  workspace: WorkspaceContext,
+  requestedScope: AutomationScope | 'team',
+  user: AutomationPolicyUser,
+): Promise<ResolvedAutomationScope> {
   if (workspace.workspaceType === 'personal') {
     if (requestedScope !== 'personal') {
       throw new AutomationPolicyError('Organization automations require a team workspace.');
@@ -173,11 +153,52 @@ export async function resolveAutomationScopeForCreate(input: unknown, user: Auto
     workspaceType: workspace.workspaceType,
     ownerUserId: null,
     responsibleUserId: user.id,
-    serviceActorId: workspace.organizationId ? `org-service:${workspace.organizationId}` : null,
+    serviceActorId: `org-service:${workspace.organizationId}`,
     approvedByUserId: user.id,
     lastEditedByUserId: user.id,
     workspace,
   };
+}
+
+export async function getAutomationListAccess(userId: string): Promise<AutomationListAccess> {
+  const state = await readOrganizationPermissionForUser(userId);
+  // Organization automations expose shared prompts, schedules, and run history;
+  // keep read visibility aligned with the team-automation authoring permission.
+  const canReadOrganizationAutomations = Boolean(
+    state.organizationId &&
+    hasOrganizationPermission(state.permission, 'canCreateTeamAutomations'),
+  );
+
+  return {
+    userId,
+    organizationId: state.organizationId,
+    canReadOrganizationAutomations,
+  };
+}
+
+export async function resolveAutomationScopeForCreate(input: unknown, user: AutomationPolicyUser): Promise<ResolvedAutomationScope> {
+  const requestedScope = normalizeRequestedScope(input);
+  const workspaceId = normalizeWorkspaceId(input);
+  const workspace = await resolveAgentSessionWorkspaceForUser({
+    userId: user.id,
+    workspaceId,
+    permissions: ['canRead', 'canWrite', 'canRunAgent'],
+  });
+
+  return resolveAutomationScopeForWorkspace(workspace, requestedScope, user);
+}
+
+export async function resolveAutomationScopeForWorkspaceChange(
+  workspaceId: string,
+  user: AutomationPolicyUser,
+): Promise<ResolvedAutomationScope> {
+  const workspace = await resolveAgentSessionWorkspaceForUser({
+    userId: user.id,
+    workspaceId,
+    permissions: ['canRead', 'canWrite', 'canRunAgent'],
+  });
+  const requestedScope: AutomationScope = workspace.workspaceType === 'personal' ? 'personal' : 'organization';
+  return resolveAutomationScopeForWorkspace(workspace, requestedScope, user);
 }
 
 export async function canAccessAutomationJob(
@@ -188,6 +209,7 @@ export async function canAccessAutomationJob(
     ownerUserId?: string | null;
     responsibleUserId?: string | null;
     organizationId?: string | null;
+    workspaceId?: string | null;
   },
 ): Promise<boolean> {
   const scope = job.scope === 'organization' ? 'organization' : 'personal';
@@ -196,11 +218,25 @@ export async function canAccessAutomationJob(
   }
 
   const state = await readOrganizationPermissionForUser(userId);
-  return Boolean(
+  if (!(
     job.organizationId &&
     state.organizationId === job.organizationId &&
-    hasOrganizationPermission(state.permission, 'canCreateTeamAutomations'),
-  );
+    hasOrganizationPermission(state.permission, 'canCreateTeamAutomations') &&
+    job.workspaceId
+  )) {
+    return false;
+  }
+
+  try {
+    await resolveAgentSessionWorkspaceForUser({
+      userId,
+      workspaceId: job.workspaceId,
+      permissions: ['canRead'],
+    });
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function assertCanAccessAutomationJob(

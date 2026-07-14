@@ -13,8 +13,10 @@ import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import { generateAutomationWebhookSecret } from './webhook-secret';
 import {
   assertCanAccessAutomationJob,
+  canAccessAutomationJob,
   getAutomationListAccess,
   resolveAutomationScopeForCreate,
+  type ResolvedAutomationScope,
   type AutomationPolicyUser,
 } from './policy';
 import {
@@ -616,8 +618,13 @@ export async function listAutomationJobs(userId: string): Promise<AutomationJobR
     )
     .orderBy(asc(automationJobs.name), asc(automationJobs.createdAt));
 
-  const customWebhookTriggers = await loadAutomationWebhookTriggersByJobIds(rows.map((row) => row.id));
-  return rows.map((row) => mapJobRow(row, customWebhookTriggers.get(row.id) ?? null));
+  const accessibleRows = organizationAccess
+    ? (await Promise.all(rows.map(async (row) => (
+        row.scope !== 'organization' || await canAccessAutomationJob(userId, row) ? row : null
+      )))).filter((row): row is typeof automationJobs.$inferSelect => Boolean(row))
+    : rows;
+  const customWebhookTriggers = await loadAutomationWebhookTriggersByJobIds(accessibleRows.map((row) => row.id));
+  return accessibleRows.map((row) => mapJobRow(row, customWebhookTriggers.get(row.id) ?? null));
 }
 
 export async function getAutomationJobByComposioTriggerId(triggerId: string): Promise<AutomationJobRecord | null> {
@@ -1082,6 +1089,147 @@ export async function updateAutomationJob(
     .returning();
 
   console.log(`[Automationen] Updated job ${jobId} (status=${status}, schedule=${schedule.kind})`);
+  return mapJobRowWithWebhookTrigger(updated);
+}
+
+export class AutomationWorkspaceChangeConflictError extends Error {
+  readonly status = 409;
+  readonly code = 'AUTOMATION_WORKSPACE_CHANGE_CONFLICT';
+
+  constructor(message: string) {
+    super(message);
+    this.name = 'AutomationWorkspaceChangeConflictError';
+  }
+}
+
+export async function moveAutomationJobToWorkspace(
+  jobId: string,
+  target: ResolvedAutomationScope,
+  options: {
+    actorUserId: string;
+    responsibleUserId: string;
+    resetPreferredSkill?: boolean;
+    resetFixedDeliverySession?: boolean;
+  },
+): Promise<AutomationJobRecord> {
+  const targetWorkspaceId = target.workspaceId || target.workspace.workspaceId;
+  const moveRow = (
+    tx: AutomationStoreTransaction,
+    existing: AutomationJobRow,
+  ): AutomationJobRow => {
+    if (existing.workspaceId === targetWorkspaceId) {
+      throw new AutomationWorkspaceChangeConflictError('Automation already uses this workspace.');
+    }
+    const inFlight = getInFlightAutomationRunSync(tx, jobId);
+    if (inFlight) {
+      throw new AutomationWorkspaceChangeConflictError(
+        'Wait until the current automation run has finished before changing the workspace.',
+      );
+    }
+
+    const scope = target.scope;
+    const ownerUserId = scope === 'personal' ? options.actorUserId : null;
+    const responsibleUserId = scope === 'personal' ? options.actorUserId : options.responsibleUserId;
+    const [updated] = tx
+      .update(automationJobs)
+      .set({
+        scope,
+        jobScope: buildAutomationJobScope({
+          scope,
+          organizationId: target.organizationId,
+          workspaceId: targetWorkspaceId,
+          workspaceType: target.workspaceType,
+          ownerUserId,
+          responsibleUserId,
+          createdByUserId: existing.createdByUserId,
+          actorUserId: options.actorUserId,
+        }),
+        organizationId: target.organizationId,
+        customerId: target.workspace.customerId ?? null,
+        projectId: target.workspace.projectId ?? null,
+        workspaceId: targetWorkspaceId,
+        workspaceType: target.workspaceType,
+        ownerUserId,
+        responsibleUserId,
+        serviceActorId: scope === 'organization' ? target.serviceActorId : null,
+        approvedByUserId: scope === 'organization' ? options.actorUserId : null,
+        lastEditedByUserId: options.actorUserId,
+        preferredSkill: options.resetPreferredSkill ? 'auto' : existing.preferredSkill,
+        deliverySessionMode: options.resetFixedDeliverySession ? 'new_session' : existing.deliverySessionMode,
+        deliverySessionId: options.resetFixedDeliverySession ? null : existing.deliverySessionId,
+        updatedAt: new Date(),
+      })
+      .where(eq(automationJobs.id, jobId))
+      .returning()
+      .all();
+
+    if (!updated) {
+      throw new Error('Automation job not found.');
+    }
+    return updated;
+  };
+
+  const updated = await runAutomationTransaction(
+    (tx) => {
+      const existing = getAutomationJobRowSync(tx, jobId);
+      if (!existing) throw new Error('Automation job not found.');
+      return moveRow(tx, existing);
+    },
+    async (tx) => {
+      const existing = await getAutomationJobRowAsync(tx, jobId);
+      if (!existing) throw new Error('Automation job not found.');
+      if (existing.workspaceId === targetWorkspaceId) {
+        throw new AutomationWorkspaceChangeConflictError('Automation already uses this workspace.');
+      }
+      const inFlight = await getInFlightAutomationRunAsync(tx, jobId);
+      if (inFlight) {
+        throw new AutomationWorkspaceChangeConflictError(
+          'Wait until the current automation run has finished before changing the workspace.',
+        );
+      }
+
+      const scope = target.scope;
+      const ownerUserId = scope === 'personal' ? options.actorUserId : null;
+      const responsibleUserId = scope === 'personal' ? options.actorUserId : options.responsibleUserId;
+      const [next] = await tx
+        .update(automationJobs)
+        .set({
+          scope,
+          jobScope: buildAutomationJobScope({
+            scope,
+            organizationId: target.organizationId,
+            workspaceId: targetWorkspaceId,
+            workspaceType: target.workspaceType,
+            ownerUserId,
+            responsibleUserId,
+            createdByUserId: existing.createdByUserId,
+            actorUserId: options.actorUserId,
+          }),
+          organizationId: target.organizationId,
+          customerId: target.workspace.customerId ?? null,
+          projectId: target.workspace.projectId ?? null,
+          workspaceId: targetWorkspaceId,
+          workspaceType: target.workspaceType,
+          ownerUserId,
+          responsibleUserId,
+          serviceActorId: scope === 'organization' ? target.serviceActorId : null,
+          approvedByUserId: scope === 'organization' ? options.actorUserId : null,
+          lastEditedByUserId: options.actorUserId,
+          preferredSkill: options.resetPreferredSkill ? 'auto' : existing.preferredSkill,
+          deliverySessionMode: options.resetFixedDeliverySession ? 'new_session' : existing.deliverySessionMode,
+          deliverySessionId: options.resetFixedDeliverySession ? null : existing.deliverySessionId,
+          updatedAt: new Date(),
+        })
+        .where(eq(automationJobs.id, jobId))
+        .returning();
+      if (!next) throw new Error('Automation job not found.');
+      return next;
+    },
+  );
+
+  console.log(
+    `[Automationen] Moved job ${jobId} to workspace ${targetWorkspaceId} (scope=${target.scope})`,
+  );
   return mapJobRowWithWebhookTrigger(updated);
 }
 
