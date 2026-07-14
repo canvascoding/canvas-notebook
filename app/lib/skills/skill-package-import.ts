@@ -32,6 +32,19 @@ const MAX_SKILL_ARCHIVE_BYTES = 100 * 1024 * 1024;
 const MAX_SKILL_EXTRACTED_BYTES = 250 * 1024 * 1024;
 const MAX_SKILL_PACKAGE_FILES = 2_000;
 const IGNORED_PACKAGE_ENTRIES = new Set(['.git', 'node_modules', '.DS_Store']);
+const BLOCKED_SECRET_FILE_NAMES = new Set([
+  '.npmrc',
+  'credentials.json',
+  'mcp.json',
+  'oauth.json',
+  'secrets.json',
+  'token.json',
+  'id_dsa',
+  'id_ecdsa',
+  'id_ed25519',
+  'id_rsa',
+]);
+const BLOCKED_SECRET_FILE_EXTENSIONS = new Set(['.key', '.p12', '.pem', '.pfx']);
 
 export type SkillPackageImportSource =
   | {
@@ -104,6 +117,22 @@ function sanitizePackageRelativePath(rawPath: string): string {
   return parts.join('/');
 }
 
+function assertPackagePathIsNotSecret(relativePath: string, bytes: Buffer): void {
+  const fileName = path.posix.basename(relativePath).toLowerCase();
+  const isEnvironmentFile = fileName === '.env' || fileName.startsWith('.env.');
+  const isKnownSecretFile = BLOCKED_SECRET_FILE_NAMES.has(fileName)
+    || BLOCKED_SECRET_FILE_EXTENSIONS.has(path.posix.extname(fileName));
+  const containsPrivateKey = bytes.byteLength <= 1024 * 1024
+    && bytes.toString('utf-8').includes('-----BEGIN PRIVATE KEY-----');
+
+  if (isEnvironmentFile || isKnownSecretFile || containsPrivateKey) {
+    throw new SkillPackageImportError(
+      `Skill package contains a blocked secret-bearing file: ${relativePath}`,
+      400,
+    );
+  }
+}
+
 async function writePackageFile(params: {
   root: string;
   relativePath: string;
@@ -114,6 +143,7 @@ async function writePackageFile(params: {
   if (isIgnoredPackagePath(relativePath)) {
     return;
   }
+  assertPackagePathIsNotSecret(relativePath, params.bytes);
 
   params.state.fileCount += 1;
   params.state.totalBytes += params.bytes.byteLength;

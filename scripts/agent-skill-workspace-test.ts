@@ -142,6 +142,55 @@ async function main() {
     assert.equal(installed.version, '1.1.0');
     assert.equal(await pathExists(path.join(path.dirname(installed.skillPath), 'scripts', 'helper.js')), true);
 
+    const sourceBeforeFork = await inspectCanvasSkillForAgent({
+      scope,
+      skillName: 'agent-draft-skill',
+    });
+    const forkDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'agent-draft-skill-fork',
+      sourceSkillName: 'agent-draft-skill',
+    });
+    assert.equal(forkDraft.sourceSkillName, 'agent-draft-skill');
+    const forkSkillContent = await fs.readFile(
+      path.join(workspaceRoot, forkDraft.packagePath, 'SKILL.md'),
+      'utf-8',
+    );
+    assert.match(forkSkillContent, /^---\nname: agent-draft-skill-fork\n/m);
+    const forkInstall = await installCanvasSkillFromWorkspace({
+      workspaceRoot,
+      scope,
+      draftPath: forkDraft.packagePath,
+      updatedBy: 'agent-skill-user',
+    });
+    assert.equal(forkInstall.name, 'agent-draft-skill-fork');
+    assert.equal(
+      (await inspectCanvasSkillForAgent({ scope, skillName: 'agent-draft-skill' })).checksum,
+      sourceBeforeFork.checksum,
+    );
+
+    const secretDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope,
+      skillName: 'secret-draft-skill',
+      version: '1.0.0',
+    });
+    await fs.writeFile(
+      path.join(workspaceRoot, secretDraft.packagePath, '.env'),
+      'EXAMPLE_SECRET=must-not-be-imported\n',
+      'utf-8',
+    );
+    await assert.rejects(
+      installCanvasSkillFromWorkspace({
+        workspaceRoot,
+        scope,
+        draftPath: secretDraft.packagePath,
+      }),
+      /blocked secret-bearing file: \.env/,
+    );
+    assert.equal(await pathExists(path.join(workspaceRoot, secretDraft.packagePath)), true);
+
     const discardDraft = await createCanvasSkillDraft({
       workspaceRoot,
       scope,

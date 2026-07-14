@@ -3,6 +3,7 @@ import 'server-only';
 import { createHash, randomUUID } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
+import YAML from 'yaml';
 
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
 import { isValidCanvasPluginName, isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
@@ -113,6 +114,12 @@ type ExistingEditableSkill = {
   record?: CanvasSkillInstallRecord;
   version: string;
   checksum: string;
+};
+
+type AtomicSkillPackageReplacement = {
+  installDir: string;
+  commit: () => Promise<void>;
+  rollback: () => Promise<void>;
 };
 
 function nowIso(): string {
@@ -296,6 +303,28 @@ async function validateWorkspaceSkillPackage(
   return skill;
 }
 
+async function rewriteSkillPackageName(packageRoot: string, targetSkillName: string): Promise<void> {
+  const skillPath = requirePathInside(packageRoot, 'SKILL.md');
+  const content = await fs.readFile(skillPath, 'utf-8');
+  const match = content.match(/^---\r?\n([\s\S]*?)\r?\n---\r?\n?([\s\S]*)$/);
+  if (!match) {
+    throw new Error('Skill package must contain valid YAML frontmatter before it can be forked.');
+  }
+
+  const frontmatter = YAML.parse(match[1]) as unknown;
+  if (!frontmatter || typeof frontmatter !== 'object' || Array.isArray(frontmatter)) {
+    throw new Error('Skill package must contain object YAML frontmatter before it can be forked.');
+  }
+  (frontmatter as Record<string, unknown>).name = targetSkillName;
+  const serializedFrontmatter = YAML.stringify(frontmatter).trimEnd();
+  await fs.writeFile(
+    skillPath,
+    `---\n${serializedFrontmatter}\n---\n\n${match[2].replace(/^\s+/, '')}`,
+    'utf-8',
+  );
+  await validateWorkspaceSkillPackage(packageRoot, targetSkillName);
+}
+
 async function enableInstalledSkill(
   skillName: string,
   scope: CanvasSkillStorageScope,
@@ -410,13 +439,21 @@ async function cleanupDraftIfManaged(workspaceRoot: string, packageRoot: string,
   return { cleaned: true };
 }
 
-async function copySkillPackageToTarget(packageRoot: string, skillName: string, scope: CanvasSkillStorageScope): Promise<string> {
+async function replaceSkillPackageAtomically(
+  packageRoot: string,
+  skillName: string,
+  scope: CanvasSkillStorageScope,
+): Promise<AtomicSkillPackageReplacement> {
   const skillsDir = resolveScopedSkillsDataDir(scope);
   const targetDir = requirePathInside(skillsDir, skillName);
   const tempDir = createAtomicTempPath(targetDir);
+  const backupDir = createAtomicTempPath(`${targetDir}.backup`);
+  let movedExistingPackage = false;
+  let installedReplacement = false;
 
   try {
     await fs.rm(tempDir, { recursive: true, force: true });
+    await fs.rm(backupDir, { recursive: true, force: true });
     await fs.mkdir(path.dirname(tempDir), { recursive: true });
     await fs.cp(requirePathInside(packageRoot, '.'), tempDir, {
       recursive: true,
@@ -428,11 +465,40 @@ async function copySkillPackageToTarget(packageRoot: string, skillName: string, 
     });
 
     await validateWorkspaceSkillPackage(tempDir, skillName);
-    await fs.rm(targetDir, { recursive: true, force: true });
+    const targetExists = await fs.stat(targetDir).then(() => true).catch(() => false);
+    if (targetExists) {
+      await fs.rename(targetDir, backupDir);
+      movedExistingPackage = true;
+    }
     await fs.rename(tempDir, targetDir);
-    return targetDir;
+    installedReplacement = true;
+    return {
+      installDir: targetDir,
+      commit: async () => {
+        if (movedExistingPackage) {
+          await fs.rm(backupDir, { recursive: true, force: true });
+          movedExistingPackage = false;
+        }
+      },
+      rollback: async () => {
+        if (installedReplacement) {
+          await fs.rm(targetDir, { recursive: true, force: true });
+          installedReplacement = false;
+        }
+        if (movedExistingPackage) {
+          await fs.rename(backupDir, targetDir);
+          movedExistingPackage = false;
+        }
+      },
+    };
   } catch (error) {
     await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    if (installedReplacement) {
+      await fs.rm(targetDir, { recursive: true, force: true }).catch(() => undefined);
+    }
+    if (movedExistingPackage) {
+      await fs.rename(backupDir, targetDir).catch(() => undefined);
+    }
     throw error;
   }
 }
@@ -530,6 +596,9 @@ export async function createCanvasSkillDraft(params: {
       preserveTimestamps: true,
       filter: (sourcePath) => !isIgnoredPackagePath(toPosixPath(path.relative(source.installDir, sourcePath))),
     });
+    if (source.skill.name !== skillName) {
+      await rewriteSkillPackageName(packageRoot, skillName);
+    }
     return {
       draftId: id,
       draftPath: workspaceRelativePath(params.workspaceRoot, path.dirname(packageRoot)),
@@ -666,16 +735,25 @@ export async function updateCanvasSkillFromWorkspace(params: {
 
   const workspacePackage = await resolveWorkspacePackage(params.workspaceRoot, params.draftPath);
   const nextSkill = await validateWorkspaceSkillPackage(workspacePackage.packageRoot, skillName);
-  const installDir = await copySkillPackageToTarget(workspacePackage.packageRoot, skillName, scope);
-  const record = await writeLocalSkillRecord({
-    skillName,
-    version: nextSkill.version || 'local',
-    description: nextSkill.description,
-    license: nextSkill.license,
-    installDir,
-    sourcePath: `workspace:${workspacePackage.displayPath}`,
-    scope,
-  });
+  const previousRegistry = await readCanvasSkillRegistry(scope);
+  const replacement = await replaceSkillPackageAtomically(workspacePackage.packageRoot, skillName, scope);
+  let record: CanvasSkillInstallRecord;
+  try {
+    record = await writeLocalSkillRecord({
+      skillName,
+      version: nextSkill.version || 'local',
+      description: nextSkill.description,
+      license: nextSkill.license,
+      installDir: replacement.installDir,
+      sourcePath: `workspace:${workspacePackage.displayPath}`,
+      scope,
+    });
+    await replacement.commit();
+  } catch (error) {
+    await replacement.rollback().catch(() => undefined);
+    await writeCanvasSkillRegistry(previousRegistry, scope).catch(() => undefined);
+    throw error;
+  }
 
   if (params.enable !== false) {
     await enableInstalledSkill(skillName, scope, params.updatedBy).catch((error) => {
@@ -687,7 +765,7 @@ export async function updateCanvasSkillFromWorkspace(params: {
   return {
     success: true,
     name: skillName,
-    path: requirePathInside(installDir, 'SKILL.md'),
+    path: requirePathInside(replacement.installDir, 'SKILL.md'),
     previousVersion: existing.version,
     version: record.version,
     previousChecksum: existing.checksum,
