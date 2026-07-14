@@ -178,7 +178,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
   }) => (
     <div className={cn('flex min-w-0 items-center gap-1 py-2', className)}>
       {includeWorkspaceSwitcher && showWorkspaceSwitcher ? (
-        <WorkspaceSwitcher source="file-browser" variant="compact" className="mr-1 min-w-0 flex-1" />
+        <WorkspaceSwitcher source="file-browser" variant="file-toolbar" className="mr-1 min-w-0 flex-1" />
       ) : (
         <div className="min-w-0 flex-1" />
       )}
@@ -318,7 +318,7 @@ export function FileToolbar({ variant, isMultiSelectMode, isDeleteDisabled, isRe
       <div className="flex items-center justify-between gap-2">
         <h2 className="shrink-0 text-sm font-semibold text-foreground">{t('filesTitle')}</h2>
         {showWorkspaceSwitcher ? (
-          <WorkspaceSwitcher source="file-browser" variant="compact" className="min-w-0 shrink" />
+          <WorkspaceSwitcher source="file-browser" variant="file-toolbar" className="min-w-0 flex-1" />
         ) : null}
       </div>
       <TooltipProvider delayDuration={300}>

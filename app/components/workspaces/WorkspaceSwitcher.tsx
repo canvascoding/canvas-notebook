@@ -39,7 +39,7 @@ import {
   type WorkspaceSwitchSource,
 } from '@/app/store/workspace-store';
 
-type WorkspaceSwitcherVariant = 'default' | 'compact' | 'chat-compact' | 'toolbar' | 'mobile-sheet';
+type WorkspaceSwitcherVariant = 'default' | 'compact' | 'chat-compact' | 'toolbar' | 'file-toolbar' | 'mobile-sheet';
 
 type WorkspaceSwitcherProps = {
   source: WorkspaceSwitchSource;
@@ -118,6 +118,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const isCompact = variant === 'compact';
   const isChatCompact = variant === 'chat-compact';
   const isToolbar = variant === 'toolbar';
+  const isFileToolbar = variant === 'file-toolbar';
   const isMobileSheet = variant === 'mobile-sheet';
   const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
   const canManageWorkspaces = hasWorkspaceManagementControls(workspaces);
@@ -331,7 +332,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           data-active-workspace-type={activeWorkspace?.type ?? ''}
           className={cn(
             'h-8 min-w-0 gap-1.5 px-2 text-xs',
-            isChatCompact ? 'max-w-[8rem]' : isCompact ? 'max-w-[9.5rem]' : 'max-w-[14rem]',
+            isFileToolbar ? 'w-full max-w-none @container' : isChatCompact ? 'max-w-[8rem]' : isCompact ? 'max-w-[9.5rem]' : 'max-w-[14rem]',
             isToolbar && 'bg-background/70',
             className
           )}
@@ -342,7 +343,12 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           ) : (
             renderWorkspaceIcon(activeWorkspace, 'h-3.5 w-3.5 shrink-0')
           )}
-          <span className={cn('min-w-0 truncate', isCompact && 'hidden sm:inline', isChatCompact && 'hidden md:inline')}>
+          <span className={cn(
+            'min-w-0 truncate',
+            isFileToolbar && 'hidden @[8.5rem]:inline',
+            isCompact && !isFileToolbar && 'hidden sm:inline',
+            isChatCompact && 'hidden md:inline',
+          )}>
             {activeLabel}
           </span>
           {activeWorkspace && !activeWorkspace.permissions.canWrite ? <Lock className="h-3 w-3 shrink-0 text-amber-500" /> : null}
