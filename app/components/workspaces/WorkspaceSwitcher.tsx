@@ -370,7 +370,11 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           <ChevronsUpDown className="h-3 w-3 shrink-0 text-muted-foreground" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="end" sideOffset={8} className="w-72">
+      <DropdownMenuContent
+        align="end"
+        sideOffset={8}
+        className="flex w-72 max-h-[min(32rem,calc(100dvh-2rem))] flex-col overflow-hidden"
+      >
         <DropdownMenuLabel className="flex items-center justify-between gap-2">
           <span>{t('label')}</span>
           <span className="flex items-center gap-1">
@@ -403,64 +407,69 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
           </span>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        {showTeamModeNotice ? (
-          <div className="p-2">
-            <TeamModeHostedOnlyNotice compact />
-          </div>
-        ) : error ? (
-          <div className="px-2 py-1.5 text-xs text-destructive">{error}</div>
-        ) : null}
-        {workspaces.length === 0 && !error && !showTeamModeNotice ? (
-          <div className="px-2 py-1.5 text-xs text-muted-foreground">
-            {isLoading ? t('loadingWorkspaces') : t('noWorkspaceAvailable')}
-          </div>
-        ) : null}
-        {switchableWorkspaces.map((workspace) => {
-          const isActive = workspace.id === activeWorkspace?.id;
-          const disabled = workspace.status !== 'active' || !workspace.permissions.canRead;
-
-          return (
-            <div key={workspace.id} className="group flex min-w-0 items-center gap-1">
-              <DropdownMenuItem
-                disabled={disabled}
-                onSelect={() => handleSelect(workspace)}
-                data-testid={`workspace-option-${workspace.id}`}
-                className="min-w-0 flex-1 items-start gap-2"
-              >
-                {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4')}
-                <span className="min-w-0 flex-1">
-                  <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
-                    <span className="min-w-0 truncate">{workspace.name}</span>
-                    {workspace.isDefault ? (
-                      <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
-                        <Star className="h-3 w-3" />
-                        {t('badge.default')}
-                      </Badge>
-                    ) : null}
-                  </span>
-                  <span className="block truncate text-[11px] text-muted-foreground">
-                    {getWorkspaceKindLabel(workspace, kindLabels)} · {getAccessLabel(workspace, accessLabels)}
-                  </span>
-                </span>
-                {isActive ? <Check className="mt-0.5 h-4 w-4 text-primary" /> : null}
-              </DropdownMenuItem>
-              {workspace.permissions.canManageWorkspace ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setDesktopMenuOpen(false);
-                    setEditTarget(workspace);
-                  }}
-                  className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-100 transition-all hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:focus-visible:opacity-100"
-                  title={t('edit')}
-                  aria-label={t('edit')}
-                >
-                  <Pencil className="h-3.5 w-3.5" />
-                </button>
-              ) : null}
+        <div
+          className="min-h-0 overflow-y-auto py-1"
+          data-testid="workspace-switcher-options"
+        >
+          {showTeamModeNotice ? (
+            <div className="p-2">
+              <TeamModeHostedOnlyNotice compact />
             </div>
-          );
-        })}
+          ) : error ? (
+            <div className="px-2 py-1.5 text-xs text-destructive">{error}</div>
+          ) : null}
+          {workspaces.length === 0 && !error && !showTeamModeNotice ? (
+            <div className="px-2 py-1.5 text-xs text-muted-foreground">
+              {isLoading ? t('loadingWorkspaces') : t('noWorkspaceAvailable')}
+            </div>
+          ) : null}
+          {switchableWorkspaces.map((workspace) => {
+            const isActive = workspace.id === activeWorkspace?.id;
+            const disabled = workspace.status !== 'active' || !workspace.permissions.canRead;
+
+            return (
+              <div key={workspace.id} className="group flex min-w-0 items-center gap-1">
+                <DropdownMenuItem
+                  disabled={disabled}
+                  onSelect={() => handleSelect(workspace)}
+                  data-testid={`workspace-option-${workspace.id}`}
+                  className="min-w-0 flex-1 items-start gap-2"
+                >
+                  {renderWorkspaceIcon(workspace, 'mt-0.5 h-4 w-4')}
+                  <span className="min-w-0 flex-1">
+                    <span className="flex min-w-0 flex-wrap items-center gap-2 text-sm font-medium">
+                      <span className="min-w-0 truncate">{workspace.name}</span>
+                      {workspace.isDefault ? (
+                        <Badge variant="secondary" className="h-5 gap-1 px-1.5 text-[10px]">
+                          <Star className="h-3 w-3" />
+                          {t('badge.default')}
+                        </Badge>
+                      ) : null}
+                    </span>
+                    <span className="block truncate text-[11px] text-muted-foreground">
+                      {getWorkspaceKindLabel(workspace, kindLabels)} · {getAccessLabel(workspace, accessLabels)}
+                    </span>
+                  </span>
+                  {isActive ? <Check className="mt-0.5 h-4 w-4 text-primary" /> : null}
+                </DropdownMenuItem>
+                {workspace.permissions.canManageWorkspace ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDesktopMenuOpen(false);
+                      setEditTarget(workspace);
+                    }}
+                    className="mr-1 inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md text-muted-foreground opacity-100 transition-all hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring sm:opacity-0 sm:group-hover:opacity-100 sm:group-focus-within:opacity-100 sm:focus-visible:opacity-100"
+                    title={t('edit')}
+                    aria-label={t('edit')}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                ) : null}
+              </div>
+            );
+          })}
+        </div>
       </DropdownMenuContent>
     </DropdownMenu>
     {workspaceDialogs}
