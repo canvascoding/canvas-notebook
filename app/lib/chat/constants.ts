@@ -8,6 +8,37 @@ export function getCanvasChatActiveSessionStorageKey(workspaceId?: string | null
     : CANVAS_CHAT_ACTIVE_SESSION_STORAGE_KEY;
 }
 
+export function readCanvasChatActiveSessionStorage(workspaceId?: string | null): string | null {
+  if (typeof window === 'undefined') return null;
+
+  try {
+    const sessionId = window.sessionStorage.getItem(getCanvasChatActiveSessionStorageKey(workspaceId));
+    return sessionId?.trim() || null;
+  } catch {
+    // Session restore is a convenience only; ignore storage failures.
+    return null;
+  }
+}
+
+export function writeCanvasChatActiveSessionStorage(
+  workspaceId: string | null | undefined,
+  sessionId: string,
+): void {
+  if (typeof window === 'undefined') return;
+
+  const normalizedSessionId = sessionId.trim();
+  if (!normalizedSessionId) return;
+
+  try {
+    window.sessionStorage.setItem(
+      getCanvasChatActiveSessionStorageKey(workspaceId),
+      normalizedSessionId,
+    );
+  } catch {
+    // Session restore is a convenience only; ignore storage failures.
+  }
+}
+
 export function clearCanvasChatActiveSessionStorage(workspaceId?: string | null): void {
   if (typeof window === 'undefined') return;
 

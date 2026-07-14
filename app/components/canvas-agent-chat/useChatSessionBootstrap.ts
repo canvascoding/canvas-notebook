@@ -17,6 +17,7 @@ import type {
   Attachment,
 } from '@/app/lib/chat/types';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { readCanvasChatActiveSessionStorage } from '@/app/lib/chat/constants';
 
 type ChatTranslator = ReturnType<typeof useTranslations<'chat'>>;
 
@@ -36,7 +37,6 @@ type UseChatSessionBootstrapParams = {
     action: 'send' | 'steer' | 'follow_up' | 'replace',
     override?: { text: string; attachments: Attachment[] },
   ) => Promise<void>;
-  activeSessionStorageKey: string;
   activeWorkspaceId?: string | null;
   hasLoadedSessionListRef: MutableRefObject<boolean>;
   historyLength: number;
@@ -145,7 +145,6 @@ export function useChatSessionBootstrap({
   fetchHistory,
   forcedSessionId,
   handleControlAction,
-  activeSessionStorageKey,
   activeWorkspaceId,
   hasLoadedSessionListRef,
   historyLength,
@@ -311,9 +310,7 @@ export function useChatSessionBootstrap({
     if (userStartedNewChatRef.current) return;
     if (sessionId) return;
 
-    const storedSessionId = typeof window !== 'undefined'
-      ? window.sessionStorage.getItem(activeSessionStorageKey)
-      : null;
+    const storedSessionId = readCanvasChatActiveSessionStorage(activeWorkspaceId);
     if (!storedSessionId) {
       setIsResolvingInitialChatState(false);
       return;
@@ -354,7 +351,6 @@ export function useChatSessionBootstrap({
 
     void restoreSession();
   }, [
-    activeSessionStorageKey,
     activeWorkspaceId,
     addSessionToHistory,
     initialPrompt,

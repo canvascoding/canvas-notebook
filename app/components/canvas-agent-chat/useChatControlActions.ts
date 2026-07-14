@@ -10,7 +10,10 @@ import {
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { useTranslations } from 'next-intl';
 import { deriveUploadAttachmentPreview } from '@/app/lib/chat/attachment-preview';
-import { clearCanvasChatActiveSessionStorage } from '@/app/lib/chat/constants';
+import {
+  clearCanvasChatActiveSessionStorage,
+  writeCanvasChatActiveSessionStorage,
+} from '@/app/lib/chat/constants';
 import { loadComposerDraft, removeComposerDraft, saveComposerDraft } from '@/app/lib/chat/draft-storage';
 import { saveLastActiveAgentId } from '@/app/lib/chat/agent-preferences';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
@@ -56,6 +59,7 @@ type ChatRuntimeControlAction =
 
 type StartNewChatOptions = {
   clearActiveSessionStorage?: boolean;
+  restoreWorkspaceSession?: boolean;
 };
 
 type UseChatControlActionsParams = {
@@ -98,6 +102,7 @@ type UseChatControlActionsParams = {
   selectedAgentId: string;
   sessionAgentIdRef: MutableRefObject<string>;
   sessionIdRef: MutableRefObject<string | null>;
+  sessionWorkspaceIdRef: MutableRefObject<string | null>;
   setActiveModel: Dispatch<SetStateAction<string>>;
   setActiveProvider: Dispatch<SetStateAction<string>>;
   setActiveThinkingLevel: Dispatch<SetStateAction<PiThinkingLevel>>;
@@ -225,6 +230,7 @@ export function useChatControlActions({
   selectedAgentId,
   sessionAgentIdRef,
   sessionIdRef,
+  sessionWorkspaceIdRef,
   setActiveModel,
   setActiveProvider,
   setActiveThinkingLevel,
@@ -292,6 +298,10 @@ export function useChatControlActions({
     const createdModel = createSessionPayload.session.model || pinnedSelection.modelId || activeModel;
     const createdThinkingLevel = createSessionPayload.session.thinkingLevel || pinnedSelection.thinkingLevel || activeThinkingLevel;
 
+    sessionWorkspaceIdRef.current = createSessionPayload.session.workspace?.workspaceId
+      ?? requestContext.workspace?.workspaceId
+      ?? activeWorkspaceId
+      ?? null;
     skipNextSessionStatusRefreshRef.current = nextSessionId;
     setSessionId(nextSessionId);
     setActiveProvider(createdProvider);
@@ -324,7 +334,7 @@ export function useChatControlActions({
     addSessionToHistory(newSession);
 
     return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, buildRequestContext, currentFilePath, hasLocalRuntimeSelection, refreshRuntimeSelection, runtimeCatalogRevision, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
+  }, [activeModel, activeProvider, activeThinkingLevel, activeWorkspaceId, addSessionToHistory, buildRequestContext, currentFilePath, hasLocalRuntimeSelection, refreshRuntimeSelection, runtimeCatalogRevision, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
 
   const postControl = useCallback(async (
     targetSessionId: string,
@@ -530,12 +540,16 @@ export function useChatControlActions({
 
   const startNewChat = useCallback((agentIdOverride?: string, options?: StartNewChatOptions) => {
     const nextAgentId = agentIdOverride || selectedAgentId;
+    const currentSessionId = sessionIdRef.current;
+    const currentSessionWorkspaceId = sessionWorkspaceIdRef.current;
+    if (currentSessionId) {
+      writeCanvasChatActiveSessionStorage(currentSessionWorkspaceId ?? activeWorkspaceId, currentSessionId);
+    }
     resetStreamConnection();
     setRuntimeStatus(null);
     setSessionId(null);
     setSessionTitle(null);
     resetInputHistoryNavigation();
-    const currentSessionId = sessionIdRef.current;
     if (currentSessionId && input.trim()) {
       saveComposerDraft(currentSessionId, input);
     }
@@ -543,9 +557,11 @@ export function useChatControlActions({
     setInput(newChatDraft ?? '');
     setAttachments([]);
     sessionIdRef.current = null;
+    sessionWorkspaceIdRef.current = null;
     sessionAgentIdRef.current = nextAgentId;
     resetRuntimeMessageRefs();
-    userStartedNewChatRef.current = true;
+    userStartedNewChatRef.current = options?.restoreWorkspaceSession !== true;
+    setIsResolvingInitialChatState(options?.restoreWorkspaceSession === true);
     if (options?.clearActiveSessionStorage !== false) {
       clearCanvasChatActiveSessionStorage(activeWorkspaceId);
     }
@@ -562,7 +578,7 @@ export function useChatControlActions({
     setActiveProvider(DEFAULT_PROVIDER_ID);
     setActiveModel(DEFAULT_MODEL_ID);
     setActiveThinkingLevel(DEFAULT_THINKING_LEVEL);
-  }, [activeWorkspaceId, input, isMobile, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setExpandedRunKeys, setHasMoreBefore, setInput, setIsLoadingOlder, setMessages, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, shouldShowHistoryAsOverlay, userStartedNewChatRef]);
+  }, [activeWorkspaceId, input, isMobile, resetInputHistoryNavigation, resetRuntimeMessageRefs, resetStreamConnection, selectedAgentId, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setAttachments, setExpandedRunKeys, setHasMoreBefore, setInput, setIsLoadingOlder, setIsResolvingInitialChatState, setMessages, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, shouldShowHistoryAsOverlay, userStartedNewChatRef]);
 
   const selectChatAgent = useCallback((agentId: string) => {
     if (agentId === selectedAgentId && !sessionIdRef.current) {

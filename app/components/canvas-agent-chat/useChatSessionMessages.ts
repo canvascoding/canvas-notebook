@@ -73,6 +73,7 @@ type UseChatSessionMessagesParams = {
   sessionAgentIdRef: MutableRefObject<string>;
   sessionId: string | null;
   sessionIdRef: MutableRefObject<string | null>;
+  sessionWorkspaceIdRef: MutableRefObject<string | null>;
   sessionTitle: string | null;
   setActiveModel: Dispatch<SetStateAction<string>>;
   setActiveProvider: Dispatch<SetStateAction<string>>;
@@ -133,6 +134,7 @@ export function useChatSessionMessages({
   sessionAgentIdRef,
   sessionId,
   sessionIdRef,
+  sessionWorkspaceIdRef,
   sessionTitle,
   setActiveModel,
   setActiveProvider,
@@ -309,6 +311,7 @@ export function useChatSessionMessages({
     setSessionId(session.sessionId);
     setSessionTitle(resolveSessionTitle(session.sessionId, session.title));
     sessionIdRef.current = session.sessionId;
+    sessionWorkspaceIdRef.current = session.workspace?.workspaceId ?? activeWorkspaceId ?? null;
     sessionAgentIdRef.current = sessionAgentId;
     resetRuntimeMessageRefs();
     userStartedNewChatRef.current = false;
@@ -483,7 +486,7 @@ export function useChatSessionMessages({
         loadSessionAbortRef.current = null;
       }
     }
-  }, [activeWorkspaceId, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasMoreBefore, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, t, userStartedNewChatRef, wsRequest]);
+  }, [activeWorkspaceId, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasMoreBefore, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, t, userStartedNewChatRef, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
