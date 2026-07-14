@@ -1,8 +1,9 @@
 'use client';
 
-import { startTransition, useCallback, useEffect, useMemo, useState, type CSSProperties, type ReactNode } from 'react';
+import Image from 'next/image';
+import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { CheckCircle2, FileText, Loader2, Palette, RotateCcw, Save, ShieldCheck, Sparkles } from 'lucide-react';
+import { AlignLeft, AlignRight, CheckCircle2, FileImage, FileText, Loader2, Palette, RotateCcw, Save, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -14,11 +15,13 @@ import { Textarea } from '@/components/ui/textarea';
 import {
   WORKSPACE_BRAND_FONT_IDS,
   WORKSPACE_BRAND_HEADING_STYLES,
+  WORKSPACE_BRAND_LOGO_POSITIONS,
   WORKSPACE_BRAND_PAGE_SIZES,
   WORKSPACE_BRAND_PRESETS,
   cloneWorkspaceBrandProfile,
   type WorkspaceBrandFontId,
   type WorkspaceBrandHeadingStyle,
+  type WorkspaceBrandLogoPosition,
   type WorkspaceBrandPageSize,
   type WorkspaceBrandProfile,
   type WorkspaceBrandProfileState,
@@ -31,6 +34,16 @@ type BrandApiResponse = WorkspaceBrandProfileState & {
   success: boolean;
   canManage: boolean;
   error?: string;
+};
+
+type BrandLogoApiResponse = BrandApiResponse & {
+  asset?: {
+    path: string;
+    mimeType: string;
+    size: number;
+    width: number;
+    height: number;
+  };
 };
 
 type PresetId = keyof typeof WORKSPACE_BRAND_PRESETS;
@@ -119,6 +132,146 @@ function NativeSelect({
   );
 }
 
+function BrandLogoControl({
+  logoUrl,
+  position,
+  disabled,
+  isUploading,
+  onUpload,
+  onRemove,
+  onPositionChange,
+}: {
+  logoUrl: string | null;
+  position: WorkspaceBrandLogoPosition;
+  disabled: boolean;
+  isUploading: boolean;
+  onUpload: (file: File) => Promise<void>;
+  onRemove: () => Promise<void>;
+  onPositionChange: (position: WorkspaceBrandLogoPosition) => void;
+}) {
+  const t = useTranslations('settings.brandDesign.identity.logo');
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [isDragActive, setIsDragActive] = useState(false);
+
+  const submitFile = (file: File | undefined) => {
+    if (!file || disabled || isUploading) return;
+    void onUpload(file);
+  };
+
+  const handleDrop = (event: DragEvent<HTMLDivElement>) => {
+    event.preventDefault();
+    setIsDragActive(false);
+    submitFile(event.dataTransfer.files[0]);
+  };
+
+  return (
+    <div className="space-y-4">
+      <div
+        onDragEnter={(event) => {
+          event.preventDefault();
+          if (!disabled && !isUploading) setIsDragActive(true);
+        }}
+        onDragOver={(event) => event.preventDefault()}
+        onDragLeave={() => setIsDragActive(false)}
+        onDrop={handleDrop}
+        className={cn(
+          'grid min-h-36 gap-4 rounded-xl border border-dashed p-4 transition-colors sm:grid-cols-[148px_minmax(0,1fr)] sm:items-center',
+          isDragActive ? 'border-primary bg-primary/5' : 'border-border bg-muted/20',
+          disabled && 'opacity-60',
+        )}
+      >
+        <div className="flex h-24 items-center justify-center overflow-hidden rounded-lg border bg-background p-3 shadow-sm">
+          {logoUrl ? (
+            <Image
+              src={logoUrl}
+              alt={t('previewAlt')}
+              width={240}
+              height={96}
+              unoptimized
+              className="h-full w-full object-contain"
+            />
+          ) : (
+            <div className="flex flex-col items-center gap-2 text-muted-foreground">
+              <FileImage className="h-7 w-7" />
+              <span className="text-xs font-medium">{t('empty')}</span>
+            </div>
+          )}
+        </div>
+
+        <div className="min-w-0 space-y-3">
+          <div>
+            <p className="text-sm font-semibold">{logoUrl ? t('ready') : t('uploadTitle')}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('uploadHint')}</p>
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp"
+            disabled={disabled || isUploading}
+            className="sr-only"
+            onChange={(event) => {
+              const file = event.currentTarget.files?.[0];
+              event.currentTarget.value = '';
+              submitFile(file);
+            }}
+          />
+          <div className="flex flex-wrap gap-2">
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={disabled || isUploading}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {isUploading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Upload className="h-4 w-4" />}
+              {isUploading ? t('uploading') : logoUrl ? t('replace') : t('upload')}
+            </Button>
+            {logoUrl ? (
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                disabled={disabled || isUploading}
+                onClick={() => void onRemove()}
+              >
+                <Trash2 className="h-4 w-4" />
+                {t('remove')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center">
+        <div>
+          <p className="text-sm font-medium">{t('position')}</p>
+          <p className="text-xs leading-5 text-muted-foreground">{t('positionHint')}</p>
+        </div>
+        <div className="inline-flex w-fit rounded-lg border bg-muted/30 p-1">
+          {WORKSPACE_BRAND_LOGO_POSITIONS.map((value) => {
+            const Icon = value === 'left' ? AlignLeft : AlignRight;
+            return (
+              <Button
+                key={value}
+                type="button"
+                variant={position === value ? 'secondary' : 'ghost'}
+                size="sm"
+                aria-pressed={position === value}
+                disabled={disabled || isUploading}
+                className="h-8 px-3"
+                onClick={() => onPositionChange(value)}
+              >
+                <Icon className="h-4 w-4" />
+                {t(value)}
+              </Button>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function headingPreviewStyle(
   style: WorkspaceBrandHeadingStyle,
   profile: WorkspaceBrandProfile,
@@ -138,7 +291,13 @@ function headingPreviewStyle(
   return {};
 }
 
-function BrandDocumentPreview({ profile }: { profile: WorkspaceBrandProfile }) {
+function BrandDocumentPreview({
+  profile,
+  logoUrl,
+}: {
+  profile: WorkspaceBrandProfile;
+  logoUrl: string | null;
+}) {
   const t = useTranslations('settings.brandDesign.preview');
   const pageRatio = profile.page.size === 'Letter' ? 'aspect-[8.5/11]' : 'aspect-[210/297]';
   const previewPadding = `${Math.max(18, profile.page.verticalMarginMm * 1.1)}px ${Math.max(16, profile.page.horizontalMarginMm * 1.1)}px`;
@@ -166,19 +325,26 @@ function BrandDocumentPreview({ profile }: { profile: WorkspaceBrandProfile }) {
           padding: previewPadding,
         }}
       >
-        {profile.brandName || profile.logoPath ? (
+        {profile.logoPath && logoUrl ? (
           <div
-            className="mb-7 flex items-center gap-2 border-b pb-3"
+            className={cn('mb-5 flex h-7 items-start', profile.logoPosition === 'left' ? 'justify-start' : 'justify-end')}
+          >
+            <Image
+              src={logoUrl}
+              alt=""
+              width={112}
+              height={36}
+              unoptimized
+              className="h-full w-auto max-w-28 object-contain"
+            />
+          </div>
+        ) : null}
+
+        {profile.brandName ? (
+          <div
+            className="mb-7 flex items-center border-b pb-3"
             style={{ borderColor: profile.colors.border }}
           >
-            {profile.logoPath ? (
-              <div
-                className="flex h-7 w-7 items-center justify-center rounded text-[7px] font-bold uppercase"
-                style={{ backgroundColor: profile.colors.accent, color: profile.page.backgroundColor }}
-              >
-                Logo
-              </div>
-            ) : null}
             <span
               className="text-[8px] font-semibold uppercase tracking-[0.16em]"
               style={{
@@ -186,7 +352,7 @@ function BrandDocumentPreview({ profile }: { profile: WorkspaceBrandProfile }) {
                 fontFamily: workspaceBrandFontStack(profile.typography.headingFont),
               }}
             >
-              {profile.brandName || t('brandFallback')}
+              {profile.brandName}
             </span>
           </div>
         ) : null}
@@ -257,9 +423,12 @@ export function BrandSettingsPanel() {
   const [manualWorkspaceId, setManualWorkspaceId] = useState<string | null>(null);
   const [profile, setProfile] = useState<WorkspaceBrandProfile>(() => cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.canvas));
   const [configured, setConfigured] = useState(false);
+  const [profileRevision, setProfileRevision] = useState(0);
+  const [logoWorkspaceId, setLogoWorkspaceId] = useState<string | null>(null);
   const [canManage, setCanManage] = useState(false);
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [isUploadingLogo, setIsUploadingLogo] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
@@ -271,6 +440,10 @@ export function BrandSettingsPanel() {
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) || null,
     [selectedWorkspaceId, workspaces],
   );
+  const logoUrl = useMemo(() => {
+    if (!selectedWorkspaceId || logoWorkspaceId !== selectedWorkspaceId || !profile.logoPath) return null;
+    return `/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand/logo?v=${profileRevision}`;
+  }, [logoWorkspaceId, profile.logoPath, profileRevision, selectedWorkspaceId]);
 
   useEffect(() => {
     void hydrateWorkspaces();
@@ -278,6 +451,7 @@ export function BrandSettingsPanel() {
 
   const loadProfile = useCallback(async (workspaceId: string) => {
     setIsLoading(true);
+    setLogoWorkspaceId(null);
     setError(null);
     setSuccess(null);
     try {
@@ -291,6 +465,8 @@ export function BrandSettingsPanel() {
       }
       setProfile(cloneWorkspaceBrandProfile(payload.profile));
       setConfigured(payload.configured);
+      setProfileRevision(payload.revision);
+      setLogoWorkspaceId(workspaceId);
       setCanManage(payload.canManage);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t('errors.load'));
@@ -317,6 +493,7 @@ export function BrandSettingsPanel() {
       enabled: current.enabled || preset.enabled,
       brandName: current.brandName,
       logoPath: current.logoPath,
+      logoPosition: current.logoPosition,
       voice: current.voice,
       targetAudience: current.targetAudience,
       writingGuidelines: current.writingGuidelines,
@@ -341,11 +518,81 @@ export function BrandSettingsPanel() {
       }
       setProfile(cloneWorkspaceBrandProfile(payload.profile));
       setConfigured(true);
+      setProfileRevision(payload.revision);
+      setLogoWorkspaceId(selectedWorkspaceId);
       setSuccess(t('saved'));
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('errors.save'));
     } finally {
       setIsSaving(false);
+    }
+  };
+
+  const uploadLogo = async (file: File) => {
+    if (!selectedWorkspaceId || !canManage) return;
+    const hasAllowedMimeType = ['image/png', 'image/jpeg', 'image/webp'].includes(file.type);
+    const hasAllowedExtension = /\.(?:png|jpe?g|webp)$/iu.test(file.name);
+    if (!hasAllowedMimeType && !hasAllowedExtension) {
+      setError(t('identity.logo.errors.type'));
+      setSuccess(null);
+      return;
+    }
+    if (file.size > 1024 * 1024) {
+      setError(t('identity.logo.errors.size'));
+      setSuccess(null);
+      return;
+    }
+
+    setIsUploadingLogo(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand/logo`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData,
+      });
+      const payload = await response.json() as BrandLogoApiResponse;
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('identity.logo.errors.upload'));
+      }
+      setProfile((current) => ({ ...current, logoPath: payload.profile.logoPath }));
+      setConfigured(payload.configured);
+      setProfileRevision(payload.revision);
+      setLogoWorkspaceId(selectedWorkspaceId);
+      setSuccess(t('identity.logo.uploaded'));
+    } catch (uploadError) {
+      setError(uploadError instanceof Error ? uploadError.message : t('identity.logo.errors.upload'));
+    } finally {
+      setIsUploadingLogo(false);
+    }
+  };
+
+  const removeLogo = async () => {
+    if (!selectedWorkspaceId || !canManage) return;
+    setIsUploadingLogo(true);
+    setError(null);
+    setSuccess(null);
+    try {
+      const response = await fetch(`/api/workspaces/${encodeURIComponent(selectedWorkspaceId)}/brand/logo`, {
+        method: 'DELETE',
+        credentials: 'include',
+      });
+      const payload = await response.json() as BrandApiResponse;
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.error || t('identity.logo.errors.remove'));
+      }
+      setProfile((current) => ({ ...current, logoPath: '' }));
+      setConfigured(payload.configured);
+      setProfileRevision(payload.revision);
+      setLogoWorkspaceId(selectedWorkspaceId);
+      setSuccess(t('identity.logo.removed'));
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : t('identity.logo.errors.remove'));
+    } finally {
+      setIsUploadingLogo(false);
     }
   };
 
@@ -365,6 +612,8 @@ export function BrandSettingsPanel() {
       }
       setProfile(cloneWorkspaceBrandProfile(payload.profile));
       setConfigured(false);
+      setProfileRevision(payload.revision);
+      setLogoWorkspaceId(selectedWorkspaceId);
       setSuccess(t('resetDone'));
     } catch (resetError) {
       setError(resetError instanceof Error ? resetError.message : t('errors.reset'));
@@ -373,7 +622,7 @@ export function BrandSettingsPanel() {
     }
   };
 
-  const controlsDisabled = isLoading || isSaving || !canManage;
+  const controlsDisabled = isLoading || isSaving || isUploadingLogo || !canManage;
 
   if (isWorkspaceLoading && !initialized) {
     return (
@@ -482,7 +731,7 @@ export function BrandSettingsPanel() {
               <CardTitle>{t('identity.title')}</CardTitle>
               <CardDescription>{t('identity.description')}</CardDescription>
             </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
+            <CardContent className="space-y-5">
               <FieldGroup label={t('identity.brandName')}>
                 <Input
                   value={profile.brandName}
@@ -492,15 +741,15 @@ export function BrandSettingsPanel() {
                   onChange={(event) => updateProfile((current) => ({ ...current, brandName: event.target.value }))}
                 />
               </FieldGroup>
-              <FieldGroup label={t('identity.logoPath')} hint={t('identity.logoPathHint')}>
-                <Input
-                  value={profile.logoPath}
-                  disabled={controlsDisabled}
-                  maxLength={500}
-                  placeholder="assets/brand/logo.png"
-                  onChange={(event) => updateProfile((current) => ({ ...current, logoPath: event.target.value }))}
-                />
-              </FieldGroup>
+              <BrandLogoControl
+                logoUrl={logoUrl}
+                position={profile.logoPosition}
+                disabled={isLoading || isSaving || !canManage}
+                isUploading={isUploadingLogo}
+                onUpload={uploadLogo}
+                onRemove={removeLogo}
+                onPositionChange={(logoPosition) => updateProfile((current) => ({ ...current, logoPosition }))}
+              />
             </CardContent>
           </Card>
 
@@ -722,7 +971,7 @@ export function BrandSettingsPanel() {
         </div>
 
         <div className="xl:sticky xl:top-6">
-          <BrandDocumentPreview profile={profile} />
+          <BrandDocumentPreview profile={profile} logoUrl={logoUrl} />
         </div>
       </div>
     </div>

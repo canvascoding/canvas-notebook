@@ -2707,11 +2707,32 @@
       },
       "identity": {
         "title": "Markenidentität",
-        "description": "Name und Logo erscheinen im Dokumentkopf und helfen dem Agenten, die Marke eindeutig zuzuordnen.",
+        "description": "Der Markenname eröffnet das Dokument, das Logo sitzt kompakt auf jeder exportierten PDF-Seite.",
         "brandName": "Markenname",
         "brandNamePlaceholder": "z. B. Canvas Studios",
-        "logoPath": "Logo-Pfad im Workspace",
-        "logoPathHint": "Relativer Pfad zu PNG, JPG, WebP oder SVG. Das Logo wird beim Export sicher in die PDF eingebettet."
+        "logo": {
+          "uploadTitle": "Logo hochladen",
+          "uploadHint": "PNG, JPG oder WebP bis 1 MB. Es wird sicher optimiert und im PDF auf maximal 28 × 9 mm begrenzt.",
+          "empty": "Kein Logo",
+          "ready": "Logo bereit",
+          "previewAlt": "Vorschau des Workspace-Logos",
+          "upload": "Datei auswählen",
+          "replace": "Logo ersetzen",
+          "uploading": "Wird verarbeitet...",
+          "remove": "Logo entfernen",
+          "position": "Position auf jeder PDF-Seite",
+          "positionHint": "Die Position gilt für Hoch- und Querformat sowie für die erste Seite.",
+          "left": "Links",
+          "right": "Rechts",
+          "uploaded": "Logo hochgeladen. Neue PDF-Exporte verwenden es sofort.",
+          "removed": "Logo entfernt.",
+          "errors": {
+            "type": "Bitte eine PNG-, JPG- oder WebP-Datei auswählen.",
+            "size": "Das Logo darf höchstens 1 MB groß sein.",
+            "upload": "Logo konnte nicht hochgeladen werden.",
+            "remove": "Logo konnte nicht entfernt werden."
+          }
+        }
       },
       "colors": {
         "title": "Farbwelt",

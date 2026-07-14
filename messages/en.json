@@ -2708,11 +2708,32 @@
       },
       "identity": {
         "title": "Brand identity",
-        "description": "The name and logo appear in the document header and help the agent identify the brand.",
+        "description": "The brand name opens the document while the logo stays compact on every exported PDF page.",
         "brandName": "Brand name",
         "brandNamePlaceholder": "e.g. Canvas Studios",
-        "logoPath": "Workspace logo path",
-        "logoPathHint": "Relative path to a PNG, JPG, WebP, or SVG. The logo is embedded safely into the exported PDF."
+        "logo": {
+          "uploadTitle": "Upload a logo",
+          "uploadHint": "PNG, JPG, or WebP up to 1 MB. It is optimized safely and limited to 28 × 9 mm in the PDF.",
+          "empty": "No logo",
+          "ready": "Logo ready",
+          "previewAlt": "Workspace logo preview",
+          "upload": "Choose file",
+          "replace": "Replace logo",
+          "uploading": "Processing...",
+          "remove": "Remove logo",
+          "position": "Position on every PDF page",
+          "positionHint": "The position applies to portrait and landscape pages, including the first page.",
+          "left": "Left",
+          "right": "Right",
+          "uploaded": "Logo uploaded. New PDF exports use it immediately.",
+          "removed": "Logo removed.",
+          "errors": {
+            "type": "Choose a PNG, JPG, or WebP file.",
+            "size": "The logo must be no larger than 1 MB.",
+            "upload": "The logo could not be uploaded.",
+            "remove": "The logo could not be removed."
+          }
+        }
       },
       "colors": {
         "title": "Color system",
