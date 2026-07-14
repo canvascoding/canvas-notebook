@@ -556,8 +556,28 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       enabled_tools_json TEXT,
       relevant_skills_json TEXT,
       relevant_connections_json TEXT,
+      access_policy TEXT NOT NULL DEFAULT 'legacy',
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_members (
+      agent_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      role TEXT NOT NULL DEFAULT 'user',
+      status TEXT NOT NULL DEFAULT 'active',
+      can_use INTEGER NOT NULL DEFAULT 1,
+      can_edit INTEGER NOT NULL DEFAULT 0,
+      can_manage INTEGER NOT NULL DEFAULT 0,
+      invited_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (agent_id, user_id),
+      FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (invited_by_user_id) REFERENCES user(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS todo_categories (
@@ -1686,6 +1706,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_bulk_job ON studio_bulk_job_line_items (bulk_job_id);
     CREATE INDEX IF NOT EXISTS idx_studio_bulk_job_line_items_status ON studio_bulk_job_line_items (status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_agent_id ON agents (agent_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_members_org_user ON agent_members (organization_id, user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_agent_members_agent_status ON agent_members (agent_id, status);
     CREATE INDEX IF NOT EXISTS idx_pi_messages_session_timestamp ON pi_messages (pi_session_db_id, timestamp, id);
     CREATE INDEX IF NOT EXISTS idx_todo_categories_user_sort ON todo_categories (user_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_todo_categories_user_archived ON todo_categories (user_id, is_archived);
@@ -2218,6 +2240,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     enabled_tools_json: 'TEXT',
     relevant_skills_json: 'TEXT',
     relevant_connections_json: 'TEXT',
+    access_policy: "TEXT NOT NULL DEFAULT 'legacy'",
   });
   addColumns(sqlite, 'channel_active_sessions', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
@@ -2250,6 +2273,37 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     INSERT OR IGNORE INTO agents (agent_id, name, type, removable, created_at, updated_at)
     VALUES ('canvas-agent', 'Canvas Agent', 'main', 0, ?, ?)
   `).run(now, now);
+
+  sqlite.prepare(`
+    INSERT OR IGNORE INTO agent_members (
+      agent_id, organization_id, user_id, role, status,
+      can_use, can_edit, can_manage, invited_by_user_id, created_at, updated_at
+    )
+    SELECT
+      a.agent_id,
+      p.organization_id,
+      p.user_id,
+      CASE WHEN p.role IN ('owner', 'admin') THEN 'manager' ELSE 'editor' END,
+      'active',
+      1,
+      1,
+      CASE WHEN p.role IN ('owner', 'admin') THEN 1 ELSE 0 END,
+      NULL,
+      ?,
+      ?
+    FROM agents a
+    JOIN organization_user_permissions p
+      ON p.status = 'active' AND p.role != 'external'
+    LEFT JOIN user u ON u.id = p.user_id
+    WHERE a.type != 'main'
+      AND a.access_policy = 'legacy'
+      AND COALESCE(u.banned, 0) = 0
+  `).run(now, now);
+  sqlite.exec(`
+    UPDATE agents
+    SET access_policy = 'restricted'
+    WHERE type != 'main' AND access_policy = 'legacy'
+  `);
 
   sqlite.exec(`
     INSERT OR IGNORE INTO session_channel_links (

@@ -6,6 +6,7 @@ import {
 } from '@/app/lib/agent-runtime-policy/runtime-resolver';
 import { runtimeErrorResponse } from '@/app/lib/agent-runtime-policy/runtime-service';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
 import {
   findOwnedPiSessionForRuntime,
   isPiSessionInWorkspace,
@@ -19,6 +20,12 @@ function normalizedString(value: unknown): string | null {
 }
 
 function routeError(error: unknown) {
+  if (error instanceof AgentAccessError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
   if (error instanceof Error && error.message === 'Agent not found.') {
     return NextResponse.json(
       { success: false, code: 'AGENT_NOT_FOUND', error: 'Agent not found.' },
@@ -96,6 +103,7 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    await requireAgentAccess(access.session.user.id, agentId, 'canUse');
     const context: AiRuntimeResolutionContext = {
       organizationId: access.workspace.organizationId,
       userId: access.session.user.id,

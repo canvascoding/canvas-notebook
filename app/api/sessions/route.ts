@@ -23,6 +23,7 @@ import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { listAgentAccessForUser, requireAgentAccess } from '@/app/lib/agents/access';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import { createPiSystemPromptSnapshot } from '@/app/lib/pi/system-prompt-snapshot';
 import { createPiSessionWithRuntimeSnapshot } from '@/app/lib/pi/session-store';
@@ -245,6 +246,19 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
   }
 
+  const accessibleAgentIds = includeAllAgentSessions
+    ? [...(await listAgentAccessForUser(session.user.id)).entries()]
+        .filter(([, access]) => access.canUse)
+        .map(([agentId]) => agentId)
+    : [agentIdFilter!];
+  if (!includeAllAgentSessions) {
+    try {
+      await requireAgentAccess(session.user.id, agentIdFilter!, 'canUse');
+    } catch {
+      return NextResponse.json({ success: false, code: 'AGENT_ACCESS_DENIED', error: 'Agent access denied.' }, { status: 403 });
+    }
+  }
+
   try {
     const legacyTablesAvailable = await legacyAiTablesExist();
     const cutoff = olderThanDays ? new Date(Date.now() - parseInt(olderThanDays, 10) * 24 * 60 * 60 * 1000) : null;
@@ -269,6 +283,8 @@ export async function GET(request: NextRequest) {
       const piCountConditions: SQL[] = [eq(piSessions.userId, session.user.id), piCutoffCondition!];
       if (!includeAllAgentSessions) {
         piCountConditions.push(eq(piSessions.agentId, agentIdFilter!));
+      } else {
+        piCountConditions.push(inArray(piSessions.agentId, accessibleAgentIds));
       }
       if (piWorkspaceCondition) {
         piCountConditions.push(piWorkspaceCondition);
@@ -322,6 +338,8 @@ export async function GET(request: NextRequest) {
     const piBaseConditions: SQL[] = [eq(piSessions.userId, session.user.id)];
     if (!includeAllAgentSessions) {
       piBaseConditions.push(eq(piSessions.agentId, agentIdFilter!));
+    } else {
+      piBaseConditions.push(inArray(piSessions.agentId, accessibleAgentIds));
     }
     if (piWorkspaceCondition) {
       piBaseConditions.push(piWorkspaceCondition);
@@ -499,6 +517,14 @@ export async function POST(request: NextRequest) {
       const requestedAgent = await getAgentProfile(requestedAgentId);
       if (!requestedAgent) {
         return NextResponse.json({ success: false, error: 'Agent not found' }, { status: 404 });
+      }
+      try {
+        await requireAgentAccess(session.user.id, requestedAgentId, 'canUse');
+      } catch {
+        return NextResponse.json(
+          { success: false, code: 'AGENT_ACCESS_DENIED', error: 'Agent access denied.' },
+          { status: 403 },
+        );
       }
       let workspace: Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>>;
       try {
@@ -691,6 +717,11 @@ export async function PATCH(request: NextRequest) {
       requestedAgentId = normalizeSessionAgentId(payload.agentId);
     } catch {
       return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
+    }
+    try {
+      await requireAgentAccess(session.user.id, requestedAgentId, 'canUse');
+    } catch {
+      return NextResponse.json({ success: false, code: 'AGENT_ACCESS_DENIED', error: 'Agent access denied.' }, { status: 403 });
     }
 
     if (payload.thinkingLevel !== undefined && !requestedThinkingLevel) {
@@ -976,6 +1007,11 @@ export async function DELETE(request: NextRequest) {
     requestedAgentId = normalizeSessionAgentId(searchParams.get('agentId'));
   } catch {
     return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
+  }
+  try {
+    await requireAgentAccess(session.user.id, requestedAgentId, 'canUse');
+  } catch {
+    return NextResponse.json({ success: false, code: 'AGENT_ACCESS_DENIED', error: 'Agent access denied.' }, { status: 403 });
   }
 
   if (!shouldDeleteAll && !sessionId && !shouldDeleteOlder) {

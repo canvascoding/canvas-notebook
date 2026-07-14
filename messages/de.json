@@ -969,8 +969,8 @@
     "agentCreateFailed": "Agent konnte nicht erstellt werden.",
     "agentEdit": {
       "title": "Agent bearbeiten",
-      "description": "Name und Icon für {name} anpassen.",
-      "descriptionFallback": "Name und Icon des Agents anpassen.",
+      "description": "Name, Icon und Zugriff für {name} anpassen.",
+      "descriptionFallback": "Name, Icon und Zugriff des Agents anpassen.",
       "iconHint": "Wähle ein Icon, an dem du diesen Agent im Chat schnell wiedererkennst.",
       "save": "Änderungen speichern",
       "errors": {
@@ -3343,6 +3343,38 @@
           "delete": "Agent konnte nicht gelöscht werden."
         }
       },
+      "members": {
+        "currentMembers": "Personen mit Zugriff",
+        "currentMembersDescription": "Lege fest, wer diesen Agenten nutzen, bearbeiten oder dessen Zugriff verwalten darf.",
+        "addMember": "Nutzer hinzufügen",
+        "addMemberDescription": "Wähle einen verfügbaren Nutzer und dessen Zugriffsrolle.",
+        "selectUser": "Nutzer auswählen",
+        "accessLevel": "Zugriffsrolle",
+        "person": "Person",
+        "actions": "Aktionen",
+        "removeMember": "Zugriff entfernen",
+        "refresh": "Aktualisieren",
+        "loading": "Zugriffe werden geladen...",
+        "noMembers": "Noch keine Personen mit Zugriff.",
+        "noCandidatesDescription": "Alle verfügbaren Nutzer haben bereits Zugriff auf diesen Agenten.",
+        "cancel": "Abbrechen",
+        "accessLevels": {
+          "user": "Kann nutzen",
+          "editor": "Kann bearbeiten",
+          "manager": "Vollzugriff"
+        },
+        "removeDialog": {
+          "title": "Agent-Zugriff entfernen?",
+          "description": "{name} kann diesen Agenten danach nicht mehr verwenden.",
+          "confirm": "Zugriff entfernen"
+        },
+        "errors": {
+          "load": "Agent-Zugriffe konnten nicht geladen werden.",
+          "save": "Agent-Zugriff konnte nicht gespeichert werden.",
+          "remove": "Agent-Zugriff konnte nicht entfernt werden.",
+          "lastManager": "Der letzte Manager kann nicht entfernt oder herabgestuft werden. Weise zuerst einen neuen Manager zu."
+        }
+      },
       "iconPicker": {
         "title": "Agent-Icon auswählen",
         "description": "Wähle ein Symbol, das diesen Agenten in Settings, Chat und Automationen wiedererkennbar macht.",
@@ -3371,6 +3403,9 @@
         "cancel": "Abbrechen",
         "create": "Agent erstellen",
         "creating": "Agent wird erstellt...",
+        "accessTitle": "Zugriff für {name} festlegen",
+        "accessDescription": "Der Agent ist erstellt. Füge jetzt Nutzer hinzu und lege fest, ob sie ihn nutzen, bearbeiten oder verwalten dürfen.",
+        "done": "Fertig",
         "templates": {
           "custom": {
             "name": "Custom Agent",

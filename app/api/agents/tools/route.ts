@@ -5,6 +5,7 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
 import {
   DEFAULT_MANAGED_AGENT_ID,
   readPiRuntimeConfig,
@@ -49,9 +50,11 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const agentId = normalizeManagedAgentId(request.nextUrl.searchParams.get('agentId'));
+    await requireAgentAccess(session.user.id, agentId, 'canEdit');
     const [tools, effectiveConfig] = await Promise.all([
       getPiToolMetadata(),
-      resolveAgentRuntimeSettings(request.nextUrl.searchParams.get('agentId')),
+      resolveAgentRuntimeSettings(agentId),
     ]);
     return NextResponse.json({
       success: true,
@@ -67,7 +70,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load tool metadata.';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: error instanceof AgentAccessError ? error.status : 500 });
   }
 }
 

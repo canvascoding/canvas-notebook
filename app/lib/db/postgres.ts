@@ -345,4 +345,38 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     `,
     [now, now],
   );
+  await pool.query(
+    `
+      INSERT INTO agent_members (
+        agent_id, organization_id, user_id, role, status,
+        can_use, can_edit, can_manage, invited_by_user_id, created_at, updated_at
+      )
+      SELECT
+        a.agent_id,
+        p.organization_id,
+        p.user_id,
+        CASE WHEN p.role IN ('owner', 'admin') THEN 'manager' ELSE 'editor' END,
+        'active',
+        1,
+        1,
+        CASE WHEN p.role IN ('owner', 'admin') THEN 1 ELSE 0 END,
+        NULL,
+        $1,
+        $2
+      FROM agents a
+      JOIN organization_user_permissions p
+        ON p.status = 'active' AND p.role != 'external'
+      LEFT JOIN "user" u ON u.id = p.user_id
+      WHERE a.type != 'main'
+        AND a.access_policy = 'legacy'
+        AND COALESCE(u.banned, 0) = 0
+      ON CONFLICT (agent_id, user_id) DO NOTHING
+    `,
+    [now, now],
+  );
+  await pool.query(`
+    UPDATE agents
+    SET access_policy = 'restricted'
+    WHERE type != 'main' AND access_policy = 'legacy'
+  `);
 }

@@ -47,7 +47,7 @@ export function ChatAgentSelector({
   const { data: session } = authClient.useSession();
   const canManageAgentDefaults = session?.user?.role === 'admin';
 
-  const createAgent = useCallback(async (input: CreateAgentInput): Promise<boolean> => {
+  const createAgent = useCallback(async (input: CreateAgentInput): Promise<AgentProfile | null> => {
     setCreating(true);
     setCreateError(null);
     try {
@@ -69,10 +69,10 @@ export function ChatAgentSelector({
 
       await onReloadAgents?.();
       onSelectAgent(createdAgent.agentId);
-      return true;
+      return createdAgent;
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : t('agentCreateFailed'));
-      return false;
+      return null;
     } finally {
       setCreating(false);
     }
@@ -168,7 +168,7 @@ export function ChatAgentSelector({
                 </span>
                 {selected ? <CheckCircle2 className="h-4 w-4 shrink-0" /> : null}
               </button>
-              {agent.removable ? (
+              {agent.removable && agent.access?.canEdit ? (
                 <button
                   type="button"
                   onClick={() => {

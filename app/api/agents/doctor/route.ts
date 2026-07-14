@@ -7,6 +7,8 @@ import {
   buildAgentConfigReadiness,
 } from '@/app/lib/agents/storage';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
+import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
+import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { getQmdDoctorStatus } from '@/app/lib/qmd/status';
 
 type DoctorPayload = {
@@ -50,6 +52,7 @@ export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json().catch(() => ({}))) as DoctorPayload;
     const agentId = typeof payload.agentId === 'string' ? payload.agentId : undefined;
+    await requireAgentAccess(session.user.id, normalizeManagedAgentId(agentId), 'canEdit');
     const [readiness, promptResult, qmd] = await Promise.all([
       buildAgentConfigReadiness({ userId: session.user.id }),
       loadManagedAgentSystemPrompt(agentId, { userId: session.user.id, userName: session.user.name }),
@@ -77,7 +80,7 @@ export async function POST(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to run doctor checks.';
-    const status = error instanceof AgentConfigValidationError ? 400 : 500;
+    const status = error instanceof AgentAccessError ? error.status : error instanceof AgentConfigValidationError ? 400 : 500;
     return NextResponse.json({ success: false, error: message }, { status });
   }
 }

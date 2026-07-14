@@ -970,8 +970,8 @@
     "agentCreateFailed": "Failed to create agent.",
     "agentEdit": {
       "title": "Edit agent",
-      "description": "Update the name and icon for {name}.",
-      "descriptionFallback": "Update the agent name and icon.",
+      "description": "Update the name, icon, and access for {name}.",
+      "descriptionFallback": "Update the agent name, icon, and access.",
       "iconHint": "Choose an icon that makes this agent easy to recognize in chat.",
       "save": "Save changes",
       "errors": {
@@ -3344,6 +3344,38 @@
           "delete": "Failed to delete agent."
         }
       },
+      "members": {
+        "currentMembers": "People with access",
+        "currentMembersDescription": "Control who can use or edit this agent and who can manage its access.",
+        "addMember": "Add user",
+        "addMemberDescription": "Choose an available user and their access role.",
+        "selectUser": "Select user",
+        "accessLevel": "Access role",
+        "person": "Person",
+        "actions": "Actions",
+        "removeMember": "Remove access",
+        "refresh": "Refresh",
+        "loading": "Loading access...",
+        "noMembers": "No one has access yet.",
+        "noCandidatesDescription": "Every available user already has access to this agent.",
+        "cancel": "Cancel",
+        "accessLevels": {
+          "user": "Can use",
+          "editor": "Can edit",
+          "manager": "Full access"
+        },
+        "removeDialog": {
+          "title": "Remove agent access?",
+          "description": "{name} will no longer be able to use this agent.",
+          "confirm": "Remove access"
+        },
+        "errors": {
+          "load": "Failed to load agent access.",
+          "save": "Failed to save agent access.",
+          "remove": "Failed to remove agent access.",
+          "lastManager": "The last manager cannot be removed or downgraded. Assign another manager first."
+        }
+      },
       "iconPicker": {
         "title": "Choose agent icon",
         "description": "Pick a symbol that makes this agent recognizable in settings, chat, and automations.",
@@ -3372,6 +3404,9 @@
         "cancel": "Cancel",
         "create": "Create agent",
         "creating": "Creating agent...",
+        "accessTitle": "Set access for {name}",
+        "accessDescription": "The agent has been created. Add users and decide whether they can use, edit, or manage it.",
+        "done": "Done",
         "templates": {
           "custom": {
             "name": "Custom Agent",

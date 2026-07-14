@@ -16,6 +16,7 @@ import {
   type AgentManagedFileName,
 } from '@/app/lib/agents/storage';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
 
 type PutPayload = {
   agentId?: string;
@@ -65,6 +66,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const agentId = request.nextUrl.searchParams.get('agentId');
+    await requireAgentAccess(session.user.id, normalizeManagedAgentId(agentId), 'canEdit');
     const files = await readManagedAgentFiles(agentId, { userId: session.user.id });
     return NextResponse.json({
       success: true,
@@ -72,7 +74,7 @@ export async function GET(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to read agent files.';
-    const status = error instanceof AgentConfigValidationError ? 400 : 500;
+    const status = error instanceof AgentAccessError ? error.status : error instanceof AgentConfigValidationError ? 400 : 500;
     return NextResponse.json({ success: false, error: message }, { status });
   }
 }
@@ -98,6 +100,7 @@ export async function PUT(request: NextRequest) {
   try {
     const payload = (await request.json()) as PutPayload;
     const agentId = payload.agentId;
+    await requireAgentAccess(session.user.id, normalizeManagedAgentId(agentId), 'canEdit');
     const fileName = payload.fileName?.trim();
 
     if (!fileName || !isManagedAgentFileName(fileName)) {
@@ -147,7 +150,7 @@ export async function PUT(request: NextRequest) {
     });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to write agent file.';
-    const status = error instanceof AgentConfigValidationError ? 400 : 500;
+    const status = error instanceof AgentAccessError ? error.status : error instanceof AgentConfigValidationError ? 400 : 500;
     return NextResponse.json({ success: false, error: message }, { status });
   }
 }
@@ -174,6 +177,7 @@ export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json()) as PostPayload;
     const agentId = payload.agentId;
+    await requireAgentAccess(session.user.id, normalizeManagedAgentId(agentId), 'canEdit');
 
     if (payload.action !== 'reset') {
       return NextResponse.json(
@@ -261,7 +265,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to reset agent file.';
-    const status = error instanceof AgentConfigValidationError ? 400 : 500;
+    const status = error instanceof AgentAccessError ? error.status : error instanceof AgentConfigValidationError ? 400 : 500;
     return NextResponse.json({ success: false, error: message }, { status });
   }
 }

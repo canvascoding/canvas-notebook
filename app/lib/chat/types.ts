@@ -212,6 +212,11 @@ export type AgentProfile = {
   removable: boolean;
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
+  access?: {
+    canUse: boolean;
+    canEdit: boolean;
+    canManage: boolean;
+  };
 };
 
 export type ChatHistoryGroup = 'today' | 'last7' | 'last14' | 'last30' | 'older';

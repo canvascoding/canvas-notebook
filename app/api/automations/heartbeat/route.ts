@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { applyAutomationRateLimit, requireAutomationSession } from '@/app/lib/automations/api';
 import { readHeartbeatConfig, saveHeartbeatConfig } from '@/app/lib/automations/heartbeat-config';
+import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
 import type {
   AutomationDeliveryMode,
   AutomationDeliverySessionMode,
@@ -40,6 +41,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const agentId = getAgentId(request.nextUrl.searchParams.get('agentId'));
+    await requireAgentAccess(session.user.id, agentId, 'canUse');
     const config = await readHeartbeatConfig({
       userId: session.user.id,
       agentId,
@@ -48,7 +50,7 @@ export async function GET(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to get heartbeat config.' },
-      { status: 400 },
+      { status: error instanceof AgentAccessError ? error.status : 400 },
     );
   }
 }
@@ -67,6 +69,7 @@ export async function PUT(request: NextRequest) {
   try {
     const payload = (await request.json()) as HeartbeatPutPayload;
     const agentId = getAgentId(payload.agentId);
+    await requireAgentAccess(session.user.id, agentId, 'canUse');
     const config = await saveHeartbeatConfig({
       userId: session.user.id,
       agentId,
@@ -82,7 +85,7 @@ export async function PUT(request: NextRequest) {
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to save heartbeat config.' },
-      { status: 400 },
+      { status: error instanceof AgentAccessError ? error.status : 400 },
     );
   }
 }

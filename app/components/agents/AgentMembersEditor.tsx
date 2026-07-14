@@ -7,21 +7,20 @@ import {
   MemberAccessEditor,
   type MemberAccessPerson,
 } from '@/app/components/settings/MemberAccessEditor';
-import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 
-type WorkspaceMemberRecord = {
-  workspaceId: string;
+type AgentMemberRecord = {
+  agentId: string;
   userId: string;
   name: string | null;
   email: string | null;
   role: string;
   status: string;
-  canRead: boolean;
-  canWrite: boolean;
+  canUse: boolean;
+  canEdit: boolean;
   canManage: boolean;
 };
 
-type WorkspaceMemberCandidate = {
+type AgentMemberCandidate = {
   userId: string;
   name: string | null;
   email: string | null;
@@ -29,40 +28,36 @@ type WorkspaceMemberCandidate = {
   status: string;
 };
 
-type WorkspaceAccessLevel = 'viewer' | 'editor' | 'manager';
+type AgentAccessLevel = 'user' | 'editor' | 'manager';
 
-type WorkspaceMembersEditorProps = {
+type AgentMembersEditorProps = {
   active: boolean;
-  workspace: ClientWorkspaceSummary;
+  agentId: string;
   onChanged?: () => void | Promise<void>;
 };
 
-function getAccessLevel(member: Pick<WorkspaceMemberRecord, 'canWrite' | 'canManage'>): WorkspaceAccessLevel {
+function getAccessLevel(member: Pick<AgentMemberRecord, 'canEdit' | 'canManage'>): AgentAccessLevel {
   if (member.canManage) return 'manager';
-  if (member.canWrite) return 'editor';
-  return 'viewer';
+  if (member.canEdit) return 'editor';
+  return 'user';
 }
 
-function getAccessInput(accessLevel: WorkspaceAccessLevel) {
-  if (accessLevel === 'manager') {
-    return { canRead: true, canWrite: true, canManage: true, role: 'admin' };
-  }
-  if (accessLevel === 'editor') {
-    return { canRead: true, canWrite: true, canManage: false, role: 'member' };
-  }
-  return { canRead: true, canWrite: false, canManage: false, role: 'member' };
+function getAccessInput(accessLevel: AgentAccessLevel) {
+  if (accessLevel === 'manager') return { canUse: true, canEdit: true, canManage: true };
+  if (accessLevel === 'editor') return { canUse: true, canEdit: true, canManage: false };
+  return { canUse: true, canEdit: false, canManage: false };
 }
 
-export function WorkspaceMembersEditor({ active, workspace, onChanged }: WorkspaceMembersEditorProps) {
-  const t = useTranslations('settings.workspacePanel.management.members');
-  const [members, setMembers] = useState<WorkspaceMemberRecord[]>([]);
-  const [candidates, setCandidates] = useState<WorkspaceMemberCandidate[]>([]);
+export function AgentMembersEditor({ active, agentId, onChanged }: AgentMembersEditorProps) {
+  const t = useTranslations('settings.agentPanel.members');
+  const [members, setMembers] = useState<AgentMemberRecord[]>([]);
+  const [candidates, setCandidates] = useState<AgentMemberCandidate[]>([]);
   const [selectedUserId, setSelectedUserId] = useState('');
-  const [newAccessLevel, setNewAccessLevel] = useState<WorkspaceAccessLevel>('viewer');
+  const [newAccessLevel, setNewAccessLevel] = useState<AgentAccessLevel>('user');
   const [isLoading, setIsLoading] = useState(false);
   const [activeAction, setActiveAction] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const endpoint = `/api/workspaces/${encodeURIComponent(workspace.id)}/members`;
+  const endpoint = `/api/agents/${encodeURIComponent(agentId)}/members`;
 
   const loadMembers = useCallback(async () => {
     setIsLoading(true);
@@ -86,7 +81,7 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
     return () => window.clearTimeout(timeout);
   }, [active, loadMembers]);
 
-  const memberViews = useMemo<Array<MemberAccessPerson<WorkspaceAccessLevel>>>(() => (
+  const memberViews = useMemo<Array<MemberAccessPerson<AgentAccessLevel>>>(() => (
     members.map((member) => ({
       userId: member.userId,
       name: member.name,
@@ -99,7 +94,7 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
     return candidates.filter((candidate) => !memberIds.has(candidate.userId));
   }, [candidates, members]);
 
-  const updateMember = async (userId: string, accessLevel: WorkspaceAccessLevel) => {
+  const updateMember = async (userId: string, accessLevel: AgentAccessLevel) => {
     setActiveAction(`update:${userId}`);
     setError(null);
     try {
@@ -110,10 +105,12 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
         body: JSON.stringify({ userId, ...getAccessInput(accessLevel) }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.save'));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.code === 'AGENT_LAST_MANAGER' ? t('errors.lastManager') : payload.error || t('errors.save'));
+      }
       await loadMembers();
       setSelectedUserId('');
-      setNewAccessLevel('viewer');
+      setNewAccessLevel('user');
       await Promise.resolve(onChanged?.()).catch(() => undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('errors.save'));
@@ -122,7 +119,7 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
     }
   };
 
-  const removeMember = async (member: MemberAccessPerson<WorkspaceAccessLevel>) => {
+  const removeMember = async (member: MemberAccessPerson<AgentAccessLevel>) => {
     setActiveAction(`remove:${member.userId}`);
     setError(null);
     try {
@@ -132,7 +129,7 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.code === 'WORKSPACE_LAST_MANAGER' ? t('errors.lastManager') : payload.error || t('errors.remove'));
+        throw new Error(payload.code === 'AGENT_LAST_MANAGER' ? t('errors.lastManager') : payload.error || t('errors.remove'));
       }
       await loadMembers();
       await Promise.resolve(onChanged?.()).catch(() => undefined);
@@ -148,7 +145,7 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
       members={memberViews}
       candidates={availableCandidates}
       accessLevels={[
-        { value: 'viewer', label: t('accessLevels.viewer') },
+        { value: 'user', label: t('accessLevels.user') },
         { value: 'editor', label: t('accessLevels.editor') },
         { value: 'manager', label: t('accessLevels.manager') },
       ]}

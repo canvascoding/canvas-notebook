@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
+import { AgentMembersEditor } from '@/app/components/agents/AgentMembersEditor';
 import { AgentManagedFilesEditor, type ManagedFileName } from './AgentManagedFilesCard';
 import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
 import {
@@ -156,13 +157,18 @@ export type CreateAgentInput = {
   relevantConnections: string[] | null;
 };
 
+export type CreatedAgent = {
+  agentId: string;
+  name: string;
+};
+
 type CreateAgentDialogProps = {
   open: boolean;
   creating: boolean;
   error: string | null;
   canManageAgentDefaults: boolean;
   onOpenChange: (open: boolean) => void;
-  onCreate: (input: CreateAgentInput) => Promise<boolean>;
+  onCreate: (input: CreateAgentInput) => Promise<CreatedAgent | null>;
 };
 
 function mergeFileDrafts(template: CreateAgentTemplate): Record<ManagedFileName, string> {
@@ -341,6 +347,7 @@ export function CreateAgentDialog({
   const [toolsLoading, setToolsLoading] = useState(false);
   const [toolsError, setToolsError] = useState<string | null>(null);
   const [filesOpen, setFilesOpen] = useState(true);
+  const [createdAgent, setCreatedAgent] = useState<CreatedAgent | null>(null);
   const modelLoadRequestedRef = useRef(false);
   const toolsLoadRequestedRef = useRef(false);
 
@@ -504,6 +511,7 @@ export function CreateAgentDialog({
     setActiveToolGroups(new Set());
     setSkillsOpen(false);
     setFilesOpen(true);
+    setCreatedAgent(null);
     modelLoadRequestedRef.current = false;
     toolsLoadRequestedRef.current = false;
   }, [applyTemplate]);
@@ -527,7 +535,7 @@ export function CreateAgentDialog({
 
   async function submit() {
     if (!canCreate) return;
-    const success = await onCreate({
+    const agent = await onCreate({
       name: name.trim(),
       iconId,
       defaultProviderInstallationId: usesModelOverride ? modelDraft?.providerInstallationId ?? null : null,
@@ -542,10 +550,7 @@ export function CreateAgentDialog({
       relevantSkills: skillsOverrideEnabled ? selectedSkills : null,
       relevantConnections: connectionsOverrideEnabled ? selectedConnections : null,
     });
-    if (success) {
-      resetDialog();
-      onOpenChange(false);
-    }
+    if (agent) setCreatedAgent(agent);
   }
 
   return (
@@ -554,6 +559,28 @@ export function CreateAgentDialog({
         layout="viewport"
         className="h-[100dvh] w-full max-w-full bg-background p-0 sm:h-[calc(100dvh-2rem)] md:h-[calc(100dvh-3rem)] lg:h-[calc(100dvh-4rem)]"
       >
+        {createdAgent ? (
+          <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
+            <DialogHeader className="shrink-0 border-b px-4 py-3 pr-14 sm:px-5 sm:py-4">
+              <DialogTitle>{t('accessTitle', { name: createdAgent.name })}</DialogTitle>
+              <DialogDescription>{t('accessDescription')}</DialogDescription>
+            </DialogHeader>
+            <ScrollArea className="h-full min-h-0">
+              <div className="mx-auto w-full max-w-4xl p-4 sm:p-6">
+                <AgentMembersEditor
+                  key={createdAgent.agentId}
+                  active={open}
+                  agentId={createdAgent.agentId}
+                />
+              </div>
+            </ScrollArea>
+            <DialogFooter className="shrink-0 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-4">
+              <Button type="button" onClick={() => handleOpenChange(false)} className="w-full sm:w-auto">
+                {t('done')}
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
           <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
             <DialogHeader className="shrink-0 border-b px-4 py-3 pr-14 sm:px-5 sm:py-4">
               <DialogTitle>{t('title')}</DialogTitle>
@@ -769,6 +796,7 @@ export function CreateAgentDialog({
               </Button>
             </DialogFooter>
           </div>
+        )}
 
         <AgentIconPickerDialog
           open={iconPickerOpen}

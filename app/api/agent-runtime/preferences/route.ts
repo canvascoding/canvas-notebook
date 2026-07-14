@@ -8,6 +8,7 @@ import {
   setUserRuntimePreference,
 } from '@/app/lib/agent-runtime-policy/runtime-service';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
 import { auth } from '@/app/lib/auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -38,6 +39,12 @@ function runtimeContext(input: {
 }
 
 function routeError(error: unknown) {
+  if (error instanceof AgentAccessError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
   if (error instanceof Error && error.message === 'INVALID_AGENT_ID') {
     return NextResponse.json(
       { success: false, code: 'INVALID_AGENT_ID', error: 'agentId is invalid.' },
@@ -127,6 +134,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const agentId = requestedAgentId(request.nextUrl.searchParams.get('agentId'));
+    await requireAgentAccess(access.session.user.id, agentId, 'canUse');
     const resolution = await resolveEffectiveAgentRuntime(runtimeContext({
       organizationId: access.workspace.organizationId,
       userId: access.session.user.id,
@@ -161,6 +169,7 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const agentId = requestedAgentId(payload?.agentId);
+    await requireAgentAccess(access.session.user.id, agentId, 'canUse');
     const context = runtimeContext({
       organizationId: access.workspace.organizationId,
       userId: access.session.user.id,
@@ -215,6 +224,7 @@ export async function DELETE(request: NextRequest) {
 
   try {
     const agentId = requestedAgentId(request.nextUrl.searchParams.get('agentId'));
+    await requireAgentAccess(access.session.user.id, agentId, 'canUse');
     const expectedRevision = parseOptionalExpectedRevision(request.nextUrl.searchParams.get('expectedRevision'));
     const context = runtimeContext({
       organizationId: access.workspace.organizationId,

@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
 import { runBrowserLaunchProbe } from '@/app/lib/pi/browser/requirements';
 import {
   assertBrowserRuntimeAvailable,
@@ -60,14 +61,16 @@ export async function GET(request: NextRequest) {
   }
 
   try {
+    const agentId = normalizeManagedAgentId(request.nextUrl.searchParams.get('agentId'));
+    await requireAgentAccess(session.user.id, agentId, 'canUse');
     const status = await buildBrowserRuntimeStatus({
       userId: session.user.id,
-      agentId: request.nextUrl.searchParams.get('agentId'),
+      agentId,
     });
     return NextResponse.json({ success: true, data: status });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to load browser status.';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: error instanceof AgentAccessError ? error.status : 500 });
   }
 }
 
@@ -89,6 +92,7 @@ export async function POST(request: NextRequest) {
   try {
     const payload = (await request.json().catch(() => ({}))) as BrowserActionPayload;
     const agentId = normalizeManagedAgentId(payload.agentId);
+    await requireAgentAccess(session.user.id, agentId, 'canUse');
     const context = makeBrowserRuntimeContext(session.user.id, agentId);
 
     if (payload.action === 'close_session') {
@@ -122,7 +126,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Invalid action.' }, { status: 400 });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update browser runtime.';
-    return NextResponse.json({ success: false, error: message }, { status: 500 });
+    return NextResponse.json({ success: false, error: message }, { status: error instanceof AgentAccessError ? error.status : 500 });
   }
 }
 

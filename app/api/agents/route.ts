@@ -10,6 +10,12 @@ import { isAdminUser } from '@/app/lib/admin-auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import {
+  AgentAccessError,
+  createAgentManagerMembership,
+  listAgentAccessForUser,
+  requireAgentAccess,
+} from '@/app/lib/agents/access';
+import {
   createAgentProfile,
   deleteAgentProfile,
   getAgentProfile,
@@ -80,6 +86,12 @@ async function requireAgentDefaultAdmin(session: AuthSession) {
 }
 
 function agentMutationError(error: unknown, fallback: string) {
+  if (error instanceof AgentAccessError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status },
+    );
+  }
   const runtimeError = agentDefaultErrorResponse(error);
   if (runtimeError.code !== 'AGENT_DEFAULT_UPDATE_FAILED') {
     return NextResponse.json(
@@ -116,8 +128,15 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const agents = await listAgentProfiles();
-    return NextResponse.json({ success: true, data: { agents } });
+    const [agents, accessByAgentId] = await Promise.all([
+      listAgentProfiles(),
+      listAgentAccessForUser(session.user.id),
+    ]);
+    const accessibleAgents = agents.flatMap((agent) => {
+      const access = accessByAgentId.get(agent.agentId);
+      return access?.canUse ? [{ ...agent, access }] : [];
+    });
+    return NextResponse.json({ success: true, data: { agents: accessibleAgents } });
   } catch (error) {
     return NextResponse.json(
       { success: false, error: error instanceof Error ? error.message : 'Failed to list agents.' },
@@ -199,6 +218,7 @@ export async function POST(request: NextRequest) {
       enabledTools,
       relevantSkills: stringArrayValue(payload.relevantSkills),
       relevantConnections: stringArrayValue(payload.relevantConnections),
+      accessPolicy: 'restricted',
     });
     let catalogRevision: number | undefined;
     if (defaultSelection && organizationId) {
@@ -215,6 +235,12 @@ export async function POST(request: NextRequest) {
         await deleteAgentProfile(agent.agentId).catch(() => undefined);
         throw error;
       }
+    }
+    try {
+      await createAgentManagerMembership(agent.agentId, session.user.id);
+    } catch (error) {
+      await deleteAgentProfile(agent.agentId).catch(() => undefined);
+      throw error;
     }
     const managedFiles = managedFilesValue(payload.files);
     await writeInitialAgentFiles(agent.agentId, managedFiles, session.user.id);
@@ -239,7 +265,15 @@ export async function POST(request: NextRequest) {
         managedFiles: Object.keys(managedFiles),
       },
     });
-    return NextResponse.json({ success: true, data: { agent } });
+    return NextResponse.json({
+      success: true,
+      data: {
+        agent: {
+          ...agent,
+          access: { canUse: true, canEdit: true, canManage: true },
+        },
+      },
+    });
   } catch (error) {
     return agentMutationError(error, 'Failed to create agent.');
   }
@@ -266,6 +300,7 @@ export async function PATCH(request: NextRequest) {
     if (!agentId) {
       throw new Error('agentId is required.');
     }
+    const access = await requireAgentAccess(session.user.id, agentId, 'canEdit');
     if (typeof payload.name === 'string' && !payload.name.trim()) {
       // Validate profile fields before the catalog-guarded default write so a
       // rejected combined PATCH cannot leave a partially updated agent.
@@ -355,7 +390,7 @@ export async function PATCH(request: NextRequest) {
         catalogRevision,
       },
     });
-    return NextResponse.json({ success: true, data: { agent } });
+    return NextResponse.json({ success: true, data: { agent: { ...agent, access } } });
   } catch (error) {
     return agentMutationError(error, 'Failed to update agent.');
   }
@@ -381,6 +416,7 @@ export async function DELETE(request: NextRequest) {
     if (!agentId) {
       throw new Error('agentId is required.');
     }
+    await requireAgentAccess(session.user.id, agentId, 'canManage');
     await deleteAgentProfile(agentId);
     await recordAuditEvent({
       userId: session.user.id,

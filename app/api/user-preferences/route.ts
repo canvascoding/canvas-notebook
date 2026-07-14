@@ -11,6 +11,7 @@ import {
   type UserPreferences,
 } from '@/app/lib/user-preferences';
 import { getAgentProfile } from '@/app/lib/agents/registry';
+import { getAgentAccess } from '@/app/lib/agents/access';
 
 function jsonWithRequestId(requestId: string, body: Record<string, unknown>, init: ResponseInit = {}) {
   const headers = new Headers(init.headers);
@@ -112,6 +113,11 @@ export async function PATCH(request: NextRequest) {
       if (!agent) {
         console.warn('[user-preferences] PATCH bad request: agent not found', { requestId, ...logUser, lastActiveAgentId });
         return jsonWithRequestId(requestId, { success: false, error: 'Agent not found.', requestId }, { status: 404 });
+      }
+      const access = await getAgentAccess(session.user.id, lastActiveAgentId);
+      if (!access.canUse) {
+        console.warn('[user-preferences] PATCH forbidden: agent access denied', { requestId, ...logUser, lastActiveAgentId });
+        return jsonWithRequestId(requestId, { success: false, error: 'Agent access denied.', requestId }, { status: 403 });
       }
       updates.lastActiveAgentId = lastActiveAgentId;
     }

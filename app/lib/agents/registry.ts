@@ -203,6 +203,7 @@ export async function createAgentProfile(input: {
   enabledTools?: string[] | null;
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
+  accessPolicy?: 'legacy' | 'restricted';
 }): Promise<AgentProfile> {
   const name = input.name.trim();
   if (!name) {
@@ -227,6 +228,7 @@ export async function createAgentProfile(input: {
     enabledToolsJson: stringifyEnabledTools(input.enabledTools),
     relevantSkillsJson: stringifyStringList(input.relevantSkills),
     relevantConnectionsJson: stringifyStringList(input.relevantConnections),
+    accessPolicy: input.accessPolicy === 'restricted' ? 'restricted' : 'legacy',
     createdAt: now,
     updatedAt: now,
   });

@@ -554,10 +554,29 @@ export const agents = sqliteTable("agents", {
   enabledToolsJson: text("enabled_tools_json"),
   relevantSkillsJson: text("relevant_skills_json"),
   relevantConnectionsJson: text("relevant_connections_json"),
+  accessPolicy: text("access_policy").notNull().default("legacy"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   agentIdIdx: uniqueIndex("idx_agents_agent_id").on(table.agentId),
+}));
+
+export const agentMembers = sqliteTable("agent_members", {
+  agentId: text("agent_id").notNull().references(() => agents.agentId, { onDelete: 'cascade' }),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  role: text("role").notNull().default("user"),
+  status: text("status").notNull().default("active"),
+  canUse: integer("can_use", { mode: "boolean" }).notNull().default(true),
+  canEdit: integer("can_edit", { mode: "boolean" }).notNull().default(false),
+  canManage: integer("can_manage", { mode: "boolean" }).notNull().default(false),
+  invitedByUserId: text("invited_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey(table.agentId, table.userId),
+  organizationUserIdx: index("idx_agent_members_org_user").on(table.organizationId, table.userId, table.status),
+  agentStatusIdx: index("idx_agent_members_agent_status").on(table.agentId, table.status),
 }));
 
 export const piMessages = sqliteTable("pi_messages", {

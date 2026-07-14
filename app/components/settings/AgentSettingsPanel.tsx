@@ -441,7 +441,7 @@ export function AgentSettingsPanel({
 
     try {
       const payload = await fetchJson<{ agents: AgentProfileItem[] }>('/api/agents');
-      const nextAgents = payload.agents || [];
+      const nextAgents = (payload.agents || []).filter((agent) => agent.access?.canEdit !== false);
       setAgents(nextAgents);
       setSelectedAgentId((current) => {
         if (nextAgents.some((agent) => agent.agentId === current)) {
@@ -473,9 +473,9 @@ export function AgentSettingsPanel({
     }
   }, [selectedAgentId, t]);
 
-  const createAgent = async (input: CreateAgentInput): Promise<boolean> => {
+  const createAgent = async (input: CreateAgentInput): Promise<AgentProfileItem | null> => {
     const name = input.name.trim();
-    if (!name) return false;
+    if (!name) return null;
 
     setAgentCreating(true);
     setAgentsError(null);
@@ -500,10 +500,10 @@ export function AgentSettingsPanel({
       });
       await loadAgents();
       selectAgent(payload.agent.agentId);
-      return true;
+      return payload.agent;
     } catch (error) {
       setAgentsError(error instanceof Error ? error.message : t('agentPanel.selector.errors.create'));
-      return false;
+      return null;
     } finally {
       setAgentCreating(false);
     }

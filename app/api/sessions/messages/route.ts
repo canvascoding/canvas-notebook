@@ -6,6 +6,7 @@ import { auth } from '@/app/lib/auth';
 import { and, asc, desc, eq, lt, gt, or } from 'drizzle-orm';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { requireAgentAccess } from '@/app/lib/agents/access';
 import { parsePersistedPiMessage, type PiMessageProjectionMode } from '@/app/lib/pi/message-projection';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 
@@ -53,6 +54,11 @@ export async function GET(request: NextRequest) {
 
   if (!agentId) {
     return NextResponse.json({ success: false, error: 'Invalid agentId' }, { status: 400 });
+  }
+  try {
+    await requireAgentAccess(session.user.id, agentId, 'canUse');
+  } catch {
+    return NextResponse.json({ success: false, code: 'AGENT_ACCESS_DENIED', error: 'Agent access denied.' }, { status: 403 });
   }
 
   const limitParam = searchParams.get('limit');

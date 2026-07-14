@@ -6,6 +6,7 @@ import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
+import { AgentMembersEditor } from '@/app/components/agents/AgentMembersEditor';
 import type { AgentIconId } from '@/app/lib/agents/icons';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { Button } from '@/components/ui/button';
@@ -41,6 +42,7 @@ export function EditAgentProfileDialog({
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const canManageAccess = Boolean(agent?.access?.canManage);
 
   useEffect(() => {
     if (!agent) return;
@@ -114,17 +116,18 @@ export function EditAgentProfileDialog({
   return (
     <>
       <Dialog open={open} onOpenChange={handleOpenChange}>
-        <DialogContent>
-          <form onSubmit={submit} className="flex flex-col gap-5">
-            <DialogHeader>
+        <DialogContent className={canManageAccess ? "!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_48rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none" : undefined}>
+          <form onSubmit={submit} className={canManageAccess ? "flex min-h-0 flex-1 flex-col" : "flex flex-col gap-5"}>
+            <DialogHeader className={canManageAccess ? "border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14" : undefined}>
               <DialogTitle>{t('title')}</DialogTitle>
               <DialogDescription>
                 {agent ? t('description', { name: agent.name }) : t('descriptionFallback')}
               </DialogDescription>
             </DialogHeader>
 
-            <div className="flex flex-col gap-4">
-              <div className="flex items-center gap-4 rounded-md border bg-muted/20 p-3">
+            <div className={canManageAccess ? "min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6" : "flex flex-col gap-4"}>
+              <div className="flex flex-col gap-4">
+                <div className="flex items-center gap-4 rounded-md border bg-muted/20 p-3">
                 <button
                   type="button"
                   onClick={() => setIconPickerOpen(true)}
@@ -138,29 +141,40 @@ export function EditAgentProfileDialog({
                   />
                 </button>
                 <div className="min-w-0 text-sm text-muted-foreground">{t('iconHint')}</div>
+                </div>
+
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor={nameId}>{tCreate('nameLabel')}</Label>
+                  <Input
+                    id={nameId}
+                    value={name}
+                    onChange={(event) => setName(event.target.value)}
+                    maxLength={80}
+                    required
+                    disabled={isSubmitting}
+                    aria-invalid={Boolean(error)}
+                  />
+                </div>
+
+                {error ? (
+                  <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    {error}
+                  </p>
+                ) : null}
               </div>
 
-              <div className="flex flex-col gap-2">
-                <Label htmlFor={nameId}>{tCreate('nameLabel')}</Label>
-                <Input
-                  id={nameId}
-                  value={name}
-                  onChange={(event) => setName(event.target.value)}
-                  maxLength={80}
-                  required
-                  disabled={isSubmitting}
-                  aria-invalid={Boolean(error)}
-                />
-              </div>
-
-              {error ? (
-                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                  {error}
-                </p>
+              {canManageAccess && agent ? (
+                <div className="mt-6 border-t border-border pt-6">
+                  <AgentMembersEditor
+                    active={open}
+                    agentId={agent.agentId}
+                    onChanged={() => onChanged(agent)}
+                  />
+                </div>
               ) : null}
             </div>
 
-            <DialogFooter>
+            <DialogFooter className={canManageAccess ? "border-t border-border px-5 py-4 sm:px-6" : undefined}>
               <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
                 {tCreate('cancel')}
               </Button>

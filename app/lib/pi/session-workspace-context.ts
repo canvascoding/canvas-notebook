@@ -5,6 +5,7 @@ import { and, eq } from 'drizzle-orm';
 import path from 'node:path';
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { requireAgentAccess } from '@/app/lib/agents/access';
 import { db } from '@/app/lib/db';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { piSessions } from '@/app/lib/db/schema';
@@ -344,6 +345,7 @@ export async function resolveAgentExecutionContextForSession(input: {
   userId: string;
   agentId?: string | null;
 }): Promise<AgentExecutionContext> {
+  await requireAgentAccess(input.userId, input.agentId || 'canvas-agent', 'canUse');
   const workspace = await ensurePiSessionWorkspaceSnapshot({
     sessionId: input.sessionId,
     userId: input.userId,

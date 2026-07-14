@@ -53,6 +53,7 @@
     "test:agent:model-probe": "tsx --conditions react-server scripts/agent-model-probe-test.ts",
     "test:agent:provider-verification": "tsx --conditions react-server scripts/agent-runtime-provider-verification-test.ts",
     "test:agent:tools-route": "tsx --conditions react-server scripts/agent-tools-route-test.ts",
+    "test:agent:access": "tsx --conditions react-server scripts/agent-access-service-test.ts",
     "test:scoped-data-paths": "tsx scripts/scoped-runtime-paths-test.ts",
     "test:integrations:env-scope": "tsx scripts/scoped-env-config-test.ts",
     "test:mcp:config": "tsx scripts/mcp-config-test.ts",

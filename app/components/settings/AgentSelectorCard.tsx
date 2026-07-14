@@ -24,6 +24,11 @@ export type AgentProfileItem = {
   enabledTools: string[] | null;
   relevantSkills: string[] | null;
   relevantConnections: string[] | null;
+  access?: {
+    canUse: boolean;
+    canEdit: boolean;
+    canManage: boolean;
+  };
 };
 
 type AgentSelectorCardProps = {
@@ -36,7 +41,7 @@ type AgentSelectorCardProps = {
   canManageAgentDefaults: boolean;
   openCreateDialogOnMount?: boolean;
   onSelectedAgentIdChange: (agentId: string) => void;
-  onCreate: (input: CreateAgentInput) => Promise<boolean>;
+  onCreate: (input: CreateAgentInput) => Promise<AgentProfileItem | null>;
   onDelete: (agentId: string) => void;
   onReload: () => void;
 };
@@ -146,10 +151,10 @@ export function AgentSelectorCard({
                     type="button"
                     variant="ghost"
                     size="sm"
-                    disabled={!agent.removable || deletingAgentId === agent.agentId}
+                    disabled={!agent.removable || !agent.access?.canManage || deletingAgentId === agent.agentId}
                     onClick={() => onDelete(agent.agentId)}
                     className="shrink-0 px-2"
-                    title={agent.removable ? t('agentPanel.selector.delete') : t('agentPanel.selector.locked')}
+                    title={agent.removable && agent.access?.canManage ? t('agentPanel.selector.delete') : t('agentPanel.selector.locked')}
                   >
                     <Trash2 className="h-4 w-4" />
                     <span className="sr-only">{t('agentPanel.selector.delete')}</span>

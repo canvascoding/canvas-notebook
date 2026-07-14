@@ -12,6 +12,7 @@ import {
   SessionRuntimeContextRevisionConflictError,
 } from '@/app/lib/agent-runtime-policy/runtime-store';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { requireAgentAccess } from '@/app/lib/agents/access';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
 import { appendWorkspaceBrandPromptBlock } from '@/app/lib/agents/workspace-brand-context';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -1130,6 +1131,7 @@ export function createDelegateTaskTool(deps: {
           if (!targetAgent) {
             throw new Error(`Target agent "${targetAgentId}" not found.`);
           }
+          await requireAgentAccess(deps.userId, targetAgentId, 'canUse');
         }
 
         const timeoutSeconds = clampTimeoutSeconds(args.timeout_seconds);
