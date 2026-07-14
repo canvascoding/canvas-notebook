@@ -2,6 +2,7 @@
 
 import { useCallback, useState } from 'react';
 import type { StudioBlock, StudioPreset, StudioPresetBlockCatalog } from '../types/presets';
+import { studioApiFetch } from '../utils/studio-api';
 
 interface PresetPayload {
   name: string;
@@ -61,7 +62,7 @@ export function useStudioPresets(): UseStudioPresetsReturn {
     setError(null);
     try {
       const params = category ? `?category=${encodeURIComponent(category)}` : '';
-      const response = await fetch(`/api/studio/presets${params}`);
+      const response = await studioApiFetch(`/api/studio/presets${params}`);
       const data = await parseJsonResponse(response);
       const fetched = (data.presets ?? []) as StudioPreset[];
       setPresets(fetched);
@@ -77,7 +78,7 @@ export function useStudioPresets(): UseStudioPresetsReturn {
   const fetchBlockCatalog = useCallback(async () => {
     setError(null);
     try {
-      const response = await fetch('/api/studio/presets/blocks');
+      const response = await studioApiFetch('/api/studio/presets/blocks');
       const data = await parseJsonResponse(response);
       const catalog = {
         blockTypes: data.blockTypes ?? [],
@@ -96,7 +97,7 @@ export function useStudioPresets(): UseStudioPresetsReturn {
   const createPreset = useCallback(async (payload: PresetPayload) => {
     setError(null);
     try {
-      const response = await fetch('/api/studio/presets', {
+      const response = await studioApiFetch('/api/studio/presets', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -113,7 +114,7 @@ export function useStudioPresets(): UseStudioPresetsReturn {
   const updatePreset = useCallback(async (id: string, payload: PresetUpdatePayload) => {
     setError(null);
     try {
-      const response = await fetch(`/api/studio/presets/${id}`, {
+      const response = await studioApiFetch(`/api/studio/presets/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -130,7 +131,7 @@ export function useStudioPresets(): UseStudioPresetsReturn {
   const deletePreset = useCallback(async (id: string) => {
     setError(null);
     try {
-      const response = await fetch(`/api/studio/presets/${id}`, { method: 'DELETE' });
+      const response = await studioApiFetch(`/api/studio/presets/${id}`, { method: 'DELETE' });
       await parseJsonResponse(response);
       await fetchPresets();
       return true;
@@ -143,7 +144,7 @@ export function useStudioPresets(): UseStudioPresetsReturn {
   const generatePreview = useCallback(async (id: string, payload?: PreviewPayload) => {
     setError(null);
     try {
-      const response = await fetch(`/api/studio/presets/${id}/preview`, {
+      const response = await studioApiFetch(`/api/studio/presets/${id}/preview`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload ?? {}),

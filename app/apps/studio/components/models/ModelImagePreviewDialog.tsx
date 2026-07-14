@@ -5,6 +5,7 @@ import { useTranslations } from 'next-intl';
 import { ChevronLeft, ChevronRight, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogDescription, DialogTitle } from '@/components/ui/dialog';
+import { studioApiUrl } from '../../utils/studio-api';
 
 interface ModelImage {
   id: string;
@@ -35,11 +36,11 @@ export function ModelImagePreviewDialog({
   }, [initialIndex]);
 
   const getImageUrl = (imageId: string) => {
-    return entityType === 'product'
+    return studioApiUrl(entityType === 'product'
       ? `/api/studio/products/${entityId}/images/${imageId}`
       : entityType === 'persona'
         ? `/api/studio/personas/${entityId}/images/${imageId}`
-        : `/api/studio/styles/${entityId}/images/${imageId}`;
+        : `/api/studio/styles/${entityId}/images/${imageId}`);
   };
 
   const hasPrev = currentIndex > 0;

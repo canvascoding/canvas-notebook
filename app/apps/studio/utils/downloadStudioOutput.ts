@@ -2,6 +2,7 @@
 
 import type { StudioGenerationOutput } from '../types/generation';
 import { shareFileFromUrl } from '@/app/lib/files/native-file-share';
+import { studioApiFetch } from './studio-api';
 
 function getDownloadFilename(response: Response, fallback: string): string {
   const header = response.headers.get('Content-Disposition');
@@ -43,7 +44,7 @@ export async function downloadStudioOutputs(outputIds: string[]): Promise<boolea
   if (outputIds.length === 0) return false;
 
   try {
-    const response = await fetch('/api/studio/outputs/download', {
+    const response = await studioApiFetch('/api/studio/outputs/download', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ outputIds }),

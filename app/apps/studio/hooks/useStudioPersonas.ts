@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { StudioPersona } from '../types/models';
+import { studioApiFetch, studioApiUrl } from '../utils/studio-api';
 
 interface UseStudioPersonasReturn {
   personas: StudioPersona[];
@@ -45,7 +46,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
     setError(null);
     try {
       const params = search ? `?search=${encodeURIComponent(search)}` : '';
-      const res = await fetch(`/api/studio/personas${params}`);
+      const res = await studioApiFetch(`/api/studio/personas${params}`);
       if (!res.ok) throw new Error('Failed to fetch personas');
       const data = await res.json();
       setPersonas(data.personas ?? []);
@@ -59,7 +60,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
   const createPersona = useCallback(async (data: { name: string; description?: string }): Promise<StudioPersona | null> => {
     setError(null);
     try {
-      const res = await fetch('/api/studio/personas', {
+      const res = await studioApiFetch('/api/studio/personas', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -77,7 +78,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
   const updatePersona = useCallback(async (id: string, data: { name?: string; description?: string; imageOrder?: string[] }): Promise<StudioPersona | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/personas/${id}`, {
+      const res = await studioApiFetch(`/api/studio/personas/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -95,7 +96,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
   const deletePersona = useCallback(async (id: string): Promise<{ success: boolean; warnings?: string[] } | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/personas/${id}`, { method: 'DELETE' });
+      const res = await studioApiFetch(`/api/studio/personas/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete persona');
       const result = await res.json();
       await fetchPersonas();
@@ -111,7 +112,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/studio/personas/${personaId}/images`, {
+      const res = await studioApiFetch(`/api/studio/personas/${personaId}/images`, {
         method: 'POST',
         body: formData,
       });
@@ -128,7 +129,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
   const addImageFromUrl = useCallback(async (personaId: string, url: string): Promise<StudioPersonaImage | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/personas/${personaId}/images`, {
+      const res = await studioApiFetch(`/api/studio/personas/${personaId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -146,7 +147,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
   const addImageFromFilePath = useCallback(async (personaId: string, filePath: string): Promise<StudioPersonaImage | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/personas/${personaId}/images`, {
+      const res = await studioApiFetch(`/api/studio/personas/${personaId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filePath }),
@@ -164,7 +165,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
   const deleteImage = useCallback(async (personaId: string, imageId: string): Promise<boolean> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/personas/${personaId}/images/${imageId}`, { method: 'DELETE' });
+      const res = await studioApiFetch(`/api/studio/personas/${personaId}/images/${imageId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete image');
       await fetchPersonas();
       return true;
@@ -179,7 +180,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/studio/personas/${personaId}/images/${imageId}/replace`, {
+      const res = await studioApiFetch(`/api/studio/personas/${personaId}/images/${imageId}/replace`, {
         method: 'POST',
         body: formData,
       });
@@ -196,7 +197,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
   const reorderImages = useCallback(async (personaId: string, imageOrder: string[]): Promise<boolean> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/personas/${personaId}`, {
+      const res = await studioApiFetch(`/api/studio/personas/${personaId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageOrder }),
@@ -211,7 +212,7 @@ export function useStudioPersonas(): UseStudioPersonasReturn {
   }, [fetchPersonas]);
 
   const getImageUrl = useCallback((personaId: string, imageId: string): string => {
-    return `/api/studio/personas/${personaId}/images/${imageId}`;
+    return studioApiUrl(`/api/studio/personas/${personaId}/images/${imageId}`);
   }, []);
 
   return {

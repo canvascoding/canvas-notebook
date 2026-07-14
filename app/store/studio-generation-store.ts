@@ -133,6 +133,7 @@ export interface StudioGenerationState {
   queueGenerateRequest: (payload: StudioGeneratePayload) => string;
   clearGenerateRequest: (id?: string) => void;
 
+  resetWorkspaceContext: () => void;
   resetAfterGenerate: () => void;
 }
 
@@ -491,6 +492,21 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => {
     set((state) => {
       if (id && state.pendingGenerateRequest?.id !== id) return state;
       return { pendingGenerateRequest: null };
+    }),
+
+  resetWorkspaceContext: () =>
+    set({
+      productRefs: [],
+      personaRefs: [],
+      styleRefs: [],
+      presetRef: null,
+      fileRefs: [],
+      videoReferenceRefs: [],
+      audioReferenceRefs: [],
+      videoExtendSourceRef: null,
+      startFramePath: null,
+      endFramePath: null,
+      pendingGenerateRequest: null,
     }),
 
   resetAfterGenerate: () =>

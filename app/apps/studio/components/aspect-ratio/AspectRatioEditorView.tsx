@@ -1,5 +1,7 @@
 'use client';
 
+import { studioApiFetch, studioApiUrl } from '../../utils/studio-api';
+
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Check, Crop, Download, FolderInput, ImageIcon, Loader2, Lock, Magnet, Maximize2, RefreshCw, Save, ShieldAlert, Sparkles, WandSparkles, ZoomIn } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
@@ -249,7 +251,7 @@ function clientPointToImagePoint(clientX: number, clientY: number, stage: HTMLDi
 }
 
 function buildImageUrl(path: string) {
-  return path.startsWith('/api/') || /^https?:\/\//i.test(path) ? path : toMediaUrl(path);
+  return studioApiUrl(path.startsWith('/api/') || /^https?:\/\//i.test(path) ? path : toMediaUrl(path));
 }
 
 function buildDefaultFileName(preview: PreviewResult | null) {
@@ -388,7 +390,7 @@ function WorkspaceCopyDialog({
     if (!preview || !targetWorkspaceId) return;
     setIsSaving(true);
     try {
-      const response = await fetch('/api/studio/aspect-ratio/save', {
+      const response = await studioApiFetch('/api/studio/aspect-ratio/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -502,7 +504,7 @@ export function AspectRatioEditorView() {
     let cancelled = false;
     (async () => {
       try {
-        const response = await fetch('/api/studio/aspect-ratio/models', { credentials: 'include', cache: 'no-store' });
+        const response = await studioApiFetch('/api/studio/aspect-ratio/models', { credentials: 'include', cache: 'no-store' });
         const payload = await response.json();
         if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.modelsFailed'));
         if (!cancelled) {
@@ -652,7 +654,7 @@ export function AspectRatioEditorView() {
     if (!sourcePath) return;
     setIsGenerating(true);
     try {
-      const response = await fetch('/api/studio/aspect-ratio/preview', {
+      const response = await studioApiFetch('/api/studio/aspect-ratio/preview', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -685,7 +687,7 @@ export function AspectRatioEditorView() {
   const handleKeepEdit = async () => {
     if (!preview) return;
     try {
-      const response = await fetch('/api/studio/aspect-ratio/save', {
+      const response = await studioApiFetch('/api/studio/aspect-ratio/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -710,7 +712,7 @@ export function AspectRatioEditorView() {
   const handleOverwriteOriginal = async () => {
     if (!preview || !sourcePath) return;
     try {
-      const response = await fetch('/api/studio/aspect-ratio/save', {
+      const response = await studioApiFetch('/api/studio/aspect-ratio/save', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -975,11 +977,11 @@ export function AspectRatioEditorView() {
                   <Check className="h-4 w-4 text-emerald-600" />
                 </div>
                 {/* eslint-disable-next-line @next/next/no-img-element */}
-                <img src={toPreviewUrl(preview.path, 720)} alt={preview.name} className="max-h-64 w-full rounded-md object-contain bg-muted" />
+                <img src={studioApiUrl(toPreviewUrl(preview.path, 720))} alt={preview.name} className="max-h-64 w-full rounded-md object-contain bg-muted" />
                 <p className="truncate font-mono text-xs text-muted-foreground">{preview.path}</p>
                 <div className="grid gap-2">
                   <Button variant="outline" asChild>
-                    <a href={preview.mediaUrl || toMediaUrl(preview.path)} download={preview.name}>
+                    <a href={studioApiUrl(preview.mediaUrl || toMediaUrl(preview.path))} download={preview.name}>
                       <Download className="h-4 w-4" />
                       {t('download')}
                     </a>

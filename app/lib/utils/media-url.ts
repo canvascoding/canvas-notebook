@@ -13,6 +13,12 @@ interface PreviewUrlOptions extends MediaUrlOptions {
   preset?: 'default' | 'mini';
 }
 
+function withInferredStudioWorkspace(filePath: string, options: MediaUrlOptions): MediaUrlOptions {
+  if (options.workspaceId?.trim()) return options;
+  const match = /^\/?studio\/organizations\/[^/]+\/workspaces\/([^/]+)(?:\/|$)/u.exec(filePath);
+  return match?.[1] ? { ...options, workspaceId: match[1] } : options;
+}
+
 function withWorkspaceId(url: string, options: MediaUrlOptions = {}) {
   const workspaceId = options.workspaceId?.trim();
   if (!workspaceId) return url;
@@ -47,9 +53,10 @@ export function toUploadPreviewUrl(fileId: string, width: number, options: Previ
 
 export function toMediaUrl(filePath: string, options: MediaUrlOptions = {}) {
   const encodedPath = encodePathSegments(filePath);
+  const scopedOptions = withInferredStudioWorkspace(filePath, options);
   
   if (filePath.startsWith('studio/')) {
-    return withWorkspaceId(`/api/studio/media/${encodedPath}`, options);
+    return withWorkspaceId(`/api/studio/media/${encodedPath}`, scopedOptions);
   }
 
   if (filePath.startsWith('studio-gen-')) {
@@ -76,9 +83,10 @@ export function toMediaUrl(filePath: string, options: MediaUrlOptions = {}) {
 
 export function toHtmlPreviewUrl(filePath: string, options: MediaUrlOptions = {}) {
   const encodedPath = encodePathSegments(filePath);
+  const scopedOptions = withInferredStudioWorkspace(filePath, options);
 
   if (filePath.startsWith('studio/')) {
-    return withWorkspaceId(`/api/studio/media/preview/${encodedPath}`, options);
+    return withWorkspaceId(`/api/studio/media/preview/${encodedPath}`, scopedOptions);
   }
 
   if (filePath.startsWith('studio-gen-')) {
@@ -103,6 +111,7 @@ export function toHtmlPreviewUrl(filePath: string, options: MediaUrlOptions = {}
 }
 
 export function toPreviewUrl(filePath: string, width: number, options: PreviewUrlOptions = {}) {
+  const scopedOptions = withInferredStudioWorkspace(filePath, options);
   const params = new URLSearchParams({
     path: filePath,
     w: String(width),
@@ -112,8 +121,8 @@ export function toPreviewUrl(filePath: string, width: number, options: PreviewUr
     params.set('preset', options.preset);
   }
 
-  if (options.workspaceId?.trim()) {
-    params.set('workspaceId', options.workspaceId.trim());
+  if (scopedOptions.workspaceId?.trim()) {
+    params.set('workspaceId', scopedOptions.workspaceId.trim());
   }
 
   // Use relative URLs so they work in both dev and production

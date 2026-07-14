@@ -12,6 +12,12 @@ import { toast } from 'sonner';
 import { ReferencePickerDialog } from '../create/ReferencePickerDialog';
 import { ModelImagePreviewDialog } from './ModelImagePreviewDialog';
 import type { StudioProduct, StudioProductImage, StudioPersona, StudioPersonaImage, StudioStyle, StudioStyleImage } from '../../types/models';
+import {
+  getActiveStudioWorkspaceId,
+  STUDIO_WORKSPACE_HEADER,
+  studioApiFetch,
+  studioApiUrl,
+} from '../../utils/studio-api';
 
 interface UploadingImage {
   id: string;
@@ -49,7 +55,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         : entityType === 'persona'
         ? `/api/studio/personas/${entityId}`
         : `/api/studio/styles/${entityId}`;
-      const res = await fetch(endpoint);
+      const res = await studioApiFetch(endpoint);
       if (!res.ok) throw new Error('Failed to fetch');
       const data = await res.json();
       const item = data.product ?? data.persona ?? data.style;
@@ -78,7 +84,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   }, [entityType, entityId]);
 
   const addImageFromFilePath = useCallback(async (filePath: string) => {
-    const res = await fetch(getUploadEndpoint(), {
+    const res = await studioApiFetch(getUploadEndpoint(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ filePath }),
@@ -96,6 +102,9 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       xhr.open('POST', getUploadEndpoint());
+      xhr.withCredentials = true;
+      const workspaceId = getActiveStudioWorkspaceId();
+      if (workspaceId) xhr.setRequestHeader(STUDIO_WORKSPACE_HEADER, workspaceId);
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) {
           onProgress(Math.round((e.loaded / e.total) * 100));
@@ -202,7 +211,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         : entityType === 'persona'
         ? `/api/studio/personas/${entityId}`
         : `/api/studio/styles/${entityId}`;
-      await fetch(endpoint, {
+      await studioApiFetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ name: nameValue.trim() }),
@@ -222,7 +231,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         : entityType === 'persona'
         ? `/api/studio/personas/${entityId}`
         : `/api/studio/styles/${entityId}`;
-      await fetch(endpoint, {
+      await studioApiFetch(endpoint, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ description: descriptionValue.trim() || undefined }),
@@ -240,7 +249,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
       : entityType === 'persona'
       ? `/api/studio/personas/${entityId}/images/${imageId}`
       : `/api/studio/styles/${entityId}/images/${imageId}`;
-    await fetch(endpoint, { method: 'DELETE' });
+    await studioApiFetch(endpoint, { method: 'DELETE' });
     await fetchEntity();
   }, [entityId, entityType, fetchEntity]);
 
@@ -252,7 +261,7 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
         : entityType === 'persona'
         ? `/api/studio/personas/${entityId}`
         : `/api/studio/styles/${entityId}`;
-      await fetch(endpoint, { method: 'DELETE' });
+      await studioApiFetch(endpoint, { method: 'DELETE' });
       router.push('/studio/models');
     } finally {
       setSaving(false);
@@ -260,11 +269,11 @@ export function ModelDetailDialog({ entityId, entityType }: ModelDetailDialogPro
   }, [entityId, entityType, router]);
 
   const getImageUrl = (imageId: string) => {
-    return entityType === 'product'
+    return studioApiUrl(entityType === 'product'
       ? `/api/studio/products/${entityId}/images/${imageId}`
       : entityType === 'persona'
       ? `/api/studio/personas/${entityId}/images/${imageId}`
-      : `/api/studio/styles/${entityId}/images/${imageId}`;
+      : `/api/studio/styles/${entityId}/images/${imageId}`);
   };
 
   if (loading) {

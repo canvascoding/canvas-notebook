@@ -13,6 +13,8 @@ import type {
   StudioGenerationStatus,
 } from '../types/generation';
 import { getStudioUserPrompt } from '../utils/studio-generation-prompt';
+import { isStudioWorkspaceActive, studioApiFetch } from '../utils/studio-api';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 const POLL_INTERVAL_MS = 10_000;
 const GENERATIONS_PAGE_SIZE = 48;
@@ -188,6 +190,7 @@ function isActiveStudioGeneration(generation: StudioGeneration): boolean {
 }
 
 export function useStudioGeneration(creatorFilter?: string | null): UseStudioGenerationReturn {
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const generations = useStudioGenerationsCacheStore((state) => state.generations);
   const currentGeneration = useStudioGenerationsCacheStore((state) => state.currentGeneration);
   const loading = useStudioGenerationsCacheStore((state) => state.loading);
@@ -214,8 +217,9 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
     useStudioGenerationsCacheStore.setState({ error: null });
 
     try {
-      const response = await fetch(`/api/studio/generations/${id}`);
+      const response = await studioApiFetch(`/api/studio/generations/${id}`, {}, workspaceId);
       const data = await parseJsonResponse(response);
+      if (!isStudioWorkspaceActive(workspaceId)) return null;
       const generation = (data.generation ?? null) as StudioGeneration | null;
 
       if (generation) {
@@ -259,6 +263,7 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       return generation;
     } catch (err) {
       const message = toErrorMessage(err, 'Failed to fetch generation');
+      if (!isStudioWorkspaceActive(workspaceId)) return null;
       useStudioGenerationsCacheStore.setState({ error: message });
       if (options?.silent) {
         const currentActiveGenerationId = useStudioGenerationsCacheStore.getState().activeGenerationId;
@@ -268,17 +273,18 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       }
       return null;
     } finally {
-      if (!options?.silent) {
+      if (!options?.silent && isStudioWorkspaceActive(workspaceId)) {
         useStudioGenerationsCacheStore.setState({ loading: false });
       }
     }
-  }, []);
+  }, [workspaceId]);
 
   const fetchGenerations = useCallback(async () => {
     useStudioGenerationsCacheStore.setState({ loading: true, error: null });
     try {
-      const response = await fetch(buildGenerationsUrl(GENERATIONS_PAGE_SIZE, 0, creatorFilter));
+      const response = await studioApiFetch(buildGenerationsUrl(GENERATIONS_PAGE_SIZE, 0, creatorFilter), {}, workspaceId);
       const data = await parseJsonResponse(response);
+      if (!isStudioWorkspaceActive(workspaceId)) return;
       const nextGenerations = (data.generations ?? []) as StudioGeneration[];
       setGenerationsState((current) => preserveActiveGenerations(current, nextGenerations));
       useStudioGenerationsCacheStore.setState({
@@ -297,11 +303,15 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
         return latestGenerations.find((generation) => generation.id === current.id) ?? current;
       });
     } catch (err) {
-      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to fetch generations') });
+      if (isStudioWorkspaceActive(workspaceId)) {
+        useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to fetch generations') });
+      }
     } finally {
-      useStudioGenerationsCacheStore.setState({ loading: false });
+      if (isStudioWorkspaceActive(workspaceId)) {
+        useStudioGenerationsCacheStore.setState({ loading: false });
+      }
     }
-  }, [creatorFilter]);
+  }, [creatorFilter, workspaceId]);
 
   const loadMoreGenerations = useCallback(async () => {
     const { hasMoreGenerations, loadedServerGenerationCount, loadingMore } = useStudioGenerationsCacheStore.getState();
@@ -311,8 +321,9 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
 
     useStudioGenerationsCacheStore.setState({ loadingMore: true, error: null });
     try {
-      const response = await fetch(buildGenerationsUrl(GENERATIONS_PAGE_SIZE, loadedServerGenerationCount, creatorFilter));
+      const response = await studioApiFetch(buildGenerationsUrl(GENERATIONS_PAGE_SIZE, loadedServerGenerationCount, creatorFilter), {}, workspaceId);
       const data = await parseJsonResponse(response);
+      if (!isStudioWorkspaceActive(workspaceId)) return;
       const nextGenerations = (data.generations ?? []) as StudioGeneration[];
       setGenerationsState((current) => mergeGenerationPages(current, nextGenerations));
       useStudioGenerationsCacheStore.setState({
@@ -321,11 +332,15 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
         creators: (data.creators ?? []) as StudioCreator[],
       });
     } catch (err) {
-      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to load more generations') });
+      if (isStudioWorkspaceActive(workspaceId)) {
+        useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to load more generations') });
+      }
     } finally {
-      useStudioGenerationsCacheStore.setState({ loadingMore: false });
+      if (isStudioWorkspaceActive(workspaceId)) {
+        useStudioGenerationsCacheStore.setState({ loadingMore: false });
+      }
     }
-  }, [creatorFilter]);
+  }, [creatorFilter, workspaceId]);
 
   const watchGeneration = useCallback((id: string) => {
     useStudioGenerationsCacheStore.setState({ activeGenerationId: id });
@@ -377,12 +392,13 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
     setGenerationsState((current) => mergeGenerationLists(current, temporaryGeneration));
 
     try {
-      const response = await fetch('/api/studio/generate', {
+      const response = await studioApiFetch('/api/studio/generate', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
-      });
+      }, workspaceId);
       const data = await parseJsonResponse(response);
+      if (!isStudioWorkspaceActive(workspaceId)) return null;
       const generation = createPendingGeneration(data.generationId, payload, data as StudioGenerateResponse);
       setCurrentGenerationState(generation);
       setGenerationsState((current) => {
@@ -392,6 +408,7 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       useStudioGenerationsCacheStore.setState({ activeGenerationId: data.generationId });
       return generation;
     } catch (err) {
+      if (!isStudioWorkspaceActive(workspaceId)) return null;
       const message = toErrorMessage(err, 'Failed to create generation');
       useStudioGenerationsCacheStore.setState({ error: message });
       const failedGeneration: StudioGeneration = {
@@ -407,9 +424,11 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       });
       return null;
     } finally {
-      useStudioGenerationsCacheStore.setState({ loading: false });
+      if (isStudioWorkspaceActive(workspaceId)) {
+        useStudioGenerationsCacheStore.setState({ loading: false });
+      }
     }
-  }, []);
+  }, [workspaceId]);
 
   const deleteGeneration = useCallback(async (id: string) => {
     useStudioGenerationsCacheStore.setState({ error: null });
@@ -420,8 +439,9 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
     }
 
     try {
-      const response = await fetch(`/api/studio/generations/${id}`, { method: 'DELETE' });
+      const response = await studioApiFetch(`/api/studio/generations/${id}`, { method: 'DELETE' }, workspaceId);
       await parseJsonResponse(response);
+      if (!isStudioWorkspaceActive(workspaceId)) return false;
       const existed = useStudioGenerationsCacheStore.getState().generations.some((generation) => generation.id === id);
       setGenerationsState((current) => current.filter((generation) => generation.id !== id));
       if (existed && !id.startsWith('temp-')) {
@@ -433,16 +453,19 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       }
       return true;
     } catch (err) {
-      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to delete generation') });
+      if (isStudioWorkspaceActive(workspaceId)) {
+        useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to delete generation') });
+      }
       return false;
     }
-  }, [activeGenerationId, stopPolling]);
+  }, [activeGenerationId, stopPolling, workspaceId]);
 
   const deleteOutput = useCallback(async (generationId: string, outputId: string) => {
     useStudioGenerationsCacheStore.setState({ error: null });
     try {
-      const response = await fetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, { method: 'DELETE' });
+      const response = await studioApiFetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, { method: 'DELETE' }, workspaceId);
       const data = await parseJsonResponse(response);
+      if (!isStudioWorkspaceActive(workspaceId)) return false;
       const generationDeleted = data.generationDeleted === true;
 
       if (generationDeleted) {
@@ -472,10 +495,12 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
 
       return true;
     } catch (err) {
-      useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to delete output') });
+      if (isStudioWorkspaceActive(workspaceId)) {
+        useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to delete output') });
+      }
       return false;
     }
-  }, [activeGenerationId, stopPolling]);
+  }, [activeGenerationId, stopPolling, workspaceId]);
 
   const toggleFavorite = useCallback(async (generationId: string, outputId: string, isFavorite: boolean) => {
     useStudioGenerationsCacheStore.setState({ error: null });
@@ -491,14 +516,15 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
     );
 
     try {
-      const response = await fetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, {
+      const response = await studioApiFetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ isFavorite }),
-      });
+      }, workspaceId);
       await parseJsonResponse(response);
-      return true;
+      return isStudioWorkspaceActive(workspaceId);
     } catch (err) {
+      if (!isStudioWorkspaceActive(workspaceId)) return false;
       useStudioGenerationsCacheStore.setState({ error: toErrorMessage(err, 'Failed to update favorite') });
       setGenerationsState((current) =>
         current.map((generation) =>
@@ -514,7 +540,7 @@ export function useStudioGeneration(creatorFilter?: string | null): UseStudioGen
       );
       return false;
     }
-  }, []);
+  }, [workspaceId]);
 
   const createVariation = useCallback(async (generation: StudioGeneration, output: StudioGenerationOutput) => {
     return generate({

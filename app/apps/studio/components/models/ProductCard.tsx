@@ -6,6 +6,7 @@ import { ArrowUpRight, ImageOff, Images } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { StudioProduct } from '../../types/models';
+import { studioApiUrl } from '../../utils/studio-api';
 
 interface ProductCardProps {
   product: StudioProduct;
@@ -16,7 +17,7 @@ export function ProductCard({ product }: ProductCardProps) {
   const [imgError, setImgError] = useState(false);
 
   const thumbnailUrl = product.images?.[0]
-    ? `/api/studio/products/${product.id}/images/${product.images[0].id}?size=thumb`
+    ? studioApiUrl(`/api/studio/products/${product.id}/images/${product.images[0].id}?size=thumb`)
     : null;
 
   return (

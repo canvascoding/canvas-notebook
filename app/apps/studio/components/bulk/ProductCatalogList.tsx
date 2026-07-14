@@ -1,5 +1,7 @@
 'use client';
 
+import { studioApiUrl } from '../../utils/studio-api';
+
 import { useState, useMemo } from 'react';
 import { useTranslations } from 'next-intl';
 import { Search, ImageIcon, Boxes } from 'lucide-react';
@@ -129,7 +131,7 @@ export function ProductCatalogList({
                 {product.images?.[0] ? (
                   // eslint-disable-next-line @next/next/no-img-element
                   <img
-                    src={`/api/studio/products/${product.id}/images/${product.images[0].id}?size=thumb`}
+                    src={studioApiUrl(`/api/studio/products/${product.id}/images/${product.images[0].id}?size=thumb`)}
                     alt=""
                     className="h-8 w-8 rounded object-cover"
                   />

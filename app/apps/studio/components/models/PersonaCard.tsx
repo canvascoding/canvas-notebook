@@ -6,6 +6,7 @@ import { ArrowUpRight, ImageOff, Images } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { StudioPersona } from '../../types/models';
+import { studioApiUrl } from '../../utils/studio-api';
 
 interface PersonaCardProps {
   persona: StudioPersona;
@@ -16,7 +17,7 @@ export function PersonaCard({ persona }: PersonaCardProps) {
   const [imgError, setImgError] = useState(false);
 
   const thumbnailUrl = persona.images?.[0]
-    ? `/api/studio/personas/${persona.id}/images/${persona.images[0].id}?size=thumb`
+    ? studioApiUrl(`/api/studio/personas/${persona.id}/images/${persona.images[0].id}?size=thumb`)
     : null;
 
   return (

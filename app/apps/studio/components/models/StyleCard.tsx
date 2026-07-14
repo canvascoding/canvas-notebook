@@ -6,6 +6,7 @@ import { ArrowUpRight, ImageOff, Images } from 'lucide-react';
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import type { StudioStyle } from '../../types/models';
+import { studioApiUrl } from '../../utils/studio-api';
 
 interface StyleCardProps {
   style: StudioStyle;
@@ -16,7 +17,7 @@ export function StyleCard({ style }: StyleCardProps) {
   const [imgError, setImgError] = useState(false);
 
   const thumbnailUrl = style.images?.[0]
-    ? `/api/studio/styles/${style.id}/images/${style.images[0].id}?size=thumb`
+    ? studioApiUrl(`/api/studio/styles/${style.id}/images/${style.images[0].id}?size=thumb`)
     : null;
 
   return (

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { StudioBulkJob, StudioBulkCreatePayload } from '../types/bulk';
+import { studioApiFetch } from '../utils/studio-api';
 
 const POLL_INTERVAL_MS = 10_000;
 
@@ -58,7 +59,7 @@ export function useStudioBulk(): UseStudioBulkReturn {
     setError(null);
 
     try {
-      const response = await fetch(`/api/studio/bulk/${id}`);
+      const response = await studioApiFetch(`/api/studio/bulk/${id}`);
       const data = await parseJsonResponse(response);
       const job = (data.job ?? null) as StudioBulkJob | null;
 
@@ -93,7 +94,7 @@ export function useStudioBulk(): UseStudioBulkReturn {
     setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/studio/bulk');
+      const response = await studioApiFetch('/api/studio/bulk');
       const data = await parseJsonResponse(response);
       const nextJobs = (data.jobs ?? []) as StudioBulkJob[];
       setJobs(nextJobs);
@@ -109,7 +110,7 @@ export function useStudioBulk(): UseStudioBulkReturn {
     setError(null);
 
     try {
-      const response = await fetch('/api/studio/bulk', {
+      const response = await studioApiFetch('/api/studio/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -133,7 +134,7 @@ export function useStudioBulk(): UseStudioBulkReturn {
   const cancelJob = useCallback(async (id: string): Promise<boolean> => {
     setError(null);
     try {
-      const response = await fetch(`/api/studio/bulk/${id}/cancel`, { method: 'POST' });
+      const response = await studioApiFetch(`/api/studio/bulk/${id}/cancel`, { method: 'POST' });
       await parseJsonResponse(response);
       await fetchJob(id);
       return true;
@@ -146,7 +147,7 @@ export function useStudioBulk(): UseStudioBulkReturn {
   const deleteJob = useCallback(async (id: string): Promise<boolean> => {
     setError(null);
     try {
-      const response = await fetch(`/api/studio/bulk/${id}`, { method: 'DELETE' });
+      const response = await studioApiFetch(`/api/studio/bulk/${id}`, { method: 'DELETE' });
       await parseJsonResponse(response);
       setJobs((current) => current.filter((j) => j.id !== id));
       setActiveJob((current) => (current?.id === id ? null : current));

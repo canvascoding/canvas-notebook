@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { StudioProduct } from '../types/models';
+import { studioApiFetch, studioApiUrl } from '../utils/studio-api';
 
 interface UseStudioProductsReturn {
   products: StudioProduct[];
@@ -45,7 +46,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
     setError(null);
     try {
       const params = search ? `?search=${encodeURIComponent(search)}` : '';
-      const res = await fetch(`/api/studio/products${params}`);
+      const res = await studioApiFetch(`/api/studio/products${params}`);
       if (!res.ok) throw new Error('Failed to fetch products');
       const data = await res.json();
       setProducts(data.products ?? []);
@@ -59,7 +60,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
   const createProduct = useCallback(async (data: { name: string; description?: string }): Promise<StudioProduct | null> => {
     setError(null);
     try {
-      const res = await fetch('/api/studio/products', {
+      const res = await studioApiFetch('/api/studio/products', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -77,7 +78,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
   const updateProduct = useCallback(async (id: string, data: { name?: string; description?: string; imageOrder?: string[] }): Promise<StudioProduct | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/products/${id}`, {
+      const res = await studioApiFetch(`/api/studio/products/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -95,7 +96,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
   const deleteProduct = useCallback(async (id: string): Promise<{ success: boolean; warnings?: string[] } | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/products/${id}`, { method: 'DELETE' });
+      const res = await studioApiFetch(`/api/studio/products/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete product');
       const result = await res.json();
       await fetchProducts();
@@ -111,7 +112,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/studio/products/${productId}/images`, {
+      const res = await studioApiFetch(`/api/studio/products/${productId}/images`, {
         method: 'POST',
         body: formData,
       });
@@ -128,7 +129,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
   const addImageFromFilePath = useCallback(async (productId: string, filePath: string): Promise<StudioProductImage | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/products/${productId}/images`, {
+      const res = await studioApiFetch(`/api/studio/products/${productId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filePath }),
@@ -146,7 +147,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
   const addImageFromUrl = useCallback(async (productId: string, url: string): Promise<StudioProductImage | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/products/${productId}/images`, {
+      const res = await studioApiFetch(`/api/studio/products/${productId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -164,7 +165,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
   const deleteImage = useCallback(async (productId: string, imageId: string): Promise<boolean> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/products/${productId}/images/${imageId}`, { method: 'DELETE' });
+      const res = await studioApiFetch(`/api/studio/products/${productId}/images/${imageId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete image');
       await fetchProducts();
       return true;
@@ -179,7 +180,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/studio/products/${productId}/images/${imageId}/replace`, {
+      const res = await studioApiFetch(`/api/studio/products/${productId}/images/${imageId}/replace`, {
         method: 'POST',
         body: formData,
       });
@@ -196,7 +197,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
   const reorderImages = useCallback(async (productId: string, imageOrder: string[]): Promise<boolean> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/products/${productId}`, {
+      const res = await studioApiFetch(`/api/studio/products/${productId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageOrder }),
@@ -211,7 +212,7 @@ export function useStudioProducts(): UseStudioProductsReturn {
   }, [fetchProducts]);
 
   const getImageUrl = useCallback((productId: string, imageId: string): string => {
-    return `/api/studio/products/${productId}/images/${imageId}`;
+    return studioApiUrl(`/api/studio/products/${productId}/images/${imageId}`);
   }, []);
 
   return {

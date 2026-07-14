@@ -2,6 +2,7 @@
 
 import { useCallback } from 'react';
 import { downloadStudioOutputs } from '../utils/downloadStudioOutput';
+import { studioApiFetch } from '../utils/studio-api';
 
 interface BatchDeleteResult {
   success: boolean;
@@ -16,7 +17,7 @@ export function useStudioBatchActions() {
   ): Promise<BatchDeleteResult[]> => {
     const results = await Promise.allSettled(
       outputPairs.map(async ({ generationId, outputId }) => {
-        const response = await fetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, {
+        const response = await studioApiFetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, {
           method: 'DELETE',
         });
         if (!response.ok) {
@@ -51,7 +52,7 @@ export function useStudioBatchActions() {
   ): Promise<boolean[]> => {
     const results = await Promise.allSettled(
       pairs.map(async ({ generationId, outputId, isFavorite }) => {
-        const response = await fetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, {
+        const response = await studioApiFetch(`/api/studio/generations/${generationId}/outputs/${outputId}`, {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ isFavorite }),

@@ -1,5 +1,7 @@
 'use client';
 
+import { studioApiFetch } from '../../utils/studio-api';
+
 import { useCallback, useEffect, useId, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useTranslations } from 'next-intl';
@@ -690,7 +692,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     if (!editSelection) return;
     setSavingEditSelection(true);
     try {
-      const response = await fetch('/api/studio/edits/markup', {
+      const response = await studioApiFetch('/api/studio/edits/markup', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
@@ -735,7 +737,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
 
     async function fetchStartingPoints() {
       try {
-        const response = await fetch('/api/studio/starting-points', { credentials: 'include' });
+        const response = await studioApiFetch('/api/studio/starting-points', { credentials: 'include' });
         const payload = await response.json();
         if (!cancelled && response.ok && payload.success && Array.isArray(payload.startingPoints)) {
           setStartingPoints(payload.startingPoints as StartingPoint[]);
@@ -760,7 +762,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
 
     async function fetchProviderConfig() {
       try {
-        const response = await fetch('/api/studio/config', { credentials: 'include' });
+        const response = await studioApiFetch('/api/studio/config', { credentials: 'include' });
         const payload = await response.json();
         if (!cancelled && response.ok && payload.success && payload.config) {
           setProviderConfig(payload.config as StudioProviderConfig);
@@ -930,7 +932,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     try {
       const formData = new FormData();
       formData.append('files', file, file.name);
-      const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
+      const res = await studioApiFetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
       if (payload.files?.length) {

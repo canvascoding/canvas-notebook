@@ -15,6 +15,7 @@ import { useFileStore } from '@/app/store/file-store';
 import { WorkspaceDestinationPicker } from '@/app/components/workspaces/WorkspaceDestinationPicker';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { toast } from 'sonner';
+import { studioApiFetch } from '../../utils/studio-api';
 
 interface SaveToWorkspaceDialogProps {
   open: boolean;
@@ -43,7 +44,7 @@ export function SaveToWorkspaceDialog({ open, onOpenChange, outputIds, onImporte
     if (outputIds.length === 0 || !targetWorkspaceId) return;
     setIsSaving(true);
     try {
-      const res = await fetch('/api/studio/outputs/save-to-workspace', {
+      const res = await studioApiFetch('/api/studio/outputs/save-to-workspace', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ outputIds, targetPath: selectedDir, targetWorkspaceId }),

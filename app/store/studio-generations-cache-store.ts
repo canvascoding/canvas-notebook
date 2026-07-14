@@ -2,6 +2,7 @@ import { create } from 'zustand';
 import type { StudioCreator, StudioGeneration } from '@/app/apps/studio/types/generation';
 
 interface StudioGenerationsCacheState {
+  workspaceId: string | null;
   generations: StudioGeneration[];
   currentGeneration: StudioGeneration | null;
   loading: boolean;
@@ -12,9 +13,11 @@ interface StudioGenerationsCacheState {
   hasMoreGenerations: boolean;
   loadedServerGenerationCount: number;
   creators: StudioCreator[];
+  resetForWorkspace: (workspaceId: string | null) => void;
 }
 
-export const useStudioGenerationsCacheStore = create<StudioGenerationsCacheState>(() => ({
+const emptyStudioGenerationsState = (workspaceId: string | null) => ({
+  workspaceId,
   generations: [],
   currentGeneration: null,
   loading: false,
@@ -25,4 +28,12 @@ export const useStudioGenerationsCacheStore = create<StudioGenerationsCacheState
   hasMoreGenerations: false,
   loadedServerGenerationCount: 0,
   creators: [],
+});
+
+export const useStudioGenerationsCacheStore = create<StudioGenerationsCacheState>((set, get) => ({
+  ...emptyStudioGenerationsState(null),
+  resetForWorkspace: (workspaceId) => {
+    if (get().workspaceId === workspaceId) return;
+    set(emptyStudioGenerationsState(workspaceId));
+  },
 }));

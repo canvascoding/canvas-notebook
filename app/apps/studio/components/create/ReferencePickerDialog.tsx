@@ -1,5 +1,7 @@
 'use client';
 
+import { studioApiFetch, studioApiUrl } from '../../utils/studio-api';
+
 import { useCallback, useEffect, useMemo, useRef, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import {
@@ -192,8 +194,8 @@ function normalizeDownloadedReference(payload: unknown): ImageAsset {
     kind: 'image',
     size: typeof data.size === 'number' ? data.size : undefined,
     modified: Date.now(),
-    mediaUrl: typeof data.mediaUrl === 'string' ? data.mediaUrl : toMediaUrl(path),
-    previewUrl: typeof data.previewUrl === 'string' ? data.previewUrl : toPreviewUrl(path, 200),
+    mediaUrl: studioApiUrl(typeof data.mediaUrl === 'string' ? data.mediaUrl : toMediaUrl(path)),
+    previewUrl: studioApiUrl(typeof data.previewUrl === 'string' ? data.previewUrl : toPreviewUrl(path, 200)),
   };
 }
 
@@ -407,7 +409,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
     try {
       const query = search.trim();
       const url = `/api/studio/references/assets?kind=${mediaKind}&limit=300${veoGeneratedOnly ? '&veoOnly=true' : ''}${query ? `&q=${encodeURIComponent(query)}` : ''}`;
-      const res = await fetch(url, { credentials: 'include', cache: 'no-store' });
+      const res = await studioApiFetch(url, { credentials: 'include', cache: 'no-store' });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Failed loading assets');
       setAssets(payload.data || []);
@@ -572,7 +574,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
       if (serializedConvertParams) {
         formData.append('convertParams', serializedConvertParams);
       }
-      const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
+      const res = await studioApiFetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
       const payload = await res.json();
       if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
       setTab('studio');
@@ -625,7 +627,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
           if (serializedConvertParams) {
             formData.append('convertParams', serializedConvertParams);
           }
-          const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
+          const res = await studioApiFetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
           const payload = await res.json();
           if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
 
@@ -677,7 +679,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
         try {
           const formData = new FormData();
           formData.append('files', file, file.name);
-          const res = await fetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
+          const res = await studioApiFetch('/api/studio/references/upload', { method: 'POST', body: formData, credentials: 'include' });
           const payload = await res.json();
           if (!res.ok || !payload.success) throw new Error(payload.error || 'Upload failed');
 
@@ -936,7 +938,7 @@ export function ReferencePickerDialog({ open, onOpenChange, onConfirm, multiple 
                       setIsUrlDownloading(true);
                       setUrlError(null);
                       try {
-                        const res = await fetch('/api/studio/references', {
+                        const res = await studioApiFetch('/api/studio/references', {
                           method: 'POST',
                           headers: { 'Content-Type': 'application/json' },
                           credentials: 'include',

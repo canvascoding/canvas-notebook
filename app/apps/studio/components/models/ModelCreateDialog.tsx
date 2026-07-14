@@ -1,5 +1,7 @@
 'use client';
 
+import { studioApiFetch } from '../../utils/studio-api';
+
 import { useTranslations } from 'next-intl';
 import { useState, useCallback } from 'react';
 import { useRouter } from '@/i18n/navigation';
@@ -132,7 +134,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
     setPendingReferenceUrls((current) => [...current, tempItem]);
 
     try {
-      const response = await fetch('/api/studio/references', {
+      const response = await studioApiFetch('/api/studio/references', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -168,7 +170,7 @@ export function ModelCreateDialog({ entityType = 'product' }: ModelCreateDialogP
     const newImages: PendingImage[] = [];
     for (const path of toAdd) {
       try {
-        const res = await fetch(toMediaUrl(path));
+        const res = await studioApiFetch(toMediaUrl(path));
         if (!res.ok) continue;
         const blob = await res.blob();
         const fileName = path.split('/').pop() || 'image.jpg';

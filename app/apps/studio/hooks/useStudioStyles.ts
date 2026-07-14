@@ -2,6 +2,7 @@
 
 import { useState, useCallback } from 'react';
 import type { StudioStyle } from '../types/models';
+import { studioApiFetch, studioApiUrl } from '../utils/studio-api';
 
 interface UseStudioStylesReturn {
   styles: StudioStyle[];
@@ -45,7 +46,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
     setError(null);
     try {
       const params = search ? `?search=${encodeURIComponent(search)}` : '';
-      const res = await fetch(`/api/studio/styles${params}`);
+      const res = await studioApiFetch(`/api/studio/styles${params}`);
       if (!res.ok) throw new Error('Failed to fetch styles');
       const data = await res.json();
       setStyles(data.styles ?? []);
@@ -59,7 +60,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
   const createStyle = useCallback(async (data: { name: string; description?: string }): Promise<StudioStyle | null> => {
     setError(null);
     try {
-      const res = await fetch('/api/studio/styles', {
+      const res = await studioApiFetch('/api/studio/styles', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -77,7 +78,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
   const updateStyle = useCallback(async (id: string, data: { name?: string; description?: string; imageOrder?: string[] }): Promise<StudioStyle | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/styles/${id}`, {
+      const res = await studioApiFetch(`/api/studio/styles/${id}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(data),
@@ -95,7 +96,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
   const deleteStyle = useCallback(async (id: string): Promise<{ success: boolean; warnings?: string[] } | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/styles/${id}`, { method: 'DELETE' });
+      const res = await studioApiFetch(`/api/studio/styles/${id}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete style');
       const result = await res.json();
       await fetchStyles();
@@ -111,7 +112,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/studio/styles/${styleId}/images`, {
+      const res = await studioApiFetch(`/api/studio/styles/${styleId}/images`, {
         method: 'POST',
         body: formData,
       });
@@ -128,7 +129,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
   const addImageFromUrl = useCallback(async (styleId: string, url: string): Promise<StudioStyleImage | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/styles/${styleId}/images`, {
+      const res = await studioApiFetch(`/api/studio/styles/${styleId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url }),
@@ -146,7 +147,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
   const addImageFromFilePath = useCallback(async (styleId: string, filePath: string): Promise<StudioStyleImage | null> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/styles/${styleId}/images`, {
+      const res = await studioApiFetch(`/api/studio/styles/${styleId}/images`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ filePath }),
@@ -164,7 +165,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
   const deleteImage = useCallback(async (styleId: string, imageId: string): Promise<boolean> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/styles/${styleId}/images/${imageId}`, { method: 'DELETE' });
+      const res = await studioApiFetch(`/api/studio/styles/${styleId}/images/${imageId}`, { method: 'DELETE' });
       if (!res.ok) throw new Error('Failed to delete image');
       await fetchStyles();
       return true;
@@ -179,7 +180,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      const res = await fetch(`/api/studio/styles/${styleId}/images/${imageId}/replace`, {
+      const res = await studioApiFetch(`/api/studio/styles/${styleId}/images/${imageId}/replace`, {
         method: 'POST',
         body: formData,
       });
@@ -196,7 +197,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
   const reorderImages = useCallback(async (styleId: string, imageOrder: string[]): Promise<boolean> => {
     setError(null);
     try {
-      const res = await fetch(`/api/studio/styles/${styleId}`, {
+      const res = await studioApiFetch(`/api/studio/styles/${styleId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ imageOrder }),
@@ -211,7 +212,7 @@ export function useStudioStyles(): UseStudioStylesReturn {
   }, [fetchStyles]);
 
   const getImageUrl = useCallback((styleId: string, imageId: string): string => {
-    return `/api/studio/styles/${styleId}/images/${imageId}`;
+    return studioApiUrl(`/api/studio/styles/${styleId}/images/${imageId}`);
   }, []);
 
   return {
