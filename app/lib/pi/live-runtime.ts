@@ -75,6 +75,7 @@ import {
 } from '@/app/lib/pi/runtime-queue';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
+import { createOperationTiming, type OperationTiming } from '@/app/lib/observability/operation-timing';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -415,6 +416,9 @@ class LivePiRuntime {
   private lastTurnDiagnostics: RuntimeTurnDiagnostics | null = null;
   private thinkingFilterState: ThinkingFilterState = createThinkingFilterState();
   private disposed = false;
+  private activePromptTiming: OperationTiming | null = null;
+  private firstAssistantEventLogged = false;
+  private firstTextDeltaLogged = false;
   agentUnsubscribe: (() => void) | null = null;
 
   constructor(init: RuntimeInit, agent: Agent, private readonly options: RuntimeOptions = {}) {
@@ -1091,6 +1095,9 @@ class LivePiRuntime {
       throw new Error('The session runtime was replaced before the prompt started. Try again.');
     }
     const sanitized = sanitizeUserMessage(message);
+    this.activePromptTiming = createOperationTiming();
+    this.firstAssistantEventLogged = false;
+    this.firstTextDeltaLogged = false;
     this.resetRunSupervisorForUserMessage(sanitized);
     const initialContinuation = this.maybeCreateInitialToolTailContinuation();
     
@@ -1140,6 +1147,13 @@ class LivePiRuntime {
 
     if (event.type === 'message_start' && event.message?.role === 'assistant') {
       this.thinkingFilterState = createThinkingFilterState();
+      if (!this.firstAssistantEventLogged) {
+        this.firstAssistantEventLogged = true;
+        console.log('[AgentRuntimeTiming] first_assistant_event', {
+          sessionId: this.sessionId,
+          elapsedMs: this.activePromptTiming?.elapsedMs() ?? null,
+        });
+      }
     }
 
     if (event.type === 'message_start' && isUserMessage(event.message)) {
@@ -1158,6 +1172,13 @@ class LivePiRuntime {
       }
       if (eventType === 'text_delta') {
         const rawDelta = event.assistantMessageEvent.delta || '';
+        if (rawDelta && !this.firstTextDeltaLogged) {
+          this.firstTextDeltaLogged = true;
+          console.log('[AgentRuntimeTiming] first_text_delta', {
+            sessionId: this.sessionId,
+            elapsedMs: this.activePromptTiming?.elapsedMs() ?? null,
+          });
+        }
         if (rawDelta) {
           const filtered = filterThinkingChunk(rawDelta, this.thinkingFilterState);
           this.thinkingFilterState = filtered.state;
@@ -1546,9 +1567,11 @@ class LivePiRuntime {
 }
 
 async function createRuntime(sessionId: string, userId: string): Promise<LivePiRuntime> {
+  const timing = createOperationTiming();
   const sessionRecord = await db.query.piSessions.findFirst({
     where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId)),
   });
+  timing.mark('sessionLookup');
   if (!sessionRecord) {
     throw new Error('Session not found. Create the chat session before starting its runtime.');
   }
@@ -1559,6 +1582,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     userId,
     agentId,
   });
+  timing.mark('executionContext');
   if (!executionContext.organizationId) {
     throw new Error('Complete the app AI runtime setup before starting an agent session.');
   }
@@ -1571,10 +1595,12 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     sessionId,
     requestedSelection: null,
   });
+  timing.mark('runtimeResolution');
   const provider = executableRuntime.selection.selection.providerId;
   const thinkingLevel = executableRuntime.selection.selection.thinkingLevel as ThinkingLevel;
   const model = executableRuntime.model;
   const loadedSession = await loadPiSessionWithSummary(sessionId, userId, agentId);
+  timing.mark('sessionHistory');
   const initialMessages = loadedSession?.messages || [];
   const summary = loadedSession?.summary || {
     summaryText: null,
@@ -1585,8 +1611,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
   const promptSnapshot = sessionRecord
     ? await ensurePiSessionSystemPromptSnapshot(sessionRecord)
     : await createPiSystemPromptSnapshot(agentId, { userId });
+  timing.mark('systemPrompt');
   const systemPrompt = promptSnapshot.systemPrompt;
   const tools = await getPiTools(userId, agentId, sessionId);
+  timing.mark('tools');
   const toolLoopGuard = createToolLoopGuard();
   const imageNormalizationOptions = {
     workspaceImageRoot: executionContext.workspaceRoot,
@@ -1626,6 +1654,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
     sessionId,
   });
+  timing.mark('agentConstruction');
 
   const runtime = new LivePiRuntime(
     {
@@ -1652,6 +1681,16 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     await runtime.onAgentEvent(event);
   });
   runtime.agentUnsubscribe = unsubscribe;
+
+  console.log('[AgentRuntimeTiming] runtime_created', {
+    sessionId,
+    agentId,
+    provider,
+    model: model.id,
+    initialMessageCount: initialMessages.length,
+    toolCount: tools.length,
+    timing: timing.snapshot(),
+  });
 
   return runtime;
 }

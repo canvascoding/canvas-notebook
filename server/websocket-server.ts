@@ -32,6 +32,7 @@ import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constan
 import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
+import { createOperationTiming } from '@/app/lib/observability/operation-timing';
 
 type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
@@ -625,6 +626,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
     }
 
     case 'send_message': {
+      const dispatchTiming = createOperationTiming();
       {
         const rl = checkWsRateLimit('send_message', userId);
         if (!rl.ok) {
@@ -652,6 +654,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       }
 
       const runtimeService = await getRuntimeService();
+      dispatchTiming.mark('runtimeServiceImport');
       if (!runtimeService.isValidUserMessage(message.message)) {
         console.warn('[WebSocket] send_message rejected invalid_role', {
           connectionId: connection.id,
@@ -667,6 +670,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
       // Authorization: if session already exists, it must belong to this user.
       // Non-existent sessions are allowed (new-session create flow).
       const existingSessionOwner = await findSessionOwner(message.sessionId);
+      dispatchTiming.mark('sessionAuthorization');
       if (existingSessionOwner && existingSessionOwner !== userId) {
         console.warn('[WebSocket] send_message rejected unauthorized', {
           connectionId: connection.id,
@@ -699,6 +703,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           contextChannel: context?.channelId,
         });
         const { handleInboundChannelMessage } = await getChannelRouter();
+        dispatchTiming.mark('channelRouterImport');
         const status = await handleInboundChannelMessage({
           channelId: WEB_CHANNEL_ID,
           channelSessionKey: webChannelSessionKey(userId),
@@ -709,6 +714,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           contentParts: Array.isArray(message.message.content) ? message.message.content : undefined,
           metadata: { displayName: 'Web Chat' },
         }, context);
+        dispatchTiming.mark('runtimeDispatch');
         console.log('[WebSocket] send_message runtime_started', {
           connectionId: connection.id,
           userId,
@@ -717,6 +723,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           resolvedSessionId: status.sessionId,
           phase: status.status.phase,
           canAbort: status.status.canAbort,
+          timing: dispatchTiming.snapshot(),
         });
         sendWs(ws, {
           type: 'send_message_result',
@@ -731,6 +738,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           requestId: message.requestId,
           sessionId: message.sessionId,
           error,
+          timing: dispatchTiming.snapshot(),
         });
         const errorMessage = getErrorMessage(error);
         sendWs(ws, {

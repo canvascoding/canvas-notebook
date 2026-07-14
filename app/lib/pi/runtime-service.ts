@@ -32,6 +32,7 @@ import {
   workspaceToChatRequestWorkspace,
 } from '@/app/lib/pi/session-workspace-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
+import { createOperationTiming } from '@/app/lib/observability/operation-timing';
 
 export type UserAgentMessage = Extract<AgentMessage, { role: 'user' }>;
 
@@ -250,9 +251,13 @@ export async function prepareRuntimePrompt(
   status: PiRuntimeStatus;
   context: ChatRequestContext;
 }> {
+  const timing = createOperationTiming();
   const context = await normalizeContext(resolveChatRequestContext(payload), userId, sessionId);
+  timing.mark('normalizeContext');
   const { runtime: runtimeInstance, created: runtimeCreated } = await getOrCreatePiRuntimeWithState(sessionId, userId);
+  timing.mark('getOrCreateRuntime');
   const promptMessage = await injectStudioImage(resolvePromptMessage(payload), context, userId);
+  timing.mark('injectStudioImage');
   const status = runtimeInstance.getStatus();
 
   if (!promptMessage && !status.canAbort) {
@@ -263,6 +268,7 @@ export async function prepareRuntimePrompt(
   if (!status.canAbort && !runtimeCreated) {
     await runtimeInstance.reloadTools();
   }
+  timing.mark('applyContextAndReloadTools');
 
   console.log('[RuntimeService] Runtime status:', {
     sessionId,
@@ -274,6 +280,7 @@ export async function prepareRuntimePrompt(
     workspaceId: context.workspace?.workspaceId,
     workspaceType: context.workspace?.workspaceType,
     studioOutputPath: context.studioContext?.outputFilePath,
+    timing: timing.snapshot(),
   });
 
   return {
