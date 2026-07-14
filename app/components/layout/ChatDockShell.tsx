@@ -5,6 +5,7 @@ import {
   useEffect,
   useRef,
   useState,
+  Suspense,
   type CSSProperties,
   type ReactNode,
 } from 'react';
@@ -46,6 +47,21 @@ import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/comp
 import { cn } from '@/lib/utils';
 
 export type DesktopChatMode = 'side' | 'fullscreen';
+
+function ChatNavigationIntentObserver({
+  onChange,
+}: {
+  onChange: (intent: ReturnType<typeof getChatNavigationIntent>) => void;
+}) {
+  const searchParams = useSearchParams();
+  const { sessionId, shouldOpenChat } = getChatNavigationIntent(searchParams);
+
+  useEffect(() => {
+    onChange({ sessionId, shouldOpenChat });
+  }, [onChange, sessionId, shouldOpenChat]);
+
+  return null;
+}
 
 const CHAT_WIDTH_MIN = 390;
 const CHAT_WIDTH_MAX = 600;
@@ -103,8 +119,10 @@ export function ChatDockShell({
   const tCommon = useTranslations('common');
   const tNav = useTranslations('navigation');
   const tChat = useTranslations('chat');
-  const searchParams = useSearchParams();
-  const navigationIntent = getChatNavigationIntent(searchParams);
+  const [navigationIntent, setNavigationIntent] = useState<ReturnType<typeof getChatNavigationIntent>>(() => ({
+    sessionId: null,
+    shouldOpenChat: false,
+  }));
   const routeSessionId = navigationIntent.sessionId;
   const shouldOpenRouteChat = navigationIntent.shouldOpenChat;
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
@@ -268,6 +286,14 @@ export function ChatDockShell({
       } as CSSProperties)
       : undefined;
   const chatContainerWidth = usesDesktopChatOverlay ? viewportWidth : chatWidth;
+  const handleNavigationIntentChange = useCallback((nextIntent: ReturnType<typeof getChatNavigationIntent>) => {
+    setNavigationIntent((currentIntent) => (
+      currentIntent.sessionId === nextIntent.sessionId
+      && currentIntent.shouldOpenChat === nextIntent.shouldOpenChat
+        ? currentIntent
+        : nextIntent
+    ));
+  }, []);
 
   const chatModeControl = (
     <DropdownMenu modal={false}>
@@ -337,6 +363,9 @@ export function ChatDockShell({
 
   return (
     <HintProvider page={hintPage} enabled={hintEnabled}>
+      <Suspense fallback={null}>
+        <ChatNavigationIntentObserver onChange={handleNavigationIntentChange} />
+      </Suspense>
       <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
         <header className="z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
           <div className="relative flex h-full items-center justify-between gap-3 px-4 md:px-6">
