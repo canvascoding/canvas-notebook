@@ -9,7 +9,13 @@ import {
   parseObsidianWikiLinks,
   parseObsidianWikiTarget,
 } from '../app/lib/markdown/obsidian-flavored-markdown';
-import { parseObsidianFrontmatter } from '../app/lib/markdown/obsidian-metadata';
+import {
+  composeCanvasMarkdownDocument,
+  normalizeCanvasTags,
+  parseCanvasMarkdownDocument,
+  parseObsidianFrontmatter,
+  updateCanvasMarkdownProperties,
+} from '../app/lib/markdown/obsidian-metadata';
 import {
   findObsidianWikiCompletionContext,
   getObsidianWikiCompletionInsertPath,
@@ -76,6 +82,66 @@ assert.deepEqual(frontmatter.tags, ['research', 'market analysis']);
 assert.equal(markdown.slice(frontmatter.end).trimStart().startsWith('# Intro'), true);
 assert.equal(parseObsidianFrontmatter('# No frontmatter'), null);
 assert.deepEqual(parseObsidianFrontmatter('---\n: invalid: yaml\n---\n')?.data, {});
+
+const parsedDocument = parseCanvasMarkdownDocument(markdown);
+assert.equal(parsedDocument.error, null);
+assert.equal(parsedDocument.hasFrontmatter, true);
+assert.equal(
+  composeCanvasMarkdownDocument(parsedDocument.frontmatterPrefix, parsedDocument.body),
+  markdown,
+);
+
+const updatedProperties = updateCanvasMarkdownProperties(`---
+# This comment must survive
+title: Old title
+custom:
+  nested: true
+tags: [Research, "Market Analysis"]
+---
+
+# Body
+`, {
+  aliases: ['Plan', 'Plan', ' Roadmap '],
+  tags: ['#Research', 'Market Analysis', 'status/Draft'],
+  title: 'New title',
+});
+assert.equal(updatedProperties.error, null);
+assert.equal(updatedProperties.changed, true);
+assert.match(updatedProperties.markdown, /# This comment must survive/);
+assert.match(updatedProperties.markdown, /nested: true/);
+assert.match(updatedProperties.markdown, /title: New title/);
+assert.deepEqual(parseObsidianFrontmatter(updatedProperties.markdown)?.tags, [
+  'research',
+  'market-analysis',
+  'status/draft',
+]);
+assert.deepEqual(parseObsidianFrontmatter(updatedProperties.markdown)?.aliases, ['Plan', 'Roadmap']);
+assert.match(updatedProperties.markdown, /\n# Body\n$/);
+
+const createdProperties = updateCanvasMarkdownProperties('# Untagged document\n', {
+  tags: ['type/Note', ' topic/Project Plan '],
+  title: 'Untagged document',
+});
+assert.equal(createdProperties.error, null);
+assert.match(createdProperties.markdown, /^---\ntitle: Untagged document\ntags:\n  - type\/note\n  - topic\/project-plan\n---\n\n# Untagged document/);
+assert.deepEqual(normalizeCanvasTags(['#Topic/AI', 'topic/ai', 'Market Analysis']), [
+  'topic/ai',
+  'market-analysis',
+]);
+
+const invalidProperties = updateCanvasMarkdownProperties('---\n: invalid: yaml\n---\nBody', {
+  tags: ['research'],
+});
+assert.equal(invalidProperties.changed, false);
+assert.ok(invalidProperties.error);
+assert.equal(invalidProperties.markdown, '---\n: invalid: yaml\n---\nBody');
+
+const malformedDocument = parseCanvasMarkdownDocument('---\ntitle: Missing close\nBody');
+assert.equal(malformedDocument.hasFrontmatter, true);
+assert.ok(malformedDocument.error);
+
+const bomDocument = updateCanvasMarkdownProperties('\uFEFF# Body', { title: 'BOM' });
+assert.equal(bomDocument.markdown.charCodeAt(0), 0xfeff);
 
 const selfHeading = parseObsidianWikiTarget('#Local heading|jump');
 assert.ok(selfHeading);
