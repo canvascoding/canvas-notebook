@@ -364,11 +364,6 @@ const SystemMigrationPanel = dynamic(
   { loading: SettingsTabLoader },
 );
 
-const KnowledgeSettingsPanel = dynamic(
-  () => import('@/app/components/settings/KnowledgeSettingsPanel').then((module) => module.KnowledgeSettingsPanel),
-  { loading: SettingsTabLoader },
-);
-
 type WorkspaceOrganizationPermission = OrganizationPermissionSnapshot | null;
 
 const UserManagementPanel = dynamic<UserManagementPanelProps>(
@@ -2299,10 +2294,9 @@ export function IntegrationsSettingsClient({
       if (tab.value === 'data-migration') return isAdmin;
       if (tab.value === 'ai-providers') return isAdmin;
       if (tab.value === 'system-email') return isAdmin;
-      if (tab.value === 'knowledge') return isAdmin || organizationPermission?.canEnableKnowledge === true;
       return true;
     }),
-    [isAdmin, organizationPermission],
+    [isAdmin],
   );
   const visibleSettingsTabs = useMemo(
     () => new Set<SettingsTab>(visibleSettingsTabItems.map((tab) => tab.value)),
@@ -3112,8 +3106,6 @@ export function IntegrationsSettingsClient({
               createWorkspaceOpen={createWorkspaceOpen}
             />
           ))}
-
-          {renderLazyTabContent('knowledge', <KnowledgeSettingsPanel />)}
 
           {renderLazyTabContent('user-management',
             <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,

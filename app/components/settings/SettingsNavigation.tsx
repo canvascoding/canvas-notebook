@@ -5,7 +5,6 @@ import {
   BadgeCheck,
   BarChart3,
   Bot,
-  BrainCircuit,
   Cpu,
   FolderCog,
   Globe,
@@ -49,7 +48,6 @@ export type SettingsTab =
   | 'agent-settings'
   | 'browser'
   | 'workspace'
-  | 'knowledge'
   | 'user-management'
   | 'data-migration'
   | 'ai-providers'
@@ -100,13 +98,6 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.workspace',
     group: 'workspace',
     icon: FolderCog,
-  },
-  {
-    value: 'knowledge',
-    labelKey: 'tabs.knowledge',
-    descriptionKey: 'navigation.descriptions.knowledge',
-    group: 'workspace',
-    icon: BrainCircuit,
   },
   {
     value: 'agent-settings',
