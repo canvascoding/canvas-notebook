@@ -152,10 +152,8 @@ export function KnowledgeGraphCanvas({
     ]).then(([graphologyModule, sigmaModule, forceAtlasModule, forceAtlasWorkerModule]) => {
       if (cancelled) return;
       const currentData = dataRef.current;
-      const GraphClass = graphologyModule.MultiDirectedGraph;
-      const graph = new GraphClass<KnowledgeGraphNode, { color: string; size: number }>({
-        allowSelfLoops: false,
-      });
+      const GraphClass = graphologyModule.MultiDirectedGraph as unknown as new () => GraphInstance;
+      const graph = new GraphClass();
 
       for (const node of currentData.nodes) graph.addNode(node.id, node);
       for (const edge of currentData.edges) {
