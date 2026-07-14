@@ -121,6 +121,19 @@ function clearStoredNotebookOpenFilePath() {
   }
 }
 
+function clearStoredNotebookOpenFilePathIfMatches(path: string) {
+  if (readStoredNotebookOpenFilePath() === path) {
+    clearStoredNotebookOpenFilePath();
+  }
+}
+
+function createNotebookFileTransitionId(): string {
+  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+    return crypto.randomUUID();
+  }
+  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
+}
+
 function readStoredDesktopSidebarVisible() {
   if (typeof window === 'undefined') return true;
 
@@ -242,7 +255,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const desktopDefaultChatAppliedRef = useRef(false);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
   const previousCurrentFilePathRef = useRef<string | null>(null);
-  const suppressNextMobileFileOpenCloseRef = useRef(0);
+  const preserveMobileChatTransitionIdsRef = useRef(new Set<string>());
   const currentFile = useFileStore((state) => state.currentFile);
   const isLoadingFile = useFileStore((state) => state.isLoadingFile);
   const fileError = useFileStore((state) => state.fileError);
@@ -362,24 +375,22 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const openNotebookFile = useCallback(async (
     path: string,
-    options: { suppressMobileChatClose?: boolean } = {},
+    options: { preserveMobileChat?: boolean } = {},
   ) => {
     const normalizedPath = normalizeNotebookFilePath(path);
     if (!normalizedPath) return null;
 
-    if (options.suppressMobileChatClose) {
-      suppressNextMobileFileOpenCloseRef.current += 1;
+    const transitionId = createNotebookFileTransitionId();
+    if (options.preserveMobileChat) {
+      preserveMobileChatTransitionIdsRef.current.add(transitionId);
     }
 
-    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath);
+    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, { transitionId });
     if (result.status !== 'opened') {
-      if (options.suppressMobileChatClose) {
-        suppressNextMobileFileOpenCloseRef.current = Math.max(
-          0,
-          suppressNextMobileFileOpenCloseRef.current - 1,
-        );
+      preserveMobileChatTransitionIdsRef.current.delete(transitionId);
+      if (result.status !== 'superseded') {
+        clearStoredNotebookOpenFilePathIfMatches(normalizedPath);
       }
-      clearStoredNotebookOpenFilePath();
       return result;
     }
 
@@ -387,7 +398,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (loadedPath === normalizedPath) {
       writeStoredNotebookOpenFilePath(normalizedPath);
     } else {
-      clearStoredNotebookOpenFilePath();
+      clearStoredNotebookOpenFilePathIfMatches(normalizedPath);
     }
 
     useFileStore.getState().setMobileSurface('editor');
@@ -395,8 +406,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, []);
 
   const openBridgedNotebookFile = useCallback(async (request: NotebookFileReferenceRequest) => {
+    openedPathRef.current = request.path;
     const result = await openNotebookFile(request.path);
-    if (result?.status !== 'opened') return;
+    if (result?.status !== 'opened') {
+      if (openedPathRef.current === request.path) {
+        openedPathRef.current = null;
+      }
+      return;
+    }
 
     clearPendingNotebookFileReference(request.requestId);
     notifyWorkspaceFileOpened(request.path, 'chat-reference');
@@ -411,10 +428,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   useEffect(() => {
     const targetPath = routeFilePath;
-    if (targetPath && openedPathRef.current !== targetPath) {
+    const pendingBridgeRequest = window.name === NOTEBOOK_WINDOW_NAME
+      ? readPendingNotebookFileReference()
+      : null;
+    if (!pendingBridgeRequest && targetPath && openedPathRef.current !== targetPath) {
       openedPathRef.current = targetPath;
       void openNotebookFile(targetPath, {
-        suppressMobileChatClose: shouldForceChatOpen,
+        preserveMobileChat: shouldForceChatOpen,
       });
 
       if (viewportMode === 'desktop') {
@@ -445,17 +465,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     window.addEventListener('message', handleMessage);
 
     const pendingRequest = readPendingNotebookFileReference();
-    const pathParam = routeFilePath;
     if (pendingRequest) {
-      if (pendingRequest.path === pathParam) {
-        clearPendingNotebookFileReference(pendingRequest.requestId);
-      } else {
-        queueMicrotask(() => void openBridgedNotebookFile(pendingRequest));
-      }
+      queueMicrotask(() => void openBridgedNotebookFile(pendingRequest));
     }
 
     return () => window.removeEventListener('message', handleMessage);
-  }, [openBridgedNotebookFile, routeFilePath]);
+  }, [openBridgedNotebookFile]);
 
   useEffect(() => {
     const handleOpenChatSession = (event: Event) => {
@@ -501,7 +516,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (storedPath) {
       openedPathRef.current = storedPath;
       void openNotebookFile(storedPath, {
-        suppressMobileChatClose: shouldForceChatOpen && viewportMode === 'mobile',
+        preserveMobileChat: shouldForceChatOpen && viewportMode === 'mobile',
       });
       if (viewportMode === 'desktop') {
         queueMicrotask(openDesktopSideChat);
@@ -538,7 +553,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const handleWorkspaceChange = () => {
       openedPathRef.current = routeFilePath;
       previousCurrentFilePathRef.current = null;
-      suppressNextMobileFileOpenCloseRef.current = 0;
+      preserveMobileChatTransitionIdsRef.current.clear();
       clearStoredNotebookOpenFilePath();
       useFileStore.getState().clearCurrentFile();
       useEditorStore.getState().clear();
@@ -725,8 +740,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const unsub = useFileStore.subscribe((state) => {
       if (state.mobileFileOpenedCount !== prevCount) {
         prevCount = state.mobileFileOpenedCount;
-        if (suppressNextMobileFileOpenCloseRef.current > 0) {
-          suppressNextMobileFileOpenCloseRef.current -= 1;
+        const transitionId = state.lastMobileFileOpen?.transitionId;
+        if (transitionId && preserveMobileChatTransitionIdsRef.current.delete(transitionId)) {
           return;
         }
         if (viewportMode !== 'mobile') return;

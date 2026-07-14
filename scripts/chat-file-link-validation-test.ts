@@ -162,6 +162,31 @@ async function main() {
     const legacyMissingFetchMatches = fetchCalls.map((call) => call.url).join('\n').match(new RegExp(encodeURIComponent('legacy/missing.md'), 'g')) ?? [];
     assert.equal(legacyMissingFetchMatches.length, 2, 'legacy watcher events must invalidate legacy validation entries');
 
+    useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-a' });
+    let releaseBackgroundValidation!: () => void;
+    const backgroundValidationGate = new Promise<void>((resolve) => {
+      releaseBackgroundValidation = resolve;
+    });
+    let backgroundValidationFetches = 0;
+    globalThis.fetch = (async (input: RequestInfo | URL) => {
+      const url = new URL(String(input), 'http://localhost');
+      if (url.searchParams.get('path') === 'generated/background.md') {
+        backgroundValidationFetches += 1;
+        await backgroundValidationGate;
+        return Response.json({ success: true, data: { exists: true, type: 'file' } });
+      }
+      return Response.json({ success: true, data: { exists: false } });
+    }) as typeof fetch;
+
+    const firstBackgroundValidation = validateFileReference('generated/background.md', fileTree);
+    const secondBackgroundValidation = validateFileReference('generated/background.md', fileTree);
+    assert.equal(backgroundValidationFetches, 1, 'concurrent background validation must share one request');
+    releaseBackgroundValidation();
+    assert.deepEqual(await Promise.all([firstBackgroundValidation, secondBackgroundValidation]), [
+      { path: 'generated/background.md', type: 'file', exists: true },
+      { path: 'generated/background.md', type: 'file', exists: true },
+    ]);
+
     assert.equal(getFileDisplayName({ name: 'loaded.md', type: 'file' }), 'loaded');
     assert.equal(getFileDisplayPath('docs/loaded.md'), 'docs/loaded');
     assert.equal(getFileDisplayPath('/data/workspace/docs/loaded.md'), '/data/workspace/docs/loaded');

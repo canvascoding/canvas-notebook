@@ -7,6 +7,7 @@ import type {
   FileStats,
   OpenWorkspaceFileOptions,
   OpenWorkspaceFileResult,
+  WorkspaceFileOpenCompletion,
 } from '@/app/lib/files/types';
 import {
   getExtension,
@@ -58,6 +59,7 @@ export type {
   FileStats,
   OpenWorkspaceFileOptions,
   OpenWorkspaceFileResult,
+  WorkspaceFileOpenCompletion,
 } from '@/app/lib/files/types';
 export { findPathInTree } from '@/app/lib/files/tree-utils';
 
@@ -300,8 +302,9 @@ interface FileStoreState {
   // Mobile UI state
   mobileSurface: 'files' | 'editor' | null;
   mobileFileOpenedCount: number;
+  lastMobileFileOpen: WorkspaceFileOpenCompletion | null;
   setMobileSurface: (surface: 'files' | 'editor' | null) => void;
-  mobileFileOpened: () => void;
+  mobileFileOpened: (path: string, transitionId?: string) => void;
 
   // Bulk move dialog state
   bulkMoveOpen: boolean;
@@ -484,11 +487,23 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   // Mobile UI state
   mobileSurface: null,
   mobileFileOpenedCount: 0,
+  lastMobileFileOpen: null,
   setMobileSurface: (surface: 'files' | 'editor' | null) => {
     set({ mobileSurface: surface });
   },
-  mobileFileOpened: () => {
-    set((state) => ({ mobileSurface: 'editor', mobileFileOpenedCount: state.mobileFileOpenedCount + 1 }));
+  mobileFileOpened: (path: string, transitionId?: string) => {
+    set((state) => {
+      const sequence = state.mobileFileOpenedCount + 1;
+      return {
+        mobileSurface: 'editor',
+        mobileFileOpenedCount: sequence,
+        lastMobileFileOpen: {
+          sequence,
+          path,
+          transitionId: transitionId || null,
+        },
+      };
+    });
   },
 
   // Bulk move dialog state
@@ -1047,7 +1062,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       name: normalizedPath.split('/').pop() || normalizedPath,
     };
     get().selectNode(selectedNode);
-    get().mobileFileOpened();
+    get().mobileFileOpened(normalizedPath, options.transitionId);
     return { status: 'opened', path: normalizedPath };
   },
 

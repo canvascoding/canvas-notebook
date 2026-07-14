@@ -86,6 +86,13 @@ export type FileLoadResult =
 export interface OpenWorkspaceFileOptions {
   workspaceId?: string | null;
   revealInTree?: boolean;
+  transitionId?: string;
+}
+
+export interface WorkspaceFileOpenCompletion {
+  sequence: number;
+  path: string;
+  transitionId: string | null;
 }
 
 export type OpenWorkspaceFileResult =

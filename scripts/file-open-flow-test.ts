@@ -116,15 +116,54 @@ async function testLatestOpenRequestWins() {
     });
   }) as typeof fetch;
 
-  const slowOpen = useFileStore.getState().revealAndLoadFile('slow/a.md', { workspaceId: 'workspace-a' });
+  const slowOpen = useFileStore.getState().revealAndLoadFile('slow/a.md', {
+    workspaceId: 'workspace-a',
+    transitionId: 'slow-transition',
+  });
   await slowStarted;
-  const fastResult = await useFileStore.getState().revealAndLoadFile('fast/b.md', { workspaceId: 'workspace-a' });
+  const fastResult = await useFileStore.getState().revealAndLoadFile('fast/b.md', {
+    workspaceId: 'workspace-a',
+    transitionId: 'fast-transition',
+  });
   slowReadGate.release();
   const slowResult = await slowOpen;
 
   assert.equal(fastResult.status, 'opened');
   assert.equal(slowResult.status, 'superseded');
   assert.equal(useFileStore.getState().currentFile?.path, 'fast/b.md');
+  assert.deepEqual(useFileStore.getState().lastMobileFileOpen, {
+    sequence: useFileStore.getState().mobileFileOpenedCount,
+    path: 'fast/b.md',
+    transitionId: 'fast-transition',
+  });
+}
+
+async function testSamePathOpenKeepsRequestCorrelation() {
+  useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-a' });
+  useEditorStore.getState().clear();
+  useFileStore.setState({
+    fileTree: [{ name: 'same.md', path: 'same.md', type: 'file' }],
+    fileTreeWorkspaceId: 'workspace-a',
+    currentFile: {
+      path: 'same.md',
+      content: '# Same',
+    },
+    currentFileWorkspaceId: 'workspace-a',
+    lastMobileFileOpen: null,
+  });
+
+  const result = await useFileStore.getState().revealAndLoadFile('same.md', {
+    workspaceId: 'workspace-a',
+    transitionId: 'same-path-second-request',
+  });
+
+  assert.equal(result.status, 'opened');
+  assert.equal(useFileStore.getState().lastMobileFileOpen?.path, 'same.md');
+  assert.equal(
+    useFileStore.getState().lastMobileFileOpen?.transitionId,
+    'same-path-second-request',
+    'same-path opens must retain the initiating UI transition id',
+  );
 }
 
 async function testWorkspaceSwitchRejectsOldTreeResponse() {
@@ -351,6 +390,7 @@ async function main() {
   try {
     await testConcurrentDirectoryLoadsShareTheSamePromise();
     await testLatestOpenRequestWins();
+    await testSamePathOpenKeepsRequestCorrelation();
     await testWorkspaceSwitchRejectsOldTreeResponse();
     await testDirectoryErrorsStayLocal();
     await testDirtyEditorIsSavedBeforeOpeningAnotherFile();
