@@ -7,12 +7,14 @@ import {
 import {
   createWorkspaceBrandCss,
   createWorkspaceBrandHeaderHtml,
+  createWorkspaceBrandPdfHeaderTemplate,
   getMarkdownPdfRenderOptions,
 } from '../app/lib/pdf/markdown-brand';
 
 const corporate = cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.corporate);
 corporate.brandName = '<Canvas & Studios>';
 corporate.logoPath = 'assets/logo.png';
+corporate.logoPosition = 'left';
 corporate.page.size = 'Letter';
 corporate.page.backgroundColor = '#fefcf7';
 corporate.page.verticalMarginMm = 28;
@@ -38,6 +40,14 @@ assert.match(header, /canvas-brand-logo/u);
 assert.match(header, /&lt;Canvas &amp; Studios&gt;/u);
 assert.doesNotMatch(header, /<Canvas/u);
 
+const logoDataUri = 'data:image/png;base64,AAAA';
+const pdfHeader = createWorkspaceBrandPdfHeaderTemplate(corporate, logoDataUri);
+assert.match(pdfHeader, /justify-content:flex-start/u);
+assert.match(pdfHeader, /max-height:9mm/u);
+assert.match(pdfHeader, /max-width:28mm/u);
+assert.match(pdfHeader, /data:image\/png;base64,AAAA/u);
+assert.equal(createWorkspaceBrandPdfHeaderTemplate(corporate, 'javascript:alert(1)'), '');
+
 const disabled = cloneWorkspaceBrandProfile(corporate);
 disabled.enabled = false;
 assert.equal(createWorkspaceBrandHeaderHtml({
@@ -46,9 +56,23 @@ assert.equal(createWorkspaceBrandHeaderHtml({
   escapeHtml: (value) => value,
 }), '');
 
-assert.deepEqual(getMarkdownPdfRenderOptions(corporate), {
+assert.deepEqual(getMarkdownPdfRenderOptions(corporate, logoDataUri), {
   format: 'Letter',
   preferCssPageSize: true,
+  displayHeaderFooter: true,
+  headerTemplate: pdfHeader,
+  footerTemplate: '<div></div>',
+  margin: {
+    top: '28mm',
+    right: '18mm',
+    bottom: '28mm',
+    left: '18mm',
+  },
 });
+
+corporate.page.verticalMarginMm = 10;
+const compactCss = createWorkspaceBrandCss(corporate);
+assert.match(compactCss, /margin: 18mm 18mm 10mm;/u);
+assert.equal(getMarkdownPdfRenderOptions(corporate, null).displayHeaderFooter, undefined);
 
 console.log('workspace-brand-pdf-test: ok');

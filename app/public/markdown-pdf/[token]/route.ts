@@ -27,7 +27,7 @@ export async function POST(
 
     const pdfBuffer = await generatePdfFromHtml(
       result.html,
-      getMarkdownPdfRenderOptions(result.brandProfile),
+      getMarkdownPdfRenderOptions(result.brandProfile, result.brandLogoDataUri),
     );
 
     return new NextResponse(new Uint8Array(pdfBuffer), {

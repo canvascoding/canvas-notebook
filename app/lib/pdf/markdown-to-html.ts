@@ -230,32 +230,6 @@ async function inlineImagesAsBase64(
   return processedHtml;
 }
 
-async function inlineBrandLogoAsBase64(
-  profile: WorkspaceBrandProfile,
-  fileOptions?: WorkspaceFileOperationOptions,
-): Promise<string | null> {
-  if (!profile.enabled || !profile.logoPath) return null;
-
-  try {
-    const imageBuffer = await readFile(profile.logoPath, fileOptions);
-    if (imageBuffer.length > MAX_IMAGE_SIZE) {
-      console.warn(`[Markdown Export] Brand logo is too large to inline: ${profile.logoPath}`);
-      return null;
-    }
-
-    const extension = path.extname(profile.logoPath).slice(1).toLowerCase();
-    if (!Object.hasOwn(MIME_TYPES, extension)) {
-      console.warn(`[Markdown Export] Unsupported brand logo format: ${profile.logoPath}`);
-      return null;
-    }
-
-    return `data:${getMimeType(extension)};base64,${imageBuffer.toString('base64')}`;
-  } catch (error) {
-    console.warn(`[Markdown Export] Failed to inline brand logo: ${profile.logoPath}`, error);
-    return null;
-  }
-}
-
 export async function markdownFileToHtmlDocument(
   filePath: string,
   fileOptions?: WorkspaceFileOperationOptions,
@@ -285,10 +259,9 @@ export async function markdownFileToHtmlDocument(
   const fileName = path.basename(filePath, ext);
 
   htmlContent = await inlineImagesAsBase64(htmlContent, fileDir, fileOptions);
-  const brandLogoDataUri = await inlineBrandLogoAsBase64(brandProfile, fileOptions);
   const brandHeaderHtml = createWorkspaceBrandHeaderHtml({
     profile: brandProfile,
-    logoDataUri: brandLogoDataUri,
+    logoDataUri: null,
     escapeHtml,
   });
 

@@ -16,10 +16,41 @@ const FONT_STACKS: Record<WorkspaceBrandFontId, string> = {
 export type MarkdownPdfRenderOptions = {
   format: 'A4' | 'Letter';
   preferCssPageSize: true;
+  displayHeaderFooter?: boolean;
+  headerTemplate?: string;
+  footerTemplate?: string;
+  margin?: {
+    top: string;
+    right: string;
+    bottom: string;
+    left: string;
+  };
 };
+
+const LOGO_HEADER_MIN_TOP_MARGIN_MM = 18;
+const LOGO_HEADER_MAX_DATA_URI_LENGTH = 1_500_000;
+const LOGO_DATA_URI_PATTERN = /^data:image\/(?:png|jpeg|webp);base64,[a-z0-9+/=]+$/iu;
 
 export function workspaceBrandFontStack(font: WorkspaceBrandFontId): string {
   return FONT_STACKS[font];
+}
+
+function hasRepeatingLogo(profile: WorkspaceBrandProfile): boolean {
+  return profile.enabled && Boolean(profile.logoPath);
+}
+
+function pageTopMarginMm(profile: WorkspaceBrandProfile): number {
+  return hasRepeatingLogo(profile)
+    ? Math.max(profile.page.verticalMarginMm, LOGO_HEADER_MIN_TOP_MARGIN_MM)
+    : profile.page.verticalMarginMm;
+}
+
+function pageMarginCss(profile: WorkspaceBrandProfile): string {
+  const top = pageTopMarginMm(profile);
+  if (top === profile.page.verticalMarginMm) {
+    return `${profile.page.verticalMarginMm}mm ${profile.page.horizontalMarginMm}mm`;
+  }
+  return `${top}mm ${profile.page.horizontalMarginMm}mm ${profile.page.verticalMarginMm}mm`;
 }
 
 function headingDecorationCss(
@@ -69,13 +100,13 @@ export function createWorkspaceBrandCss(profile: WorkspaceBrandProfile): string 
 
     @page {
       size: ${effective.page.size};
-      margin: ${effective.page.verticalMarginMm}mm ${effective.page.horizontalMarginMm}mm;
+      margin: ${pageMarginCss(effective)};
       background: ${effective.page.backgroundColor};
     }
 
     @page markdown-wide-table {
       size: ${effective.page.size} landscape;
-      margin: 15mm;
+      margin: ${hasRepeatingLogo(effective) ? `${LOGO_HEADER_MIN_TOP_MARGIN_MM}mm 15mm 15mm` : '15mm'};
       background: ${effective.page.backgroundColor};
     }
 
@@ -143,10 +174,46 @@ export function createWorkspaceBrandCss(profile: WorkspaceBrandProfile): string 
   `;
 }
 
-export function getMarkdownPdfRenderOptions(profile: WorkspaceBrandProfile): MarkdownPdfRenderOptions {
-  return {
+function validLogoDataUri(value: string | null | undefined): string | null {
+  if (!value || value.length > LOGO_HEADER_MAX_DATA_URI_LENGTH || !LOGO_DATA_URI_PATTERN.test(value)) {
+    return null;
+  }
+  return value;
+}
+
+export function createWorkspaceBrandPdfHeaderTemplate(
+  profile: WorkspaceBrandProfile,
+  logoDataUri: string | null | undefined,
+): string {
+  const logo = hasRepeatingLogo(profile) ? validLogoDataUri(logoDataUri) : null;
+  if (!logo) return '';
+
+  const justifyContent = profile.logoPosition === 'left' ? 'flex-start' : 'flex-end';
+  return `<div style="align-items:flex-start;box-sizing:border-box;display:flex;font-size:0;height:11mm;justify-content:${justifyContent};padding:1.5mm ${profile.page.horizontalMarginMm}mm 0;width:100%;"><img alt="" src="${logo}" style="display:block;height:auto;max-height:9mm;max-width:28mm;object-fit:contain;width:auto;"></div>`;
+}
+
+export function getMarkdownPdfRenderOptions(
+  profile: WorkspaceBrandProfile,
+  logoDataUri?: string | null,
+): MarkdownPdfRenderOptions {
+  const options: MarkdownPdfRenderOptions = {
     format: profile.page.size,
     preferCssPageSize: true,
+  };
+  const headerTemplate = createWorkspaceBrandPdfHeaderTemplate(profile, logoDataUri);
+  if (!headerTemplate) return options;
+
+  return {
+    ...options,
+    displayHeaderFooter: true,
+    headerTemplate,
+    footerTemplate: '<div></div>',
+    margin: {
+      top: `${pageTopMarginMm(profile)}mm`,
+      right: `${profile.page.horizontalMarginMm}mm`,
+      bottom: `${profile.page.verticalMarginMm}mm`,
+      left: `${profile.page.horizontalMarginMm}mm`,
+    },
   };
 }
 

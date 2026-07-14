@@ -8,6 +8,7 @@ import { renderMarpMarkdownToHtmlDocument } from '@/app/lib/marp/render';
 import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
 import { resolveMarkdownExportBrandState } from '@/app/lib/pdf/markdown-export-cache';
 import type { WorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile';
+import { readWorkspaceBrandLogoDataUri } from '@/app/lib/workspaces/brand-logo-service';
 import {
   resolvePublicShareToken,
   type PublicShareResolution,
@@ -21,6 +22,7 @@ export type PublicMarkdownExportResult = {
   workspacePath: string;
   html: string;
   brandProfile: WorkspaceBrandProfile;
+  brandLogoDataUri: string | null;
 } | {
   ok: false;
   status: number;
@@ -96,12 +98,14 @@ export async function getPublicMarkdownExport(token: string): Promise<PublicMark
   const fileOptions = { workspace: resolved.workspace };
   const brandState = await resolveMarkdownExportBrandState(fileOptions);
   const html = await getCachedMarkdownHtmlDocument(resolved.workspacePath, fileOptions, brandState);
+  const brandLogoDataUri = await readWorkspaceBrandLogoDataUri(brandState.profile, fileOptions);
   return {
     ok: true,
     fileName: resolved.share.fileName,
     workspacePath: resolved.workspacePath,
     html,
     brandProfile: brandState.profile,
+    brandLogoDataUri,
   };
 }
 
@@ -110,6 +114,7 @@ export async function getPublicMarpPreview(token: string): Promise<PublicMarkdow
   if (!publicMarkdown.ok) return publicMarkdown;
 
   const { resolved } = publicMarkdown;
+  const fileOptions = { workspace: resolved.workspace };
   const markdown = await fs.readFile(resolved.fullPath, 'utf8');
   if (!isMarpMarkdown(resolved.workspacePath, markdown)) {
     return {
@@ -122,14 +127,17 @@ export async function getPublicMarpPreview(token: string): Promise<PublicMarkdow
   const html = await renderMarpMarkdownToHtmlDocument(markdown, {
     filePath: resolved.workspacePath,
     title: resolved.share.fileName,
-    fileOptions: { workspace: resolved.workspace },
+    fileOptions,
   });
+
+  const brandState = await resolveMarkdownExportBrandState(fileOptions);
 
   return {
     ok: true,
     fileName: resolved.share.fileName,
     workspacePath: resolved.workspacePath,
     html,
-    brandProfile: (await resolveMarkdownExportBrandState({ workspace: resolved.workspace })).profile,
+    brandProfile: brandState.profile,
+    brandLogoDataUri: await readWorkspaceBrandLogoDataUri(brandState.profile, fileOptions),
   };
 }

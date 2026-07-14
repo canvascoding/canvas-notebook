@@ -13,6 +13,7 @@ import {
   resolveMarkdownExportBrandState,
 } from '@/app/lib/pdf/markdown-export-cache';
 import { getMarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
+import { readWorkspaceBrandLogoDataUri } from '@/app/lib/workspaces/brand-logo-service';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 
 export function assertMarkdownPdfExportPath(filePath: string): void {
@@ -34,5 +35,12 @@ export async function renderMarkdownWorkspaceFileToPdf(
 
   const brandState = await resolveMarkdownExportBrandState(fileOptions);
   const html = await getCachedMarkdownHtmlDocument(filePath, fileOptions, brandState);
-  return generatePdfFromHtml(html, getMarkdownPdfRenderOptions(brandState.profile));
+  const brandLogoDataUri = await readWorkspaceBrandLogoDataUri(
+    brandState.profile,
+    fileOptions ?? {},
+  );
+  return generatePdfFromHtml(
+    html,
+    getMarkdownPdfRenderOptions(brandState.profile, brandLogoDataUri),
+  );
 }

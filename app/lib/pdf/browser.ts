@@ -143,9 +143,12 @@ export async function generatePdfFromHtml(
           format: options?.format || 'A4',
           printBackground: true,
           preferCSSPageSize: preferCssPageSize,
-          ...(preferCssPageSize
-            ? {}
-            : { margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' } }),
+          displayHeaderFooter: options?.displayHeaderFooter,
+          headerTemplate: options?.headerTemplate,
+          footerTemplate: options?.footerTemplate,
+          margin: options?.margin || (preferCssPageSize
+            ? undefined
+            : { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' }),
         });
         return Buffer.from(pdf);
       } catch (error) {
