@@ -288,7 +288,8 @@ export function AgentSettingsPanel({
 }) {
   const t = useTranslations('settings');
   const searchParams = useSearchParams();
-  const requestedPanel = searchParams.get('panel');
+  const requestedPanel = searchParams.get('panel')
+    ?? (searchParams.get('tab') === 'my-agent-runtime' ? 'runtime' : null);
   const shouldOpenCreateAgentDialog = searchParams.get('createAgent') === '1';
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
   const setToolVerbosity = useToolVerbosityStore((s) => s.setToolVerbosity);

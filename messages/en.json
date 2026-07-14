@@ -2000,7 +2000,6 @@
     "title": "Settings",
     "tabs": {
       "general": "General",
-      "myAgentRuntime": "My Agent Runtime",
       "integrations": "Integrations",
       "agentSettings": "Agent Settings",
       "browser": "Browser",
@@ -2032,7 +2031,6 @@
       },
       "descriptions": {
         "general": "Manage your account, language, and basic instance options.",
-        "myAgentRuntime": "Choose your personal provider, model, and intelligence per workspace and agent.",
         "workspace": "Export your personal workspace and manage workspace access.",
         "brandDesign": "Define the brand experience for PDF exports and the active agent context.",
         "knowledge": "Configure knowledge processing, resources, and feature gates.",

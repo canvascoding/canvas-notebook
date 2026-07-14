@@ -280,11 +280,6 @@ type StudioMediaCredentialsPanelProps = {
   locale?: string;
   managedControlPlaneAvailable?: boolean;
 };
-type MyAgentRuntimePanelProps = {
-  locale?: string;
-  canManageRuntimeCatalog?: boolean;
-  onOpenRuntimeCatalog?: () => void;
-};
 type AgentSettingsPanelProps = {
   canManageAgentDefaults?: boolean;
 };
@@ -321,11 +316,6 @@ function SettingsTabLoader() {
 
 const AgentSettingsPanel = dynamic<AgentSettingsPanelProps>(
   () => import('@/app/components/settings/AgentSettingsPanel').then((module) => module.AgentSettingsPanel),
-  { loading: SettingsTabLoader },
-);
-
-const MyAgentRuntimePanel = dynamic<MyAgentRuntimePanelProps>(
-  () => import('@/app/components/settings/MyAgentRuntimePanel').then((module) => module.MyAgentRuntimePanel),
   { loading: SettingsTabLoader },
 );
 
@@ -406,6 +396,7 @@ function isSettingsTab(value: string | null): value is SettingsTab {
 }
 
 function normalizeSettingsTab(value: string | null): SettingsTab | null {
+  if (value === 'my-agent-runtime') return 'agent-settings';
   if (isSettingsTab(value)) return value;
   if (value === 'agent' || value === 'agentSettings') return 'agent-settings';
   if (value === 'plugins') return 'skills';
@@ -3095,14 +3086,6 @@ export function IntegrationsSettingsClient({
 
           {renderLazyTabContent('agent-settings', (
             <AgentSettingsPanel canManageAgentDefaults={canManageAgentDefaults} />
-          ))}
-
-          {renderLazyTabContent('my-agent-runtime', (
-            <MyAgentRuntimePanel
-              locale={locale}
-              canManageRuntimeCatalog={canManageAgentDefaults}
-              onOpenRuntimeCatalog={() => handleTabChange('ai-providers')}
-            />
           ))}
 
           {renderLazyTabContent('browser', <BrowserSettingsPanel isAdmin={isAdmin} />)}

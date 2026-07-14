@@ -221,7 +221,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
             <div className="mt-1 text-[11px] opacity-80">{t('modelRequiredDescription')}</div>
           </div>
           <Link
-            href="/settings?tab=my-agent-runtime"
+            href="/settings?tab=agent-settings&panel=runtime"
             className="inline-flex shrink-0 items-center gap-1 border border-amber-500/40 bg-background/60 px-2 py-1 text-[11px] font-medium text-foreground transition-colors hover:bg-accent"
           >
             <Settings className="h-3 w-3" />

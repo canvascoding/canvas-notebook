@@ -1999,7 +1999,6 @@
     "title": "Einstellungen",
     "tabs": {
       "general": "Allgemein",
-      "myAgentRuntime": "Meine Agent Runtime",
       "integrations": "Integrationen",
       "agentSettings": "Agent-Einstellungen",
       "browser": "Browser",
@@ -2031,7 +2030,6 @@
       },
       "descriptions": {
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
-        "myAgentRuntime": "Persönlichen Provider, Modell und Intelligence je Workspace und Agent auswählen.",
         "workspace": "Persönlichen Workspace exportieren und Workspace-Zugriffe verwalten.",
         "brandDesign": "Markenauftritt für PDF-Exporte und den aktiven Agent-Kontext festlegen.",
         "knowledge": "Knowledge-Verarbeitung, Ressourcen und Feature-Gates konfigurieren.",
