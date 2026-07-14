@@ -3,8 +3,6 @@ import 'server-only';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import type Database from 'better-sqlite3';
-
 import {
   resolveUserAgentsDir,
   resolveUserMailDir,
@@ -14,10 +12,9 @@ import {
   resolveUserSettingsDir,
   resolveUserSkillsDir,
 } from '@/app/lib/runtime-data-paths';
+import { openDb, type SqlConnection } from '@/app/lib/db';
 
-import { openOrganizationBootstrapDatabase } from './bootstrap';
-
-type Sqlite = Database.Database;
+type OffboardingDatabase = SqlConnection;
 
 export type OffboardingFindingSeverity = 'blocker' | 'warning' | 'info';
 export type OffboardingFindingCategory =
@@ -144,8 +141,15 @@ export class OffboardingError extends Error {
   }
 }
 
-function count(sqlite: Sqlite, sql: string, params: unknown[] = []): number {
-  const row = sqlite.prepare(sql).get(...params) as { count: number } | undefined;
+function changesFromRunResult(result: unknown): number {
+  if (result && typeof result === 'object' && 'changes' in result) {
+    return Number((result as { changes?: unknown }).changes || 0);
+  }
+  return 0;
+}
+
+async function count(database: OffboardingDatabase, sql: string, params: unknown[] = []): Promise<number> {
+  const row = await database.get(sql, params) as { count: number | string } | undefined;
   return Number(row?.count || 0);
 }
 
@@ -157,13 +161,13 @@ function addFinding(findings: OffboardingFinding[], finding: OffboardingFinding)
   findings.push(finding);
 }
 
-function getOrganization(sqlite: Sqlite): OrganizationRow {
-  const organization = sqlite.prepare(`
+async function getOrganization(database: OffboardingDatabase): Promise<OrganizationRow> {
+  const organization = await database.get(`
     SELECT organization_id, owner_user_id
     FROM canvas_organization_settings
     ORDER BY created_at ASC
     LIMIT 1
-  `).get() as OrganizationRow | undefined;
+  `) as OrganizationRow | undefined;
 
   if (!organization) {
     throw new OffboardingError('NOT_FOUND', 'Organization is not configured.', 409);
@@ -172,8 +176,12 @@ function getOrganization(sqlite: Sqlite): OrganizationRow {
   return organization;
 }
 
-function getTargetUser(sqlite: Sqlite, organizationId: string, targetUserId: string): TargetUserRow {
-  const target = sqlite.prepare(`
+async function getTargetUser(
+  database: OffboardingDatabase,
+  organizationId: string,
+  targetUserId: string,
+): Promise<TargetUserRow> {
+  const target = await database.get(`
     SELECT
       u.id,
       u.name,
@@ -182,13 +190,13 @@ function getTargetUser(sqlite: Sqlite, organizationId: string, targetUserId: str
       u.banned,
       p.role AS organization_role,
       COALESCE(p.status, 'active') AS organization_status
-    FROM user u
+    FROM "user" u
     LEFT JOIN organization_user_permissions p
       ON p.user_id = u.id
       AND p.organization_id = ?
     WHERE u.id = ?
     LIMIT 1
-  `).get(organizationId, targetUserId) as TargetUserRow | undefined;
+  `, [organizationId, targetUserId]) as TargetUserRow | undefined;
 
   if (!target) {
     throw new OffboardingError('NOT_FOUND', 'User not found.', 404);
@@ -197,18 +205,25 @@ function getTargetUser(sqlite: Sqlite, organizationId: string, targetUserId: str
   return target;
 }
 
-function getPersonalWorkspaces(sqlite: Sqlite, targetUserId: string): PersonalWorkspaceRow[] {
-  return sqlite.prepare(`
+async function getPersonalWorkspaces(
+  database: OffboardingDatabase,
+  targetUserId: string,
+): Promise<PersonalWorkspaceRow[]> {
+  return await database.all(`
     SELECT id, status, root_relative_path
     FROM canvas_workspaces
     WHERE owner_user_id = ?
       AND type = 'personal'
     ORDER BY is_default DESC, created_at ASC
-  `).all(targetUserId) as PersonalWorkspaceRow[];
+  `, [targetUserId]) as PersonalWorkspaceRow[];
 }
 
-function getLastManagedTeamWorkspaces(sqlite: Sqlite, organizationId: string, targetUserId: string): WorkspaceBlockerRow[] {
-  return sqlite.prepare(`
+async function getLastManagedTeamWorkspaces(
+  database: OffboardingDatabase,
+  organizationId: string,
+  targetUserId: string,
+): Promise<WorkspaceBlockerRow[]> {
+  return await database.all(`
     SELECT w.id, w.display_name
     FROM canvas_workspace_members m
     INNER JOIN canvas_workspaces w
@@ -228,11 +243,15 @@ function getLastManagedTeamWorkspaces(sqlite: Sqlite, organizationId: string, ta
           AND other.can_manage = 1
       ) <= 1
     ORDER BY lower(COALESCE(w.display_name, w.id)) ASC
-  `).all(organizationId, targetUserId) as WorkspaceBlockerRow[];
+  `, [organizationId, targetUserId]) as WorkspaceBlockerRow[];
 }
 
-function getLastManagedProjectWorkspaces(sqlite: Sqlite, organizationId: string, targetUserId: string): WorkspaceBlockerRow[] {
-  return sqlite.prepare(`
+async function getLastManagedProjectWorkspaces(
+  database: OffboardingDatabase,
+  organizationId: string,
+  targetUserId: string,
+): Promise<WorkspaceBlockerRow[]> {
+  return await database.all(`
     SELECT w.id, w.display_name
     FROM canvas_project_members m
     INNER JOIN canvas_workspaces w
@@ -253,7 +272,7 @@ function getLastManagedProjectWorkspaces(sqlite: Sqlite, organizationId: string,
           AND other.can_manage = 1
       ) <= 1
     ORDER BY lower(COALESCE(w.display_name, w.id)) ASC
-  `).all(organizationId, targetUserId) as WorkspaceBlockerRow[];
+  `, [organizationId, targetUserId]) as WorkspaceBlockerRow[];
 }
 
 async function getScopedStorageState(targetUserId: string): Promise<OffboardingPreflight['scopedStorage']> {
@@ -293,42 +312,46 @@ function buildAutomationAffectedWhere(): string {
       (
         COALESCE(scope, 'personal') != 'organization'
         AND (
-          owner_user_id = @targetUserId
-          OR (owner_user_id IS NULL AND created_by_user_id = @targetUserId)
+          owner_user_id = ?
+          OR (owner_user_id IS NULL AND created_by_user_id = ?)
         )
       )
       OR (
         scope = 'organization'
         AND (
-          responsible_user_id = @targetUserId
-          OR created_by_user_id = @targetUserId
-          OR approved_by_user_id = @targetUserId
-          OR last_edited_by_user_id = @targetUserId
+          responsible_user_id = ?
+          OR created_by_user_id = ?
+          OR approved_by_user_id = ?
+          OR last_edited_by_user_id = ?
         )
       )
     )
   `;
 }
 
-function buildPreflightFromScopedStorage(
-  sqlite: Sqlite,
+function affectedAutomationWhereParams(targetUserId: string): string[] {
+  return Array.from({ length: 6 }, () => targetUserId);
+}
+
+async function buildPreflightFromScopedStorage(
+  database: OffboardingDatabase,
   targetUserId: string,
   requestedByUserId: string,
   scopedStorage: OffboardingPreflight['scopedStorage'],
-): OffboardingPreflight {
-  const organization = getOrganization(sqlite);
-  const target = getTargetUser(sqlite, organization.organization_id, targetUserId);
-  const personalWorkspaces = getPersonalWorkspaces(sqlite, targetUserId);
+): Promise<OffboardingPreflight> {
+  const organization = await getOrganization(database);
+  const target = await getTargetUser(database, organization.organization_id, targetUserId);
+  const personalWorkspaces = await getPersonalWorkspaces(database, targetUserId);
   const personalWorkspace = personalWorkspaces[0] ?? null;
-  const lastManagedTeamWorkspaces = getLastManagedTeamWorkspaces(sqlite, organization.organization_id, targetUserId);
-  const lastManagedProjectWorkspaces = getLastManagedProjectWorkspaces(sqlite, organization.organization_id, targetUserId);
+  const lastManagedTeamWorkspaces = await getLastManagedTeamWorkspaces(database, organization.organization_id, targetUserId);
+  const lastManagedProjectWorkspaces = await getLastManagedProjectWorkspaces(database, organization.organization_id, targetUserId);
   const blockers: OffboardingFinding[] = [];
   const warnings: OffboardingFinding[] = [];
   const info: OffboardingFinding[] = [];
-  const activeRecoveryAdminsRemaining = count(sqlite, `
+  const activeRecoveryAdminsRemaining = await count(database, `
     SELECT COUNT(*) AS count
     FROM organization_user_permissions p
-    INNER JOIN user u ON u.id = p.user_id
+    INNER JOIN "user" u ON u.id = p.user_id
     WHERE p.organization_id = ?
       AND p.user_id != ?
       AND COALESCE(p.status, 'active') = 'active'
@@ -395,26 +418,26 @@ function buildPreflightFromScopedStorage(
     });
   }
 
-  const activeSessions = count(sqlite, `
+  const activeSessions = await count(database, `
     SELECT COUNT(*) AS count
-    FROM session
+    FROM "session"
     WHERE user_id = ?
       AND expires_at > ?
   `, [targetUserId, Date.now()]);
-  const authAccounts = count(sqlite, 'SELECT COUNT(*) AS count FROM account WHERE user_id = ?', [targetUserId]);
-  const activeEmailAccounts = count(sqlite, `
+  const authAccounts = await count(database, 'SELECT COUNT(*) AS count FROM "account" WHERE user_id = ?', [targetUserId]);
+  const activeEmailAccounts = await count(database, `
     SELECT COUNT(*) AS count
     FROM email_accounts
     WHERE user_id = ?
       AND status = 'active'
   `, [targetUserId]);
-  const activeChannelBindings = count(sqlite, `
+  const activeChannelBindings = await count(database, `
     SELECT COUNT(*) AS count
     FROM channel_user_bindings
     WHERE user_id = ?
       AND enabled = 1
   `, [targetUserId]);
-  const personalAutomations = count(sqlite, `
+  const personalAutomations = await count(database, `
     SELECT COUNT(*) AS count
     FROM automation_jobs
     WHERE status = 'active'
@@ -424,14 +447,14 @@ function buildPreflightFromScopedStorage(
         OR (owner_user_id IS NULL AND created_by_user_id = ?)
       )
   `, [targetUserId, targetUserId]);
-  const organizationResponsibleAutomations = count(sqlite, `
+  const organizationResponsibleAutomations = await count(database, `
     SELECT COUNT(*) AS count
     FROM automation_jobs
     WHERE status = 'active'
       AND scope = 'organization'
       AND responsible_user_id = ?
   `, [targetUserId]);
-  const organizationReviewAutomations = count(sqlite, `
+  const organizationReviewAutomations = await count(database, `
     SELECT COUNT(*) AS count
     FROM automation_jobs
     WHERE status = 'active'
@@ -442,13 +465,12 @@ function buildPreflightFromScopedStorage(
         OR last_edited_by_user_id = ?
       )
   `, [targetUserId, targetUserId, targetUserId]);
-  const affectedAutomations = count(sqlite, `
+  const affectedAutomations = await count(database, `
     SELECT COUNT(*) AS count
     FROM automation_jobs
-    WHERE status = 'active'
-      AND ${buildAutomationAffectedWhere()}
-  `, [{ targetUserId }]);
-  const inFlightAutomationRuns = count(sqlite, `
+    WHERE ${buildAutomationAffectedWhere()}
+  `, affectedAutomationWhereParams(targetUserId));
+  const inFlightAutomationRuns = await count(database, `
     SELECT COUNT(*) AS count
     FROM automation_runs r
     LEFT JOIN automation_jobs j ON j.id = r.job_id
@@ -460,35 +482,35 @@ function buildPreflightFromScopedStorage(
         OR j.created_by_user_id = ?
       )
   `, [targetUserId, targetUserId, targetUserId, targetUserId]);
-  const openAssignedTodos = count(sqlite, `
+  const openAssignedTodos = await count(database, `
     SELECT COUNT(*) AS count
     FROM todo_items
     WHERE assignee_user_id = ?
       AND status = 'open'
       AND archived_at IS NULL
   `, [targetUserId]);
-  const openCreatedTodos = count(sqlite, `
+  const openCreatedTodos = await count(database, `
     SELECT COUNT(*) AS count
     FROM todo_items
     WHERE created_by_user_id = ?
       AND status = 'open'
       AND archived_at IS NULL
   `, [targetUserId]);
-  const activePublicShares = count(sqlite, `
+  const activePublicShares = await count(database, `
     SELECT COUNT(*) AS count
     FROM public_file_shares
     WHERE created_by_user_id = ?
       AND status = 'active'
   `, [targetUserId]);
-  const studioGenerations = count(sqlite, 'SELECT COUNT(*) AS count FROM studio_generations WHERE user_id = ?', [targetUserId]);
-  const teamWorkspaceMemberships = count(sqlite, `
+  const studioGenerations = await count(database, 'SELECT COUNT(*) AS count FROM studio_generations WHERE user_id = ?', [targetUserId]);
+  const teamWorkspaceMemberships = await count(database, `
     SELECT COUNT(*) AS count
     FROM canvas_workspace_members
     WHERE organization_id = ?
       AND user_id = ?
       AND COALESCE(status, 'active') = 'active'
   `, [organization.organization_id, targetUserId]);
-  const projectWorkspaceMemberships = count(sqlite, `
+  const projectWorkspaceMemberships = await count(database, `
     SELECT COUNT(*) AS count
     FROM canvas_project_members
     WHERE organization_id = ?
@@ -678,24 +700,24 @@ function buildPreflightFromScopedStorage(
 }
 
 async function buildPreflight(
-  sqlite: Sqlite,
+  database: OffboardingDatabase,
   targetUserId: string,
   requestedByUserId: string,
 ): Promise<OffboardingPreflight> {
   const scopedStorage = await getScopedStorageState(targetUserId);
-  return buildPreflightFromScopedStorage(sqlite, targetUserId, requestedByUserId, scopedStorage);
+  return buildPreflightFromScopedStorage(database, targetUserId, requestedByUserId, scopedStorage);
 }
 
-function run(sqlite: Sqlite, sql: string, params: unknown[] = []): number {
-  return sqlite.prepare(sql).run(...params).changes;
+async function run(database: OffboardingDatabase, sql: string, params: unknown[] = []): Promise<number> {
+  return changesFromRunResult(await database.run(sql, params));
 }
 
-function affectedAutomationJobIds(sqlite: Sqlite, targetUserId: string): string[] {
-  return (sqlite.prepare(`
+async function affectedAutomationJobIds(database: OffboardingDatabase, targetUserId: string): Promise<string[]> {
+  return (await database.all(`
     SELECT id
     FROM automation_jobs
     WHERE ${buildAutomationAffectedWhere()}
-  `).all({ targetUserId }) as Array<{ id: string }>).map((row) => row.id);
+  `, affectedAutomationWhereParams(targetUserId)) as Array<{ id: string }>).map((row) => row.id);
 }
 
 function placeholders(values: unknown[]): string {
@@ -721,11 +743,11 @@ export async function createOffboardingPreflight(
   targetUserId: string,
   requestedByUserId: string,
 ): Promise<OffboardingPreflight> {
-  const sqlite = openOrganizationBootstrapDatabase();
+  const database = await openDb();
   try {
-    return await buildPreflight(sqlite, targetUserId, requestedByUserId);
+    return await buildPreflight(database, targetUserId, requestedByUserId);
   } finally {
-    sqlite.close();
+    await database.close();
   }
 }
 
@@ -735,14 +757,16 @@ export async function offboardUser(options: {
   reason?: string | null;
   acknowledgeWarnings?: boolean;
 }): Promise<OffboardingApplyResult> {
-  const sqlite = openOrganizationBootstrapDatabase();
+  const database = await openDb();
   let resultWithoutManifest: Omit<OffboardingApplyResult, 'manifestPath'> | null = null;
+  let transactionOpen = false;
 
   try {
     const scopedStorage = await getScopedStorageState(options.targetUserId);
-    sqlite.exec('BEGIN IMMEDIATE');
-    const preflight = buildPreflightFromScopedStorage(
-      sqlite,
+    await database.run('BEGIN');
+    transactionOpen = true;
+    const preflight = await buildPreflightFromScopedStorage(
+      database,
       options.targetUserId,
       options.requestedByUserId,
       scopedStorage,
@@ -757,17 +781,17 @@ export async function offboardUser(options: {
     const now = Date.now();
     const nowIso = new Date(now).toISOString();
     const reason = (options.reason || '').trim() || 'Offboarded by administrator';
-    const affectedJobs = affectedAutomationJobIds(sqlite, options.targetUserId);
+    const affectedJobs = await affectedAutomationJobIds(database, options.targetUserId);
     const actions: Record<string, number> = {};
 
-    actions.userBanned = run(sqlite, `
-      UPDATE user
+    actions.userBanned = await run(database, `
+      UPDATE "user"
       SET banned = 1, ban_reason = ?, ban_expires = NULL, updated_at = ?
       WHERE id = ?
     `, [`Offboarded: ${reason}`, now, options.targetUserId]);
-    actions.sessionsRevoked = run(sqlite, 'DELETE FROM session WHERE user_id = ?', [options.targetUserId]);
-    actions.authAccountsRevoked = run(sqlite, `
-      UPDATE account
+    actions.sessionsRevoked = await run(database, 'DELETE FROM "session" WHERE user_id = ?', [options.targetUserId]);
+    actions.authAccountsRevoked = await run(database, `
+      UPDATE "account"
       SET access_token = NULL,
           refresh_token = NULL,
           id_token = NULL,
@@ -775,7 +799,7 @@ export async function offboardUser(options: {
           updated_at = ?
       WHERE user_id = ?
     `, [now, options.targetUserId]);
-    actions.emailAccountsRevoked = run(sqlite, `
+    actions.emailAccountsRevoked = await run(database, `
       UPDATE email_accounts
       SET status = 'revoked',
           is_primary = 0,
@@ -783,7 +807,7 @@ export async function offboardUser(options: {
       WHERE user_id = ?
         AND status != 'revoked'
     `, [now, options.targetUserId]);
-    actions.todoEmailWatchersDisabled = run(sqlite, `
+    actions.todoEmailWatchersDisabled = await run(database, `
       UPDATE todo_email_reply_watchers
       SET status = 'disabled',
           error = ?,
@@ -791,17 +815,17 @@ export async function offboardUser(options: {
       WHERE user_id = ?
         AND status = 'active'
     `, ['User was offboarded.', now, options.targetUserId]);
-    actions.channelBindingsDisabled = run(sqlite, `
+    actions.channelBindingsDisabled = await run(database, `
       UPDATE channel_user_bindings
       SET enabled = 0
       WHERE user_id = ?
         AND enabled = 1
     `, [options.targetUserId]);
-    actions.channelActiveSessionsDeleted = run(sqlite, 'DELETE FROM channel_active_sessions WHERE user_id = ?', [options.targetUserId]);
-    actions.telegramActiveSessionsDeleted = run(sqlite, 'DELETE FROM telegram_active_session WHERE user_id = ?', [options.targetUserId]);
-    actions.channelLinkTokensDeleted = run(sqlite, 'DELETE FROM channel_link_tokens WHERE user_id = ?', [options.targetUserId]);
+    actions.channelActiveSessionsDeleted = await run(database, 'DELETE FROM channel_active_sessions WHERE user_id = ?', [options.targetUserId]);
+    actions.telegramActiveSessionsDeleted = await run(database, 'DELETE FROM telegram_active_session WHERE user_id = ?', [options.targetUserId]);
+    actions.channelLinkTokensDeleted = await run(database, 'DELETE FROM channel_link_tokens WHERE user_id = ?', [options.targetUserId]);
 
-    actions.automationsPaused = run(sqlite, `
+    actions.automationsPaused = await run(database, `
       UPDATE automation_jobs
       SET status = 'paused',
           next_run_at = NULL,
@@ -837,13 +861,13 @@ export async function offboardUser(options: {
       options.targetUserId,
     ]);
     if (affectedJobs.length > 0) {
-      actions.webhookTriggersPaused = run(sqlite, `
+      actions.webhookTriggersPaused = await run(database, `
         UPDATE automation_webhook_triggers
         SET status = 'paused',
             updated_at = ?
         WHERE job_id IN (${placeholders(affectedJobs)})
       `, [now, ...affectedJobs]);
-      actions.automationRunsStopped = run(sqlite, `
+      actions.automationRunsStopped = await run(database, `
         UPDATE automation_runs
         SET status = 'failed',
             finished_at = COALESCE(finished_at, ?),
@@ -856,7 +880,7 @@ export async function offboardUser(options: {
       `, [now, 'User was offboarded before the run completed.', options.targetUserId, ...affectedJobs]);
     } else {
       actions.webhookTriggersPaused = 0;
-      actions.automationRunsStopped = run(sqlite, `
+      actions.automationRunsStopped = await run(database, `
         UPDATE automation_runs
         SET status = 'failed',
             finished_at = COALESCE(finished_at, ?),
@@ -866,7 +890,7 @@ export async function offboardUser(options: {
       `, [now, 'User was offboarded before the run completed.', options.targetUserId]);
     }
 
-    actions.todosUnassigned = run(sqlite, `
+    actions.todosUnassigned = await run(database, `
       UPDATE todo_items
       SET assignee_user_id = NULL,
           updated_at = ?
@@ -874,7 +898,7 @@ export async function offboardUser(options: {
         AND status = 'open'
         AND archived_at IS NULL
     `, [now, options.targetUserId]);
-    actions.personalWorkspacesLocked = run(sqlite, `
+    actions.personalWorkspacesLocked = await run(database, `
       UPDATE canvas_workspaces
       SET status = 'recovery_locked',
           updated_at = ?
@@ -882,12 +906,12 @@ export async function offboardUser(options: {
         AND type = 'personal'
         AND status != 'recovery_locked'
     `, [now, options.targetUserId]);
-    actions.teamWorkspaceMembershipsRemoved = run(sqlite, `
+    actions.teamWorkspaceMembershipsRemoved = await run(database, `
       DELETE FROM canvas_workspace_members
       WHERE organization_id = ?
         AND user_id = ?
     `, [preflight.organizationId, options.targetUserId]);
-    actions.projectWorkspaceMembershipsRemoved = run(sqlite, `
+    actions.projectWorkspaceMembershipsRemoved = await run(database, `
       DELETE FROM canvas_project_members
       WHERE organization_id = ?
         AND user_id = ?
@@ -900,7 +924,7 @@ export async function offboardUser(options: {
       preflight,
       actions,
     });
-    actions.permissionArchived = run(sqlite, `
+    actions.permissionArchived = await run(database, `
       UPDATE organization_user_permissions
       SET status = 'archived',
           disabled_at = COALESCE(disabled_at, ?),
@@ -938,10 +962,15 @@ export async function offboardUser(options: {
       appliedAt: nowIso,
       actions,
     };
-    sqlite.exec('COMMIT');
+    await database.run('COMMIT');
+    transactionOpen = false;
   } catch (error) {
-    if (sqlite.inTransaction) {
-      sqlite.exec('ROLLBACK');
+    if (transactionOpen) {
+      try {
+        await database.run('ROLLBACK');
+      } catch {
+        // Preserve the original error if the rollback also fails.
+      }
     }
     if (error instanceof OffboardingError) {
       throw error;
@@ -949,7 +978,7 @@ export async function offboardUser(options: {
     console.error('[OrganizationOffboarding] Unexpected error during offboarding:', error);
     throw new OffboardingError('DATABASE_ERROR', 'Could not offboard user.', 500);
   } finally {
-    sqlite.close();
+    await database.close();
   }
 
   if (!resultWithoutManifest) {
