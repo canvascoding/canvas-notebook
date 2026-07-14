@@ -217,8 +217,21 @@ export async function deliverToTelegram(
 ): Promise<DeliveryResult> {
   const rawText = extractAssistantText(message);
   const parsed = parseMediaDirectives(rawText);
+  const organizationId = typeof target.metadata?.organizationId === 'string'
+    ? target.metadata.organizationId
+    : null;
+  const workspaceId = typeof target.metadata?.workspaceId === 'string'
+    ? target.metadata.workspaceId
+    : null;
+  const workspaceRoot = typeof target.metadata?.workspaceRoot === 'string'
+    ? target.metadata.workspaceRoot
+    : null;
   const validationResults = await Promise.all(
-    parsed.media.map((media) => validateMediaDirectivePath(media.rawPath, { maxBytes: MAX_TELEGRAM_OUTBOUND_UPLOAD_SIZE })),
+    parsed.media.map((media) => validateMediaDirectivePath(media.rawPath, {
+      maxBytes: MAX_TELEGRAM_OUTBOUND_UPLOAD_SIZE,
+      studioScope: organizationId && workspaceId ? { organizationId, workspaceId } : null,
+      workspaceRoot,
+    })),
   );
   const safeMedia = validationResults.filter(isSafeMediaAttachment);
   const unsafeMedia = validationResults.filter((result): result is UnsafeMediaDirective => !isSafeMediaAttachment(result));

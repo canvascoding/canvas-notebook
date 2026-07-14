@@ -6,7 +6,11 @@ import path from 'node:path';
 import { promisify } from 'node:util';
 import Database from 'better-sqlite3';
 
-import { DEFAULT_MIGRATION_COMPONENTS, type MigrationComponents } from '../app/lib/migration/types';
+import {
+  DEFAULT_MIGRATION_COMPONENTS,
+  FILE_ONLY_MIGRATION_COMPONENTS,
+  type MigrationComponents,
+} from '../app/lib/migration/types';
 
 const execFileAsync = promisify(execFile);
 
@@ -67,10 +71,18 @@ async function main() {
     await mkdir(path.join(dataRoot, 'workspace'), { recursive: true });
     await mkdir(path.join(dataRoot, 'workspaces', 'team', 'org-export', 'files'), { recursive: true });
     await mkdir(path.join(dataRoot, 'workspaces', 'personal', 'user-export', 'files'), { recursive: true });
+    await mkdir(path.join(dataRoot, 'studio', 'system', 'assets', 'presets', 'default-preset'), { recursive: true });
+    await mkdir(path.join(dataRoot, 'studio', 'organizations', 'org-export', 'workspaces', 'workspace-export', 'assets', 'products', 'product-1'), { recursive: true });
+    await mkdir(path.join(dataRoot, 'studio', 'organizations', 'org-export', 'workspaces', 'workspace-export', 'outputs', 'generation-1'), { recursive: true });
+    await mkdir(path.join(dataRoot, 'studio', 'organizations', 'org-export', 'workspaces', 'workspace-export', 'edits'), { recursive: true });
     await mkdir(path.join(dataRoot, 'secrets'), { recursive: true });
     await writeFile(path.join(dataRoot, 'workspace', 'legacy.md'), '# Legacy\n');
     await writeFile(path.join(dataRoot, 'workspaces', 'team', 'org-export', 'files', 'team.md'), '# Team\n');
     await writeFile(path.join(dataRoot, 'workspaces', 'personal', 'user-export', 'files', 'private.md'), '# Private\n');
+    await writeFile(path.join(dataRoot, 'studio', 'system', 'assets', 'presets', 'default-preset', 'preview.png'), 'system-preview');
+    await writeFile(path.join(dataRoot, 'studio', 'organizations', 'org-export', 'workspaces', 'workspace-export', 'assets', 'products', 'product-1', 'image.png'), 'product-image');
+    await writeFile(path.join(dataRoot, 'studio', 'organizations', 'org-export', 'workspaces', 'workspace-export', 'outputs', 'generation-1', 'result.png'), 'generation-output');
+    await writeFile(path.join(dataRoot, 'studio', 'organizations', 'org-export', 'workspaces', 'workspace-export', 'edits', 'edit.png'), 'edit-output');
     await writeFile(path.join(dataRoot, 'secrets', 'Canvas-Integrations.env'), 'OPENAI_API_KEY=sk-secret\nCOMPOSIO_API_KEY=secret\n');
 
     const sqlite = new Database(path.join(dataRoot, 'sqlite.db'));
@@ -190,6 +202,36 @@ async function main() {
     assert.equal(reconnectManifest.rawSecretsIncluded, false);
     assert.ok(JSON.stringify(reconnectManifest).includes('OPENAI_API_KEY'));
     assert.equal(JSON.stringify(reconnectManifest).includes('sk-secret'), false);
+
+    const studioAssetsJob = await createMigrationExportJob({
+      components: {
+        ...FILE_ONLY_MIGRATION_COMPONENTS,
+        workspace: false,
+        studioAssets: true,
+      },
+      profile: 'full_admin',
+    });
+    const completedStudioAssets = await waitForExport(getMigrationExportJob, studioAssetsJob.id);
+    const studioAssetEntries = (await unzipList(completedStudioAssets.filePath!)).split('\n');
+    assert.ok(studioAssetEntries.includes('data/studio/system/assets/presets/default-preset/preview.png'));
+    assert.ok(studioAssetEntries.includes('data/studio/organizations/org-export/workspaces/workspace-export/assets/products/product-1/image.png'));
+    assert.equal(studioAssetEntries.includes('data/studio/organizations/org-export/workspaces/workspace-export/outputs/generation-1/result.png'), false);
+    assert.equal(studioAssetEntries.includes('data/studio/organizations/org-export/workspaces/workspace-export/edits/edit.png'), false);
+
+    const studioOutputsJob = await createMigrationExportJob({
+      components: {
+        ...FILE_ONLY_MIGRATION_COMPONENTS,
+        workspace: false,
+        studioOutputs: true,
+      },
+      profile: 'full_admin',
+    });
+    const completedStudioOutputs = await waitForExport(getMigrationExportJob, studioOutputsJob.id);
+    const studioOutputEntries = (await unzipList(completedStudioOutputs.filePath!)).split('\n');
+    assert.ok(studioOutputEntries.includes('data/studio/organizations/org-export/workspaces/workspace-export/outputs/generation-1/result.png'));
+    assert.ok(studioOutputEntries.includes('data/studio/organizations/org-export/workspaces/workspace-export/edits/edit.png'));
+    assert.equal(studioOutputEntries.includes('data/studio/organizations/org-export/workspaces/workspace-export/assets/products/product-1/image.png'), false);
+    assert.equal(studioOutputEntries.includes('data/studio/system/assets/presets/default-preset/preview.png'), false);
 
     const snapshotPath = path.join(dataRoot, 'snapshot-check.sqlite.db');
     await unzipEntryToFile(completedStandard.filePath!, 'data/sqlite.db', snapshotPath);

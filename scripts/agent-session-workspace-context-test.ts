@@ -37,6 +37,7 @@ async function main() {
       writeAgentTextFile,
       assertAgentPathAllowed,
     } = await import('../app/lib/pi/agent-file-operations');
+    const { resolveReadToolPath } = await import('../app/lib/pi/tool-runtime-helpers');
     const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
 
     const now = new Date();
@@ -149,6 +150,63 @@ async function main() {
         () => assertAgentPathAllowed(path.join(dataRoot, 'workspaces', 'personal', 'other-user', 'files', 'secret.md')),
         /limited to the workspace bound to this chat session/,
       );
+
+      assert.ok(executionContext.organizationId, 'Expected a persisted organization for Studio scoping');
+      const studioWorkspaceRoot = path.join(
+        dataRoot,
+        'studio',
+        'organizations',
+        executionContext.organizationId,
+        'workspaces',
+        executionContext.workspaceId,
+      );
+      const studioOutputPath = path.join(studioWorkspaceRoot, 'outputs', 'generation-1', 'result.png');
+      const otherStudioOutputPath = path.join(
+        dataRoot,
+        'studio',
+        'organizations',
+        executionContext.organizationId,
+        'workspaces',
+        'workspace-other',
+        'outputs',
+        'generation-2',
+        'result.png',
+      );
+      const systemPresetPath = path.join(dataRoot, 'studio', 'system', 'assets', 'presets', 'default', 'preview.png');
+      const legacyStudioOutputPath = path.join(dataRoot, 'studio', 'outputs', 'legacy.png');
+      await fs.mkdir(path.dirname(studioOutputPath), { recursive: true });
+      await fs.mkdir(path.dirname(otherStudioOutputPath), { recursive: true });
+      await fs.mkdir(path.dirname(systemPresetPath), { recursive: true });
+      await fs.mkdir(path.dirname(legacyStudioOutputPath), { recursive: true });
+      await fs.writeFile(studioOutputPath, 'active Studio output');
+      await fs.writeFile(otherStudioOutputPath, 'other Studio output');
+      await fs.writeFile(systemPresetPath, 'system preset');
+      await fs.writeFile(legacyStudioOutputPath, 'legacy Studio output');
+
+      await assert.doesNotReject(() => assertAgentPathAllowed(studioOutputPath));
+      await assert.doesNotReject(() => assertAgentPathAllowed(systemPresetPath));
+      await assert.rejects(
+        () => assertAgentPathAllowed(otherStudioOutputPath),
+        /limited to the workspace bound to this chat session/,
+      );
+      await assert.rejects(
+        () => assertAgentPathAllowed(legacyStudioOutputPath),
+        /limited to the workspace bound to this chat session/,
+      );
+
+      const studioVirtualPath = [
+        'studio',
+        'organizations',
+        executionContext.organizationId,
+        'workspaces',
+        executionContext.workspaceId,
+        'outputs',
+        'generation-1',
+        'result.png',
+      ].join('/');
+      const resolvedStudioOutput = await resolveReadToolPath(studioVirtualPath);
+      assert.equal(resolvedStudioOutput.fullPath, studioOutputPath);
+      assert.equal(resolvedStudioOutput.displayPath, studioVirtualPath);
 
       const userUploadPath = path.join(dataRoot, 'user-uploads', 'audio', 'voice.ogg');
       await fs.mkdir(path.dirname(userUploadPath), { recursive: true });

@@ -1,7 +1,10 @@
 import fs from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import {
+  getStudioOutputsRoot,
+  type StudioStorageScope,
+} from '@/app/lib/integrations/studio-workspace';
 import {
   getUserUploadsRoot,
   resolveAgentStorageDir,
@@ -114,13 +117,20 @@ async function resolveExistingRoot(root: string): Promise<string | null> {
   }
 }
 
-async function getAllowedMediaRoots(): Promise<string[]> {
+export type MediaDirectiveValidationOptions = {
+  maxBytes?: number;
+  studioScope?: StudioStorageScope | null;
+  workspaceRoot?: string | null;
+};
+
+async function getAllowedMediaRoots(options: MediaDirectiveValidationOptions): Promise<string[]> {
   const dataRoot = resolveCanvasDataRoot();
   const roots = uniqueRoots([
     getUserUploadsRoot(),
-    getStudioOutputsRoot(),
-    getWorkspacePath(),
-    path.join(dataRoot, 'workspace'),
+    options.studioScope ? getStudioOutputsRoot(options.studioScope) : getStudioOutputsRoot(),
+    ...(options.workspaceRoot
+      ? [options.workspaceRoot]
+      : [getWorkspacePath(), path.join(dataRoot, 'workspace')]),
   ]);
 
   const resolved = await Promise.all(roots.map(resolveExistingRoot));
@@ -209,7 +219,7 @@ export function parseMediaDirectives(rawText: string): ParsedMediaDirectives {
 
 export async function validateMediaDirectivePath(
   rawPath: string,
-  options: { maxBytes?: number } = {},
+  options: MediaDirectiveValidationOptions = {},
 ): Promise<SafeMediaAttachment | UnsafeMediaDirective> {
   const candidate = normalizeCandidatePath(rawPath);
   if (!candidate) {
@@ -238,7 +248,7 @@ export async function validateMediaDirectivePath(
     return { rawPath, reason: 'denied_path' };
   }
 
-  const allowedRoots = await getAllowedMediaRoots();
+  const allowedRoots = await getAllowedMediaRoots(options);
   if (!allowedRoots.some((root) => isPathWithin(resolvedPath, root))) {
     return { rawPath, reason: 'outside_allowed_roots' };
   }

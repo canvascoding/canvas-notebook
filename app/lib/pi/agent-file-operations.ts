@@ -20,6 +20,7 @@ import { publishWorkspaceFileMutation, type FileEventType } from '@/app/lib/file
 import { getRunawaySlashContentMessage } from '@/app/lib/editor/text-editor-guards';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
+import { getStudioRoot, getStudioWorkspaceRoot } from '@/app/lib/integrations/studio-workspace';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
@@ -187,18 +188,35 @@ function getLegacyWorkspaceRoots(): string[] {
   ];
 }
 
-function getAllowedRuntimeReadRoots(): string[] {
+function getAllowedRuntimeReadRoots(executionContext: AgentExecutionContext): string[] {
   const dataRoot = getAgentDataRoot();
-  return [
+  const roots = [
     path.join(dataRoot, 'user-uploads'),
-    path.join(dataRoot, 'studio'),
     '/data/user-uploads',
-    '/data/studio',
+    path.join(getStudioRoot(), 'system'),
+    '/data/studio/system',
   ];
+
+  if (executionContext.organizationId) {
+    roots.push(
+      getStudioWorkspaceRoot({
+        organizationId: executionContext.organizationId,
+        workspaceId: executionContext.workspaceId,
+      }),
+      path.join(
+        '/data/studio/organizations',
+        executionContext.organizationId,
+        'workspaces',
+        executionContext.workspaceId,
+      ),
+    );
+  }
+
+  return roots;
 }
 
-function isAllowedRuntimeReadPath(candidatePath: string): boolean {
-  return isPathWithinAnyRootVariant(candidatePath, getAllowedRuntimeReadRoots());
+function isAllowedRuntimeReadPath(candidatePath: string, executionContext: AgentExecutionContext): boolean {
+  return isPathWithinAnyRootVariant(candidatePath, getAllowedRuntimeReadRoots(executionContext));
 }
 
 function isAgentRuntimeTempPath(candidatePath: string, executionContext: AgentExecutionContext): boolean {
@@ -212,7 +230,7 @@ function assertContextWorkspaceReadAllowed(candidatePath: string): void {
   const resolvedPath = path.resolve(candidatePath);
   if (
     isPathWithinRootVariants(resolvedPath, executionContext.workspaceRoot) ||
-    isAllowedRuntimeReadPath(resolvedPath) ||
+    isAllowedRuntimeReadPath(resolvedPath, executionContext) ||
     isAgentRuntimeTempPath(resolvedPath, executionContext)
   ) {
     return;

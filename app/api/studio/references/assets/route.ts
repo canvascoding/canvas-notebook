@@ -198,7 +198,7 @@ export async function GET(request: NextRequest) {
       ))
       .orderBy(desc(studioGenerationOutputs.createdAt))
       .limit(limit);
-    // Scan aspect-ratio edits (data/studio/edits)
+    // Scan aspect-ratio edits in this workspace's Studio edits directory.
     const editsTree = await safeBuildGenericFileTree(getStudioEditsRoot(scope.storage), depth);
     const referencesTree = await safeBuildGenericFileTree(
       getStudioAssetsRoot(scope.storage) + '/references',

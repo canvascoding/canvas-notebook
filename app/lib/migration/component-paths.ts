@@ -6,6 +6,15 @@ export interface MigrationComponentPathMapping {
   component: MigrationComponentKey;
   dataPath: string[];
   archiveRoot: string;
+  includeRelativePath?: (relativePath: string) => boolean;
+}
+
+function isWorkspaceStudioAssetPath(relativePath: string): boolean {
+  return /(?:^|\/)workspaces\/[^/]+\/assets\//.test(relativePath);
+}
+
+function isWorkspaceStudioOutputPath(relativePath: string): boolean {
+  return /(?:^|\/)workspaces\/[^/]+\/(?:outputs|edits)\//.test(relativePath);
 }
 
 const COMPONENT_PATH_MAPPINGS: MigrationComponentPathMapping[] = [
@@ -14,8 +23,21 @@ const COMPONENT_PATH_MAPPINGS: MigrationComponentPathMapping[] = [
   { component: 'workspace', dataPath: ['workspaces', 'project'], archiveRoot: 'data/workspaces/project' },
   { component: 'workspace', dataPath: ['workspaces', 'personal'], archiveRoot: 'data/workspaces/personal' },
   { component: 'studioAssets', dataPath: ['studio', 'assets'], archiveRoot: 'data/studio/assets' },
+  { component: 'studioAssets', dataPath: ['studio', 'system'], archiveRoot: 'data/studio/system' },
+  {
+    component: 'studioAssets',
+    dataPath: ['studio', 'organizations'],
+    archiveRoot: 'data/studio/organizations',
+    includeRelativePath: isWorkspaceStudioAssetPath,
+  },
   { component: 'studioOutputs', dataPath: ['studio', 'outputs'], archiveRoot: 'data/studio/outputs' },
   { component: 'studioOutputs', dataPath: ['studio', 'edits'], archiveRoot: 'data/studio/edits' },
+  {
+    component: 'studioOutputs',
+    dataPath: ['studio', 'organizations'],
+    archiveRoot: 'data/studio/organizations',
+    includeRelativePath: isWorkspaceStudioOutputPath,
+  },
   { component: 'userUploads', dataPath: ['user-uploads'], archiveRoot: 'data/user-uploads' },
   { component: 'agents', dataPath: ['agents'], archiveRoot: 'data/agents' },
   { component: 'agents', dataPath: ['settings'], archiveRoot: 'data/settings' },

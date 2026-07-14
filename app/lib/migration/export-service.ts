@@ -134,6 +134,7 @@ async function collectFiles(
   component: MigrationComponentKey,
   sourcePath: string,
   archiveRoot: string,
+  includeRelativePath?: (relativePath: string) => boolean,
 ): Promise<MigrationFileEntry[]> {
   const entries: MigrationFileEntry[] = [];
 
@@ -163,6 +164,9 @@ async function collectFiles(
       }
 
       if (!dirent.isFile()) continue;
+
+      const relativeArchivePath = path.posix.relative(archiveRoot, archivePath);
+      if (includeRelativePath && !includeRelativePath(relativeArchivePath)) continue;
 
       const stats = await fs.stat(absolutePath);
       entries.push({
@@ -675,13 +679,19 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       component: mapping.component,
       sourcePath: resolveMigrationDataPath(dataRoot, mapping),
       archiveRoot: mapping.archiveRoot,
+      includeRelativePath: mapping.includeRelativePath,
     }));
     const virtualFileContents = new Map<string, string>();
 
     for (const root of componentRoots) {
       job.phase = `Scanning ${root.component}`;
       await persist(true);
-      files.push(...await collectFiles(root.component, root.sourcePath, root.archiveRoot));
+      files.push(...await collectFiles(
+        root.component,
+        root.sourcePath,
+        root.archiveRoot,
+        root.includeRelativePath,
+      ));
     }
 
     const reconnectManifest = await buildReconnectManifest({ dataRoot, job });
@@ -731,11 +741,19 @@ async function runExport(job: MigrationExportJob): Promise<void> {
       filePathByArchivePath.set(sqliteSnapshot.entry.archivePath, sqliteSnapshot.filePath);
     }
 
-    for (const root of componentRoots) {
-      for (const entry of files.filter((item) => item.component === root.component)) {
-        const relative = path.posix.relative(root.archiveRoot, entry.archivePath);
-        filePathByArchivePath.set(entry.archivePath, path.join(root.sourcePath, relative));
-      }
+    for (const entry of files) {
+      const matchingRoot = componentRoots
+        .filter((root) => (
+          root.component === entry.component
+          && (
+            entry.archivePath === root.archiveRoot
+            || entry.archivePath.startsWith(`${root.archiveRoot}/`)
+          )
+        ))
+        .sort((left, right) => right.archiveRoot.length - left.archiveRoot.length)[0];
+      if (!matchingRoot) continue;
+      const relative = path.posix.relative(matchingRoot.archiveRoot, entry.archivePath);
+      filePathByArchivePath.set(entry.archivePath, path.join(matchingRoot.sourcePath, relative));
     }
 
     for (const entry of files) {

@@ -100,6 +100,7 @@
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
     "test:studio:prompt": "tsx scripts/studio-generation-prompt-test.ts",
     "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",
+    "test:studio:cleanup": "tsx --conditions react-server scripts/studio-orphaned-assets-cleanup-test.ts",
     "test:automation:schedule": "tsx scripts/automation-schedule-test.ts",
     "test:automation:runner": "tsx scripts/automation-runner-tool-context-test.ts",
     "test:automation:timeout": "tsx scripts/automation-run-timeout-test.ts",

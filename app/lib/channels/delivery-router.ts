@@ -4,6 +4,7 @@ import { WEB_CHANNEL_ID } from './constants';
 import { findLastActiveExternalLink, markChannelLinkOutbound } from './channel-links';
 import { buildDeliveryTarget } from './delivery-targets';
 import { getChannelDeliveryReadiness } from './availability';
+import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 
 export async function deliverToLastActiveExternalChannel(
   sessionId: string,
@@ -29,7 +30,17 @@ export async function deliverToLastActiveExternalChannel(
     return;
   }
 
-  await channel.deliver(message, buildDeliveryTarget(link.channelId, link.channelSessionKey, link.channelThreadKey));
+  const executionContext = await resolveAgentExecutionContextForSession({ sessionId, userId });
+  await channel.deliver(message, buildDeliveryTarget(
+    link.channelId,
+    link.channelSessionKey,
+    link.channelThreadKey,
+    {
+      organizationId: executionContext.organizationId,
+      workspaceId: executionContext.workspaceId,
+      workspaceRoot: executionContext.workspaceRoot,
+    },
+  ));
   await markChannelLinkOutbound({
     sessionId,
     userId,

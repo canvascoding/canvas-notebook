@@ -40,17 +40,41 @@ async function main() {
   try {
     const workspaceRoot = path.join(tempRoot, 'workspace');
     const studioRoot = path.join(tempRoot, 'studio', 'outputs');
+    const scopedStudioRoot = path.join(
+      tempRoot,
+      'studio',
+      'organizations',
+      'org-media',
+      'workspaces',
+      'workspace-media',
+      'outputs',
+    );
+    const otherStudioRoot = path.join(
+      tempRoot,
+      'studio',
+      'organizations',
+      'org-media',
+      'workspaces',
+      'workspace-other',
+      'outputs',
+    );
     const secretsRoot = path.join(tempRoot, 'secrets');
     await fs.mkdir(workspaceRoot, { recursive: true });
     await fs.mkdir(studioRoot, { recursive: true });
+    await fs.mkdir(scopedStudioRoot, { recursive: true });
+    await fs.mkdir(otherStudioRoot, { recursive: true });
     await fs.mkdir(secretsRoot, { recursive: true });
 
     const imagePath = path.join(studioRoot, 'result.png');
     const reportPath = path.join(workspaceRoot, 'report.pdf');
+    const scopedImagePath = path.join(scopedStudioRoot, 'scoped-result.png');
+    const otherImagePath = path.join(otherStudioRoot, 'other-result.png');
     const secretPath = path.join(secretsRoot, 'Canvas-Integrations.env');
     outsidePath = path.join(tempRoot, '..', `outside-${Date.now()}.txt`);
     await fs.writeFile(imagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     await fs.writeFile(reportPath, 'pdf-ish');
+    await fs.writeFile(scopedImagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    await fs.writeFile(otherImagePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     await fs.writeFile(secretPath, 'TOKEN=secret');
     await fs.writeFile(outsidePath, 'outside');
 
@@ -83,6 +107,22 @@ async function main() {
 
     const safeReport = await validateMediaDirectivePath(`"${reportPath}"`);
     assert(isSafeMediaAttachment(safeReport), 'allows workspace files with wrapping quotes');
+
+    const studioScope = { organizationId: 'org-media', workspaceId: 'workspace-media' };
+    const safeScopedImage = await validateMediaDirectivePath(scopedImagePath, { studioScope });
+    assert(isSafeMediaAttachment(safeScopedImage), 'allows Studio output files from the active workspace');
+
+    const crossWorkspaceImage = await validateMediaDirectivePath(otherImagePath, { studioScope });
+    assert(
+      !isSafeMediaAttachment(crossWorkspaceImage) && crossWorkspaceImage.reason === 'outside_allowed_roots',
+      'blocks Studio output files from another workspace',
+    );
+
+    const legacyImageInScopedDelivery = await validateMediaDirectivePath(imagePath, { studioScope });
+    assert(
+      !isSafeMediaAttachment(legacyImageInScopedDelivery) && legacyImageInScopedDelivery.reason === 'outside_allowed_roots',
+      'does not fall back to global legacy Studio outputs for scoped delivery',
+    );
 
     const secret = await validateMediaDirectivePath(secretPath);
     assert(!isSafeMediaAttachment(secret) && secret.reason === 'denied_path', 'blocks secrets directory');

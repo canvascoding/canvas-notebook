@@ -309,7 +309,19 @@ function normalizeStudioOutputPath(value: string): string | null {
   const normalized = value.replace(/\\/g, '/').split(/[?#]/, 1)[0];
   const apiStudioPrefix = '/api/studio/media/';
   if (normalized.startsWith(apiStudioPrefix)) {
-    return decodeMediaPath(normalized.slice(apiStudioPrefix.length));
+    const decodedPath = decodeMediaPath(normalized.slice(apiStudioPrefix.length));
+    if (
+      decodedPath.startsWith('studio/outputs/')
+      || /^studio\/organizations\/[^/]+\/workspaces\/[^/]+\/outputs\//.test(decodedPath)
+    ) {
+      return decodedPath;
+    }
+    return null;
+  }
+
+  const workspaceStudioOutputMatch = normalized.match(/(?:^|\/)(studio\/organizations\/[^/]+\/workspaces\/[^/]+\/outputs\/.+)$/);
+  if (workspaceStudioOutputMatch?.[1]) {
+    return workspaceStudioOutputMatch[1];
   }
 
   const studioOutputMatch = normalized.match(/(?:^|\/)studio\/outputs\/(.+)$/);

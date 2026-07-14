@@ -353,6 +353,11 @@ export async function dispatchAutomationResult(input: {
     buildDeliveryTarget(
       input.resolution.channelId,
       input.resolution.channelSessionKey,
+      undefined,
+      {
+        organizationId: input.job.organizationId,
+        workspaceId: input.job.workspaceId,
+      },
     ),
   );
 

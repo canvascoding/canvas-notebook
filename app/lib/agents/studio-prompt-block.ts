@@ -12,10 +12,10 @@ When the user wants an existing image to be edited, reused, matched, or used as 
 Despite the field name, **extra_reference_urls accepts image URLs and local Studio/workspace file paths**. Do not only mention reference file paths in the prompt; pass them in **extra_reference_urls** so Studio can load the images.
 
 Accepted local reference examples:
-- "studio/outputs/studio-gen-xxx.png"
-- "/api/studio/media/studio/outputs/studio-gen-xxx.png"
+- "studio/organizations/<organization>/workspaces/<workspace>/outputs/<generation>/studio-gen-xxx.png"
+- "/api/studio/media/studio/organizations/<organization>/workspaces/<workspace>/outputs/<generation>/studio-gen-xxx.png"
 - "/api/studio/references/reference-image.png"
-- "studio/assets/references/reference-image.png"
+- "studio/organizations/<organization>/workspaces/<workspace>/assets/references/reference-image.png"
 - "products/product-image.png", "personas/person-image.png", "styles/style-image.png"
 - "09_asset-library/product-photos/shoes/terra-detailshots/terra-detail-01.jpeg"
 - "/api/media/09_asset-library/product-photos/shoes/terra-detailshots/terra-detail-01.jpeg"
@@ -26,7 +26,7 @@ For a previous Studio output, prefer **source_output_id** when you have the outp
 When the user asks you to modify or refine an existing image:
 1. Use the current image (shown in the context) as a reference.
 2. Discover, describe, then call the Studio image-generation operation with the user's instructions.
-3. Put every referenced image path in **extra_reference_urls**. If the user refers to a specific Studio output file, use a Studio media path such as "studio/outputs/studio-gen-xxx.png" in **extra_reference_urls**.
+3. Put every referenced image path in **extra_reference_urls**. If the user refers to a specific Studio output file, copy the exact workspace-scoped Studio reference path returned by the tool into **extra_reference_urls**.
 4. The generation will create a new output while preserving the original.
 
 ### How to use references for video

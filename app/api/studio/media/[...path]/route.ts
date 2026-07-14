@@ -147,15 +147,22 @@ export async function GET(
   } catch {
     // Auto-cleanup orphaned preset previews
     try {
-      if (encodedPath.startsWith('studio/assets/presets/')) {
+      if (
+        encodedPath.startsWith('studio/assets/presets/')
+        || /(?:^|\/)assets\/presets\//.test(encodedPath)
+      ) {
         const dbLib = await import('@/app/lib/db');
         const schemaLib = await import('@/app/lib/db/schema');
         const ormLib = await import('drizzle-orm');
-        const presetPath = encodedPath.slice('studio/assets/'.length);
-        const wherePreviewPath = ormLib.or(
-          ormLib.eq(schemaLib.studioPresets.previewImagePath, presetPath),
-          ormLib.eq(schemaLib.studioPresets.previewImagePath, encodedPath),
-        );
+        const legacyPresetPath = encodedPath.startsWith('studio/assets/')
+          ? encodedPath.slice('studio/assets/'.length)
+          : null;
+        const wherePreviewPath = legacyPresetPath
+          ? ormLib.or(
+              ormLib.eq(schemaLib.studioPresets.previewImagePath, legacyPresetPath),
+              ormLib.eq(schemaLib.studioPresets.previewImagePath, encodedPath),
+            )
+          : ormLib.eq(schemaLib.studioPresets.previewImagePath, encodedPath);
         const matchingPresets = await dbLib.db.select({ id: schemaLib.studioPresets.id })
           .from(schemaLib.studioPresets)
           .where(wherePreviewPath)
@@ -165,7 +172,7 @@ export async function GET(
           await dbLib.db.update(schemaLib.studioPresets)
             .set({ previewImagePath: null, updatedAt: new Date() })
             .where(wherePreviewPath);
-          console.warn(`Auto-cleaned orphaned preset preview: ${presetPath}`);
+          console.warn(`Auto-cleaned orphaned preset preview: ${encodedPath}`);
         }
       }
     } catch (cleanupError) {

@@ -43,7 +43,11 @@ import { EMAIL_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/email-prompt-block';
 import { PLANNING_MODE_GUIDANCE } from '@/app/lib/agents/system-prompt-shared';
 import { STUDIO_SYSTEM_PROMPT_BLOCK } from '@/app/lib/agents/studio-prompt-block';
 import { persistPiUsageEvents } from '@/app/lib/pi/usage-events';
-import { getStudioOutputsRoot, STUDIO_OUTPUTS_ROOT_DIR } from '@/app/lib/integrations/studio-workspace';
+import {
+  getStudioOutputsRoot,
+  resolveStudioFilePath,
+  STUDIO_OUTPUTS_ROOT_DIR,
+} from '@/app/lib/integrations/studio-workspace';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { buildReferencedPluginRuntimeContext } from '@/app/lib/plugins/plugin-reference-context';
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
@@ -94,17 +98,14 @@ function estimatePiToolSchemaTokens(tools: AgentTool[]): number {
 }
 
 function getStudioOutputReferencePaths(outputFilePath: string) {
-  const normalizedOutputPath = outputFilePath.replace(/^\/+/, '');
-  const referencePath = normalizedOutputPath.startsWith(`${STUDIO_OUTPUTS_ROOT_DIR}/`)
+  const normalizedOutputPath = outputFilePath.replace(/\\/g, '/').replace(/^\/+/, '');
+  const referencePath = normalizedOutputPath.startsWith('studio/')
     ? normalizedOutputPath
     : path.posix.join(STUDIO_OUTPUTS_ROOT_DIR, normalizedOutputPath);
 
-  const outputRelativePath = referencePath.startsWith(`${STUDIO_OUTPUTS_ROOT_DIR}/`)
-    ? referencePath.slice(`${STUDIO_OUTPUTS_ROOT_DIR}/`.length)
-    : normalizedOutputPath;
-
   return {
-    absolutePath: path.join(getStudioOutputsRoot(), outputRelativePath),
+    absolutePath: resolveStudioFilePath(referencePath, getStudioOutputsRoot())
+      ?? path.join(getStudioOutputsRoot(), normalizedOutputPath),
     referencePath,
   };
 }
@@ -848,7 +849,7 @@ class LivePiRuntime {
       pushRuntimeContextLine(lines, 'Active image file path', this.studioContext.activeImagePath);
     }
 
-    lines.push('If the user asks to edit, restyle, recolor, remix, or make a variation of the visible image, call studio_generate_image and include the exact studio/outputs/... reference path above in extra_reference_urls. Do not pass the /data/... absolute filesystem path to studio_generate_image.');
+    lines.push('If the user asks to edit, restyle, recolor, remix, or make a variation of the visible image, call studio_generate_image and include the exact workspace-scoped Studio reference path above in extra_reference_urls. Do not pass the /data/... absolute filesystem path to studio_generate_image.');
     return lines.join('\n');
   }
 

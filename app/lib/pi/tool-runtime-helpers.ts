@@ -28,6 +28,8 @@ import {
   getStudioAssetsRoot,
   getStudioEditsRoot,
   getStudioOutputsRoot,
+  getStudioRoot,
+  resolveStudioFilePath,
   STUDIO_ASSETS_ROOT_DIR,
   STUDIO_EDITS_ROOT_DIR,
   STUDIO_OUTPUTS_ROOT_DIR,
@@ -261,22 +263,8 @@ export function getRelativePathIfWithin(candidatePath: string, basePath: string)
 }
 
 export function getStudioDisplayPathForAbsolute(filePath: string): string | null {
-  const outputRelativePath = getRelativePathIfWithin(filePath, getStudioOutputsRoot());
-  if (outputRelativePath) {
-    return path.posix.join(STUDIO_OUTPUTS_ROOT_DIR, outputRelativePath);
-  }
-
-  const editRelativePath = getRelativePathIfWithin(filePath, getStudioEditsRoot());
-  if (editRelativePath) {
-    return path.posix.join(STUDIO_EDITS_ROOT_DIR, editRelativePath);
-  }
-
-  const assetRelativePath = getRelativePathIfWithin(filePath, getStudioAssetsRoot());
-  if (assetRelativePath) {
-    return path.posix.join(STUDIO_ASSETS_ROOT_DIR, assetRelativePath);
-  }
-
-  return null;
+  const studioRelativePath = getRelativePathIfWithin(filePath, getStudioRoot());
+  return studioRelativePath ? path.posix.join('studio', studioRelativePath) : null;
 }
 
 export function getWorkspaceDisplayPathForAbsolute(filePath: string): string | null {
@@ -301,6 +289,16 @@ export function buildStudioReadCandidate(referencePath: string): ResolvedReadToo
   const withoutDataPrefix = normalized.startsWith('data/studio/')
     ? normalized.slice('data/'.length)
     : normalized;
+
+  if (withoutDataPrefix.startsWith('studio/')) {
+    const fullPath = resolveStudioFilePath(withoutDataPrefix);
+    if (!fullPath) return null;
+    return {
+      fullPath,
+      displayPath: withoutDataPrefix,
+      source: 'studio',
+    };
+  }
 
   if (withoutDataPrefix.startsWith(`${STUDIO_OUTPUTS_ROOT_DIR}/`)) {
     const relativePath = withoutDataPrefix.slice(`${STUDIO_OUTPUTS_ROOT_DIR}/`.length);

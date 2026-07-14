@@ -74,7 +74,7 @@ export function createStudioGenerateImageTool(
       'Generates and edits images using the Studio system. The preferred tool for all image creation and reference-based image editing. ' +
       'Supports products, personas, styles, and presets for consistent branded content. ' +
       'For editing or matching existing images from file paths, put one or more image paths in extra_reference_urls; do not only mention the paths in the prompt. ' +
-      'Output files are saved to /data/studio/outputs/ — absolute paths are returned so the agent can copy results to the workspace.',
+      'Output files are saved in the active workspace\'s Studio storage — exact workspace-scoped reference and absolute paths are returned.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the image to generate.' }),
       product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to include as reference images (max 5).', maxItems: 5 })),
@@ -90,7 +90,7 @@ export function createStudioGenerateImageTool(
       output_format: Type.Optional(Type.Union([Type.Literal('png'), Type.Literal('jpeg'), Type.Literal('webp')], { description: 'Output format. OpenAI only. Default: png.' })),
       background: Type.Optional(Type.Union([Type.Literal('transparent'), Type.Literal('opaque'), Type.Literal('auto')], { description: 'Background treatment. OpenAI only. Default: auto.' })),
       source_output_id: Type.Optional(Type.String({ description: 'ID of a previous Studio output to use as the base image for editing or variation. Prefer this when you have the output ID.' })),
-      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Reference image file paths or URLs to load as visual input for editing, variations, style matching, or image-to-image generation. Put every local reference image path here; do not only write paths in the prompt. Accepts Studio/workspace paths such as studio/outputs/studio-gen-xxx.png, /api/studio/media/studio/outputs/studio-gen-xxx.png, /api/studio/references/reference.png, studio/assets/references/reference.png, products/image.png, personas/image.png, styles/image.png, workspace paths like 09_asset-library/photo.png or /api/media/09_asset-library/photo.png, plus https image URLs.' })),
+      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Reference image file paths or URLs to load as visual input for editing, variations, style matching, or image-to-image generation. Put every local reference image path here; do not only write paths in the prompt. Accepts exact workspace-scoped Studio paths returned by Studio tools, /api/studio/media/... and /api/studio/references/... URLs, products/image.png, personas/image.png, styles/image.png, workspace paths like 09_asset-library/photo.png or /api/media/09_asset-library/photo.png, plus https image URLs.' })),
     }),
     execute: async (toolCallId, params) => {
       const p = params as StudioGenerateRequest;
@@ -146,7 +146,7 @@ export function createStudioGenerateVideoTool(
       'Supports products, personas, styles, and presets for branded content. ' +
       'Providers: veo (default, Veo 3.1 models) or bytedance (Seedance). ' +
       'For visual reference images from file paths, put image paths in extra_reference_urls (Veo max 3, Seedance max 9). For Seedance video/audio references, use reference_video_urls and reference_audio_urls. Use start_frame_path/end_frame_path only for explicit start/end frame animation. ' +
-      'Output files are saved to /data/studio/outputs/ — absolute paths are returned so the agent can copy results to the workspace.',
+      'Output files are saved in the active workspace\'s Studio storage — exact workspace-scoped reference and absolute paths are returned.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the video to generate.' }),
       product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to include as reference images (max 5).', maxItems: 5 })),
@@ -166,7 +166,7 @@ export function createStudioGenerateVideoTool(
       web_search: Type.Optional(Type.Boolean({ description: 'Allow online search. Bytedance only. Default: false.' })),
       nsfw_checker: Type.Optional(Type.Boolean({ description: 'Enable NSFW checker. Bytedance only. Default: false.' })),
       source_output_id: Type.Optional(Type.String({ description: 'ID of a previous Studio output to use as a visual reference. Prefer this when you have the output ID.' })),
-      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Reference image file paths or URLs to load as visual input for video generation. Put general reference images here; do not only write paths in the prompt. Veo uses up to 3 images. Seedance uses up to 9 images. Accepts Studio/workspace paths such as studio/outputs/studio-gen-xxx.png, /api/studio/media/studio/outputs/studio-gen-xxx.png, /api/studio/references/reference.png, studio/assets/references/reference.png, products/image.png, personas/image.png, styles/image.png, workspace paths like 09_asset-library/photo.png or /api/media/09_asset-library/photo.png, plus https image URLs.', maxItems: 9 })),
+      extra_reference_urls: Type.Optional(Type.Array(Type.String(), { description: 'Reference image file paths or URLs to load as visual input for video generation. Put general reference images here; do not only write paths in the prompt. Veo uses up to 3 images. Seedance uses up to 9 images. Accepts exact workspace-scoped Studio paths returned by Studio tools, /api/studio/media/... and /api/studio/references/... URLs, products/image.png, personas/image.png, styles/image.png, workspace paths like 09_asset-library/photo.png or /api/media/09_asset-library/photo.png, plus https image URLs.', maxItems: 9 })),
       reference_video_urls: Type.Optional(Type.Array(Type.String(), { description: 'Seedance only. Reference video file paths or URLs for multimodal reference-to-video. Accepts Studio/workspace video paths or HTTPS video URLs. Max 3.' })),
       reference_audio_urls: Type.Optional(Type.Array(Type.String(), { description: 'Seedance only. Reference audio file paths or URLs for multimodal reference-to-video. Accepts Studio/workspace audio paths or HTTPS audio URLs. Max 3.' })),
     }),
@@ -232,7 +232,7 @@ export function createStudioGenerateSoundTool(
     description:
       'Generates music or sound with Gemini Lyria 3 through Studio. The preferred tool for all music and sound generation. ' +
       'Supports up to 10 image references in extra_reference_urls so music can be inspired by visual mood, colors, products, personas, styles, or existing Studio outputs. ' +
-      'Providers: gemini only. Models: lyria-3-clip-preview for 30-second clips, lyria-3-pro-preview for longer songs. Output files are saved to /data/studio/outputs/.',
+      'Providers: gemini only. Models: lyria-3-clip-preview for 30-second clips, lyria-3-pro-preview for longer songs. Outputs are saved in the active workspace\'s Studio storage.',
     parameters: Type.Object({
       prompt: Type.String({ description: 'Text description of the music or sound to generate. Include genre, mood, instruments, BPM, key, structure, lyrics, and duration when relevant.' }),
       product_ids: Type.Optional(Type.Array(Type.String(), { description: 'IDs of saved products to use as visual inspiration (max 5).', maxItems: 5 })),

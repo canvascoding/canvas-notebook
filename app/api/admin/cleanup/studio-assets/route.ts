@@ -9,7 +9,9 @@ export async function POST(request: NextRequest) {
   if (!studioPermission.ok) return studioPermission.response;
 
   try {
-    const result = await cleanupOrphanedStudioAssets();
+    const result = await cleanupOrphanedStudioAssets({
+      organizationId: studioPermission.state.organizationId,
+    });
     return NextResponse.json({ success: true, deleted: result.deleted, errors: result.errors });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
