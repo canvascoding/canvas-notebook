@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { promises as fs } from 'node:fs';
+import path from 'node:path';
 
 import { fileTypeFromBuffer } from 'file-type';
 import sharp from 'sharp';
@@ -12,14 +13,19 @@ import {
   writeFile,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
+import { resolveOrganizationSettingsDir } from '@/app/lib/runtime-data-paths';
 import type { WorkspaceBrandProfile, WorkspaceBrandProfileState } from './brand-profile';
 import {
+  readOrganizationBrandProfile,
   readWorkspaceBrandProfile,
+  resolveWorkspaceBrandProfile,
+  updateOrganizationBrandProfile,
   updateWorkspaceBrandProfile,
 } from './brand-profile-service';
 
 export const WORKSPACE_BRAND_LOGO_DIRECTORY = '.canvas-brand';
 export const WORKSPACE_BRAND_LOGO_PATH = `${WORKSPACE_BRAND_LOGO_DIRECTORY}/logo.webp`;
+export const ORGANIZATION_BRAND_LOGO_PATH = '@organization/brand/logo.webp';
 export const WORKSPACE_BRAND_LOGO_MAX_UPLOAD_BYTES = 1024 * 1024;
 
 const WORKSPACE_BRAND_LOGO_MAX_STORED_BYTES = 768 * 1024;
@@ -62,6 +68,32 @@ export type WorkspaceBrandLogoSaveResult = WorkspaceBrandProfileState & {
 
 function isMissingFileError(error: unknown): boolean {
   return Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT');
+}
+
+function organizationBrandLogoFilePath(organizationId: string): string {
+  return path.join(resolveOrganizationSettingsDir(organizationId), 'brand', 'logo.webp');
+}
+
+async function readValidatedLogoFile(fullPath: string): Promise<ReadWorkspaceBrandLogoResult | null> {
+  try {
+    const stats = await fs.stat(fullPath);
+    if (!stats.isFile() || stats.size <= 0 || stats.size > WORKSPACE_BRAND_LOGO_MAX_UPLOAD_BYTES) {
+      return null;
+    }
+
+    const buffer = await fs.readFile(fullPath);
+    const detected = await fileTypeFromBuffer(buffer).catch(() => undefined);
+    if (!detected || !ALLOWED_LOGO_MIME_TYPES.has(detected.mime)) return null;
+
+    return {
+      buffer,
+      mimeType: detected.mime as ReadWorkspaceBrandLogoResult['mimeType'],
+      size: buffer.length,
+    };
+  } catch (error) {
+    if (isMissingFileError(error)) return null;
+    throw error;
+  }
 }
 
 async function normalizeLogoBuffer(buffer: Buffer): Promise<NormalizedWorkspaceBrandLogo> {
@@ -132,7 +164,10 @@ export async function saveWorkspaceBrandLogo(input: {
   await createDirectory(WORKSPACE_BRAND_LOGO_DIRECTORY, input.fileOptions);
   await writeFile(WORKSPACE_BRAND_LOGO_PATH, normalized.buffer, input.fileOptions);
 
-  const current = await readWorkspaceBrandProfile(input.workspaceId);
+  const current = await resolveWorkspaceBrandProfile(
+    input.workspaceId,
+    input.fileOptions.workspace?.organizationId,
+  );
   const next = await updateWorkspaceBrandProfile({
     workspaceId: input.workspaceId,
     userId: input.userId,
@@ -163,26 +198,57 @@ export async function readWorkspaceBrandLogo(
 ): Promise<ReadWorkspaceBrandLogoResult | null> {
   if (!profile.logoPath) return null;
 
+  if (profile.logoPath === ORGANIZATION_BRAND_LOGO_PATH) {
+    const organizationId = fileOptions.workspace?.organizationId;
+    return organizationId ? readOrganizationBrandLogo(organizationId) : null;
+  }
+
   try {
     const fullPath = await resolveExistingWorkspacePath(profile.logoPath, fileOptions);
-    const stats = await fs.stat(fullPath);
-    if (!stats.isFile() || stats.size <= 0 || stats.size > WORKSPACE_BRAND_LOGO_MAX_UPLOAD_BYTES) {
-      return null;
-    }
-
-    const buffer = await fs.readFile(fullPath);
-    const detected = await fileTypeFromBuffer(buffer).catch(() => undefined);
-    if (!detected || !ALLOWED_LOGO_MIME_TYPES.has(detected.mime)) return null;
-
-    return {
-      buffer,
-      mimeType: detected.mime as ReadWorkspaceBrandLogoResult['mimeType'],
-      size: buffer.length,
-    };
+    return readValidatedLogoFile(fullPath);
   } catch (error) {
     if (isMissingFileError(error)) return null;
     throw error;
   }
+}
+
+export async function readOrganizationBrandLogo(
+  organizationId: string,
+): Promise<ReadWorkspaceBrandLogoResult | null> {
+  return readValidatedLogoFile(organizationBrandLogoFilePath(organizationId));
+}
+
+export async function saveOrganizationBrandLogo(input: {
+  buffer: Buffer;
+  organizationId: string;
+  userId: string;
+}): Promise<WorkspaceBrandLogoSaveResult> {
+  const normalized = await normalizeLogoBuffer(input.buffer);
+  const fullPath = organizationBrandLogoFilePath(input.organizationId);
+  await fs.mkdir(path.dirname(fullPath), { recursive: true, mode: 0o700 });
+  await fs.writeFile(fullPath, normalized.buffer, { mode: 0o600 });
+  await fs.chmod(fullPath, 0o600).catch(() => undefined);
+
+  const current = await readOrganizationBrandProfile(input.organizationId);
+  const next = await updateOrganizationBrandProfile({
+    organizationId: input.organizationId,
+    userId: input.userId,
+    profile: {
+      ...current.profile,
+      logoPath: ORGANIZATION_BRAND_LOGO_PATH,
+    },
+  });
+
+  return {
+    asset: {
+      path: ORGANIZATION_BRAND_LOGO_PATH,
+      mimeType: normalized.mimeType,
+      size: normalized.size,
+      width: normalized.width,
+      height: normalized.height,
+    },
+    ...next,
+  };
 }
 
 export async function readWorkspaceBrandLogoDataUri(
@@ -204,15 +270,42 @@ export async function deleteManagedWorkspaceBrandLogoFile(
   }
 }
 
+export async function deleteManagedOrganizationBrandLogoFile(organizationId: string): Promise<void> {
+  try {
+    await fs.unlink(organizationBrandLogoFilePath(organizationId));
+  } catch (error) {
+    if (!isMissingFileError(error)) throw error;
+  }
+}
+
 export async function removeWorkspaceBrandLogo(input: {
   workspaceId: string;
   userId: string;
   fileOptions: WorkspaceFileOperationOptions;
 }) {
-  await deleteManagedWorkspaceBrandLogoFile(input.fileOptions);
   const current = await readWorkspaceBrandProfile(input.workspaceId);
+  if (!current.configured) {
+    throw new WorkspaceBrandLogoError('This workspace currently inherits its organization logo.', 409);
+  }
+  await deleteManagedWorkspaceBrandLogoFile(input.fileOptions);
   return updateWorkspaceBrandProfile({
     workspaceId: input.workspaceId,
+    userId: input.userId,
+    profile: {
+      ...current.profile,
+      logoPath: '',
+    },
+  });
+}
+
+export async function removeOrganizationBrandLogo(input: {
+  organizationId: string;
+  userId: string;
+}) {
+  await deleteManagedOrganizationBrandLogoFile(input.organizationId);
+  const current = await readOrganizationBrandProfile(input.organizationId);
+  return updateOrganizationBrandProfile({
+    organizationId: input.organizationId,
     userId: input.userId,
     profile: {
       ...current.profile,

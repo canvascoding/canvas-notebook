@@ -73,13 +73,21 @@ async function main() {
     };
 
     const {
+      ORGANIZATION_BRAND_LOGO_PATH,
       WORKSPACE_BRAND_LOGO_MAX_UPLOAD_BYTES,
       WORKSPACE_BRAND_LOGO_PATH,
       WorkspaceBrandLogoError,
+      readOrganizationBrandLogo,
       readWorkspaceBrandLogo,
+      removeOrganizationBrandLogo,
       removeWorkspaceBrandLogo,
+      saveOrganizationBrandLogo,
       saveWorkspaceBrandLogo,
     } = await importBrandLogoService();
+    const {
+      resetWorkspaceBrandProfile,
+      resolveWorkspaceBrandProfile,
+    } = await import('../app/lib/workspaces/brand-profile-service');
 
     const source = await sharp({
       create: {
@@ -90,6 +98,32 @@ async function main() {
       },
     }).png().toBuffer();
 
+    const savedOrganization = await saveOrganizationBrandLogo({
+      buffer: source,
+      organizationId: workspace.organizationId!,
+      userId: 'brand-logo-user',
+    });
+    assert.equal(savedOrganization.profile.logoPath, ORGANIZATION_BRAND_LOGO_PATH);
+    assert.equal(savedOrganization.revision, 1);
+    const organizationStoredPath = path.join(
+      dataRoot,
+      'organizations',
+      workspace.organizationId!,
+      'settings',
+      'brand',
+      'logo.webp',
+    );
+    const organizationStored = await readFile(organizationStoredPath);
+    assert.deepEqual((await readOrganizationBrandLogo(workspace.organizationId!))?.buffer, organizationStored);
+
+    const inherited = await resolveWorkspaceBrandProfile(workspace.workspaceId);
+    assert.equal(inherited.source, 'organization');
+    assert.equal(inherited.profile.logoPath, ORGANIZATION_BRAND_LOGO_PATH);
+    assert.deepEqual(
+      (await readWorkspaceBrandLogo(inherited.profile, { workspace }))?.buffer,
+      organizationStored,
+    );
+
     const saved = await saveWorkspaceBrandLogo({
       buffer: source,
       workspaceId: workspace.workspaceId,
@@ -98,6 +132,7 @@ async function main() {
     });
     assert.equal(saved.profile.logoPath, WORKSPACE_BRAND_LOGO_PATH);
     assert.equal(saved.revision, 1);
+    assert.equal(saved.profile.brandName, inherited.profile.brandName);
     assert.equal(saved.asset.mimeType, 'image/webp');
     assert.equal(saved.asset.width, 1_200);
     assert.equal(saved.asset.height, 480);
@@ -142,6 +177,25 @@ async function main() {
     await assert.rejects(() => readFile(storedPath), (error: unknown) => (
       Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT')
     ));
+
+    await resetWorkspaceBrandProfile(workspace.workspaceId);
+    await assert.rejects(
+      () => removeWorkspaceBrandLogo({
+        workspaceId: workspace.workspaceId,
+        userId: 'brand-logo-user',
+        fileOptions: { workspace },
+      }),
+      (error: unknown) => error instanceof WorkspaceBrandLogoError && error.status === 409,
+    );
+    assert.deepEqual(await readFile(organizationStoredPath), organizationStored);
+
+    const removedOrganization = await removeOrganizationBrandLogo({
+      organizationId: workspace.organizationId!,
+      userId: 'brand-logo-user',
+    });
+    assert.equal(removedOrganization.profile.logoPath, '');
+    assert.equal(removedOrganization.revision, 2);
+    assert.equal(await readOrganizationBrandLogo(workspace.organizationId!), null);
 
     sqlite.close();
     console.log('workspace-brand-logo-test: ok');

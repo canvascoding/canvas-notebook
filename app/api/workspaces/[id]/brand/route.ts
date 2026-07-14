@@ -5,7 +5,7 @@ import {
 } from '@/app/lib/workspaces/brand-profile';
 import { deleteManagedWorkspaceBrandLogoFile } from '@/app/lib/workspaces/brand-logo-service';
 import {
-  readWorkspaceBrandProfile,
+  resolveWorkspaceBrandProfile,
   resetWorkspaceBrandProfile,
   updateWorkspaceBrandProfile,
 } from '@/app/lib/workspaces/brand-profile-service';
@@ -33,7 +33,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (workspaceResult.response) return workspaceResult.response;
 
   try {
-    const state = await readWorkspaceBrandProfile(workspaceId);
+    const state = await resolveWorkspaceBrandProfile(
+      workspaceId,
+      workspaceResult.workspace.organizationId,
+    );
     return NextResponse.json({
       success: true,
       ...state,
@@ -60,11 +63,15 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
 
   try {
     const body = await request.json().catch(() => null) as { profile?: unknown } | null;
-    const state = await updateWorkspaceBrandProfile({
+    await updateWorkspaceBrandProfile({
       workspaceId,
       userId: workspaceResult.session.user.id,
       profile: body?.profile,
     });
+    const state = await resolveWorkspaceBrandProfile(
+      workspaceId,
+      workspaceResult.workspace.organizationId,
+    );
     return NextResponse.json({ success: true, ...state, canManage: true });
   } catch (error) {
     if (error instanceof WorkspaceBrandProfileValidationError) {
@@ -90,7 +97,11 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
 
   try {
     await deleteManagedWorkspaceBrandLogoFile({ workspace: workspaceResult.workspace });
-    const state = await resetWorkspaceBrandProfile(workspaceId);
+    await resetWorkspaceBrandProfile(workspaceId);
+    const state = await resolveWorkspaceBrandProfile(
+      workspaceId,
+      workspaceResult.workspace.organizationId,
+    );
     return NextResponse.json({ success: true, ...state, canManage: true });
   } catch (error) {
     console.error('[API] Workspace brand profile reset failed:', error);

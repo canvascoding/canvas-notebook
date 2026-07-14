@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { readWorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile-service';
+import { resolveWorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile-service';
 import type { WorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile';
 
 function promptValue(value: string): string {
@@ -34,7 +34,7 @@ export function buildWorkspaceBrandPromptBlock(profile: WorkspaceBrandProfile): 
 }
 
 export async function getWorkspaceBrandPromptBlock(workspaceId: string): Promise<string> {
-  const state = await readWorkspaceBrandProfile(workspaceId);
+  const state = await resolveWorkspaceBrandProfile(workspaceId);
   return buildWorkspaceBrandPromptBlock(state.profile);
 }
 

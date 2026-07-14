@@ -1,10 +1,10 @@
 import { markdownFileToHtmlDocument } from '@/app/lib/pdf/markdown-to-html';
 import { resolveExistingWorkspacePath, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import {
-  readWorkspaceBrandProfile,
+  resolveWorkspaceBrandProfile,
   workspaceBrandProfileCacheKey,
 } from '@/app/lib/workspaces/brand-profile-service';
-import type { WorkspaceBrandProfileState } from '@/app/lib/workspaces/brand-profile';
+import type { ResolvedWorkspaceBrandProfileState } from '@/app/lib/workspaces/brand-profile';
 import fs from 'fs/promises';
 
 const CACHE_TTL_MS = 5 * 60 * 1000;
@@ -18,25 +18,10 @@ type CacheEntry = {
 
 const markdownHtmlCache = new Map<string, CacheEntry>();
 
-async function getBrandLogoCacheKey(
-  state: WorkspaceBrandProfileState,
-  fileOptions?: WorkspaceFileOperationOptions,
-): Promise<string> {
-  if (!state.profile.enabled || !state.profile.logoPath) return 'logo:none';
-
-  try {
-    const fullPath = await resolveExistingWorkspacePath(state.profile.logoPath, fileOptions);
-    const stats = await fs.stat(fullPath);
-    return `logo:${state.profile.logoPath}:${stats.size}:${stats.mtimeMs}`;
-  } catch {
-    return `logo:${state.profile.logoPath}:missing`;
-  }
-}
-
 async function getCacheKey(
   filePath: string,
   fileOptions: WorkspaceFileOperationOptions | undefined,
-  brandState: WorkspaceBrandProfileState,
+  brandState: ResolvedWorkspaceBrandProfileState,
 ): Promise<string> {
   const fullPath = await resolveExistingWorkspacePath(filePath, fileOptions);
   const stats = await fs.stat(fullPath);
@@ -46,8 +31,7 @@ async function getCacheKey(
   }
 
   const workspaceId = fileOptions?.workspace?.workspaceId ?? 'legacy';
-  const logoCacheKey = await getBrandLogoCacheKey(brandState, fileOptions);
-  return `${workspaceId}\0${filePath}\0${stats.size}\0${stats.mtimeMs}\0${workspaceBrandProfileCacheKey(brandState)}\0${logoCacheKey}`;
+  return `${workspaceId}\0${filePath}\0${stats.size}\0${stats.mtimeMs}\0${workspaceBrandProfileCacheKey(brandState)}`;
 }
 
 function pruneCache(now: number) {
@@ -72,7 +56,7 @@ function pruneCache(now: number) {
 export async function getCachedMarkdownHtmlDocument(
   filePath: string,
   fileOptions?: WorkspaceFileOperationOptions,
-  providedBrandState?: WorkspaceBrandProfileState,
+  providedBrandState?: ResolvedWorkspaceBrandProfileState,
 ): Promise<string> {
   const now = Date.now();
   pruneCache(now);
@@ -98,10 +82,13 @@ export async function getCachedMarkdownHtmlDocument(
 
 export async function resolveMarkdownExportBrandState(
   fileOptions?: WorkspaceFileOperationOptions,
-): Promise<WorkspaceBrandProfileState> {
+): Promise<ResolvedWorkspaceBrandProfileState> {
   const workspaceId = fileOptions?.workspace?.workspaceId;
   if (!workspaceId) {
-    return readWorkspaceBrandProfile('__legacy_workspace__');
+    return resolveWorkspaceBrandProfile('__legacy_workspace__', null);
   }
-  return readWorkspaceBrandProfile(workspaceId);
+  return resolveWorkspaceBrandProfile(
+    workspaceId,
+    fileOptions.workspace?.organizationId,
+  );
 }

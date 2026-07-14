@@ -1,30 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import {
-  WORKSPACE_BRAND_LOGO_MAX_UPLOAD_BYTES,
   WorkspaceBrandLogoError,
   readWorkspaceBrandLogo,
   removeWorkspaceBrandLogo,
   saveWorkspaceBrandLogo,
 } from '@/app/lib/workspaces/brand-logo-service';
-import { readWorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile-service';
+import { readBrandLogoUpload } from '@/app/lib/workspaces/brand-logo-upload-request';
+import { resolveWorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile-service';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
 };
 
-const MULTIPART_OVERHEAD_ALLOWANCE_BYTES = 64 * 1024;
-
 function workspaceIdFromParams(id: string): string {
   return id.trim();
-}
-
-function contentLengthTooLarge(request: NextRequest): boolean {
-  const value = Number(request.headers.get('content-length'));
-  return Number.isFinite(value)
-    && value > WORKSPACE_BRAND_LOGO_MAX_UPLOAD_BYTES + MULTIPART_OVERHEAD_ALLOWANCE_BYTES;
 }
 
 export async function GET(request: NextRequest, context: RouteContext) {
@@ -41,7 +32,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
   if (workspaceResult.response) return workspaceResult.response;
 
   try {
-    const state = await readWorkspaceBrandProfile(workspaceId);
+    const state = await resolveWorkspaceBrandProfile(
+      workspaceId,
+      workspaceResult.workspace.organizationId,
+    );
     const logo = await readWorkspaceBrandLogo(state.profile, { workspace: workspaceResult.workspace });
     if (!logo) {
       return NextResponse.json({ success: false, error: 'Logo not found.' }, { status: 404 });
@@ -75,35 +69,21 @@ export async function POST(request: NextRequest, context: RouteContext) {
   });
   if (workspaceResult.response) return workspaceResult.response;
 
-  if (contentLengthTooLarge(request)) {
-    return NextResponse.json(
-      { success: false, error: 'Logo file is too large. Maximum size is 1 MB.' },
-      { status: 413 },
-    );
-  }
-
   try {
-    const parsed = await parseMultipartFormData(request);
-    if (!parsed.ok) return parsed.response;
-    const files = parsed.formData.getAll('file').filter((value): value is File => value instanceof File);
-    if (files.length !== 1) {
-      return NextResponse.json({ success: false, error: 'Upload exactly one logo file.' }, { status: 400 });
-    }
-    const file = files[0];
-    if (file.size > WORKSPACE_BRAND_LOGO_MAX_UPLOAD_BYTES) {
-      return NextResponse.json(
-        { success: false, error: 'Logo file is too large. Maximum size is 1 MB.' },
-        { status: 413 },
-      );
-    }
+    const upload = await readBrandLogoUpload(request);
+    if (!upload.ok) return upload.response;
 
     const result = await saveWorkspaceBrandLogo({
-      buffer: Buffer.from(await file.arrayBuffer()),
+      buffer: upload.buffer,
       workspaceId,
       userId: workspaceResult.session.user.id,
       fileOptions: { workspace: workspaceResult.workspace },
     });
-    return NextResponse.json({ success: true, ...result, canManage: true });
+    const state = await resolveWorkspaceBrandProfile(
+      workspaceId,
+      workspaceResult.workspace.organizationId,
+    );
+    return NextResponse.json({ success: true, ...state, asset: result.asset, canManage: true });
   } catch (error) {
     if (error instanceof WorkspaceBrandLogoError) {
       return NextResponse.json({ success: false, error: error.message }, { status: error.status });
@@ -127,13 +107,20 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   if (workspaceResult.response) return workspaceResult.response;
 
   try {
-    const state = await removeWorkspaceBrandLogo({
+    await removeWorkspaceBrandLogo({
       workspaceId,
       userId: workspaceResult.session.user.id,
       fileOptions: { workspace: workspaceResult.workspace },
     });
+    const state = await resolveWorkspaceBrandProfile(
+      workspaceId,
+      workspaceResult.workspace.organizationId,
+    );
     return NextResponse.json({ success: true, ...state, canManage: true });
   } catch (error) {
+    if (error instanceof WorkspaceBrandLogoError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     console.error('[API] Workspace brand logo removal failed:', error);
     return NextResponse.json({ success: false, error: 'Could not remove brand logo.' }, { status: 500 });
   }
