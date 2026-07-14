@@ -50,6 +50,7 @@ import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
 import type { FileSortDirection, FileSortKey } from '@/app/lib/files/sort';
 import { useEditorStore } from '@/app/store/editor-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { invalidateWorkspaceLinkIndexCache } from '@/app/lib/markdown/workspace-link-index-client';
 
 export type {
   BrowserMode,
@@ -1084,6 +1085,10 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           : null,
         workspaceId,
       });
+
+      if (/\.(?:md|markdown)$/i.test(path)) {
+        invalidateWorkspaceLinkIndexCache(workspaceId);
+      }
 
       if (useWorkspaceStore.getState().activeWorkspaceId !== workspaceId) return;
 

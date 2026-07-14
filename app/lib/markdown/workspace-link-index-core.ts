@@ -5,6 +5,7 @@ import {
 } from './obsidian-flavored-markdown';
 import { parseObsidianFrontmatter } from './obsidian-metadata';
 import {
+  getCanvasNotebookMarkdownLinkTarget,
   resolveObsidianWikiLink,
   stripMarkdownExtension,
   type ObsidianLinkCandidate,
@@ -74,6 +75,7 @@ type ParsedLink = {
   raw: string;
   start: number;
   targetText: string;
+  workspaceRootRelative: boolean;
 };
 
 function normalizePath(value: string): string {
@@ -160,8 +162,11 @@ function parseMarkdownLinks(markdown: string): ParsedLink[] {
     const raw = markdown.slice(fullStart, fullStart + match[0].length);
     const targetOffset = match[0].indexOf(match[3]);
     const rawUrl = markdown.slice(fullStart + targetOffset, fullStart + targetOffset + match[3].length);
-    const url = rawUrl.replace(/^<|>$/g, '');
-    if (!url || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(url)) continue;
+    const rawTarget = rawUrl.replace(/^<|>$/g, '');
+    if (!rawTarget) continue;
+    const notebookTarget = getCanvasNotebookMarkdownLinkTarget(rawTarget);
+    if (/^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(rawTarget) && !notebookTarget) continue;
+    const url = notebookTarget ?? rawTarget;
 
     const hashIndex = url.indexOf('#');
     const path = safeDecodeURIComponent(hashIndex >= 0 ? url.slice(0, hashIndex) : url);
@@ -181,6 +186,7 @@ function parseMarkdownLinks(markdown: string): ParsedLink[] {
       raw,
       start: fullStart,
       targetText: `${path}${fragment ? `#${fragment}` : ''}`,
+      workspaceRootRelative: Boolean(notebookTarget),
     });
   }
   return links;
@@ -202,6 +208,7 @@ function parseDocumentLinks(markdown: string): ParsedLink[] {
       raw: markdown.slice(link.start, link.end),
       start: link.start,
       targetText: link.target,
+      workspaceRootRelative: false,
     }));
   return [...wikiLinks, ...parseMarkdownLinks(markdown)].sort((left, right) => left.start - right.start);
 }
@@ -241,6 +248,7 @@ export function buildWorkspaceLinkIndexFromDocuments(
     const targetPath = hashIndex >= 0 ? link.targetText.slice(0, hashIndex) : link.targetText;
     const fragment = hashIndex >= 0 ? link.targetText.slice(hashIndex) : '';
     if (!targetPath) return link.targetText;
+    if (link.workspaceRootRelative) return link.targetText;
     const parentPath = normalizePath(sourcePath).split('/').slice(0, -1).join('/');
     const resolvedPath = targetPath.startsWith('/')
       ? normalizePath(targetPath)

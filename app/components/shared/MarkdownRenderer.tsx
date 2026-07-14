@@ -14,7 +14,7 @@ import {
   ObsidianCallout,
   ObsidianInlineFootnote,
 } from '@/app/components/shared/ObsidianMarkdownElements';
-import { getWorkspaceMarkdownLinkTarget } from '@/app/lib/markdown/obsidian-link-resolver';
+import { getWorkspaceMarkdownNavigationTarget } from '@/app/lib/markdown/obsidian-link-resolver';
 import { cn } from '@/lib/utils';
 
 interface MarkdownRendererProps {
@@ -108,7 +108,7 @@ export function MarkdownRenderer({
           </ObsidianWikiLink>
         );
       }
-      const workspaceTarget = href ? getWorkspaceMarkdownLinkTarget(href, sourcePath) : null;
+      const workspaceTarget = href ? getWorkspaceMarkdownNavigationTarget(href, sourcePath) : null;
       if (workspaceTarget) {
         return (
           <ObsidianWikiLink target={workspaceTarget} sourcePath={sourcePath}>

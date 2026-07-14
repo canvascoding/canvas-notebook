@@ -21,6 +21,7 @@ tags: [project, active]
 # Overview
 
 See [[Plan#Outcome|the plan]], [[Decision Alias]], and [the source](../Shared.md#Reference).
+Legacy notebook link: [Plan route](https://canvas.example/de/notebook?path=Projects%2FPlan.md#Outcome).
 Broken: [[Does Not Exist]].
 
 \`[[ignored-inline]]\`
@@ -51,16 +52,20 @@ assert.deepEqual(extractWorkspaceMarkdownHeadings('# ATX\n\nSetext\n------\n\n``
   { depth: 2, text: 'Setext' },
 ]);
 
-assert.equal(index.edges.length, 4);
+assert.equal(index.edges.length, 5);
 const planEdge = index.edges.find((edge) => edge.targetText.startsWith('Plan#'));
 assert.equal(planEdge?.targetPath, 'Projects/Plan.md');
 assert.equal(planEdge?.heading, 'Outcome');
 assert.equal(planEdge?.alias, 'the plan');
 assert.equal(index.edges.find((edge) => edge.targetText === 'Decision Alias')?.targetPath, 'Projects/Decision.md');
 assert.equal(index.edges.find((edge) => edge.kind === 'markdown')?.targetPath, 'Shared.md');
+assert.equal(
+  index.edges.find((edge) => edge.raw.includes('canvas.example'))?.targetPath,
+  'Projects/Plan.md',
+);
 assert.equal(index.brokenLinks.length, 1);
 assert.equal(index.brokenLinks[0].targetText, 'Does Not Exist');
-assert.equal(index.backlinks['Projects/Plan.md'].length, 1);
+assert.equal(index.backlinks['Projects/Plan.md'].length, 2);
 
 const rewritten = rewriteWorkspaceWikiLinksForRename(
   overview,

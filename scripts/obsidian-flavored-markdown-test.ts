@@ -19,8 +19,10 @@ import {
 } from '../app/lib/markdown/obsidian-metadata';
 import {
   findObsidianWikiCompletionContext,
+  getCanvasNotebookMarkdownLinkTarget,
   getObsidianWikiCompletionInsertPath,
   getWorkspaceMarkdownLinkTarget,
+  getWorkspaceMarkdownNavigationTarget,
   resolveObsidianWikiLink,
 } from '../app/lib/markdown/obsidian-link-resolver';
 
@@ -229,5 +231,18 @@ assert.equal(getWorkspaceMarkdownLinkTarget('../Shared.md#Reference', 'projects/
 assert.equal(getWorkspaceMarkdownLinkTarget('#Local heading', 'projects/Overview.md'), '#Local heading');
 assert.equal(getWorkspaceMarkdownLinkTarget('https://example.com/Plan.md', 'projects/Overview.md'), null);
 assert.equal(getWorkspaceMarkdownLinkTarget('../assets/plan.pdf', 'projects/Overview.md'), null);
+assert.equal(
+  getCanvasNotebookMarkdownLinkTarget('/de/notebook?path=projects%2FPlan.md#Outcome'),
+  'projects/Plan.md#Outcome',
+);
+assert.equal(
+  getCanvasNotebookMarkdownLinkTarget('https://canvas.example/en/notebook?path=projects%2FPlan.md'),
+  'projects/Plan.md',
+);
+assert.equal(getCanvasNotebookMarkdownLinkTarget('https://example.com/projects/Plan.md'), null);
+assert.equal(
+  getWorkspaceMarkdownNavigationTarget('../Shared.md#Reference', 'projects/Overview.md'),
+  '../Shared.md#Reference',
+);
 
 console.log('obsidian-flavored-markdown-test: ok');

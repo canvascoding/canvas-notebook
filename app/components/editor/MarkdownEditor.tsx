@@ -65,6 +65,7 @@ import {
   Unlink,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
@@ -110,11 +111,13 @@ import {
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
 import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
+import { getWorkspaceMarkdownNavigationTarget } from '@/app/lib/markdown/obsidian-link-resolver';
 import {
   composeCanvasMarkdownDocument,
   parseCanvasMarkdownDocument,
   splitCanvasMarkdownForRichEditor,
 } from '@/app/lib/markdown/obsidian-metadata';
+import { openWorkspaceMarkdownTarget } from '@/app/lib/markdown/workspace-markdown-navigation-client';
 import {
   consumeWorkspaceMarkdownLocation,
   getWorkspaceMarkdownLocationFromEvent,
@@ -131,6 +134,7 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditor';
+import { MarkdownBacklinksPanel } from './MarkdownBacklinksPanel';
 import { MarkdownPropertiesPanel } from './MarkdownPropertiesPanel';
 import { createObsidianWikiLinkExtensions } from './ObsidianWikiLinkExtension';
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
@@ -3632,6 +3636,37 @@ function RichMarkdownEditor({
   }, [editor, readOnly]);
 
   useEffect(() => {
+    if (!editor) return undefined;
+    const editorElement = editor.view.dom;
+
+    const handleWorkspaceLinkClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const anchor = target.closest('a[href]');
+      if (!anchor || !editorElement.contains(anchor)) return;
+
+      const href = anchor.getAttribute('href') ?? '';
+      const workspaceTarget = getWorkspaceMarkdownNavigationTarget(href, filePath);
+      if (!workspaceTarget) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      void openWorkspaceMarkdownTarget({
+        sourcePath: filePath,
+        target: workspaceTarget,
+        workspaceId: activeWorkspaceId,
+      }).then((result) => {
+        if (!['opened', 'superseded'].includes(result.status)) {
+          toast.error(result.error ?? t('markdownEditorLinkOpenError'));
+        }
+      });
+    };
+
+    editorElement.addEventListener('click', handleWorkspaceLinkClick, true);
+    return () => editorElement.removeEventListener('click', handleWorkspaceLinkClick, true);
+  }, [activeWorkspaceId, editor, filePath, t]);
+
+  useEffect(() => {
     if (!editor || readOnly) return undefined;
 
     const editorElement = editor.view.dom;
@@ -3707,6 +3742,7 @@ function RichMarkdownEditor({
           value={value}
         />
         <EditorContent editor={editor} className="tiptap-editor-shell" />
+        <MarkdownBacklinksPanel filePath={filePath} />
         {!readOnly && editor && blockCommandMenu ? (
           <MarkdownBlockCommandMenu
             key={blockCommandMenu.id}
@@ -3883,6 +3919,7 @@ export function MarkdownEditor({
           sourcePath={filePath}
           className="min-h-full p-5 text-base leading-relaxed md:pl-[4.75rem] [&_h1]:mb-4 [&_h1]:text-3xl [&_h1]:font-bold [&_h2]:mb-3 [&_h2]:mt-6 [&_h2]:text-2xl [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:text-xl [&_h3]:font-semibold"
         />
+        <MarkdownBacklinksPanel filePath={filePath} />
       </div>
     );
   }

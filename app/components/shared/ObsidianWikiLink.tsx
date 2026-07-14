@@ -9,13 +9,12 @@ import {
   type ObsidianLinkResolution,
 } from '@/app/lib/markdown/obsidian-link-resolver';
 import { parseObsidianWikiTarget } from '@/app/lib/markdown/obsidian-flavored-markdown';
-import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
+import { openWorkspaceMarkdownPath } from '@/app/lib/markdown/workspace-markdown-navigation-client';
 import {
   loadWorkspaceLinkIndex,
   resolveWorkspaceLinkFromIndex,
   subscribeWorkspaceLinkIndexInvalidation,
 } from '@/app/lib/markdown/workspace-link-index-client';
-import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
@@ -105,16 +104,13 @@ export function ObsidianWikiLink({
       return;
     }
 
-    const result = await useFileStore.getState().revealAndLoadFile(resolution.path, {
+    const result = await openWorkspaceMarkdownPath({
+      blockId: location.blockId,
+      heading: location.heading,
+      path: resolution.path,
       workspaceId: activeWorkspaceId,
     });
-    if (result.status === 'opened') {
-      if (location.blockId || location.heading) {
-        requestWorkspaceMarkdownLocation({ path: resolution.path, ...location });
-      }
-      return;
-    }
-    if (result.status !== 'superseded') toast.error(result.error);
+    if (result.status !== 'opened' && result.status !== 'superseded') toast.error(result.error);
   };
 
   const status = resolutionError ? 'error' : resolution?.status ?? 'resolving';

@@ -219,3 +219,34 @@ export function getWorkspaceMarkdownLinkTarget(
 
   return safelyDecodeLinkTarget(`${path}${fragment}`);
 }
+
+/** Resolves legacy full/relative Canvas Notebook routes into a wiki-link target. */
+export function getCanvasNotebookMarkdownLinkTarget(href: string): string | null {
+  const trimmed = href.trim();
+  if (!trimmed) return null;
+
+  let url: URL;
+  try {
+    url = new URL(trimmed, 'https://canvas-notebook.local');
+  } catch {
+    return null;
+  }
+
+  if (!['http:', 'https:'].includes(url.protocol)) return null;
+  const routeName = url.pathname.split('/').filter(Boolean).at(-1)?.toLocaleLowerCase();
+  if (routeName !== 'notebook') return null;
+
+  const path = url.searchParams.get('path')?.trim();
+  if (!path) return null;
+  const fragment = url.hash ? safelyDecodeLinkTarget(url.hash) : '';
+  return safelyDecodeLinkTarget(`${path}${fragment}`);
+}
+
+/** Supports canonical relative Markdown links plus legacy Canvas Notebook URLs. */
+export function getWorkspaceMarkdownNavigationTarget(
+  href: string,
+  sourcePath?: string | null,
+): string | null {
+  return getWorkspaceMarkdownLinkTarget(href, sourcePath)
+    ?? getCanvasNotebookMarkdownLinkTarget(href);
+}
