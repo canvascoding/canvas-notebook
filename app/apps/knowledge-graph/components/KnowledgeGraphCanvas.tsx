@@ -59,7 +59,7 @@ function focusRendererNode(
   nodeId: string | null,
   duration: number,
 ): void {
-  if (!nodeId || !graph.hasNode(nodeId)) return;
+  if (!nodeId || !graph.nodes().includes(nodeId)) return;
   const displayData = renderer.getNodeDisplayData(nodeId);
   if (!displayData) return;
   void renderer.getCamera().animate(

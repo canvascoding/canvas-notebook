@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.14.1] - 2026-07-14
+## [2026.7.14.2] - 2026-07-14
 
 ### Added
 
@@ -31,6 +31,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 ### Fixed
 
 - Fixed public Markdown export access checks, mobile workspace-sheet actions, workspace icon persistence, todo deep links, and automation workspace validation.
+- Fixed the knowledge graph focus type check so the production image build passes with the clean release install.
 - Bounded composed agent prompts and persisted system-prompt snapshots to protect context budgets.
 - Fixed session history and title bootstrapping and workspace-scoped asset and file operations.
 
