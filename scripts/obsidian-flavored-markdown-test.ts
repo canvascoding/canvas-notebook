@@ -10,6 +10,11 @@ import {
   parseObsidianWikiTarget,
 } from '../app/lib/markdown/obsidian-flavored-markdown';
 import { parseObsidianFrontmatter } from '../app/lib/markdown/obsidian-metadata';
+import {
+  findObsidianWikiCompletionContext,
+  getObsidianWikiCompletionInsertPath,
+  resolveObsidianWikiLink,
+} from '../app/lib/markdown/obsidian-link-resolver';
 
 const markdown = `---
 title: Market notes
@@ -99,5 +104,38 @@ assert.equal(hasObsidianRichEditorUnsupportedSyntax('Paragraph ^block-id'), true
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('> [!note] Callout'), true);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('[^1]: Footnote'), true);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('---\ntitle: Test\n---\n'), true);
+
+const workspaceFiles = [
+  { extension: 'md', path: 'projects/Plan.md', type: 'file' as const },
+  { extension: 'markdown', path: 'archive/Plan.markdown', type: 'file' as const },
+  { extension: 'md', path: 'projects/Decision.md', type: 'file' as const },
+  { extension: 'png', path: 'projects/Plan.png', type: 'file' as const },
+];
+const explicitResolution = resolveObsidianWikiLink(
+  'projects/Decision#Outcome|decision',
+  workspaceFiles,
+  'projects/Overview.md',
+);
+assert.equal(explicitResolution?.status, 'resolved');
+assert.equal(explicitResolution?.path, 'projects/Decision.md');
+assert.equal(explicitResolution?.heading, 'Outcome');
+
+const localResolution = resolveObsidianWikiLink('Decision', workspaceFiles, 'projects/Overview.md');
+assert.equal(localResolution?.path, 'projects/Decision.md');
+assert.equal(resolveObsidianWikiLink('Plan', workspaceFiles)?.status, 'ambiguous');
+assert.equal(resolveObsidianWikiLink('#Intro', workspaceFiles, 'projects/Overview.md')?.path, 'projects/Overview.md');
+assert.equal(resolveObsidianWikiLink('Missing', workspaceFiles)?.status, 'missing');
+
+const completionSource = 'See [[proj';
+assert.deepEqual(findObsidianWikiCompletionContext(completionSource, completionSource.length), {
+  embed: false,
+  from: 6,
+  query: 'proj',
+  to: completionSource.length,
+});
+assert.equal(findObsidianWikiCompletionContext('`[[ignored`', 11), null);
+assert.equal(findObsidianWikiCompletionContext('[[Plan#Heading', 14), null);
+assert.equal(findObsidianWikiCompletionContext('[[Plan|Alias', 12), null);
+assert.equal(getObsidianWikiCompletionInsertPath('./projects/Plan.md'), 'projects/Plan');
 
 console.log('obsidian-flavored-markdown-test: ok');

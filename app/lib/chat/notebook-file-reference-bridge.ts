@@ -7,7 +7,9 @@ export const NOTEBOOK_WINDOW_NAME = 'canvas-notebook';
 const PENDING_REFERENCE_MAX_AGE_MS = 30_000;
 
 export type NotebookFileReferenceRequest = {
+  blockId: string | null;
   type: typeof NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE;
+  heading: string | null;
   requestId: string;
   path: string;
   createdAt: number;
@@ -20,12 +22,17 @@ function createRequestId(): string {
   return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
-export function createNotebookFileReferenceRequest(path: string): NotebookFileReferenceRequest | null {
+export function createNotebookFileReferenceRequest(
+  path: string,
+  location: { blockId?: string | null; heading?: string | null } = {},
+): NotebookFileReferenceRequest | null {
   const normalizedPath = normalizeChatFilePath(path);
   if (!normalizedPath) return null;
 
   return {
+    blockId: location.blockId?.trim() || null,
     type: NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE,
+    heading: location.heading?.trim() || null,
     requestId: createRequestId(),
     path: normalizedPath,
     createdAt: Date.now(),
@@ -57,7 +64,13 @@ export function parseNotebookFileReferenceRequest(
   }
 
   return {
+    blockId: typeof candidate.blockId === 'string' && candidate.blockId.trim()
+      ? candidate.blockId.trim()
+      : null,
     type: NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE,
+    heading: typeof candidate.heading === 'string' && candidate.heading.trim()
+      ? candidate.heading.trim()
+      : null,
     requestId: candidate.requestId,
     path: normalizedPath,
     createdAt: candidate.createdAt,

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, type CSSProperties } from 'react';
+import { useEffect, useMemo, useState, type CSSProperties } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
@@ -14,17 +14,36 @@ import { rust } from '@codemirror/lang-rust';
 import { cpp } from '@codemirror/lang-cpp';
 import { java } from '@codemirror/lang-java';
 import { xml } from '@codemirror/lang-xml';
+import {
+  autocompletion,
+  type CompletionContext,
+  type CompletionResult,
+} from '@codemirror/autocomplete';
 import type { Extension as CodeMirrorExtension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
+import { toast } from 'sonner';
 import { useFileStore } from '@/app/store/file-store';
 import { useTheme } from '@/app/components/ThemeProvider';
 import { getTextEditorPerformanceProfile } from '@/app/lib/editor/text-editor-guards';
+import { searchWorkspaceFileReferences } from '@/app/lib/files/client';
+import {
+  findObsidianWikiCompletionContext,
+  getObsidianWikiCompletionInsertPath,
+  isMarkdownReferenceEntry,
+  stripMarkdownExtension,
+  resolveObsidianWikiLink,
+} from '@/app/lib/markdown/obsidian-link-resolver';
+import { parseObsidianWikiLinks } from '@/app/lib/markdown/obsidian-flavored-markdown';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
+import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
+import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 
 interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   readOnly?: boolean;
   path?: string;
+  markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
 }
 
 const CODE_MIRROR_BASIC_SETUP = {
@@ -136,11 +155,171 @@ function getLanguageExtension(path: string) {
   }
 }
 
-export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEditorProps) {
+function isMarkdownPath(path: string | undefined): boolean {
+  const extension = path?.split('.').pop()?.toLowerCase();
+  return extension === 'md' || extension === 'mdx' || extension === 'markdown';
+}
+
+function getBasename(path: string): string {
+  return path.replace(/\\/g, '/').split('/').pop() || path;
+}
+
+function createObsidianWikiCompletionSource(workspaceId: string) {
+  return async (context: CompletionContext): Promise<CompletionResult | null> => {
+    const completionContext = findObsidianWikiCompletionContext(
+      context.state.doc.toString(),
+      context.pos,
+    );
+    if (!completionContext) return null;
+
+    const controller = new AbortController();
+    context.addEventListener('abort', () => controller.abort(), { onDocChange: true });
+
+    try {
+      const page = await searchWorkspaceFileReferences({
+        query: completionContext.query,
+        limit: 200,
+        workspaceId,
+        signal: controller.signal,
+      });
+      if (context.aborted) return null;
+
+      return {
+        from: completionContext.from,
+        to: completionContext.to,
+        options: page.files
+          .filter(isMarkdownReferenceEntry)
+          .map((file) => {
+            const insertPath = getObsidianWikiCompletionInsertPath(file.path);
+            return {
+              label: insertPath,
+              displayLabel: stripMarkdownExtension(getBasename(file.path)),
+              detail: file.path,
+              type: 'text',
+              apply: `${insertPath}]]`,
+            };
+          }),
+        validFor: /^[^\]#|\r\n]*$/,
+      };
+    } catch (error) {
+      if (controller.signal.aborted) return null;
+      console.warn('[CodeEditor] Failed to load Obsidian wiki-link suggestions:', error);
+      return null;
+    }
+  };
+}
+
+async function openObsidianWikiLinkFromSource(
+  workspaceId: string,
+  sourcePath: string,
+  rawTarget: string,
+): Promise<void> {
+  const parsedTarget = rawTarget.trim();
+  const pathQuery = parsedTarget.split('#', 1)[0].trim();
+  const page = pathQuery
+    ? await searchWorkspaceFileReferences({ query: pathQuery, limit: 500, workspaceId })
+    : { files: [], total: 0 };
+  const resolution = resolveObsidianWikiLink(parsedTarget, page.files, sourcePath);
+  if (resolution?.status !== 'resolved' || !resolution.path) {
+    toast.error(resolution?.status === 'ambiguous'
+      ? `Ambiguous document link: ${resolution.candidates.join(', ')}`
+      : `Document not found: ${pathQuery || sourcePath}`);
+    return;
+  }
+
+  const result = await useFileStore.getState().revealAndLoadFile(resolution.path, { workspaceId });
+  if (result.status === 'opened') {
+    if (resolution.blockId || resolution.heading) {
+      requestWorkspaceMarkdownLocation({
+        path: resolution.path,
+        blockId: resolution.blockId,
+        heading: resolution.heading,
+      });
+    }
+    return;
+  }
+  if (result.status !== 'superseded') toast.error(result.error);
+}
+
+function createObsidianWikiOpenExtension(workspaceId: string, sourcePath: string): CodeMirrorExtension {
+  return EditorView.domEventHandlers({
+    click(event, view) {
+      if (!(event.metaKey || event.ctrlKey)) return false;
+      const position = view.posAtCoords({ x: event.clientX, y: event.clientY });
+      if (position === null) return false;
+      const markdown = view.state.doc.toString();
+      const wikiLink = parseObsidianWikiLinks(markdown).find((link) => (
+        link.start <= position && position <= link.end
+      ));
+      if (!wikiLink) return false;
+
+      event.preventDefault();
+      event.stopPropagation();
+      void openObsidianWikiLinkFromSource(workspaceId, sourcePath, wikiLink.target);
+      return true;
+    },
+  });
+}
+
+function normalizeHeadingLabel(value: string): string {
+  return value
+    .replace(/\\([\\`*_[\]{}()#+.!<>-])/g, '$1')
+    .replace(/[*_~`]/g, '')
+    .trim()
+    .toLocaleLowerCase();
+}
+
+function escapeRegex(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function findMarkdownNavigationOffset(
+  markdown: string,
+  target: WorkspaceMarkdownLocation,
+): number | null {
+  const lines = markdown.split('\n');
+  let offset = 0;
+
+  for (let index = 0; index < lines.length; index += 1) {
+    const line = lines[index];
+    if (target.blockId) {
+      const blockMatch = line.match(new RegExp(`(?:^|[ \\t])\\^${escapeRegex(target.blockId)}[ \\t]*$`, 'i'));
+      if (blockMatch) return offset + Math.max(0, blockMatch.index ?? 0);
+    }
+
+    if (target.heading) {
+      const atxMatch = line.match(/^ {0,3}#{1,6}[ \t]+(.+?)[ \t]*#*[ \t]*$/);
+      if (atxMatch && normalizeHeadingLabel(atxMatch[1]) === normalizeHeadingLabel(target.heading)) {
+        return offset;
+      }
+      const underline = lines[index + 1];
+      if (
+        line.trim()
+        && underline
+        && /^ {0,3}(?:=+|-+)[ \t]*$/.test(underline)
+        && normalizeHeadingLabel(line) === normalizeHeadingLabel(target.heading)
+      ) {
+        return offset;
+      }
+    }
+    offset += line.length + 1;
+  }
+  return null;
+}
+
+export function CodeEditor({
+  value,
+  onChange,
+  readOnly = false,
+  path,
+  markdownNavigationTarget,
+}: CodeEditorProps) {
   const { currentFile } = useFileStore();
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const { resolvedTheme } = useTheme();
   const languagePath = path || currentFile?.path;
   const performanceProfile = useMemo(() => getTextEditorPerformanceProfile(value), [value]);
+  const [editorView, setEditorView] = useState<EditorView | null>(null);
 
   const extensions = useMemo(() => {
     const nextExtensions: CodeMirrorExtension[] = [];
@@ -150,8 +329,27 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
     if (!performanceProfile.disableLineWrapping) {
       nextExtensions.push(EditorView.lineWrapping);
     }
+    if (
+      !readOnly
+      && activeWorkspaceId
+      && isMarkdownPath(languagePath)
+      && !performanceProfile.disableLanguageExtension
+    ) {
+      nextExtensions.push(autocompletion({
+        override: [createObsidianWikiCompletionSource(activeWorkspaceId)],
+      }));
+      if (languagePath) {
+        nextExtensions.push(createObsidianWikiOpenExtension(activeWorkspaceId, languagePath));
+      }
+    }
     return nextExtensions;
-  }, [languagePath, performanceProfile.disableLanguageExtension, performanceProfile.disableLineWrapping]);
+  }, [
+    activeWorkspaceId,
+    languagePath,
+    performanceProfile.disableLanguageExtension,
+    performanceProfile.disableLineWrapping,
+    readOnly,
+  ]);
 
   useEffect(() => {
     if (readOnly) return;
@@ -168,6 +366,17 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [readOnly]);
 
+  useEffect(() => {
+    if (!editorView || !markdownNavigationTarget) return;
+    const offset = findMarkdownNavigationOffset(editorView.state.doc.toString(), markdownNavigationTarget);
+    if (offset === null) return;
+    editorView.dispatch({
+      selection: { anchor: offset },
+      effects: EditorView.scrollIntoView(offset, { y: 'center' }),
+    });
+    editorView.focus();
+  }, [editorView, markdownNavigationTarget]);
+
   return (
     <div className="h-full w-full">
       <CodeMirror
@@ -176,6 +385,7 @@ export function CodeEditor({ value, onChange, readOnly = false, path }: CodeEdit
         theme={resolvedTheme === 'light' ? 'light' : 'dark'}
         extensions={extensions}
         onChange={onChange}
+        onCreateEditor={(view) => setEditorView(view)}
         editable={!readOnly}
         basicSetup={performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
         style={CODE_MIRROR_STYLE}

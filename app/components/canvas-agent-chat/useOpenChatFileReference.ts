@@ -12,6 +12,7 @@ import {
 } from '@/app/lib/chat/notebook-file-reference-bridge';
 import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 
 export function useOpenChatFileReference() {
   const pathname = useLocalePathname();
@@ -19,12 +20,15 @@ export function useOpenChatFileReference() {
   const t = useTranslations('chat');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
-  return useCallback(async (filePath: string) => {
+  return useCallback(async (
+    filePath: string,
+    location: { blockId?: string | null; heading?: string | null } = {},
+  ) => {
     const normalizedPath = normalizeChatFilePath(filePath);
     if (!normalizedPath) return;
 
     if (pathname.includes('/chat')) {
-      const request = createNotebookFileReferenceRequest(normalizedPath);
+      const request = createNotebookFileReferenceRequest(normalizedPath, location);
       if (!request) return;
       const notebookPath = getPathname({
         locale,
@@ -41,6 +45,13 @@ export function useOpenChatFileReference() {
     });
     if (result.status === 'opened') {
       notifyChatFileReferenceOpened(normalizedPath);
+      if (location.blockId || location.heading) {
+        requestWorkspaceMarkdownLocation({
+          path: normalizedPath,
+          blockId: location.blockId || null,
+          heading: location.heading || null,
+        });
+      }
       return;
     }
     if (result.status !== 'superseded') {

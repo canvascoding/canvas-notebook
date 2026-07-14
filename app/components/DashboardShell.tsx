@@ -66,6 +66,7 @@ import {
   notifyWorkspaceFileOpened,
   WORKSPACE_FILE_OPENED_EVENT,
 } from '@/app/lib/files/workspace-file-events';
+import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 
 
 
@@ -396,6 +397,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     clearPendingNotebookFileReference(request.requestId);
     notifyWorkspaceFileOpened(request.path, 'chat-reference');
+    if (request.blockId || request.heading) {
+      requestWorkspaceMarkdownLocation({
+        path: request.path,
+        blockId: request.blockId,
+        heading: request.heading,
+      });
+    }
   }, [openNotebookFile]);
 
   useEffect(() => {

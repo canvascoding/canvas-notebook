@@ -109,6 +109,12 @@ import {
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
 import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
+import {
+  consumeWorkspaceMarkdownLocation,
+  getWorkspaceMarkdownLocationFromEvent,
+  WORKSPACE_MARKDOWN_LOCATION_EVENT,
+  type WorkspaceMarkdownLocation,
+} from '@/app/lib/markdown/workspace-markdown-navigation';
 import { makeLinkPreviewImageAlt, parseLinkPreviewImageAlt } from '@/app/lib/markdown/link-preview-markdown';
 import {
   getWorkspaceTargetDirForMarkdown,
@@ -3352,13 +3358,19 @@ function RichMarkdownEditor({
   externalValueSync = 'always',
   isMobileKeyboardActive,
   onSourceMode,
-}: MarkdownEditorProps & { isMobileKeyboardActive: boolean; onSourceMode: () => void }) {
+  markdownNavigationTarget,
+}: MarkdownEditorProps & {
+  isMobileKeyboardActive: boolean;
+  markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
+  onSourceMode: () => void;
+}) {
   const t = useTranslations('notebook');
   const latestValueRef = useRef(value);
   const acceptedExternalValueRef = useRef(value);
   const applyingExternalValueRef = useRef(false);
   const pendingBlockCommandMenuFrameRef = useRef<number | null>(null);
   const appliedMathEditRequestRef = useRef(0);
+  const appliedNavigationRequestRef = useRef<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [tableDialogRange, setTableDialogRange] = useState<Range | null>(null);
@@ -3460,6 +3472,31 @@ function RichMarkdownEditor({
       editor.chain().focus().deleteBlockMath({ pos }).run();
     }
   }, [editor, mathEditRequest]);
+  useEffect(() => {
+    if (
+      !editor
+      || !markdownNavigationTarget?.heading
+      || appliedNavigationRequestRef.current === markdownNavigationTarget.requestId
+    ) return;
+
+    const wantedHeading = markdownNavigationTarget.heading.trim().toLocaleLowerCase();
+    let headingPosition: number | null = null;
+    editor.state.doc.descendants((node, position) => {
+      if (
+        headingPosition === null
+        && node.type.name === 'heading'
+        && node.textContent.trim().toLocaleLowerCase() === wantedHeading
+      ) {
+        headingPosition = position + 1;
+        return false;
+      }
+      return headingPosition === null;
+    });
+    if (headingPosition === null) return;
+
+    appliedNavigationRequestRef.current = markdownNavigationTarget.requestId;
+    editor.chain().focus().setTextSelection(headingPosition).scrollIntoView().run();
+  }, [editor, markdownNavigationTarget]);
   const isRichEditorFocused = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => Boolean(currentEditor?.isFocused),
@@ -3653,10 +3690,12 @@ function SourceMarkdownEditor({
   filePath,
   isMobileKeyboardActive,
   onRichMode,
+  markdownNavigationTarget,
 }: MarkdownEditorProps & {
   initiallyShowMobileToolbar?: boolean;
   richModeAvailable: boolean;
   isMobileKeyboardActive: boolean;
+  markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
   onRichMode: () => void;
 }) {
   const containerRef = useRef<HTMLDivElement>(null);
@@ -3724,6 +3763,7 @@ function SourceMarkdownEditor({
           }}
           readOnly={readOnly}
           path={filePath ?? 'document.md'}
+          markdownNavigationTarget={markdownNavigationTarget}
         />
       </div>
     </div>
@@ -3750,7 +3790,30 @@ export function MarkdownEditor({
     sourceModeRequired || shouldDefaultToSource(value, readOnly, filePath) ? 'source' : 'rich'
   ));
   const [sourceModeRequested, setSourceModeRequested] = useState(false);
+  const [markdownNavigationTarget, setMarkdownNavigationTarget] = useState<WorkspaceMarkdownLocation | null>(() => (
+    filePath ? consumeWorkspaceMarkdownLocation(filePath) : null
+  ));
   const effectiveMode: EditorMode = sourceModeRequired ? 'source' : mode;
+
+  useEffect(() => {
+    if (!filePath) return;
+    const normalizedFilePath = filePath.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+|\/+$/g, '');
+    let cancelled = false;
+    queueMicrotask(() => {
+      const pendingLocation = consumeWorkspaceMarkdownLocation(normalizedFilePath);
+      if (!cancelled && pendingLocation) setMarkdownNavigationTarget(pendingLocation);
+    });
+
+    const handleLocation = (event: Event) => {
+      const location = getWorkspaceMarkdownLocationFromEvent(event);
+      if (location?.path === normalizedFilePath) setMarkdownNavigationTarget(location);
+    };
+    window.addEventListener(WORKSPACE_MARKDOWN_LOCATION_EVENT, handleLocation);
+    return () => {
+      cancelled = true;
+      window.removeEventListener(WORKSPACE_MARKDOWN_LOCATION_EVENT, handleLocation);
+    };
+  }, [filePath]);
 
   const switchToSourceMode = useCallback(() => {
     setSourceModeRequested(true);
@@ -3774,6 +3837,7 @@ export function MarkdownEditor({
         filePath={filePath}
         isMobileKeyboardActive={isMobileKeyboardActive}
         onRichMode={switchToRichMode}
+        markdownNavigationTarget={markdownNavigationTarget}
       />
     );
   }
@@ -3787,6 +3851,7 @@ export function MarkdownEditor({
       externalValueSync={externalValueSync}
       isMobileKeyboardActive={isMobileKeyboardActive}
       onSourceMode={switchToSourceMode}
+      markdownNavigationTarget={markdownNavigationTarget}
     />
   );
 }

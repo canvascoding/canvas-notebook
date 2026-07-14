@@ -72,7 +72,10 @@ async function main() {
       [],
     );
 
-    const bridgeRequest = createNotebookFileReferenceRequest('/data/workspace/generated/page.html');
+    const bridgeRequest = createNotebookFileReferenceRequest('/data/workspace/generated/page.html', {
+      heading: 'Results',
+      blockId: 'decision-1',
+    });
     assert.ok(bridgeRequest);
     assert.equal(bridgeRequest.type, NOTEBOOK_FILE_REFERENCE_MESSAGE_TYPE);
     assert.equal(bridgeRequest.path, 'generated/page.html');

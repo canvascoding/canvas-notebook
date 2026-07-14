@@ -8,12 +8,14 @@ import {
   CANVAS_MARKDOWN_REMARK_PLUGINS,
 } from '@/app/lib/markdown/canvas-markdown';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
+import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
 import { cn } from '@/lib/utils';
 
 interface MarkdownRendererProps {
   content: string;
   variant?: 'default' | 'muted';
   className?: string;
+  sourcePath?: string;
 }
 
 const SHARED_CLASSES =
@@ -35,6 +37,7 @@ export function MarkdownRenderer({
   content,
   variant = 'default',
   className,
+  sourcePath,
 }: MarkdownRendererProps) {
   const extractColorCode = (props: Record<string, unknown>): string | null => {
     const colorCode =
@@ -56,19 +59,36 @@ export function MarkdownRenderer({
     a: ({
       href,
       children,
+      ...props
     }: {
       href?: string;
       children?: React.ReactNode;
-    }) => (
-      <a
-        href={href}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="underline underline-offset-2"
-      >
-        {children}
-      </a>
-    ),
+      'data-canvas-wiki-embed'?: string;
+      'data-canvas-wiki-target'?: string;
+    }) => {
+      const wikiTarget = props['data-canvas-wiki-target'];
+      if (wikiTarget) {
+        return (
+          <ObsidianWikiLink
+            target={wikiTarget}
+            sourcePath={sourcePath}
+            embed={props['data-canvas-wiki-embed'] === 'true'}
+          >
+            {children}
+          </ObsidianWikiLink>
+        );
+      }
+      return (
+        <a
+          href={href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="underline underline-offset-2"
+        >
+          {children}
+        </a>
+      );
+    },
     img: ({
       src,
       alt,

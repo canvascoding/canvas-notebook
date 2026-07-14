@@ -29,6 +29,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/useOpenChatFileReference';
 import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
+import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
 
 const CodeBlockContext = React.createContext(false);
 
@@ -477,6 +478,7 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
   onMediaClick?: (mediaUrl: string) => void;
 }) {
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const openFileReference = useOpenChatFileReference();
   const sharedClasses =
     'min-w-0 max-w-full break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
   const toneClasses =
@@ -509,7 +511,28 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
       }
       return <span className={className} {...props} />;
     },
-    a: ({ href, children }: { href?: string; children?: React.ReactNode }) => {
+    a: ({
+      href,
+      children,
+      ...props
+    }: {
+      href?: string;
+      children?: React.ReactNode;
+      'data-canvas-wiki-embed'?: string;
+      'data-canvas-wiki-target'?: string;
+    }) => {
+      const wikiTarget = props['data-canvas-wiki-target'];
+      if (wikiTarget) {
+        return (
+          <ObsidianWikiLink
+            target={wikiTarget}
+            embed={props['data-canvas-wiki-embed'] === 'true'}
+            onOpenFile={openFileReference}
+          >
+            {children}
+          </ObsidianWikiLink>
+        );
+      }
       if (href && isFilePath(href)) {
         return <FileLink href={href}>{children}</FileLink>;
       }
