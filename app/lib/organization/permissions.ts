@@ -423,7 +423,7 @@ async function getPrimaryOrganization(database: PermissionDatabase): Promise<Org
 async function getPermissionUser(database: PermissionDatabase, userId: string): Promise<PermissionUserRow> {
   const user = await database.get(`
     SELECT id, name, email, role, banned
-    FROM user
+    FROM "user"
     WHERE id = ?
     LIMIT 1
   `, [userId]) as PermissionUserRow | undefined;
@@ -461,7 +461,7 @@ async function getPermissionDetails(
       p.can_recover_workspaces,
       p.updated_at
     FROM organization_user_permissions p
-    INNER JOIN user u ON u.id = p.user_id
+    INNER JOIN "user" u ON u.id = p.user_id
     WHERE p.organization_id = ? AND p.user_id = ?
     LIMIT 1
   `, [organizationId, userId]) as PermissionDetailsRow | undefined;
@@ -786,7 +786,7 @@ export async function updateOrganizationRole(params: {
         params.targetUserId,
       ]);
       await database.run(
-        'UPDATE user SET role = ?, updated_at = ? WHERE id = ?',
+        'UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?',
         [role === 'admin' ? 'admin' : 'user', now, params.targetUserId],
       );
 
