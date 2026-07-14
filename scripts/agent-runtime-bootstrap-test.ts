@@ -94,6 +94,7 @@ async function main() {
     AiRuntimeExecutionError,
     resolveProviderInstallationModel,
   } = await import('../app/lib/agent-runtime-policy/provider-runtime');
+  const { resolveEffectiveAgentRuntime } = await import('../app/lib/agent-runtime-policy/runtime-resolver');
   const { readUserModelPreference } = await import('../app/lib/agent-runtime-policy/runtime-store');
   const { readPiRuntimeConfig } = await import('../app/lib/agents/storage');
   const { resolveSettingsStoragePath } = await import('../app/lib/settings-storage');
@@ -237,6 +238,19 @@ async function main() {
     setAsDefault: true,
   });
   assert.equal(idempotent.revision, 1);
+
+  resetRuntimeCatalog(sqlite);
+  const chatRuntime = await resolveEffectiveAgentRuntime({
+    organizationId: organization.organizationId,
+    userId: owner.id,
+    workspaceId: personalWorkspace.id,
+    workspaceType: 'personal',
+    agentId: 'canvas-agent',
+  });
+  assert.equal(chatRuntime.valid, true);
+  assert.equal(chatRuntime.effectiveSelection?.selection.providerId, 'canvas-control-plane');
+  assert.equal(chatRuntime.effectiveSelection?.selection.modelId, 'managed-second');
+  assert.equal((await readAppRuntimeCatalog(organization.organizationId)).revision, 1);
 
   globalThis.fetch = async () => {
     throw new Error('control plane unavailable');

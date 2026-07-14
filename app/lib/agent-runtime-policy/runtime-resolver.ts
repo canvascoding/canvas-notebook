@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { ensureAgentRuntimeCatalogInitialized } from '@/app/lib/agent-runtime-policy/bootstrap-service';
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { isProviderInstallationCredentialAvailable } from '@/app/lib/agent-runtime-policy/installation-credentials';
 import {
@@ -20,6 +21,7 @@ import type {
 } from '@/app/lib/agent-runtime-policy/types';
 import { getAgentProfile, normalizeManagedAgentId, type AgentProfile } from '@/app/lib/agents/registry';
 import type { WorkspaceType } from '@/app/lib/workspaces/types';
+import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 
 export type AiRuntimeResolutionContext = {
   organizationId: string;
@@ -259,6 +261,19 @@ export async function resolveEffectiveAgentRuntime(
     ...contextInput,
     agentId: normalizeManagedAgentId(contextInput.agentId),
   };
+
+  // A managed instance may receive its first chat request before anyone opens
+  // the AI provider settings. Initialize the Control Plane catalog here so a
+  // connected Control Plane is usable immediately after startup. Existing
+  // catalogs are left untouched, and local/legacy runtimes keep their
+  // admin-controlled migration path.
+  if (isManagedControlPlaneAvailable()) {
+    await ensureAgentRuntimeCatalogInitialized({
+      organizationId: context.organizationId,
+      actorUserId: context.userId,
+    });
+  }
+
   const [catalog, policy, preference, agent, persistedSession] = await Promise.all([
     readAppRuntimeCatalog(context.organizationId),
     readWorkspaceModelPolicy(context.organizationId, context.workspaceId),
