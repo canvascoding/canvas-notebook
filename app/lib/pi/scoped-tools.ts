@@ -9,7 +9,11 @@ import {
   type MemoryReadResult,
   type MemoryTarget,
 } from '@/app/lib/agents/memory-store';
-import { assertUserOrganizationPermission } from '@/app/lib/organization/permissions';
+import {
+  assertUserOrganizationPermission,
+  readOrganizationPermissionForUser,
+} from '@/app/lib/organization/permissions';
+import { resolveEffectiveCapabilitySnapshot } from '@/app/lib/capabilities/catalog';
 import {
   createAutomationJob,
   deleteAutomationJob,
@@ -56,6 +60,7 @@ import {
   type AgentSkillDraftResult,
   type AgentSkillInspection,
   type AgentSkillInstallFromWorkspaceResult,
+  type AgentSkillSourceScope,
   type AgentSkillUpdateFromWorkspaceResult,
 } from '@/app/lib/skills/agent-skill-workspace';
 import {
@@ -547,6 +552,43 @@ async function assertAgentCanManageSkills(userId: string): Promise<void> {
   );
 }
 
+async function assertOrganizationSkillSourceAvailable(
+  userId: string,
+  context: AgentExecutionContext,
+  skillName: string,
+): Promise<void> {
+  if (!context.organizationId) {
+    throw new Error('An organization-bound agent session is required to inspect or fork an organization skill.');
+  }
+  const organizationState = await readOrganizationPermissionForUser(userId);
+  if (
+    organizationState.organizationId !== context.organizationId
+    || !organizationState.permission
+    || organizationState.permission.status !== 'active'
+  ) {
+    throw new Error('Active membership in the workspace organization is required.');
+  }
+  const snapshot = await resolveEffectiveCapabilitySnapshot({
+    organizationId: context.organizationId,
+    userId,
+    role: organizationState.permission.role,
+    workspaceId: context.workspaceId,
+    projectId: context.projectId,
+  });
+  const candidates = snapshot.capabilities.filter((entry) => (
+    entry.ref.resourceType === 'skill'
+    && entry.ref.scopeType === 'organization'
+    && entry.ref.name === skillName
+  ));
+  if (candidates.length === 0) {
+    throw new Error(`Organization skill "${skillName}" is not available in this workspace.`);
+  }
+  const denied = candidates.find((entry) => entry.readiness === 'blocked' || entry.readiness === 'conflict');
+  if (denied) {
+    throw new Error(denied.blockedReason || `Organization skill "${skillName}" is not available for this user.`);
+  }
+}
+
 async function recordAgentSkillToolAudit(input: {
   action: string;
   status: AuditStatus;
@@ -606,6 +648,8 @@ function formatAgentSkillInspection(result: AgentSkillInspection): string {
   const lines = [
     `Skill: ${result.name}`,
     `Editable: ${result.editable ? 'yes' : 'no'}`,
+    `Forkable: ${result.forkable ? 'yes' : 'no'}`,
+    `Scope: ${result.scope}`,
     `Source: ${result.sourceType}`,
     result.version ? `Version: ${result.version}` : null,
     result.checksum ? `Checksum: ${result.checksum}` : null,
@@ -625,6 +669,8 @@ function formatAgentSkillDraft(result: AgentSkillDraftResult): string {
     `Draft id: ${result.draftId}`,
     `Skill: ${result.skillName}`,
     result.sourceSkillName ? `Source skill: ${result.sourceSkillName}` : null,
+    result.sourceScope ? `Source scope: ${result.sourceScope}` : null,
+    result.forked ? 'Mode: personal fork' : null,
     result.expectedVersion ? `Expected version: ${result.expectedVersion}` : null,
     result.expectedChecksum ? `Expected checksum: ${result.expectedChecksum}` : null,
     `Files: ${result.files.length}`,
@@ -662,18 +708,28 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'inspect_canvas_skill',
       label: 'Inspecting Canvas skill',
-      description: 'Inspects an installed personal Canvas skill before editing. Returns editability, version, checksum, install path, and package file summary. Always call this before update_canvas_skill_from_workspace.',
+      description: 'Inspects a personal, organization, or core Canvas skill before editing or forking. Organization and core skills are read-only and can only be copied to a differently named personal fork.',
       parameters: Type.Object({
         skillName: Type.String({ description: 'Skill name to inspect.' }),
+        sourceScope: Type.Optional(Type.Union([
+          Type.Literal('personal'),
+          Type.Literal('organization'),
+          Type.Literal('core'),
+        ], { description: 'Scope to inspect. Core skill names are always resolved as core.' })),
       }),
       execute: async (_toolCallId, params) => {
-        const p = params as { skillName?: string };
+        const p = params as { skillName?: string; sourceScope?: AgentSkillSourceScope };
         try {
           const scopedUserId = requireToolUserId(userId, 'skill tools');
           await assertAgentCanManageSkills(scopedUserId);
+          const context = requireAgentExecutionContextForTool('inspect_canvas_skill');
+          if (p.sourceScope === 'organization') {
+            await assertOrganizationSkillSourceAvailable(scopedUserId, context, p.skillName || '');
+          }
           const result = await inspectCanvasSkillForAgent({
             skillName: p.skillName || '',
-            scope: { userId: scopedUserId },
+            sourceScope: p.sourceScope,
+            scope: { userId: scopedUserId, organizationId: context.organizationId },
           });
           await recordAgentSkillToolAudit({
             action: 'skill.inspect',
@@ -681,6 +737,8 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
             skillName: result.name,
             metadata: {
               editable: result.editable,
+              forkable: result.forkable,
+              scope: result.scope,
               sourceType: result.sourceType,
               version: result.version ?? null,
               checksum: result.checksum ?? null,
@@ -698,12 +756,17 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
     {
       name: 'create_canvas_skill_draft',
       label: 'Creating Canvas skill draft',
-      description: 'Creates a managed workspace draft under .canvas-skill-drafts. For new skills, provide skillName, description, and optional version. For editing/forking an installed personal skill, provide sourceSkillName; the full skill folder is copied into the draft.',
+      description: 'Creates a managed workspace draft under .canvas-skill-drafts. For new skills, provide skillName, description, and optional version. For editing a personal skill or creating a differently named personal fork from a personal, organization, plugin-managed, or core skill, provide sourceSkillName and sourceScope.',
       parameters: Type.Object({
         skillName: Type.String({ description: 'Target skill name for the draft folder. For normal edits, use the same name as sourceSkillName.' }),
         description: Type.Optional(Type.String({ description: 'Description for a new skill draft.' })),
         version: Type.Optional(Type.String({ description: 'Version for a new skill draft. Defaults to 1.0.0.' })),
-        sourceSkillName: Type.Optional(Type.String({ description: 'Existing personal skill to copy into the draft for editing or forking.' })),
+        sourceSkillName: Type.Optional(Type.String({ description: 'Existing skill to copy into the draft for editing or forking.' })),
+        sourceScope: Type.Optional(Type.Union([
+          Type.Literal('personal'),
+          Type.Literal('organization'),
+          Type.Literal('core'),
+        ], { description: 'Scope of sourceSkillName. Defaults to personal; core names are detected automatically.' })),
         draftId: Type.Optional(Type.String({ description: 'Optional stable draft id. Defaults to a generated id.' })),
         overwrite: Type.Optional(Type.Boolean({ description: 'Overwrite an existing draft with the same draftId and skillName. Defaults to false.' })),
       }),
@@ -713,6 +776,7 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
           description?: string;
           version?: string;
           sourceSkillName?: string;
+          sourceScope?: AgentSkillSourceScope;
           draftId?: string;
           overwrite?: boolean;
         };
@@ -723,13 +787,17 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
             throw new Error('Agent file writes are disabled for the active workspace.');
           }
           await assertAgentCanManageSkills(scopedUserId);
+          if (p.sourceSkillName && p.sourceScope === 'organization') {
+            await assertOrganizationSkillSourceAvailable(scopedUserId, context, p.sourceSkillName);
+          }
           const result = await createCanvasSkillDraft({
             workspaceRoot: context.workspaceRoot,
-            scope: { userId: scopedUserId },
+            scope: { userId: scopedUserId, organizationId: context.organizationId },
             skillName: p.skillName || '',
             description: p.description,
             version: p.version,
             sourceSkillName: p.sourceSkillName,
+            sourceScope: p.sourceScope,
             draftId: p.draftId,
             overwrite: p.overwrite,
           });
@@ -740,6 +808,8 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
             draftPath: result.packagePath,
             metadata: {
               sourceSkillName: result.sourceSkillName ?? null,
+              sourceScope: result.sourceScope ?? null,
+              forked: result.forked ?? false,
               expectedVersion: result.expectedVersion ?? null,
               expectedChecksum: result.expectedChecksum ?? null,
               files: result.files.length,
@@ -752,7 +822,10 @@ function createAgentSkillTools(userId?: string): AgentTool[] {
             action: 'skill.create_draft',
             status: 'failure',
             skillName: p.skillName,
-            metadata: { sourceSkillName: p.sourceSkillName ?? null },
+            metadata: {
+              sourceSkillName: p.sourceSkillName ?? null,
+              sourceScope: p.sourceScope ?? null,
+            },
             error: message,
           });
           return { content: [{ type: 'text', text: `Error: ${message}` }], details: { error: message } };

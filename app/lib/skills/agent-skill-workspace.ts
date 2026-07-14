@@ -22,7 +22,7 @@ import {
   writeCanvasSkillRegistry,
   type CanvasSkillInstallRecord,
 } from '@/app/lib/skills/canvas-skill-store';
-import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
+import { isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { loadCoreSkillByName } from '@/app/lib/skills/core-skill-loader';
 import { enableSkillInConfig } from '@/app/lib/skills/enabled-skills';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
@@ -37,7 +37,10 @@ const MAX_SKILL_PACKAGE_BYTES = 250 * 1024 * 1024;
 
 export type AgentSkillScope = {
   userId: string;
+  organizationId?: string | null;
 };
+
+export type AgentSkillSourceScope = 'personal' | 'organization' | 'core';
 
 export type AgentSkillFileSummary = {
   path: string;
@@ -47,7 +50,9 @@ export type AgentSkillFileSummary = {
 
 export type AgentSkillInspection = {
   name: string;
+  scope: AgentSkillSourceScope;
   editable: boolean;
+  forkable: boolean;
   reason?: string;
   version?: string;
   checksum?: string;
@@ -63,6 +68,8 @@ export type AgentSkillDraftResult = {
   draftPath: string;
   packagePath: string;
   sourceSkillName?: string;
+  sourceScope?: AgentSkillSourceScope;
+  forked?: boolean;
   skillName: string;
   expectedVersion?: string;
   expectedChecksum?: string;
@@ -107,8 +114,10 @@ type WorkspacePackage = {
   files: Array<{ relativePath: string; bytes: Buffer }>;
 };
 
-type ExistingEditableSkill = {
+type ExistingSkillPackage = {
   skill: CanvasSkill;
+  sourceScope: AgentSkillSourceScope;
+  editable: boolean;
   installDir: string;
   skillPath: string;
   record?: CanvasSkillInstallRecord;
@@ -367,28 +376,61 @@ async function writeLocalSkillRecord(params: {
   return record;
 }
 
-async function getExistingEditableSkill(skillName: string, scope: CanvasSkillStorageScope): Promise<ExistingEditableSkill> {
+async function getExistingSkillPackage(
+  skillName: string,
+  scope: AgentSkillScope,
+  requestedSourceScope: AgentSkillSourceScope,
+): Promise<ExistingSkillPackage> {
   assertValidSkillName(skillName);
-  if (isCoreSkillName(skillName)) {
-    throw new Error(coreSkillInstallError(skillName));
+  const sourceScope = isCoreSkillName(skillName) ? 'core' : requestedSourceScope;
+
+  if (sourceScope === 'core') {
+    const skill = await loadCoreSkillByName(skillName);
+    if (!skill) {
+      throw new Error(`Core skill "${skillName}" is not available in the application bundle.`);
+    }
+    return {
+      skill,
+      sourceScope,
+      editable: false,
+      installDir: skill.directory,
+      skillPath: skill.path,
+      version: skill.version || 'bundled',
+      checksum: await computeCanvasPluginChecksum(skill.directory),
+    };
   }
 
-  const skill = await loadSkillByName(skillName, scope, { legacyFallback: false });
-  if (!skill) {
-    throw new Error(`Skill "${skillName}" is not installed as a personal skill.`);
-  }
-  if (skill.plugin) {
-    throw new Error(`Skill "${skillName}" is managed by plugin "${skill.plugin.name}" and cannot be edited directly. Create a personal fork instead.`);
+  const storageScope: CanvasSkillStorageScope = sourceScope === 'organization'
+    ? {
+        scopeType: 'organization',
+        organizationId: scope.organizationId || undefined,
+      }
+    : {
+        scopeType: 'user',
+        userId: scope.userId,
+        organizationId: scope.organizationId || undefined,
+      };
+  if (sourceScope === 'organization' && !scope.organizationId) {
+    throw new Error('An organization-bound agent session is required to inspect or fork an organization skill.');
   }
 
-  const registry = await readCanvasSkillRegistry(scope);
+  const registry = await readCanvasSkillRegistry(storageScope);
   const record = registry.skills[skillName];
+  const skill = record
+    ? await parseSkillFile(record.skillPath)
+    : await loadSkillByName(skillName, storageScope, { legacyFallback: false });
+  if (!skill) {
+    throw new Error(`Skill "${skillName}" is not installed in the ${sourceScope} scope.`);
+  }
+
   const installDir = record?.installDir || path.dirname(skill.path);
   const skillPath = requirePathInside(installDir, 'SKILL.md');
   const currentChecksum = await computeCanvasPluginChecksum(installDir);
   const version = skill.version || record?.version || 'local';
   return {
     skill,
+    sourceScope,
+    editable: sourceScope === 'personal' && !skill.plugin && record?.sourceType !== 'plugin',
     installDir,
     skillPath,
     record,
@@ -506,59 +548,69 @@ async function replaceSkillPackageAtomically(
 export async function inspectCanvasSkillForAgent(params: {
   skillName: string;
   scope: AgentSkillScope;
+  sourceScope?: AgentSkillSourceScope;
 }): Promise<AgentSkillInspection> {
-  const scope = { userId: params.scope.userId };
+  const scope = {
+    userId: params.scope.userId,
+    organizationId: params.scope.organizationId,
+  };
   const skillName = params.skillName.trim();
   assertValidSkillName(skillName);
-  await adoptLegacyStandaloneSkillsForScope(scope);
+  const sourceScope = isCoreSkillName(skillName) ? 'core' : (params.sourceScope || 'personal');
+  if (sourceScope === 'personal') {
+    await adoptLegacyStandaloneSkillsForScope({ userId: scope.userId });
+  }
 
-  if (isCoreSkillName(skillName)) {
-    const coreSkill = await loadCoreSkillByName(skillName);
+  let existing: ExistingSkillPackage;
+  try {
+    existing = await getExistingSkillPackage(skillName, scope, sourceScope);
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('is not installed')) {
+      return {
+        name: skillName,
+        scope: sourceScope,
+        editable: false,
+        forkable: false,
+        reason: error.message,
+        sourceType: 'missing',
+      };
+    }
+    throw error;
+  }
+
+  if (existing.sourceScope === 'core') {
     return {
       name: skillName,
+      scope: 'core',
       editable: false,
-      reason: coreSkill ? 'Core skills are bundled and cannot be edited directly. Create a personal fork instead.' : 'Core skill is missing from the application bundle.',
+      forkable: true,
+      reason: 'Core skills are bundled and cannot be edited directly. Create a personal fork with a different name instead.',
       sourceType: 'core',
-      version: coreSkill?.version,
-      skillPath: coreSkill?.path,
+      version: existing.version,
+      checksum: existing.checksum,
+      installDir: existing.installDir,
+      skillPath: existing.skillPath,
+      files: await listSkillFiles(existing.installDir),
     };
   }
-
-  const skill = await loadSkillByName(skillName, scope, { legacyFallback: false });
-  if (!skill) {
-    return {
-      name: skillName,
-      editable: false,
-      reason: 'Skill is not installed as a personal skill.',
-      sourceType: 'missing',
-    };
-  }
-  if (skill.plugin) {
-    return {
-      name: skillName,
-      editable: false,
-      reason: `Skill is managed by plugin "${skill.plugin.name}". Create a personal fork instead.`,
-      sourceType: 'plugin',
-      version: skill.version,
-      skillPath: skill.path,
-    };
-  }
-
-  const registry = await readCanvasSkillRegistry(scope);
-  const record = registry.skills[skillName];
-  const installDir = record?.installDir || path.dirname(skill.path);
-  const checksum = await computeCanvasPluginChecksum(installDir);
 
   return {
     name: skillName,
-    editable: true,
-    version: skill.version || record?.version || 'local',
-    checksum,
-    sourceType: record?.sourceType || 'standalone',
-    installDir,
-    skillPath: requirePathInside(installDir, 'SKILL.md'),
-    files: await listSkillFiles(installDir),
-    record,
+    scope: existing.sourceScope,
+    editable: existing.editable,
+    forkable: true,
+    reason: existing.editable
+      ? undefined
+      : existing.sourceScope === 'organization'
+        ? 'Organization skills are read-only. Create a personal fork with a different name instead.'
+        : `Skill is managed by plugin "${existing.skill.plugin?.name || existing.record?.sourcePluginName || 'unknown'}". Create a personal fork with a different name instead.`,
+    version: existing.version,
+    checksum: existing.checksum,
+    sourceType: existing.record?.sourceType || (existing.skill.plugin ? 'plugin' : 'standalone'),
+    installDir: existing.installDir,
+    skillPath: existing.skillPath,
+    files: await listSkillFiles(existing.installDir),
+    record: existing.record,
   };
 }
 
@@ -569,13 +621,17 @@ export async function createCanvasSkillDraft(params: {
   description?: string;
   version?: string;
   sourceSkillName?: string;
+  sourceScope?: AgentSkillSourceScope;
   draftId?: string;
   overwrite?: boolean;
 }): Promise<AgentSkillDraftResult> {
-  const scope = { userId: params.scope.userId };
+  const scope = {
+    userId: params.scope.userId,
+    organizationId: params.scope.organizationId,
+  };
   const skillName = params.skillName.trim();
   assertValidSkillName(skillName);
-  await adoptLegacyStandaloneSkillsForScope(scope);
+  await adoptLegacyStandaloneSkillsForScope({ userId: scope.userId });
 
   const id = normalizeDraftId(params.draftId);
   const root = draftRoot(path.resolve(params.workspaceRoot));
@@ -589,7 +645,13 @@ export async function createCanvasSkillDraft(params: {
   await fs.mkdir(path.dirname(packageRoot), { recursive: true });
 
   if (params.sourceSkillName) {
-    const source = await getExistingEditableSkill(params.sourceSkillName.trim(), scope);
+    const sourceSkillName = params.sourceSkillName.trim();
+    const sourceScope = isCoreSkillName(sourceSkillName) ? 'core' : (params.sourceScope || 'personal');
+    const source = await getExistingSkillPackage(sourceSkillName, scope, sourceScope);
+    const isFork = source.skill.name !== skillName || !source.editable;
+    if (!source.editable && source.skill.name === skillName) {
+      throw new Error(`${source.sourceScope === 'organization' ? 'Organization' : 'Managed'} skills are read-only. Use a different personal skill name for the fork.`);
+    }
     await assertPackageContainsNoSymlinks(source.installDir);
     await fs.cp(source.installDir, packageRoot, {
       recursive: true,
@@ -603,7 +665,9 @@ export async function createCanvasSkillDraft(params: {
       draftId: id,
       draftPath: workspaceRelativePath(params.workspaceRoot, path.dirname(packageRoot)),
       packagePath: workspaceRelativePath(params.workspaceRoot, packageRoot),
-      sourceSkillName: params.sourceSkillName.trim(),
+      sourceSkillName,
+      sourceScope: source.sourceScope,
+      forked: isFork,
       skillName,
       expectedVersion: source.version,
       expectedChecksum: source.checksum,
@@ -725,7 +789,10 @@ export async function updateCanvasSkillFromWorkspace(params: {
     throw new Error('expectedChecksum must be a SHA-256 hex digest.');
   }
 
-  const existing = await getExistingEditableSkill(skillName, scope);
+  const existing = await getExistingSkillPackage(skillName, params.scope, 'personal');
+  if (!existing.editable) {
+    throw new Error(`Skill "${skillName}" is managed and cannot be updated directly. Create a personal fork with a different name instead.`);
+  }
   if (existing.version !== expectedVersion) {
     throw new Error(`Skill version changed since inspection. Expected ${expectedVersion}, found ${existing.version}.`);
   }

@@ -49,7 +49,11 @@ async function main() {
       installCanvasSkillFromWorkspace,
       updateCanvasSkillFromWorkspace,
     } = await import('../app/lib/skills/agent-skill-workspace');
-    const { readCanvasSkillRegistry } = await import('../app/lib/skills/canvas-skill-store');
+    const {
+      readCanvasSkillRegistry,
+      writeCanvasSkillRegistry,
+    } = await import('../app/lib/skills/canvas-skill-store');
+    const { computeCanvasPluginChecksum } = await import('../app/lib/plugins/canvas-plugin-registry');
 
     const scope = { userId: 'agent-skill-user' };
     const createdDraft = await createCanvasSkillDraft({
@@ -168,6 +172,97 @@ async function main() {
     assert.equal(
       (await inspectCanvasSkillForAgent({ scope, skillName: 'agent-draft-skill' })).checksum,
       sourceBeforeFork.checksum,
+    );
+
+    const organizationId = 'agent-skill-organization';
+    const organizationScope = { scopeType: 'organization' as const, organizationId };
+    const organizationSkillDir = path.join(
+      dataRoot,
+      'organizations',
+      organizationId,
+      'skills',
+      'installed',
+      'organization-writing',
+      '2.0.0',
+    );
+    await fs.mkdir(path.join(organizationSkillDir, 'agents'), { recursive: true });
+    await fs.writeFile(
+      path.join(organizationSkillDir, 'SKILL.md'),
+      [
+        '---',
+        'name: organization-writing',
+        'description: Organization-owned writing instructions.',
+        '---',
+        '',
+        '# Organization Writing',
+        '',
+      ].join('\n'),
+      'utf-8',
+    );
+    await fs.writeFile(
+      path.join(organizationSkillDir, 'agents', 'canvas.yaml'),
+      'skill:\n  version: "2.0.0"\n',
+      'utf-8',
+    );
+    const organizationChecksum = await computeCanvasPluginChecksum(organizationSkillDir);
+    await writeCanvasSkillRegistry({
+      version: 1,
+      updatedAt: new Date().toISOString(),
+      skills: {
+        'organization-writing': {
+          name: 'organization-writing',
+          version: '2.0.0',
+          description: 'Organization-owned writing instructions.',
+          sourceType: 'local',
+          sourcePath: 'admin-upload:test',
+          installedAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString(),
+          checksum: organizationChecksum,
+          installDir: organizationSkillDir,
+          skillPath: path.join(organizationSkillDir, 'SKILL.md'),
+        },
+      },
+    }, organizationScope);
+
+    const organizationAgentScope = { userId: scope.userId, organizationId };
+    const organizationInspection = await inspectCanvasSkillForAgent({
+      scope: organizationAgentScope,
+      sourceScope: 'organization',
+      skillName: 'organization-writing',
+    });
+    assert.equal(organizationInspection.scope, 'organization');
+    assert.equal(organizationInspection.editable, false);
+    assert.equal(organizationInspection.forkable, true);
+    assert.equal(organizationInspection.version, '2.0.0');
+    await assert.rejects(
+      createCanvasSkillDraft({
+        workspaceRoot,
+        scope: organizationAgentScope,
+        skillName: 'organization-writing',
+        sourceSkillName: 'organization-writing',
+        sourceScope: 'organization',
+      }),
+      /Organization skills are read-only/,
+    );
+    const organizationForkDraft = await createCanvasSkillDraft({
+      workspaceRoot,
+      scope: organizationAgentScope,
+      skillName: 'personal-organization-writing',
+      sourceSkillName: 'organization-writing',
+      sourceScope: 'organization',
+    });
+    assert.equal(organizationForkDraft.forked, true);
+    assert.equal(organizationForkDraft.sourceScope, 'organization');
+    const organizationForkInstall = await installCanvasSkillFromWorkspace({
+      workspaceRoot,
+      scope: organizationAgentScope,
+      draftPath: organizationForkDraft.packagePath,
+      updatedBy: scope.userId,
+    });
+    assert.equal(organizationForkInstall.name, 'personal-organization-writing');
+    assert.equal(
+      (await readCanvasSkillRegistry(organizationScope)).skills['organization-writing'].checksum,
+      organizationChecksum,
     );
 
     const secretDraft = await createCanvasSkillDraft({
