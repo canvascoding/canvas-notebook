@@ -9,6 +9,11 @@ export const MANAGED_AGENT_FILE_LIMIT_BYTES = {
 
 export const MAX_MANAGED_SYSTEM_PROMPT_BYTES = 16_384;
 
+// This applies after fixed Canvas guidance, managed files, skills, and optional
+// runtime guidance have been combined. Individual managed-file budgets alone
+// cannot stop those other sources from exhausting a model's first-turn context.
+export const MAX_COMPOSED_SYSTEM_PROMPT_BYTES = 24_576;
+
 export const MANAGED_SYSTEM_PROMPT_FILE_BUDGET_BYTES = {
   'AGENTS.md': 4_096,
   'USER.md': 2_048,

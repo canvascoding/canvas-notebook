@@ -1,5 +1,6 @@
 import { CANVAS_BASE_SYSTEM_PROMPT, CANVAS_BASE_TOOL_GUIDANCE } from './base-system-prompt';
 import {
+  MAX_COMPOSED_SYSTEM_PROMPT_BYTES,
   MANAGED_SYSTEM_PROMPT_FILE_BUDGET_BYTES,
   MAX_MANAGED_SYSTEM_PROMPT_BYTES,
   truncateUtf8ToBytes,
@@ -83,6 +84,10 @@ export type ManagedPromptSource = {
   scope?: AgentStorageScope | null;
 };
 
+export function truncateComposedSystemPrompt(systemPrompt: string): string {
+  return truncateUtf8ToBytes(systemPrompt, MAX_COMPOSED_SYSTEM_PROMPT_BYTES);
+}
+
 export function composeManagedAgentSystemPrompt(
   files: ManagedPromptFiles,
   skillsContext?: string,
@@ -113,7 +118,9 @@ export function composeManagedAgentSystemPrompt(
     const fileAccessBlock = `\n\n${FILE_ACCESS_GUIDANCE}`;
 
     return {
-      systemPrompt: `${fixedSystemBlocks.join('\n\n')}${skillsBlock}${fileAccessBlock}`.trim(),
+      systemPrompt: truncateComposedSystemPrompt(
+        `${fixedSystemBlocks.join('\n\n')}${skillsBlock}${fileAccessBlock}`.trim(),
+      ),
       diagnostics: {
         loadedFiles: [...MANAGED_PROMPT_FILE_NAMES],
         includedFiles: [],
@@ -134,7 +141,9 @@ export function composeManagedAgentSystemPrompt(
   const fileAccessBlock = `\n\n${FILE_ACCESS_GUIDANCE}`;
 
   return {
-    systemPrompt: [...fixedSystemBlocks, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileAccessBlock,
+    systemPrompt: truncateComposedSystemPrompt(
+      [...fixedSystemBlocks, MANAGED_FILES_INTRO, ...sectionBlocks].join('\n\n') + skillsBlock + fileAccessBlock,
+    ),
     diagnostics: {
       loadedFiles: [...MANAGED_PROMPT_FILE_NAMES],
       includedFiles: includedSections.map((section) => section.fileName),

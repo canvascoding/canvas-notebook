@@ -14,6 +14,7 @@ import { resolveAgentRuntimeSettings } from './effective-runtime-config';
 import {
   composeManagedAgentSystemPrompt,
   MANAGED_PROMPT_FILE_NAMES,
+  truncateComposedSystemPrompt,
   type ManagedPromptFiles,
   type ManagedSystemPromptResult,
 } from './system-prompt-shared';
@@ -435,7 +436,7 @@ export async function loadManagedAgentSystemPrompt(
       console.warn('[system-prompt] Failed to add optional connection guidance:', error);
     }
     
-    return { ...result, systemPrompt };
+    return { ...result, systemPrompt: truncateComposedSystemPrompt(systemPrompt) };
   } catch (error) {
     console.error('[system-prompt] Failed to load managed agent system prompt:', error);
     return buildReadFailedFallbackSystemPrompt();

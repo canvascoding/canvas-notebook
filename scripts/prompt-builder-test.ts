@@ -6,6 +6,7 @@ import {
 import type { ManagedPromptFiles } from '../app/lib/agents/system-prompt-shared';
 import type { CanvasSkill } from '../app/lib/skills/canvas-skill-manifest';
 import { getSkillsContext } from '../app/lib/skills/skill-context';
+import { MAX_COMPOSED_SYSTEM_PROMPT_BYTES } from '../app/lib/agents/managed-file-limits';
 
 function createFiles(overrides: Partial<ManagedPromptFiles> = {}): ManagedPromptFiles {
   return {
@@ -56,6 +57,13 @@ const oversized = composeManagedAgentSystemPrompt(createFiles({
 assert.deepEqual(oversized.diagnostics.truncatedFiles, ['AGENTS.md']);
 assert.match(oversized.systemPrompt, /Content truncated to keep the runtime context within its safety budget\./);
 assert.match(oversized.systemPrompt, /This content must not be silently dropped\./);
+
+const composedOverflow = composeManagedAgentSystemPrompt(
+  createFiles(),
+  `# Enabled Skills\n\n${'Large optional skill description. '.repeat(2_000)}`,
+);
+assert.ok(Buffer.byteLength(composedOverflow.systemPrompt, 'utf8') <= MAX_COMPOSED_SYSTEM_PROMPT_BYTES);
+assert.match(composedOverflow.systemPrompt, /Content truncated to keep the runtime context within its safety budget\./);
 
 const skills: CanvasSkill[] = [
   {
