@@ -104,6 +104,7 @@ assert.equal(hasObsidianRichEditorUnsupportedSyntax('Normal **GFM** with `$code`
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('A `code` span and\n\n```ts\nconst x = 1\n```'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('See [[Note]].'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Use ==highlight==.'), true);
+assert.equal(hasObsidianRichEditorUnsupportedSyntax('Claim.^[Inline note]'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Visible %% hidden %% text.'), true);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Paragraph ^block-id'), true);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('> [!note] Callout'), true);

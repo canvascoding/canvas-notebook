@@ -9,6 +9,11 @@ import {
 } from '@/app/lib/markdown/canvas-markdown';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
+import { WorkspaceMarkdownEmbed } from '@/app/components/shared/WorkspaceMarkdownEmbed';
+import {
+  ObsidianCallout,
+  ObsidianInlineFootnote,
+} from '@/app/components/shared/ObsidianMarkdownElements';
 import { getWorkspaceMarkdownLinkTarget } from '@/app/lib/markdown/obsidian-link-resolver';
 import { cn } from '@/lib/utils';
 
@@ -16,6 +21,7 @@ interface MarkdownRendererProps {
   content: string;
   variant?: 'default' | 'muted';
   className?: string;
+  embedAncestorPaths?: string[];
   sourcePath?: string;
 }
 
@@ -38,8 +44,10 @@ export function MarkdownRenderer({
   content,
   variant = 'default',
   className,
+  embedAncestorPaths,
   sourcePath,
 }: MarkdownRendererProps) {
+  const ancestorPaths = embedAncestorPaths ?? (sourcePath ? [sourcePath] : []);
   const extractColorCode = (props: Record<string, unknown>): string | null => {
     const colorCode =
       props['data-color-code'] ?? props.dataColorCode ?? props.datacolorcode;
@@ -66,9 +74,30 @@ export function MarkdownRenderer({
       children?: React.ReactNode;
       'data-canvas-wiki-embed'?: string;
       'data-canvas-wiki-target'?: string;
+      'data-canvas-wiki-transclude'?: string;
     }) => {
       const wikiTarget = props['data-canvas-wiki-target'];
       if (wikiTarget) {
+        if (
+          props['data-canvas-wiki-embed'] === 'true'
+          && props['data-canvas-wiki-transclude'] === 'true'
+        ) {
+          return (
+            <WorkspaceMarkdownEmbed
+              target={wikiTarget}
+              sourcePath={sourcePath}
+              ancestorPaths={ancestorPaths}
+              renderContent={(nestedContent, nestedSourcePath, nestedAncestors) => (
+                <MarkdownRenderer
+                  content={nestedContent}
+                  sourcePath={nestedSourcePath}
+                  embedAncestorPaths={nestedAncestors}
+                  className="text-sm"
+                />
+              )}
+            />
+          );
+        }
         return (
           <ObsidianWikiLink
             target={wikiTarget}
@@ -110,6 +139,48 @@ export function MarkdownRenderer({
           imageClassName="my-2 max-h-[320px] w-auto max-w-full rounded-lg object-contain"
         />
       );
+    },
+    blockquote: ({
+      children,
+      className: blockquoteClassName,
+      node: _node,
+      ...props
+    }: React.BlockquoteHTMLAttributes<HTMLQuoteElement> & {
+      'data-callout'?: string;
+      'data-callout-fold'?: string;
+      'data-callout-title'?: string;
+      node?: unknown;
+    }) => {
+      const calloutType = props['data-callout'];
+      if (typeof calloutType === 'string') {
+        return (
+          <ObsidianCallout
+            type={calloutType}
+            title={typeof props['data-callout-title'] === 'string' ? props['data-callout-title'] : undefined}
+            fold={typeof props['data-callout-fold'] === 'string' ? props['data-callout-fold'] : undefined}
+            className={blockquoteClassName}
+          >
+            {children}
+          </ObsidianCallout>
+        );
+      }
+      return <blockquote className={blockquoteClassName}>{children}</blockquote>;
+    },
+    sup: ({
+      children,
+      node: _node,
+      ...props
+    }: React.HTMLAttributes<HTMLElement> & {
+      'data-inline-footnote'?: string;
+      'data-inline-footnote-index'?: string;
+      node?: unknown;
+    }) => {
+      const content = props['data-inline-footnote'];
+      const index = props['data-inline-footnote-index'];
+      if (typeof content === 'string') {
+        return <ObsidianInlineFootnote content={content} index={typeof index === 'string' ? index : 1} />;
+      }
+      return <sup>{children}</sup>;
     },
     code: ({
       className: codeClassName,

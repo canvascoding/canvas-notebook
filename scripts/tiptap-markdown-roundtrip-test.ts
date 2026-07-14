@@ -103,7 +103,7 @@ const sampleMarkdown = `# Title
 
 Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](https://example.com). ![Link preview: example.com](https://cdn.example.com/og.png)
 
-Workspace links [[Plan#Outcome|the plan]] and ![[Embed]].
+Workspace links [[Plan#Outcome|the plan]] and ![[Embed]], with a note.^[Inline source]
 
 Inline math $E = mc^2$ remains in the paragraph.
 
@@ -167,6 +167,7 @@ async function main() {
   const { TaskItem } = await import('@tiptap/extension-task-item');
   const { TableKit } = await import('@tiptap/extension-table');
   const { createObsidianWikiLinkExtensions } = await import('../app/components/editor/ObsidianWikiLinkExtension');
+  const { ObsidianInlineFootnoteExtension } = await import('../app/components/editor/ObsidianInlineFootnoteExtension');
 
   const editor = new Editor({
     content: sampleMarkdown,
@@ -196,6 +197,7 @@ async function main() {
         labels: { empty: 'No match', group: 'Workspace links' },
         workspaceId: null,
       }),
+      ObsidianInlineFootnoteExtension,
       Markdown.configure({
         markedOptions: {
           gfm: true,
@@ -218,6 +220,7 @@ async function main() {
   assert.match(output, /\[link\]\(https:\/\/example\.com\)/);
   assert.match(output, /\[\[Plan#Outcome\|the plan\]\]/);
   assert.match(output, /!\[\[Embed\]\]/);
+  assert.match(output, /\^\[Inline source\]/);
   assert.match(output, /Inline math \$E = mc\^2\$/);
   assert.ok(output.includes(String.raw`$$
 \int_0^1 x^2 \, dx = \frac{1}{3}
@@ -248,6 +251,7 @@ $$`));
     2,
     'wiki links and embeds should parse into rich-editor nodes',
   );
+  assert.ok(nodeTypes.includes('obsidianInlineFootnote'), 'inline footnotes should parse into rich-editor nodes');
   assert.ok(nodeTypes.includes('inlineMath'), 'inline LaTeX should parse as an editable math node');
   assert.ok(nodeTypes.includes('blockMath'), 'display LaTeX should parse as an editable math node');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');

@@ -58,6 +58,7 @@ assert.match(obsidianMarkdown, /class="canvas-wiki-link"/);
 assert.match(obsidianMarkdown, /<mark class="canvas-markdown-highlight">important text<\/mark>/);
 assert.match(obsidianMarkdown, /data-callout="warning"/);
 assert.match(obsidianMarkdown, /data-callout-fold="-"/);
+assert.match(obsidianMarkdown, /data-callout-title="Check this"/);
 assert.match(obsidianMarkdown, /id="block-decision-1"/);
 assert.doesNotMatch(obsidianMarkdown, /\^decision-1/);
 
@@ -65,5 +66,13 @@ const escapedObsidianMarkdown = renderMarkdown(String.raw`\[[Literal]] and \![[E
 assert.match(escapedObsidianMarkdown, /\[\[Literal\]\]/);
 assert.match(escapedObsidianMarkdown, /!\[\[Embed\]\]/);
 assert.doesNotMatch(escapedObsidianMarkdown, /data-canvas-wiki-target/);
+
+const inlineFootnoteMarkdown = renderMarkdown('Claim.^[Inline source note]');
+assert.match(inlineFootnoteMarkdown, /data-inline-footnote="Inline source note"/);
+assert.match(inlineFootnoteMarkdown, /data-inline-footnote-index="1"/);
+
+const standaloneEmbedMarkdown = renderMarkdown('![[Plan#Outcome]]');
+assert.match(standaloneEmbedMarkdown, /data-canvas-wiki-transclude="true"/);
+assert.match(standaloneEmbedMarkdown, /canvas-wiki-embed-container/);
 
 console.log('canvas-markdown-rendering-test: ok');

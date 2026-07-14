@@ -16,6 +16,7 @@ type NodeWithData = MarkdownNode & {
 
 type TransformState = {
   inComment: boolean;
+  inlineFootnoteIndex: number;
 };
 
 function textNode(value: string): Text {
@@ -56,6 +57,20 @@ function highlightNode(value: string): PhrasingContent {
   };
 }
 
+function inlineFootnoteNode(value: string, index: number): PhrasingContent {
+  return {
+    type: 'emphasis',
+    children: [textNode(value)],
+    data: {
+      hName: 'sup',
+      hProperties: {
+        'data-inline-footnote': value,
+        'data-inline-footnote-index': String(index),
+      },
+    },
+  };
+}
+
 function findEscapedWikiStarts(value: string, sourceValue: string): Set<number> {
   const starts = new Set<number>();
   let sourceIndex = 0;
@@ -67,7 +82,11 @@ function findEscapedWikiStarts(value: string, sourceValue: string): Set<number> 
       && sourceValue[sourceIndex + 1] === value[valueIndex]
     ) {
       const escapedValue = sourceValue.slice(sourceIndex + 1);
-      if (escapedValue.startsWith('[[') || escapedValue.startsWith('![[')) {
+      if (
+        escapedValue.startsWith('[[')
+        || escapedValue.startsWith('![[')
+        || escapedValue.startsWith('^[')
+      ) {
         starts.add(valueIndex);
       }
       sourceIndex += 1;
@@ -150,6 +169,24 @@ function transformText(
       }
     }
 
+    if (value.startsWith('^[', index)) {
+      let footnoteEnd = index + 2;
+      while (footnoteEnd < value.length) {
+        if (value[footnoteEnd] === ']' && value[footnoteEnd - 1] !== '\\') break;
+        footnoteEnd += 1;
+      }
+      if (footnoteEnd < value.length && footnoteEnd > index + 2) {
+        flushPlainText();
+        state.inlineFootnoteIndex += 1;
+        result.push(inlineFootnoteNode(
+          value.slice(index + 2, footnoteEnd).replace(/\\\]/gu, ']'),
+          state.inlineFootnoteIndex,
+        ));
+        index = footnoteEnd + 1;
+        continue;
+      }
+    }
+
     plainText += value[index];
     index += 1;
   }
@@ -180,12 +217,30 @@ function transformCallout(node: Blockquote): void {
 
   const type = match[1].toLowerCase();
   const title = match[3]?.trim() || type[0].toUpperCase() + type.slice(1);
-  firstInline.value = `${title}${firstInline.value.slice(match[0].length)}`;
+  firstInline.value = firstInline.value.slice(match[0].length).trimStart();
+  if (!firstInline.value) firstBlock.children.shift();
+  if (firstBlock.children.length === 0) node.children.shift();
   setNodeProperties(node, {
     className: ['canvas-callout', `canvas-callout-${type}`],
     'data-callout': type,
     'data-callout-fold': match[2] || undefined,
+    'data-callout-title': title,
   });
+}
+
+function markStandaloneEmbed(node: Parent & NodeWithData): void {
+  if (node.type !== 'paragraph' || node.children.length !== 1) return;
+  const child = node.children[0] as NodeWithData;
+  if (child.type !== 'link' || child.data?.hProperties?.['data-canvas-wiki-embed'] !== 'true') return;
+  setNodeProperties(child, { 'data-canvas-wiki-transclude': 'true' });
+  node.data = {
+    ...node.data,
+    hName: 'div',
+    hProperties: {
+      ...node.data?.hProperties,
+      className: ['canvas-wiki-embed-container'],
+    },
+  };
 }
 
 function transformBlockId(node: Parent & NodeWithData): void {
@@ -235,6 +290,7 @@ function transformChildren(parent: Parent, state: TransformState, source: string
       if (child.type === 'blockquote') transformCallout(child);
       if (child.type === 'paragraph' || child.type === 'heading') transformBlockId(child);
       transformChildren(child, state, source);
+      markStandaloneEmbed(child);
 
       if (child.children.length > 0 || child.type === 'paragraph') {
         transformed.push(child);
@@ -250,6 +306,10 @@ function transformChildren(parent: Parent, state: TransformState, source: string
 
 export function remarkObsidianFlavoredMarkdown() {
   return (tree: Root, file: { value?: unknown }) => {
-    transformChildren(tree, { inComment: false }, typeof file.value === 'string' ? file.value : '');
+    transformChildren(
+      tree,
+      { inComment: false, inlineFootnoteIndex: 0 },
+      typeof file.value === 'string' ? file.value : '',
+    );
   };
 }

@@ -1,4 +1,10 @@
-import { readApiError, readApiJson, workspaceHeaders, withWorkspaceQuery } from '@/app/lib/files/client';
+import {
+  readApiError,
+  readApiJson,
+  readWorkspaceFile,
+  workspaceHeaders,
+  withWorkspaceQuery,
+} from '@/app/lib/files/client';
 
 import {
   getObsidianWikiCompletionInsertPath,
@@ -22,6 +28,11 @@ type LinkIndexCacheEntry = {
   value?: WorkspaceLinkIndex;
 };
 
+type MarkdownEmbedCacheEntry = {
+  expiresAt: number;
+  promise: Promise<WorkspaceMarkdownEmbedDocument>;
+};
+
 export type WorkspaceLinkIndexInvalidation = {
   workspaceId: string | null;
 };
@@ -33,7 +44,13 @@ export type WorkspaceWikiCompletionItem = {
   target: string;
 };
 
+export type WorkspaceMarkdownEmbedDocument = {
+  content: string;
+  path: string;
+};
+
 const linkIndexCache = new Map<string, LinkIndexCacheEntry>();
+const markdownEmbedCache = new Map<string, MarkdownEmbedCacheEntry>();
 const invalidationListeners = new Set<(event: WorkspaceLinkIndexInvalidation) => void>();
 
 function normalizeWorkspaceId(workspaceId: string): string {
@@ -57,10 +74,53 @@ export function invalidateWorkspaceLinkIndexCache(workspaceId?: string | null): 
   const normalizedWorkspaceId = workspaceId?.trim() || null;
   if (normalizedWorkspaceId) {
     linkIndexCache.delete(normalizedWorkspaceId);
+    for (const key of markdownEmbedCache.keys()) {
+      if (key.startsWith(`${normalizedWorkspaceId}\0`)) markdownEmbedCache.delete(key);
+    }
   } else {
     linkIndexCache.clear();
+    markdownEmbedCache.clear();
   }
   notifyInvalidation(normalizedWorkspaceId);
+}
+
+export async function loadWorkspaceMarkdownEmbed(
+  workspaceId: string,
+  rawTarget: string,
+  sourcePath?: string | null,
+): Promise<WorkspaceMarkdownEmbedDocument> {
+  const normalizedWorkspaceId = normalizeWorkspaceId(workspaceId);
+  const cacheKey = `${normalizedWorkspaceId}\0${sourcePath ?? ''}\0${rawTarget}`;
+  const now = Date.now();
+  const cached = markdownEmbedCache.get(cacheKey);
+  if (cached && cached.expiresAt > now) return cached.promise;
+
+  const promise = loadWorkspaceLinkIndex(normalizedWorkspaceId)
+    .then(async (index) => {
+      const resolution = resolveWorkspaceLinkFromIndex(rawTarget, index, sourcePath);
+      if (resolution?.status !== 'resolved' || !resolution.path) {
+        throw new Error(resolution?.status === 'ambiguous'
+          ? `Ambiguous document link: ${resolution.candidates.join(', ')}`
+          : `Document not found: ${rawTarget}`);
+      }
+      const file = await readWorkspaceFile(resolution.path, {
+        fallbackMessage: 'Failed to load embedded document',
+        workspaceId: normalizedWorkspaceId,
+      });
+      return { content: file.content, path: resolution.path };
+    })
+    .catch((error) => {
+      markdownEmbedCache.delete(cacheKey);
+      if (error instanceof Response) {
+        throw new Error(`Embedded document could not be loaded (${error.status})`);
+      }
+      throw error;
+    });
+  markdownEmbedCache.set(cacheKey, {
+    expiresAt: now + LINK_INDEX_CACHE_TTL_MS,
+    promise,
+  });
+  return promise;
 }
 
 export async function loadWorkspaceLinkIndex(

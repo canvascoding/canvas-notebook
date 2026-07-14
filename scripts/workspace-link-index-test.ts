@@ -11,6 +11,7 @@ import {
   loadWorkspaceLinkIndex,
   resolveWorkspaceLinkFromIndex,
 } from '../app/lib/markdown/workspace-link-index-client';
+import { selectObsidianEmbedContent } from '../app/lib/markdown/obsidian-embed';
 
 const overview = `---
 title: Project overview
@@ -97,6 +98,14 @@ assert.deepEqual(getWorkspaceWikiCompletionItems(index, {
   kind: 'block',
   pathQuery: 'Plan',
 }, 'Projects/Overview.md').map((item) => item.target), ['Projects/Plan#^result']);
+assert.equal(
+  selectObsidianEmbedContent('# Plan\n\n## Outcome\n\nDone. ^result\n\n## Next\n\nLater.', 'Plan#Outcome'),
+  '## Outcome\n\nDone. ^result',
+);
+assert.equal(
+  selectObsidianEmbedContent('# Plan\n\nDecision text ^result\n\nNext paragraph.', 'Plan#^result'),
+  'Decision text',
+);
 
 async function testWorkspaceLinkIndexClient(): Promise<void> {
   const originalFetch = globalThis.fetch;

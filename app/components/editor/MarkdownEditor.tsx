@@ -127,6 +127,7 @@ import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditor';
 import { createObsidianWikiLinkExtensions } from './ObsidianWikiLinkExtension';
+import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
 
 interface MarkdownEditorProps {
   value: string;
@@ -1669,6 +1670,7 @@ function createEditorExtensions(
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
     ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
+    ObsidianInlineFootnoteExtension,
     Markdown.configure({
       markedOptions: {
         gfm: true,

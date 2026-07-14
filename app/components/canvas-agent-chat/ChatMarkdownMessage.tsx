@@ -30,6 +30,11 @@ import { cn } from '@/lib/utils';
 import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/useOpenChatFileReference';
 import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
+import { WorkspaceMarkdownEmbed } from '@/app/components/shared/WorkspaceMarkdownEmbed';
+import {
+  ObsidianCallout,
+  ObsidianInlineFootnote,
+} from '@/app/components/shared/ObsidianMarkdownElements';
 
 const CodeBlockContext = React.createContext(false);
 
@@ -470,15 +475,20 @@ function MarkdownCode({
 
 export const MarkdownMessage = React.memo(function MarkdownMessage({
   content,
+  embedAncestorPaths,
+  sourcePath,
   variant,
   onMediaClick,
 }: {
   content: string;
+  embedAncestorPaths?: string[];
+  sourcePath?: string;
   variant: 'user' | 'assistant' | 'tool';
   onMediaClick?: (mediaUrl: string) => void;
 }) {
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const openFileReference = useOpenChatFileReference();
+  const ancestorPaths = embedAncestorPaths ?? (sourcePath ? [sourcePath] : []);
   const sharedClasses =
     'min-w-0 max-w-full break-words text-sm leading-relaxed [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
   const toneClasses =
@@ -520,12 +530,35 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
       children?: React.ReactNode;
       'data-canvas-wiki-embed'?: string;
       'data-canvas-wiki-target'?: string;
+      'data-canvas-wiki-transclude'?: string;
     }) => {
       const wikiTarget = props['data-canvas-wiki-target'];
       if (wikiTarget) {
+        if (
+          props['data-canvas-wiki-embed'] === 'true'
+          && props['data-canvas-wiki-transclude'] === 'true'
+        ) {
+          return (
+            <WorkspaceMarkdownEmbed
+              target={wikiTarget}
+              sourcePath={sourcePath}
+              ancestorPaths={ancestorPaths}
+              renderContent={(nestedContent, nestedSourcePath, nestedAncestors) => (
+                <MarkdownMessage
+                  content={nestedContent}
+                  sourcePath={nestedSourcePath}
+                  embedAncestorPaths={nestedAncestors}
+                  variant={variant}
+                  onMediaClick={onMediaClick}
+                />
+              )}
+            />
+          );
+        }
         return (
           <ObsidianWikiLink
             target={wikiTarget}
+            sourcePath={sourcePath}
             embed={props['data-canvas-wiki-embed'] === 'true'}
             onOpenFile={openFileReference}
           >
@@ -546,6 +579,53 @@ export const MarkdownMessage = React.memo(function MarkdownMessage({
           {children}
         </a>
       );
+    },
+    blockquote: ({
+      children,
+      className,
+      node: _node,
+      ...props
+    }: React.BlockquoteHTMLAttributes<HTMLQuoteElement> & {
+      'data-callout'?: string;
+      'data-callout-fold'?: string;
+      'data-callout-title'?: string;
+      node?: unknown;
+    }) => {
+      const calloutType = props['data-callout'];
+      if (typeof calloutType === 'string') {
+        return (
+          <ObsidianCallout
+            type={calloutType}
+            title={typeof props['data-callout-title'] === 'string' ? props['data-callout-title'] : undefined}
+            fold={typeof props['data-callout-fold'] === 'string' ? props['data-callout-fold'] : undefined}
+            className={className}
+          >
+            {children}
+          </ObsidianCallout>
+        );
+      }
+      return <blockquote className={className}>{children}</blockquote>;
+    },
+    sup: ({
+      children,
+      node: _node,
+      ...props
+    }: React.HTMLAttributes<HTMLElement> & {
+      'data-inline-footnote'?: string;
+      'data-inline-footnote-index'?: string;
+      node?: unknown;
+    }) => {
+      const footnoteContent = props['data-inline-footnote'];
+      const footnoteIndex = props['data-inline-footnote-index'];
+      if (typeof footnoteContent === 'string') {
+        return (
+          <ObsidianInlineFootnote
+            content={footnoteContent}
+            index={typeof footnoteIndex === 'string' ? footnoteIndex : 1}
+          />
+        );
+      }
+      return <sup>{children}</sup>;
     },
     table: ({ children }: React.TableHTMLAttributes<HTMLTableElement>) => (
       <div className={`my-3 max-w-full overflow-x-auto rounded-md border ${tableBorderClasses}`}>

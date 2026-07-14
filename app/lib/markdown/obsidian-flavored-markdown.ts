@@ -255,7 +255,6 @@ export function hasObsidianRichEditorUnsupportedSyntax(markdown: string): boolea
   return (
     hasComment ||
     /==[^=\r\n]+==/.test(mask) ||
-    /(?:^|\s)\^\[[^\]\r\n]+\]/m.test(mask) ||
     /\[\^[^\]\r\n]+\]/.test(mask) ||
     /^\[\^[^\]\r\n]+\]:/m.test(mask)
   );
