@@ -39,7 +39,7 @@ async function main() {
 
     const initialized = await initializeUserOnboarding('user-a');
     assert.equal(initialized.step, 'language');
-    assert.equal(initialized.runtime, 'pending');
+    assert.equal(initialized.runtime, 'skipped');
     assert.equal(initialized.profile, 'pending');
     assert.equal(initialized.tour, 'pending');
 
@@ -49,10 +49,9 @@ async function main() {
     assert.equal(afterLanguage.profile, 'pending');
     assert.equal((await getUserPreferences('user-a')).locale, 'en');
 
-    const afterRuntime = await updateUserOnboardingState('user-a', { step: 'runtime' });
-    assert.equal(afterRuntime.runtime, 'pending');
-    const afterRuntimeSelection = await updateUserOnboardingState('user-a', { runtime: 'completed', step: 'profile' });
-    assert.equal(afterRuntimeSelection.runtime, 'completed');
+    const afterWorkspace = await updateUserOnboardingState('user-a', { step: 'profile' });
+    assert.equal(afterWorkspace.step, 'profile');
+    assert.equal(afterWorkspace.runtime, 'skipped');
 
     const afterProfile = await updateUserOnboardingState('user-a', { profile: 'completed', step: 'tour' });
     assert.equal(afterProfile.profile, 'completed');
@@ -95,15 +94,29 @@ async function main() {
             updatedAt: '2026-01-01T00:00:00.000Z',
           },
         },
+        'legacy-runtime': {
+          onboarding: {
+            version: 3,
+            step: 'runtime',
+            runtime: 'pending',
+            profile: 'pending',
+            tour: 'pending',
+            updatedAt: '2026-01-01T00:00:00.000Z',
+          },
+        },
       },
     }), 'utf8');
     const migratedProfile = await getUserOnboardingState('legacy-profile');
-    assert.equal(migratedProfile.version, 3);
-    assert.equal(migratedProfile.step, 'runtime');
-    assert.equal(migratedProfile.runtime, 'pending');
+    assert.equal(migratedProfile.version, 4);
+    assert.equal(migratedProfile.step, 'profile');
+    assert.equal(migratedProfile.runtime, 'skipped');
     const migratedComplete = await getUserOnboardingState('legacy-complete');
     assert.equal(migratedComplete.step, 'complete');
     assert.equal(migratedComplete.runtime, 'skipped');
+    const migratedRuntime = await getUserOnboardingState('legacy-runtime');
+    assert.equal(migratedRuntime.version, 4);
+    assert.equal(migratedRuntime.step, 'profile');
+    assert.equal(migratedRuntime.runtime, 'skipped');
 
     console.log('onboarding-preferences-test: ok');
   } finally {

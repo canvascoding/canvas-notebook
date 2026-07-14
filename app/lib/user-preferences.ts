@@ -11,13 +11,13 @@ const SUPPORTED_LOCALES = routing.locales as readonly string[];
 
 export type UserLocale = typeof routing.locales[number];
 
-export type UserOnboardingStep = 'language' | 'workspace' | 'runtime' | 'profile' | 'tour' | 'complete';
+export type UserOnboardingStep = 'language' | 'workspace' | 'profile' | 'tour' | 'complete';
 export type UserOnboardingRuntimeStatus = 'pending' | 'completed' | 'skipped';
 export type UserOnboardingProfileStatus = 'pending' | 'completed' | 'skipped';
 export type UserOnboardingTourStatus = 'pending' | 'started' | 'skipped' | 'completed';
 
 export type UserOnboardingState = {
-  version: 3;
+  version: 4;
   step: UserOnboardingStep;
   runtime: UserOnboardingRuntimeStatus;
   profile: UserOnboardingProfileStatus;
@@ -25,16 +25,16 @@ export type UserOnboardingState = {
   updatedAt: string;
 };
 
-const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'runtime', 'profile', 'tour', 'complete']);
+const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'profile', 'tour', 'complete']);
 const USER_ONBOARDING_RUNTIME_STATUSES = new Set<UserOnboardingRuntimeStatus>(['pending', 'completed', 'skipped']);
 const USER_ONBOARDING_PROFILE_STATUSES = new Set<UserOnboardingProfileStatus>(['pending', 'completed', 'skipped']);
 const USER_ONBOARDING_TOUR_STATUSES = new Set<UserOnboardingTourStatus>(['pending', 'started', 'skipped', 'completed']);
 
 export function createDefaultUserOnboardingState(): UserOnboardingState {
   return {
-    version: 3,
+    version: 4,
     step: 'language',
-    runtime: 'pending',
+    runtime: 'skipped',
     profile: 'pending',
     tour: 'pending',
     updatedAt: new Date().toISOString(),
@@ -43,7 +43,7 @@ export function createDefaultUserOnboardingState(): UserOnboardingState {
 
 export function createCompletedUserOnboardingState(): UserOnboardingState {
   return {
-    version: 3,
+    version: 4,
     step: 'complete',
     runtime: 'skipped',
     profile: 'skipped',
@@ -62,30 +62,28 @@ function normalizeUserOnboardingState(value: unknown): UserOnboardingState | und
     tour?: unknown;
     updatedAt?: unknown;
   };
-  const step = typeof record.step === 'string' && USER_ONBOARDING_STEPS.has(record.step as UserOnboardingStep)
-    ? record.step as UserOnboardingStep
-    : 'language';
-  const isLegacyState = record.version !== 3;
-  const runtime = typeof record.runtime === 'string'
+  const legacyRuntimeStep = record.step === 'runtime';
+  const step = legacyRuntimeStep
+    ? 'profile'
+    : typeof record.step === 'string' && USER_ONBOARDING_STEPS.has(record.step as UserOnboardingStep)
+      ? record.step as UserOnboardingStep
+      : 'language';
+  const storedRuntime = typeof record.runtime === 'string'
     && USER_ONBOARDING_RUNTIME_STATUSES.has(record.runtime as UserOnboardingRuntimeStatus)
     ? record.runtime as UserOnboardingRuntimeStatus
-    : isLegacyState && (step === 'profile' || step === 'tour' || step === 'complete')
-      ? (step === 'profile' && record.profile !== 'completed' && record.profile !== 'skipped' ? 'pending' : 'skipped')
-      : 'pending';
+    : 'skipped';
+  const runtime: UserOnboardingRuntimeStatus = storedRuntime === 'completed' ? 'completed' : 'skipped';
   const profile = typeof record.profile === 'string' && USER_ONBOARDING_PROFILE_STATUSES.has(record.profile as UserOnboardingProfileStatus)
     ? record.profile as UserOnboardingProfileStatus
     : 'pending';
   const tour = typeof record.tour === 'string' && USER_ONBOARDING_TOUR_STATUSES.has(record.tour as UserOnboardingTourStatus)
     ? record.tour as UserOnboardingTourStatus
     : 'pending';
-  const migratedStep = isLegacyState && step === 'profile' && profile === 'pending' && runtime === 'pending'
-    ? 'runtime'
-    : step;
-  const normalizedStep = migratedStep === 'complete' && (runtime === 'pending' || profile === 'pending' || tour === 'pending')
+  const normalizedStep = step === 'complete' && (profile === 'pending' || tour === 'pending')
     ? 'language'
-    : migratedStep;
+    : step;
   return {
-    version: 3,
+    version: 4,
     step: normalizedStep,
     runtime,
     profile,

@@ -141,7 +141,6 @@ function normalizeProfileContent(value: string, label: string): string {
 async function isProfilePending(userId: string): Promise<boolean> {
   const onboarding = await getUserOnboardingState(userId);
   return onboarding.step === 'profile'
-    && onboarding.runtime !== 'pending'
     && onboarding.profile === 'pending';
 }
 

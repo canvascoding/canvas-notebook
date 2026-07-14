@@ -10,7 +10,6 @@ import { buildLocalePath } from '@/app/lib/locale-path';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { AiProviderCredentialsPanel } from '@/app/components/settings/AiProviderCredentialsPanel';
 import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
-import { MyAgentRuntimePanel } from '@/app/components/settings/MyAgentRuntimePanel';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { DEFAULT_USER_TIME_ZONE, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import { Button } from '@/components/ui/button';
@@ -21,12 +20,12 @@ import { Switch } from '@/components/ui/switch';
 import { toast } from 'sonner';
 import { CheckCircle2, Clock3, Compass, FolderKanban, KeyRound, Languages, Loader2, Mail, RefreshCw, ServerCog, ShieldAlert, Sparkles, Users, Workflow, type LucideIcon } from 'lucide-react';
 
-type Step = 'server' | 'language' | 'license' | 'provider' | 'workspace' | 'review' | 'runtime' | 'profile' | 'tour' | 'done';
+type Step = 'server' | 'language' | 'license' | 'provider' | 'workspace' | 'review' | 'profile' | 'tour' | 'done';
 type OnboardingMode = 'instance' | 'user';
 type OnboardingRuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
 const INSTANCE_STEPS: Step[] = ['server', 'license', 'provider', 'workspace', 'review'];
-const USER_STEPS: Step[] = ['language', 'workspace', 'runtime', 'profile', 'tour', 'done'];
+const USER_STEPS: Step[] = ['language', 'workspace', 'profile', 'tour', 'done'];
 const ONBOARDING_LICENSE_KEY_STORAGE_KEY = 'canvas.onboarding.licenseKey';
 
 type LicenseStatus = {
@@ -214,7 +213,7 @@ export default function OnboardingWizard({
           body: JSON.stringify({ step: nextStep }),
         });
       }
-      if (!isInstanceOnboarding && ['language', 'workspace', 'runtime', 'profile', 'tour', 'complete'].includes(nextStep)) {
+      if (!isInstanceOnboarding && ['language', 'workspace', 'profile', 'tour', 'complete'].includes(nextStep)) {
         response = await fetch('/api/onboarding/user', {
           method: 'PATCH',
           credentials: 'include',
@@ -327,7 +326,7 @@ export default function OnboardingWizard({
         </div>
 
         <div className="flex flex-1 items-start justify-center py-4">
-          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' || step === 'runtime' ? 'max-w-5xl' : 'max-w-lg'}`}>
+          <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
               <div className="mb-2 flex items-center justify-center">
                 <Image
@@ -417,19 +416,12 @@ export default function OnboardingWizard({
               {step === 'workspace' && (
                 <WorkspaceReadinessStep
                   mode={mode}
-                  onContinue={() => void advanceTo(isInstanceOnboarding ? 'review' : 'runtime')}
+                  onContinue={() => void advanceTo(isInstanceOnboarding ? 'review' : 'profile')}
                 />
               )}
 
               {step === 'review' && isInstanceOnboarding && (
                 <InstanceReviewStep onComplete={beginPersonalOnboarding} />
-              )}
-
-              {step === 'runtime' && !isInstanceOnboarding && (
-                <PersonalRuntimeStep
-                  locale={currentLocale}
-                  onContinue={() => setStep('profile')}
-                />
               )}
 
               {step === 'profile' && profileSessionId && (
@@ -459,48 +451,6 @@ export default function OnboardingWizard({
           </div>
         </div>
       </div>
-    </div>
-  );
-}
-
-function PersonalRuntimeStep({
-  locale,
-  onContinue,
-}: {
-  locale: string;
-  onContinue: () => void;
-}) {
-  const t = useTranslations('onboarding');
-
-  async function completeRuntimeChoice(choice: {
-    workspaceId: string;
-    agentId: string;
-    runtime: 'completed' | 'skipped';
-  }) {
-    const response = await fetch('/api/onboarding/user', {
-      method: 'PATCH',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        step: 'profile',
-        runtime: choice.runtime,
-        ...(choice.runtime === 'completed'
-          ? { workspaceId: choice.workspaceId, agentId: choice.agentId }
-          : {}),
-      }),
-    });
-    const payload = await response.json().catch(() => null) as { error?: string } | null;
-    if (!response.ok) throw new Error(payload?.error || t('runtimeSaveFailed'));
-    onContinue();
-  }
-
-  return (
-    <div>
-      <MyAgentRuntimePanel
-        locale={locale}
-        presentation="onboarding"
-        onOnboardingRuntimeChosen={completeRuntimeChoice}
-      />
     </div>
   );
 }

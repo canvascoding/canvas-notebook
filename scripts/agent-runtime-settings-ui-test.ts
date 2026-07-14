@@ -10,6 +10,7 @@ const settingsClient = read('app/components/settings/IntegrationsSettingsClient.
 const agentSettings = read('app/components/settings/AgentSettingsPanel.tsx');
 const runtimeCard = read('app/components/settings/AgentRuntimePreferenceCard.tsx');
 const chatComposer = read('app/components/canvas-agent-chat/ChatComposer.tsx');
+const onboardingWizard = read('app/[locale]/(routes)/onboarding/onboarding-wizard.tsx');
 
 assert.doesNotMatch(navigation, /value:\s*['"]my-agent-runtime['"]/u);
 assert.doesNotMatch(navigation, /\|\s*['"]my-agent-runtime['"]/u);
@@ -23,5 +24,9 @@ assert.match(runtimeCard, /data-testid="agent-runtime-model"/u);
 assert.match(runtimeCard, /data-testid="agent-runtime-thinking"/u);
 assert.match(chatComposer, /href="\/settings\?tab=agent-settings&panel=runtime"/u);
 assert.doesNotMatch(chatComposer, /tab=my-agent-runtime/u);
+assert.doesNotMatch(onboardingWizard, /PersonalRuntimeStep/u);
+assert.doesNotMatch(onboardingWizard, /step === ['"]runtime['"]/u);
+assert.doesNotMatch(onboardingWizard, /MyAgentRuntimePanel/u);
+assert.match(onboardingWizard, /USER_STEPS[^\n]+\['language', 'workspace', 'profile', 'tour', 'done'\]/u);
 
 console.log('agent-runtime-settings-ui-test: ok');

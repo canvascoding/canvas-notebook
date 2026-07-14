@@ -38,15 +38,9 @@ export async function POST(request: NextRequest) {
   }
 
   const onboarding = await getUserOnboardingState(session.user.id);
-  if (onboarding.runtime === 'pending') {
-    return NextResponse.json(
-      { success: false, error: 'Choose or skip the personal agent runtime before starting the profile.', code: 'RUNTIME_SELECTION_REQUIRED' },
-      { status: 409 },
-    );
-  }
   if (onboarding.step !== 'profile' && onboarding.profile === 'pending') {
     return NextResponse.json(
-      { success: false, error: 'Finish the runtime selection step before starting the profile.', code: 'PROFILE_STEP_NOT_READY' },
+      { success: false, error: 'Confirm the personal workspace before starting the profile.', code: 'PROFILE_STEP_NOT_READY' },
       { status: 409 },
     );
   }

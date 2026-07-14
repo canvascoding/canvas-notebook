@@ -13,7 +13,7 @@ import {
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 
-const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'runtime', 'profile', 'tour', 'complete']);
+const USER_ONBOARDING_STEPS = new Set<UserOnboardingStep>(['language', 'workspace', 'profile', 'tour', 'complete']);
 const USER_ONBOARDING_RUNTIME_STATUSES = new Set<UserOnboardingRuntimeStatus>(['completed', 'skipped']);
 const USER_ONBOARDING_TOUR_STATUSES = new Set<UserOnboardingTourStatus>(['pending', 'started', 'skipped', 'completed']);
 
@@ -82,24 +82,6 @@ export async function PATCH(request: NextRequest) {
   }
 
   const current = await getUserOnboardingState(session.user.id);
-  if (updates.step === 'runtime' && current.step !== 'workspace') {
-    return NextResponse.json(
-      { success: false, error: 'Confirm the personal workspace before choosing an agent runtime.' },
-      { status: 409 },
-    );
-  }
-
-  const nextRuntime = updates.runtime ?? current.runtime;
-  if (
-    nextRuntime === 'pending'
-    && (updates.step === 'profile' || updates.step === 'tour' || updates.step === 'complete' || updates.tour !== undefined)
-  ) {
-    return NextResponse.json(
-      { success: false, error: 'Choose or explicitly skip the personal agent runtime before starting the profile.' },
-      { status: 409 },
-    );
-  }
-
   if (updates.runtime !== undefined && updates.step !== 'profile') {
     return NextResponse.json(
       { success: false, error: 'A runtime choice must continue to the personal profile.' },
@@ -155,9 +137,9 @@ export async function PATCH(request: NextRequest) {
     );
   }
 
-  if (current.profile === 'pending' && updates.step === 'profile' && current.step !== 'runtime') {
+  if (current.profile === 'pending' && updates.step === 'profile' && current.step !== 'workspace' && current.step !== 'profile') {
     return NextResponse.json(
-      { success: false, error: 'Complete the personal runtime choice before starting the profile.' },
+      { success: false, error: 'Confirm the personal workspace before starting the profile.' },
       { status: 409 },
     );
   }

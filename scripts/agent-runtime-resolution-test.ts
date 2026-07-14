@@ -1180,16 +1180,17 @@ async function main() {
     },
   ));
   assert.equal(onboardingWorkspaceResponse.status, 200);
-  const skippedRuntimeStep = await onboardingUserRoute.PATCH(new NextRequest(
+  const onboardingProfileResponse = await onboardingUserRoute.PATCH(new NextRequest(
     'http://localhost:3000/api/onboarding/user',
     {
       method: 'PATCH',
       headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({ step: 'profile', runtime: 'completed' }),
+      body: JSON.stringify({ step: 'profile' }),
     },
   ));
-  assert.equal(skippedRuntimeStep.status, 400);
-  const onboardingRuntimeResponse = await onboardingUserRoute.PATCH(new NextRequest(
+  assert.equal(onboardingProfileResponse.status, 200);
+  assert.equal((await onboardingProfileResponse.json()).data.runtime, 'skipped');
+  const removedRuntimeStepResponse = await onboardingUserRoute.PATCH(new NextRequest(
     'http://localhost:3000/api/onboarding/user',
     {
       method: 'PATCH',
@@ -1197,21 +1198,7 @@ async function main() {
       body: JSON.stringify({ step: 'runtime' }),
     },
   ));
-  assert.equal(onboardingRuntimeResponse.status, 200);
-  const completedRuntimeResponse = await onboardingUserRoute.PATCH(new NextRequest(
-    'http://localhost:3000/api/onboarding/user',
-    {
-      method: 'PATCH',
-      headers: { 'content-type': 'application/json' },
-      body: JSON.stringify({
-        step: 'profile',
-        runtime: 'completed',
-        workspaceId: personalWorkspaceId,
-        agentId: 'canvas-agent',
-      }),
-    },
-  ));
-  assert.equal(completedRuntimeResponse.status, 200);
+  assert.equal(removedRuntimeStepResponse.status, 400);
 
   organizationPolicy = await replaceWorkspaceRuntimePolicy({
     organizationId: organization.organizationId,
