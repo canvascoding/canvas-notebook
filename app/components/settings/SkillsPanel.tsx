@@ -28,6 +28,7 @@ import {
   ArrowUpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
 import {
@@ -87,6 +88,10 @@ type SelectedPluginDetail = { source: 'store' | 'installed'; name: string };
 const PANEL_TAB_STORAGE_KEY = 'canvas.skills.panelTab';
 const PLUGIN_STORE_TAB_STORAGE_KEY = 'canvas.skills.pluginStoreTab';
 const SKILL_LIBRARY_TAB_STORAGE_KEY = 'canvas.skills.skillLibraryTab';
+
+function isMarkdownFilePath(filePath: string) {
+  return /\.mdx?$/i.test(filePath);
+}
 
 function readStoredTab<T extends string>(key: string, allowedValues: readonly T[], fallback: T): T {
   if (typeof window === 'undefined') return fallback;
@@ -2883,9 +2888,9 @@ export function SkillsPanel() {
                     </div>
                   </div>
 
-                  <div className="min-h-0 overflow-y-auto" data-testid="skills-detail-scroll">
+                  <div className="min-h-0 overflow-hidden" data-testid="skills-detail-scroll">
                     {rightView === 'info' && selectedSkillData ? (
-                      <div className="p-5 space-y-4">
+                      <div className="h-full space-y-4 overflow-y-auto p-5">
                         <div className="flex items-start justify-between gap-4">
                           <div className="flex min-w-0 flex-1 items-start gap-3">
                             <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
@@ -3003,27 +3008,43 @@ export function SkillsPanel() {
                         </div>
                       </div>
                     ) : rightView === 'preview' && selectedPath ? (
-                      <div className="p-4">
-                        <div className="flex items-center gap-2 mb-3 text-sm font-mono text-muted-foreground">
-                          <FileText className="h-4 w-4" />
-                          {selectedPath.split('/').pop()}
+                      <div className="flex h-full min-h-0 flex-col bg-background">
+                        <div className="flex shrink-0 items-center gap-2 border-b px-4 py-3 text-sm font-mono text-muted-foreground">
+                          {isMarkdownFilePath(selectedPath) ? (
+                            <FileText className="h-4 w-4 text-blue-500" />
+                          ) : (
+                            <FileCode className="h-4 w-4 text-green-500" />
+                          )}
+                          <span className="truncate" title={selectedPath}>{selectedPath.split('/').pop()}</span>
                         </div>
                         {previewLoading ? (
-                          <div className="flex items-center justify-center py-12">
+                          <div className="flex min-h-0 flex-1 items-center justify-center py-12">
                             <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
                           </div>
                         ) : previewError ? (
-                          <div className="text-sm text-destructive bg-destructive/10 p-4 rounded-lg">
-                            {previewError}
+                          <div className="min-h-0 flex-1 overflow-y-auto p-4">
+                            <div className="rounded-lg bg-destructive/10 p-4 text-sm text-destructive">
+                              {previewError}
+                            </div>
+                          </div>
+                        ) : isMarkdownFilePath(selectedPath) ? (
+                          <div className="min-h-0 flex-1 overflow-hidden" data-testid="skill-markdown-preview">
+                            <MarkdownEditor
+                              key={selectedPath}
+                              value={previewContent}
+                              readOnly
+                            />
                           </div>
                         ) : (
-                          <pre className="overflow-x-auto rounded-lg bg-muted/30 p-4 font-mono text-sm whitespace-pre-wrap break-words">
-                            {previewContent}
-                          </pre>
+                          <div className="min-h-0 flex-1 overflow-auto p-4">
+                            <pre className="min-h-full rounded-lg bg-muted/30 p-4 font-mono text-sm whitespace-pre-wrap break-words">
+                              {previewContent}
+                            </pre>
+                          </div>
                         )}
                       </div>
                     ) : (
-                      <div className="flex h-full flex-col items-center justify-center py-16 text-muted-foreground">
+                      <div className="flex h-full flex-col items-center justify-center overflow-y-auto py-16 text-muted-foreground">
                         <FolderOpen className="h-10 w-10 mb-3 opacity-50" />
                         <p className="text-sm">{t('detail.selectPrompt')}</p>
                       </div>
