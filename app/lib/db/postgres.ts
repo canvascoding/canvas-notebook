@@ -3,6 +3,7 @@ import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import { Pool, types } from 'pg';
 
 import * as schema from './schema';
+import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
 
@@ -275,6 +276,10 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       const statement = indexSql(table, index);
       if (statement) await pool.query(statement);
     }
+  }
+
+  for (const statement of STUDIO_WORKSPACE_BACKFILL_STATEMENTS) {
+    await pool.query(statement);
   }
 
   await pool.query('DROP INDEX IF EXISTS idx_canvas_workspaces_personal_owner');

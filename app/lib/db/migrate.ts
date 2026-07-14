@@ -1,5 +1,7 @@
 import type Database from 'better-sqlite3';
 
+import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
+
 /**
  * Runs all database migrations synchronously.
  * Safe to call multiple times — all operations are idempotent.
@@ -983,6 +985,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       organization_id TEXT,
       customer_id TEXT,
       project_id TEXT,
+      workspace_id TEXT,
       created_by_user_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
@@ -1016,6 +1019,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       organization_id TEXT,
       customer_id TEXT,
       project_id TEXT,
+      workspace_id TEXT,
       created_by_user_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
@@ -1049,6 +1053,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       organization_id TEXT,
       customer_id TEXT,
       project_id TEXT,
+      workspace_id TEXT,
       created_by_user_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'organization',
       name TEXT NOT NULL,
@@ -1082,6 +1087,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       organization_id TEXT,
       customer_id TEXT,
       project_id TEXT,
+      workspace_id TEXT,
       created_by_user_id TEXT,
       visibility TEXT NOT NULL DEFAULT 'user',
       is_default INTEGER NOT NULL DEFAULT 0,
@@ -1228,6 +1234,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     offboarding_reason: 'TEXT',
     offboarding_report_json: 'TEXT',
   });
+
+  addColumns(sqlite, 'studio_products', { workspace_id: 'TEXT' });
+  addColumns(sqlite, 'studio_personas', { workspace_id: 'TEXT' });
+  addColumns(sqlite, 'studio_styles', { workspace_id: 'TEXT' });
+  addColumns(sqlite, 'studio_presets', { workspace_id: 'TEXT' });
 
   addColumns(sqlite, 'canvas_workspaces', {
     customer_id: 'TEXT',
@@ -1599,24 +1610,28 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_studio_products_user ON studio_products (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_products_organization ON studio_products (organization_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_project ON studio_products (project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_products_workspace ON studio_products (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_creator ON studio_products (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_created ON studio_products (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_product_images_product ON studio_product_images (product_id);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_user ON studio_personas (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_organization ON studio_personas (organization_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_project ON studio_personas (project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_personas_workspace ON studio_personas (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_creator ON studio_personas (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_personas_created ON studio_personas (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_persona_images_persona ON studio_persona_images (persona_id);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_user ON studio_styles (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_organization ON studio_styles (organization_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_project ON studio_styles (project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_styles_workspace ON studio_styles (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_creator ON studio_styles (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_styles_created ON studio_styles (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_style_images_style ON studio_style_images (style_id);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_user ON studio_presets (user_id);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_organization ON studio_presets (organization_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_project ON studio_presets (project_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_studio_presets_workspace ON studio_presets (workspace_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_creator ON studio_presets (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_category ON studio_presets (category);
     CREATE INDEX IF NOT EXISTS idx_studio_presets_created ON studio_presets (created_at);
@@ -1793,6 +1808,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     studio_preset_id: 'TEXT',
     custom_prompt: 'TEXT',
   });
+
+  for (const statement of STUDIO_WORKSPACE_BACKFILL_STATEMENTS) {
+    sqlite.exec(statement);
+  }
 
   addColumns(sqlite, 'public_file_shares', {
     short_code: 'TEXT',

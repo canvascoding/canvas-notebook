@@ -1,5 +1,11 @@
 import path from 'node:path';
-import { getStudioAssetsRoot, getStudioEditsRoot, getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import {
+  getStudioAssetsRoot,
+  getStudioEditsRoot,
+  getStudioOutputsRoot,
+  getStudioRoot,
+  resolveStudioFilePath,
+} from '@/app/lib/integrations/studio-workspace';
 import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
 import { resolvePathInside } from '@/app/lib/security/safe-paths';
 import { getWorkspacePath } from '@/app/lib/utils/workspace-manager';
@@ -18,6 +24,13 @@ export function resolveValidatedStudioOutputPath(relativePath: string): string |
 
 export function resolveValidatedStudioEditPath(relativePath: string): string | null {
   return resolveWithinRoot(getStudioEditsRoot(), path.normalize(relativePath));
+}
+
+export function resolveValidatedStudioPath(relativePath: string): string | null {
+  const normalized = relativePath.startsWith('studio/') ? relativePath : `studio/${relativePath}`;
+  const resolved = resolveStudioFilePath(normalized);
+  if (!resolved) return null;
+  return resolveWithinRoot(getStudioRoot(), path.relative(getStudioRoot(), resolved));
 }
 
 export function resolveValidatedUserUploadStudioRefPath(relativePath: string): string | null {
