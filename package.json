@@ -87,6 +87,7 @@
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
     "test:markdown:rendering": "tsx scripts/canvas-markdown-rendering-test.ts",
     "test:markdown:obsidian": "tsx scripts/obsidian-flavored-markdown-test.ts",
+    "test:markdown:links": "tsx scripts/workspace-link-index-test.ts",
     "test:pdf:mermaid": "tsx --conditions react-server scripts/mermaid-pdf-export-test.ts",
     "test:pdf:markdown-table": "tsx scripts/markdown-wide-table-export-test.ts",
     "test:rate-limit": "tsx scripts/rate-limit-test.ts",

@@ -1,6 +1,6 @@
 import { NextRequest } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { renameFile, checkRenameConflict, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
+import { renameFile, checkRenameConflict, getFileStats, type RenameConflictError } from '@/app/lib/filesystem/workspace-files';
 import { isProtectedAppOutputFolder } from '@/app/lib/filesystem/app-output-folders';
 import { syncPublicSharesAfterMove } from '@/app/lib/public-sharing/public-file-shares';
 import { moveFileCollaborationPath } from '@/app/lib/files/collaboration-policy';
@@ -13,11 +13,18 @@ import {
   readJsonBody,
 } from '@/app/lib/api/route-helpers';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import {
+  applyWorkspaceLinkRename,
+  buildWorkspaceLinkIndex,
+  type WorkspaceLinkRenameResult,
+} from '@/app/lib/markdown/workspace-link-index';
+import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
 
 interface RenameRequestBody {
   oldPath: string;
   newPath: string;
   overwrite?: boolean;
+  updateLinks?: boolean;
 }
 
 export async function POST(request: NextRequest) {
@@ -34,7 +41,7 @@ export async function POST(request: NextRequest) {
     if (rateLimitResponse) return rateLimitResponse;
 
     const body = await readJsonBody<RenameRequestBody>(request);
-    const { oldPath, newPath, overwrite = false } = body;
+    const { oldPath, newPath, overwrite = false, updateLinks = true } = body;
 
     if (!oldPath || !newPath) {
       return jsonError('oldPath and newPath are required', 400);
@@ -46,11 +53,44 @@ export async function POST(request: NextRequest) {
       return jsonError(`Protected app output folder cannot be overwritten: ${newPath}`, 403);
     }
 
+    const sourceStats = await getFileStats(oldPath, fileOptions);
+    const shouldUpdateLinks = updateLinks && (
+      sourceStats.isDirectory || /\.(?:md|markdown)$/i.test(oldPath)
+    );
+    let preparedLinkIndex: WorkspaceLinkIndex | null = null;
+    let linkIndexWarning: string | null = null;
+    const prepareLinkIndex = async () => {
+      if (!shouldUpdateLinks || preparedLinkIndex || linkIndexWarning) return;
+      try {
+        preparedLinkIndex = await buildWorkspaceLinkIndex(fileOptions);
+      } catch (error) {
+        linkIndexWarning = error instanceof Error ? error.message : String(error);
+      }
+    };
+    const updateRenamedLinks = async (): Promise<WorkspaceLinkRenameResult> => {
+      if (!preparedLinkIndex) {
+        return {
+          updatedFiles: [],
+          updatedLinks: 0,
+          warnings: linkIndexWarning ? [`Link index: ${linkIndexWarning}`] : [],
+        };
+      }
+      const result = await applyWorkspaceLinkRename(
+        preparedLinkIndex,
+        oldPath,
+        newPath,
+        fileOptions,
+      );
+      if (linkIndexWarning) result.warnings.unshift(`Link index: ${linkIndexWarning}`);
+      return result;
+    };
+
     // Check for conflicts first (for better error messages)
     const conflict = await checkRenameConflict(oldPath, newPath, fileOptions);
     if (conflict) {
       const conflictError = conflict as RenameConflictError;
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
+        await prepareLinkIndex();
         await renameFile(oldPath, newPath, true, fileOptions);
         moveFileCollaborationPath({
           workspace: workspaceResult.workspace,
@@ -58,12 +98,14 @@ export async function POST(request: NextRequest) {
           newPath,
         });
         await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
+        const linkUpdates = await updateRenamedLinks();
         invalidateWorkspaceFileViews({
           fileOptions,
           fullTree: true,
           mutations: [
             { path: oldPath, type: 'unlink' },
             { path: newPath, type: 'add' },
+            ...linkUpdates.updatedFiles.map((path) => ({ path, type: 'change' as const })),
           ],
         });
         await recordAuditEvent({
@@ -81,10 +123,11 @@ export async function POST(request: NextRequest) {
             oldPath,
             newPath,
             overwrite: true,
+            linkUpdates,
             workspaceType: workspaceResult.workspace.workspaceType,
           },
         });
-        return jsonSuccess();
+        return jsonSuccess({ linkUpdates });
       }
 
       return jsonError(conflict.message, 409, {
@@ -95,6 +138,7 @@ export async function POST(request: NextRequest) {
       });
     }
 
+    await prepareLinkIndex();
     await renameFile(oldPath, newPath, overwrite, fileOptions);
     moveFileCollaborationPath({
       workspace: workspaceResult.workspace,
@@ -102,12 +146,14 @@ export async function POST(request: NextRequest) {
       newPath,
     });
     await syncPublicSharesAfterMove(oldPath, newPath, workspaceResult.workspace);
+    const linkUpdates = await updateRenamedLinks();
     invalidateWorkspaceFileViews({
       fileOptions,
       fullTree: true,
       mutations: [
         { path: oldPath, type: 'unlink' },
         { path: newPath, type: 'add' },
+        ...linkUpdates.updatedFiles.map((path) => ({ path, type: 'change' as const })),
       ],
     });
     await recordAuditEvent({
@@ -125,11 +171,12 @@ export async function POST(request: NextRequest) {
         oldPath,
         newPath,
         overwrite,
+        linkUpdates,
         workspaceType: workspaceResult.workspace.workspaceType,
       },
     });
 
-    return jsonSuccess();
+    return jsonSuccess({ linkUpdates });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to rename path';
     

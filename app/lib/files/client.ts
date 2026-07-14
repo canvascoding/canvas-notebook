@@ -404,7 +404,19 @@ export async function restoreWorkspaceTrashEntry(
   return payload.restored;
 }
 
-export async function renameWorkspacePath(oldPath: string, newPath: string, overwrite = false): Promise<void> {
+export interface WorkspaceRenameResult {
+  linkUpdates?: {
+    updatedFiles: string[];
+    updatedLinks: number;
+    warnings: string[];
+  };
+}
+
+export async function renameWorkspacePath(
+  oldPath: string,
+  newPath: string,
+  overwrite = false,
+): Promise<WorkspaceRenameResult> {
   const response = await fetch('/api/files/rename', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
@@ -429,6 +441,8 @@ export async function renameWorkspacePath(oldPath: string, newPath: string, over
     err.destPath = error.destPath;
     throw err;
   }
+
+  return readApiJson<WorkspaceRenameResult>(response, 'Failed to read rename result');
 }
 
 export async function copyWorkspacePaths(params: {

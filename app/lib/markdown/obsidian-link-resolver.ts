@@ -24,6 +24,13 @@ export type ObsidianWikiCompletionContext = {
   to: number;
 };
 
+export type ObsidianLinkCandidate = Pick<
+  WorkspaceFileReferenceEntry,
+  'extension' | 'path' | 'type'
+> & {
+  aliases?: string[];
+};
+
 function normalizeWorkspacePath(value: string): string {
   const segments: string[] = [];
   for (const segment of value.replace(/\\/g, '/').split('/')) {
@@ -74,10 +81,11 @@ function uniqueSorted(values: Iterable<string>): string[] {
 }
 
 function rankResolvedCandidates(
-  paths: string[],
+  entries: ObsidianLinkCandidate[],
   targetPath: string,
   sourcePath: string | null,
 ): string[] {
+  const paths = entries.map((entry) => normalizeWorkspacePath(entry.path));
   const exactPaths = new Set<string>();
   addMarkdownPathVariants(exactPaths, targetPath);
   if (sourcePath) {
@@ -91,7 +99,7 @@ function rankResolvedCandidates(
   const targetWithoutExtension = stripMarkdownExtension(normalizedTarget).toLocaleLowerCase();
   const targetHasDirectory = targetWithoutExtension.includes('/');
 
-  return uniqueSorted(paths.filter((path) => {
+  const pathMatches = uniqueSorted(paths.filter((path) => {
     const pathWithoutExtension = stripMarkdownExtension(path).toLocaleLowerCase();
     if (targetHasDirectory) {
       return pathWithoutExtension === targetWithoutExtension
@@ -99,26 +107,32 @@ function rankResolvedCandidates(
     }
     return stripMarkdownExtension(getBasename(path)).toLocaleLowerCase() === targetWithoutExtension;
   }));
+  if (pathMatches.length > 0) return pathMatches;
+
+  if (targetHasDirectory) return [];
+  return uniqueSorted(entries.flatMap((entry) => (
+    entry.aliases?.some((alias) => alias.trim().toLocaleLowerCase() === targetWithoutExtension)
+      ? [normalizeWorkspacePath(entry.path)]
+      : []
+  )));
 }
 
 export function resolveObsidianWikiLink(
   rawTarget: string,
-  entries: Array<Pick<WorkspaceFileReferenceEntry, 'extension' | 'path' | 'type'>>,
+  entries: ObsidianLinkCandidate[],
   sourcePath?: string | null,
 ): ObsidianLinkResolution | null {
   const target = parseObsidianWikiTarget(rawTarget);
   if (!target) return null;
 
   const normalizedSourcePath = sourcePath ? normalizeWorkspacePath(sourcePath) : null;
-  const markdownPaths = entries
-    .filter(isMarkdownReferenceEntry)
-    .map((entry) => normalizeWorkspacePath(entry.path));
+  const markdownEntries = entries.filter(isMarkdownReferenceEntry);
 
   let candidates: string[];
   if (!target.path) {
     candidates = normalizedSourcePath ? [normalizedSourcePath] : [];
   } else {
-    candidates = rankResolvedCandidates(markdownPaths, target.path, normalizedSourcePath);
+    candidates = rankResolvedCandidates(markdownEntries, target.path, normalizedSourcePath);
   }
 
   return {

@@ -1,0 +1,111 @@
+import { getCachedFileReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
+import {
+  readFile,
+  writeFile,
+  type WorkspaceFileOperationOptions,
+} from '@/app/lib/filesystem/workspace-files';
+import { AsyncSemaphore } from '@/app/lib/utils/async-semaphore';
+import { remapDescendantPath } from '@/app/lib/files/path-utils';
+
+import {
+  buildWorkspaceLinkIndexFromDocuments,
+  rewriteWorkspaceWikiLinksForRename,
+  type WorkspaceLinkIndex,
+} from './workspace-link-index-core';
+
+const LINK_INDEX_READ_CONCURRENCY = 10;
+const MAX_INDEXED_MARKDOWN_BYTES = 4 * 1024 * 1024;
+
+export type WorkspaceLinkRenameResult = {
+  updatedFiles: string[];
+  updatedLinks: number;
+  warnings: string[];
+};
+
+function isMarkdownPath(filePath: string): boolean {
+  return /\.(?:md|markdown)$/i.test(filePath);
+}
+
+function isSameOrDescendant(path: string, parent: string): boolean {
+  return path === parent || path.startsWith(`${parent}/`);
+}
+
+export async function buildWorkspaceLinkIndex(
+  options?: WorkspaceFileOperationOptions,
+): Promise<WorkspaceLinkIndex> {
+  const entries = await getCachedFileReferenceEntries(false, options);
+  const markdownFiles = entries.filter((entry) => (
+    entry.type === 'file'
+    && isMarkdownPath(entry.path)
+    && (entry.size === undefined || entry.size <= MAX_INDEXED_MARKDOWN_BYTES)
+  ));
+  const semaphore = new AsyncSemaphore(LINK_INDEX_READ_CONCURRENCY);
+  const sources = await Promise.all(markdownFiles.map((entry) => semaphore.run(async () => {
+    try {
+      const content = await readFile(entry.path, options);
+      if (content.byteLength > MAX_INDEXED_MARKDOWN_BYTES) return null;
+      return { content: content.toString('utf8'), path: entry.path };
+    } catch (error) {
+      console.warn(`[WorkspaceLinkIndex] Skipping unreadable Markdown file: ${entry.path}`, error);
+      return null;
+    }
+  })));
+
+  return buildWorkspaceLinkIndexFromDocuments(
+    sources.filter((source): source is NonNullable<typeof source> => source !== null),
+  );
+}
+
+export async function applyWorkspaceLinkRename(
+  index: WorkspaceLinkIndex,
+  oldPath: string,
+  newPath: string,
+  options?: WorkspaceFileOperationOptions,
+): Promise<WorkspaceLinkRenameResult> {
+  const affectedEdges = index.edges.filter((edge) => (
+    edge.kind === 'wiki'
+    && edge.status === 'resolved'
+    && edge.targetPath
+    && isSameOrDescendant(edge.targetPath, oldPath)
+  ));
+  const edgesBySource = new Map<string, typeof affectedEdges>();
+  for (const edge of affectedEdges) {
+    const sourceEdges = edgesBySource.get(edge.sourcePath) ?? [];
+    sourceEdges.push(edge);
+    edgesBySource.set(edge.sourcePath, sourceEdges);
+  }
+
+  const result: WorkspaceLinkRenameResult = {
+    updatedFiles: [],
+    updatedLinks: 0,
+    warnings: [],
+  };
+  const semaphore = new AsyncSemaphore(LINK_INDEX_READ_CONCURRENCY);
+  await Promise.all(Array.from(edgesBySource.entries()).map(([originalSourcePath, edges]) => (
+    semaphore.run(async () => {
+      const sourcePath = isSameOrDescendant(originalSourcePath, oldPath)
+        ? remapDescendantPath(originalSourcePath, oldPath, newPath)
+        : originalSourcePath;
+      try {
+        const currentContent = (await readFile(sourcePath, options)).toString('utf8');
+        const rewritten = rewriteWorkspaceWikiLinksForRename(
+          currentContent,
+          edges,
+          oldPath,
+          newPath,
+        );
+        if (rewritten.updatedLinks === 0 || rewritten.content === currentContent) return;
+        await writeFile(sourcePath, rewritten.content, options);
+        result.updatedFiles.push(sourcePath);
+        result.updatedLinks += rewritten.updatedLinks;
+      } catch (error) {
+        const message = error instanceof Error ? error.message : String(error);
+        result.warnings.push(`${sourcePath}: ${message}`);
+      }
+    })
+  )));
+
+  result.updatedFiles.sort((left, right) => left.localeCompare(right));
+  result.warnings.sort((left, right) => left.localeCompare(right));
+  return result;
+}
