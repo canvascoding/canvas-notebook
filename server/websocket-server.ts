@@ -84,6 +84,7 @@ type ClientMessage =
  * Event semantics:
  *   agent_event     — forwarded PI runtime event (tool call, text chunk, etc.)
  *   session_updated — new assistant message was saved → update unread badge in all tabs
+ *   session_title_updated — a background title generation completed
  *   notification    — AI finished in a background session → show toast
  *   session_read    — (reserved) user marked session as read → clear unread badge in other tabs
  *                     Currently emitted server-side after HTTP PATCH /api/sessions marks the session.
@@ -97,6 +98,7 @@ type ServerMessage =
   | { type: 'status_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
   | { type: 'session_updated'; sessionId: string; lastMessageAt: string; title?: string }
+  | { type: 'session_title_updated'; sessionId: string; title: string; titleGenerationState?: string | null }
   | { type: 'session_read'; sessionId: string; timestamp: number }
   | {
       type: 'notification';
@@ -1080,5 +1082,21 @@ export function broadcastSessionUpdateToUser(
     sessionId,
     lastMessageAt,
     title,
+  });
+}
+
+/** Broadcast a title-only change without affecting unread-response state. */
+export function broadcastSessionTitleUpdateToUser(
+  userId: string,
+  sessionId: string,
+  title: string,
+  titleGenerationState?: string | null,
+): void {
+  console.log(`[WS Server] broadcastSessionTitleUpdateToUser: userId=${userId}, sessionId=${sessionId}, title="${title}"`);
+  broadcastToUser(userId, {
+    type: 'session_title_updated',
+    sessionId,
+    title,
+    titleGenerationState,
   });
 }

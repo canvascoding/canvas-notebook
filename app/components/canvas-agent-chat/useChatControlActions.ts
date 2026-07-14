@@ -25,7 +25,6 @@ import type {
   UserPiContent,
 } from '@/app/lib/chat/types';
 import { toUploadMediaUrl } from '@/app/lib/utils/media-url';
-import { isAutomaticSessionTitle } from '@/app/lib/pi/session-titles';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import {
   countPiMessageImageAttachments,
@@ -91,7 +90,6 @@ type UseChatControlActionsParams = {
   isMobile: boolean;
   isUploading: boolean;
   messages: ChatMessage[];
-  optimisticSessionTitlesRef: MutableRefObject<Record<string, string>>;
   resetHistoryState: () => void;
   resetInputHistoryNavigation: () => void;
   resetRuntimeMessageRefs: () => void;
@@ -193,15 +191,6 @@ ${metadataLines.join('\n')}
   return content;
 }
 
-function getOptimisticSessionTitle(candidate: string | null | undefined, fallbackTitle: string): string {
-  const trimmed = candidate?.trim();
-  if (!trimmed) {
-    return fallbackTitle;
-  }
-
-  return trimmed.slice(0, 48);
-}
-
 export function useChatControlActions({
   activeModel,
   activeProvider,
@@ -228,7 +217,6 @@ export function useChatControlActions({
   isMobile,
   isUploading,
   messages,
-  optimisticSessionTitlesRef,
   resetHistoryState,
   resetInputHistoryNavigation,
   resetRuntimeMessageRefs,
@@ -267,7 +255,7 @@ export function useChatControlActions({
   userStartedNewChatRef,
   wsRequest,
 }: UseChatControlActionsParams) {
-  const ensureSession = useCallback(async (preferredTitle?: string) => {
+  const ensureSession = useCallback(async () => {
     if (sessionIdRef.current) {
       return sessionIdRef.current;
     }
@@ -277,13 +265,10 @@ export function useChatControlActions({
       throw new Error(t('runtimeSelectionUnavailableError'));
     }
 
-    const optimisticTitle = getOptimisticSessionTitle(preferredTitle ?? input, t('newChatTitle'));
-    const requestedTitle = isAutomaticSessionTitle(optimisticTitle) ? undefined : optimisticTitle;
     const requestContext = buildRequestContext(currentFilePath);
 
     const createSessionRequest = {
       agentId,
-      ...(requestedTitle ? { title: requestedTitle } : {}),
       ...(hasLocalRuntimeSelection ? {
         runtimeSelection,
         expectedCatalogRevision: runtimeCatalogRevision,
@@ -314,11 +299,8 @@ export function useChatControlActions({
     setActiveThinkingLevel(createdThinkingLevel);
     sessionAgentIdRef.current = agentId;
 
-    const tempTitle = requestedTitle || getOptimisticSessionTitle(preferredTitle ?? input, createSessionPayload.session.title || t('newChatTitle'));
+    const tempTitle = createSessionPayload.session.title || t('newChatTitle');
     setSessionTitle(tempTitle);
-    if (!isAutomaticSessionTitle(tempTitle)) {
-      optimisticSessionTitlesRef.current[nextSessionId] = tempTitle;
-    }
 
     sessionIdRef.current = nextSessionId;
 
@@ -326,6 +308,7 @@ export function useChatControlActions({
       id: Date.now(),
       sessionId: nextSessionId,
       title: tempTitle,
+      titleGenerationState: createSessionPayload.session.titleGenerationState ?? 'pending',
       agentId: createSessionPayload.session.agentId || agentId,
       model: createdModel,
       provider: createdProvider,
@@ -341,7 +324,7 @@ export function useChatControlActions({
     addSessionToHistory(newSession);
 
     return nextSessionId;
-  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, buildRequestContext, currentFilePath, hasLocalRuntimeSelection, input, optimisticSessionTitlesRef, refreshRuntimeSelection, runtimeCatalogRevision, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
+  }, [activeModel, activeProvider, activeThinkingLevel, addSessionToHistory, buildRequestContext, currentFilePath, hasLocalRuntimeSelection, refreshRuntimeSelection, runtimeCatalogRevision, runtimePolicyRevision, runtimeSelection, selectedAgentId, sessionAgentIdRef, sessionIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setSessionId, setSessionTitle, skipNextSessionStatusRefreshRef, t]);
 
   const postControl = useCallback(async (
     targetSessionId: string,
@@ -425,7 +408,7 @@ export function useChatControlActions({
     setIsResolvingInitialChatState(false);
 
     try {
-      const targetSessionId = await ensureSession(rawText);
+      const targetSessionId = await ensureSession();
       setOptimisticRuntimePhase('streaming', targetSessionId);
       await ensureSessionSubscribed(targetSessionId);
       const payload = effectiveAction === 'send'

@@ -641,7 +641,6 @@ export default function CanvasAgentChat({
     isMobile,
     isUploading,
     messages,
-    optimisticSessionTitlesRef,
     resetHistoryState,
     resetInputHistoryNavigation,
     resetRuntimeMessageRefs,
@@ -794,8 +793,12 @@ export default function CanvasAgentChat({
       const data = await patchChatSessions({ agentId: session.agentId || selectedAgentId, sessionId: session.sessionId, title: nextTitle.trim() });
       if (data?.success) {
         optimisticSessionTitlesRef.current[session.sessionId] = nextTitle.trim();
-        updateCachedChatSessionTitle(session.sessionId, nextTitle.trim(), session.agentId || selectedAgentId);
-        setHistory((prev) => prev.map((item) => (item.sessionId === session.sessionId ? { ...item, title: nextTitle.trim() } : item)));
+        updateCachedChatSessionTitle(session.sessionId, nextTitle.trim(), session.agentId || selectedAgentId, 'manual');
+        setHistory((prev) => prev.map((item) => (
+          item.sessionId === session.sessionId
+            ? { ...item, title: nextTitle.trim(), titleGenerationState: 'manual' }
+            : item
+        )));
         if (sessionIdRef.current === session.sessionId) {
           setSessionTitle(nextTitle.trim());
         }
@@ -990,7 +993,9 @@ export default function CanvasAgentChat({
   const isCompactView = isMobile || (composerWidth > 0 && composerWidth < 640);
   const showInitialChatLoader = messages.length === 0 && isResolvingInitialChatState;
   const showStarterScreen = messages.length === 0 && !sessionId && !isResolvingInitialChatState;
-  const activeSessionAgentId = history.find((session) => session.sessionId === sessionId)?.agentId || selectedAgentId;
+  const activeSession = history.find((session) => session.sessionId === sessionId);
+  const activeSessionAgentId = activeSession?.agentId || selectedAgentId;
+  const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
   const chatAgentOptions = useMemo<AgentProfile[]>(() => (
@@ -1101,6 +1106,7 @@ export default function CanvasAgentChat({
         isCompactView={isCompactView}
         isHistoryOverlayOpen={isHistoryOverlayOpen}
         isMobile={isMobile}
+        isSessionTitleGenerating={isSessionTitleGenerating}
         onCompact={() => void handleCompact()}
         onSelectAgent={(agentId) => {
           closeReferencePicker();

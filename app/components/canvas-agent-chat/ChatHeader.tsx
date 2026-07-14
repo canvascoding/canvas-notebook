@@ -8,6 +8,7 @@ import {
   Lightbulb,
   Plus,
   Settings,
+  Sparkles,
   Wrench,
 } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
@@ -34,6 +35,7 @@ type ChatHeaderProps = {
   isCompactView: boolean;
   isHistoryOverlayOpen: boolean;
   isMobile: boolean;
+  isSessionTitleGenerating: boolean;
   onCompact: () => void;
   onSelectAgent: (agentId: string) => void;
   onReloadAgents: () => Promise<void>;
@@ -62,6 +64,7 @@ export function ChatHeader({
   isCompactView,
   isHistoryOverlayOpen,
   isMobile,
+  isSessionTitleGenerating,
   onCompact,
   onSelectAgent,
   onReloadAgents,
@@ -142,7 +145,20 @@ export function ChatHeader({
                 className="inline-flex h-7 min-w-0 max-w-[min(12rem,100%)] flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground sm:max-w-[min(16rem,45vw)] lg:max-w-[min(18rem,100%)]"
               >
                 <span className="hidden text-[9px] uppercase tracking-[0.15em] text-muted-foreground sm:inline">{t('sessionLabel')}</span>
-                <span className="min-w-0 truncate">{sessionDisplayLabel}</span>
+                {isSessionTitleGenerating && (
+                  <Sparkles
+                    aria-hidden="true"
+                    className="h-3 w-3 shrink-0 animate-pulse text-primary/75 motion-reduce:animate-none"
+                  />
+                )}
+                <span
+                  key={sessionDisplayLabel}
+                  aria-live="polite"
+                  className="min-w-0 truncate animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+                >
+                  {sessionDisplayLabel}
+                </span>
+                {isSessionTitleGenerating && <span className="sr-only">{t('sessionTitleGenerating')}</span>}
               </div>
               <ChatAgentSelector
                 variant={isMobile ? 'mobile' : compactSelectors ? 'compact' : 'desktop'}

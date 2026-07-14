@@ -351,6 +351,7 @@ export async function GET(request: NextRequest) {
           sessionId: piSessions.sessionId,
           userId: piSessions.userId,
           title: piSessions.title,
+          titleGenerationState: piSessions.titleGenerationState,
           agentId: piSessions.agentId,
           model: piSessions.model,
           thinkingLevel: piSessions.thinkingLevel,
@@ -408,6 +409,7 @@ export async function GET(request: NextRequest) {
         sessionId: item.sessionId,
         userId: item.userId,
         title: item.title,
+        titleGenerationState: 'titleGenerationState' in item ? item.titleGenerationState : null,
         agentId: item.agentId,
         model: item.model,
         provider: 'provider' in item ? item.provider : null,
@@ -477,6 +479,7 @@ export async function POST(request: NextRequest) {
     const payload = rawPayload as CreateSessionPayload;
     const sessionId = buildSessionId();
     const title = normalizeTitle(payload.title, DEFAULT_SESSION_TITLE);
+    const hasExplicitTitle = typeof payload.title === 'string' && payload.title.trim().length > 0;
 
     if (engine === 'pi') {
       const requestedModel = normalizeOptionalString(payload.model);
@@ -561,6 +564,7 @@ export async function POST(request: NextRequest) {
         userId: session.user.id,
         agentId: requestedAgentId,
         title,
+        titleGenerationState: hasExplicitTitle ? 'manual' : 'pending',
         workspace: workspaceFields,
         runtimeSnapshot: prepared.snapshot,
         systemPromptSnapshot: promptSnapshot,
@@ -909,11 +913,17 @@ export async function PATCH(request: NextRequest) {
     // Try updating PI session first
     const updatedPi = await db
       .update(piSessions)
-      .set({ title: title.slice(0, 120), updatedAt: new Date() })
+      .set({ title: title.slice(0, 120), titleGenerationState: 'manual', updatedAt: new Date() })
       .where(and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, session.user.id), eq(piSessions.agentId, requestedAgentId)))
       .returning();
 
     if (updatedPi.length > 0) {
+      await db.update(sessionChannelLinks)
+        .set({ displayName: title.slice(0, 120), updatedAt: new Date() })
+        .where(and(
+          eq(sessionChannelLinks.sessionId, sessionId),
+          eq(sessionChannelLinks.userId, session.user.id),
+        ));
       return NextResponse.json({
         success: true,
         session: updatedPi[0],

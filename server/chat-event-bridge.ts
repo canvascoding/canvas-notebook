@@ -6,7 +6,12 @@
  */
 
 import { getPiRuntimeEventEmitter } from '@/app/lib/pi/runtime-event-emitter';
-import { broadcastAgentEvent, broadcastNotification, broadcastSessionUpdateToUser } from './websocket-server';
+import {
+  broadcastAgentEvent,
+  broadcastNotification,
+  broadcastSessionTitleUpdateToUser,
+  broadcastSessionUpdateToUser,
+} from './websocket-server';
 import { deliverToLastActiveExternalChannel, sendTypingToLastActiveExternalChannel } from '@/app/lib/channels/delivery-router';
 import { normalizeNotificationPreview } from '@/app/lib/chat/notification-preview';
 import { db } from '@/app/lib/db';
@@ -123,6 +128,16 @@ export function initializeWebSocketBridge(): void {
     // Broadcast to all WebSocket clients subscribed to this session
     broadcastAgentEvent(sessionId, event);
     void sendChannelTypingIndicator(sessionId, userId, event.type);
+
+    if (event.type === 'session_title_updated' && typeof event.title === 'string' && event.title.trim()) {
+      broadcastSessionTitleUpdateToUser(
+        userId,
+        sessionId,
+        event.title.trim(),
+        typeof event.titleGenerationState === 'string' ? event.titleGenerationState : null,
+      );
+      return;
+    }
 
     // Handle message_saved event - this is emitted AFTER the message is saved to DB
     if (event.type === 'message_saved') {

@@ -952,6 +952,7 @@
     },
     "modelLabel": "Modell",
     "newChatTitle": "Neuer Chat",
+    "sessionTitleGenerating": "Session-Titel wird generiert",
     "newChatShort": "Neu",
     "viewSkills": "Plugins anzeigen",
     "skills": "Plugins",

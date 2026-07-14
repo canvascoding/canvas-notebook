@@ -1,5 +1,6 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import type { PiSessionTitleGenerationState } from '@/app/lib/pi/session-titles';
 import type { RuntimeQueueItem, RuntimeStatus } from '@/app/lib/chat/runtime-status';
 
 export type ChatWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
@@ -106,6 +107,7 @@ export interface AISession {
   id: number;
   sessionId: string;
   title: string | null;
+  titleGenerationState?: PiSessionTitleGenerationState | null;
   agentId?: string;
   model: string;
   provider?: string | null;

@@ -13,6 +13,7 @@ import {
 import { useTranslations } from 'next-intl';
 import type { ChatHistoryPanelLabels } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { fetchChatSessions, patchChatSessions } from '@/app/lib/chat/session-api';
+import { updateCachedChatSessionTitle } from '@/app/lib/chat/session-cache';
 import { applySessionUnreadUpdate } from '@/app/lib/chat/unread';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -341,6 +342,55 @@ export function useChatSessionHistory({
     surfaceVisibleRef,
   ]);
 
+  useEffect(() => {
+    const handleSessionTitleUpdated = (event: CustomEvent<{
+      sessionId: string;
+      title: string;
+      titleGenerationState?: AISession['titleGenerationState'];
+    }>) => {
+      const { sessionId: updatedSessionId, title, titleGenerationState } = event.detail;
+      const resolvedTitle = resolveSessionTitle(updatedSessionId, title);
+      if (!resolvedTitle) return;
+      const resolvedTitleGenerationState = titleGenerationState ?? 'generated';
+
+      const sessionFound = historyRef.current.some((session) => session.sessionId === updatedSessionId);
+      setHistory((previous) => {
+        const updated = previous.map((session) => {
+          if (session.sessionId !== updatedSessionId) return session;
+          return {
+            ...session,
+            title: resolvedTitle,
+            titleGenerationState: resolvedTitleGenerationState,
+          };
+        });
+        historyRef.current = updated;
+        return updated;
+      });
+      setLatestSession((previous) => (
+        previous?.sessionId === updatedSessionId
+          ? { ...previous, title: resolvedTitle, titleGenerationState: resolvedTitleGenerationState }
+          : previous
+      ));
+
+      updateCachedChatSessionTitle(updatedSessionId, resolvedTitle, undefined, resolvedTitleGenerationState);
+
+      if (updatedSessionId === sessionIdRef.current) {
+        setSessionTitle(resolvedTitle);
+      }
+
+      if (!sessionFound) {
+        void loadSessionList()
+          .then(setHistoryAndLatest)
+          .catch((error) => console.error('Failed to refresh history after title update', error));
+      }
+    };
+
+    window.addEventListener('session_title_updated', handleSessionTitleUpdated as EventListener);
+    return () => {
+      window.removeEventListener('session_title_updated', handleSessionTitleUpdated as EventListener);
+    };
+  }, [loadSessionList, resolveSessionTitle, sessionIdRef, setHistoryAndLatest, setSessionTitle]);
+
   const historyAgentOptions = useMemo<ChatHistoryAgentOption[]>(() => {
     const byId = new Map<string, ChatHistoryAgentOption>();
     for (const agent of availableAgents) {
@@ -418,6 +468,7 @@ export function useChatSessionHistory({
     noRecentSessions: t('noRecentSessions'),
     noSessionsFoundWithFilter: t('noSessionsFoundWithFilter'),
     newChatTitle: t('newChatTitle'),
+    sessionTitleGenerating: t('sessionTitleGenerating'),
     unreadResponse: t('unreadResponse'),
     renameSession: t('renameSession'),
     deleteSession: t('deleteSession'),

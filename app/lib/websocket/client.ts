@@ -775,6 +775,22 @@ export class WebSocketClient extends EventTarget {
         break;
       }
 
+      case 'session_title_updated': {
+        const titleUpdate = {
+          sessionId: message.sessionId as string,
+          title: message.title as string,
+          titleGenerationState: message.titleGenerationState as string | null | undefined,
+        };
+        console.log('[WebSocket Client] Received session_title_updated:', 'session:', titleUpdate.sessionId, 'title:', titleUpdate.title);
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; title: string; titleGenerationState?: string | null }>('session_title_updated', {
+          detail: titleUpdate,
+        }));
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new CustomEvent('session_title_updated', { detail: titleUpdate }));
+        }
+        break;
+      }
+
       case 'error':
         console.error('[WebSocket] server_error received', {
           connectionId: this.activeConnectionId,

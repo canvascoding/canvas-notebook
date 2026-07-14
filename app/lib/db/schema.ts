@@ -482,6 +482,7 @@ export const piSessions = sqliteTable("pi_sessions", {
   model: text("model").notNull(),
   thinkingLevel: text("thinking_level"),
   title: text("title"),
+  titleGenerationState: text("title_generation_state"),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
   summaryText: text("summary_text"),

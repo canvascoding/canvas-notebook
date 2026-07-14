@@ -450,6 +450,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       model TEXT NOT NULL,
       thinking_level TEXT,
       title TEXT,
+      title_generation_state TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       summary_text TEXT,
@@ -1707,6 +1708,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // ALTER TABLE ADD COLUMN is idempotent here because we check PRAGMA table_info first.
 
   addColumns(sqlite, 'pi_sessions', {
+    title_generation_state: 'TEXT',
     last_message_at: 'INTEGER',
     last_viewed_at: 'INTEGER',
     thinking_level: 'TEXT',

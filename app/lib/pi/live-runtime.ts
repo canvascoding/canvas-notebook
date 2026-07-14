@@ -34,6 +34,7 @@ import {
 } from '@/app/lib/pi/model-resolver';
 import { preparePiHistoryContext } from '@/app/lib/pi/session-summary';
 import { loadPiSessionWithSummary, savePiSession } from '@/app/lib/pi/session-store';
+import { generatePendingPiSessionTitle } from '@/app/lib/pi/session-title-generator';
 import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { filterToolsForPlanningMode } from '@/app/lib/pi/planning-mode';
 import { getChannelSystemPromptBlock } from '@/app/lib/agents/channel-system-prompt';
@@ -184,7 +185,14 @@ export type RuntimeErrorEvent = {
   error: string;
 };
 
-export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | ContextCompactedEvent | RuntimeErrorEvent;
+export type SessionTitleUpdatedEvent = {
+  type: 'session_title_updated';
+  title: string;
+  titleGenerationState: string | null;
+  timestamp: number;
+};
+
+export type PiRuntimeStreamEvent = AgentEvent | RuntimeStatusEvent | ContextCompactedEvent | RuntimeErrorEvent | SessionTitleUpdatedEvent;
 type RuntimeSubscriber = (event: PiRuntimeStreamEvent) => void;
 
 type RuntimeTurnEndEvent = Extract<AgentEvent, { type: 'turn_end' }>;
@@ -1338,6 +1346,10 @@ class LivePiRuntime {
       }
     }
 
+    if (!persistError) {
+      this.scheduleInitialSessionTitle(allMessages);
+    }
+
     if (persistedCount > 0) {
       console.log(`[LiveRuntime] Final save after agent_end: ${persistedCount} messages for session ${this.sessionId}`);
     }
@@ -1442,6 +1454,33 @@ class LivePiRuntime {
     };
     this.publish(event);
     this.emitRuntimeEvent(event);
+  }
+
+  private scheduleInitialSessionTitle(messages: AgentMessage[]) {
+    const streamFn = this.options.summaryStreamFn;
+    if (!streamFn) return;
+
+    void generatePendingPiSessionTitle({
+      agentId: this.agentId,
+      messages,
+      model: this.model,
+      sessionId: this.sessionId,
+      streamFn,
+      userId: this.userId,
+    }).then((result) => {
+      if (!result.updated || !result.title) return;
+      this.emitRuntimeEvent({
+        type: 'session_title_updated',
+        title: result.title,
+        titleGenerationState: result.titleGenerationState,
+        timestamp: Date.now(),
+      });
+    }).catch((error) => {
+      console.warn('[LiveRuntime] Session title generation could not be scheduled.', {
+        sessionId: this.sessionId,
+        errorName: error instanceof Error ? error.name : 'UnknownError',
+      });
+    });
   }
 
   dispose(): void {

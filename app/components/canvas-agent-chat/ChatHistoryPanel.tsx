@@ -10,11 +10,12 @@ import {
   MoreHorizontal,
   Pencil,
   Search,
+  Sparkles,
   Trash2,
 } from 'lucide-react';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
-import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
+import { getSessionDisplayTitle, isSessionTitleGenerating } from '@/app/lib/pi/session-titles';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import type {
   AgentProfile,
@@ -35,6 +36,7 @@ type ChatHistorySessionRowProps = {
   agentProfile?: AgentProfile;
   agentName: string;
   newChatTitle: string;
+  sessionTitleGenerating: string;
   unreadResponseLabel: string;
   renameSessionLabel: string;
   deleteSessionLabel: string;
@@ -62,6 +64,7 @@ function ChatHistorySessionRow({
   agentProfile,
   agentName,
   newChatTitle,
+  sessionTitleGenerating,
   unreadResponseLabel,
   renameSessionLabel,
   deleteSessionLabel,
@@ -71,6 +74,8 @@ function ChatHistorySessionRow({
 }: ChatHistorySessionRowProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const createdAtLabel = new Date(session.createdAt).toLocaleString();
+  const title = getSessionDisplayTitle(session.title, newChatTitle);
+  const isGeneratingTitle = isSessionTitleGenerating(session.titleGenerationState);
 
   return (
     <div
@@ -104,11 +109,23 @@ function ChatHistorySessionRow({
         <div className="min-w-0 flex-1 text-left">
           <div
             className={cn(
-              'min-w-0 truncate text-sm font-semibold leading-5',
+              'flex min-w-0 items-center gap-1.5 text-sm font-semibold leading-5',
               isActive ? 'text-primary' : 'text-foreground group-hover:text-primary',
             )}
           >
-            {getSessionDisplayTitle(session.title, newChatTitle)}
+            {isGeneratingTitle && (
+              <Sparkles
+                aria-hidden="true"
+                className="h-3.5 w-3.5 shrink-0 animate-pulse text-primary/70 motion-reduce:animate-none"
+              />
+            )}
+            <span
+              key={title}
+              className="min-w-0 truncate animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+            >
+              {title}
+            </span>
+            {isGeneratingTitle && <span className="sr-only">{sessionTitleGenerating}</span>}
           </div>
           <div className="mt-1.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[10px] leading-4 text-muted-foreground">
             <span className="max-w-full truncate">{createdAtLabel}</span>
@@ -170,6 +187,7 @@ export type ChatHistoryPanelLabels = {
   noRecentSessions: string;
   noSessionsFoundWithFilter: string;
   newChatTitle: string;
+  sessionTitleGenerating: string;
   unreadResponse: string;
   renameSession: string;
   deleteSession: string;
@@ -363,6 +381,7 @@ export function ChatHistoryPanel({
                     agentProfile={sessionAgentProfile}
                     agentName={sessionAgentName}
                     newChatTitle={labels.newChatTitle}
+                    sessionTitleGenerating={labels.sessionTitleGenerating}
                     unreadResponseLabel={labels.unreadResponse}
                     renameSessionLabel={labels.renameSession}
                     deleteSessionLabel={labels.deleteSession}

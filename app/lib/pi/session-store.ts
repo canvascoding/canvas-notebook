@@ -6,7 +6,13 @@ import { eq, and, asc, desc } from 'drizzle-orm';
 import { type AgentMessage } from '@earendil-works/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
-import { DEFAULT_PI_SESSION_TITLE, isAutomaticSessionTitle } from './session-titles';
+import {
+  createSessionTitleFallback,
+  DEFAULT_PI_SESSION_TITLE,
+  isAutomaticSessionTitle,
+  isSessionTitleGenerating,
+  type PiSessionTitleGenerationState,
+} from './session-titles';
 import {
   createPiSystemPromptSnapshot,
   piSystemPromptSnapshotDbFields,
@@ -30,8 +36,6 @@ import type { AiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/ty
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
  */
-
-const SESSION_TITLE_MAX_LENGTH = 48;
 
 function storedRevision(value: unknown): number {
   const revision = typeof value === 'number' ? value : Number.parseInt(String(value ?? ''), 10);
@@ -71,21 +75,8 @@ function extractFirstUserText(messages: AgentMessage[]): string {
   return firstTextPart?.text ?? '';
 }
 
-function truncateSessionTitle(value: string): string {
-  if (value.length <= SESSION_TITLE_MAX_LENGTH) {
-    return value;
-  }
-
-  return `${value.slice(0, SESSION_TITLE_MAX_LENGTH - 3).trimEnd()}...`;
-}
-
 function deriveSessionTitle(messages: AgentMessage[]): string {
-  const normalized = extractFirstUserText(messages).replace(/\s+/g, ' ').trim();
-  if (!normalized) {
-    return DEFAULT_PI_SESSION_TITLE;
-  }
-
-  return truncateSessionTitle(normalized);
+  return createSessionTitleFallback(extractFirstUserText(messages));
 }
 
 function getAgentMessageTimestamp(message: AgentMessage): number {
@@ -108,6 +99,7 @@ export type CreatePiSessionWithRuntimeSnapshotInput = {
   userId: string;
   agentId: string;
   title: string;
+  titleGenerationState?: PiSessionTitleGenerationState;
   workspace: PiSessionWorkspaceFields;
   runtimeSnapshot: AiSessionRuntimeSnapshot;
   systemPromptSnapshot: PiSystemPromptSnapshot;
@@ -182,14 +174,14 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
   const now = toDatabaseTimestamp(new Date());
   const inserted = await connection.get(
     `INSERT INTO pi_sessions (
-         session_id, user_id, agent_id, provider, model, thinking_level, title,
+         session_id, user_id, agent_id, provider, model, thinking_level, title, title_generation_state,
          created_at, updated_at, system_prompt_snapshot, system_prompt_snapshot_hash,
          system_prompt_snapshot_created_at, channel_id, channel_session_key,
          organization_id, customer_id, project_id, workspace_id, workspace_type,
          workspace_name, workspace_root_relative_path, runtime_provider_installation_id,
          runtime_catalog_revision, runtime_policy_revision, runtime_selection_source
        )
-       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL,
+       SELECT ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'app', NULL,
               ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?
        WHERE COALESCE((
          SELECT catalog_revision
@@ -212,6 +204,7 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
       input.runtimeSnapshot.selection.modelId,
       input.runtimeSnapshot.selection.thinkingLevel,
       input.title,
+      input.titleGenerationState ?? 'manual',
       now,
       now,
       input.systemPromptSnapshot.systemPrompt,
@@ -324,9 +317,9 @@ export async function savePiSession(
   });
   const derivedTitle = deriveSessionTitle(messages);
   const normalizedTitleOverride = options?.titleOverride?.trim() || null;
-  const resolvedTitle = normalizedTitleOverride || derivedTitle;
 
   let sessionDbId: number;
+  let persistedTitle: string;
 
   const summaryFields = summary
     ? {
@@ -345,6 +338,7 @@ export async function savePiSession(
   const lastMessageAt = assistantActivityAt ?? session?.lastMessageAt ?? null;
 
   if (!session) {
+    persistedTitle = normalizedTitleOverride || derivedTitle;
     const promptSnapshot = options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId, { userId });
     const workspace = await resolveAgentSessionWorkspaceForUser({ userId, workspaceId: options?.workspaceId ?? null });
     const [inserted] = await db.insert(piSessions).values({
@@ -354,7 +348,8 @@ export async function savePiSession(
       provider,
       model,
       ...(options?.runtimeSnapshot ? piSessionRuntimeSnapshotDbFields(options.runtimeSnapshot) : {}),
-      title: resolvedTitle,
+      title: persistedTitle,
+      titleGenerationState: normalizedTitleOverride ? 'manual' : 'fallback',
       channelId: 'app',
       channelSessionKey: null,
       createdAt: new Date(),
@@ -368,7 +363,16 @@ export async function savePiSession(
     sessionDbId = inserted.id;
   } else {
     sessionDbId = session.id;
-    const nextTitle = normalizedTitleOverride || (isAutomaticSessionTitle(session.title) ? derivedTitle : session.title);
+    persistedTitle = normalizedTitleOverride || (
+      isSessionTitleGenerating(session.titleGenerationState)
+        ? session.title || DEFAULT_PI_SESSION_TITLE
+        : isAutomaticSessionTitle(session.title)
+          ? derivedTitle
+          : session.title || derivedTitle
+    );
+    const nextTitleGenerationState = normalizedTitleOverride
+      ? 'manual'
+      : session.titleGenerationState ?? (isAutomaticSessionTitle(session.title) ? 'fallback' : null);
     const promptSnapshotFields = session.systemPromptSnapshot
       ? {}
       : piSystemPromptSnapshotDbFields(options?.systemPromptSnapshot ?? await createPiSystemPromptSnapshot(agentId, { userId }));
@@ -382,7 +386,8 @@ export async function savePiSession(
     await db.update(piSessions)
       .set({ 
         updatedAt: new Date(), 
-        title: nextTitle, 
+        title: persistedTitle,
+        titleGenerationState: nextTitleGenerationState,
         lastMessageAt: lastMessageAt,
         ...workspaceFields,
         ...runtimeFields,
@@ -401,7 +406,7 @@ export async function savePiSession(
       ?? session?.channelSessionKey
       ?? (normalizedChannelId === WEB_CHANNEL_ID ? webChannelSessionKey(userId) : `${normalizedChannelId}:unknown`),
     channelThreadKey: options?.channelThreadKey ?? null,
-    displayName: resolvedTitle,
+    displayName: persistedTitle,
     isPrimary: normalizedChannelId === WEB_CHANNEL_ID,
     outboundAt: lastMessageAt,
   });

@@ -3,6 +3,7 @@ import { getChatMessageDbId, getChatMessageSequence, getChatMessageTimestamp } f
 import { normalizeSessionRuntimePhase } from '@/app/lib/chat/runtime-message-utils';
 import type { AISession, CachedChatSession, ChatMessage, ChatSessionCacheStore, ChatWorkspaceType } from '@/app/lib/chat/types';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
+import { PI_SESSION_TITLE_GENERATION_STATES, type PiSessionTitleGenerationState } from '@/app/lib/pi/session-titles';
 
 const CHAT_AGENT_ID = DEFAULT_AGENT_ID;
 const CHAT_SESSION_CACHE_VERSION = 1;
@@ -22,6 +23,12 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 function normalizeCachedWorkspaceType(value: unknown): ChatWorkspaceType {
   if (value === 'organization' || value === 'team' || value === 'project') return value;
   return 'personal';
+}
+
+function normalizeTitleGenerationState(value: unknown): PiSessionTitleGenerationState | null {
+  return typeof value === 'string' && PI_SESSION_TITLE_GENERATION_STATES.includes(value as PiSessionTitleGenerationState)
+    ? value as PiSessionTitleGenerationState
+    : null;
 }
 
 function getChatSessionCacheKey(agentId: string | null | undefined, sessionId: string): string {
@@ -68,6 +75,7 @@ function normalizeCachedSessionEntry(value: unknown): CachedChatSession | null {
     id: typeof sessionValue.id === 'number' ? sessionValue.id : cachedAt,
     sessionId,
     title: typeof sessionValue.title === 'string' ? sessionValue.title : null,
+    titleGenerationState: normalizeTitleGenerationState(sessionValue.titleGenerationState),
     agentId: typeof sessionValue.agentId === 'string' ? sessionValue.agentId : CHAT_AGENT_ID,
     model: typeof sessionValue.model === 'string' ? sessionValue.model : DEFAULT_MODEL_ID,
     provider: typeof sessionValue.provider === 'string' ? sessionValue.provider : null,
@@ -252,7 +260,12 @@ export function removeCachedChatSession(sessionId: string, agentId?: string | nu
   persistChatSessionCache();
 }
 
-export function updateCachedChatSessionTitle(sessionId: string, title: string, agentId?: string | null) {
+export function updateCachedChatSessionTitle(
+  sessionId: string,
+  title: string,
+  agentId?: string | null,
+  titleGenerationState?: PiSessionTitleGenerationState | null,
+) {
   hydrateChatSessionCacheFromStorage();
   let changed = false;
   for (const [cacheKey, entry] of inMemoryChatSessionCache.entries()) {
@@ -266,6 +279,7 @@ export function updateCachedChatSessionTitle(sessionId: string, title: string, a
       session: {
         ...entry.session,
         title,
+        ...(titleGenerationState !== undefined ? { titleGenerationState } : {}),
       },
       cachedAt: Date.now(),
     });

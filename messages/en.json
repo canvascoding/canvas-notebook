@@ -953,6 +953,7 @@
     },
     "modelLabel": "Model",
     "newChatTitle": "New chat",
+    "sessionTitleGenerating": "Generating session title",
     "newChatShort": "New",
     "viewSkills": "View plugins",
     "skills": "Plugins",
