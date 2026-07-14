@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 
 const root = process.cwd();
@@ -11,6 +11,7 @@ const agentSettings = read('app/components/settings/AgentSettingsPanel.tsx');
 const runtimeCard = read('app/components/settings/AgentRuntimePreferenceCard.tsx');
 const chatComposer = read('app/components/canvas-agent-chat/ChatComposer.tsx');
 const onboardingWizard = read('app/[locale]/(routes)/onboarding/onboarding-wizard.tsx');
+const legacyRuntimePanelPath = path.join(root, 'app/components/settings/MyAgentRuntimePanel.tsx');
 
 assert.doesNotMatch(navigation, /value:\s*['"]my-agent-runtime['"]/u);
 assert.doesNotMatch(navigation, /\|\s*['"]my-agent-runtime['"]/u);
@@ -28,5 +29,6 @@ assert.doesNotMatch(onboardingWizard, /PersonalRuntimeStep/u);
 assert.doesNotMatch(onboardingWizard, /step === ['"]runtime['"]/u);
 assert.doesNotMatch(onboardingWizard, /MyAgentRuntimePanel/u);
 assert.match(onboardingWizard, /USER_STEPS[^\n]+\['language', 'workspace', 'profile', 'tour', 'done'\]/u);
+assert.equal(existsSync(legacyRuntimePanelPath), false);
 
 console.log('agent-runtime-settings-ui-test: ok');
