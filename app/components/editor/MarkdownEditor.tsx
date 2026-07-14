@@ -295,6 +295,7 @@ const SLASH_COMMAND_PLUGIN_KEY = new PluginKey('markdownSlashCommands');
 const COLOR_SWATCH_PLUGIN_KEY = new PluginKey('markdownColorSwatches');
 const CANVAS_BLOCK_DRAG_DROP_GUARD_PLUGIN_KEY = new PluginKey('canvasBlockDragDropGuard');
 const MOBILE_KEYBOARD_RECHECK_DELAYS_MS = [60, 180, 360, 720];
+const MOBILE_TOOLBAR_INTERACTION_GRACE_MS = 1_000;
 
 function shouldDefaultToSource(readOnly: boolean, filePath?: string) {
   if (readOnly) return false;
@@ -3000,6 +3001,56 @@ function preserveEditorSelectionOnPointerDown(event: React.PointerEvent<HTMLElem
   event.preventDefault();
 }
 
+function useMobileToolbarPress(onPress: () => void, disabled = false) {
+  const handledPressRef = useRef(false);
+  const handledPressResetRef = useRef<number | null>(null);
+
+  const clearHandledPress = useCallback(() => {
+    handledPressRef.current = false;
+    if (handledPressResetRef.current !== null) {
+      window.clearTimeout(handledPressResetRef.current);
+      handledPressResetRef.current = null;
+    }
+  }, []);
+
+  const handlePressStart = useCallback(() => {
+    if (disabled || handledPressRef.current) return;
+
+    handledPressRef.current = true;
+    if (handledPressResetRef.current !== null) {
+      window.clearTimeout(handledPressResetRef.current);
+    }
+    handledPressResetRef.current = window.setTimeout(clearHandledPress, 750);
+    onPress();
+  }, [clearHandledPress, disabled, onPress]);
+
+  useEffect(() => clearHandledPress, [clearHandledPress]);
+
+  return {
+    onClick: (event: React.MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+      if (handledPressRef.current) {
+        clearHandledPress();
+        return;
+      }
+      if (!disabled) onPress();
+    },
+    onMouseDown: (event: React.MouseEvent<HTMLElement>) => {
+      event.preventDefault();
+    },
+    onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
+      event.preventDefault();
+      if (event.pointerType !== 'mouse') handlePressStart();
+    },
+    onTouchStart: (event: React.TouchEvent<HTMLElement>) => {
+      // iOS can still move focus to a native button after a prevented pointerdown.
+      // Cancelling touchstart keeps the contenteditable focused and the keyboard open.
+      event.preventDefault();
+      handlePressStart();
+    },
+  };
+}
+
 function MobileToolbarButton({
   label,
   active = false,
@@ -3013,14 +3064,7 @@ function MobileToolbarButton({
   onClick: () => void;
   children: React.ReactNode;
 }) {
-  const handledPointerPressRef = useRef(false);
-  const handledPointerResetRef = useRef<number | null>(null);
-
-  useEffect(() => () => {
-    if (handledPointerResetRef.current !== null) {
-      window.clearTimeout(handledPointerResetRef.current);
-    }
-  }, []);
+  const pressHandlers = useMobileToolbarPress(onClick, disabled);
 
   return (
     <Button
@@ -3034,35 +3078,31 @@ function MobileToolbarButton({
         'h-10 w-10 shrink-0 rounded-md text-muted-foreground',
         active && 'text-foreground',
       )}
-      onPointerDown={(event) => {
-        preserveEditorSelectionOnPointerDown(event);
-        if (disabled || event.pointerType === 'mouse') return;
-
-        handledPointerPressRef.current = true;
-        if (handledPointerResetRef.current !== null) {
-          window.clearTimeout(handledPointerResetRef.current);
-        }
-        handledPointerResetRef.current = window.setTimeout(() => {
-          handledPointerPressRef.current = false;
-          handledPointerResetRef.current = null;
-        }, 750);
-        onClick();
-      }}
-      onClick={(event) => {
-        event.preventDefault();
-        if (handledPointerPressRef.current) {
-          handledPointerPressRef.current = false;
-          if (handledPointerResetRef.current !== null) {
-            window.clearTimeout(handledPointerResetRef.current);
-            handledPointerResetRef.current = null;
-          }
-          return;
-        }
-        onClick();
-      }}
+      {...pressHandlers}
     >
       {children}
     </Button>
+  );
+}
+
+function MobileCommandTile({
+  item,
+  onPress,
+}: {
+  item: SlashCommandItem;
+  onPress: () => void;
+}) {
+  const pressHandlers = useMobileToolbarPress(onPress);
+
+  return (
+    <button
+      type="button"
+      className="tiptap-mobile-command-tile"
+      {...pressHandlers}
+    >
+      <item.Icon />
+      <span className="min-w-0 truncate">{item.title}</span>
+    </button>
   );
 }
 
@@ -3129,7 +3169,7 @@ function MobileMarkdownToolbar({
     releaseInteractionTimeoutRef.current = window.setTimeout(() => {
       setIsInteractingWithToolbar(false);
       releaseInteractionTimeoutRef.current = null;
-    }, 350);
+    }, MOBILE_TOOLBAR_INTERACTION_GRACE_MS);
   }, []);
 
   useEffect(() => () => {
@@ -3228,10 +3268,13 @@ function MobileMarkdownToolbar({
     () => getLocalizedSlashCommandItems(labels).filter((item) => MOBILE_STYLE_COMMAND_IDS.has(item.id)),
     [labels],
   );
-  const activeSheet = keyboardActive ? sheet : null;
+  const activeSheet = keyboardActive || isInteractingWithToolbar ? sheet : null;
   const sheetItems = activeSheet === 'styles' ? styleItems : blockItems;
   const sheetTitle = activeSheet === 'styles' ? t('markdownEditorMobileTextStyle') : labels.addBlock;
-  const toolbarVisible = keyboardActive && (visible || isInteractingWithToolbar || activeSheet !== null || linkDialogOpen);
+  const toolbarVisible = (keyboardActive && visible)
+    || isInteractingWithToolbar
+    || activeSheet !== null
+    || linkDialogOpen;
 
   const mobileToolbarOverlay = (
     <>
@@ -3243,6 +3286,9 @@ function MobileMarkdownToolbar({
           onPointerDownCapture={holdToolbarVisibility}
           onPointerUpCapture={releaseToolbarVisibility}
           onPointerCancelCapture={releaseToolbarVisibility}
+          onTouchStartCapture={holdToolbarVisibility}
+          onTouchEndCapture={releaseToolbarVisibility}
+          onTouchCancelCapture={releaseToolbarVisibility}
         >
           <div className="mb-3 flex items-center justify-between gap-3 px-1">
             <div className="text-sm font-medium text-muted-foreground">{sheetTitle}</div>
@@ -3259,16 +3305,11 @@ function MobileMarkdownToolbar({
           </div>
           <div className="grid grid-cols-2 gap-2">
             {sheetItems.map((item) => (
-              <button
+              <MobileCommandTile
                 key={item.id}
-                type="button"
-                className="tiptap-mobile-command-tile"
-                onPointerDown={preserveEditorSelectionOnPointerDown}
-                onClick={() => runCommandItem(item)}
-              >
-                <item.Icon />
-                <span className="min-w-0 truncate">{item.title}</span>
-              </button>
+                item={item}
+                onPress={() => runCommandItem(item)}
+              />
             ))}
           </div>
         </div>
@@ -3281,6 +3322,9 @@ function MobileMarkdownToolbar({
         onPointerDownCapture={holdToolbarVisibility}
         onPointerUpCapture={releaseToolbarVisibility}
         onPointerCancelCapture={releaseToolbarVisibility}
+        onTouchStartCapture={holdToolbarVisibility}
+        onTouchEndCapture={releaseToolbarVisibility}
+        onTouchCancelCapture={releaseToolbarVisibility}
       >
         <MobileToolbarButton label={labels.addBlock} disabled={!canUseCommands} active={activeSheet === 'blocks'} onClick={() => openSheet('blocks')}>
           <Plus className="h-5 w-5" />
