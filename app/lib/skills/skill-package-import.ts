@@ -7,6 +7,7 @@ import path from 'path';
 import JSZip from 'jszip';
 
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
+import { createAtomicTempPath } from '@/app/lib/runtime-data-paths';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
 import {
@@ -123,7 +124,7 @@ function assertPackagePathIsNotSecret(relativePath: string, bytes: Buffer): void
   const isKnownSecretFile = BLOCKED_SECRET_FILE_NAMES.has(fileName)
     || BLOCKED_SECRET_FILE_EXTENSIONS.has(path.posix.extname(fileName));
   const containsPrivateKey = bytes.byteLength <= 1024 * 1024
-    && bytes.toString('utf-8').includes('-----BEGIN PRIVATE KEY-----');
+    && /-----BEGIN (?:[A-Z0-9 ]+ )?PRIVATE KEY-----/.test(bytes.toString('utf-8'));
 
   if (isEnvironmentFile || isKnownSecretFile || containsPrivateKey) {
     throw new SkillPackageImportError(
@@ -320,18 +321,25 @@ async function copySkillPackage(
 ): Promise<string> {
   const skillsDir = getSkillsDir(scope);
   const targetDir = requirePathInside(skillsDir, skillName);
-  await fs.mkdir(path.dirname(targetDir), { recursive: true });
-
-  await fs.cp(packageRoot, targetDir, {
-    recursive: true,
-    preserveTimestamps: true,
-    filter: (source) => {
-      const relativePath = path.relative(packageRoot, source).split(path.sep).join('/');
-      return !relativePath || !isIgnoredPackagePath(relativePath);
-    },
-  });
-
-  return targetDir;
+  const tempDir = createAtomicTempPath(targetDir);
+  try {
+    await fs.mkdir(path.dirname(targetDir), { recursive: true });
+    await fs.rm(tempDir, { recursive: true, force: true });
+    await fs.cp(packageRoot, tempDir, {
+      recursive: true,
+      preserveTimestamps: true,
+      filter: (source) => {
+        const relativePath = path.relative(packageRoot, source).split(path.sep).join('/');
+        return !relativePath || !isIgnoredPackagePath(relativePath);
+      },
+    });
+    await validateUploadedPackage(tempDir);
+    await fs.rename(tempDir, targetDir);
+    return targetDir;
+  } catch (error) {
+    await fs.rm(tempDir, { recursive: true, force: true }).catch(() => undefined);
+    throw error;
+  }
 }
 
 async function writeLocalSkillRegistryRecord(params: {
@@ -404,13 +412,20 @@ export async function importSkillPackage(
     const { skillName, validation } = await validateUploadedPackage(packageRoot);
 
     await ensureSkillCanBeInstalled(skillName, options.scope);
+    const registryBeforeInstall = await readCanvasSkillRegistry(options.scope);
     const installDir = await copySkillPackage(packageRoot, skillName, options.scope);
-    await writeLocalSkillRegistryRecord({
-      skillName,
-      sourceName: sourceNameForRecord(source),
-      installDir,
-      scope: options.scope,
-    });
+    try {
+      await writeLocalSkillRegistryRecord({
+        skillName,
+        sourceName: sourceNameForRecord(source),
+        installDir,
+        scope: options.scope,
+      });
+    } catch (error) {
+      await fs.rm(installDir, { recursive: true, force: true }).catch(() => undefined);
+      await writeCanvasSkillRegistry(registryBeforeInstall, options.scope).catch(() => undefined);
+      throw error;
+    }
 
     if (options.enable !== false) {
       await enableImportedSkill(skillName, options.scope, options.updatedBy).catch((error) => {
