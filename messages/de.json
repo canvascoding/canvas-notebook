@@ -1215,6 +1215,71 @@
       }
     }
   },
+  "knowledgeGraph": {
+    "title": "Knowledge Graph",
+    "description": "Interaktive Karte aller Markdown-Dokumente und ihrer Verbindungen.",
+    "eyebrow": "Workspace-Topologie",
+    "loading": "Verbindungen werden indexiert",
+    "search": {
+      "placeholder": "Dokument oder Alias suchen …"
+    },
+    "stats": {
+      "documents": "Docs",
+      "links": "Links",
+      "broken": "offen"
+    },
+    "controls": {
+      "title": "Graph-Steuerung",
+      "filters": "Filter",
+      "groups": "Gruppen",
+      "display": "Darstellung",
+      "forces": "Kräfte"
+    },
+    "filters": {
+      "orphans": "Unverlinkte Dokumente anzeigen",
+      "broken": "Fehlende und mehrdeutige Ziele"
+    },
+    "groups": {
+      "status": "Status",
+      "folder": "Ordner",
+      "tag": "Tag"
+    },
+    "display": {
+      "labels": "Dokumentnamen anzeigen"
+    },
+    "legend": {
+      "document": "Dokument",
+      "ambiguous": "Mehrdeutig",
+      "missing": "Fehlt"
+    },
+    "forces": {
+      "gravity": "Gravitation",
+      "spacing": "Abstand"
+    },
+    "inspector": {
+      "incoming": "rein",
+      "outgoing": "raus",
+      "total": "gesamt"
+    },
+    "actions": {
+      "refresh": "Graph aktualisieren",
+      "retry": "Erneut versuchen",
+      "recalculate": "Layout neu berechnen",
+      "open": "Dokument öffnen",
+      "openDocument": "{title} öffnen",
+      "zoomIn": "Vergrößern",
+      "zoomOut": "Verkleinern",
+      "resetView": "Ansicht zurücksetzen"
+    },
+    "empty": {
+      "title": "Noch keine Markdown-Dokumente",
+      "description": "Sobald Markdown-Dateien im Workspace liegen, erscheinen sie hier als Knoten. Verknüpfe sie mit [[Dokumentname]]."
+    },
+    "errors": {
+      "load": "Der Linkindex konnte nicht geladen werden.",
+      "webgl": "Der WebGL-Graph konnte nicht initialisiert werden"
+    }
+  },
   "home": {
     "header": {
       "logoAlt": "Canvas Notebook Logo",
@@ -1336,6 +1401,10 @@
       "notebook": {
         "title": "Notebook",
         "description": "Dateien, Chat und Editor – dein zentraler Workspace."
+      },
+      "knowledgeGraph": {
+        "title": "Knowledge Graph",
+        "description": "Dokumente, Backlinks und offene Verbindungen als interaktive Karte erkunden."
       },
       "usage": {
         "title": "Usage Analytics",

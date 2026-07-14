@@ -9,6 +9,10 @@
   padding-block: 0.125rem;
 }
 
+.knowledge-graph-webgl canvas {
+  outline: none;
+}
+
 .tiptap-mathematics-render {
   max-width: 100%;
   color: inherit;

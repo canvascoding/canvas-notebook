@@ -1,0 +1,34 @@
+'use client';
+
+import { useMemo } from 'react';
+import { useTranslations } from 'next-intl';
+
+import { KnowledgeGraphClient } from './KnowledgeGraphClient';
+import { ChatDockShell } from '@/app/components/layout/ChatDockShell';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { usePathname } from '@/i18n/navigation';
+
+export function KnowledgeGraphShell() {
+  const t = useTranslations('knowledgeGraph');
+  const tCommon = useTranslations('common');
+  const pathname = usePathname();
+  const requestContext = useMemo<ChatRequestContext>(() => ({
+    currentPage: pathname ?? '/knowledge-graph',
+  }), [pathname]);
+
+  return (
+    <ChatDockShell
+      title={t('title')}
+      backHref="/"
+      backLabel={tCommon('suite')}
+      requestContext={requestContext}
+      storageKeyPrefix="knowledgeGraph"
+      hintPage="knowledge-graph"
+      defaultChatVisible={false}
+      mainClassName="overflow-hidden"
+      titleClassName="font-mono uppercase tracking-[0.12em]"
+    >
+      <KnowledgeGraphClient />
+    </ChatDockShell>
+  );
+}

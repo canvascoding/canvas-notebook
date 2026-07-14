@@ -1216,6 +1216,71 @@
       }
     }
   },
+  "knowledgeGraph": {
+    "title": "Knowledge Graph",
+    "description": "An interactive map of every Markdown document and its connections.",
+    "eyebrow": "Workspace topology",
+    "loading": "Indexing connections",
+    "search": {
+      "placeholder": "Search document or alias…"
+    },
+    "stats": {
+      "documents": "Docs",
+      "links": "Links",
+      "broken": "open"
+    },
+    "controls": {
+      "title": "Graph controls",
+      "filters": "Filters",
+      "groups": "Groups",
+      "display": "Display",
+      "forces": "Forces"
+    },
+    "filters": {
+      "orphans": "Show unlinked documents",
+      "broken": "Missing and ambiguous targets"
+    },
+    "groups": {
+      "status": "Status",
+      "folder": "Folder",
+      "tag": "Tag"
+    },
+    "display": {
+      "labels": "Show document names"
+    },
+    "legend": {
+      "document": "Document",
+      "ambiguous": "Ambiguous",
+      "missing": "Missing"
+    },
+    "forces": {
+      "gravity": "Gravity",
+      "spacing": "Spacing"
+    },
+    "inspector": {
+      "incoming": "in",
+      "outgoing": "out",
+      "total": "total"
+    },
+    "actions": {
+      "refresh": "Refresh graph",
+      "retry": "Try again",
+      "recalculate": "Recalculate layout",
+      "open": "Open document",
+      "openDocument": "Open {title}",
+      "zoomIn": "Zoom in",
+      "zoomOut": "Zoom out",
+      "resetView": "Reset view"
+    },
+    "empty": {
+      "title": "No Markdown documents yet",
+      "description": "Markdown files will appear here as nodes. Connect them with [[Document name]]."
+    },
+    "errors": {
+      "load": "The link index could not be loaded.",
+      "webgl": "The WebGL graph could not be initialized"
+    }
+  },
   "home": {
     "header": {
       "logoAlt": "Canvas Notebook logo",
@@ -1337,6 +1402,10 @@
       "notebook": {
         "title": "Notebook",
         "description": "Files, chat, and editor – your central workspace."
+      },
+      "knowledgeGraph": {
+        "title": "Knowledge Graph",
+        "description": "Explore documents, backlinks, and unresolved connections as an interactive map."
       },
       "usage": {
         "title": "Usage Analytics",

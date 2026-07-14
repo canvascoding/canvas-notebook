@@ -19,6 +19,7 @@ import {
   ArrowRight,
   Inbox,
   ShieldCheck,
+  Network,
 } from 'lucide-react';
 import {
   DropdownMenu,
@@ -43,6 +44,7 @@ interface AppItem {
 
 const APPS: AppItem[] = [
   { id: 'notebook', href: '/notebook', icon: NotebookPen, hasQuickActions: false },
+  { id: 'knowledgeGraph', href: '/knowledge-graph', icon: Network, hasQuickActions: false },
   { id: 'todos', href: '/todos', icon: ListTodo, hasQuickActions: false },
   { id: 'emails', href: '/emails', icon: Inbox, hasQuickActions: false },
   { id: 'studio', href: '/studio', icon: Sparkles, hasQuickActions: true },
