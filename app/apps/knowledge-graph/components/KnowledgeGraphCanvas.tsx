@@ -45,6 +45,7 @@ type GraphInstance = MultiDirectedGraph<KnowledgeGraphNode, { color: string; siz
     node: string,
     attribute: Key,
   ) => KnowledgeGraphNode[Key];
+  forEachNode: (callback: (node: string, attributes: KnowledgeGraphNode) => void) => void;
   areNeighbors: (source: string, target: string) => boolean;
   extremities: (edge: string) => [string, string];
 };
@@ -64,7 +65,7 @@ function graphTopologyKey(data: KnowledgeGraphData): string {
       hash = Math.imul(hash, 16777619);
     }
   };
-  for (const node of data.nodes) add(`n:${node.id}\0`);
+  for (const node of data.nodes) add(`n:${node.id}:${node.group}\0`);
   for (const edge of data.edges) add(`e:${edge.id}:${edge.source}:${edge.target}\0`);
   return `${data.nodes.length}:${data.edges.length}:${hash >>> 0}`;
 }
@@ -87,6 +88,35 @@ function focusRendererNode(
     { x: displayData.x, y: displayData.y, ratio: 0.16 },
     { duration },
   );
+}
+
+function spreadGraphGroups(graph: GraphInstance): void {
+  const groups = new Map<string, Array<{ id: string; x: number; y: number }>>();
+  graph.forEachNode((nodeId, attributes) => {
+    const nodes = groups.get(attributes.group) ?? [];
+    nodes.push({ id: nodeId, x: attributes.x, y: attributes.y });
+    groups.set(attributes.group, nodes);
+  });
+  const groupKeys = [...groups.keys()].sort();
+  if (groupKeys.length <= 1) return;
+
+  const radius = Math.max(16, groupKeys.length * 6);
+  groupKeys.forEach((group, groupIndex) => {
+    const nodes = groups.get(group) ?? [];
+    if (nodes.length === 0) return;
+    const centroid = nodes.reduce((total, node) => ({
+      x: total.x + node.x / nodes.length,
+      y: total.y + node.y / nodes.length,
+    }), { x: 0, y: 0 });
+    const angle = (groupIndex / groupKeys.length) * Math.PI * 2;
+    const target = { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+    for (const node of nodes) {
+      graph.mergeNodeAttributes(node.id, {
+        x: node.x + target.x - centroid.x,
+        y: node.y + target.y - centroid.y,
+      });
+    }
+  });
 }
 
 function startLayoutRun({
@@ -264,7 +294,11 @@ export function KnowledgeGraphCanvas({
         graph,
         gravity: gravityRef.current,
         inferSettings: forceAtlasModule.inferSettings,
-        onSettled: () => focusRendererNode(renderer!, focusedNodeRef.current, 260),
+        onSettled: () => {
+          spreadGraphGroups(graph);
+          renderer?.refresh();
+          focusRendererNode(renderer!, focusedNodeRef.current, 260);
+        },
         scalingRatio: scalingRatioRef.current,
       });
       setRenderError(null);
@@ -329,7 +363,11 @@ export function KnowledgeGraphCanvas({
       graph,
       gravity,
       inferSettings,
-      onSettled: () => focusRendererNode(renderer, focusedNodeRef.current, 260),
+      onSettled: () => {
+        spreadGraphGroups(graph);
+        renderer.refresh();
+        focusRendererNode(renderer, focusedNodeRef.current, 260);
+      },
       scalingRatio,
     });
   }, [forceVersion, gravity, scalingRatio, topologyKey]);

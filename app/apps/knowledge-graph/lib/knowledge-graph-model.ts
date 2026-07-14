@@ -11,6 +11,7 @@ export type KnowledgeGraphNode = {
   color: string;
   degree: number;
   folder: string;
+  group: string;
   id: string;
   incoming: number;
   kind: 'document' | 'missing' | 'ambiguous';
@@ -36,8 +37,20 @@ export type KnowledgeGraphData = {
   nodes: KnowledgeGraphNode[];
 };
 
+export type KnowledgeGraphFacet = {
+  count: number;
+  value: string;
+};
+
+export type KnowledgeGraphFacets = {
+  folders: KnowledgeGraphFacet[];
+  tags: KnowledgeGraphFacet[];
+};
+
 export type KnowledgeGraphOptions = {
   colorMode: KnowledgeGraphColorMode;
+  selectedFolders?: readonly string[];
+  selectedTags?: readonly string[];
   showBroken: boolean;
   showOrphans: boolean;
 };
@@ -79,26 +92,102 @@ function groupColor(value: string): string {
 }
 
 function documentFolder(path: string): string {
-  const segments = path.replace(/\\/g, '/').split('/');
-  return segments.length > 1 ? segments[0] : '/';
+  const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
+  const slashIndex = normalized.lastIndexOf('/');
+  return slashIndex >= 0 ? normalized.slice(0, slashIndex) : '/';
 }
 
-function documentColor(
+function documentFolderAncestors(path: string): string[] {
+  const folder = documentFolder(path);
+  if (folder === '/') return ['/'];
+  const segments = folder.split('/');
+  return segments.map((_, index) => segments.slice(0, index + 1).join('/'));
+}
+
+function matchesFolder(document: WorkspaceLinkDocument, folder: string): boolean {
+  const documentPath = document.path.replace(/\\/g, '/').replace(/^\/+/, '');
+  if (folder === '/') return !documentPath.includes('/');
+  return documentPath.startsWith(`${folder.replace(/^\/+|\/+$/g, '')}/`);
+}
+
+function incrementFacet(map: Map<string, number>, value: string): void {
+  map.set(value, (map.get(value) ?? 0) + 1);
+}
+
+function toSortedFacets(map: Map<string, number>): KnowledgeGraphFacet[] {
+  return [...map.entries()]
+    .map(([value, count]) => ({ count, value }))
+    .sort((left, right) => right.count - left.count || left.value.localeCompare(right.value));
+}
+
+export function getKnowledgeGraphFacets(index: WorkspaceLinkIndex): KnowledgeGraphFacets {
+  const folders = new Map<string, number>();
+  const tags = new Map<string, number>();
+
+  for (const document of index.documents) {
+    for (const folder of documentFolderAncestors(document.path)) incrementFacet(folders, folder);
+    for (const tag of new Set(document.tags)) incrementFacet(tags, tag);
+  }
+
+  return { folders: toSortedFacets(folders), tags: toSortedFacets(tags) };
+}
+
+function documentMatchesFilters(
+  document: WorkspaceLinkDocument,
+  selectedFolders: readonly string[],
+  selectedTags: readonly string[],
+): boolean {
+  const folderMatches = selectedFolders.length === 0
+    || selectedFolders.some((folder) => matchesFolder(document, folder));
+  const tagMatches = selectedTags.length === 0
+    || document.tags.some((tag) => selectedTags.includes(tag));
+  return folderMatches && tagMatches;
+}
+
+function documentGroup(
   document: WorkspaceLinkDocument,
   degree: number,
   colorMode: KnowledgeGraphColorMode,
 ): string {
-  if (colorMode === 'folder') return groupColor(documentFolder(document.path));
-  if (colorMode === 'tag') return document.tags[0] ? groupColor(document.tags[0]) : '#94a3b8';
-  return degree > 0 ? '#38bdf8' : '#94a3b8';
+  if (colorMode === 'folder') return documentFolder(document.path);
+  if (colorMode === 'tag') return document.tags[0] || 'untagged';
+  return degree > 0 ? 'connected' : 'unlinked';
+}
+
+function documentColor(group: string, colorMode: KnowledgeGraphColorMode): string {
+  if (colorMode === 'status') return group === 'connected' ? '#38bdf8' : '#94a3b8';
+  return group === 'untagged' ? '#94a3b8' : groupColor(group);
+}
+
+function groupedPosition(input: {
+  groupCount: number;
+  groupIndex: number;
+  id: string;
+  itemCount: number;
+  itemIndex: number;
+}): { x: number; y: number } {
+  const groupAngle = (input.groupIndex / Math.max(1, input.groupCount)) * Math.PI * 2;
+  const groupRadius = input.groupCount <= 1 ? 0 : Math.max(14, input.groupCount * 4.5);
+  const centerX = Math.cos(groupAngle) * groupRadius;
+  const centerY = Math.sin(groupAngle) * groupRadius;
+  const hash = hashString(input.id);
+  const jitter = (hash % 10_000) / 10_000;
+  const itemAngle = ((input.itemIndex + jitter) / Math.max(1, input.itemCount)) * Math.PI * 2;
+  const itemRadius = input.itemCount <= 1 ? 0 : 2.5 + Math.sqrt(input.itemIndex + 1) * 1.7;
+  return {
+    x: centerX + Math.cos(itemAngle) * itemRadius,
+    y: centerY + Math.sin(itemAngle) * itemRadius,
+  };
 }
 
 function initialPosition(id: string, index: number, count: number): { x: number; y: number } {
-  const hash = hashString(id);
-  const jitter = (hash % 10_000) / 10_000;
-  const angle = ((index + jitter) / Math.max(1, count)) * Math.PI * 2;
-  const radius = 5 + Math.sqrt(index + 1) * 1.8 + ((hash >>> 16) % 7) * 0.2;
-  return { x: Math.cos(angle) * radius, y: Math.sin(angle) * radius };
+  return groupedPosition({
+    groupCount: 1,
+    groupIndex: 0,
+    id,
+    itemCount: count,
+    itemIndex: index,
+  });
 }
 
 function unresolvedNodeId(edge: WorkspaceLinkEdge): string {
@@ -109,9 +198,19 @@ export function buildKnowledgeGraphData(
   index: WorkspaceLinkIndex,
   options: KnowledgeGraphOptions,
 ): KnowledgeGraphData {
-  const visibleEdges = options.showBroken
+  const selectedFolders = options.selectedFolders ?? [];
+  const selectedTags = options.selectedTags ?? [];
+  const matchedDocuments = index.documents.filter((document) => (
+    documentMatchesFilters(document, selectedFolders, selectedTags)
+  ));
+  const matchedDocumentIds = new Set(matchedDocuments.map((document) => document.path));
+  const visibleEdges = (options.showBroken
     ? index.edges
-    : index.edges.filter((edge) => edge.status === 'resolved');
+    : index.edges.filter((edge) => edge.status === 'resolved'))
+    .filter((edge) => (
+      matchedDocumentIds.has(edge.sourcePath)
+      && (!edge.targetPath || matchedDocumentIds.has(edge.targetPath))
+    ));
   const incoming = new Map<string, number>();
   const outgoing = new Map<string, number>();
   for (const edge of visibleEdges) {
@@ -119,24 +218,53 @@ export function buildKnowledgeGraphData(
     if (edge.targetPath) incoming.set(edge.targetPath, (incoming.get(edge.targetPath) ?? 0) + 1);
   }
 
-  const documentNodes = index.documents.map((document, nodeIndex) => {
+  const groupedDocuments = matchedDocuments.map((document) => {
     const incomingCount = incoming.get(document.path) ?? 0;
     const outgoingCount = outgoing.get(document.path) ?? 0;
     const degree = incomingCount + outgoingCount;
-    const position = initialPosition(document.path, nodeIndex, index.documents.length);
     return {
-      aliases: document.aliases,
-      color: documentColor(document, degree, options.colorMode),
       degree,
-      folder: documentFolder(document.path),
-      id: document.path,
-      incoming: incomingCount,
+      document,
+      group: documentGroup(document, degree, options.colorMode),
+      incomingCount,
+      outgoingCount,
+    };
+  });
+  const groupEntries = new Map<string, typeof groupedDocuments>();
+  for (const entry of groupedDocuments) {
+    const entries = groupEntries.get(entry.group) ?? [];
+    entries.push(entry);
+    groupEntries.set(entry.group, entries);
+  }
+  const groupKeys = [...groupEntries.keys()].sort();
+  const groupIndexByKey = new Map(groupKeys.map((group, index) => [group, index]));
+  const itemIndexByPath = new Map<string, number>();
+  for (const entries of groupEntries.values()) {
+    entries.forEach((entry, index) => itemIndexByPath.set(entry.document.path, index));
+  }
+  const documentNodes = groupedDocuments.map((entry) => {
+    const entries = groupEntries.get(entry.group) ?? [entry];
+    const position = groupedPosition({
+      groupCount: groupKeys.length,
+      groupIndex: groupIndexByKey.get(entry.group) ?? 0,
+      id: entry.document.path,
+      itemCount: entries.length,
+      itemIndex: itemIndexByPath.get(entry.document.path) ?? 0,
+    });
+    return {
+      aliases: entry.document.aliases,
+      color: documentColor(entry.group, options.colorMode),
+      degree: entry.degree,
+      folder: documentFolder(entry.document.path),
+      group: entry.group,
+      id: entry.document.path,
+      incoming: entry.incomingCount,
       kind: 'document' as const,
-      label: document.title,
-      outgoing: outgoingCount,
-      path: document.path,
-      size: Math.min(16, 4.5 + Math.sqrt(degree) * 2.2),
-      tags: document.tags,
+      label: entry.document.title,
+      outgoing: entry.outgoingCount,
+      path: entry.document.path,
+      size: Math.min(16, 4.5 + Math.sqrt(entry.degree) * 2.2),
+      tags: entry.document.tags,
       ...position,
     };
   });
@@ -154,12 +282,17 @@ export function buildKnowledgeGraphData(
     if (!targetId) {
       targetId = unresolvedNodeId(edge);
       if (!unresolvedNodes.has(targetId)) {
-        const position = initialPosition(targetId, nodes.length + unresolvedNodes.size, index.documents.length + index.brokenLinks.length);
+        const position = initialPosition(
+          targetId,
+          nodes.length + unresolvedNodes.size,
+          matchedDocuments.length + index.brokenLinks.length,
+        );
         unresolvedNodes.set(targetId, {
           aliases: [],
           color: edge.status === 'ambiguous' ? '#fbbf24' : '#fb7185',
           degree: 1,
           folder: '',
+          group: edge.status,
           id: targetId,
           incoming: 1,
           kind: edge.status === 'ambiguous' ? 'ambiguous' : 'missing',

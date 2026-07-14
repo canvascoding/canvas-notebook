@@ -1255,9 +1255,9 @@
     "eyebrow": "Workspace-Topologie",
     "loading": "Verbindungen werden indexiert",
     "search": {
-      "label": "Dokument oder Alias suchen",
+      "label": "Dokument, Alias, Ordner oder Tag suchen",
       "noResults": "Keine passenden Dokumente gefunden.",
-      "placeholder": "Dokument oder Alias suchen …"
+      "placeholder": "Docs, Ordner oder Tags suchen …"
     },
     "stats": {
       "documents": "Docs",
@@ -1280,7 +1280,18 @@
     },
     "filters": {
       "orphans": "Unverlinkte Dokumente anzeigen",
-      "broken": "Fehlende und mehrdeutige Ziele"
+      "broken": "Fehlende und mehrdeutige Ziele",
+      "folderTitle": "Ordner",
+      "folderSearchLabel": "Ordner suchen",
+      "folderSearchPlaceholder": "Ordner filtern …",
+      "tagTitle": "Tags",
+      "tagSearchLabel": "Tags suchen",
+      "tagSearchPlaceholder": "Tags filtern …",
+      "rootFolder": "Workspace-Wurzel",
+      "noFacets": "Keine passenden Werte.",
+      "moreFacets": "{count} weitere verfügbar",
+      "clear": "Ordner- und Tag-Filter löschen",
+      "active": "{count} aktiv"
     },
     "groups": {
       "status": "Status",
@@ -1339,7 +1350,7 @@
     },
     "filtered": {
       "title": "Keine Dokumente entsprechen diesen Filtern",
-      "description": "Aktiviere unverlinkte oder fehlende Ziele, um ausgeblendete Knoten wieder anzuzeigen."
+      "description": "Lösche Ordner- oder Tag-Filter oder aktiviere unverlinkte und fehlende Ziele, um Knoten wieder anzuzeigen."
     },
     "warnings": {
       "omitted": "{count, plural, one {# Markdown-Dokument wurde übersprungen, weil es zu groß oder nicht lesbar ist.} other {# Markdown-Dokumente wurden übersprungen, weil sie zu groß oder nicht lesbar sind.}}"

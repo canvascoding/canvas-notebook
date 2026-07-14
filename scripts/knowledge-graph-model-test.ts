@@ -3,14 +3,15 @@ import assert from 'node:assert/strict';
 import {
   buildKnowledgeGraphData,
   getConnectedKnowledgeGraphNodes,
+  getKnowledgeGraphFacets,
 } from '../app/apps/knowledge-graph/lib/knowledge-graph-model';
 import { buildWorkspaceLinkIndexFromDocuments } from '../app/lib/markdown/workspace-link-index-core';
 
 const index = buildWorkspaceLinkIndexFromDocuments([
-  { path: 'Research/Overview.md', content: '# Overview\n\n[[Research/Source]]\n[[Missing]]' },
-  { path: 'Research/Source.md', content: '---\ntags: [reference]\n---\n\n# Source' },
-  { path: 'Archive/Orphan.md', content: '# Orphan' },
-  { path: 'Archive/Broken only.md', content: '# Broken only\n\n[[Nowhere]]' },
+  { path: 'Research/Overview.md', content: '---\ntags: [project/atlas, type/overview]\n---\n\n# Overview\n\n[[Research/Source]]\n[[Missing]]' },
+  { path: 'Research/Source.md', content: '---\ntags: [reference, project/atlas]\n---\n\n# Source' },
+  { path: 'Archive/Orphan.md', content: '---\ntags: [archive]\n---\n\n# Orphan' },
+  { path: 'Archive/Broken only.md', content: '---\ntags: [archive]\n---\n\n# Broken only\n\n[[Nowhere]]' },
 ], new Date('2026-07-14T12:00:00.000Z'));
 
 const graph = buildKnowledgeGraphData(index, {
@@ -46,6 +47,42 @@ assert.equal(connectedOnly.edges.length, 1);
 assert.equal(
   connectedOnly.nodes.find((node) => node.path === 'Research/Overview.md')?.color,
   connectedOnly.nodes.find((node) => node.path === 'Research/Source.md')?.color,
+);
+assert.equal(connectedOnly.nodes.find((node) => node.path === 'Research/Overview.md')?.group, 'Research');
+
+const facets = getKnowledgeGraphFacets(index);
+assert.deepEqual(facets.folders, [
+  { count: 2, value: 'Archive' },
+  { count: 2, value: 'Research' },
+]);
+assert.deepEqual(facets.tags.find((facet) => facet.value === 'project/atlas'), {
+  count: 2,
+  value: 'project/atlas',
+});
+
+const tagged = buildKnowledgeGraphData(index, {
+  colorMode: 'tag',
+  selectedTags: ['project/atlas'],
+  showBroken: true,
+  showOrphans: true,
+});
+assert.deepEqual(
+  tagged.nodes.filter((node) => node.kind === 'document').map((node) => node.path).sort(),
+  ['Research/Overview.md', 'Research/Source.md'],
+);
+assert.equal(tagged.nodes.find((node) => node.path === 'Research/Overview.md')?.group, 'project/atlas');
+assert.equal(tagged.edges.length, 2);
+
+const filteredFolderAndTag = buildKnowledgeGraphData(index, {
+  colorMode: 'folder',
+  selectedFolders: ['Archive'],
+  selectedTags: ['archive'],
+  showBroken: false,
+  showOrphans: true,
+});
+assert.deepEqual(
+  filteredFolderAndTag.nodes.map((node) => node.path).sort(),
+  ['Archive/Broken only.md', 'Archive/Orphan.md'],
 );
 
 console.log('knowledge-graph-model-test: ok');

@@ -1256,9 +1256,9 @@
     "eyebrow": "Workspace topology",
     "loading": "Indexing connections",
     "search": {
-      "label": "Search document or alias",
+      "label": "Search document, alias, folder, or tag",
       "noResults": "No matching documents found.",
-      "placeholder": "Search document or alias…"
+      "placeholder": "Search docs, folders, or tags…"
     },
     "stats": {
       "documents": "Docs",
@@ -1281,7 +1281,18 @@
     },
     "filters": {
       "orphans": "Show unlinked documents",
-      "broken": "Missing and ambiguous targets"
+      "broken": "Missing and ambiguous targets",
+      "folderTitle": "Folders",
+      "folderSearchLabel": "Search folders",
+      "folderSearchPlaceholder": "Filter folders…",
+      "tagTitle": "Tags",
+      "tagSearchLabel": "Search tags",
+      "tagSearchPlaceholder": "Filter tags…",
+      "rootFolder": "Workspace root",
+      "noFacets": "No matching values.",
+      "moreFacets": "{count} more available",
+      "clear": "Clear folder and tag filters",
+      "active": "{count} active"
     },
     "groups": {
       "status": "Status",
@@ -1340,7 +1351,7 @@
     },
     "filtered": {
       "title": "No documents match these filters",
-      "description": "Enable unlinked or missing targets to show hidden nodes again."
+      "description": "Clear folder or tag filters, or enable unlinked and missing targets to show nodes again."
     },
     "warnings": {
       "omitted": "{count, plural, one {# Markdown document was skipped because it is too large or unreadable.} other {# Markdown documents were skipped because they are too large or unreadable.}}"

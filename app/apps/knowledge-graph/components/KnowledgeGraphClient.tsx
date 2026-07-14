@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Check,
   ExternalLink,
   FileText,
   Filter,
@@ -26,7 +27,9 @@ import { KnowledgeGraphCanvas } from './KnowledgeGraphCanvas';
 import {
   buildKnowledgeGraphData,
   getConnectedKnowledgeGraphNodes,
+  getKnowledgeGraphFacets,
   type KnowledgeGraphColorMode,
+  type KnowledgeGraphFacet,
   type KnowledgeGraphNode,
 } from '@/app/apps/knowledge-graph/lib/knowledge-graph-model';
 import { loadWorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-client';
@@ -54,6 +57,7 @@ const EMPTY_INDEX: WorkspaceLinkIndex = {
   generatedAt: new Date(0).toISOString(),
   omittedDocuments: [],
 };
+const EMPTY_SELECTION: readonly string[] = [];
 
 type IndexRequestState = {
   error: string | null;
@@ -102,44 +106,135 @@ function ToggleRow({
   );
 }
 
+function FacetPicker({
+  facets,
+  kind,
+  onToggle,
+  selected,
+}: {
+  facets: KnowledgeGraphFacet[];
+  kind: 'folder' | 'tag';
+  onToggle: (value: string) => void;
+  selected: readonly string[];
+}) {
+  const t = useTranslations('knowledgeGraph');
+  const [query, setQuery] = useState('');
+  const normalizedQuery = query.trim().toLocaleLowerCase();
+  const visibleFacets = facets
+    .filter((facet) => !normalizedQuery || facet.value.toLocaleLowerCase().includes(normalizedQuery))
+    .slice(0, 60);
+
+  return (
+    <div className="rounded-xl border border-slate-700/70 bg-slate-900/45 p-2">
+      <div className="mb-2 flex items-center gap-2 px-1">
+        {kind === 'folder' ? <FolderTree className="h-3.5 w-3.5 text-cyan-400" /> : <Tag className="h-3.5 w-3.5 text-cyan-400" />}
+        <span className="text-[10px] font-semibold uppercase tracking-widest text-slate-400">
+          {t(`filters.${kind}Title`)}
+        </span>
+        {selected.length > 0 ? (
+          <span className="ml-auto rounded-full bg-cyan-400 px-1.5 py-0.5 font-mono text-[9px] text-slate-950">
+            {selected.length}
+          </span>
+        ) : null}
+      </div>
+      <Input
+        value={query}
+        onChange={(event) => setQuery(event.target.value)}
+        aria-label={t(`filters.${kind}SearchLabel`)}
+        placeholder={t(`filters.${kind}SearchPlaceholder`)}
+        className="h-8 rounded-lg border-slate-700 bg-slate-950/70 px-2 text-xs text-slate-100 placeholder:text-slate-600"
+      />
+      <div className="mt-2 max-h-44 space-y-1 overflow-y-auto overscroll-contain pr-1">
+        {visibleFacets.map((facet) => {
+          const active = selected.includes(facet.value);
+          const label = kind === 'folder' && facet.value === '/' ? t('filters.rootFolder') : facet.value;
+          return (
+            <button
+              key={facet.value}
+              type="button"
+              aria-pressed={active}
+              onClick={() => onToggle(facet.value)}
+              className={cn(
+                'flex min-h-9 w-full items-center gap-2 rounded-lg px-2 text-left text-xs transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400',
+                active ? 'bg-cyan-400/15 text-cyan-100' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
+              )}
+            >
+              <span className={cn(
+                'grid h-4 w-4 shrink-0 place-items-center rounded border',
+                active ? 'border-cyan-300 bg-cyan-300 text-slate-950' : 'border-slate-600',
+              )}>
+                {active ? <Check className="h-3 w-3" /> : null}
+              </span>
+              <span className="min-w-0 flex-1 truncate">{kind === 'tag' ? `#${label}` : label}</span>
+              <span className="font-mono text-[10px] text-slate-500">{facet.count}</span>
+            </button>
+          );
+        })}
+        {visibleFacets.length === 0 ? (
+          <p className="px-2 py-3 text-center text-xs text-slate-500">{t('filters.noFacets')}</p>
+        ) : null}
+      </div>
+      {facets.length > visibleFacets.length ? (
+        <p className="mt-1 px-2 text-[10px] text-slate-600">
+          {t('filters.moreFacets', { count: facets.length - visibleFacets.length })}
+        </p>
+      ) : null}
+    </div>
+  );
+}
+
 type GraphControlsProps = {
   colorMode: KnowledgeGraphColorMode;
+  folderFacets: KnowledgeGraphFacet[];
   gravity: number;
   idPrefix: string;
   navigableNodes: KnowledgeGraphNode[];
   onApplyForces: () => void;
   onColorModeChange: (mode: KnowledgeGraphColorMode) => void;
+  onClearFacets: () => void;
+  onFolderToggle: (folder: string) => void;
   onFocusNode: (nodeId: string | null) => void;
   onGravityChange: (value: number) => void;
   onScalingRatioChange: (value: number) => void;
   onShowBrokenChange: (checked: boolean) => void;
   onShowLabelsChange: (checked: boolean) => void;
   onShowOrphansChange: (checked: boolean) => void;
+  onTagToggle: (tag: string) => void;
   scalingRatio: number;
+  selectedFolders: readonly string[];
   selectedNodeId: string;
+  selectedTags: readonly string[];
   showBroken: boolean;
   showLabels: boolean;
   showOrphans: boolean;
+  tagFacets: KnowledgeGraphFacet[];
 };
 
 function GraphControls({
   colorMode,
+  folderFacets,
   gravity,
   idPrefix,
   navigableNodes,
   onApplyForces,
   onColorModeChange,
+  onClearFacets,
+  onFolderToggle,
   onFocusNode,
   onGravityChange,
   onScalingRatioChange,
   onShowBrokenChange,
   onShowLabelsChange,
   onShowOrphansChange,
+  onTagToggle,
   scalingRatio,
+  selectedFolders,
   selectedNodeId,
+  selectedTags,
   showBroken,
   showLabels,
   showOrphans,
+  tagFacets,
 }: GraphControlsProps) {
   const t = useTranslations('knowledgeGraph');
   const navigatorId = `${idPrefix}-knowledge-graph-node-navigator`;
@@ -150,6 +245,20 @@ function GraphControls({
       <ControlSection icon={Filter} title={t('controls.filters')} open>
         <ToggleRow checked={showOrphans} label={t('filters.orphans')} onCheckedChange={onShowOrphansChange} />
         <ToggleRow checked={showBroken} label={t('filters.broken')} onCheckedChange={onShowBrokenChange} />
+        <FacetPicker facets={folderFacets} kind="folder" selected={selectedFolders} onToggle={onFolderToggle} />
+        <FacetPicker facets={tagFacets} kind="tag" selected={selectedTags} onToggle={onTagToggle} />
+        {selectedFolders.length > 0 || selectedTags.length > 0 ? (
+          <Button
+            type="button"
+            variant="ghost"
+            size="sm"
+            className="w-full rounded-xl text-xs text-slate-400 hover:bg-slate-800 hover:text-slate-100"
+            onClick={onClearFacets}
+          >
+            <X className="h-3.5 w-3.5" />
+            {t('filters.clear')}
+          </Button>
+        ) : null}
       </ControlSection>
 
       <ControlSection icon={Keyboard} title={t('controls.navigation')}>
@@ -233,15 +342,19 @@ function NodeInspectorCard({
   connectedNodes,
   node,
   onClose,
+  onFolderSelect,
   onNodeSelect,
   onOpenDocument,
+  onTagSelect,
 }: {
   className?: string;
   connectedNodes: KnowledgeGraphNode[];
   node: KnowledgeGraphNode;
   onClose: () => void;
+  onFolderSelect: (folder: string) => void;
   onNodeSelect: (node: KnowledgeGraphNode) => void;
   onOpenDocument: (path: string) => void;
+  onTagSelect: (tag: string) => void;
 }) {
   const t = useTranslations('knowledgeGraph');
   const visibleConnections = connectedNodes.slice(0, 12);
@@ -298,10 +411,27 @@ function NodeInspectorCard({
           ))}
         </div>
 
-        {node.tags.length > 0 || node.aliases.length > 0 ? (
+        {node.folder || node.tags.length > 0 || node.aliases.length > 0 ? (
           <div className="flex flex-wrap gap-1.5">
+            {node.folder ? (
+              <button
+                type="button"
+                onClick={() => onFolderSelect(node.folder)}
+                className="inline-flex items-center gap-1 rounded-full border border-violet-400/20 bg-violet-400/8 px-2 py-1 text-[10px] text-violet-200 hover:border-violet-300/50 hover:bg-violet-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-300"
+              >
+                <FolderTree className="h-3 w-3" />
+                {node.folder === '/' ? t('filters.rootFolder') : node.folder}
+              </button>
+            ) : null}
             {node.tags.slice(0, 5).map((tag) => (
-              <span key={`tag:${tag}`} className="rounded-full border border-cyan-400/20 bg-cyan-400/8 px-2 py-1 text-[10px] text-cyan-200">#{tag}</span>
+              <button
+                key={`tag:${tag}`}
+                type="button"
+                onClick={() => onTagSelect(tag)}
+                className="rounded-full border border-cyan-400/20 bg-cyan-400/8 px-2 py-1 text-[10px] text-cyan-200 hover:border-cyan-300/50 hover:bg-cyan-400/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-300"
+              >
+                #{tag}
+              </button>
             ))}
             {node.aliases.slice(0, 4).map((alias) => (
               <span key={`alias:${alias}`} className="rounded-full border border-slate-700 bg-slate-900/70 px-2 py-1 text-[10px] text-slate-400">{alias}</span>
@@ -372,6 +502,14 @@ export function KnowledgeGraphClient() {
   const [showBroken, setShowBroken] = useState(true);
   const [showLabels, setShowLabels] = useState(true);
   const [colorMode, setColorMode] = useState<KnowledgeGraphColorMode>('status');
+  const [folderSelection, setFolderSelection] = useState<{ values: string[]; workspaceId: string | null }>({
+    values: [],
+    workspaceId: null,
+  });
+  const [tagSelection, setTagSelection] = useState<{ values: string[]; workspaceId: string | null }>({
+    values: [],
+    workspaceId: null,
+  });
   const [gravity, setGravity] = useState(1);
   const [scalingRatio, setScalingRatio] = useState(2);
   const [appliedForces, setAppliedForces] = useState({
@@ -415,12 +553,21 @@ export function KnowledgeGraphClient() {
   const index = requestIsCurrent && requestState?.index ? requestState.index : EMPTY_INDEX;
   const error = requestIsCurrent ? requestState?.error ?? null : null;
   const loading = Boolean(activeWorkspaceId && !requestIsCurrent);
+  const facets = useMemo(() => getKnowledgeGraphFacets(index), [index]);
+  const selectedFolders = folderSelection.workspaceId === activeWorkspaceId
+    ? folderSelection.values
+    : EMPTY_SELECTION;
+  const selectedTags = tagSelection.workspaceId === activeWorkspaceId
+    ? tagSelection.values
+    : EMPTY_SELECTION;
 
   const graphData = useMemo(() => buildKnowledgeGraphData(index, {
     colorMode,
+    selectedFolders,
+    selectedTags,
     showBroken,
     showOrphans,
-  }), [colorMode, index, showBroken, showOrphans]);
+  }), [colorMode, index, selectedFolders, selectedTags, showBroken, showOrphans]);
 
   const searchResults = useMemo(() => {
     const normalized = query.trim().toLocaleLowerCase();
@@ -429,6 +576,8 @@ export function KnowledgeGraphClient() {
       .filter((node) => node.kind === 'document' && (
         node.label.toLocaleLowerCase().includes(normalized)
         || node.path?.toLocaleLowerCase().includes(normalized)
+        || node.folder.toLocaleLowerCase().includes(normalized)
+        || node.tags.some((tag) => tag.toLocaleLowerCase().includes(normalized))
         || node.aliases.some((alias) => alias.toLocaleLowerCase().includes(normalized))
       ))
       .sort((left, right) => {
@@ -485,6 +634,29 @@ export function KnowledgeGraphClient() {
   const refresh = () => {
     setRefreshVersion((version) => version + 1);
   };
+  const toggleFolder = useCallback((folder: string) => {
+    setFolderSelection((current) => {
+      const values = current.workspaceId === activeWorkspaceId ? current.values : [];
+      return {
+        values: values.includes(folder) ? values.filter((value) => value !== folder) : [...values, folder],
+        workspaceId: activeWorkspaceId,
+      };
+    });
+  }, [activeWorkspaceId]);
+  const toggleTag = useCallback((tag: string) => {
+    setTagSelection((current) => {
+      const values = current.workspaceId === activeWorkspaceId ? current.values : [];
+      return {
+        values: values.includes(tag) ? values.filter((value) => value !== tag) : [...values, tag],
+        workspaceId: activeWorkspaceId,
+      };
+    });
+  }, [activeWorkspaceId]);
+  const clearFacets = useCallback(() => {
+    setFolderSelection({ values: [], workspaceId: activeWorkspaceId });
+    setTagSelection({ values: [], workspaceId: activeWorkspaceId });
+  }, [activeWorkspaceId]);
+  const activeFacetCount = selectedFolders.length + selectedTags.length;
 
   const stats = {
     documents: index.documents.length,
@@ -566,6 +738,20 @@ export function KnowledgeGraphClient() {
             <span><strong className="text-cyan-300">{stats.documents}</strong> {t('stats.documents')}</span>
             <span><strong className="text-slate-200">{stats.links}</strong> {t('stats.links')}</span>
             <span><strong className={cn(stats.broken > 0 ? 'text-rose-400' : 'text-emerald-400')}>{stats.broken}</strong> {t('stats.broken')}</span>
+            {activeFacetCount > 0 ? (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setMobileControlsOpen(true)}
+                  className="ml-auto rounded-full bg-cyan-400/15 px-2 py-1 text-cyan-200 hover:bg-cyan-400/25 md:hidden"
+                >
+                  {t('filters.active', { count: activeFacetCount })}
+                </button>
+                <span className="ml-auto hidden rounded-full bg-cyan-400/15 px-2 py-1 text-cyan-200 md:inline">
+                  {t('filters.active', { count: activeFacetCount })}
+                </span>
+              </>
+            ) : null}
           </div>
           {!loading && !error && index.omittedDocuments.length > 0 ? (
             <div className="flex items-start gap-2 border-t border-amber-400/20 px-3 py-2 text-xs text-amber-200">
@@ -618,22 +804,29 @@ export function KnowledgeGraphClient() {
         </div>
         <GraphControls
           colorMode={colorMode}
+          folderFacets={facets.folders}
           gravity={gravity}
           idPrefix="desktop"
           navigableNodes={navigableNodes}
           onApplyForces={applyForces}
           onColorModeChange={setColorMode}
+          onClearFacets={clearFacets}
+          onFolderToggle={toggleFolder}
           onFocusNode={focusNodeById}
           onGravityChange={setGravity}
           onScalingRatioChange={setScalingRatio}
           onShowBrokenChange={setShowBroken}
           onShowLabelsChange={setShowLabels}
           onShowOrphansChange={setShowOrphans}
+          onTagToggle={toggleTag}
           scalingRatio={scalingRatio}
+          selectedFolders={selectedFolders}
           selectedNodeId={selectedNavigatorNodeId}
+          selectedTags={selectedTags}
           showBroken={showBroken}
           showLabels={showLabels}
           showOrphans={showOrphans}
+          tagFacets={facets.tags}
         />
       </aside>
 
@@ -643,8 +836,10 @@ export function KnowledgeGraphClient() {
           node={focusedNode}
           connectedNodes={connectedNodes}
           onClose={clearNodeSelection}
+          onFolderSelect={toggleFolder}
           onNodeSelect={handleNodeSelect}
           onOpenDocument={openDocument}
+          onTagSelect={toggleTag}
           className="absolute inset-x-0 bottom-0 z-30 max-h-[46dvh] animate-in rounded-t-[28px] border-x-0 border-b-0 slide-in-from-bottom-8 duration-300 motion-reduce:animate-none [@media(max-height:480px)]:max-h-[40dvh] md:inset-x-auto md:bottom-6 md:right-6 md:max-h-[min(300px,48vh)] md:w-[360px] md:rounded-2xl md:border"
         />
       ) : null}
@@ -672,11 +867,14 @@ export function KnowledgeGraphClient() {
           </SheetHeader>
           <GraphControls
             colorMode={colorMode}
+            folderFacets={facets.folders}
             gravity={gravity}
             idPrefix="mobile"
             navigableNodes={navigableNodes}
             onApplyForces={applyForces}
             onColorModeChange={setColorMode}
+            onClearFacets={clearFacets}
+            onFolderToggle={toggleFolder}
             onFocusNode={(nodeId) => {
               focusNodeById(nodeId);
               if (nodeId) {
@@ -688,11 +886,15 @@ export function KnowledgeGraphClient() {
             onShowBrokenChange={setShowBroken}
             onShowLabelsChange={setShowLabels}
             onShowOrphansChange={setShowOrphans}
+            onTagToggle={toggleTag}
             scalingRatio={scalingRatio}
+            selectedFolders={selectedFolders}
             selectedNodeId={selectedNavigatorNodeId}
+            selectedTags={selectedTags}
             showBroken={showBroken}
             showLabels={showLabels}
             showOrphans={showOrphans}
+            tagFacets={facets.tags}
           />
           <div className="h-[max(1rem,env(safe-area-inset-bottom))] shrink-0" />
         </SheetContent>
