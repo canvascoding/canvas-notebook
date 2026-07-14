@@ -499,6 +499,8 @@ export function TodosClient({ title }: { title: string }) {
   const searchParams = useSearchParams();
   const openedTodoParamRef = useRef<string | null>(null);
   const pendingTodoParamRef = useRef<string | null>(null);
+  const todoListRequestRef = useRef<AbortController | null>(null);
+  const todoIdParam = searchParams.get('todo');
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [categories, setCategories] = useState<TodoCategory[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
@@ -634,18 +636,51 @@ export function TodosClient({ title }: { title: string }) {
   }, [selectedWorkspaceId]);
 
   const loadTodos = useCallback(async () => {
+    todoListRequestRef.current?.abort();
+    const controller = new AbortController();
+    todoListRequestRef.current = controller;
     const params = new URLSearchParams({ status: statusFilter });
     if (categoryFilter) params.set('categoryId', categoryFilter);
     if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
-    const response = await fetch(`/api/todos?${params.toString()}`, {
-      credentials: 'include',
-      cache: 'no-store',
-    });
-    const data = await readApiData<TodoItem[]>(response);
-    setTodos(data);
-    setSelectedTodoId((current) => (current && data.some((todo) => todo.id === current) ? current : null));
-    return data;
-  }, [categoryFilter, selectedWorkspaceId, statusFilter]);
+    try {
+      const response = await fetch(`/api/todos?${params.toString()}`, {
+        credentials: 'include',
+        cache: 'no-store',
+        signal: controller.signal,
+      });
+      const data = await readApiData<TodoItem[]>(response);
+      if (controller.signal.aborted || todoListRequestRef.current !== controller) {
+        return data;
+      }
+
+      // A direct link may target a completed or archived item while the list is
+      // filtered to open items. Keep that fetched item mounted so the detail
+      // panel cannot disappear when this concurrent list request finishes.
+      setTodos((current) => {
+        const deepLinkedTodo = todoIdParam
+          ? current.find((todo) => todo.id === todoIdParam)
+          : undefined;
+        return deepLinkedTodo && !data.some((todo) => todo.id === deepLinkedTodo.id)
+          ? [deepLinkedTodo, ...data]
+          : data;
+      });
+      setSelectedTodoId((current) => (
+        current && (data.some((todo) => todo.id === current) || current === todoIdParam)
+          ? current
+          : null
+      ));
+      return data;
+    } catch (error) {
+      if (controller.signal.aborted) {
+        return [];
+      }
+      throw error;
+    } finally {
+      if (todoListRequestRef.current === controller) {
+        todoListRequestRef.current = null;
+      }
+    }
+  }, [categoryFilter, selectedWorkspaceId, statusFilter, todoIdParam]);
 
   const refreshAll = useCallback(async () => {
     setIsLoading(true);
@@ -724,6 +759,7 @@ export function TodosClient({ title }: { title: string }) {
   }, [editorOpen, fileQuery, selectedWorkspaceId]);
 
   const updateTodo = useCallback(async (todoId: string, payload: Record<string, unknown>) => {
+    todoListRequestRef.current?.abort();
     setIsMutating(true);
     try {
       const response = await fetch(`/api/todos/${encodeURIComponent(todoId)}`, {
@@ -766,8 +802,6 @@ export function TodosClient({ title }: { title: string }) {
       }
     }
   }, [isMobileDetailViewport, t, updateTodo]);
-
-  const todoIdParam = searchParams.get('todo');
 
   useEffect(() => {
     if (
@@ -847,6 +881,7 @@ export function TodosClient({ title }: { title: string }) {
       return;
     }
 
+    todoListRequestRef.current?.abort();
     setIsMutating(true);
     try {
       const payload = {
@@ -879,6 +914,7 @@ export function TodosClient({ title }: { title: string }) {
   }, [editingTodoId, form, loadTodos, selectedWorkspaceId, t]);
 
   const archiveTodo = useCallback(async (todo: TodoItem) => {
+    todoListRequestRef.current?.abort();
     setIsMutating(true);
     try {
       const response = await fetch(`/api/todos/${encodeURIComponent(todo.id)}`, {
@@ -948,6 +984,7 @@ export function TodosClient({ title }: { title: string }) {
   const markAllVisibleSeen = useCallback(async () => {
     const unreadTodos = todos.filter((todo) => todo.status !== 'archived' && !todo.seenAt);
     if (unreadTodos.length === 0) return;
+    todoListRequestRef.current?.abort();
     setIsMutating(true);
     try {
       await Promise.all(unreadTodos.map((todo) => fetch(`/api/todos/${encodeURIComponent(todo.id)}`, {

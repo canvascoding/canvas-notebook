@@ -202,7 +202,10 @@ async function main() {
   assert.match(sentMessages[1].body, /Reply code/);
   assert.match(sentMessages[1].body, /reply directly to this email/);
   assert.match(sentMessages[1].body, /Open to-do/);
-  assert.match(sentMessages[1].body, /\/en\/todos\?todo=todo-email-english/);
+  assert.match(
+    sentMessages[1].body,
+    /\/en\/todos\?todo=todo-email-english&amp;session=sess-email&amp;chat=open/,
+  );
 
   const assigneeUserId = 'todo-email-assignee';
   await db.insert(user).values({

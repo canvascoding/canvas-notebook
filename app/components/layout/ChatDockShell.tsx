@@ -115,6 +115,7 @@ export function ChatDockShell({
   const [viewportWidth, setViewportWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [hasMounted, setHasMounted] = useState(false);
   const [forcedChatSessionId, setForcedChatSessionId] = useState<string | null>(null);
+  const [chatOpenRequestSessionId, setChatOpenRequestSessionId] = useState<string | null>(null);
   const [chatOpenRequestId, setChatOpenRequestId] = useState(0);
   const desktopMainRef = useRef<HTMLElement | null>(null);
   const desktopChatWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -215,26 +216,31 @@ export function ChatDockShell({
   }, [handleDesktopChatPrimaryAction, viewportMode]);
 
   useEffect(() => {
-    const applySession = (sessionId: string | null) => {
+    const requestChatOpen = (sessionId: string | null, options: { forceSession?: boolean } = {}) => {
+      setForcedChatSessionId(options.forceSession ? sessionId : null);
+      setChatOpenRequestSessionId(sessionId);
       if (sessionId) {
-        setForcedChatSessionId(sessionId);
         setChatOpenRequestId((current) => current + 1);
       }
     };
 
     const handleInitialLocation = window.setTimeout(() => {
-      applySession(getRequestedChatSessionFromLocation());
+      // The chat itself reads the session query parameter. Do not also force it
+      // here: doing both starts two competing loads for an email deep link.
+      requestChatOpen(getRequestedChatSessionFromLocation());
     }, 0);
 
     const handleOpenChatSession = (event: Event) => {
       const sessionId = getOpenChatSessionEventSessionId(event);
       if (!sessionId) return;
       markOpenChatSessionEventHandled(event);
-      applySession(sessionId);
+      // A native custom event can arrive before Next.js observes the matching
+      // pushState call, so this path intentionally supplies the session directly.
+      requestChatOpen(sessionId, { forceSession: true });
     };
 
     const handlePopState = () => {
-      applySession(getRequestedChatSessionFromLocation());
+      requestChatOpen(getRequestedChatSessionFromLocation());
     };
 
     window.addEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
@@ -247,7 +253,7 @@ export function ChatDockShell({
   }, []);
 
   useEffect(() => {
-    if (!forcedChatSessionId || viewportMode === null) return;
+    if (!chatOpenRequestSessionId || viewportMode === null) return;
 
     const handle = window.setTimeout(() => {
       if (viewportMode === 'mobile') {
@@ -260,7 +266,7 @@ export function ChatDockShell({
     }, 0);
 
     return () => window.clearTimeout(handle);
-  }, [chatOpenRequestId, forcedChatSessionId, viewportMode]);
+  }, [chatOpenRequestId, chatOpenRequestSessionId, viewportMode]);
 
   const isMobileViewport = viewportMode === 'mobile';
   const isDesktopViewport = viewportMode === 'desktop';

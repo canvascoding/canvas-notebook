@@ -2,6 +2,7 @@
 
 import {
   useEffect,
+  useRef,
   type Dispatch,
   type MutableRefObject,
   type SetStateAction,
@@ -170,6 +171,8 @@ export function useChatSessionBootstrap({
   t,
   userStartedNewChatRef,
 }: UseChatSessionBootstrapParams) {
+  const requestedSessionLoadIdRef = useRef(0);
+
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
     if (isRuntimeSelectionLoading) return;
@@ -239,19 +242,26 @@ export function useChatSessionBootstrap({
     if (userStartedNewChatRef.current) return;
     if (!resolvedRequestedSessionId) return;
     setIsResolvingInitialChatState(true);
+    const requestId = requestedSessionLoadIdRef.current + 1;
+    requestedSessionLoadIdRef.current = requestId;
+    let cancelled = false;
+    const isCurrentRequest = () => !cancelled && requestedSessionLoadIdRef.current === requestId;
 
     const loadRequestedSession = async () => {
       try {
         const cachedEntry = readLatestCachedChatSession(resolvedRequestedSessionId);
         if (cachedEntry && sessionMatchesActiveWorkspace(cachedEntry.session, activeWorkspaceId)) {
+          if (!isCurrentRequest()) return;
           addSessionToHistory(cachedEntry.session);
           await loadSession(cachedEntry.session);
+          if (!isCurrentRequest()) return;
           if (!forcedSessionId) {
             requestedSessionCleanupRef.current = resolvedRequestedSessionId;
             clearSessionParamFromUrl();
           }
           void loadSessionList()
             .then((sessions) => {
+              if (!isCurrentRequest()) return;
               setHistoryAndLatest(sessions.length > 0 ? sessions : [cachedEntry.session]);
             })
             .catch((err) => {
@@ -261,11 +271,13 @@ export function useChatSessionBootstrap({
         }
 
         const sessions = await loadSessionList();
+        if (!isCurrentRequest()) return;
         if (sessions.length > 0) {
           setHistoryAndLatest(sessions);
           const targetSession = sessions.find((session: AISession) => session.sessionId === resolvedRequestedSessionId);
           if (targetSession) {
             await loadSession(targetSession);
+            if (!isCurrentRequest()) return;
             if (!forcedSessionId) {
               requestedSessionCleanupRef.current = resolvedRequestedSessionId;
               clearSessionParamFromUrl();
@@ -273,13 +285,20 @@ export function useChatSessionBootstrap({
           }
         }
       } catch (err) {
-        console.error('Failed to load requested session', err);
+        if (isCurrentRequest()) {
+          console.error('Failed to load requested session', err);
+        }
       } finally {
-        setIsResolvingInitialChatState(false);
+        if (isCurrentRequest()) {
+          setIsResolvingInitialChatState(false);
+        }
       }
     };
 
     void loadRequestedSession();
+    return () => {
+      cancelled = true;
+    };
   }, [activeWorkspaceId, addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, loadSessionList, requestedSessionCleanupRef, resolvedRequestedSessionId, setHistoryAndLatest, setIsResolvingInitialChatState, userStartedNewChatRef]);
 
   useEffect(() => {
