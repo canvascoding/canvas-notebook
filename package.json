@@ -167,6 +167,7 @@
     "test:workspace:reference-client": "tsx scripts/workspace-reference-client-test.ts",
     "test:workspace:trash-client": "tsx scripts/workspace-trash-client-test.ts",
     "test:chat:references": "tsx scripts/chat-composer-references-test.ts",
+    "test:chat:navigation": "tsx scripts/chat-navigation-intent-test.ts",
     "test:public-share:workspace": "tsx --conditions react-server scripts/public-share-workspace-scope-test.ts",
     "test:public-share:route-access": "tsx scripts/public-share-route-access-test.ts",
     "test:files:collaboration": "tsx --conditions react-server scripts/file-collaboration-policy-test.ts",

@@ -55,6 +55,8 @@ import {
   markOpenChatSessionEventHandled,
   OPEN_CHAT_SESSION_EVENT,
 } from '@/app/lib/chat/open-chat-session-event';
+import { getNotebookNavigationIntent } from '@/app/lib/chat/chat-navigation-intent';
+import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForcedChatSession';
 import {
   clearPendingNotebookFileReference,
   NOTEBOOK_WINDOW_NAME,
@@ -232,8 +234,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [mobileChatMounted, setMobileChatMounted] = useState(false);
-  const [forcedChatSessionId, setForcedChatSessionId] = useState<string | null>(null);
-  const [chatOpenRequestId, setChatOpenRequestId] = useState(0);
   const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
   const desktopMainPanelRef = useRef<HTMLDivElement | null>(null);
   const desktopChatWrapperRef = useRef<HTMLDivElement | null>(null);
@@ -251,11 +251,19 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const currentDirectoryLabel =
     currentDirectory === '.' ? 'Workspace /' : `/${currentDirectory}`;
-  const hasSessionTarget = searchParams.has('session');
+  const navigationIntent = getNotebookNavigationIntent(searchParams);
+  const routeFilePath = navigationIntent.path;
+  const routeSessionId = navigationIntent.sessionId;
+  const shouldOpenRouteChat = navigationIntent.shouldOpenChat;
+  const {
+    forceSession: applyForcedChatSession,
+    forcedSessionId: forcedChatSessionId,
+    requestId: chatOpenRequestId,
+  } = useForcedChatSession(routeSessionId);
   const hasStoredInitialPrompt =
     typeof window !== 'undefined'
     && Boolean(window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY));
-  const shouldForceChatOpen = hasSessionTarget || hasStoredInitialPrompt;
+  const shouldForceChatOpen = shouldOpenRouteChat || hasStoredInitialPrompt;
   const openDesktopSideChat = useCallback(() => {
     setChatVisible(true);
     setDesktopChatMode('side');
@@ -265,11 +273,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     setMobileChatMounted(true);
     setMobileExplorerOpen(false);
     setMobileChatOpen(true);
-  }, []);
-
-  const applyForcedChatSession = useCallback((sessionId: string) => {
-    setForcedChatSessionId(sessionId);
-    setChatOpenRequestId((current) => current + 1);
   }, []);
 
   const toggleMobileChat = useCallback(() => {
@@ -407,12 +410,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [openNotebookFile]);
 
   useEffect(() => {
-    const sessionParam = searchParams.get('session');
-    const targetPath = normalizeNotebookFilePath(searchParams.get('path'));
+    const targetPath = routeFilePath;
     if (targetPath && openedPathRef.current !== targetPath) {
       openedPathRef.current = targetPath;
       void openNotebookFile(targetPath, {
-        suppressMobileChatClose: Boolean(sessionParam),
+        suppressMobileChatClose: shouldForceChatOpen,
       });
 
       if (viewportMode === 'desktop') {
@@ -420,7 +422,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       }
     }
 
-    if (sessionParam) {
+    if (shouldOpenRouteChat) {
       queueMicrotask(() => {
         setChatVisible(true);
         if (viewportMode === 'mobile') {
@@ -428,7 +430,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         }
       });
     }
-  }, [openDesktopSideChat, openMobileChat, openNotebookFile, searchParams, viewportMode]);
+  }, [openDesktopSideChat, openMobileChat, openNotebookFile, routeFilePath, shouldForceChatOpen, shouldOpenRouteChat, viewportMode]);
 
   useEffect(() => {
     if (window.name !== NOTEBOOK_WINDOW_NAME) return;
@@ -443,7 +445,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     window.addEventListener('message', handleMessage);
 
     const pendingRequest = readPendingNotebookFileReference();
-    const pathParam = normalizeNotebookFilePath(searchParams.get('path'));
+    const pathParam = routeFilePath;
     if (pendingRequest) {
       if (pendingRequest.path === pathParam) {
         clearPendingNotebookFileReference(pendingRequest.requestId);
@@ -453,7 +455,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
 
     return () => window.removeEventListener('message', handleMessage);
-  }, [openBridgedNotebookFile, searchParams]);
+  }, [openBridgedNotebookFile, routeFilePath]);
 
   useEffect(() => {
     const handleOpenChatSession = (event: Event) => {
@@ -490,7 +492,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     initialNotebookStateResolvedRef.current = true;
 
-    const targetPath = normalizeNotebookFilePath(searchParams.get('path'));
+    const targetPath = routeFilePath;
     if (targetPath) {
       return;
     }
@@ -511,7 +513,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     useFileStore.getState().clearCurrentFile();
     queueMicrotask(() => openInitialNotebookChat(viewportMode, { forceOpenChat: shouldForceChatOpen }));
-  }, [openDesktopSideChat, openInitialNotebookChat, openNotebookFile, searchParams, shouldForceChatOpen, viewportMode]);
+  }, [openDesktopSideChat, openInitialNotebookChat, openNotebookFile, routeFilePath, shouldForceChatOpen, viewportMode]);
 
   useEffect(() => {
     previousCurrentFilePathRef.current = useFileStore.getState().currentFile?.path ?? null;
@@ -534,7 +536,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   useEffect(() => {
     const handleWorkspaceChange = () => {
-      openedPathRef.current = normalizeNotebookFilePath(searchParams.get('path'));
+      openedPathRef.current = routeFilePath;
       previousCurrentFilePathRef.current = null;
       suppressNextMobileFileOpenCloseRef.current = 0;
       clearStoredNotebookOpenFilePath();
@@ -545,7 +547,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
     return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-  }, [searchParams]);
+  }, [routeFilePath]);
 
   const applySidebarPanelWidth = useCallback((nextWidth: number) => {
     desktopSidebarRef.current?.style.setProperty('--desktop-sidebar-width', `${nextWidth}px`);

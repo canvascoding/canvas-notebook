@@ -10,6 +10,7 @@ import {
 } from 'react';
 import { ArrowLeft, ChevronDown, Maximize2, MessageSquare, PanelRight, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+import { useSearchParams } from 'next/navigation';
 
 import { Link } from '@/i18n/navigation';
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
@@ -23,6 +24,8 @@ import {
   markOpenChatSessionEventHandled,
   OPEN_CHAT_SESSION_EVENT,
 } from '@/app/lib/chat/open-chat-session-event';
+import { getChatNavigationIntent } from '@/app/lib/chat/chat-navigation-intent';
+import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForcedChatSession';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { Button } from '@/components/ui/button';
 import {
@@ -60,13 +63,6 @@ function getStoredChatWidth(key: string) {
   const stored = Number(window.localStorage.getItem(key));
   if (!Number.isFinite(stored)) return DEFAULT_CHAT_WIDTH;
   return Math.min(CHAT_WIDTH_MAX, Math.max(CHAT_WIDTH_MIN, stored));
-}
-
-function getRequestedChatSessionFromLocation() {
-  if (typeof window === 'undefined') return null;
-  const params = new URLSearchParams(window.location.search);
-  const sessionId = params.get('session');
-  return params.get('chat') === 'open' && sessionId ? sessionId : null;
 }
 
 type ChatDockShellProps = {
@@ -107,6 +103,10 @@ export function ChatDockShell({
   const tCommon = useTranslations('common');
   const tNav = useTranslations('navigation');
   const tChat = useTranslations('chat');
+  const searchParams = useSearchParams();
+  const navigationIntent = getChatNavigationIntent(searchParams);
+  const routeSessionId = navigationIntent.sessionId;
+  const shouldOpenRouteChat = navigationIntent.shouldOpenChat;
   const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
   const [chatVisible, setChatVisible] = useState(defaultChatVisible);
   const [chatWidth, setChatWidth] = useState(DEFAULT_CHAT_WIDTH);
@@ -114,9 +114,11 @@ export function ChatDockShell({
   const [mobileChatOpen, setMobileChatOpen] = useState(false);
   const [viewportWidth, setViewportWidth] = useState(DEFAULT_CHAT_WIDTH);
   const [hasMounted, setHasMounted] = useState(false);
-  const [forcedChatSessionId, setForcedChatSessionId] = useState<string | null>(null);
-  const [chatOpenRequestSessionId, setChatOpenRequestSessionId] = useState<string | null>(null);
-  const [chatOpenRequestId, setChatOpenRequestId] = useState(0);
+  const {
+    forceSession,
+    forcedSessionId: forcedChatSessionId,
+    requestId: forcedSessionRequestId,
+  } = useForcedChatSession(routeSessionId);
   const desktopMainRef = useRef<HTMLElement | null>(null);
   const desktopChatWrapperRef = useRef<HTMLDivElement | null>(null);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
@@ -216,44 +218,23 @@ export function ChatDockShell({
   }, [handleDesktopChatPrimaryAction, viewportMode]);
 
   useEffect(() => {
-    const requestChatOpen = (sessionId: string | null, options: { forceSession?: boolean } = {}) => {
-      setForcedChatSessionId(options.forceSession ? sessionId : null);
-      setChatOpenRequestSessionId(sessionId);
-      if (sessionId) {
-        setChatOpenRequestId((current) => current + 1);
-      }
-    };
-
-    const handleInitialLocation = window.setTimeout(() => {
-      // The chat itself reads the session query parameter. Do not also force it
-      // here: doing both starts two competing loads for an email deep link.
-      requestChatOpen(getRequestedChatSessionFromLocation());
-    }, 0);
-
     const handleOpenChatSession = (event: Event) => {
       const sessionId = getOpenChatSessionEventSessionId(event);
       if (!sessionId) return;
       markOpenChatSessionEventHandled(event);
       // A native custom event can arrive before Next.js observes the matching
       // pushState call, so this path intentionally supplies the session directly.
-      requestChatOpen(sessionId, { forceSession: true });
-    };
-
-    const handlePopState = () => {
-      requestChatOpen(getRequestedChatSessionFromLocation());
+      forceSession(sessionId);
     };
 
     window.addEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
-    window.addEventListener('popstate', handlePopState);
     return () => {
-      window.clearTimeout(handleInitialLocation);
       window.removeEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
-      window.removeEventListener('popstate', handlePopState);
     };
-  }, []);
+  }, [forceSession]);
 
   useEffect(() => {
-    if (!chatOpenRequestSessionId || viewportMode === null) return;
+    if ((!shouldOpenRouteChat && forcedSessionRequestId === 0) || viewportMode === null) return;
 
     const handle = window.setTimeout(() => {
       if (viewportMode === 'mobile') {
@@ -266,7 +247,7 @@ export function ChatDockShell({
     }, 0);
 
     return () => window.clearTimeout(handle);
-  }, [chatOpenRequestId, chatOpenRequestSessionId, viewportMode]);
+  }, [forcedSessionRequestId, routeSessionId, shouldOpenRouteChat, viewportMode]);
 
   const isMobileViewport = viewportMode === 'mobile';
   const isDesktopViewport = viewportMode === 'desktop';
