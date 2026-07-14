@@ -625,13 +625,8 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     if (collaboration.activeLock) return t('collaboration.locked');
     if (collaboration.strategy === 'crdt_text') return t('collaboration.crdtText');
     if (collaboration.strategy === 'exclusive_lock') return t('collaboration.lockRequired');
-    return collaboration.requiresRevisionCheck ? t('collaboration.revisionCheck') : null;
+    return null;
   }, [collaboration, t]);
-  const revisionLabel = currentFile?.revision?.id
-    ? t('collaboration.revisionShort', { revision: currentFile.revision.id.slice(-8) })
-    : collaboration?.latestRevision?.id
-      ? t('collaboration.revisionShort', { revision: collaboration.latestRevision.id.slice(-8) })
-      : null;
   const markdownViewMode = isMarpMarkdownFile
     ? (markdownViewOverride.path === activePath ? markdownViewOverride.mode : 'slides')
     : 'markdown';
@@ -1182,25 +1177,12 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                   className="flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm border border-border bg-muted px-0 text-xs text-muted-foreground 2xl:w-auto 2xl:px-2"
                   aria-label={collaborationLabel}
                 >
-                  {collaboration?.activeLock ? (
+                  {collaboration?.activeLock || collaboration?.strategy === 'exclusive_lock' ? (
                     <Lock className="h-3.5 w-3.5" />
                   ) : collaboration?.strategy === 'crdt_text' ? (
                     <UsersRound className="h-3.5 w-3.5" />
-                  ) : (
-                    <GitBranch className="h-3.5 w-3.5" />
-                  )}
+                  ) : null}
                   <span className="hidden max-w-36 truncate 2xl:inline">{collaborationLabel}</span>
-                </span>
-              </FileHeaderTooltip>
-            ) : null}
-            {revisionLabel ? (
-              <FileHeaderTooltip label={revisionLabel}>
-                <span
-                  className="flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm border border-border bg-background px-0 text-xs text-muted-foreground 2xl:w-auto 2xl:px-2"
-                  aria-label={revisionLabel}
-                >
-                  <GitBranch className="h-3.5 w-3.5" />
-                  <span className="hidden max-w-32 truncate 2xl:inline">{revisionLabel}</span>
                 </span>
               </FileHeaderTooltip>
             ) : null}
