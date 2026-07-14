@@ -67,6 +67,7 @@ import {
 import {
   notifyWorkspaceFileOpened,
   WORKSPACE_FILE_OPENED_EVENT,
+  type WorkspaceFileOpenedDetail,
 } from '@/app/lib/files/workspace-file-events';
 import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 
@@ -777,15 +778,20 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [handleDesktopChatPrimaryAction, setDesktopSidebarVisible, viewportMode]);
 
   useEffect(() => {
-    const handleWorkspaceFileOpen = () => {
+    const handleWorkspaceFileOpen = (event: Event) => {
       collapseDesktopFullscreenChat();
+      const detail = (event as CustomEvent<WorkspaceFileOpenedDetail>).detail;
+      if (viewportMode !== 'mobile' || detail?.source !== 'chat-reference') return;
+      setMobileSurface('editor');
+      setMobileExplorerOpen(false);
+      setMobileChatOpen(false);
     };
 
     window.addEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
     return () => {
       window.removeEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
     };
-  }, [collapseDesktopFullscreenChat]);
+  }, [collapseDesktopFullscreenChat, viewportMode]);
 
   useEffect(() => {
     const handleKeyboardToggle = (event: KeyboardEvent) => {

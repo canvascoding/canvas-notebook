@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { useEditorStore } from '../app/store/editor-store';
 import { useFileStore, type FileNode } from '../app/store/file-store';
 import { useWorkspaceStore } from '../app/store/workspace-store';
+import { requestChatFileOpen } from '../app/lib/chat/chat-file-open-service';
 
 const originalFetch = globalThis.fetch;
 
@@ -164,6 +165,57 @@ async function testSamePathOpenKeepsRequestCorrelation() {
     'same-path-second-request',
     'same-path opens must retain the initiating UI transition id',
   );
+}
+
+async function testRepeatedChatFileOpenSharesTheActiveRequest() {
+  const readGate = deferred();
+  let readStarted!: () => void;
+  const started = new Promise<void>((resolve) => {
+    readStarted = resolve;
+  });
+  let readCount = 0;
+
+  useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-a' });
+  useEditorStore.getState().clear();
+  useFileStore.setState({
+    fileTree: [{ name: 'linked.md', path: 'linked.md', type: 'file' }],
+    fileTreeWorkspaceId: 'workspace-a',
+    currentFile: null,
+    currentFileWorkspaceId: null,
+    lastMobileFileOpen: null,
+  });
+
+  globalThis.fetch = (async (input: RequestInfo | URL) => {
+    const url = new URL(String(input), 'http://localhost');
+    if (url.pathname !== '/api/files/read') {
+      throw new Error(`Unexpected request: ${url}`);
+    }
+    readCount += 1;
+    readStarted();
+    await readGate.promise;
+    return Response.json({
+      success: true,
+      data: {
+        path: 'linked.md',
+        content: '# Linked',
+      },
+    });
+  }) as typeof fetch;
+
+  const first = requestChatFileOpen('linked.md', 'workspace-a');
+  await started;
+  const second = requestChatFileOpen('linked.md', 'workspace-a');
+
+  assert.equal(first.started, true);
+  assert.equal(second.started, false);
+  assert.equal(second.promise, first.promise);
+  assert.equal(readCount, 1, 'repeated clicks must not start a second file read');
+
+  readGate.release();
+  const [firstResult, secondResult] = await Promise.all([first.promise, second.promise]);
+  assert.equal(firstResult.status, 'opened');
+  assert.equal(secondResult.status, 'opened');
+  assert.equal(readCount, 1);
 }
 
 async function testWorkspaceSwitchRejectsOldTreeResponse() {
@@ -391,6 +443,7 @@ async function main() {
     await testConcurrentDirectoryLoadsShareTheSamePromise();
     await testLatestOpenRequestWins();
     await testSamePathOpenKeepsRequestCorrelation();
+    await testRepeatedChatFileOpenSharesTheActiveRequest();
     await testWorkspaceSwitchRejectsOldTreeResponse();
     await testDirectoryErrorsStayLocal();
     await testDirtyEditorIsSavedBeforeOpeningAnotherFile();

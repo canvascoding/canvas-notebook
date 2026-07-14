@@ -10,9 +10,9 @@ import {
   createNotebookFileReferenceRequest,
   openOrMessageNotebookWindow,
 } from '@/app/lib/chat/notebook-file-reference-bridge';
-import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
+import { requestChatFileOpen } from '@/app/lib/chat/chat-file-open-service';
 
 export function useOpenChatFileReference() {
   const pathname = useLocalePathname();
@@ -40,11 +40,12 @@ export function useOpenChatFileReference() {
       return;
     }
 
-    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, {
-      workspaceId: activeWorkspaceId,
-    });
+    const request = requestChatFileOpen(normalizedPath, activeWorkspaceId);
+    const result = await request.promise;
     if (result.status === 'opened') {
-      notifyChatFileReferenceOpened(normalizedPath);
+      if (request.started) {
+        notifyChatFileReferenceOpened(normalizedPath);
+      }
       if (location.blockId || location.heading) {
         requestWorkspaceMarkdownLocation({
           path: normalizedPath,
