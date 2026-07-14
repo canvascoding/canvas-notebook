@@ -2094,7 +2094,13 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                             <span className="text-xs text-muted-foreground">{formatDateTime(run.finishedAt || run.scheduledFor, locale, t('scheduleSummary.notScheduled'))}</span>
                           </div>
                           <p className="mt-1 text-xs text-muted-foreground">{formatTriggerType(run.triggerType, t)} · {t('runs.attempt', { count: run.attemptNumber })}</p>
-                          {run.resultText ? <p className="mt-2 line-clamp-2 break-words text-xs text-muted-foreground">{run.resultText}</p> : null}
+                          {run.resultText ? (
+                            <MarkdownRenderer
+                              content={run.resultText}
+                              variant="muted"
+                              className="mt-2 max-h-10 min-w-0 overflow-hidden text-muted-foreground"
+                            />
+                          ) : null}
                           {run.errorMessage ? <p className="mt-2 line-clamp-2 break-words text-xs text-destructive">{run.errorMessage}</p> : null}
                         </button>
                       ))
