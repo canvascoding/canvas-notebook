@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.14.6] - 2026-07-14
+## [2026.7.14.7] - 2026-07-14
 
 ### Added
 

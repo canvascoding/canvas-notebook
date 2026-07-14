@@ -28,6 +28,24 @@ type KnowledgeGraphCanvasProps = {
 type GraphInstance = MultiDirectedGraph<KnowledgeGraphNode, { color: string; size: number }> & {
   order: number;
   size: number;
+  addNode: (node: string, attributes: KnowledgeGraphNode) => string;
+  addDirectedEdgeWithKey: (
+    edge: string,
+    source: string,
+    target: string,
+    attributes: { color: string; size: number },
+  ) => string;
+  hasNode: (node: string) => boolean;
+  hasEdge: (edge: string) => boolean;
+  mergeNodeAttributes: (node: string, attributes: Partial<KnowledgeGraphNode>) => void;
+  mergeEdgeAttributes: (edge: string, attributes: Partial<{ color: string; size: number }>) => void;
+  getNodeAttributes: (node: string) => KnowledgeGraphNode;
+  getNodeAttribute: <Key extends keyof KnowledgeGraphNode>(
+    node: string,
+    attribute: Key,
+  ) => KnowledgeGraphNode[Key];
+  areNeighbors: (source: string, target: string) => boolean;
+  extremities: (edge: string) => [string, string];
 };
 type SigmaInstance = Sigma<KnowledgeGraphNode, { color: string; size: number }>;
 type LayoutSupervisorConstructor = typeof ForceAtlas2LayoutSupervisor;
