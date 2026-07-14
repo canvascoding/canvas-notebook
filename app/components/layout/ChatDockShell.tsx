@@ -95,6 +95,7 @@ type ChatDockShellProps = {
   chatWidthStorageKey?: string;
   headerCenter?: ReactNode;
   headerActions?: ReactNode;
+  headerBelow?: ReactNode;
   mainClassName?: string;
   titleClassName?: string;
 };
@@ -113,6 +114,7 @@ export function ChatDockShell({
   chatWidthStorageKey = `${storageKeyPrefix}.chatWidth`,
   headerCenter,
   headerActions,
+  headerBelow,
   mainClassName,
   titleClassName,
 }: ChatDockShellProps) {
@@ -396,6 +398,8 @@ export function ChatDockShell({
             </div>
           </div>
         </header>
+
+        {headerBelow}
 
         {viewportMode === null ? (
           <main className="min-h-0 flex-1 overflow-hidden bg-background" />

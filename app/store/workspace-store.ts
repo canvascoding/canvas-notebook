@@ -16,6 +16,7 @@ export type WorkspaceSwitchSource =
   | 'chat'
   | 'file-browser'
   | 'notebook'
+  | 'studio'
   | 'system'
   | 'test';
 

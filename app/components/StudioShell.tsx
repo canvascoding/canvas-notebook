@@ -7,29 +7,15 @@ import { usePathname } from '@/i18n/navigation';
 import { ChatDockShell } from '@/app/components/layout/ChatDockShell';
 import { StudioRouteNav } from '@/app/apps/studio/components/StudioRouteNav';
 import { useStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
+import { getStudioBackDestination } from '@/app/apps/studio/utils/studio-navigation';
+import {
+  WorkspaceSwitcher,
+  useShouldShowWorkspaceSwitcher,
+} from '@/app/components/workspaces/WorkspaceSwitcher';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 
 function isAspectRatioPath(pathname: string | null) {
   return Boolean(pathname?.startsWith('/studio/aspect-ratio'));
-}
-
-function getBackHref(pathname: string | null) {
-  if (pathname?.match(/^\/studio\/models\/[^/]+$/)) {
-    return '/studio/models';
-  }
-  if (pathname?.match(/^\/studio\/presets\/[^/]+$/)) {
-    return '/studio/presets';
-  }
-  if (pathname?.match(/^\/studio\/products\/[^/]+$/)) {
-    return '/studio/products';
-  }
-  if (pathname?.match(/^\/studio\/personas\/[^/]+$/)) {
-    return '/studio/personas';
-  }
-  if (pathname?.startsWith('/studio/')) {
-    return '/studio';
-  }
-  return '/';
 }
 
 function getStudioTitle(pathname: string | null, tStudio: ReturnType<typeof useTranslations>) {
@@ -45,10 +31,16 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
   const tStudio = useTranslations('studio');
   const pathname = usePathname();
   const { chatContext } = useStudioChatContext();
+  const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const isAspectRatioEditor = isAspectRatioPath(pathname);
   const chatVisibleStorageKey = isAspectRatioEditor ? 'studio.chatVisible.aspectRatio' : 'studio.chatVisible';
   const title = getStudioTitle(pathname, tStudio);
-  const backLabel = pathname?.startsWith('/studio/') ? tStudio('title') : tCommon('suite');
+  const backDestination = getStudioBackDestination(pathname);
+  const backLabel = backDestination.label === 'models'
+    ? tStudio('tabs.models')
+    : backDestination.label === 'presets'
+      ? tStudio('tabs.presets')
+      : tCommon('suite');
   const requestContext = useMemo<ChatRequestContext>(
     () => (chatContext?.currentPage === pathname ? chatContext : { currentPage: pathname ?? '/studio' }),
     [chatContext, pathname]
@@ -58,14 +50,24 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
     <ChatDockShell
       key={chatVisibleStorageKey}
       title={title}
-      backHref={getBackHref(pathname)}
+      backHref={backDestination.href}
       backLabel={backLabel}
       requestContext={requestContext}
       storageKeyPrefix="studio"
       chatVisibleStorageKey={chatVisibleStorageKey}
       defaultChatVisible={!isAspectRatioEditor}
       headerCenter={<StudioRouteNav variant="desktop" />}
-      headerActions={<StudioRouteNav variant="mobile" />}
+      headerActions={(
+        <>
+          <StudioRouteNav variant="mobile" />
+          <WorkspaceSwitcher source="studio" variant="compact" className="hidden md:inline-flex" />
+        </>
+      )}
+      headerBelow={showWorkspaceSwitcher ? (
+        <div className="z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden">
+          <WorkspaceSwitcher source="studio" variant="mobile-sheet" />
+        </div>
+      ) : null}
       mainClassName="studio-touch-form-scope"
       hintPage="studio"
       hintEnabled={hintEnabled}
