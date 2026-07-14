@@ -55,6 +55,7 @@
     "noWorkspaceAvailable": "Kein Workspace verfügbar",
     "refresh": "Workspaces aktualisieren",
     "create": "Workspace erstellen",
+    "close": "Schließen",
     "manage": "Workspaces verwalten",
     "sourceWorkspace": "Quell-Workspace",
     "targetWorkspace": "Ziel-Workspace",

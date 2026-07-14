@@ -55,6 +55,7 @@
     "noWorkspaceAvailable": "No workspace available",
     "refresh": "Refresh workspaces",
     "create": "Create workspace",
+    "close": "Close",
     "manage": "Manage workspaces",
     "sourceWorkspace": "Source workspace",
     "targetWorkspace": "Target workspace",

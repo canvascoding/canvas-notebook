@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useState } from 'react';
-import { Check, ChevronsUpDown, Loader2, Lock, Pencil, Plus, RefreshCw, Star } from 'lucide-react';
+import { Check, ChevronsUpDown, Loader2, Lock, Pencil, Plus, RefreshCw, Star, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { Badge } from '@/components/ui/badge';
@@ -204,7 +204,11 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
             <ChevronsUpDown className="h-4 w-4 shrink-0 text-muted-foreground" />
           </Button>
         </SheetTrigger>
-        <SheetContent side="bottom" className="max-h-[75dvh] gap-0 overflow-hidden rounded-t-xl p-0">
+        <SheetContent
+          side="bottom"
+          showCloseButton={false}
+          className="max-h-[75dvh] gap-0 overflow-hidden rounded-t-xl p-0"
+        >
           <SheetHeader className="border-b border-border px-4 py-3 text-left">
             <div className="flex items-start justify-between gap-3">
               <div className="min-w-0">
@@ -213,20 +217,31 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
                   {activeWorkspace ? `${activeWorkspace.name} · ${getAccessLabel(activeWorkspace, accessLabels)}` : activeLabel}
                 </SheetDescription>
               </div>
-              {canManageWorkspaces ? (
-                <button
-                  type="button"
-                  onClick={() => {
-                    setMobileSheetOpen(false);
-                    setCreateDialogOpen(true);
-                  }}
-                  className="inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                  title={t('create')}
-                  aria-label={t('create')}
-                >
-                  <Plus className="h-4 w-4" />
-                </button>
-              ) : null}
+              <div className="flex shrink-0 items-center gap-1">
+                {canManageWorkspaces ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setMobileSheetOpen(false);
+                      setCreateDialogOpen(true);
+                    }}
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    title={t('create')}
+                    aria-label={t('create')}
+                  >
+                    <Plus className="h-4 w-4" />
+                  </button>
+                ) : null}
+                <SheetClose asChild>
+                  <button
+                    type="button"
+                    className="inline-flex h-7 w-7 items-center justify-center rounded-md text-muted-foreground transition-colors hover:bg-accent hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    aria-label={t('close')}
+                  >
+                    <X className="h-4 w-4" />
+                  </button>
+                </SheetClose>
+              </div>
             </div>
           </SheetHeader>
           <div className="max-h-[calc(75dvh-5rem)] overflow-y-auto p-2">
