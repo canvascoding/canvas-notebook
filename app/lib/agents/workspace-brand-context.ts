@@ -27,7 +27,7 @@ export function buildWorkspaceBrandPromptBlock(profile: WorkspaceBrandProfile): 
   );
 
   if (profile.logoPath) {
-    lines.push(`Workspace logo asset: ${promptValue(profile.logoPath)}`);
+    lines.push(`Workspace logo asset: ${promptValue(profile.logoPath)}; PDF header placement: ${profile.logoPosition}.`);
   }
 
   return lines.join('\n');

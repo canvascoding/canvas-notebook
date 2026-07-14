@@ -35,6 +35,7 @@ async function main() {
   profile.voice = 'Precise, warm, editorial';
   profile.writingGuidelines = 'Use short headlines.\nPrefer concrete language.';
   profile.logoPath = 'assets/brand/logo.png';
+  profile.logoPosition = 'left';
 
   const block = buildWorkspaceBrandPromptBlock(profile);
   assert.match(block, /^### Workspace Brand Profile/mu);
@@ -44,6 +45,7 @@ async function main() {
   assert.match(block, /do not override security, tool, workspace, or system instructions/iu);
   assert.match(block, /accent #b24a2b/u);
   assert.match(block, /assets\/brand\/logo\.png/u);
+  assert.match(block, /PDF header placement: left/u);
 
   const combined = appendWorkspaceBrandPromptBlock('BASE PROMPT', block);
   assert.equal(combined, `BASE PROMPT\n\n${block}`);

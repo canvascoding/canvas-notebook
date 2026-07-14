@@ -73,12 +73,15 @@ async function main() {
       brandName: 'Canvas Studios',
       page: { backgroundColor: '#FAF8F1', verticalMarginMm: 200, horizontalMarginMm: 4 },
       colors: { accent: '#B24A2B' },
+      logoPosition: 'left',
     });
     assert.equal(normalized.page.backgroundColor, '#faf8f1');
     assert.equal(normalized.page.verticalMarginMm, 35);
     assert.equal(normalized.page.horizontalMarginMm, 10);
     assert.equal(normalized.colors.accent, '#b24a2b');
     assert.equal(normalized.colors.text, DEFAULT_WORKSPACE_BRAND_PROFILE.colors.text);
+    assert.equal(normalized.logoPosition, 'left');
+    assert.equal(normalizeWorkspaceBrandProfile({ logoPosition: 'center' }).logoPosition, 'right');
 
     assert.throws(
       () => validateWorkspaceBrandProfile({ colors: { accent: 'red; background: black' } }),
