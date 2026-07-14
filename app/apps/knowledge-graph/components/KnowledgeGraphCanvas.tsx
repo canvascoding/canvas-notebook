@@ -13,13 +13,14 @@ import type {
   KnowledgeGraphNode,
 } from '@/app/apps/knowledge-graph/lib/knowledge-graph-model';
 import { Button } from '@/components/ui/button';
+import { cn } from '@/lib/utils';
 
 type KnowledgeGraphCanvasProps = {
   data: KnowledgeGraphData;
   focusNodeId: string | null;
   forceVersion: number;
   gravity: number;
-  onNodeHover: (node: KnowledgeGraphNode | null) => void;
+  onSelectionClear: () => void;
   onNodeSelect: (node: KnowledgeGraphNode) => void;
   scalingRatio: number;
   showLabels: boolean;
@@ -127,7 +128,7 @@ export function KnowledgeGraphCanvas({
   focusNodeId,
   forceVersion,
   gravity,
-  onNodeHover,
+  onSelectionClear,
   onNodeSelect,
   scalingRatio,
   showLabels,
@@ -238,20 +239,18 @@ export function KnowledgeGraphCanvas({
 
       renderer.on('enterNode', ({ node }) => {
         hoveredNodeRef.current = node;
-        const attributes = graph.getNodeAttributes(node);
-        onNodeHover(attributes);
         container.style.cursor = 'pointer';
         renderer?.refresh({ skipIndexation: true });
       });
       renderer.on('leaveNode', () => {
         hoveredNodeRef.current = null;
-        onNodeHover(null);
         container.style.cursor = 'grab';
         renderer?.refresh({ skipIndexation: true });
       });
       renderer.on('clickNode', ({ node }) => {
         onNodeSelect(graph.getNodeAttributes(node));
       });
+      renderer.on('clickStage', onSelectionClear);
 
       graphRef.current = graph;
       rendererRef.current = renderer;
@@ -287,7 +286,7 @@ export function KnowledgeGraphCanvas({
       activeTopologyRef.current = null;
       container.replaceChildren();
     };
-  }, [onNodeHover, onNodeSelect, t, topologyKey]);
+  }, [onNodeSelect, onSelectionClear, t, topologyKey]);
 
   useEffect(() => {
     const graph = graphRef.current;
@@ -345,7 +344,10 @@ export function KnowledgeGraphCanvas({
   }, [focusNodeId, rendererVersion]);
 
   return (
-    <div className="absolute inset-0">
+    <div className={cn(
+      'absolute inset-x-0 top-0 transition-[bottom] duration-300 motion-reduce:transition-none',
+      focusNodeId ? 'bottom-[min(46dvh,380px)] [@media(max-height:480px)]:bottom-[40dvh] md:bottom-0' : 'bottom-0',
+    )}>
       <div
         ref={containerRef}
         aria-hidden="true"

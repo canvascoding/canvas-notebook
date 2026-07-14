@@ -42,6 +42,18 @@ export type KnowledgeGraphOptions = {
   showOrphans: boolean;
 };
 
+export function getConnectedKnowledgeGraphNodes(
+  data: KnowledgeGraphData,
+  nodeId: string,
+): KnowledgeGraphNode[] {
+  const connectedIds = new Set<string>();
+  for (const edge of data.edges) {
+    if (edge.source === nodeId) connectedIds.add(edge.target);
+    if (edge.target === nodeId) connectedIds.add(edge.source);
+  }
+  return data.nodes.filter((node) => connectedIds.has(node.id));
+}
+
 const GROUP_COLORS = [
   '#38bdf8',
   '#34d399',

@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
 
-import { buildKnowledgeGraphData } from '../app/apps/knowledge-graph/lib/knowledge-graph-model';
+import {
+  buildKnowledgeGraphData,
+  getConnectedKnowledgeGraphNodes,
+} from '../app/apps/knowledge-graph/lib/knowledge-graph-model';
 import { buildWorkspaceLinkIndexFromDocuments } from '../app/lib/markdown/workspace-link-index-core';
 
 const index = buildWorkspaceLinkIndexFromDocuments([
@@ -20,6 +23,16 @@ assert.equal(graph.nodes.filter((node) => node.kind === 'missing').length, 2);
 assert.equal(graph.edges.length, 3);
 assert.equal(graph.nodes.find((node) => node.path === 'Research/Overview.md')?.outgoing, 2);
 assert.equal(graph.nodes.find((node) => node.path === 'Research/Source.md')?.incoming, 1);
+assert.deepEqual(
+  getConnectedKnowledgeGraphNodes(graph, 'Research/Overview.md')
+    .map((node) => node.path ?? `kind:${node.kind}`)
+    .sort(),
+  ['Research/Source.md', 'kind:missing'],
+);
+assert.deepEqual(
+  getConnectedKnowledgeGraphNodes(graph, 'Research/Source.md').map((node) => node.path),
+  ['Research/Overview.md'],
+);
 
 const connectedOnly = buildKnowledgeGraphData(index, {
   colorMode: 'folder',

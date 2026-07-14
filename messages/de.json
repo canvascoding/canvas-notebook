@@ -1234,6 +1234,7 @@
     },
     "controls": {
       "title": "Graph-Steuerung",
+      "mobileDescription": "Filtere, gruppiere und justiere den Dokument-Graphen, ohne die Karte zu verlassen.",
       "navigation": "Tastaturnavigation",
       "filters": "Filter",
       "groups": "Gruppen",
@@ -1267,11 +1268,25 @@
       "spacing": "Abstand"
     },
     "inspector": {
+      "connected": "{count, plural, =0 {Keine direkten Verbindungen} one {# direkte Verbindung} other {# direkte Verbindungen}}",
+      "detailsFor": "Details zu {title}",
       "incoming": "rein",
+      "moreConnections": "+{count} weitere",
+      "noConnections": "Dieser Knoten ist im sichtbaren Graphen aktuell isoliert.",
       "outgoing": "raus",
-      "total": "gesamt"
+      "total": "gesamt",
+      "unresolved": "Dieses Ziel kann im aktuellen Workspace keinem Dokument zugeordnet werden."
+    },
+    "nodeTypes": {
+      "document": "Dokument",
+      "ambiguous": "Mehrdeutiges Ziel",
+      "missing": "Fehlendes Ziel"
     },
     "actions": {
+      "closeControls": "Graph-Steuerung schließen",
+      "closeDetails": "Knotendetails schließen",
+      "openControls": "Graph-Steuerung öffnen",
+      "openInNewTab": "Dokument in neuem Tab öffnen",
       "refresh": "Graph aktualisieren",
       "retry": "Erneut versuchen",
       "recalculate": "Layout neu berechnen",

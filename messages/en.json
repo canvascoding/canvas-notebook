@@ -1235,6 +1235,7 @@
     },
     "controls": {
       "title": "Graph controls",
+      "mobileDescription": "Filter, group, and tune the document graph without leaving the map.",
       "navigation": "Keyboard navigation",
       "filters": "Filters",
       "groups": "Groups",
@@ -1268,11 +1269,25 @@
       "spacing": "Spacing"
     },
     "inspector": {
+      "connected": "{count, plural, =0 {No direct connections} one {# direct connection} other {# direct connections}}",
+      "detailsFor": "Details for {title}",
       "incoming": "in",
+      "moreConnections": "+{count} more",
+      "noConnections": "This node is currently isolated in the visible graph.",
       "outgoing": "out",
-      "total": "total"
+      "total": "total",
+      "unresolved": "This target does not resolve to a document in the current workspace."
+    },
+    "nodeTypes": {
+      "document": "Document",
+      "ambiguous": "Ambiguous target",
+      "missing": "Missing target"
     },
     "actions": {
+      "closeControls": "Close graph controls",
+      "closeDetails": "Close node details",
+      "openControls": "Open graph controls",
+      "openInNewTab": "Open document in new tab",
       "refresh": "Refresh graph",
       "retry": "Try again",
       "recalculate": "Recalculate layout",
