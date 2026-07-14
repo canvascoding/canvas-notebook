@@ -1,20 +1,16 @@
 'use client';
 
 import React from 'react';
-import { ExternalLink } from 'lucide-react';
+import { ExternalLink, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { useFileStore } from '@/app/store/file-store';
 import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
 import { normalizeChatFilePath, type FilePathEntry } from '@/app/lib/chat/extract-file-paths';
-import {
-  subscribeToFileReferenceValidationInvalidation,
-  validateFileReference,
-} from '@/app/lib/chat/validate-file-paths';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/useOpenChatFileReference';
-import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
+import { useChatFileReferenceValidation } from '@/app/components/canvas-agent-chat/useChatFileReferenceValidation';
+import { cn } from '@/lib/utils';
 
 interface FileReferenceCardProps {
   paths: FilePathEntry[];
@@ -53,65 +49,32 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
   const t = useTranslations('chat');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const openFileReference = useOpenChatFileReference();
-  const [validPathState, setValidPathState] = React.useState<{ key: string; paths: FilePathEntry[] } | null>(null);
-  const [validationVersion, setValidationVersion] = React.useState(0);
   const uniquePaths = React.useMemo(() => dedupeFilePathEntries(paths), [paths]);
   const uniquePathKey = React.useMemo(
     () => uniquePaths.map((entry) => entry.path).join('\n'),
     [uniquePaths],
   );
-  const validationKey = `${activeWorkspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID}\0${uniquePathKey}`;
-  const validPaths = validPathState?.key === validationKey ? validPathState.paths : [];
-
-  React.useEffect(() => subscribeToFileReferenceValidationInvalidation((event) => {
-    if (event.workspaceId !== (activeWorkspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID)) return;
-    if (event.path && !uniquePaths.some((entry) => (
-      entry.path === event.path ||
-      entry.path.startsWith(`${event.path}/`) ||
-      event.path?.startsWith(`${entry.path}/`)
-    ))) return;
-    setValidationVersion((version) => version + 1);
-  }), [activeWorkspaceId, uniquePaths]);
-
-  React.useEffect(() => {
-    let cancelled = false;
-    const { fileTree, fileTreeWorkspaceId } = useFileStore.getState();
-
-    const validate = async () => {
-      const valid = await Promise.all(
-        uniquePaths.map(async (entry) => {
-          const result = await validateFileReference(entry.path, fileTree, { fileTreeWorkspaceId });
-          return result.type === 'file' ? entry : null;
-        })
-      );
-      if (!cancelled) {
-        setValidPathState({
-          key: validationKey,
-          paths: valid.filter(Boolean) as FilePathEntry[],
-        });
-      }
-    };
-
-    validate();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeWorkspaceId, uniquePaths, validationKey, validationVersion]);
+  const { isResolving, results } = useChatFileReferenceValidation(uniquePathKey);
+  const visiblePaths = uniquePaths.filter((entry) => {
+    const result = results.get(entry.path);
+    return !result || result.type === 'file';
+  });
 
   const handleOpen = (filePath: string) => {
     void openFileReference(filePath);
   };
 
-  if (validPaths.length === 0) return null;
+  if (visiblePaths.length === 0) return null;
 
   return (
-    <div className="mt-3 border-t border-border/60 pt-2">
+    <div className="mt-3 border-t border-border/60 pt-2" aria-busy={isResolving}>
       <div className="mb-1.5 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">
         {t('fileReferences')}
       </div>
       <div className="flex flex-col gap-1">
-        {validPaths.map((entry) => {
+        {visiblePaths.map((entry) => {
+          const validation = results.get(entry.path);
+          const isFile = validation?.type === 'file';
           const fileName = entry.label || entry.path.split('/').pop() || entry.path;
           const displayName = getFileDisplayPath(fileName);
           const displayPath = getFileDisplayPath(entry.path);
@@ -121,11 +84,15 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
               key={entry.path}
               type="button"
               onClick={() => handleOpen(entry.path)}
-              className="group flex w-full items-center gap-2 rounded-md border border-border bg-background/60 px-2.5 py-1.5 text-left transition-colors hover:border-primary/40 hover:bg-accent/50"
+              disabled={!isFile}
+              className={cn(
+                'group flex w-full items-center gap-2 rounded-md border border-border bg-background/60 px-2.5 py-1.5 text-left transition-colors',
+                isFile ? 'hover:border-primary/40 hover:bg-accent/50' : 'cursor-progress opacity-70',
+              )}
               title={entry.path}
             >
               <span className="shrink-0">
-                {isImageFile(entry.path) ? (
+                {isFile && isImageFile(entry.path) ? (
                   <ImageThumbnailIcon
                     path={entry.path}
                     name={fileName}
@@ -143,7 +110,11 @@ export function FileReferenceCard({ paths }: FileReferenceCardProps) {
                   {displayPath}
                 </span>
               </span>
-              <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-primary" />
+              {isFile ? (
+                <ExternalLink className="h-3 w-3 shrink-0 text-muted-foreground opacity-0 transition-opacity group-hover:opacity-100 group-hover:text-primary" />
+              ) : (
+                <Loader2 className="h-3 w-3 shrink-0 animate-spin text-muted-foreground" />
+              )}
             </button>
           );
         })}

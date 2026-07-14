@@ -7,6 +7,7 @@ import {
 } from '../app/lib/chat/notebook-file-reference-bridge';
 import {
   invalidateFileReferenceValidationCache,
+  subscribeToFileReferenceValidationInvalidation,
   validateFileExists,
   validateFileReference,
 } from '../app/lib/chat/validate-file-paths';
@@ -186,6 +187,44 @@ async function main() {
       { path: 'generated/background.md', type: 'file', exists: true },
       { path: 'generated/background.md', type: 'file', exists: true },
     ]);
+
+    invalidateFileReferenceValidationCache({ workspaceId: 'workspace-a', path: 'generated/eventual.md' });
+    let eventualValidationFetches = 0;
+    globalThis.fetch = (async () => {
+      eventualValidationFetches += 1;
+      return Response.json({
+        success: true,
+        data: eventualValidationFetches === 1
+          ? { exists: false }
+          : { exists: true, type: 'file' },
+      });
+    }) as typeof fetch;
+
+    const retryInvalidation = new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => {
+        unsubscribe();
+        reject(new Error('Timed out waiting for background file-reference revalidation'));
+      }, 2_500);
+      const unsubscribe = subscribeToFileReferenceValidationInvalidation((event) => {
+        if (event.workspaceId !== 'workspace-a' || event.path !== 'generated/eventual.md') return;
+        clearTimeout(timeout);
+        unsubscribe();
+        resolve();
+      });
+    });
+
+    assert.deepEqual(await validateFileReference('generated/eventual.md', fileTree), {
+      path: 'generated/eventual.md',
+      type: 'missing',
+      exists: false,
+    });
+    await retryInvalidation;
+    assert.deepEqual(await validateFileReference('generated/eventual.md', fileTree), {
+      path: 'generated/eventual.md',
+      type: 'file',
+      exists: true,
+    });
+    assert.equal(eventualValidationFetches, 2, 'missing references should revalidate in the background');
 
     assert.equal(getFileDisplayName({ name: 'loaded.md', type: 'file' }), 'loaded');
     assert.equal(getFileDisplayPath('docs/loaded.md'), 'docs/loaded');

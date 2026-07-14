@@ -7,7 +7,8 @@ import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 import { invalidateWorkspaceLinkIndexCache } from '@/app/lib/markdown/workspace-link-index-client';
 
 const POSITIVE_VALIDATION_CACHE_TTL_MS = 30_000;
-const NEGATIVE_VALIDATION_CACHE_TTL_MS = 10_000;
+const NEGATIVE_VALIDATION_CACHE_TTL_MS = 1_000;
+const MAX_BACKGROUND_NEGATIVE_RETRIES = 5;
 
 export type FileReferenceValidationType = 'file' | 'directory' | 'missing';
 
@@ -24,6 +25,8 @@ type ValidationCacheEntry = {
 };
 
 const validationCache = new Map<string, ValidationCacheEntry>();
+const negativeRetryAttempts = new Map<string, number>();
+const negativeRetryTimers = new Map<string, ReturnType<typeof setTimeout>>();
 export interface FileReferenceValidationInvalidation {
   workspaceId: string;
   path: string | null;
@@ -43,11 +46,40 @@ function notifyValidationListeners(event: FileReferenceValidationInvalidation) {
   for (const listener of validationListeners) listener(event);
 }
 
+function clearNegativeRetry(cacheKey: string, resetAttempts = true) {
+  const timer = negativeRetryTimers.get(cacheKey);
+  if (timer) clearTimeout(timer);
+  negativeRetryTimers.delete(cacheKey);
+  if (resetAttempts) negativeRetryAttempts.delete(cacheKey);
+}
+
+function scheduleNegativeRetry(cacheKey: string, workspaceId: string, path: string) {
+  if (negativeRetryTimers.has(cacheKey)) return;
+  const attempts = negativeRetryAttempts.get(cacheKey) ?? 0;
+  if (attempts >= MAX_BACKGROUND_NEGATIVE_RETRIES) return;
+  negativeRetryAttempts.set(cacheKey, attempts + 1);
+
+  const timer = setTimeout(() => {
+    negativeRetryTimers.delete(cacheKey);
+    const cached = validationCache.get(cacheKey);
+    if (cached?.value?.type !== 'missing') return;
+    validationCache.delete(cacheKey);
+    notifyValidationListeners({ workspaceId, path });
+  }, NEGATIVE_VALIDATION_CACHE_TTL_MS);
+  negativeRetryTimers.set(cacheKey, timer);
+}
+
 export function subscribeToFileReferenceValidationInvalidation(
   listener: (event: FileReferenceValidationInvalidation) => void,
 ): () => void {
   validationListeners.add(listener);
   return () => validationListeners.delete(listener);
+}
+
+export function hasPendingFileReferenceValidationRetry(filePath: string): boolean {
+  const normalizedPath = normalizeChatFilePath(filePath);
+  if (!normalizedPath) return false;
+  return negativeRetryTimers.has(buildValidationCacheKey(getActiveWorkspaceId(), normalizedPath));
 }
 
 export function invalidateFileReferenceValidationCache(options: {
@@ -57,7 +89,8 @@ export function invalidateFileReferenceValidationCache(options: {
   const workspaceId = options.workspaceId ?? getActiveWorkspaceId() ?? LEGACY_PERSONAL_WORKSPACE_ID;
   const normalizedPath = options.path ? normalizeChatFilePath(options.path) : null;
 
-  for (const key of validationCache.keys()) {
+  const cacheKeys = new Set([...validationCache.keys(), ...negativeRetryTimers.keys()]);
+  for (const key of cacheKeys) {
     const [cachedWorkspaceId, cachedPath] = key.split('\0', 2);
     if (workspaceId && cachedWorkspaceId !== workspaceId) continue;
     if (
@@ -69,6 +102,7 @@ export function invalidateFileReferenceValidationCache(options: {
       continue;
     }
     validationCache.delete(key);
+    clearNegativeRetry(key);
   }
 
   invalidateWorkspaceLinkIndexCache(workspaceId);
@@ -132,10 +166,13 @@ export async function validateFileReference(
 ): Promise<FileReferenceValidationResult> {
   const normalizedPath = normalizeChatFilePath(filePath);
   const workspaceId = getActiveWorkspaceId();
+  const resolvedWorkspaceId = workspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID;
+  const cacheKey = buildValidationCacheKey(workspaceId, normalizedPath);
 
   const canUseTree = options.fileTreeWorkspaceId === undefined || options.fileTreeWorkspaceId === workspaceId;
   const nodeInTree = canUseTree ? findNodeInTree(normalizedPath, fileTree) : null;
   if (nodeInTree !== null) {
+    clearNegativeRetry(cacheKey);
     return validationResultFromType(normalizedPath, nodeInTree.type);
   }
 
@@ -144,7 +181,6 @@ export async function validateFileReference(
   }
 
   const now = Date.now();
-  const cacheKey = buildValidationCacheKey(workspaceId, normalizedPath);
   const cached = validationCache.get(cacheKey);
   if (cached && cached.expiresAt > now) {
     if (cached.promise) {
@@ -173,6 +209,11 @@ export async function validateFileReference(
         value: result,
         expiresAt: Date.now() + getCacheTtl(result),
       });
+      if (result.type === 'missing') {
+        scheduleNegativeRetry(cacheKey, resolvedWorkspaceId, normalizedPath);
+      } else {
+        clearNegativeRetry(cacheKey);
+      }
       return result;
     });
 

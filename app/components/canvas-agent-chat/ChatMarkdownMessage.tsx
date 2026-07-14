@@ -12,23 +12,17 @@ import {
 } from '@/app/lib/markdown/canvas-markdown';
 import { isFilePath, normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 import { extractStudioImageMediaUrls } from '@/app/lib/chat/studio-image-markdown';
-import {
-  subscribeToFileReferenceValidationInvalidation,
-  validateFileReference,
-  type FileReferenceValidationResult,
-} from '@/app/lib/chat/validate-file-paths';
 import type { ChatMessage } from '@/app/lib/chat/types';
 import { getFileDisplayPath } from '@/app/lib/files/display-name';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { toMediaUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
-import { useFileStore } from '@/app/store/file-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { resolvePreviewSrcFromMediaUrl } from '@/app/lib/chat/attachment-preview';
 import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useOpenChatFileReference } from '@/app/components/canvas-agent-chat/useOpenChatFileReference';
-import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
+import { useChatFileReferenceValidation } from '@/app/components/canvas-agent-chat/useChatFileReferenceValidation';
 import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
 import { WorkspaceMarkdownEmbed } from '@/app/components/shared/WorkspaceMarkdownEmbed';
 import {
@@ -322,61 +316,22 @@ export function getRecentStudioImageMediaUrls(messages: ChatMessage[], messageIn
 }
 
 function FileLink({ href, children, showIcon = false }: { href: string; children: React.ReactNode; showIcon?: boolean }) {
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const openFileReference = useOpenChatFileReference();
   const normalizedPath = React.useMemo(() => normalizeChatFilePath(href), [href]);
-  const [validationState, setValidationState] = React.useState<{
-    workspaceId: string | null;
-    result: FileReferenceValidationResult;
-  } | null>(null);
-  const [validationVersion, setValidationVersion] = React.useState(0);
-
-  React.useEffect(() => subscribeToFileReferenceValidationInvalidation((event) => {
-    if (event.workspaceId !== (activeWorkspaceId ?? LEGACY_PERSONAL_WORKSPACE_ID)) return;
-    if (
-      event.path &&
-      event.path !== normalizedPath &&
-      !event.path.startsWith(`${normalizedPath}/`) &&
-      !normalizedPath.startsWith(`${event.path}/`)
-    ) return;
-    setValidationVersion((version) => version + 1);
-  }), [activeWorkspaceId, normalizedPath]);
-
-  React.useEffect(() => {
-    if (!normalizedPath) {
-      return;
-    }
-
-    let cancelled = false;
-    const { fileTree, fileTreeWorkspaceId } = useFileStore.getState();
-
-    validateFileReference(normalizedPath, fileTree, { fileTreeWorkspaceId }).then((result) => {
-      if (!cancelled) {
-        setValidationState({ workspaceId: activeWorkspaceId, result });
-      }
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [activeWorkspaceId, normalizedPath, validationVersion]);
+  const { results } = useChatFileReferenceValidation(normalizedPath);
 
   const handleClick = (event: React.MouseEvent) => {
     event.preventDefault();
     event.stopPropagation();
 
-    const validation = validationState?.workspaceId === activeWorkspaceId
-      ? validationState.result
-      : null;
+    const validation = results.get(normalizedPath);
     if (!normalizedPath || validation?.path !== normalizedPath || validation.type !== 'file') return;
 
     void openFileReference(normalizedPath);
   };
 
   const displayChildren = getFileReferenceLabel(href, children);
-  const activeValidation = validationState?.workspaceId === activeWorkspaceId && validationState.result.path === normalizedPath
-    ? validationState.result
-    : null;
+  const activeValidation = results.get(normalizedPath) ?? null;
   const isFile = activeValidation?.type === 'file';
   const isDirectory = activeValidation?.type === 'directory';
   const isMissing = !normalizedPath || activeValidation?.type === 'missing';
