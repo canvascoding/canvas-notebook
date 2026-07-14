@@ -16,6 +16,7 @@ import {
 } from '@/app/lib/plugins/canvas-plugin-registry';
 import {
   isPathInside,
+  isValidCanvasVersion,
   isValidCanvasPluginName,
   isValidCanvasPluginVersion,
   validateCanvasPluginPackage,
@@ -808,7 +809,7 @@ function assertStorePackageIdentity(
 
 function assertMinimumCanvasVersion(minCanvasVersion: string | undefined): void {
   if (!minCanvasVersion) return;
-  if (!isValidCanvasPluginVersion(minCanvasVersion)) {
+  if (!isValidCanvasVersion(minCanvasVersion)) {
     throw new Error(`Plugin declares an invalid minimum Canvas version: ${minCanvasVersion}.`);
   }
   if (compareVersions(CANVAS_VERSION, minCanvasVersion) < 0) {

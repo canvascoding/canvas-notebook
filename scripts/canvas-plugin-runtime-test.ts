@@ -161,6 +161,7 @@ async function createStoreArchive(pluginRoot: string, checksum: string): Promise
             checksum: `sha256:${checksum}`,
             manifestPath: '.canvas-plugin/plugin.json',
             releasedAt: '2026-06-17T00:00:00.000Z',
+            minCanvasVersion: '2026.6.19.1',
           },
         },
       },

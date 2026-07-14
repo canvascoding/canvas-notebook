@@ -111,6 +111,10 @@ export function isValidCanvasPluginVersion(version: string): boolean {
   return /^[0-9]+(?:\.[0-9]+){0,2}(?:[-+][a-z0-9.-]+)?$/i.test(version);
 }
 
+export function isValidCanvasVersion(version: string): boolean {
+  return /^[0-9]+(?:\.[0-9]+){0,3}(?:[-+][a-z0-9.-]+)?$/i.test(version);
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value && typeof value === 'object' && !Array.isArray(value));
 }
