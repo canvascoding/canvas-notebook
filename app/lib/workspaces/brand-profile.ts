@@ -16,10 +16,15 @@ export const WORKSPACE_BRAND_PAGE_SIZES = ['A4', 'Letter'] as const;
 
 export type WorkspaceBrandPageSize = (typeof WORKSPACE_BRAND_PAGE_SIZES)[number];
 
+export const WORKSPACE_BRAND_LOGO_POSITIONS = ['left', 'right'] as const;
+
+export type WorkspaceBrandLogoPosition = (typeof WORKSPACE_BRAND_LOGO_POSITIONS)[number];
+
 export interface WorkspaceBrandProfile {
   enabled: boolean;
   brandName: string;
   logoPath: string;
+  logoPosition: WorkspaceBrandLogoPosition;
   voice: string;
   targetAudience: string;
   writingGuidelines: string;
@@ -65,6 +70,7 @@ export const DEFAULT_WORKSPACE_BRAND_PROFILE: WorkspaceBrandProfile = {
   enabled: false,
   brandName: '',
   logoPath: '',
+  logoPosition: 'right',
   voice: '',
   targetAudience: '',
   writingGuidelines: '',
@@ -255,6 +261,7 @@ export function normalizeWorkspaceBrandProfile(value: unknown): WorkspaceBrandPr
     enabled: booleanValue(source.enabled, defaults.enabled),
     brandName: stringValue(source.brandName, defaults.brandName, 120),
     logoPath: logoPathValue(source.logoPath, defaults.logoPath),
+    logoPosition: enumValue(source.logoPosition, WORKSPACE_BRAND_LOGO_POSITIONS, defaults.logoPosition),
     voice: stringValue(source.voice, defaults.voice, 500),
     targetAudience: stringValue(source.targetAudience, defaults.targetAudience, 500),
     writingGuidelines: stringValue(source.writingGuidelines, defaults.writingGuidelines, 2_000),

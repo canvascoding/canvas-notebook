@@ -3,6 +3,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import {
   WorkspaceBrandProfileValidationError,
 } from '@/app/lib/workspaces/brand-profile';
+import { deleteManagedWorkspaceBrandLogoFile } from '@/app/lib/workspaces/brand-logo-service';
 import {
   readWorkspaceBrandProfile,
   resetWorkspaceBrandProfile,
@@ -88,6 +89,7 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
   if (workspaceResult.response) return workspaceResult.response;
 
   try {
+    await deleteManagedWorkspaceBrandLogoFile({ workspace: workspaceResult.workspace });
     const state = await resetWorkspaceBrandProfile(workspaceId);
     return NextResponse.json({ success: true, ...state, canManage: true });
   } catch (error) {

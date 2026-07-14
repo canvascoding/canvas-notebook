@@ -29,7 +29,7 @@ function getWorkspace(options?: WorkspaceFileOperationOptions): WorkspaceContext
   return options?.workspace ?? createLegacyPersonalWorkspaceContext();
 }
 
-const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache']);
+const IGNORED_WORKSPACE_DIRS = new Set(['node_modules', '.next', '.git', 'dist', 'build', '.cache', '.canvas-brand']);
 const HIDDEN_WORKSPACE_METADATA_FILES = new Set(['.gitkeep', '.keep']);
 const FILE_METADATA_CONCURRENCY = 32;
 const FILE_TREE_DIRECTORY_CONCURRENCY = 16;
