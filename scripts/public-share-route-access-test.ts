@@ -4,7 +4,7 @@ import { NextRequest } from 'next/server';
 
 import middleware from '../proxy';
 
-const publicShareRequests = [
+const publicShareRequests: ReadonlyArray<{ path: string; method?: string }> = [
   { path: '/p/example-code' },
   { path: '/public/files/example-token/report.md' },
   { path: '/public/view/example-token/report.md' },
@@ -12,7 +12,7 @@ const publicShareRequests = [
   { path: '/public/markdown-export/example-token' },
   { path: '/public/markdown-pdf/example-token', method: 'POST' },
   { path: '/public/marp-preview/example-token' },
-] as const;
+];
 
 async function main() {
   for (const { path, method } of publicShareRequests) {
