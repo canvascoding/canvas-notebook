@@ -1,6 +1,7 @@
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { isBrowserExportError, runBrowserExportJob } from '@/app/lib/exports/browser-export-service';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
+import { getEmbeddedKatexCss, renderMarkdownForPdf } from '@/app/lib/pdf/markdown-renderer';
 import { formatWideTablesForPagedExport } from '@/app/lib/pdf/markdown-wide-tables';
 import {
   createWorkspaceBrandCss,
@@ -10,7 +11,6 @@ import {
   DEFAULT_WORKSPACE_BRAND_PROFILE,
   type WorkspaceBrandProfile,
 } from '@/app/lib/workspaces/brand-profile';
-import { marked } from 'marked';
 import path from 'path';
 import fs from 'fs/promises';
 import type { Page } from 'puppeteer-core';
@@ -247,8 +247,7 @@ export async function markdownFileToHtmlDocument(
 
   const processedMarkdown = await processMermaidBlocks(markdownContent);
 
-  marked.use({ gfm: true, breaks: true });
-  let htmlContent = await marked.parse(processedMarkdown);
+  let htmlContent = await renderMarkdownForPdf(processedMarkdown);
 
   // Post-process color codes in the HTML
   htmlContent = processColorCodes(htmlContent);
@@ -259,6 +258,9 @@ export async function markdownFileToHtmlDocument(
   const fileName = path.basename(filePath, ext);
 
   htmlContent = await inlineImagesAsBase64(htmlContent, fileDir, fileOptions);
+  const katexCss = htmlContent.includes('class="katex')
+    ? await getEmbeddedKatexCss()
+    : '';
   const brandHeaderHtml = createWorkspaceBrandHeaderHtml({
     profile: brandProfile,
     logoDataUri: null,
@@ -272,6 +274,8 @@ export async function markdownFileToHtmlDocument(
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>${escapeHtml(fileName)}</title>
   <style>
+    ${katexCss}
+
     @page {
       size: A4;
       margin: 25mm 20mm;
