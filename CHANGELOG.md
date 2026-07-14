@@ -11,6 +11,33 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.14.1] - 2026-07-14
+
+### Added
+
+- Added an interactive workspace knowledge graph with accessible document navigation and background layout calculation.
+- Added Canvas Markdown math rendering, Obsidian-compatible embeds, callouts, footnotes, wiki links, and workspace link indexing.
+- Added workspace and organization brand profiles, logo controls, branded agent context, and branded Markdown/PDF exports.
+- Added workspace-scoped Studio storage and media foundations with workspace-aware routing.
+- Added AI-generated session titles and automation workspace move and run-preview support.
+
+### Changed
+
+- Expanded workspace switching, file and editor interactions, automation UI, chat context handling, and document-link resolution for multi-workspace use.
+- Added workspace-aware Studio APIs and migration and cleanup paths across generation, catalog, media, and exports.
+- Improved knowledge graph loading and filtering and moved graph layout off the UI thread.
+- Added PostgreSQL offboarding and permission support and plugin release-version compatibility.
+
+### Fixed
+
+- Fixed public Markdown export access checks, mobile workspace-sheet actions, workspace icon persistence, todo deep links, and automation workspace validation.
+- Bounded composed agent prompts and persisted system-prompt snapshots to protect context budgets.
+- Fixed session history and title bootstrapping and workspace-scoped asset and file operations.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.13.11] - 2026-07-13
 
 ### Added
