@@ -8,6 +8,7 @@ import {
 } from '@/app/lib/integrations/studio-preset-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 interface PresetPatchBody {
   name?: string;
@@ -25,10 +26,6 @@ interface PresetPatchBody {
   tags?: string[];
 }
 
-function canReadPreset(userId: string, preset: Awaited<ReturnType<typeof getPreset>>) {
-  return Boolean(preset && (preset.isDefault || preset.userId === userId));
-}
-
 export async function GET(
   request: NextRequest,
   { params }: { params: Promise<{ id: string }> },
@@ -37,10 +34,12 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
-  const preset = await getPreset(id);
-  if (!canReadPreset(session.user.id, preset)) {
+  const preset = await getPreset(id, studioRequest.scope);
+  if (!preset) {
     return NextResponse.json({ success: false, error: 'Preset not found' }, { status: 404 });
   }
 
@@ -55,6 +54,8 @@ export async function PATCH(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
   let body: PresetPatchBody;
@@ -65,9 +66,9 @@ export async function PATCH(
   }
 
   try {
-    await assertPresetEditableByUser(id, session.user.id);
+    await assertPresetEditableByUser(id, studioRequest.scope);
 
-    const preset = await updatePreset(id, {
+    const preset = await updatePreset(id, studioRequest.scope, {
       name: body.name,
       description: body.description,
       category: body.category,
@@ -102,11 +103,13 @@ export async function DELETE(
     errorMessage: 'Forbidden: Studio asset delete permission required',
   });
   if (!studioPermission.ok) return studioPermission.response;
+  const studioRequest = await requireStudioRequestScope(request, studioPermission.session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
   try {
-    await assertPresetEditableByUser(id, studioPermission.session.user.id);
-    await deletePreset(id);
+    await assertPresetEditableByUser(id, studioRequest.scope);
+    await deletePreset(id, studioRequest.scope);
     return NextResponse.json({ success: true });
   } catch (error) {
     if (error instanceof StudioServiceError) {

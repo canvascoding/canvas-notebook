@@ -5,12 +5,15 @@ import { createStudioGeneration, type StudioGenerateRequest } from '@/app/lib/in
 import { assertStudioGenerationQueueCapacity, enqueueStudioGeneration } from '@/app/lib/integrations/studio-generation-queue';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   let body: StudioGenerateRequest;
   try {
@@ -27,10 +30,12 @@ export async function POST(request: NextRequest) {
 
   try {
     await assertStudioGenerationQueueCapacity(session.user.id);
-    const { generationId, mode, prompt } = await createStudioGeneration(session.user.id, body);
+    const { generationId, mode, prompt } = await createStudioGeneration(studioRequest.scope, body);
     const queueStatus = enqueueStudioGeneration(generationId);
     await recordAuditEvent({
       userId: session.user.id,
+      organizationId: studioRequest.scope.organizationId,
+      workspaceId: studioRequest.scope.workspaceId,
       source: 'studio',
       eventType: 'studio',
       entityType: 'studio_generation',

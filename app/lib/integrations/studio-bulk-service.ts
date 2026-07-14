@@ -5,12 +5,17 @@ import { db } from '@/app/lib/db';
 import {
   studioBulkJobs,
   studioBulkJobLineItems,
+  studioGenerations,
+  studioPersonas,
+  studioPresets,
   studioProducts,
   studioGenerationOutputs,
 } from '@/app/lib/db/schema';
-import { eq, and, desc, inArray, count } from 'drizzle-orm';
+import { eq, and, desc, inArray, count, or } from 'drizzle-orm';
 import { executeStudioGeneration, type StudioGenerateRequest } from '@/app/lib/integrations/studio-generation-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import type { StudioScope } from '@/app/lib/integrations/studio-scope';
+import { toMediaUrl } from '@/app/lib/utils/media-url';
 
 const MAX_PRODUCTS = 20;
 const MIN_VERSIONS = 1;
@@ -64,18 +69,44 @@ export interface BulkJob {
   updatedAt: Date;
 }
 
-async function getProductName(productId: string): Promise<string | null> {
+async function getProductName(productId: string, scope: StudioScope): Promise<string | null> {
   const [product] = await db.select({ name: studioProducts.name })
     .from(studioProducts)
-    .where(eq(studioProducts.id, productId));
+    .where(and(
+      eq(studioProducts.id, productId),
+      eq(studioProducts.workspaceId, scope.workspaceId),
+    ));
   return product?.name ?? null;
 }
 
-async function checkConcurrency(userId: string): Promise<void> {
+async function assertPersonaInWorkspace(personaId: string, scope: StudioScope): Promise<void> {
+  const [persona] = await db.select({ id: studioPersonas.id })
+    .from(studioPersonas)
+    .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.workspaceId, scope.workspaceId)))
+    .limit(1);
+  if (!persona) {
+    throw new StudioServiceError('Persona not found in workspace', 'Persona nicht gefunden.', 'NOT_FOUND');
+  }
+}
+
+async function assertPresetInWorkspace(presetId: string, scope: StudioScope): Promise<void> {
+  const [preset] = await db.select({ id: studioPresets.id })
+    .from(studioPresets)
+    .where(and(
+      eq(studioPresets.id, presetId),
+      or(eq(studioPresets.workspaceId, scope.workspaceId), eq(studioPresets.isDefault, true)),
+    ))
+    .limit(1);
+  if (!preset) {
+    throw new StudioServiceError('Preset not found in workspace', 'Preset nicht gefunden.', 'NOT_FOUND');
+  }
+}
+
+async function checkConcurrency(scope: StudioScope): Promise<void> {
   const result = await db.select({ count: count() })
     .from(studioBulkJobs)
     .where(and(
-      eq(studioBulkJobs.userId, userId),
+      eq(studioBulkJobs.workspaceId, scope.workspaceId),
       inArray(studioBulkJobs.status, ['pending', 'processing']),
     ));
 
@@ -89,7 +120,7 @@ async function checkConcurrency(userId: string): Promise<void> {
   }
 }
 
-export async function createBulkJob(userId: string, data: CreateBulkJobInput): Promise<BulkJob> {
+export async function createBulkJob(scope: StudioScope, data: CreateBulkJobInput): Promise<BulkJob> {
   if (data.productIds.length === 0) {
     throw new StudioServiceError(
       'No products provided',
@@ -123,7 +154,19 @@ export async function createBulkJob(userId: string, data: CreateBulkJobInput): P
     );
   }
 
-  await checkConcurrency(userId);
+  await checkConcurrency(scope);
+
+  for (const productId of data.productIds) {
+    if (!(await getProductName(productId, scope))) {
+      throw new StudioServiceError('Product not found in workspace', 'Produkt nicht gefunden.', 'NOT_FOUND');
+    }
+  }
+  if (data.presetId) await assertPresetInWorkspace(data.presetId, scope);
+  for (const override of data.lineItemOverrides ?? []) {
+    if (!data.productIds.includes(override.productId)) continue;
+    if (override.personaId) await assertPersonaInWorkspace(override.personaId, scope);
+    if (override.presetId) await assertPresetInWorkspace(override.presetId, scope);
+  }
 
   const jobId = randomUUID();
   const now = new Date();
@@ -164,7 +207,12 @@ export async function createBulkJob(userId: string, data: CreateBulkJobInput): P
 
   await db.insert(studioBulkJobs).values({
     id: jobId,
-    userId,
+    userId: scope.actorUserId,
+    organizationId: scope.organizationId,
+    customerId: scope.customerId,
+    projectId: scope.projectId,
+    createdByUserId: scope.actorUserId,
+    workspaceId: scope.workspaceId,
     name: null,
     studioPresetId: data.presetId ?? null,
     additionalPrompt: data.prompt.trim(),
@@ -182,16 +230,16 @@ export async function createBulkJob(userId: string, data: CreateBulkJobInput): P
     await db.insert(studioBulkJobLineItems).values(item);
   }
 
-  processBulkJob(jobId, userId, data.prompt.trim(), data.presetId, data.aspectRatio ?? '1:1').catch((err) => {
+  processBulkJob(jobId, scope, data.prompt.trim(), data.presetId, data.aspectRatio ?? '1:1').catch((err) => {
     console.error(`[BulkJob ${jobId}] Unhandled processing error:`, err);
   });
 
-  return getBulkJobOrThrow(jobId);
+  return getBulkJobOrThrow(jobId, scope);
 }
 
 async function processBulkJob(
   jobId: string,
-  userId: string,
+  scope: StudioScope,
   batchPrompt: string,
   batchPresetId: string | undefined,
   batchAspectRatio: string,
@@ -238,7 +286,7 @@ async function processBulkJob(
         provider: 'gemini',
       };
 
-      const result = await executeStudioGeneration(userId, request);
+      const result = await executeStudioGeneration(scope, request);
 
       await db.update(studioBulkJobLineItems)
         .set({ status: 'completed', generationId: result.generationId })
@@ -276,8 +324,8 @@ async function processBulkJob(
     .where(eq(studioBulkJobs.id, jobId));
 }
 
-async function getBulkJobOrThrow(jobId: string): Promise<BulkJob> {
-  const job = await getBulkJob(jobId);
+async function getBulkJobOrThrow(jobId: string, scope: StudioScope): Promise<BulkJob> {
+  const job = await getBulkJob(jobId, scope);
   if (!job) {
     throw new StudioServiceError(
       `Bulk job ${jobId} not found`,
@@ -288,10 +336,13 @@ async function getBulkJobOrThrow(jobId: string): Promise<BulkJob> {
   return job;
 }
 
-export async function getBulkJob(jobId: string): Promise<BulkJob | null> {
+export async function getBulkJob(jobId: string, scope: StudioScope): Promise<BulkJob | null> {
   const [job] = await db.select()
     .from(studioBulkJobs)
-    .where(eq(studioBulkJobs.id, jobId));
+    .where(and(
+      eq(studioBulkJobs.id, jobId),
+      eq(studioBulkJobs.workspaceId, scope.workspaceId),
+    ));
 
   if (!job) return null;
 
@@ -306,7 +357,7 @@ export async function getBulkJob(jobId: string): Promise<BulkJob | null> {
       let productName: string | null = null;
 
       if (item.productId) {
-        productName = await getProductName(item.productId);
+        productName = await getProductName(item.productId, scope);
       }
 
       if (item.generationId) {
@@ -316,11 +367,15 @@ export async function getBulkJob(jobId: string): Promise<BulkJob | null> {
           filePath: studioGenerationOutputs.filePath,
         })
           .from(studioGenerationOutputs)
-          .where(eq(studioGenerationOutputs.generationId, item.generationId));
+          .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
+          .where(and(
+            eq(studioGenerationOutputs.generationId, item.generationId),
+            eq(studioGenerations.workspaceId, scope.workspaceId),
+          ));
 
         outputs = outputRows.map((o) => ({
           id: o.id,
-          mediaUrl: o.mediaUrl,
+          mediaUrl: toMediaUrl(o.filePath, { workspaceId: scope.workspaceId }),
           filePath: o.filePath,
         }));
       }
@@ -359,10 +414,10 @@ export async function getBulkJob(jobId: string): Promise<BulkJob | null> {
   };
 }
 
-export async function listBulkJobs(userId: string): Promise<BulkJob[]> {
+export async function listBulkJobs(scope: StudioScope): Promise<BulkJob[]> {
   const jobs = await db.select()
     .from(studioBulkJobs)
-    .where(eq(studioBulkJobs.userId, userId))
+    .where(eq(studioBulkJobs.workspaceId, scope.workspaceId))
     .orderBy(desc(studioBulkJobs.createdAt));
 
   const result: BulkJob[] = [];
@@ -376,7 +431,7 @@ export async function listBulkJobs(userId: string): Promise<BulkJob[]> {
       items.map(async (item) => {
         let productName: string | null = null;
         if (item.productId) {
-          productName = await getProductName(item.productId);
+          productName = await getProductName(item.productId, scope);
         }
         return {
           id: item.id,
@@ -414,10 +469,10 @@ export async function listBulkJobs(userId: string): Promise<BulkJob[]> {
   return result;
 }
 
-export async function cancelBulkJob(jobId: string): Promise<void> {
+export async function cancelBulkJob(jobId: string, scope: StudioScope): Promise<void> {
   const [job] = await db.select()
     .from(studioBulkJobs)
-    .where(eq(studioBulkJobs.id, jobId));
+    .where(and(eq(studioBulkJobs.id, jobId), eq(studioBulkJobs.workspaceId, scope.workspaceId)));
 
   if (!job) {
     throw new StudioServiceError(
@@ -459,10 +514,10 @@ export async function cancelBulkJob(jobId: string): Promise<void> {
     .where(eq(studioBulkJobs.id, jobId));
 }
 
-export async function deleteBulkJob(jobId: string): Promise<void> {
+export async function deleteBulkJob(jobId: string, scope: StudioScope): Promise<void> {
   const [job] = await db.select()
     .from(studioBulkJobs)
-    .where(eq(studioBulkJobs.id, jobId));
+    .where(and(eq(studioBulkJobs.id, jobId), eq(studioBulkJobs.workspaceId, scope.workspaceId)));
 
   if (!job) {
     throw new StudioServiceError(
@@ -480,5 +535,8 @@ export async function deleteBulkJob(jobId: string): Promise<void> {
     );
   }
 
-  await db.delete(studioBulkJobs).where(eq(studioBulkJobs.id, jobId));
+  await db.delete(studioBulkJobs).where(and(
+    eq(studioBulkJobs.id, jobId),
+    eq(studioBulkJobs.workspaceId, scope.workspaceId),
+  ));
 }

@@ -1,59 +1,65 @@
 import 'server-only';
 
-import { and, eq, isNull, or, type SQL } from 'drizzle-orm';
+import { and, eq, type SQL } from 'drizzle-orm';
 import type { AnySQLiteColumn } from 'drizzle-orm/sqlite-core';
 
-import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import type { OrganizationPermissionSnapshot } from '@/app/lib/organization/bootstrap';
+import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import type { StudioStorageScope } from '@/app/lib/integrations/studio-workspace';
 
 export interface StudioScope {
   actorUserId: string;
-  organizationId: string | null;
-  organizationWide: boolean;
-  permission: OrganizationPermissionSnapshot | null;
+  organizationId: string;
+  customerId: string | null;
+  projectId: string | null;
+  workspaceId: string;
+  storage: StudioStorageScope;
 }
 
 type ScopedColumns = {
-  userId: AnySQLiteColumn;
-  organizationId: AnySQLiteColumn;
-  createdByUserId: AnySQLiteColumn;
+  workspaceId: AnySQLiteColumn;
+  createdByUserId?: AnySQLiteColumn;
 };
 
-function isInternalActivePermission(permission: OrganizationPermissionSnapshot | null): boolean {
-  if (!permission || permission.status !== 'active') return false;
-  return permission.role === 'owner' || permission.role === 'admin' || permission.role === 'member';
-}
-
-export async function resolveStudioScope(userId: string): Promise<StudioScope> {
-  const state = await readOrganizationPermissionForUser(userId);
-  const organizationWide = Boolean(
-    state.configured &&
-    state.teamFeaturesEnabled &&
-    state.organizationId &&
-    isInternalActivePermission(state.permission),
-  );
+export function createStudioScope(userId: string, workspace: WorkspaceContext): StudioScope {
+  if (!workspace.permissions.canRead) {
+    throw new Error('Studio workspace is not readable.');
+  }
+  const organizationId = workspace.organizationId?.trim();
+  if (!organizationId) {
+    throw new Error('Studio requires a persisted workspace with an organization.');
+  }
 
   return {
     actorUserId: userId,
-    organizationId: organizationWide ? state.organizationId : null,
-    organizationWide,
-    permission: state.permission,
+    organizationId,
+    customerId: workspace.customerId ?? null,
+    projectId: workspace.projectId ?? null,
+    workspaceId: workspace.workspaceId,
+    storage: {
+      organizationId,
+      workspaceId: workspace.workspaceId,
+    },
   };
 }
 
-function creatorMatches(columns: ScopedColumns, creatorUserId?: string | null): SQL | undefined {
-  const normalizedCreatorUserId = creatorUserId?.trim();
-  if (!normalizedCreatorUserId) return undefined;
-
-  return or(
-    eq(columns.createdByUserId, normalizedCreatorUserId),
-    and(isNull(columns.createdByUserId), eq(columns.userId, normalizedCreatorUserId)),
-  );
-}
-
-function withCreator(base: SQL, columns: ScopedColumns, creatorUserId?: string | null): SQL {
-  const creator = creatorMatches(columns, creatorUserId);
-  return creator ? and(base, creator)! : base;
+export function createPersistedStudioScope(input: {
+  actorUserId: string;
+  organizationId: string;
+  customerId?: string | null;
+  projectId?: string | null;
+  workspaceId: string;
+}): StudioScope {
+  return {
+    actorUserId: input.actorUserId,
+    organizationId: input.organizationId,
+    customerId: input.customerId ?? null,
+    projectId: input.projectId ?? null,
+    workspaceId: input.workspaceId,
+    storage: {
+      organizationId: input.organizationId,
+      workspaceId: input.workspaceId,
+    },
+  };
 }
 
 export function studioVisibilityCondition(
@@ -61,25 +67,28 @@ export function studioVisibilityCondition(
   columns: ScopedColumns,
   creatorUserId?: string | null,
 ): SQL {
-  if (scope.organizationWide && scope.organizationId) {
-    const organizationVisible = withCreator(eq(columns.organizationId, scope.organizationId), columns, creatorUserId);
-    // Rows that could not be backfilled into an organization remain personal-only.
-    const ownLegacy = withCreator(and(isNull(columns.organizationId), eq(columns.userId, scope.actorUserId))!, columns, creatorUserId);
-    return or(organizationVisible, ownLegacy)!;
+  const conditions: SQL[] = [eq(columns.workspaceId, scope.workspaceId)];
+  const normalizedCreatorUserId = creatorUserId?.trim();
+  if (normalizedCreatorUserId && columns.createdByUserId) {
+    conditions.push(eq(columns.createdByUserId, normalizedCreatorUserId));
   }
-
-  return withCreator(eq(columns.userId, scope.actorUserId), columns, creatorUserId);
+  return conditions.length === 1 ? conditions[0] : and(...conditions)!;
 }
 
-export async function studioInsertScope(userId: string): Promise<{
-  organizationId: string | null;
+export function studioInsertScope(scope: StudioScope): {
+  organizationId: string;
+  customerId: string | null;
+  projectId: string | null;
+  workspaceId: string;
   createdByUserId: string;
-  visibility: 'organization' | 'user';
-}> {
-  const scope = await resolveStudioScope(userId);
+  visibility: 'workspace';
+} {
   return {
-    organizationId: scope.organizationWide ? scope.organizationId : null,
-    createdByUserId: userId,
-    visibility: scope.organizationWide ? 'organization' : 'user',
+    organizationId: scope.organizationId,
+    customerId: scope.customerId,
+    projectId: scope.projectId,
+    workspaceId: scope.workspaceId,
+    createdByUserId: scope.actorUserId,
+    visibility: 'workspace',
   };
 }

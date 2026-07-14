@@ -3,6 +3,7 @@ import { auth } from '@/app/lib/auth';
 import { getStyle, updateStyle, deleteStyle, reorderStyleImages } from '@/app/lib/integrations/studio-style-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 export async function GET(
   _request: NextRequest,
@@ -12,8 +13,10 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(_request, session);
+  if (!studioRequest.scope) return studioRequest.response;
   const { id } = await params;
-  const style = await getStyle(id, session.user.id);
+  const style = await getStyle(id, studioRequest.scope);
   if (!style) {
     return NextResponse.json({ success: false, error: 'Style not found' }, { status: 404 });
   }
@@ -28,6 +31,8 @@ export async function PATCH(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
   const { id } = await params;
   let body: { name?: string; description?: string; imageOrder?: string[] };
   try {
@@ -37,22 +42,22 @@ export async function PATCH(
   }
   try {
     if (body.name !== undefined || body.description !== undefined) {
-      await updateStyle(id, session.user.id, {
+      await updateStyle(id, studioRequest.scope, {
         name: body.name?.trim(),
         description: body.description?.trim(),
       });
       if (body.imageOrder && Array.isArray(body.imageOrder)) {
-        await reorderStyleImages(id, session.user.id, body.imageOrder);
+        await reorderStyleImages(id, studioRequest.scope, body.imageOrder);
       }
-      const refreshed = await getStyle(id, session.user.id);
+      const refreshed = await getStyle(id, studioRequest.scope);
       return NextResponse.json({ success: true, style: refreshed });
     }
     if (body.imageOrder && Array.isArray(body.imageOrder)) {
-      await reorderStyleImages(id, session.user.id, body.imageOrder);
-      const refreshed = await getStyle(id, session.user.id);
+      await reorderStyleImages(id, studioRequest.scope, body.imageOrder);
+      const refreshed = await getStyle(id, studioRequest.scope);
       return NextResponse.json({ success: true, style: refreshed });
     }
-    const refreshed = await getStyle(id, session.user.id);
+    const refreshed = await getStyle(id, studioRequest.scope);
     return NextResponse.json({ success: true, style: refreshed });
   } catch (err) {
     if (err instanceof StudioServiceError) {
@@ -71,10 +76,12 @@ export async function DELETE(
     errorMessage: 'Forbidden: Studio asset delete permission required',
   });
   if (!studioPermission.ok) return studioPermission.response;
+  const studioRequest = await requireStudioRequestScope(_request, studioPermission.session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
   try {
-    const result = await deleteStyle(id, studioPermission.session.user.id);
+    const result = await deleteStyle(id, studioRequest.scope);
     return NextResponse.json({ success: result.success, warnings: result.warnings });
   } catch (err) {
     if (err instanceof StudioServiceError) {

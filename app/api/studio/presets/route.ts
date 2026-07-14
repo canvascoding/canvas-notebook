@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { createPreset, listPresets } from '@/app/lib/integrations/studio-preset-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 interface PresetRequestBody {
   name?: string;
@@ -24,10 +25,12 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   try {
     const category = request.nextUrl.searchParams.get('category') ?? undefined;
-    const presets = await listPresets(session.user.id, category);
+    const presets = await listPresets(studioRequest.scope, category);
     return NextResponse.json({ success: true, presets });
   } catch (error) {
     if (error instanceof StudioServiceError) {
@@ -43,6 +46,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   let body: PresetRequestBody;
   try {
@@ -64,7 +69,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const preset = await createPreset(session.user.id, {
+    const preset = await createPreset(studioRequest.scope, {
       name: body.name,
       description: body.description,
       category: body.category,

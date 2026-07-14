@@ -9,28 +9,27 @@ import {
   deleteAssetDir,
   generateProductImagePath,
   ensureStudioAssetsWorkspace,
+  getStudioAssetEntityPath,
 } from '@/app/lib/integrations/studio-workspace';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
-import { resolveStudioScope, studioInsertScope, studioVisibilityCondition } from '@/app/lib/integrations/studio-scope';
+import { studioInsertScope, studioVisibilityCondition, type StudioScope } from '@/app/lib/integrations/studio-scope';
 
 const MAX_IMAGES_PER_PRODUCT = 10;
 
-async function getOwnedProduct(productId: string, userId: string) {
+async function getScopedProduct(productId: string, scope: StudioScope) {
   const [product] = await db.select()
     .from(studioProducts)
-    .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
+    .where(and(eq(studioProducts.id, productId), eq(studioProducts.workspaceId, scope.workspaceId)));
   return product ?? null;
 }
 
-async function getVisibleProduct(productId: string, userId: string) {
-  const scope = await resolveStudioScope(userId);
+async function getVisibleProduct(productId: string, scope: StudioScope) {
   const [product] = await db.select()
     .from(studioProducts)
     .where(and(
       eq(studioProducts.id, productId),
       studioVisibilityCondition(scope, {
-        userId: studioProducts.userId,
-        organizationId: studioProducts.organizationId,
+        workspaceId: studioProducts.workspaceId,
         createdByUserId: studioProducts.createdByUserId,
       }),
     ));
@@ -38,19 +37,17 @@ async function getVisibleProduct(productId: string, userId: string) {
 }
 
 export async function createProduct(
-  userId: string,
+  scope: StudioScope,
   data: { name: string; description?: string }
 ) {
-  await ensureStudioAssetsWorkspace();
+  await ensureStudioAssetsWorkspace(scope.storage);
   const id = randomUUID();
   const now = new Date();
-  const scope = await studioInsertScope(userId);
+  const insertScope = studioInsertScope(scope);
   const [inserted] = await db.insert(studioProducts).values({
     id,
-    userId,
-    organizationId: scope.organizationId,
-    createdByUserId: scope.createdByUserId,
-    visibility: scope.visibility,
+    userId: scope.actorUserId,
+    ...insertScope,
     name: data.name,
     description: data.description ?? null,
     thumbnailPath: null,
@@ -61,8 +58,8 @@ export async function createProduct(
   return inserted;
 }
 
-export async function getProduct(productId: string, userId: string) {
-  const product = await getVisibleProduct(productId, userId);
+export async function getProduct(productId: string, scope: StudioScope) {
+  const product = await getVisibleProduct(productId, scope);
   if (!product) return null;
   const images = await db.select().from(studioProductImages)
     .where(eq(studioProductImages.productId, productId))
@@ -70,11 +67,9 @@ export async function getProduct(productId: string, userId: string) {
   return { ...product, images, imageCount: images.length };
 }
 
-export async function listProducts(userId: string, search?: string) {
-  const scope = await resolveStudioScope(userId);
+export async function listProducts(scope: StudioScope, search?: string) {
   const conditions = [studioVisibilityCondition(scope, {
-    userId: studioProducts.userId,
-    organizationId: studioProducts.organizationId,
+    workspaceId: studioProducts.workspaceId,
     createdByUserId: studioProducts.createdByUserId,
   })];
   if (search) {
@@ -108,10 +103,10 @@ export async function listProducts(userId: string, search?: string) {
 
 export async function updateProduct(
   productId: string,
-  userId: string,
+  scope: StudioScope,
   data: { name?: string; description?: string }
 ) {
-  const existing = await getOwnedProduct(productId, userId);
+  const existing = await getScopedProduct(productId, scope);
   if (!existing) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -120,16 +115,16 @@ export async function updateProduct(
     ...(data.name !== undefined && { name: data.name }),
     ...(data.description !== undefined && { description: data.description }),
     updatedAt: now,
-  }).where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId))).returning();
+  }).where(and(eq(studioProducts.id, productId), eq(studioProducts.workspaceId, scope.workspaceId))).returning();
   return updated;
 }
 
 export async function addProductImage(
   productId: string,
-  userId: string,
+  scope: StudioScope,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import' | 'workspace_import'; sourceUrl?: string }
 ) {
-  const product = await getOwnedProduct(productId, userId);
+  const product = await getScopedProduct(productId, scope);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -146,7 +141,7 @@ export async function addProductImage(
   }
   const sortOrder = currentCount;
   const ext = file.fileName.split('.').pop() || 'jpg';
-  const filePath = generateProductImagePath(productId, sortOrder, ext);
+  const filePath = generateProductImagePath(productId, sortOrder, ext, scope.storage);
   await writeAssetFile(filePath, file.buffer);
   const imageId = randomUUID();
   const now = new Date();
@@ -166,13 +161,13 @@ export async function addProductImage(
   }).returning();
   if (sortOrder === 0) {
     await db.update(studioProducts).set({ thumbnailPath: filePath, updatedAt: now })
-      .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
+      .where(and(eq(studioProducts.id, productId), eq(studioProducts.workspaceId, scope.workspaceId)));
   }
   return insertedImage;
 }
 
-export async function deleteProductImage(productId: string, userId: string, imageId: string) {
-  const product = await getVisibleProduct(productId, userId);
+export async function deleteProductImage(productId: string, scope: StudioScope, imageId: string) {
+  const product = await getVisibleProduct(productId, scope);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -202,11 +197,11 @@ export async function deleteProductImage(productId: string, userId: string, imag
 
 export async function replaceProductImage(
   productId: string,
-  userId: string,
+  scope: StudioScope,
   imageId: string,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number }
 ) {
-  const product = await getOwnedProduct(productId, userId);
+  const product = await getScopedProduct(productId, scope);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -216,7 +211,7 @@ export async function replaceProductImage(
     throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
   }
   const ext = file.fileName.split('.').pop() || 'jpg';
-  const newFilePath = generateProductImagePath(productId, image.sortOrder, ext);
+  const newFilePath = generateProductImagePath(productId, image.sortOrder, ext, scope.storage);
   await writeAssetFile(newFilePath, file.buffer);
   const now = new Date();
   const [updated] = await db.update(studioProductImages).set({
@@ -234,13 +229,13 @@ export async function replaceProductImage(
   }
   if (image.sortOrder === 0) {
     await db.update(studioProducts).set({ thumbnailPath: newFilePath, updatedAt: now })
-      .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
+      .where(and(eq(studioProducts.id, productId), eq(studioProducts.workspaceId, scope.workspaceId)));
   }
   return updated;
 }
 
-export async function getProductImageBuffer(productId: string, userId: string, imageId: string) {
-  const product = await getVisibleProduct(productId, userId);
+export async function getProductImageBuffer(productId: string, scope: StudioScope, imageId: string) {
+  const product = await getVisibleProduct(productId, scope);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -262,8 +257,8 @@ export async function getProductImageBuffer(productId: string, userId: string, i
   }
 }
 
-export async function reorderProductImages(productId: string, userId: string, imageOrder: string[]) {
-  const product = await getOwnedProduct(productId, userId);
+export async function reorderProductImages(productId: string, scope: StudioScope, imageOrder: string[]) {
+  const product = await getScopedProduct(productId, scope);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -283,13 +278,13 @@ export async function reorderProductImages(productId: string, userId: string, im
     if (firstImage) {
       const now = new Date();
       await db.update(studioProducts).set({ thumbnailPath: firstImage.filePath, updatedAt: now })
-        .where(and(eq(studioProducts.id, productId), eq(studioProducts.userId, userId)));
+        .where(and(eq(studioProducts.id, productId), eq(studioProducts.workspaceId, scope.workspaceId)));
     }
   }
 }
 
-export async function deleteProduct(productId: string, userId: string) {
-  const product = await getOwnedProduct(productId, userId);
+export async function deleteProduct(productId: string, scope: StudioScope) {
+  const product = await getScopedProduct(productId, scope);
   if (!product) {
     throw new StudioServiceError('Product not found', 'Produkt nicht gefunden', 'NOT_FOUND');
   }
@@ -308,7 +303,7 @@ export async function deleteProduct(productId: string, userId: string) {
     });
   }
   try {
-    await deleteAssetDir(`products/${productId}/`);
+    await deleteAssetDir(getStudioAssetEntityPath(scope.storage, 'products', productId));
   } catch (err) {
     console.warn(`Failed to delete product directory products/${productId}/:`, err);
   }

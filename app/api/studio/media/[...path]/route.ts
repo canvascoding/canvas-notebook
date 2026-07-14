@@ -3,13 +3,9 @@ import { auth } from '@/app/lib/auth';
 import { Readable } from 'stream';
 import nodeFs from 'node:fs';
 import fs from 'node:fs/promises';
-import { 
-  resolveValidatedStudioEditPath,
-  resolveValidatedStudioAssetPath, 
-  resolveValidatedStudioOutputPath,
-  resolveValidatedUserUploadStudioRefPath
-} from '@/app/lib/integrations/studio-paths';
-import { canReadStudioOutputPath } from '@/app/lib/integrations/studio-generation-service';
+import { resolveValidatedStudioPath } from '@/app/lib/integrations/studio-paths';
+import { canReadStudioMediaPath } from '@/app/lib/integrations/studio-media-access';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 const MEDIA_TYPES: Record<string, string> = {
   pdf: 'application/pdf',
@@ -59,19 +55,9 @@ function createSecurityHeaders(filePath: string): Headers {
 }
 
 function resolveStudioPath(encodedFilePath: string): string | null {
-  if (encodedFilePath.startsWith('studio/outputs/')) {
-    return resolveValidatedStudioOutputPath(encodedFilePath.slice('studio/outputs/'.length));
-  }
-  if (encodedFilePath.startsWith('studio/edits/')) {
-    return resolveValidatedStudioEditPath(encodedFilePath.slice('studio/edits/'.length));
-  }
-  if (encodedFilePath.startsWith('studio/assets/')) {
-    return resolveValidatedStudioAssetPath(encodedFilePath.slice('studio/assets/'.length));
-  }
-  if (encodedFilePath.startsWith('user-uploads/studio-references/')) {
-    return resolveValidatedUserUploadStudioRefPath(encodedFilePath.slice('user-uploads/studio-references/'.length));
-  }
-  return null;
+  return encodedFilePath.startsWith('studio/')
+    ? resolveValidatedStudioPath(encodedFilePath)
+    : null;
 }
 
 export async function GET(
@@ -82,10 +68,12 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { path: pathParts } = await context.params;
   const encodedPath = pathParts.map((p) => decodeURIComponent(p)).join('/');
-  if (encodedPath.startsWith('studio/outputs/') && !(await canReadStudioOutputPath(encodedPath, session.user.id))) {
+  if (!(await canReadStudioMediaPath(encodedPath, studioRequest.scope))) {
     return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
   }
   const fullPath = resolveStudioPath(encodedPath);

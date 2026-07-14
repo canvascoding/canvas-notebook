@@ -7,14 +7,19 @@ import fs from 'node:fs/promises';
 import { auth } from '@/app/lib/auth';
 import type { FileNode } from '@/app/lib/filesystem/workspace-files';
 import { buildGenericFileTree } from '@/app/lib/filesystem/workspace-files';
-import { getStudioEditsRoot } from '@/app/lib/integrations/studio-workspace';
-import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
+import {
+  getStudioAssetEntityPath,
+  getStudioAssetsRoot,
+  getStudioEditsRoot,
+  getStudioWorkspaceVirtualRoot,
+} from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { db } from '@/app/lib/db';
 import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema';
 import { and, desc, eq } from 'drizzle-orm';
-import { resolveStudioScope, studioVisibilityCondition } from '@/app/lib/integrations/studio-scope';
+import { studioVisibilityCondition } from '@/app/lib/integrations/studio-scope';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'webp', 'bmp', 'tif', 'tiff', 'gif']);
 const VIDEO_EXTENSIONS = new Set(['mp4', 'mov']);
@@ -51,12 +56,12 @@ function matchesKind(extension: string, requestedKind: AssetKind): boolean {
   return getKind(extension) === requestedKind;
 }
 
-function getAssetPreviewUrl(filePath: string, kind: AssetKind): string {
+function getAssetPreviewUrl(filePath: string, kind: AssetKind, workspaceId: string): string {
   if (kind === 'image') {
-    return toPreviewUrl(filePath, IMAGE_GRID_PREVIEW_WIDTH, { preset: 'mini' });
+    return toPreviewUrl(filePath, IMAGE_GRID_PREVIEW_WIDTH, { preset: 'mini', workspaceId });
   }
 
-  return toPreviewUrl(filePath, DEFAULT_MEDIA_PREVIEW_WIDTH);
+  return toPreviewUrl(filePath, DEFAULT_MEDIA_PREVIEW_WIDTH, { workspaceId });
 }
 
 interface AssetItem {
@@ -105,6 +110,9 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
+  const scope = studioRequest.scope;
 
   try {
     const limited = rateLimit(request, {
@@ -125,10 +133,8 @@ export async function GET(request: NextRequest) {
     const limit = Number.isFinite(limitRaw) ? Math.max(1, Math.min(limitRaw, 500)) : 300;
     const depthRaw = Number(searchParams.get('depth') || '8');
     const depth = Number.isFinite(depthRaw) ? Math.max(1, Math.min(depthRaw, 12)) : 8;
-    const studioScope = await resolveStudioScope(session.user.id);
-    const studioVisibility = studioVisibilityCondition(studioScope, {
-      userId: studioGenerations.userId,
-      organizationId: studioGenerations.organizationId,
+    const studioVisibility = studioVisibilityCondition(scope, {
+      workspaceId: studioGenerations.workspaceId,
       createdByUserId: studioGenerations.createdByUserId,
     });
 
@@ -165,8 +171,8 @@ export async function GET(request: NextRequest) {
           kind: 'video',
           size: row.fileSize ?? undefined,
           modified: row.createdAt?.getTime(),
-          mediaUrl: toMediaUrl(row.filePath),
-          previewUrl: getAssetPreviewUrl(row.filePath, 'video'),
+          mediaUrl: toMediaUrl(row.filePath, { workspaceId: scope.workspaceId }),
+          previewUrl: getAssetPreviewUrl(row.filePath, 'video', scope.workspaceId),
         }));
 
       return NextResponse.json({
@@ -193,9 +199,11 @@ export async function GET(request: NextRequest) {
       .orderBy(desc(studioGenerationOutputs.createdAt))
       .limit(limit);
     // Scan aspect-ratio edits (data/studio/edits)
-    const editsTree = await safeBuildGenericFileTree(getStudioEditsRoot(), depth);
-    // Scan user-uploaded studio references (data/user-uploads/studio-references)
-    const uploadsTree = await safeBuildGenericFileTree(getUserUploadsStudioRefRoot(), depth);
+    const editsTree = await safeBuildGenericFileTree(getStudioEditsRoot(scope.storage), depth);
+    const referencesTree = await safeBuildGenericFileTree(
+      getStudioAssetsRoot(scope.storage) + '/references',
+      depth,
+    );
 
     const allFiles = [
       ...outputRows.map((row): FileNode => ({
@@ -207,11 +215,15 @@ export async function GET(request: NextRequest) {
       })),
       ...walkFiles(editsTree).map((n) => ({
         ...n,
-        path: n.path.startsWith('studio/') ? n.path : `studio/edits/${n.path}`,
+        path: n.path.startsWith('studio/')
+          ? n.path
+          : `${getStudioWorkspaceVirtualRoot(scope.storage)}/edits/${n.path}`,
       })),
-      ...walkFiles(uploadsTree).map((n) => ({
+      ...walkFiles(referencesTree).map((n) => ({
         ...n,
-        path: n.path.startsWith('user-uploads/') ? n.path : `user-uploads/studio-references/${n.path}`,
+        path: n.path.startsWith('studio/')
+          ? n.path
+          : `${getStudioAssetEntityPath(scope.storage, 'references')}/${n.path}`,
       })),
     ];
 
@@ -233,8 +245,8 @@ export async function GET(request: NextRequest) {
         kind,
         size: file.size,
         modified: file.modified,
-        mediaUrl: toMediaUrl(file.path),
-        previewUrl: getAssetPreviewUrl(file.path, kind),
+        mediaUrl: toMediaUrl(file.path, { workspaceId: scope.workspaceId }),
+        previewUrl: getAssetPreviewUrl(file.path, kind, scope.workspaceId),
       });
     }
 

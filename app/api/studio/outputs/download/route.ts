@@ -5,6 +5,7 @@ import { auth } from '@/app/lib/auth';
 import { getStudioOutputForUser } from '@/app/lib/integrations/studio-generation-service';
 import { readOutputFile } from '@/app/lib/integrations/studio-workspace';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 function addZipEntry(
   archive: InstanceType<typeof ZipStream>,
@@ -24,6 +25,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'studio-download' });
   if (!limited.ok) return limited.response;
@@ -38,7 +41,7 @@ export async function POST(request: NextRequest) {
 
     const outputs = [];
     for (const id of outputIds) {
-      const output = await getStudioOutputForUser(id, session.user.id);
+      const output = await getStudioOutputForUser(id, studioRequest.scope);
       if (!output) {
         return NextResponse.json({ success: false, error: `Output not found: ${id}` }, { status: 404 });
       }

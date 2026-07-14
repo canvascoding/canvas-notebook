@@ -7,6 +7,7 @@ import { getFileStats, writeFile } from '@/app/lib/filesystem/workspace-files';
 import { getStudioOutputForUser } from '@/app/lib/integrations/studio-generation-service';
 import { requireSessionWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 function stripTrailingSlashes(value: string): string {
   let end = value.length;
@@ -62,6 +63,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   try {
     const body = await request.json();
@@ -92,7 +95,7 @@ export async function POST(request: NextRequest) {
 
     for (const id of uniqueOutputIds) {
       // Verify the output is visible to the actor before reading the studio output file.
-      const output = await getStudioOutputForUser(id, session.user.id);
+      const output = await getStudioOutputForUser(id, studioRequest.scope);
 
       if (!output) {
         return NextResponse.json({ success: false, error: `Output not found: ${id}` }, { status: 404 });

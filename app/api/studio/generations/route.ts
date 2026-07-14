@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { listStudioGenerations } from '@/app/lib/integrations/studio-generation-service';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 const DEFAULT_LIMIT = 48;
 const MAX_LIMIT = 100;
@@ -18,12 +19,14 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   try {
     const limit = Math.min(parsePositiveInt(request.nextUrl.searchParams.get('limit'), DEFAULT_LIMIT), MAX_LIMIT);
     const offset = parsePositiveInt(request.nextUrl.searchParams.get('offset'), 0);
     const creatorUserId = request.nextUrl.searchParams.get('creatorUserId');
-    const result = await listStudioGenerations(session.user.id, { limit, offset, creatorUserId });
+    const result = await listStudioGenerations(studioRequest.scope, { limit, offset, creatorUserId });
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     console.error('[Studio Generations] Error:', error);

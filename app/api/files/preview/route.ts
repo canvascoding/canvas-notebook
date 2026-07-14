@@ -6,8 +6,12 @@ import {
   resolveValidatedStudioEditPath,
   resolveValidatedStudioAssetPath, 
   resolveValidatedStudioOutputPath,
+  resolveValidatedStudioPath,
   resolveValidatedUserUploadStudioRefPath 
 } from '@/app/lib/integrations/studio-paths';
+import { canReadStudioMediaPath } from '@/app/lib/integrations/studio-media-access';
+import { createStudioScope } from '@/app/lib/integrations/studio-scope';
+import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import {
   getPreviewContentType,
@@ -19,14 +23,7 @@ import {
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 
 function buildMediaUrl(filePath: string, workspaceId?: string | null) {
-  const encodedPath = filePath
-    .split('/')
-    .map((segment) => encodeURIComponent(segment))
-    .join('/');
-  const workspaceQuery = workspaceId?.trim()
-    ? `?workspaceId=${encodeURIComponent(workspaceId.trim())}`
-    : '';
-  return `/api/media/${encodedPath}${workspaceQuery}`;
+  return toMediaUrl(filePath, { workspaceId });
 }
 
 function buildSameOriginRedirect(request: NextRequest, relativePath: string): URL {
@@ -79,19 +76,41 @@ export async function GET(request: NextRequest) {
 
     // Resolve the full filesystem path based on the virtual path prefix
     let fullPath: string;
-    if (filePath.startsWith('studio/outputs/')) {
+    if (filePath.startsWith('studio/organizations/') || filePath.startsWith('studio/system/')) {
+      const scope = createStudioScope(workspaceResult.session.user.id, workspaceResult.workspace);
+      if (!(await canReadStudioMediaPath(filePath, scope))) {
+        return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
+      }
+      const resolved = resolveValidatedStudioPath(filePath);
+      if (!resolved) {
+        return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
+      }
+      fullPath = resolved;
+    } else if (filePath.startsWith('studio/outputs/')) {
+      const scope = createStudioScope(workspaceResult.session.user.id, workspaceResult.workspace);
+      if (!(await canReadStudioMediaPath(filePath, scope))) {
+        return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
+      }
       const resolved = resolveValidatedStudioOutputPath(filePath.slice('studio/outputs/'.length));
       if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }
       fullPath = resolved;
     } else if (filePath.startsWith('studio/edits/')) {
+      const scope = createStudioScope(workspaceResult.session.user.id, workspaceResult.workspace);
+      if (!(await canReadStudioMediaPath(filePath, scope))) {
+        return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
+      }
       const resolved = resolveValidatedStudioEditPath(filePath.slice('studio/edits/'.length));
       if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }
       fullPath = resolved;
     } else if (filePath.startsWith('studio/assets/')) {
+      const scope = createStudioScope(workspaceResult.session.user.id, workspaceResult.workspace);
+      if (!(await canReadStudioMediaPath(filePath, scope))) {
+        return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
+      }
       const resolved = resolveValidatedStudioAssetPath(filePath.slice('studio/assets/'.length));
       if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
@@ -110,12 +129,20 @@ export async function GET(request: NextRequest) {
       filePath.startsWith('presets/') ||
       filePath.startsWith('references/')
     ) {
+      const scope = createStudioScope(workspaceResult.session.user.id, workspaceResult.workspace);
+      if (!(await canReadStudioMediaPath(`studio/assets/${filePath}`, scope))) {
+        return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
+      }
       const resolved = resolveValidatedStudioAssetPath(filePath);
       if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }
       fullPath = resolved;
     } else if (filePath.startsWith('studio-gen-')) {
+      const scope = createStudioScope(workspaceResult.session.user.id, workspaceResult.workspace);
+      if (!(await canReadStudioMediaPath(`studio/outputs/${filePath}`, scope))) {
+        return NextResponse.json({ success: false, error: 'File not found or unreadable' }, { status: 404 });
+      }
       const resolved = resolveValidatedStudioOutputPath(filePath);
       if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });

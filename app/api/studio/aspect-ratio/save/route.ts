@@ -4,12 +4,15 @@ import { auth } from '@/app/lib/auth';
 import { saveAspectRatioEdit, type AspectRatioSaveRequest } from '@/app/lib/integrations/studio-aspect-ratio-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireSessionWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   const limited = rateLimit(request, {
     limit: 30,
@@ -36,7 +39,7 @@ export async function POST(request: NextRequest) {
 
     const result = await saveAspectRatioEdit(
       body,
-      session.user.id,
+      studioRequest.scope,
       workspaceOptions?.workspace ? workspaceFileOptions(workspaceOptions.workspace) : undefined
     );
     return NextResponse.json({ success: true, ...result });

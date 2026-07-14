@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { generatePresetPreview } from '@/app/lib/integrations/studio-preset-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 interface PresetPreviewRequestBody {
   provider?: string;
@@ -17,6 +18,8 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
 
@@ -30,7 +33,7 @@ export async function POST(
   }
 
   try {
-    const preset = await generatePresetPreview(session.user.id, id, body);
+    const preset = await generatePresetPreview(studioRequest.scope, id, body);
     return NextResponse.json({
       success: true,
       preset,

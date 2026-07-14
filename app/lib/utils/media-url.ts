@@ -49,15 +49,15 @@ export function toMediaUrl(filePath: string, options: MediaUrlOptions = {}) {
   const encodedPath = encodePathSegments(filePath);
   
   if (filePath.startsWith('studio/')) {
-    return `/api/studio/media/${encodedPath}`;
+    return withWorkspaceId(`/api/studio/media/${encodedPath}`, options);
   }
 
   if (filePath.startsWith('studio-gen-')) {
-    return `/api/studio/media/studio/outputs/${encodedPath}`;
+    return withWorkspaceId(`/api/studio/media/studio/outputs/${encodedPath}`, options);
   }
 
   if (filePath.startsWith('user-uploads/studio-references/')) {
-    return `/api/studio/media/${encodedPath}`;
+    return withWorkspaceId(`/api/studio/media/${encodedPath}`, options);
   }
 
   if (
@@ -67,7 +67,7 @@ export function toMediaUrl(filePath: string, options: MediaUrlOptions = {}) {
     filePath.startsWith('styles/') ||
     filePath.startsWith('references/')
   ) {
-    return `/api/studio/media/studio/assets/${encodedPath}`;
+    return withWorkspaceId(`/api/studio/media/studio/assets/${encodedPath}`, options);
   }
   
   // Use API route for media serving (works with Next.js standalone)
@@ -78,15 +78,15 @@ export function toHtmlPreviewUrl(filePath: string, options: MediaUrlOptions = {}
   const encodedPath = encodePathSegments(filePath);
 
   if (filePath.startsWith('studio/')) {
-    return `/api/studio/media/preview/${encodedPath}`;
+    return withWorkspaceId(`/api/studio/media/preview/${encodedPath}`, options);
   }
 
   if (filePath.startsWith('studio-gen-')) {
-    return `/api/studio/media/preview/studio/outputs/${encodedPath}`;
+    return withWorkspaceId(`/api/studio/media/preview/studio/outputs/${encodedPath}`, options);
   }
 
   if (filePath.startsWith('user-uploads/studio-references/')) {
-    return `/api/studio/media/preview/${encodedPath}`;
+    return withWorkspaceId(`/api/studio/media/preview/${encodedPath}`, options);
   }
 
   if (
@@ -96,7 +96,7 @@ export function toHtmlPreviewUrl(filePath: string, options: MediaUrlOptions = {}
     filePath.startsWith('styles/') ||
     filePath.startsWith('references/')
   ) {
-    return `/api/studio/media/preview/studio/assets/${encodedPath}`;
+    return withWorkspaceId(`/api/studio/media/preview/studio/assets/${encodedPath}`, options);
   }
 
   return `${workspacePreviewRoutePrefix(options)}/${encodedPath}`;

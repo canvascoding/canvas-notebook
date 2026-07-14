@@ -7,9 +7,9 @@ export const STUDIO_WORKSPACE_TABLES = [
   'studio_bulk_jobs',
 ] as const;
 
-function workspaceAssignmentSql(table: string, options: { presets?: boolean } = {}): string {
-  const contentPredicate = options.presets ? 'COALESCE(is_default, 0) = 0' : '1 = 1';
-  const organizationPredicate = options.presets
+function workspaceAssignmentSql(table: string, options: { hasVisibility?: boolean; presets?: boolean } = {}): string {
+  const contentPredicate = options.presets ? 'COALESCE(is_default, FALSE) = FALSE' : '1 = 1';
+  const organizationPredicate = options.hasVisibility
     ? "organization_id IS NOT NULL AND COALESCE(visibility, 'user') = 'organization'"
     : 'organization_id IS NOT NULL';
 
@@ -67,7 +67,7 @@ function workspaceAssignmentSql(table: string, options: { presets?: boolean } = 
 }
 
 function synchronizeWorkspaceFieldsSql(table: string, options: { presets?: boolean } = {}): string {
-  const contentPredicate = options.presets ? 'COALESCE(is_default, 0) = 0' : '1 = 1';
+  const contentPredicate = options.presets ? 'COALESCE(is_default, FALSE) = FALSE' : '1 = 1';
   return `
     UPDATE ${table}
     SET
@@ -80,10 +80,10 @@ function synchronizeWorkspaceFieldsSql(table: string, options: { presets?: boole
 }
 
 export const STUDIO_WORKSPACE_BACKFILL_STATEMENTS = [
-  workspaceAssignmentSql('studio_products'),
-  workspaceAssignmentSql('studio_personas'),
-  workspaceAssignmentSql('studio_styles'),
-  workspaceAssignmentSql('studio_presets', { presets: true }),
+  workspaceAssignmentSql('studio_products', { hasVisibility: true }),
+  workspaceAssignmentSql('studio_personas', { hasVisibility: true }),
+  workspaceAssignmentSql('studio_styles', { hasVisibility: true }),
+  workspaceAssignmentSql('studio_presets', { hasVisibility: true, presets: true }),
   workspaceAssignmentSql('studio_generations'),
   workspaceAssignmentSql('studio_bulk_jobs'),
   ...STUDIO_WORKSPACE_TABLES.map((table) => synchronizeWorkspaceFieldsSql(table, {
@@ -99,7 +99,7 @@ export const STUDIO_WORKSPACE_BACKFILL_STATEMENTS = [
     UPDATE studio_styles SET visibility = 'workspace' WHERE workspace_id IS NOT NULL
   `,
   `
-    UPDATE studio_presets SET visibility = 'workspace' WHERE workspace_id IS NOT NULL AND COALESCE(is_default, 0) = 0
+    UPDATE studio_presets SET visibility = 'workspace' WHERE workspace_id IS NOT NULL AND COALESCE(is_default, FALSE) = FALSE
   `,
   `
     UPDATE studio_generation_outputs

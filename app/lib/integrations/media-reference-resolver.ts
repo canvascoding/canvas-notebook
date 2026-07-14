@@ -16,6 +16,7 @@ import {
   resolveValidatedStudioAssetPath,
   resolveValidatedStudioEditPath,
   resolveValidatedStudioOutputPath,
+  resolveValidatedStudioPath,
   resolveValidatedUserUploadStudioRefPath,
   resolveValidatedWorkspaceFilePath,
   resolveValidatedWorkspaceRelativePath,
@@ -210,6 +211,12 @@ function makeResolvedReference(
 }
 
 function classifyStudioMediaPath(input: string, studioMediaPath: string): ResolvedMediaReference | null {
+  if (studioMediaPath.startsWith('studio/organizations/') || studioMediaPath.startsWith('studio/system/')) {
+    const kind = studioMediaPath.includes('/outputs/') || studioMediaPath.includes('/edits/')
+      ? 'studio_output'
+      : 'studio_asset';
+    return makeResolvedReference(kind, input, studioMediaPath, resolveValidatedStudioPath(studioMediaPath));
+  }
   if (studioMediaPath.startsWith('studio/outputs/')) {
     const relativePath = studioMediaPath.slice('studio/outputs/'.length);
     return makeResolvedReference('studio_output', input, relativePath, resolveValidatedStudioOutputPath(relativePath));

@@ -1,14 +1,16 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
-import fs from 'node:fs/promises';
-import { randomUUID } from 'node:crypto';
 import { auth } from '@/app/lib/auth';
 import { parseMultipartFormData } from '@/app/lib/api/form-data';
-import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
+import {
+  generateStudioReferencePath,
+  writeAssetFile,
+} from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
 import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 const MAX_IMAGE_FILE_SIZE = 30 * 1024 * 1024;
 const MAX_VIDEO_FILE_SIZE = 50 * 1024 * 1024;
@@ -36,6 +38,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   try {
     const limited = rateLimit(request, {
@@ -71,9 +75,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ success: false, error: parsedConvertParams.error }, { status: 400 });
     }
     const convertParamsList = parsedConvertParams.params;
-
-    const uploadRoot = getUserUploadsStudioRefRoot();
-    await fs.mkdir(uploadRoot, { recursive: true });
 
     const results: Array<{
       path: string;
@@ -129,25 +130,22 @@ export async function POST(request: NextRequest) {
         continue;
       }
 
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
       const filename = sanitizeFilename(normalized.filename);
-      const uniqueName = `${timestamp}-${randomUUID()}-${filename}`;
-      const fullPath = path.join(uploadRoot, uniqueName);
+      const { relativePath } = generateStudioReferencePath(studioRequest.scope.storage, filename);
 
       try {
-        await fs.writeFile(fullPath, normalized.buffer);
+        await writeAssetFile(relativePath, normalized.buffer);
       } catch (err) {
         console.error(`[API] Studio reference upload write failed for ${file.name}:`, err);
         errors.push(`${file.name}: Upload could not be saved`);
         continue;
       }
 
-      const relativePath = `user-uploads/studio-references/${uniqueName}`;
       results.push({
         path: relativePath,
         name: filename,
-        mediaUrl: toMediaUrl(relativePath),
-        previewUrl: toPreviewUrl(relativePath, 480),
+        mediaUrl: toMediaUrl(relativePath, { workspaceId: studioRequest.scope.workspaceId }),
+        previewUrl: toPreviewUrl(relativePath, 480, { workspaceId: studioRequest.scope.workspaceId }),
         size: normalized.size,
       });
     }

@@ -9,28 +9,27 @@ import {
   deleteAssetDir,
   generateStyleImagePath,
   ensureStudioAssetsWorkspace,
+  getStudioAssetEntityPath,
 } from '@/app/lib/integrations/studio-workspace';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
-import { resolveStudioScope, studioInsertScope, studioVisibilityCondition } from '@/app/lib/integrations/studio-scope';
+import { studioInsertScope, studioVisibilityCondition, type StudioScope } from '@/app/lib/integrations/studio-scope';
 
 const MAX_IMAGES_PER_STYLE = 10;
 
-async function getOwnedStyle(styleId: string, userId: string) {
+async function getScopedStyle(styleId: string, scope: StudioScope) {
   const [style] = await db.select()
     .from(studioStyles)
-    .where(and(eq(studioStyles.id, styleId), eq(studioStyles.userId, userId)));
+    .where(and(eq(studioStyles.id, styleId), eq(studioStyles.workspaceId, scope.workspaceId)));
   return style ?? null;
 }
 
-async function getVisibleStyle(styleId: string, userId: string) {
-  const scope = await resolveStudioScope(userId);
+async function getVisibleStyle(styleId: string, scope: StudioScope) {
   const [style] = await db.select()
     .from(studioStyles)
     .where(and(
       eq(studioStyles.id, styleId),
       studioVisibilityCondition(scope, {
-        userId: studioStyles.userId,
-        organizationId: studioStyles.organizationId,
+        workspaceId: studioStyles.workspaceId,
         createdByUserId: studioStyles.createdByUserId,
       }),
     ));
@@ -38,19 +37,17 @@ async function getVisibleStyle(styleId: string, userId: string) {
 }
 
 export async function createStyle(
-  userId: string,
+  scope: StudioScope,
   data: { name: string; description?: string }
 ) {
-  await ensureStudioAssetsWorkspace();
+  await ensureStudioAssetsWorkspace(scope.storage);
   const id = randomUUID();
   const now = new Date();
-  const scope = await studioInsertScope(userId);
+  const insertScope = studioInsertScope(scope);
   const [inserted] = await db.insert(studioStyles).values({
     id,
-    userId,
-    organizationId: scope.organizationId,
-    createdByUserId: scope.createdByUserId,
-    visibility: scope.visibility,
+    userId: scope.actorUserId,
+    ...insertScope,
     name: data.name,
     description: data.description ?? null,
     thumbnailPath: null,
@@ -61,8 +58,8 @@ export async function createStyle(
   return inserted;
 }
 
-export async function getStyle(styleId: string, userId: string) {
-  const style = await getVisibleStyle(styleId, userId);
+export async function getStyle(styleId: string, scope: StudioScope) {
+  const style = await getVisibleStyle(styleId, scope);
   if (!style) return null;
   const images = await db.select().from(studioStyleImages)
     .where(eq(studioStyleImages.styleId, styleId))
@@ -70,11 +67,9 @@ export async function getStyle(styleId: string, userId: string) {
   return { ...style, images, imageCount: images.length };
 }
 
-export async function listStyles(userId: string, search?: string) {
-  const scope = await resolveStudioScope(userId);
+export async function listStyles(scope: StudioScope, search?: string) {
   const conditions = [studioVisibilityCondition(scope, {
-    userId: studioStyles.userId,
-    organizationId: studioStyles.organizationId,
+    workspaceId: studioStyles.workspaceId,
     createdByUserId: studioStyles.createdByUserId,
   })];
   if (search) {
@@ -108,10 +103,10 @@ export async function listStyles(userId: string, search?: string) {
 
 export async function updateStyle(
   styleId: string,
-  userId: string,
+  scope: StudioScope,
   data: { name?: string; description?: string }
 ) {
-  const existing = await getOwnedStyle(styleId, userId);
+  const existing = await getScopedStyle(styleId, scope);
   if (!existing) {
     throw new StudioServiceError('Style not found', 'Style nicht gefunden', 'NOT_FOUND');
   }
@@ -120,16 +115,16 @@ export async function updateStyle(
     ...(data.name !== undefined && { name: data.name }),
     ...(data.description !== undefined && { description: data.description }),
     updatedAt: now,
-  }).where(and(eq(studioStyles.id, styleId), eq(studioStyles.userId, userId))).returning();
+  }).where(and(eq(studioStyles.id, styleId), eq(studioStyles.workspaceId, scope.workspaceId))).returning();
   return updated;
 }
 
 export async function addStyleImage(
   styleId: string,
-  userId: string,
+  scope: StudioScope,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import' | 'workspace_import'; sourceUrl?: string }
 ) {
-  const style = await getOwnedStyle(styleId, userId);
+  const style = await getScopedStyle(styleId, scope);
   if (!style) {
     throw new StudioServiceError('Style not found', 'Style nicht gefunden', 'NOT_FOUND');
   }
@@ -146,7 +141,7 @@ export async function addStyleImage(
   }
   const sortOrder = currentCount;
   const ext = file.fileName.split('.').pop() || 'jpg';
-  const filePath = generateStyleImagePath(styleId, sortOrder, ext);
+  const filePath = generateStyleImagePath(styleId, sortOrder, ext, scope.storage);
   await writeAssetFile(filePath, file.buffer);
   const imageId = randomUUID();
   const now = new Date();
@@ -166,13 +161,13 @@ export async function addStyleImage(
   }).returning();
   if (sortOrder === 0) {
     await db.update(studioStyles).set({ thumbnailPath: filePath, updatedAt: now })
-      .where(and(eq(studioStyles.id, styleId), eq(studioStyles.userId, userId)));
+      .where(and(eq(studioStyles.id, styleId), eq(studioStyles.workspaceId, scope.workspaceId)));
   }
   return insertedImage;
 }
 
-export async function deleteStyleImage(styleId: string, userId: string, imageId: string) {
-  const style = await getVisibleStyle(styleId, userId);
+export async function deleteStyleImage(styleId: string, scope: StudioScope, imageId: string) {
+  const style = await getVisibleStyle(styleId, scope);
   if (!style) {
     throw new StudioServiceError('Style not found', 'Style nicht gefunden', 'NOT_FOUND');
   }
@@ -202,11 +197,11 @@ export async function deleteStyleImage(styleId: string, userId: string, imageId:
 
 export async function replaceStyleImage(
   styleId: string,
-  userId: string,
+  scope: StudioScope,
   imageId: string,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number }
 ) {
-  const style = await getOwnedStyle(styleId, userId);
+  const style = await getScopedStyle(styleId, scope);
   if (!style) {
     throw new StudioServiceError('Style not found', 'Style nicht gefunden', 'NOT_FOUND');
   }
@@ -216,7 +211,7 @@ export async function replaceStyleImage(
     throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
   }
   const ext = file.fileName.split('.').pop() || 'jpg';
-  const newFilePath = generateStyleImagePath(styleId, image.sortOrder, ext);
+  const newFilePath = generateStyleImagePath(styleId, image.sortOrder, ext, scope.storage);
   await writeAssetFile(newFilePath, file.buffer);
   const now = new Date();
   const [updated] = await db.update(studioStyleImages).set({
@@ -234,13 +229,13 @@ export async function replaceStyleImage(
   }
   if (image.sortOrder === 0) {
     await db.update(studioStyles).set({ thumbnailPath: newFilePath, updatedAt: now })
-      .where(and(eq(studioStyles.id, styleId), eq(studioStyles.userId, userId)));
+      .where(and(eq(studioStyles.id, styleId), eq(studioStyles.workspaceId, scope.workspaceId)));
   }
   return updated;
 }
 
-export async function getStyleImageBuffer(styleId: string, userId: string, imageId: string) {
-  const style = await getVisibleStyle(styleId, userId);
+export async function getStyleImageBuffer(styleId: string, scope: StudioScope, imageId: string) {
+  const style = await getVisibleStyle(styleId, scope);
   if (!style) {
     throw new StudioServiceError('Style not found', 'Style nicht gefunden', 'NOT_FOUND');
   }
@@ -262,8 +257,8 @@ export async function getStyleImageBuffer(styleId: string, userId: string, image
   }
 }
 
-export async function reorderStyleImages(styleId: string, userId: string, imageOrder: string[]) {
-  const style = await getOwnedStyle(styleId, userId);
+export async function reorderStyleImages(styleId: string, scope: StudioScope, imageOrder: string[]) {
+  const style = await getScopedStyle(styleId, scope);
   if (!style) {
     throw new StudioServiceError('Style not found', 'Style nicht gefunden', 'NOT_FOUND');
   }
@@ -283,13 +278,13 @@ export async function reorderStyleImages(styleId: string, userId: string, imageO
     if (firstImage) {
       const now = new Date();
       await db.update(studioStyles).set({ thumbnailPath: firstImage.filePath, updatedAt: now })
-        .where(and(eq(studioStyles.id, styleId), eq(studioStyles.userId, userId)));
+        .where(and(eq(studioStyles.id, styleId), eq(studioStyles.workspaceId, scope.workspaceId)));
     }
   }
 }
 
-export async function deleteStyle(styleId: string, userId: string) {
-  const style = await getOwnedStyle(styleId, userId);
+export async function deleteStyle(styleId: string, scope: StudioScope) {
+  const style = await getScopedStyle(styleId, scope);
   if (!style) {
     throw new StudioServiceError('Style not found', 'Style nicht gefunden', 'NOT_FOUND');
   }
@@ -308,7 +303,7 @@ export async function deleteStyle(styleId: string, userId: string) {
     });
   }
   try {
-    await deleteAssetDir(`styles/${styleId}/`);
+    await deleteAssetDir(getStudioAssetEntityPath(scope.storage, 'styles', styleId));
   } catch (err) {
     console.warn(`Failed to delete style directory styles/${styleId}/:`, err);
   }

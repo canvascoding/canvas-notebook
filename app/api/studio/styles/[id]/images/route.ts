@@ -6,6 +6,7 @@ import { ensureStudioAssetsWorkspace } from '@/app/lib/integrations/studio-works
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
 import { readStudioImportFile } from '@/app/lib/integrations/studio-import-files';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 const MAX_URL_IMPORT_SIZE = 10 * 1024 * 1024;
 
@@ -17,8 +18,10 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
   const { id } = await params;
-  await ensureStudioAssetsWorkspace();
+  await ensureStudioAssetsWorkspace(studioRequest.scope.storage);
 
   const contentType = request.headers.get('content-type') ?? '';
   let fileData: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import' | 'workspace_import'; sourceUrl?: string };
@@ -91,7 +94,7 @@ export async function POST(
   }
 
   try {
-    const image = await addStyleImage(id, session.user.id, fileData);
+    const image = await addStyleImage(id, studioRequest.scope, fileData);
     return NextResponse.json({ success: true, image }, { status: 201 });
   } catch (err) {
     if (err instanceof StudioServiceError) {

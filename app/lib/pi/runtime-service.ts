@@ -20,8 +20,9 @@ import {
   PiSessionRuntimeAccessError,
 } from '@/app/lib/pi/session-runtime-access';
 import { applyPiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
-import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import { getStudioOutputsRoot, resolveStudioFilePath } from '@/app/lib/integrations/studio-workspace';
 import { canReadStudioOutputPath } from '@/app/lib/integrations/studio-generation-service';
+import { createPersistedStudioScope } from '@/app/lib/integrations/studio-scope';
 import { compactImageBufferForLlm } from '@/app/lib/pi/message-normalization';
 import { normalizeTimeZone } from '@/app/lib/time-zones';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
@@ -154,16 +155,8 @@ async function normalizeContext(
 }
 
 function resolveStudioOutputImage(outputFilePath: string): { imagePath: string; mimeType: string } | null {
-  const outputRoot = path.resolve(getStudioOutputsRoot());
-  const normalizedOutputPath = outputFilePath
-    .replace(/^\/+/, '')
-    .replace(/^studio\/outputs\//, '');
-  const imagePath = path.resolve(outputRoot, normalizedOutputPath);
-  const relativePath = path.relative(outputRoot, imagePath);
-
-  if (!relativePath || relativePath.startsWith('..') || path.isAbsolute(relativePath)) {
-    return null;
-  }
+  const imagePath = resolveStudioFilePath(outputFilePath, getStudioOutputsRoot());
+  if (!imagePath) return null;
 
   const mimeType = STUDIO_IMAGE_MIME_BY_EXTENSION[path.extname(imagePath).toLowerCase()];
   return mimeType ? { imagePath, mimeType } : null;
@@ -179,6 +172,15 @@ async function injectStudioImage(
   }
 
   try {
+    if (!context.workspace?.organizationId) {
+      console.warn('[RuntimeService] Skipping Studio image without persisted workspace context.');
+      return message;
+    }
+    const scope = createPersistedStudioScope({
+      actorUserId: userId,
+      organizationId: context.workspace.organizationId,
+      workspaceId: context.workspace.workspaceId,
+    });
     const resolved = resolveStudioOutputImage(context.studioContext.outputFilePath);
     if (!resolved) {
       console.warn('[RuntimeService] Skipping invalid studio image reference:', {
@@ -187,7 +189,7 @@ async function injectStudioImage(
       return message;
     }
 
-    if (!(await canReadStudioOutputPath(context.studioContext.outputFilePath, userId))) {
+    if (!(await canReadStudioOutputPath(context.studioContext.outputFilePath, scope))) {
       console.warn('[RuntimeService] Skipping unauthorized studio image reference:', {
         outputFilePath: context.studioContext.outputFilePath,
         userId,

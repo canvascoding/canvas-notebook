@@ -15,10 +15,13 @@ import {
   deleteAssetFile,
   ensureStudioAssetsWorkspace,
   generatePresetPreviewPath,
+  getStudioAssetEntityPath,
   getStudioAssetsRoot,
+  resolveStudioFilePath,
   writeAssetFile,
 } from '@/app/lib/integrations/studio-workspace';
 import { ensureDefaultStudioPresetsSeeded } from '@/app/lib/integrations/studio-preset-defaults';
+import { studioInsertScope, type StudioScope } from '@/app/lib/integrations/studio-scope';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 
 const PRESET_CATEGORIES = [
@@ -57,6 +60,7 @@ export interface StudioPresetBlockInput {
 export interface StudioPresetRecord {
   id: string;
   userId: string | null;
+  workspaceId: string | null;
   isDefault: boolean;
   name: string;
   description: string | null;
@@ -852,26 +856,26 @@ function toPresetRecord(
   return {
     id: preset.id,
     userId: preset.userId,
+    workspaceId: preset.workspaceId,
     isDefault: preset.isDefault,
     name: preset.name,
     description: preset.description,
     category: preset.category,
     blocks: parseBlocks(preset.blocks),
     previewImagePath: preset.previewImagePath,
-    previewImageUrl: preset.previewImagePath ? toMediaUrl(preset.previewImagePath) : null,
+    previewImageUrl: preset.previewImagePath
+      ? toMediaUrl(preset.previewImagePath, { workspaceId: preset.workspaceId })
+      : null,
     tags: parseTags(preset.tags),
     createdAt: preset.createdAt,
     updatedAt: preset.updatedAt,
   };
 }
 
-function stripStudioAssetsPrefix(relativePath: string): string {
-  const prefix = 'studio/assets/';
-  return relativePath.startsWith(prefix) ? relativePath.slice(prefix.length) : relativePath;
-}
-
 function resolveStudioAssetFilePath(relativePath: string): string {
-  return path.join(getStudioAssetsRoot(), stripStudioAssetsPrefix(relativePath));
+  const resolved = resolveStudioFilePath(relativePath, getStudioAssetsRoot());
+  if (!resolved) throw new Error('Invalid Studio preset asset path.');
+  return resolved;
 }
 
 async function studioAssetFileExists(relativePath: string): Promise<boolean> {
@@ -908,8 +912,8 @@ async function sanitizePresetPreviewPath(preset: StudioPresetRow): Promise<Studi
 }
 
 async function deleteOldPresetPreviewFiles(presetId: string, keepPreviewPath: string): Promise<void> {
-  const presetDir = path.join(getStudioAssetsRoot(), 'presets', presetId);
   const keepFilePath = resolveStudioAssetFilePath(keepPreviewPath);
+  const presetDir = path.dirname(keepFilePath);
 
   let entries: Dirent[];
   try {
@@ -936,10 +940,10 @@ async function deleteOldPresetPreviewFiles(presetId: string, keepPreviewPath: st
   }));
 }
 
-function ensurePresetOwnership(preset: StudioPresetRecord, userId: string): void {
-  if (preset.isDefault || preset.userId !== userId) {
+function ensurePresetOwnership(preset: StudioPresetRecord, scope: StudioScope): void {
+  if (preset.isDefault || preset.workspaceId !== scope.workspaceId) {
     throw new StudioServiceError(
-      `User ${userId} cannot modify preset ${preset.id}`,
+      `Workspace ${scope.workspaceId} cannot modify preset ${preset.id}`,
       'Dieses Preset kann nicht bearbeitet werden.',
       'FORBIDDEN',
     );
@@ -991,8 +995,8 @@ export function getStudioPresetBlockCatalog() {
   };
 }
 
-export async function createPreset(userId: string, data: CreatePresetInput): Promise<StudioPresetRecord> {
-  await ensureStudioAssetsWorkspace();
+export async function createPreset(scope: StudioScope, data: CreatePresetInput): Promise<StudioPresetRecord> {
+  await ensureStudioAssetsWorkspace(scope.storage);
   const name = data.name.trim();
   if (!name) {
     throw new StudioServiceError('Preset name is required', 'Name ist erforderlich.', 'INVALID_NAME');
@@ -1003,7 +1007,8 @@ export async function createPreset(userId: string, data: CreatePresetInput): Pro
 
   const [inserted] = await db.insert(studioPresets).values({
     id,
-    userId,
+    userId: scope.actorUserId,
+    ...studioInsertScope(scope),
     isDefault: false,
     name,
     description: normalizeOptionalText(data.description),
@@ -1018,16 +1023,22 @@ export async function createPreset(userId: string, data: CreatePresetInput): Pro
   return toPresetRecord(inserted);
 }
 
-export async function getPreset(presetId: string): Promise<StudioPresetRecord | null> {
-  const [preset] = await db.select().from(studioPresets).where(eq(studioPresets.id, presetId));
+export async function getPreset(presetId: string, scope: StudioScope): Promise<StudioPresetRecord | null> {
+  const [preset] = await db.select().from(studioPresets).where(and(
+    eq(studioPresets.id, presetId),
+    or(
+      eq(studioPresets.workspaceId, scope.workspaceId),
+      eq(studioPresets.isDefault, true),
+    ),
+  ));
   return preset ? toPresetRecord(await sanitizePresetPreviewPath(preset)) : null;
 }
 
-export async function listPresets(userId: string, category?: string): Promise<StudioPresetRecord[]> {
+export async function listPresets(scope: StudioScope, category?: string): Promise<StudioPresetRecord[]> {
   await ensureDefaultStudioPresetsSeeded();
   const categoryFilter = validateCategory(category);
   const visibilityCondition = or(
-    eq(studioPresets.userId, userId),
+    eq(studioPresets.workspaceId, scope.workspaceId),
     eq(studioPresets.isDefault, true),
   );
 
@@ -1046,12 +1057,14 @@ export async function listPresets(userId: string, category?: string): Promise<St
 
 export async function updatePreset(
   presetId: string,
+  scope: StudioScope,
   data: UpdatePresetInput,
 ): Promise<StudioPresetRecord> {
-  const [existing] = await db.select().from(studioPresets).where(eq(studioPresets.id, presetId));
+  const existing = await getPreset(presetId, scope);
   if (!existing) {
     throw new StudioServiceError('Preset not found', 'Preset nicht gefunden.', 'NOT_FOUND');
   }
+  ensurePresetOwnership(existing, scope);
 
   const updates: Partial<typeof studioPresets.$inferInsert> = {
     updatedAt: new Date(),
@@ -1083,38 +1096,45 @@ export async function updatePreset(
 
   const [updated] = await db.update(studioPresets)
     .set(updates)
-    .where(eq(studioPresets.id, presetId))
+    .where(and(
+      eq(studioPresets.id, presetId),
+      eq(studioPresets.workspaceId, scope.workspaceId),
+    ))
     .returning();
 
   return toPresetRecord(updated);
 }
 
-export async function deletePreset(presetId: string): Promise<void> {
-  const [existing] = await db.select().from(studioPresets).where(eq(studioPresets.id, presetId));
+export async function deletePreset(presetId: string, scope: StudioScope): Promise<void> {
+  const existing = await getPreset(presetId, scope);
   if (!existing) {
     throw new StudioServiceError('Preset not found', 'Preset nicht gefunden.', 'NOT_FOUND');
   }
+  ensurePresetOwnership(existing, scope);
 
-  await db.delete(studioPresets).where(eq(studioPresets.id, presetId));
+  await db.delete(studioPresets).where(and(
+    eq(studioPresets.id, presetId),
+    eq(studioPresets.workspaceId, scope.workspaceId),
+  ));
 
   try {
-    await deleteAssetDir(`presets/${presetId}/`);
+    await deleteAssetDir(getStudioAssetEntityPath(scope.storage, 'presets', presetId));
   } catch (error) {
-    console.warn(`Failed to delete preset directory presets/${presetId}/:`, error);
+    console.warn(`Failed to delete preset directory ${presetId}:`, error);
   }
 }
 
 export async function generatePresetPreview(
-  userId: string,
+  scope: StudioScope,
   presetId: string,
   input: GeneratePresetPreviewInput = {},
 ): Promise<StudioPresetRecord> {
-  const preset = await getPreset(presetId);
+  const preset = await getPreset(presetId, scope);
   if (!preset) {
     throw new StudioServiceError('Preset not found', 'Preset nicht gefunden.', 'NOT_FOUND');
   }
 
-  ensurePresetOwnership(preset, userId);
+  ensurePresetOwnership(preset, scope);
 
   const providerId = input.provider?.trim() || 'gemini';
   const provider = getImageGenerationProvider(providerId);
@@ -1161,10 +1181,14 @@ export async function generatePresetPreview(
       model,
       aspectRatio,
       referenceImages: [],
-      storageScope: { userId },
+      storageScope: { userId: scope.actorUserId },
     });
 
-    const previewPath = 'studio/assets/' + generatePresetPreviewPath(presetId, extensionFromMime(result.mimeType));
+    const previewPath = generatePresetPreviewPath(
+      presetId,
+      extensionFromMime(result.mimeType),
+      scope.storage,
+    );
     await writeAssetFile(previewPath, Buffer.from(result.imageBytes, 'base64'));
 
     let updated: typeof studioPresets.$inferSelect;
@@ -1174,7 +1198,10 @@ export async function generatePresetPreview(
           previewImagePath: previewPath,
           updatedAt: new Date(),
         })
-        .where(eq(studioPresets.id, presetId))
+        .where(and(
+          eq(studioPresets.id, presetId),
+          eq(studioPresets.workspaceId, scope.workspaceId),
+        ))
         .returning();
       updated = updatedRow;
     } catch (error) {
@@ -1199,11 +1226,11 @@ export async function generatePresetPreview(
   }
 }
 
-export async function assertPresetEditableByUser(presetId: string, userId: string): Promise<StudioPresetRecord> {
-  const preset = await getPreset(presetId);
+export async function assertPresetEditableByUser(presetId: string, scope: StudioScope): Promise<StudioPresetRecord> {
+  const preset = await getPreset(presetId, scope);
   if (!preset) {
     throw new StudioServiceError('Preset not found', 'Preset nicht gefunden.', 'NOT_FOUND');
   }
-  ensurePresetOwnership(preset, userId);
+  ensurePresetOwnership(preset, scope);
   return preset;
 }

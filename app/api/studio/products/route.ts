@@ -1,14 +1,17 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { listProducts, createProduct } from '@/app/lib/integrations/studio-product-service';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
   const search = request.nextUrl.searchParams.get('search') ?? undefined;
-  const products = await listProducts(session.user.id, search);
+  const products = await listProducts(studioRequest.scope, search);
   return NextResponse.json({ success: true, products });
 }
 
@@ -17,6 +20,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
   let body: { name?: string; description?: string };
   try {
     body = await request.json();
@@ -26,7 +31,7 @@ export async function POST(request: NextRequest) {
   if (!body.name || typeof body.name !== 'string' || body.name.trim().length === 0) {
     return NextResponse.json({ success: false, error: 'Name is required' }, { status: 400 });
   }
-  const product = await createProduct(session.user.id, {
+  const product = await createProduct(studioRequest.scope, {
     name: body.name.trim(),
     description: body.description?.trim(),
   });

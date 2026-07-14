@@ -1,6 +1,19 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { readStudioReferenceFile } from '@/app/lib/integrations/studio-workspace';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
+
+const CONTENT_TYPES: Record<string, string> = {
+  gif: 'image/gif',
+  jpeg: 'image/jpeg',
+  jpg: 'image/jpeg',
+  mov: 'video/quicktime',
+  mp3: 'audio/mpeg',
+  mp4: 'video/mp4',
+  png: 'image/png',
+  wav: 'audio/wav',
+  webp: 'image/webp',
+};
 
 /**
  * GET /api/studio/references/:id
@@ -14,6 +27,8 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
   if (!id) {
@@ -22,18 +37,19 @@ export async function GET(
 
   let buffer: Buffer;
   try {
-    buffer = await readStudioReferenceFile(session.user.id, id);
+    buffer = await readStudioReferenceFile(studioRequest.scope.storage, id);
   } catch {
     return NextResponse.json({ success: false, error: 'Image not found' }, { status: 404 });
   }
 
   const uint8Array = new Uint8Array(buffer);
+  const extension = id.split('.').pop()?.toLowerCase() ?? '';
 
   return new NextResponse(uint8Array, {
     status: 200,
     headers: {
-      'Content-Type': 'image/png',
-      'Cache-Control': 'public, max-age=31536000',
+      'Content-Type': CONTENT_TYPES[extension] ?? 'application/octet-stream',
+      'Cache-Control': 'private, max-age=31536000, immutable',
     },
   });
 }

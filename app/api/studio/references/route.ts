@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { fileTypeFromBuffer } from 'file-type';
 import { fetchExternalResourceSafely } from '@/app/lib/security/safe-external-fetch';
-import { getUserUploadsStudioRefRoot } from '@/app/lib/runtime-data-paths';
+import {
+  generateStudioReferencePath,
+  writeAssetFile,
+} from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import path from 'node:path';
-import fs from 'node:fs/promises';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 const MAX_REFERENCE_SIZE = 20 * 1024 * 1024;
 
@@ -29,6 +32,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   const limited = rateLimit(request, {
     limit: 60,
@@ -103,21 +108,14 @@ export async function POST(request: NextRequest) {
       // Use default filename
     }
 
-    const uploadRoot = getUserUploadsStudioRefRoot();
-    await fs.mkdir(uploadRoot, { recursive: true });
-
-    const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const uniqueName = `${timestamp}-${fileName}`;
-    const fullPath = path.join(uploadRoot, uniqueName);
-    await fs.writeFile(fullPath, buffer);
-
-    const relativePath = `user-uploads/studio-references/${uniqueName}`;
+    const { relativePath } = generateStudioReferencePath(studioRequest.scope.storage, fileName);
+    await writeAssetFile(relativePath, buffer);
     return NextResponse.json({
       success: true,
       path: relativePath,
       name: fileName,
-      mediaUrl: toMediaUrl(relativePath),
-      previewUrl: toPreviewUrl(relativePath, 480),
+      mediaUrl: toMediaUrl(relativePath, { workspaceId: studioRequest.scope.workspaceId }),
+      previewUrl: toPreviewUrl(relativePath, 480, { workspaceId: studioRequest.scope.workspaceId }),
       size: buffer.length,
     }, { status: 201 });
 

@@ -110,7 +110,9 @@ async function main() {
 
   const studioCalls: StudioGenerateRequest[] = [];
   const studioImageCalls: StudioGenerateRequest[] = [];
-  const studioImageMediaUrl = '/api/studio/media/studio/outputs/studio-gen-ente-statt-affe-0-2026-05-29T15-38-00-000Z-test.jpg';
+  const studioVirtualRoot = 'studio/organizations/org-test/workspaces/workspace-test';
+  const studioImageFilePath = `${studioVirtualRoot}/outputs/studio-image-generation/studio-gen-ente-statt-affe-0-2026-05-29T15-38-00-000Z-test.jpg`;
+  const studioImageMediaUrl = `/api/studio/media/${studioImageFilePath}?workspaceId=workspace-test`;
   const studioImageTool = createStudioGenerateImageTool({
     userId: 'test-user',
     executeStudioGenerationFn: async (_userId, body) => {
@@ -124,7 +126,7 @@ async function main() {
           {
             id: 'studio-image-output',
             variationIndex: 0,
-            filePath: 'studio-gen-ente-statt-affe-0-2026-05-29T15-38-00-000Z-test.jpg',
+            filePath: studioImageFilePath,
             mediaUrl: studioImageMediaUrl,
             mimeType: 'image/jpeg',
             fileSize: 2345,
@@ -146,8 +148,8 @@ async function main() {
           {
             id: 'studio-output',
             variationIndex: 0,
-            filePath: 'generated.mp4',
-            mediaUrl: '/api/studio/media/generated.mp4',
+            filePath: `${studioVirtualRoot}/outputs/studio-seedance-generation/generated.mp4`,
+            mediaUrl: `/api/studio/media/${studioVirtualRoot}/outputs/studio-seedance-generation/generated.mp4?workspaceId=workspace-test`,
             mimeType: 'video/mp4',
             fileSize: 1234,
           },
@@ -672,23 +674,40 @@ async function main() {
   }, abortedController.signal);
   assert.match(getText(abortedGlobResult), /aborted/i);
 
-  const studioImageResult = await studioImageTool.execute('studio-image', {
+  const studioExecutionContext = {
+    userId: 'test-user',
+    sessionId: 'studio-session',
+    agentId: null,
+    workspaceId: 'workspace-test',
+    workspaceType: 'personal' as const,
+    workspaceName: 'Studio test workspace',
+    organizationId: 'org-test',
+    customerId: null,
+    projectId: null,
+    workspaceRoot: workspaceDir,
+    workspaceRootRelativePath: null,
+    canWrite: true,
+    canDelete: true,
+    canShare: true,
+    legacy: false,
+  };
+  const studioImageResult = await runWithAgentExecutionContext(studioExecutionContext, () => studioImageTool.execute('studio-image', {
     prompt: 'Eine Ente statt einem Affen',
     provider: 'gemini',
-  });
+  }));
   const studioImageText = getText(studioImageResult);
   assert.match(studioImageText, /Studio image generation completed \(1 output/);
   assert.match(studioImageText, /Absolute copy source path: .*studio-gen-ente-statt-affe/);
-  assert.match(studioImageText, /Studio reference path for later edits: studio\/outputs\/studio-gen-ente-statt-affe/);
-  assert.match(studioImageText, /Browser render URL for Markdown: \/api\/studio\/media\/studio\/outputs\/studio-gen-ente-statt-affe/);
-  assert.match(studioImageText, /Thumbnail preview URL \(UI only\): \/api\/files\/preview\?path=studio-gen-ente-statt-affe/);
-  assert.match(studioImageText, /Markdown image \(copy exactly\): !\[studio-0\]\(\/api\/studio\/media\/studio\/outputs\/studio-gen-ente-statt-affe/);
+  assert.match(studioImageText, /Studio reference path for later edits: studio\/organizations\/org-test\/workspaces\/workspace-test\/outputs\/studio-image-generation\/studio-gen-ente-statt-affe/);
+  assert.match(studioImageText, /Browser render URL for Markdown: \/api\/studio\/media\/studio\/organizations\/org-test\/workspaces\/workspace-test\/outputs\/studio-image-generation\/studio-gen-ente-statt-affe/);
+  assert.match(studioImageText, /Thumbnail preview URL \(UI only\): \/api\/files\/preview\?path=studio%2Forganizations%2Forg-test%2Fworkspaces%2Fworkspace-test%2Foutputs%2Fstudio-image-generation%2Fstudio-gen-ente-statt-affe/);
+  assert.match(studioImageText, /Markdown image \(copy exactly\): !\[studio-0\]\(\/api\/studio\/media\/studio\/organizations\/org-test\/workspaces\/workspace-test\/outputs\/studio-image-generation\/studio-gen-ente-statt-affe/);
   assert.match(studioImageText, /Do not invent, shorten, slugify, or rewrite the image URL/);
   assert.match(studioImageText, /The browser render URL and thumbnail preview URL are not filesystem paths/);
   assert.equal(studioImageCalls.length, 1);
   assert.equal(studioImageCalls[0].mode, 'image');
 
-  const studioSeedanceResult = await studioTool.execute('studio-seedance', {
+  const studioSeedanceResult = await runWithAgentExecutionContext(studioExecutionContext, () => studioTool.execute('studio-seedance', {
     prompt: 'A cinematic product reveal',
     provider: 'bytedance',
     model: 'bytedance/seedance-2',
@@ -698,7 +717,7 @@ async function main() {
     generate_audio: false,
     web_search: true,
     nsfw_checker: true,
-  });
+  }));
   assert.match(getText(studioSeedanceResult), /Studio video generation completed \(1 output/);
   assert.equal(studioCalls.length, 1);
   assert.equal(studioCalls[0].provider, 'bytedance');

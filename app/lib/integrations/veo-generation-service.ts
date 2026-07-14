@@ -10,7 +10,9 @@ import {
 import {
   ensureStudioOutputsWorkspace,
   generateOutputFilename,
+  generateOutputPath,
   writeOutputFile,
+  type StudioStorageScope,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
@@ -45,6 +47,8 @@ export interface GenerateVideoRequestBody {
   generateAudio?: boolean;
   seed?: number;
   storageScope?: EnvStorageScope | null;
+  studioStorageScope?: StudioStorageScope;
+  studioGenerationId?: string;
 }
 
 export interface VideoGenerationResultData {
@@ -260,10 +264,13 @@ export async function generateVideo(
     const output = managed.outputs[0];
     if (!output) throw new IntegrationServiceError('Managed Veo generation completed without output.', 500);
 
-    await ensureStudioOutputsWorkspace();
+    await ensureStudioOutputsWorkspace(body.studioStorageScope);
     const promptSlug = promptToSlug(prompt);
     const extension = extensionFromResponse(output.mimeType);
-    const relativeVideoPath = generateOutputFilename(promptSlug, 0, extension);
+    const outputFilename = generateOutputFilename(promptSlug, 0, extension);
+    const relativeVideoPath = body.studioStorageScope && body.studioGenerationId
+      ? generateOutputPath(body.studioStorageScope, body.studioGenerationId, outputFilename)
+      : outputFilename;
     await writeOutputFile(relativeVideoPath, output.bytes);
     const metadata = {
       provider: 'gemini',
@@ -298,7 +305,7 @@ export async function generateVideo(
 
     return {
       path: relativeVideoPath,
-      mediaUrl: toMediaUrl(relativeVideoPath),
+      mediaUrl: toMediaUrl(relativeVideoPath, { workspaceId: body.studioStorageScope?.workspaceId }),
       fileSize: output.bytes.length,
       mimeType: output.mimeType,
       metadata,
@@ -408,10 +415,13 @@ export async function generateVideo(
   }
 
   const fetched = await fetchOperationVideo(operation, apiKey!);
-  await ensureStudioOutputsWorkspace();
+  await ensureStudioOutputsWorkspace(body.studioStorageScope);
 
   const promptSlug = promptToSlug(prompt);
-  const relativeVideoPath = generateOutputFilename(promptSlug, 0, fetched.extension);
+  const outputFilename = generateOutputFilename(promptSlug, 0, fetched.extension);
+  const relativeVideoPath = body.studioStorageScope && body.studioGenerationId
+    ? generateOutputPath(body.studioStorageScope, body.studioGenerationId, outputFilename)
+    : outputFilename;
   await writeOutputFile(relativeVideoPath, fetched.bytes);
   const metadata = {
     provider: 'gemini',
@@ -443,7 +453,7 @@ export async function generateVideo(
 
   return {
     path: relativeVideoPath,
-    mediaUrl: toMediaUrl(relativeVideoPath),
+    mediaUrl: toMediaUrl(relativeVideoPath, { workspaceId: body.studioStorageScope?.workspaceId }),
     fileSize: fetched.bytes.length,
     mimeType: fetched.extension === 'mov' ? 'video/quicktime' : 'video/mp4',
     metadata,

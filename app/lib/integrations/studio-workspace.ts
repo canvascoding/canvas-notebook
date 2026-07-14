@@ -109,6 +109,14 @@ function workspaceAssetPath(scope: StudioStorageScope, ...segments: string[]): s
   return path.posix.join(getStudioWorkspaceVirtualRoot(scope), 'assets', ...segments);
 }
 
+export function getStudioAssetEntityPath(
+  scope: StudioStorageScope,
+  entityType: 'products' | 'personas' | 'styles' | 'presets' | 'references',
+  entityId?: string,
+): string {
+  return workspaceAssetPath(scope, entityType, ...(entityId ? [entityId] : []));
+}
+
 export function generateProductImagePath(
   productId: string,
   sortOrder: number,

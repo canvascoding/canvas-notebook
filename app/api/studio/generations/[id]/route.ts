@@ -4,6 +4,7 @@ import { auth } from '@/app/lib/auth';
 import { getStudioGeneration, deleteStudioGeneration } from '@/app/lib/integrations/studio-generation-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 export async function GET(
   _request: NextRequest,
@@ -13,10 +14,12 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(_request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
   try {
-    const generation = await getStudioGeneration(id, session.user.id);
+    const generation = await getStudioGeneration(id, studioRequest.scope);
     if (!generation) {
       return NextResponse.json({ success: false, error: 'Generation not found' }, { status: 404 });
     }
@@ -35,10 +38,12 @@ export async function DELETE(
     errorMessage: 'Forbidden: Studio asset delete permission required',
   });
   if (!studioPermission.ok) return studioPermission.response;
+  const studioRequest = await requireStudioRequestScope(_request, studioPermission.session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
   try {
-    await deleteStudioGeneration(id, studioPermission.session.user.id);
+    await deleteStudioGeneration(id, studioRequest.scope);
     await recordAuditEvent({
       organizationId: studioPermission.state.organizationId,
       userId: studioPermission.session.user.id,

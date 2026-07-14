@@ -4,8 +4,10 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { auth } from '@/app/lib/auth';
 import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
-import { ensureStudioEditsWorkspace, writeEditFile } from '@/app/lib/integrations/studio-workspace';
+import { ensureStudioEditsWorkspace, generateEditPath, writeEditFile } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
+import { canReadStudioMediaPath } from '@/app/lib/integrations/studio-media-access';
 
 function parseDataUrl(value: unknown): { mimeType: string; buffer: Buffer } {
   if (typeof value !== 'string') {
@@ -73,6 +75,8 @@ export async function POST(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   let body: { sourcePath?: string; maskDataUrl?: string };
   try {
@@ -87,6 +91,9 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (sourcePath.startsWith('studio/') && !(await canReadStudioMediaPath(sourcePath, studioRequest.scope))) {
+      return NextResponse.json({ success: false, error: 'Source image is not available in this workspace' }, { status: 404 });
+    }
     const source = await loadMediaReference(sourcePath, { userId: session.user.id, allowedTypes: ['image'] });
     const mask = parseDataUrl(body.maskDataUrl);
     if (!mask.mimeType.startsWith('image/')) {
@@ -113,17 +120,17 @@ export async function POST(request: NextRequest) {
       .toBuffer();
 
     const fileName = buildMarkupFileName(sourcePath);
-    await ensureStudioEditsWorkspace();
-    await writeEditFile(fileName, output);
+    await ensureStudioEditsWorkspace(studioRequest.scope.storage);
+    const editPath = generateEditPath(studioRequest.scope.storage, fileName);
+    await writeEditFile(editPath, output);
 
-    const editPath = `studio/edits/${fileName}`;
     return NextResponse.json({
       success: true,
       edit: {
         path: editPath,
         name: fileName,
-        mediaUrl: toMediaUrl(editPath),
-        previewUrl: toPreviewUrl(editPath, 960),
+        mediaUrl: toMediaUrl(editPath, { workspaceId: studioRequest.scope.workspaceId }),
+        previewUrl: toPreviewUrl(editPath, 960, { workspaceId: studioRequest.scope.workspaceId }),
         width,
         height,
         mimeType: 'image/png',

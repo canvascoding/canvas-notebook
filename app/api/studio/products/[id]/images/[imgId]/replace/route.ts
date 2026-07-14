@@ -3,6 +3,7 @@ import { auth } from '@/app/lib/auth';
 import { parseMultipartFormData } from '@/app/lib/api/form-data';
 import { replaceProductImage } from '@/app/lib/integrations/studio-product-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 export async function POST(
   request: NextRequest,
@@ -12,6 +13,8 @@ export async function POST(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
   const { id, imgId } = await params;
 
   const parsedFormData = await parseMultipartFormData(request);
@@ -27,7 +30,7 @@ export async function POST(
   const buffer = Buffer.from(arrayBuffer);
 
   try {
-    const image = await replaceProductImage(id, session.user.id, imgId, {
+    const image = await replaceProductImage(id, studioRequest.scope, imgId, {
       buffer,
       fileName: file.name,
       mimeType: file.type || 'application/octet-stream',

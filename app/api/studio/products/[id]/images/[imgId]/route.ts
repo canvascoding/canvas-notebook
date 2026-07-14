@@ -4,6 +4,7 @@ import { getProductImageBuffer, deleteProductImage } from '@/app/lib/integration
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import sharp from 'sharp';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 const THUMB_MAX_WIDTH = 256;
 const THUMB_MAX_HEIGHT = 256;
@@ -16,10 +17,12 @@ export async function GET(
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
   const { id, imgId } = await params;
   const size = request.nextUrl.searchParams.get('size');
   try {
-    const { buffer, mimeType, fileName } = await getProductImageBuffer(id, session.user.id, imgId);
+    const { buffer, mimeType, fileName } = await getProductImageBuffer(id, studioRequest.scope, imgId);
     const headers = new Headers();
     headers.set('Cache-Control', 'private, max-age=86400');
 
@@ -56,10 +59,12 @@ export async function DELETE(
     errorMessage: 'Forbidden: Studio asset delete permission required',
   });
   if (!studioPermission.ok) return studioPermission.response;
+  const studioRequest = await requireStudioRequestScope(_request, studioPermission.session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   const { id, imgId } = await params;
   try {
-    await deleteProductImage(id, studioPermission.session.user.id, imgId);
+    await deleteProductImage(id, studioRequest.scope, imgId);
     return NextResponse.json({ success: true });
   } catch (err) {
     if (err instanceof StudioServiceError) {

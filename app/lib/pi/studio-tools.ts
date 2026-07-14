@@ -10,13 +10,13 @@ import { listProducts } from '@/app/lib/integrations/studio-product-service';
 import { listPersonas } from '@/app/lib/integrations/studio-persona-service';
 import { listStyles } from '@/app/lib/integrations/studio-style-service';
 import {
-  getStudioOutputsRoot,
+  resolveStudioFilePath,
 } from '@/app/lib/integrations/studio-workspace';
 import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import { createBulkJob } from '@/app/lib/integrations/studio-bulk-service';
-import { db } from '@/app/lib/db';
-import { studioPresets } from '@/app/lib/db/schema';
-import { eq } from 'drizzle-orm';
+import { listPresets } from '@/app/lib/integrations/studio-preset-service';
+import { createPersistedStudioScope, type StudioScope } from '@/app/lib/integrations/studio-scope';
+import { ensureStudioWorkspaceFilesMigrated } from '@/app/lib/integrations/studio-workspace-file-migration';
 import {
   MAX_AUDIO_TRANSCRIPTION_BYTES,
   transcribeAudio,
@@ -30,6 +30,36 @@ import {
   throwIfAborted,
 } from '@/app/lib/pi/tool-runtime-helpers';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+
+function requireStudioToolScope(userId?: string): StudioScope {
+  const context = getAgentExecutionContext();
+  const actorUserId = userId ?? context?.userId;
+  if (!context || !actorUserId || context.userId !== actorUserId) {
+    throw new Error('Active workspace context is required for Studio tools.');
+  }
+  if (!context.organizationId) {
+    throw new Error('Studio requires a persisted workspace.');
+  }
+  return createPersistedStudioScope({
+    actorUserId,
+    organizationId: context.organizationId,
+    customerId: context.customerId,
+    projectId: context.projectId,
+    workspaceId: context.workspaceId,
+  });
+}
+
+async function prepareStudioToolScope(userId?: string): Promise<StudioScope> {
+  const scope = requireStudioToolScope(userId);
+  await ensureStudioWorkspaceFilesMigrated(scope);
+  return scope;
+}
+
+function requireStudioOutputAbsolutePath(filePath: string): string {
+  const absolutePath = resolveStudioFilePath(filePath);
+  if (!absolutePath) throw new Error(`Invalid Studio output path: ${filePath}`);
+  return absolutePath;
+}
 
 export function createStudioGenerateImageTool(
   deps: { executeStudioGenerationFn?: typeof executeStudioGeneration; userId?: string } = {},
@@ -67,13 +97,12 @@ export function createStudioGenerateImageTool(
       if (!userId) {
         throw new Error('User ID is required for studio generation.');
       }
-      const result = await executeFn(userId, { ...p, mode: 'image' });
-      const outputsRoot = getStudioOutputsRoot();
+      const scope = await prepareStudioToolScope(userId);
+      const result = await executeFn(scope, { ...p, mode: 'image' });
       const outputLines = result.outputs.map((o) => {
-        const outputFilePath = o.filePath.replace(/^\/+/, '').replace(/^studio\/outputs\//, '');
-        const fullPath = path.join(outputsRoot, outputFilePath);
-        const referencePath = `studio/outputs/${outputFilePath}`;
-        const previewUrl = toPreviewUrl(outputFilePath, 960);
+        const fullPath = requireStudioOutputAbsolutePath(o.filePath);
+        const referencePath = o.filePath;
+        const previewUrl = toPreviewUrl(o.filePath, 960, { workspaceId: scope.workspaceId });
         const markdownImage = `![studio-${o.variationIndex}](${o.mediaUrl})`;
         return [
           `Output ${o.variationIndex + 1}:`,
@@ -170,10 +199,10 @@ export function createStudioGenerateVideoTool(
         video_reference_urls: p.reference_video_urls as string[] | undefined,
         audio_reference_urls: p.reference_audio_urls as string[] | undefined,
       };
-      const result = await executeFn(userId, request);
-      const outputsRoot = getStudioOutputsRoot();
+      const scope = await prepareStudioToolScope(userId);
+      const result = await executeFn(scope, request);
       const outputLines = result.outputs.map((o) => {
-        const fullPath = path.join(outputsRoot, o.filePath);
+        const fullPath = requireStudioOutputAbsolutePath(o.filePath);
         return `Output:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}`;
       });
       const summary = [
@@ -234,10 +263,10 @@ export function createStudioGenerateSoundTool(
         source_output_id: p.source_output_id as string | undefined,
         extra_reference_urls: p.extra_reference_urls as string[] | undefined,
       };
-      const result = await executeFn(userId, request);
-      const outputsRoot = getStudioOutputsRoot();
+      const scope = await prepareStudioToolScope(userId);
+      const result = await executeFn(scope, request);
       const outputLines = result.outputs.map((o) => {
-        const fullPath = path.join(outputsRoot, o.filePath);
+        const fullPath = requireStudioOutputAbsolutePath(o.filePath);
         return `Output:\n  File: ${fullPath}\n  URL:  ${o.mediaUrl}`;
       });
       const summary = [
@@ -373,7 +402,7 @@ export function createStudioBulkGenerateTool(
         throw new Error('User ID is required for bulk generation.');
       }
 
-      const job = await createFn(userId, {
+      const job = await createFn(await prepareStudioToolScope(userId), {
         productIds: product_ids,
         prompt,
         presetId: preset_id,
@@ -408,7 +437,7 @@ export function createStudioListProductsTool(
         if (!userId) {
           throw new Error('User ID is required.');
         }
-        const products = await listFn(userId, search);
+        const products = await listFn(await prepareStudioToolScope(userId), search);
         const text = products.length === 0
           ? 'No products found.'
           : products.map((p: { id: string; name: string; description?: string | null; imageCount: number }) =>
@@ -448,7 +477,7 @@ export function createStudioListPersonasTool(
         if (!userId) {
           throw new Error('User ID is required.');
         }
-        const personas = await listFn(userId, search);
+        const personas = await listFn(await prepareStudioToolScope(userId), search);
         const text = personas.length === 0
           ? 'No personas found.'
           : personas.map((p: { id: string; name: string; description?: string | null; imageCount: number }) =>
@@ -488,7 +517,7 @@ export function createStudioListStylesTool(
         if (!userId) {
           throw new Error('User ID is required.');
         }
-        const styles = await listFn(userId, search);
+        const styles = await listFn(await prepareStudioToolScope(userId), search);
         const text = styles.length === 0
           ? 'No styles found.'
           : styles.map((s: { id: string; name: string; description?: string | null; imageCount: number }) =>
@@ -520,32 +549,15 @@ export function createStudioListPresetsTool(): AgentTool {
     execute: async (toolCallId, params) => {
       const { category } = params as { category?: string };
       try {
-        const presets = await db.select({
-          id: studioPresets.id,
-          name: studioPresets.name,
-          description: studioPresets.description,
-          category: studioPresets.category,
-          tags: studioPresets.tags,
-          blocks: studioPresets.blocks,
-          isDefault: studioPresets.isDefault,
-        })
-          .from(studioPresets)
-          .where(category
-            ? eq(studioPresets.category, category)
-            : eq(studioPresets.isDefault, true),
-          );
+        const presets = await listPresets(await prepareStudioToolScope(), category);
 
         const text = presets.length === 0
           ? 'No studio presets found.'
           : presets.map((p) => {
-              let tags: string[] = [];
-              try { tags = JSON.parse(p.tags ?? '[]'); } catch { /* ignore */ }
-
-              let fragments: string[] = [];
-              try {
-                const blocks: Array<{ promptFragment?: string }> = JSON.parse(p.blocks ?? '[]');
-                fragments = blocks.map((b) => b.promptFragment).filter((f): f is string => !!f);
-              } catch { /* ignore */ }
+              const tags = p.tags;
+              const fragments = p.blocks
+                .map((b) => b.promptFragment)
+                .filter((f): f is string => Boolean(f));
 
               const lines = [
                 `• ${p.name} (ID: ${p.id}) [${p.category || 'uncategorized'}]${p.description ? ` — ${p.description}` : ''}`,

@@ -6,7 +6,13 @@ import { eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { studioPresets } from '@/app/lib/db/schema';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
-import { ensureStudioAssetsWorkspace, writeAssetFile, getStudioAssetsRoot } from '@/app/lib/integrations/studio-workspace';
+import {
+  ensureStudioAssetsWorkspace,
+  getStudioAssetsRoot,
+  getSystemPresetPreviewPath,
+  resolveStudioFilePath,
+  writeAssetFile,
+} from '@/app/lib/integrations/studio-workspace';
 
 type StudioPresetCategory =
   | 'fashion'
@@ -681,8 +687,11 @@ export async function ensureDefaultStudioPresetsSeeded(
 
   for (const seed of DEFAULT_STUDIO_PRESET_SEEDS) {
     const seedFilePath = path.join(seedDir, `${seed.id}.png`);
-    const previewImagePath = `studio/assets/presets/${seed.id}/preview-seed.png`;
-    const assetFilePath = path.join(getStudioAssetsRoot(), previewImagePath);
+    const previewImagePath = getSystemPresetPreviewPath(seed.id, 'preview-seed.png');
+    const assetFilePath = resolveStudioFilePath(previewImagePath);
+    if (!assetFilePath) {
+      throw new Error(`Invalid default Studio preset path: ${previewImagePath}`);
+    }
 
     let previewBuffer: Buffer;
     try {
@@ -750,6 +759,10 @@ export async function ensureDefaultStudioPresetsSeeded(
       recursive: true,
       force: true,
     });
+    const systemPresetPath = resolveStudioFilePath(getSystemPresetPreviewPath(removedId, 'preview-seed.png'));
+    if (systemPresetPath) {
+      await fs.rm(path.dirname(systemPresetPath), { recursive: true, force: true });
+    }
   }
 
   return {

@@ -25,8 +25,11 @@ import {
   readAssetFile,
   ensureStudioOutputsWorkspace,
   generateOutputFilename,
+  generateOutputPath,
+  getStudioWorkspaceVirtualRoot,
   writeOutputFile,
   readOutputFile,
+  STUDIO_SYSTEM_PRESETS_DIR,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateVideo, type GenerateVideoRequestBody } from '@/app/lib/integrations/veo-generation-service';
@@ -47,7 +50,11 @@ import {
   normalizeGeminiImageModelId,
 } from '@/app/lib/integrations/image-generation-constants';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
-import { resolveStudioScope, studioInsertScope, studioVisibilityCondition } from '@/app/lib/integrations/studio-scope';
+import {
+  createPersistedStudioScope,
+  studioVisibilityCondition,
+  type StudioScope,
+} from '@/app/lib/integrations/studio-scope';
 
 type ProviderReferenceImage = { imageBytes: string; mimeType: string };
 type ProviderReferenceMedia = { imageBytes: string; mimeType: string; fileName?: string };
@@ -122,34 +129,30 @@ const MAX_IMAGE_COUNT = 4;
 const PRESET_BLOCK_ORDER = ['lighting', 'camera', 'background', 'props', 'subject'];
 const MAX_PROMPT_LENGTH = 4000;
 
-async function generationVisibilityCondition(userId: string, creatorUserId?: string | null) {
-  return studioVisibilityCondition(await resolveStudioScope(userId), {
-    userId: studioGenerations.userId,
-    organizationId: studioGenerations.organizationId,
+function generationVisibilityCondition(scope: StudioScope, creatorUserId?: string | null) {
+  return studioVisibilityCondition(scope, {
+    workspaceId: studioGenerations.workspaceId,
     createdByUserId: studioGenerations.createdByUserId,
   }, creatorUserId);
 }
 
-async function productVisibilityCondition(userId: string) {
-  return studioVisibilityCondition(await resolveStudioScope(userId), {
-    userId: studioProducts.userId,
-    organizationId: studioProducts.organizationId,
+function productVisibilityCondition(scope: StudioScope) {
+  return studioVisibilityCondition(scope, {
+    workspaceId: studioProducts.workspaceId,
     createdByUserId: studioProducts.createdByUserId,
   });
 }
 
-async function personaVisibilityCondition(userId: string) {
-  return studioVisibilityCondition(await resolveStudioScope(userId), {
-    userId: studioPersonas.userId,
-    organizationId: studioPersonas.organizationId,
+function personaVisibilityCondition(scope: StudioScope) {
+  return studioVisibilityCondition(scope, {
+    workspaceId: studioPersonas.workspaceId,
     createdByUserId: studioPersonas.createdByUserId,
   });
 }
 
-async function styleVisibilityCondition(userId: string) {
-  return studioVisibilityCondition(await resolveStudioScope(userId), {
-    userId: studioStyles.userId,
-    organizationId: studioStyles.organizationId,
+function styleVisibilityCondition(scope: StudioScope) {
+  return studioVisibilityCondition(scope, {
+    workspaceId: studioStyles.workspaceId,
     createdByUserId: studioStyles.createdByUserId,
   });
 }
@@ -181,7 +184,7 @@ function limitVideoProviderReferenceImages(providerId: string, referenceImages: 
   return referenceImages.slice(0, getVideoProviderImageReferenceLimit(providerId));
 }
 
-async function loadProductImages(userId: string, productIds: string[]): Promise<LoadedReferenceImage[]> {
+async function loadProductImages(scope: StudioScope, productIds: string[]): Promise<LoadedReferenceImage[]> {
   if (productIds.length === 0) return [];
 
   const images: LoadedReferenceImage[] = [];
@@ -189,7 +192,7 @@ async function loadProductImages(userId: string, productIds: string[]): Promise<
   for (const productId of productIds) {
     const [product] = await db.select({ id: studioProducts.id, name: studioProducts.name, description: studioProducts.description })
       .from(studioProducts)
-      .where(and(eq(studioProducts.id, productId), await productVisibilityCondition(userId)));
+      .where(and(eq(studioProducts.id, productId), productVisibilityCondition(scope)));
 
     if (!product) {
       throw new StudioServiceError(
@@ -233,7 +236,7 @@ async function loadProductImages(userId: string, productIds: string[]): Promise<
   return images;
 }
 
-async function loadPersonaImages(userId: string, personaIds: string[]): Promise<LoadedReferenceImage[]> {
+async function loadPersonaImages(scope: StudioScope, personaIds: string[]): Promise<LoadedReferenceImage[]> {
   if (personaIds.length === 0) return [];
 
   const images: LoadedReferenceImage[] = [];
@@ -241,7 +244,7 @@ async function loadPersonaImages(userId: string, personaIds: string[]): Promise<
   for (const personaId of personaIds) {
     const [persona] = await db.select({ id: studioPersonas.id, name: studioPersonas.name, description: studioPersonas.description })
       .from(studioPersonas)
-      .where(and(eq(studioPersonas.id, personaId), await personaVisibilityCondition(userId)));
+      .where(and(eq(studioPersonas.id, personaId), personaVisibilityCondition(scope)));
 
     if (!persona) {
       throw new StudioServiceError(
@@ -285,7 +288,7 @@ async function loadPersonaImages(userId: string, personaIds: string[]): Promise<
   return images;
 }
 
-async function loadStyleImages(userId: string, styleIds: string[]): Promise<LoadedReferenceImage[]> {
+async function loadStyleImages(scope: StudioScope, styleIds: string[]): Promise<LoadedReferenceImage[]> {
   if (styleIds.length === 0) return [];
 
   const images: LoadedReferenceImage[] = [];
@@ -293,7 +296,7 @@ async function loadStyleImages(userId: string, styleIds: string[]): Promise<Load
   for (const styleId of styleIds) {
     const [style] = await db.select({ id: studioStyles.id, name: studioStyles.name, description: studioStyles.description })
       .from(studioStyles)
-      .where(and(eq(studioStyles.id, styleId), await styleVisibilityCondition(userId)));
+      .where(and(eq(studioStyles.id, styleId), styleVisibilityCondition(scope)));
 
     if (!style) {
       throw new StudioServiceError(
@@ -337,7 +340,7 @@ async function loadStyleImages(userId: string, styleIds: string[]): Promise<Load
   return images;
 }
 
-export async function getStudioOutputForUser(outputId: string, userId: string) {
+export async function getStudioOutputForUser(outputId: string, scope: StudioScope) {
   const [output] = await db.select({
     id: studioGenerationOutputs.id,
     generationId: studioGenerationOutputs.generationId,
@@ -353,13 +356,13 @@ export async function getStudioOutputForUser(outputId: string, userId: string) {
   })
     .from(studioGenerationOutputs)
     .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-    .where(and(eq(studioGenerationOutputs.id, outputId), await generationVisibilityCondition(userId)))
+    .where(and(eq(studioGenerationOutputs.id, outputId), generationVisibilityCondition(scope)))
     .limit(1);
 
   return output ?? null;
 }
 
-export async function canReadStudioOutputPath(inputPath: string, userId: string): Promise<boolean> {
+export async function canReadStudioOutputPath(inputPath: string, scope: StudioScope): Promise<boolean> {
   const normalizedPath = inputPath.startsWith('studio/outputs/')
     ? inputPath.slice('studio/outputs/'.length)
     : inputPath;
@@ -372,7 +375,7 @@ export async function canReadStudioOutputPath(inputPath: string, userId: string)
         eq(studioGenerationOutputs.filePath, normalizedPath),
         eq(studioGenerationOutputs.filePath, `studio/outputs/${normalizedPath}`),
       )!,
-      await generationVisibilityCondition(userId),
+      generationVisibilityCondition(scope),
     ))
     .limit(1);
 
@@ -406,8 +409,8 @@ function isVeoGenerationOutput(output: {
   }
 }
 
-async function getVeoVideoOutputByPathForUser(inputPath: string, userId: string) {
-  const classified = classifyMediaReference(inputPath, { userId });
+async function getVeoVideoOutputByPathForUser(inputPath: string, scope: StudioScope) {
+  const classified = classifyMediaReference(inputPath, { userId: scope.actorUserId });
   const candidates = new Set<string>();
   const rawPath = inputPath.trim().split(/[?#]/, 1)[0] || inputPath.trim();
   const decodedRawPath = (() => {
@@ -445,7 +448,7 @@ async function getVeoVideoOutputByPathForUser(inputPath: string, userId: string)
     })
       .from(studioGenerationOutputs)
       .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-      .where(and(eq(studioGenerationOutputs.filePath, candidate), await generationVisibilityCondition(userId)))
+      .where(and(eq(studioGenerationOutputs.filePath, candidate), generationVisibilityCondition(scope)))
       .limit(1);
 
     if (output) {
@@ -456,8 +459,8 @@ async function getVeoVideoOutputByPathForUser(inputPath: string, userId: string)
   return null;
 }
 
-async function loadSourceOutputImage(userId: string, sourceOutputId: string): Promise<LoadedReferenceImage> {
-  const output = await getStudioOutputForUser(sourceOutputId, userId);
+async function loadSourceOutputImage(scope: StudioScope, sourceOutputId: string): Promise<LoadedReferenceImage> {
+  const output = await getStudioOutputForUser(sourceOutputId, scope);
 
   if (!output) {
     throw new StudioServiceError(
@@ -490,10 +493,16 @@ async function loadSourceOutputImage(userId: string, sourceOutputId: string): Pr
   };
 }
 
-async function composePresetPromptFragment(presetId: string): Promise<string> {
+async function composePresetPromptFragment(presetId: string, scope: StudioScope): Promise<string> {
   const [preset] = await db.select()
     .from(studioPresets)
-    .where(eq(studioPresets.id, presetId));
+    .where(and(
+      eq(studioPresets.id, presetId),
+      or(
+        eq(studioPresets.workspaceId, scope.workspaceId),
+        eq(studioPresets.isDefault, true),
+      ),
+    ));
 
   if (!preset) {
     throw new StudioServiceError(
@@ -525,14 +534,14 @@ async function composePresetPromptFragment(presetId: string): Promise<string> {
     .trim();
 }
 
-async function loadSourceOutputReferences(userId: string, sourceGenerationId: string): Promise<{
+async function loadSourceOutputReferences(scope: StudioScope, sourceGenerationId: string): Promise<{
   product_ids: string[];
   persona_ids: string[];
   style_ids: string[];
 }> {
   const [generation] = await db.select({ id: studioGenerations.id })
     .from(studioGenerations)
-    .where(and(eq(studioGenerations.id, sourceGenerationId), await generationVisibilityCondition(userId)))
+    .where(and(eq(studioGenerations.id, sourceGenerationId), generationVisibilityCondition(scope)))
     .limit(1);
 
   if (!generation) {
@@ -562,11 +571,41 @@ async function loadSourceOutputReferences(userId: string, sourceGenerationId: st
   };
 }
 
-async function loadExtraReferenceImages(userId: string, urls: string[]): Promise<LoadedReferenceImage[]> {
+function studioPathFromReference(value: string): string | null {
+  const trimmed = value.trim();
+  try {
+    const parsed = new URL(trimmed, 'http://canvas.local');
+    const decodedPath = decodeURIComponent(parsed.pathname);
+    if (decodedPath.startsWith('/api/studio/media/')) {
+      return decodedPath.slice('/api/studio/media/'.length).replace(/^\/+/, '');
+    }
+    if (decodedPath.startsWith('/studio/')) return decodedPath.slice(1);
+  } catch {
+    // Fall through to plain-path handling.
+  }
+  const normalized = trimmed.split(/[?#]/, 1)[0]?.replace(/^\/+/, '') ?? '';
+  return normalized.startsWith('studio/') ? normalized : null;
+}
+
+async function assertStudioReferenceReadable(value: string, scope: StudioScope): Promise<void> {
+  const studioPath = studioPathFromReference(value);
+  if (!studioPath) return;
+  const workspaceRoot = getStudioWorkspaceVirtualRoot(scope.storage);
+  if (studioPath.startsWith(`${workspaceRoot}/`) || studioPath.startsWith(`${STUDIO_SYSTEM_PRESETS_DIR}/`)) return;
+  if (studioPath.startsWith('studio/outputs/') && await canReadStudioOutputPath(studioPath, scope)) return;
+  throw new StudioServiceError(
+    `Studio reference is outside workspace ${scope.workspaceId}`,
+    'Die ausgewählte Studio-Referenz gehört zu einem anderen Workspace.',
+    'FORBIDDEN',
+  );
+}
+
+async function loadExtraReferenceImages(scope: StudioScope, urls: string[]): Promise<LoadedReferenceImage[]> {
   if (urls.length === 0) return [];
 
   console.log(`[Studio Generation] Loading ${urls.length} extra reference images`);
-  const files = await loadMediaReferences(urls, { userId, allowedTypes: ['image'] });
+  await Promise.all(urls.map((url) => assertStudioReferenceReadable(url, scope)));
+  const files = await loadMediaReferences(urls, { userId: scope.actorUserId, allowedTypes: ['image'] });
 
   return files.map((file) => ({
     imageBytes: file.imageBytes,
@@ -580,11 +619,12 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
   }));
 }
 
-async function loadExtraReferenceMedia(userId: string, urls: string[], mediaType: 'video' | 'audio'): Promise<ProviderReferenceMedia[]> {
+async function loadExtraReferenceMedia(scope: StudioScope, urls: string[], mediaType: 'video' | 'audio'): Promise<ProviderReferenceMedia[]> {
   if (urls.length === 0) return [];
 
   console.log(`[Studio Generation] Loading ${urls.length} extra ${mediaType} references`);
-  const files = await loadMediaReferences(urls, { userId, allowedTypes: [mediaType] });
+  await Promise.all(urls.map((url) => assertStudioReferenceReadable(url, scope)));
+  const files = await loadMediaReferences(urls, { userId: scope.actorUserId, allowedTypes: [mediaType] });
   return files.map((file) => ({
     imageBytes: file.videoBytes || file.imageBytes,
     mimeType: file.mimeType,
@@ -694,7 +734,7 @@ function buildSoundContextPrompt(referenceImages: LoadedReferenceImage[]): strin
 }
 
 export async function createStudioGeneration(
-  userId: string,
+  scope: StudioScope,
   request: StudioGenerateRequest,
 ): Promise<{ generationId: string; mode: string; prompt: string }> {
   const mode = request.mode || 'image';
@@ -730,7 +770,6 @@ export async function createStudioGeneration(
 
   const generationId = randomUUID();
   const now = new Date();
-  const scope = await studioInsertScope(userId);
   let sourceGenerationId: string | null = null;
 
   const defaultModel = providerId === 'openai' ? 'gpt-image-2' : GEMINI_FLASH_IMAGE_MODEL_ID;
@@ -746,7 +785,7 @@ export async function createStudioGeneration(
     : requestedModel;
 
   if (request.source_output_id) {
-    const sourceOutput = await getStudioOutputForUser(request.source_output_id, userId);
+    const sourceOutput = await getStudioOutputForUser(request.source_output_id, scope);
     sourceGenerationId = sourceOutput?.generationId ?? null;
   }
   if (request.video_extend_source_path) {
@@ -756,7 +795,7 @@ export async function createStudioGeneration(
         'Video-Erweiterung ist nur mit Google Veo verfügbar.',
       );
     }
-    const sourceOutput = await getVeoVideoOutputByPathForUser(request.video_extend_source_path, userId);
+    const sourceOutput = await getVeoVideoOutputByPathForUser(request.video_extend_source_path, scope);
     if (!sourceOutput || !isVeoGenerationOutput(sourceOutput)) {
       throw new StudioServiceError(
         'Extension source must be a previous Veo video output',
@@ -770,8 +809,43 @@ export async function createStudioGeneration(
   if (request.preset_id) {
     const [preset] = await db.select({ name: studioPresets.name })
       .from(studioPresets)
-      .where(eq(studioPresets.id, request.preset_id));
+      .where(and(
+        eq(studioPresets.id, request.preset_id),
+        or(
+          eq(studioPresets.workspaceId, scope.workspaceId),
+          eq(studioPresets.isDefault, true),
+        ),
+      ));
+    if (!preset) {
+      throw new StudioServiceError(
+        `Preset ${request.preset_id} not found in workspace ${scope.workspaceId}`,
+        'Das ausgewählte Studio-Preset ist in diesem Workspace nicht verfügbar.',
+        'NOT_FOUND',
+      );
+    }
     studioPresetName = preset?.name ?? null;
+  }
+
+  for (const productId of productIds) {
+    const [product] = await db.select({ id: studioProducts.id })
+      .from(studioProducts)
+      .where(and(eq(studioProducts.id, productId), productVisibilityCondition(scope)))
+      .limit(1);
+    if (!product) throw new StudioServiceError('Product not found in workspace', 'Produkt nicht gefunden.', 'NOT_FOUND');
+  }
+  for (const personaId of personaIds) {
+    const [persona] = await db.select({ id: studioPersonas.id })
+      .from(studioPersonas)
+      .where(and(eq(studioPersonas.id, personaId), personaVisibilityCondition(scope)))
+      .limit(1);
+    if (!persona) throw new StudioServiceError('Persona not found in workspace', 'Persona nicht gefunden.', 'NOT_FOUND');
+  }
+  for (const styleId of styleIds) {
+    const [style] = await db.select({ id: studioStyles.id })
+      .from(studioStyles)
+      .where(and(eq(studioStyles.id, styleId), styleVisibilityCondition(scope)))
+      .limit(1);
+    if (!style) throw new StudioServiceError('Style not found in workspace', 'Style nicht gefunden.', 'NOT_FOUND');
   }
 
   const requestMetadata = JSON.stringify({
@@ -805,10 +879,12 @@ export async function createStudioGeneration(
 
   await db.insert(studioGenerations).values({
     id: generationId,
-    userId,
+    userId: scope.actorUserId,
     organizationId: scope.organizationId,
-    createdByUserId: scope.createdByUserId,
-    workspaceId: null,
+    customerId: scope.customerId,
+    projectId: scope.projectId,
+    createdByUserId: scope.actorUserId,
+    workspaceId: scope.workspaceId,
     mode,
     prompt: rawPrompt,
     rawPrompt: request.prompt,
@@ -844,6 +920,10 @@ export async function createStudioGeneration(
 export async function runStudioGeneration(generationId: string): Promise<void> {
   const [row] = await db.select({
     userId: studioGenerations.userId,
+    organizationId: studioGenerations.organizationId,
+    customerId: studioGenerations.customerId,
+    projectId: studioGenerations.projectId,
+    workspaceId: studioGenerations.workspaceId,
     mode: studioGenerations.mode,
     provider: studioGenerations.provider,
     model: studioGenerations.model,
@@ -859,19 +939,31 @@ export async function runStudioGeneration(generationId: string): Promise<void> {
     console.error(`[Studio Generation] Generation not found for background processing: id=${generationId}`);
     return;
   }
+  if (!row.organizationId || !row.workspaceId) {
+    console.error(`[Studio Generation] Generation has no workspace scope: id=${generationId}`);
+    return;
+  }
+
+  const scope = createPersistedStudioScope({
+    actorUserId: row.userId,
+    organizationId: row.organizationId,
+    customerId: row.customerId,
+    projectId: row.projectId,
+    workspaceId: row.workspaceId,
+  });
 
   try {
-    await executeStudioGenerationProcessing(row.userId, row, generationId);
+    await executeStudioGenerationProcessing(scope, row, generationId);
   } catch (error) {
     console.error(`[Studio Generation] Background generation failed: id=${generationId}`, error);
   }
 }
 
 export async function executeStudioGeneration(
-  userId: string,
+  scope: StudioScope,
   request: StudioGenerateRequest,
 ): Promise<StudioGenerateResult> {
-  const { generationId, mode, prompt } = await createStudioGeneration(userId, request);
+  const { generationId, mode, prompt } = await createStudioGeneration(scope, request);
   const [row] = await db.select({
     userId: studioGenerations.userId,
     mode: studioGenerations.mode,
@@ -889,7 +981,7 @@ export async function executeStudioGeneration(
     throw new StudioServiceError('Generation not found after creation', 'Generierung wurde nicht gefunden.');
   }
 
-  await executeStudioGenerationProcessing(row.userId, row, generationId);
+  await executeStudioGenerationProcessing(scope, row, generationId);
 
   const [completed] = await db.select({ status: studioGenerations.status, prompt: studioGenerations.prompt })
     .from(studioGenerations)
@@ -910,7 +1002,7 @@ export async function executeStudioGeneration(
       variationIndex: o.variationIndex,
       filePath: o.filePath,
       fileName: o.fileName ?? undefined,
-      mediaUrl: o.mediaUrl || toMediaUrl(o.filePath),
+      mediaUrl: o.mediaUrl || toMediaUrl(o.filePath, { workspaceId: scope.workspaceId }),
       mimeType: o.mimeType || 'image/png',
       fileSize: o.fileSize ?? 0,
     })),
@@ -930,11 +1022,13 @@ interface GenerationRow {
 type StudioOutputInsert = typeof studioGenerationOutputs.$inferInsert;
 
 async function insertStudioGenerationOutput(
-  values: Omit<StudioOutputInsert, 'organizationId' | 'createdByUserId' | 'workspaceId'>,
+  values: Omit<StudioOutputInsert, 'organizationId' | 'customerId' | 'projectId' | 'createdByUserId' | 'workspaceId'>,
 ) {
   const [scope] = await db.select({
     userId: studioGenerations.userId,
     organizationId: studioGenerations.organizationId,
+    customerId: studioGenerations.customerId,
+    projectId: studioGenerations.projectId,
     createdByUserId: studioGenerations.createdByUserId,
     workspaceId: studioGenerations.workspaceId,
   })
@@ -945,13 +1039,15 @@ async function insertStudioGenerationOutput(
   await db.insert(studioGenerationOutputs).values({
     ...values,
     organizationId: scope?.organizationId ?? null,
+    customerId: scope?.customerId ?? null,
+    projectId: scope?.projectId ?? null,
     createdByUserId: scope?.createdByUserId ?? scope?.userId ?? null,
     workspaceId: scope?.workspaceId ?? null,
   });
 }
 
 async function executeStudioGenerationProcessing(
-  userId: string,
+  scope: StudioScope,
   generation: GenerationRow,
   generationId: string,
 ): Promise<void> {
@@ -964,7 +1060,7 @@ async function executeStudioGenerationProcessing(
   const aspectRatio = generation.aspectRatio;
   const rawPrompt = generation.prompt || '';
   const model = generation.model;
-  const storageScope: EnvStorageScope = { userId };
+  const storageScope: EnvStorageScope = { userId: scope.actorUserId };
 
   console.log(`[Studio Generation] Starting background processing: id=${generationId}, mode=${mode}, provider=${providerId}`);
 
@@ -973,17 +1069,17 @@ async function executeStudioGenerationProcessing(
 
     const sourceOutputId = parsedMeta.sourceOutputId;
     if (sourceOutputId) {
-      const sourceImg = await loadSourceOutputImage(userId, sourceOutputId);
+      const sourceImg = await loadSourceOutputImage(scope, sourceOutputId);
       allReferenceImages.push(sourceImg);
 
       if (productIds.length === 0 && personaIds.length === 0 && styleIds.length === 0) {
-        const sourceOutput = await getStudioOutputForUser(sourceOutputId, userId);
+        const sourceOutput = await getStudioOutputForUser(sourceOutputId, scope);
         if (sourceOutput) {
-          const sourceRefs = await loadSourceOutputReferences(userId, sourceOutput.generationId);
+          const sourceRefs = await loadSourceOutputReferences(scope, sourceOutput.generationId);
           if (sourceRefs.product_ids.length > 0 || sourceRefs.persona_ids.length > 0 || sourceRefs.style_ids?.length > 0) {
-            const srcProductImgs = await loadProductImages(userId, sourceRefs.product_ids);
-            const srcPersonaImgs = await loadPersonaImages(userId, sourceRefs.persona_ids);
-            const srcStyleImgs = await loadStyleImages(userId, sourceRefs.style_ids || []);
+            const srcProductImgs = await loadProductImages(scope, sourceRefs.product_ids);
+            const srcPersonaImgs = await loadPersonaImages(scope, sourceRefs.persona_ids);
+            const srcStyleImgs = await loadStyleImages(scope, sourceRefs.style_ids || []);
             for (const img of [...srcProductImgs, ...srcPersonaImgs, ...srcStyleImgs]) {
               if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
                 allReferenceImages.push(img);
@@ -994,9 +1090,9 @@ async function executeStudioGenerationProcessing(
       }
     }
 
-    const productImgs = await loadProductImages(userId, productIds);
-    const personaImgs = await loadPersonaImages(userId, personaIds);
-    const styleImgs = await loadStyleImages(userId, styleIds);
+    const productImgs = await loadProductImages(scope, productIds);
+    const personaImgs = await loadPersonaImages(scope, personaIds);
+    const styleImgs = await loadStyleImages(scope, styleIds);
     for (const img of [...productImgs, ...personaImgs, ...styleImgs]) {
       if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
         allReferenceImages.push(img);
@@ -1005,7 +1101,7 @@ async function executeStudioGenerationProcessing(
 
     const extraUrls = parsedMeta.extraReferenceUrls || [];
     if (extraUrls.length > 0) {
-      const extraImgs = await loadExtraReferenceImages(userId, extraUrls);
+      const extraImgs = await loadExtraReferenceImages(scope, extraUrls);
       for (const img of extraImgs) {
         if (!allReferenceImages.some((r) => r.imageBytes === img.imageBytes)) {
           allReferenceImages.push(img);
@@ -1014,10 +1110,10 @@ async function executeStudioGenerationProcessing(
     }
 
     const extraVideoReferences = mode === 'video' && providerId === SEEDANCE_PROVIDER_ID
-      ? await loadExtraReferenceMedia(userId, parsedMeta.videoReferenceUrls || [], 'video')
+      ? await loadExtraReferenceMedia(scope, parsedMeta.videoReferenceUrls || [], 'video')
       : [];
     const extraAudioReferences = mode === 'video' && providerId === SEEDANCE_PROVIDER_ID
-      ? await loadExtraReferenceMedia(userId, parsedMeta.audioReferenceUrls || [], 'audio')
+      ? await loadExtraReferenceMedia(scope, parsedMeta.audioReferenceUrls || [], 'audio')
       : [];
 
     const { contextText, providerImages } = buildReferenceContextPrompt(allReferenceImages);
@@ -1026,7 +1122,7 @@ async function executeStudioGenerationProcessing(
     let composedPrompt = rawPrompt;
     const presetId = parsedMeta.presetId;
     if (presetId) {
-      const presetFragment = await composePresetPromptFragment(presetId);
+      const presetFragment = await composePresetPromptFragment(presetId, scope);
       if (presetFragment) {
         composedPrompt = `## Preset — Visual Setting\n${presetFragment}\n\n## Instructions\n\n${rawPrompt}`.trim();
       }
@@ -1061,7 +1157,7 @@ async function executeStudioGenerationProcessing(
           nsfwChecker: parsedMeta.videoNsfwChecker,
         },
         storageScope,
-        userId,
+        scope,
       );
     } else if (mode === 'sound') {
       outputs = await generateStudioSound(
@@ -1073,6 +1169,7 @@ async function executeStudioGenerationProcessing(
         parsedMeta.outputFormat,
         buildSoundContextPrompt(allReferenceImages),
         storageScope,
+        scope,
       );
     } else {
       const count = Math.min(Math.max(parsedMeta.count || 1, 1), MAX_IMAGE_COUNT);
@@ -1081,7 +1178,7 @@ async function executeStudioGenerationProcessing(
         outputFormat: parsedMeta.outputFormat,
         background: parsedMeta.background,
         imageSize: parsedMeta.imageSize,
-      }, contextText, storageScope);
+      }, contextText, storageScope, scope);
     }
 
     await db.update(studioGenerations)
@@ -1113,9 +1210,10 @@ async function generateStudioImages(
   referenceImages: ProviderReferenceImage[],
   providerId: string,
   model: string,
-  options?: { quality?: 'low' | 'medium' | 'high' | 'auto'; outputFormat?: 'png' | 'jpeg' | 'webp'; background?: 'transparent' | 'opaque' | 'auto'; imageSize?: string },
-  contextText?: string,
-  storageScope?: EnvStorageScope | null,
+  options: { quality?: 'low' | 'medium' | 'high' | 'auto'; outputFormat?: 'png' | 'jpeg' | 'webp'; background?: 'transparent' | 'opaque' | 'auto'; imageSize?: string } | undefined,
+  contextText: string | undefined,
+  storageScope: EnvStorageScope | null | undefined,
+  scope: StudioScope,
 ): Promise<StudioGenerationOutput[]> {
   const provider = getImageGenerationProvider(providerId);
   if (!provider) {
@@ -1142,7 +1240,7 @@ async function generateStudioImages(
   const maxRefs = provider.getMaxReferenceImages(validatedModel);
   const limitedReferences = referenceImages.slice(0, maxRefs);
 
-  await ensureStudioOutputsWorkspace();
+  await ensureStudioOutputsWorkspace(scope.storage);
 
   const slug = prompt.slice(0, 40).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'studio';
 
@@ -1164,12 +1262,12 @@ async function generateStudioImages(
 
       const ext = extensionFromMime(result.mimeType);
       const outputFilename = generateOutputFilename(slug, index, ext);
-      const outputPath = outputFilename;
+      const outputPath = generateOutputPath(scope.storage, generationId, outputFilename);
       const outputBytes = Buffer.from(result.imageBytes, 'base64');
 
       console.log(`[Studio Generation] Image ${index + 1}/${count} generated: mime=${result.mimeType}, size=${outputBytes.length} bytes, file=${outputFilename}, usage=${JSON.stringify(result.usage || null)}`);
       await writeOutputFile(outputPath, outputBytes);
-      console.log(`[Studio Generation] Image ${index + 1}/${count} written: path=${outputPath}, bytes=${outputBytes.length}, mediaUrl=${toMediaUrl(outputPath)}`);
+      console.log(`[Studio Generation] Image ${index + 1}/${count} written: path=${outputPath}, bytes=${outputBytes.length}, mediaUrl=${toMediaUrl(outputPath, { workspaceId: scope.workspaceId })}`);
 
       const outputId = randomUUID();
       const now = new Date();
@@ -1190,7 +1288,7 @@ async function generateStudioImages(
         type: 'image',
         filePath: outputPath,
         fileName: outputFilename,
-        mediaUrl: toMediaUrl(outputPath),
+        mediaUrl: toMediaUrl(outputPath, { workspaceId: scope.workspaceId }),
         fileSize: outputBytes.length,
         mimeType: result.mimeType,
         width: null,
@@ -1206,7 +1304,7 @@ async function generateStudioImages(
         variationIndex: index,
         filePath: outputPath,
         fileName: outputFilename,
-        mediaUrl: toMediaUrl(outputPath),
+        mediaUrl: toMediaUrl(outputPath, { workspaceId: scope.workspaceId }),
         mimeType: result.mimeType,
         fileSize: outputBytes.length,
       };
@@ -1259,10 +1357,11 @@ async function generateStudioSound(
   prompt: string,
   referenceImages: ProviderReferenceImage[],
   providerId: string,
-  model?: string,
-  outputFormat?: string,
-  contextText?: string,
-  storageScope?: EnvStorageScope | null,
+  model: string | undefined,
+  outputFormat: string | undefined,
+  contextText: string | undefined,
+  storageScope: EnvStorageScope | null | undefined,
+  scope: StudioScope,
 ): Promise<StudioGenerationOutput[]> {
   if (providerId !== 'gemini') {
     throw new StudioServiceError(
@@ -1288,12 +1387,13 @@ async function generateStudioSound(
     storageScope,
   });
 
-  await ensureStudioOutputsWorkspace();
+  await ensureStudioOutputsWorkspace(scope.storage);
 
   const slug = prompt.slice(0, 40).replace(/[^a-z0-9]+/gi, '-').replace(/^-+|-+$/g, '') || 'sound';
   const ext = extensionFromMime(result.mimeType);
   const outputFilename = generateOutputFilename(slug, 0, ext === 'bin' ? resolvedOutputFormat : ext);
-  await writeOutputFile(outputFilename, result.audioBytes);
+  const outputPath = generateOutputPath(scope.storage, generationId, outputFilename);
+  await writeOutputFile(outputPath, result.audioBytes);
 
   const outputId = randomUUID();
   const now = new Date();
@@ -1302,9 +1402,9 @@ async function generateStudioSound(
     generationId,
     variationIndex: 0,
     type: 'sound',
-    filePath: outputFilename,
+    filePath: outputPath,
     fileName: outputFilename,
-    mediaUrl: toMediaUrl(outputFilename),
+    mediaUrl: toMediaUrl(outputPath, { workspaceId: scope.workspaceId }),
     fileSize: result.audioBytes.length,
     mimeType: result.mimeType,
     width: null,
@@ -1317,9 +1417,9 @@ async function generateStudioSound(
   return [{
     id: outputId,
     variationIndex: 0,
-    filePath: outputFilename,
+    filePath: outputPath,
     fileName: outputFilename,
-    mediaUrl: toMediaUrl(outputFilename),
+    mediaUrl: toMediaUrl(outputPath, { workspaceId: scope.workspaceId }),
     mimeType: result.mimeType,
     fileSize: result.audioBytes.length,
   }];
@@ -1347,12 +1447,20 @@ async function generateStudioVideo(
     nsfwChecker?: boolean;
   },
   storageScope?: EnvStorageScope | null,
-  userId?: string | null,
+  scope?: StudioScope,
 ): Promise<StudioGenerationOutput[]> {
   if (!prompt && !videoExtendSourcePath) {
     throw new StudioServiceError(
       'Prompt required for video generation',
       'Ein Prompt ist für Video-Generierung erforderlich.',
+    );
+  }
+
+  if (scope) {
+    await Promise.all(
+      [startFramePath, endFramePath, videoExtendSourcePath]
+        .filter((value): value is string => Boolean(value))
+        .map((value) => assertStudioReferenceReadable(value, scope)),
     );
   }
 
@@ -1382,7 +1490,7 @@ async function generateStudioVideo(
       referenceAudios,
       videoOptions,
       storageScope,
-      userId,
+      scope,
     );
   }
 
@@ -1413,6 +1521,8 @@ async function generateStudioVideo(
     personGeneration: effectivePersonGeneration,
     generateAudio: videoOptions?.generateAudio,
     storageScope,
+    studioStorageScope: scope?.storage,
+    studioGenerationId: generationId,
   };
 
   if (providerReferenceImages.length > 0) {
@@ -1420,7 +1530,10 @@ async function generateStudioVideo(
     for (let i = 0; i < providerReferenceImages.length; i++) {
       const ref = providerReferenceImages[i];
       const ext = extensionFromMime(ref.mimeType);
-      const tempPath = `temp-ref-${generationId}-${i}.${ext}`;
+      const tempFileName = `temp-ref-${generationId}-${i}.${ext}`;
+      const tempPath = scope
+        ? generateOutputPath(scope.storage, generationId, tempFileName)
+        : tempFileName;
       const buffer = Buffer.from(ref.imageBytes, 'base64');
       await writeOutputFile(tempPath, buffer);
       tempPaths.push(tempPath);
@@ -1428,7 +1541,7 @@ async function generateStudioVideo(
     requestBody.referenceImagePaths = tempPaths;
   }
 
-  const videoResult = await generateVideo(requestBody, 'studio-generation', { userId });
+  const videoResult = await generateVideo(requestBody, 'studio-generation', { userId: scope?.actorUserId });
 
   const outputId = randomUUID();
   const now = new Date();
@@ -1461,9 +1574,10 @@ async function generateStudioVideo(
   }];
 }
 
-async function loadSeedanceFrame(filePath: string, userId?: string | null): Promise<SeedanceReferenceMedia> {
+async function loadSeedanceFrame(filePath: string, scope?: StudioScope): Promise<SeedanceReferenceMedia> {
   try {
-    const file = await loadMediaReference(filePath, { userId: userId ?? undefined, allowedTypes: ['image'] });
+    if (scope) await assertStudioReferenceReadable(filePath, scope);
+    const file = await loadMediaReference(filePath, { userId: scope?.actorUserId, allowedTypes: ['image'] });
     return {
       imageBytes: file.imageBytes,
       mimeType: file.mimeType,
@@ -1507,12 +1621,12 @@ async function generateStudioSeedanceVideo(
     nsfwChecker?: boolean;
   },
   storageScope?: EnvStorageScope | null,
-  userId?: string | null,
+  scope?: StudioScope,
 ): Promise<StudioGenerationOutput[]> {
   console.log(`[Studio Generation] Seedance video: refs=${referenceImages.length}, startFrame=${startFramePath ? 'yes' : 'no'}, endFrame=${endFramePath ? 'yes' : 'no'}, duration=${videoDuration || 6}s`);
-  const firstFrame = startFramePath ? await loadSeedanceFrame(startFramePath, userId) : null;
+  const firstFrame = startFramePath ? await loadSeedanceFrame(startFramePath, scope) : null;
   const lastFramePath = isLooping ? startFramePath : endFramePath;
-  const lastFrame = lastFramePath ? await loadSeedanceFrame(lastFramePath, userId) : null;
+  const lastFrame = lastFramePath ? await loadSeedanceFrame(lastFramePath, scope) : null;
   console.log(`[Studio Generation] Seedance frames loaded: first=${firstFrame ? `${firstFrame.mimeType} ${firstFrame.fileName}` : 'none'}, last=${lastFrame ? `${lastFrame.mimeType} ${lastFrame.fileName}` : 'none'}`);
 
   const hasFrameScenario = Boolean(firstFrame || lastFrame);
@@ -1560,6 +1674,8 @@ async function generateStudioSeedanceVideo(
     nsfwChecker: videoOptions?.nsfwChecker,
     caller: 'studio-generation',
     storageScope,
+    studioStorageScope: scope?.storage,
+    studioGenerationId: generationId,
   });
 
   const outputId = randomUUID();
@@ -1598,13 +1714,13 @@ export interface ListStudioGenerationsOptions {
   creatorUserId?: string | null;
 }
 
-async function listStudioGenerationCreators(userId: string) {
+async function listStudioGenerationCreators(scope: StudioScope) {
   const rows = await db.select({
     userId: studioGenerations.userId,
     createdByUserId: studioGenerations.createdByUserId,
   })
     .from(studioGenerations)
-    .where(await generationVisibilityCondition(userId))
+    .where(generationVisibilityCondition(scope))
     .groupBy(studioGenerations.userId, studioGenerations.createdByUserId);
 
   const creatorIds = [...new Set(
@@ -1631,10 +1747,10 @@ async function listStudioGenerationCreators(userId: string) {
   }));
 }
 
-export async function listStudioGenerations(userId: string, options: ListStudioGenerationsOptions = {}) {
+export async function listStudioGenerations(scope: StudioScope, options: ListStudioGenerationsOptions = {}) {
   const limit = options.limit && options.limit > 0 ? options.limit : undefined;
   const offset = options.offset && options.offset > 0 ? options.offset : undefined;
-  const visibility = await generationVisibilityCondition(userId, options.creatorUserId);
+  const visibility = generationVisibilityCondition(scope, options.creatorUserId);
 
   let query = db.select()
     .from(studioGenerations)
@@ -1654,7 +1770,7 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
     db.select({ count: count() })
       .from(studioGenerations)
       .where(visibility),
-    listStudioGenerationCreators(userId),
+    listStudioGenerationCreators(scope),
   ]);
 
   const results = await Promise.all(generations.map(async (gen) => {
@@ -1678,7 +1794,7 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
       ...gen,
       outputs: outputs.map((o) => ({
         ...o,
-        mediaUrl: o.filePath ? toMediaUrl(o.filePath) : o.mediaUrl,
+        mediaUrl: o.filePath ? toMediaUrl(o.filePath, { workspaceId: scope.workspaceId }) : o.mediaUrl,
       })),
       product_ids: productRefs.map((r) => r.productId),
       persona_ids: personaRefs.map((r) => r.personaId),
@@ -1696,10 +1812,10 @@ export async function listStudioGenerations(userId: string, options: ListStudioG
   };
 }
 
-export async function getStudioGeneration(generationId: string, userId: string) {
+export async function getStudioGeneration(generationId: string, scope: StudioScope) {
   const [generation] = await db.select()
     .from(studioGenerations)
-    .where(and(eq(studioGenerations.id, generationId), await generationVisibilityCondition(userId)));
+    .where(and(eq(studioGenerations.id, generationId), generationVisibilityCondition(scope)));
 
   if (!generation) return null;
 
@@ -1723,7 +1839,7 @@ export async function getStudioGeneration(generationId: string, userId: string) 
     ...generation,
     outputs: outputs.map((o) => ({
       ...o,
-      mediaUrl: o.filePath ? toMediaUrl(o.filePath) : o.mediaUrl,
+      mediaUrl: o.filePath ? toMediaUrl(o.filePath, { workspaceId: scope.workspaceId }) : o.mediaUrl,
     })),
     product_ids: productRefs.map((r) => r.productId),
     persona_ids: personaRefs.map((r) => r.personaId),
@@ -1731,7 +1847,7 @@ export async function getStudioGeneration(generationId: string, userId: string) 
   };
 }
 
-export async function deleteStudioOutput(outputId: string, userId: string): Promise<{ success: boolean; generationDeleted: boolean }> {
+export async function deleteStudioOutput(outputId: string, scope: StudioScope): Promise<{ success: boolean; generationDeleted: boolean }> {
   const [outputRow] = await db.select({
     id: studioGenerationOutputs.id,
     generationId: studioGenerationOutputs.generationId,
@@ -1739,7 +1855,7 @@ export async function deleteStudioOutput(outputId: string, userId: string): Prom
   })
     .from(studioGenerationOutputs)
     .innerJoin(studioGenerations, eq(studioGenerationOutputs.generationId, studioGenerations.id))
-    .where(and(eq(studioGenerationOutputs.id, outputId), eq(studioGenerations.userId, userId)))
+    .where(and(eq(studioGenerationOutputs.id, outputId), generationVisibilityCondition(scope)))
     .limit(1);
 
   if (!outputRow) {
@@ -1769,10 +1885,10 @@ export async function deleteStudioOutput(outputId: string, userId: string): Prom
   return { success: true, generationDeleted };
 }
 
-export async function deleteStudioGeneration(generationId: string, userId: string) {
+export async function deleteStudioGeneration(generationId: string, scope: StudioScope) {
   const [generation] = await db.select()
     .from(studioGenerations)
-    .where(and(eq(studioGenerations.id, generationId), eq(studioGenerations.userId, userId)));
+    .where(and(eq(studioGenerations.id, generationId), generationVisibilityCondition(scope)));
 
   if (!generation) {
     throw new StudioServiceError('Generation not found', 'Generierung nicht gefunden', 'NOT_FOUND');

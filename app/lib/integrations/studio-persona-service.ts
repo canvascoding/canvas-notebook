@@ -9,28 +9,27 @@ import {
   deleteAssetDir,
   generatePersonaImagePath,
   ensureStudioAssetsWorkspace,
+  getStudioAssetEntityPath,
 } from '@/app/lib/integrations/studio-workspace';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
-import { resolveStudioScope, studioInsertScope, studioVisibilityCondition } from '@/app/lib/integrations/studio-scope';
+import { studioInsertScope, studioVisibilityCondition, type StudioScope } from '@/app/lib/integrations/studio-scope';
 
 const MAX_IMAGES_PER_PERSONA = 10;
 
-async function getOwnedPersona(personaId: string, userId: string) {
+async function getScopedPersona(personaId: string, scope: StudioScope) {
   const [persona] = await db.select()
     .from(studioPersonas)
-    .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
+    .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.workspaceId, scope.workspaceId)));
   return persona ?? null;
 }
 
-async function getVisiblePersona(personaId: string, userId: string) {
-  const scope = await resolveStudioScope(userId);
+async function getVisiblePersona(personaId: string, scope: StudioScope) {
   const [persona] = await db.select()
     .from(studioPersonas)
     .where(and(
       eq(studioPersonas.id, personaId),
       studioVisibilityCondition(scope, {
-        userId: studioPersonas.userId,
-        organizationId: studioPersonas.organizationId,
+        workspaceId: studioPersonas.workspaceId,
         createdByUserId: studioPersonas.createdByUserId,
       }),
     ));
@@ -38,19 +37,17 @@ async function getVisiblePersona(personaId: string, userId: string) {
 }
 
 export async function createPersona(
-  userId: string,
+  scope: StudioScope,
   data: { name: string; description?: string }
 ) {
-  await ensureStudioAssetsWorkspace();
+  await ensureStudioAssetsWorkspace(scope.storage);
   const id = randomUUID();
   const now = new Date();
-  const scope = await studioInsertScope(userId);
+  const insertScope = studioInsertScope(scope);
   const [inserted] = await db.insert(studioPersonas).values({
     id,
-    userId,
-    organizationId: scope.organizationId,
-    createdByUserId: scope.createdByUserId,
-    visibility: scope.visibility,
+    userId: scope.actorUserId,
+    ...insertScope,
     name: data.name,
     description: data.description ?? null,
     thumbnailPath: null,
@@ -61,8 +58,8 @@ export async function createPersona(
   return inserted;
 }
 
-export async function getPersona(personaId: string, userId: string) {
-  const persona = await getVisiblePersona(personaId, userId);
+export async function getPersona(personaId: string, scope: StudioScope) {
+  const persona = await getVisiblePersona(personaId, scope);
   if (!persona) return null;
   const images = await db.select().from(studioPersonaImages)
     .where(eq(studioPersonaImages.personaId, personaId))
@@ -70,11 +67,9 @@ export async function getPersona(personaId: string, userId: string) {
   return { ...persona, images, imageCount: images.length };
 }
 
-export async function listPersonas(userId: string, search?: string) {
-  const scope = await resolveStudioScope(userId);
+export async function listPersonas(scope: StudioScope, search?: string) {
   const conditions = [studioVisibilityCondition(scope, {
-    userId: studioPersonas.userId,
-    organizationId: studioPersonas.organizationId,
+    workspaceId: studioPersonas.workspaceId,
     createdByUserId: studioPersonas.createdByUserId,
   })];
   if (search) {
@@ -108,10 +103,10 @@ export async function listPersonas(userId: string, search?: string) {
 
 export async function updatePersona(
   personaId: string,
-  userId: string,
+  scope: StudioScope,
   data: { name?: string; description?: string }
 ) {
-  const existing = await getOwnedPersona(personaId, userId);
+  const existing = await getScopedPersona(personaId, scope);
   if (!existing) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -120,16 +115,16 @@ export async function updatePersona(
     ...(data.name !== undefined && { name: data.name }),
     ...(data.description !== undefined && { description: data.description }),
     updatedAt: now,
-  }).where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId))).returning();
+  }).where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.workspaceId, scope.workspaceId))).returning();
   return updated;
 }
 
 export async function addPersonaImage(
   personaId: string,
-  userId: string,
+  scope: StudioScope,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number; sourceType: 'upload' | 'url_import' | 'workspace_import'; sourceUrl?: string }
 ) {
-  const persona = await getOwnedPersona(personaId, userId);
+  const persona = await getScopedPersona(personaId, scope);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -146,7 +141,7 @@ export async function addPersonaImage(
   }
   const sortOrder = currentCount;
   const ext = file.fileName.split('.').pop() || 'jpg';
-  const filePath = generatePersonaImagePath(personaId, sortOrder, ext);
+  const filePath = generatePersonaImagePath(personaId, sortOrder, ext, scope.storage);
   await writeAssetFile(filePath, file.buffer);
   const imageId = randomUUID();
   const now = new Date();
@@ -166,13 +161,13 @@ export async function addPersonaImage(
   }).returning();
   if (sortOrder === 0) {
     await db.update(studioPersonas).set({ thumbnailPath: filePath, updatedAt: now })
-      .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
+      .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.workspaceId, scope.workspaceId)));
   }
   return insertedImage;
 }
 
-export async function deletePersonaImage(personaId: string, userId: string, imageId: string) {
-  const persona = await getVisiblePersona(personaId, userId);
+export async function deletePersonaImage(personaId: string, scope: StudioScope, imageId: string) {
+  const persona = await getVisiblePersona(personaId, scope);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -202,11 +197,11 @@ export async function deletePersonaImage(personaId: string, userId: string, imag
 
 export async function replacePersonaImage(
   personaId: string,
-  userId: string,
+  scope: StudioScope,
   imageId: string,
   file: { buffer: Buffer; fileName: string; mimeType: string; fileSize: number; width?: number; height?: number }
 ) {
-  const persona = await getOwnedPersona(personaId, userId);
+  const persona = await getScopedPersona(personaId, scope);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -216,7 +211,7 @@ export async function replacePersonaImage(
     throw new StudioServiceError('Image not found', 'Bild nicht gefunden', 'NOT_FOUND');
   }
   const ext = file.fileName.split('.').pop() || 'jpg';
-  const newFilePath = generatePersonaImagePath(personaId, image.sortOrder, ext);
+  const newFilePath = generatePersonaImagePath(personaId, image.sortOrder, ext, scope.storage);
   await writeAssetFile(newFilePath, file.buffer);
   const now = new Date();
   const [updated] = await db.update(studioPersonaImages).set({
@@ -234,13 +229,13 @@ export async function replacePersonaImage(
   }
   if (image.sortOrder === 0) {
     await db.update(studioPersonas).set({ thumbnailPath: newFilePath, updatedAt: now })
-      .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
+      .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.workspaceId, scope.workspaceId)));
   }
   return updated;
 }
 
-export async function getPersonaImageBuffer(personaId: string, userId: string, imageId: string) {
-  const persona = await getVisiblePersona(personaId, userId);
+export async function getPersonaImageBuffer(personaId: string, scope: StudioScope, imageId: string) {
+  const persona = await getVisiblePersona(personaId, scope);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -262,8 +257,8 @@ export async function getPersonaImageBuffer(personaId: string, userId: string, i
   }
 }
 
-export async function reorderPersonaImages(personaId: string, userId: string, imageOrder: string[]) {
-  const persona = await getOwnedPersona(personaId, userId);
+export async function reorderPersonaImages(personaId: string, scope: StudioScope, imageOrder: string[]) {
+  const persona = await getScopedPersona(personaId, scope);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -283,13 +278,13 @@ export async function reorderPersonaImages(personaId: string, userId: string, im
     if (firstImage) {
       const now = new Date();
       await db.update(studioPersonas).set({ thumbnailPath: firstImage.filePath, updatedAt: now })
-        .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.userId, userId)));
+        .where(and(eq(studioPersonas.id, personaId), eq(studioPersonas.workspaceId, scope.workspaceId)));
     }
   }
 }
 
-export async function deletePersona(personaId: string, userId: string) {
-  const persona = await getOwnedPersona(personaId, userId);
+export async function deletePersona(personaId: string, scope: StudioScope) {
+  const persona = await getScopedPersona(personaId, scope);
   if (!persona) {
     throw new StudioServiceError('Persona not found', 'Persona nicht gefunden', 'NOT_FOUND');
   }
@@ -308,7 +303,7 @@ export async function deletePersona(personaId: string, userId: string) {
     });
   }
   try {
-    await deleteAssetDir(`personas/${personaId}/`);
+    await deleteAssetDir(getStudioAssetEntityPath(scope.storage, 'personas', personaId));
   } catch (err) {
     console.warn(`Failed to delete persona directory personas/${personaId}/:`, err);
   }

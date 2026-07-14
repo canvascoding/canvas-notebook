@@ -14,11 +14,16 @@ import { classifyMediaReference, loadMediaReference } from '@/app/lib/integratio
 import {
   ensureStudioEditsWorkspace,
   ensureStudioOutputsWorkspace,
+  generateEditPath,
+  generateOutputPath,
   getStudioEditsRoot,
+  getStudioWorkspaceVirtualRoot,
   readEditFile,
   writeOutputFile,
   writeEditFile,
 } from '@/app/lib/integrations/studio-workspace';
+import type { StudioScope } from '@/app/lib/integrations/studio-scope';
+import { canReadStudioMediaPath } from '@/app/lib/integrations/studio-media-access';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 
 export type AspectRatioMode = 'crop' | 'ai_extend';
@@ -310,15 +315,23 @@ function buildEditFileName(mode: AspectRatioMode, sourcePath: string, format: st
   return `${safeBase}-${mode}-${timestamp}-${id}.${ext}`;
 }
 
-async function writeEditResult(buffer: Buffer, fileName: string, mode: AspectRatioMode, width: number, height: number, mimeType: string): Promise<AspectRatioPreviewResult> {
-  await ensureStudioEditsWorkspace();
-  await writeEditFile(fileName, buffer);
-  const virtualPath = `studio/edits/${fileName}`;
+async function writeEditResult(
+  buffer: Buffer,
+  fileName: string,
+  mode: AspectRatioMode,
+  width: number,
+  height: number,
+  mimeType: string,
+  scope: StudioScope,
+): Promise<AspectRatioPreviewResult> {
+  await ensureStudioEditsWorkspace(scope.storage);
+  const virtualPath = generateEditPath(scope.storage, fileName);
+  await writeEditFile(virtualPath, buffer);
   return {
     path: virtualPath,
     name: fileName,
-    mediaUrl: toMediaUrl(virtualPath),
-    previewUrl: toPreviewUrl(virtualPath, 960),
+    mediaUrl: toMediaUrl(virtualPath, { workspaceId: scope.workspaceId }),
+    previewUrl: toPreviewUrl(virtualPath, 960, { workspaceId: scope.workspaceId }),
     mode,
     width,
     height,
@@ -328,9 +341,13 @@ async function writeEditResult(buffer: Buffer, fileName: string, mode: AspectRat
 
 export async function createAspectRatioPreview(
   input: AspectRatioPreviewRequest,
+  scope: StudioScope,
   storageScope?: EnvStorageScope | null,
 ): Promise<AspectRatioPreviewResult> {
   const request = validatePreviewRequest(input);
+  if (request.sourcePath.startsWith('studio/') && !(await canReadStudioMediaPath(request.sourcePath, scope))) {
+    throw new Error('Source image is not available in this workspace');
+  }
   const source = await loadMediaReference(request.sourcePath, { userId: storageScope?.userId ?? undefined, allowedTypes: ['image'] });
   const sourceBytes = source.bytes;
   const metadata = await sharp(sourceBytes, { limitInputPixels: false }).metadata();
@@ -359,6 +376,7 @@ export async function createAspectRatioPreview(
       request.targetWidth,
       request.targetHeight,
       MIME_BY_FORMAT[outputFormat],
+      scope,
     );
   }
 
@@ -427,15 +445,20 @@ export async function createAspectRatioPreview(
     request.targetWidth,
     request.targetHeight,
     MIME_BY_FORMAT[outputFormat],
+    scope,
   );
 }
 
-function getEditRelativePath(previewPath: string) {
+function getEditRelativePath(previewPath: string, scope: StudioScope) {
   const normalized = previewPath.trim().replace(/^\/+/, '');
-  if (!normalized.startsWith('studio/edits/')) {
-    throw new Error('previewPath must point to studio/edits');
+  const scopedPrefix = `${getStudioWorkspaceVirtualRoot(scope.storage)}/edits/`;
+  if (normalized.startsWith(scopedPrefix)) {
+    return normalized;
   }
-  return normalized.slice('studio/edits/'.length);
+  if (normalized.startsWith('studio/edits/')) {
+    return normalized.slice('studio/edits/'.length);
+  }
+  throw new Error('previewPath must point to this Studio workspace edits directory');
 }
 
 function joinWorkspacePath(dirPath: string, fileName: string) {
@@ -446,14 +469,13 @@ function joinWorkspacePath(dirPath: string, fileName: string) {
 
 async function keepEditAsStudioOutput(
   input: AspectRatioSaveRequest,
-  userId: string,
+  scope: StudioScope,
   editRelativePath: string,
   buffer: Buffer,
 ): Promise<{ path: string; generationId: string; outputId: string }> {
-  await ensureStudioOutputsWorkspace();
+  await ensureStudioOutputsWorkspace(scope.storage);
 
   const outputFileName = path.posix.basename(editRelativePath);
-  await writeOutputFile(outputFileName, buffer);
 
   const metadata = await sharp(buffer, { limitInputPixels: false }).metadata();
   const now = new Date();
@@ -467,11 +489,17 @@ async function keepEditAsStudioOutput(
   const model = typeof input.model === 'string' && input.model.trim()
     ? input.model.trim()
     : mode;
-  const outputPath = outputFileName;
+  const outputPath = generateOutputPath(scope.storage, generationId, outputFileName);
+  await writeOutputFile(outputPath, buffer);
 
   await db.insert(studioGenerations).values({
     id: generationId,
-    userId,
+    userId: scope.actorUserId,
+    organizationId: scope.organizationId,
+    customerId: scope.customerId,
+    projectId: scope.projectId,
+    createdByUserId: scope.actorUserId,
+    workspaceId: scope.workspaceId,
     mode: 'image',
     prompt: 'Aspect ratio edit',
     rawPrompt: input.sourcePath || input.previewPath,
@@ -496,11 +524,16 @@ async function keepEditAsStudioOutput(
   await db.insert(studioGenerationOutputs).values({
     id: outputId,
     generationId,
+    organizationId: scope.organizationId,
+    customerId: scope.customerId,
+    projectId: scope.projectId,
+    createdByUserId: scope.actorUserId,
+    workspaceId: scope.workspaceId,
     variationIndex: 0,
     type: 'image',
     filePath: outputPath,
     fileName: outputFileName,
-    mediaUrl: toMediaUrl(outputPath),
+    mediaUrl: toMediaUrl(outputPath, { workspaceId: scope.workspaceId }),
     fileSize: buffer.length,
     mimeType: input.previewPath.endsWith('.jpg') || input.previewPath.endsWith('.jpeg')
       ? 'image/jpeg'
@@ -520,7 +553,7 @@ async function keepEditAsStudioOutput(
   });
 
   return {
-    path: `studio/outputs/${outputPath}`,
+    path: outputPath,
     generationId,
     outputId,
   };
@@ -528,14 +561,14 @@ async function keepEditAsStudioOutput(
 
 export async function saveAspectRatioEdit(
   input: AspectRatioSaveRequest,
-  userId: string,
+  scope: StudioScope,
   workspaceOptions?: WorkspaceFileOperationOptions
 ): Promise<{ path: string; generationId?: string; outputId?: string }> {
-  const editRelativePath = getEditRelativePath(input.previewPath);
+  const editRelativePath = getEditRelativePath(input.previewPath, scope);
   const buffer = await readEditFile(editRelativePath);
 
   if (input.action === 'keep_edit') {
-    return keepEditAsStudioOutput(input, userId, editRelativePath, buffer);
+    return keepEditAsStudioOutput(input, scope, editRelativePath, buffer);
   }
 
   if (input.action === 'copy_workspace') {
@@ -555,6 +588,9 @@ export async function saveAspectRatioEdit(
     if (!input.sourcePath || typeof input.sourcePath !== 'string') {
       throw new Error('sourcePath is required for overwrite');
     }
+    if (input.sourcePath.startsWith('studio/') && !(await canReadStudioMediaPath(input.sourcePath, scope))) {
+      throw new Error('Source image is not available in this workspace');
+    }
     const ref = classifyMediaReference(input.sourcePath);
     if (!ref?.absolutePath || ref.kind === 'external_url') {
       throw new Error('Only local studio, upload, and workspace images can be overwritten');
@@ -566,9 +602,11 @@ export async function saveAspectRatioEdit(
   throw new Error('Unsupported save action');
 }
 
-export async function getAspectRatioEditAbsolutePath(previewPath: string) {
-  const relativePath = getEditRelativePath(previewPath);
-  return path.join(getStudioEditsRoot(), relativePath);
+export async function getAspectRatioEditAbsolutePath(previewPath: string, scope: StudioScope) {
+  const relativePath = getEditRelativePath(previewPath, scope);
+  return relativePath.startsWith('studio/')
+    ? path.join(getStudioEditsRoot(scope.storage), path.posix.basename(relativePath))
+    : path.join(getStudioEditsRoot(), relativePath);
 }
 
 export function getAspectRatioModelOptions() {

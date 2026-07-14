@@ -5,7 +5,9 @@ import { IntegrationServiceError } from '@/app/lib/integrations/integration-serv
 import {
   ensureStudioOutputsWorkspace,
   generateOutputFilename,
+  generateOutputPath,
   writeOutputFile,
+  type StudioStorageScope,
 } from '@/app/lib/integrations/studio-workspace';
 import { toMediaUrl } from '@/app/lib/utils/media-url';
 import { generateManagedMedia, isManagedMediaFallbackAvailable } from '@/app/lib/integrations/managed-media-client';
@@ -52,6 +54,8 @@ export interface GenerateSeedanceVideoRequest {
   pollIntervalMs?: number;
   timeoutMs?: number;
   storageScope?: EnvStorageScope | null;
+  studioStorageScope?: StudioStorageScope;
+  studioGenerationId?: string;
 }
 
 export interface SeedanceVideoGenerationResult {
@@ -408,14 +412,17 @@ export async function generateSeedanceVideo(
       throw new IntegrationServiceError('Managed Seedance generation completed without output.', 500);
     }
 
-    await ensureStudioOutputsWorkspace();
+    await ensureStudioOutputsWorkspace(request.studioStorageScope);
     const extension = extensionFromMime(output.mimeType);
-    const outputPath = generateOutputFilename(promptToSlug(prompt), 0, extension);
+    const outputFilename = generateOutputFilename(promptToSlug(prompt), 0, extension);
+    const outputPath = request.studioStorageScope && request.studioGenerationId
+      ? generateOutputPath(request.studioStorageScope, request.studioGenerationId, outputFilename)
+      : outputFilename;
     await writeOutputFile(outputPath, output.bytes);
 
     return {
       path: outputPath,
-      mediaUrl: toMediaUrl(outputPath),
+      mediaUrl: toMediaUrl(outputPath, { workspaceId: request.studioStorageScope?.workspaceId }),
       fileSize: output.bytes.length,
       mimeType: output.mimeType,
       metadata: {
@@ -473,15 +480,18 @@ export async function generateSeedanceVideo(
   }
 
   const downloaded = await downloadVideo(resultUrl);
-  await ensureStudioOutputsWorkspace();
+  await ensureStudioOutputsWorkspace(request.studioStorageScope);
 
   const extension = extensionFromMime(downloaded.mimeType);
-  const outputPath = generateOutputFilename(promptToSlug(prompt), 0, extension);
+  const outputFilename = generateOutputFilename(promptToSlug(prompt), 0, extension);
+  const outputPath = request.studioStorageScope && request.studioGenerationId
+    ? generateOutputPath(request.studioStorageScope, request.studioGenerationId, outputFilename)
+    : outputFilename;
   await writeOutputFile(outputPath, downloaded.bytes);
 
   return {
     path: outputPath,
-    mediaUrl: toMediaUrl(outputPath),
+    mediaUrl: toMediaUrl(outputPath, { workspaceId: request.studioStorageScope?.workspaceId }),
     fileSize: downloaded.bytes.length,
     mimeType: downloaded.mimeType,
     metadata: {

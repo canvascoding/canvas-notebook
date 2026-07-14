@@ -38,7 +38,16 @@ async function main() {
     const { getImageGenerationProvider } = await import('../app/lib/integrations/image-generation-providers');
     const { ensureDefaultStudioPresetsSeeded } = await import('../app/lib/integrations/studio-preset-defaults');
     const { generatePresetPreview, listPresets } = await import('../app/lib/integrations/studio-preset-service');
-    const { getStudioAssetsRoot, writeAssetFile } = await import('../app/lib/integrations/studio-workspace');
+    const {
+      generatePresetPreviewPath,
+      resolveStudioFilePath,
+      writeAssetFile,
+    } = await import('../app/lib/integrations/studio-workspace');
+    const {
+      ensureOrganizationBootstrapForUser,
+      openOrganizationBootstrapDatabase,
+    } = await import('../app/lib/organization/bootstrap');
+    const { createPersistedStudioScope } = await import('../app/lib/integrations/studio-scope');
 
     const userId = 'preview-test-user';
     const now = new Date();
@@ -50,6 +59,24 @@ async function main() {
       createdAt: now,
       updatedAt: now,
     });
+    const sqlite = openOrganizationBootstrapDatabase();
+    let organizationId: string;
+    let workspaceId: string;
+    try {
+      sqlite.exec('BEGIN IMMEDIATE');
+      const status = ensureOrganizationBootstrapForUser(sqlite, userId);
+      assert.ok(status.organizationId);
+      organizationId = status.organizationId;
+      const workspace = sqlite.prepare(`
+        SELECT id FROM canvas_workspaces WHERE organization_id = ? AND owner_user_id = ? AND type = 'personal'
+      `).get(organizationId, userId) as { id: string } | undefined;
+      assert.ok(workspace?.id);
+      workspaceId = workspace.id;
+      sqlite.exec('COMMIT');
+    } finally {
+      sqlite.close();
+    }
+    const scope = createPersistedStudioScope({ actorUserId: userId, organizationId, workspaceId });
 
     const provider = getImageGenerationProvider('gemini');
     assert.ok(provider, 'Gemini provider should exist');
@@ -59,11 +86,15 @@ async function main() {
     });
 
     const presetId = 'preview-persistence-preset';
-    const oldPreviewPath = `studio/assets/presets/${presetId}/preview-old.png`;
+    const oldPreviewPath = generatePresetPreviewPath(presetId, 'png', scope.storage);
     await writeAssetFile(oldPreviewPath, Buffer.from('old preview image'));
     await db.insert(studioPresets).values({
       id: presetId,
       userId,
+      organizationId,
+      workspaceId,
+      createdByUserId: userId,
+      visibility: 'workspace',
       isDefault: false,
       name: 'Preview Persistence Preset',
       description: null,
@@ -81,7 +112,7 @@ async function main() {
       updatedAt: now,
     });
 
-    const updated = await generatePresetPreview(userId, presetId, {
+    const updated = await generatePresetPreview(scope, presetId, {
       provider: 'gemini',
       model: GEMINI_FLASH_IMAGE_MODEL_ID,
       aspectRatio: '1:1',
@@ -90,12 +121,12 @@ async function main() {
     assert.ok(updated.previewImagePath, 'Generated preset should keep a preview path');
     assert.notEqual(updated.previewImagePath, oldPreviewPath);
     assert.equal(
-      await exists(path.join(getStudioAssetsRoot(), updated.previewImagePath.replace('studio/assets/', ''))),
+      await exists(resolveStudioFilePath(updated.previewImagePath) || ''),
       true,
       'New preview file should exist',
     );
     assert.equal(
-      await exists(path.join(getStudioAssetsRoot(), oldPreviewPath.replace('studio/assets/', ''))),
+      await exists(resolveStudioFilePath(oldPreviewPath) || ''),
       false,
       'Old preview file should be deleted only after the new preview is stored',
     );
@@ -103,11 +134,15 @@ async function main() {
     const [dbPreset] = await db.select().from(studioPresets).where(eq(studioPresets.id, presetId));
     assert.equal(dbPreset.previewImagePath, updated.previewImagePath);
 
-    const seedRegressionPreviewPath = 'studio/assets/presets/user-seed-regression/preview-custom.png';
+    const seedRegressionPreviewPath = generatePresetPreviewPath('user-seed-regression', 'png', scope.storage);
     await writeAssetFile(seedRegressionPreviewPath, Buffer.from('custom preview'));
     await db.insert(studioPresets).values({
       id: 'user-seed-regression',
       userId,
+      organizationId,
+      workspaceId,
+      createdByUserId: userId,
+      visibility: 'workspace',
       isDefault: false,
       name: 'User Seed Regression',
       description: null,
@@ -134,6 +169,10 @@ async function main() {
     await db.insert(studioPresets).values({
       id: 'dangling-preview-preset',
       userId,
+      organizationId,
+      workspaceId,
+      createdByUserId: userId,
+      visibility: 'workspace',
       isDefault: false,
       name: 'Dangling Preview Preset',
       description: null,
@@ -145,13 +184,13 @@ async function main() {
         promptFragment: 'softbox key light with clean commercial highlights',
         category: 'commercial',
       }]),
-      previewImagePath: 'studio/assets/presets/dangling-preview-preset/preview-missing.png',
+      previewImagePath: generatePresetPreviewPath('dangling-preview-preset', 'png', scope.storage),
       tags: null,
       createdAt: now,
       updatedAt: now,
     });
 
-    const listedPresets = await listPresets(userId);
+    const listedPresets = await listPresets(scope);
     assert.equal(
       listedPresets.find((preset) => preset.id === 'dangling-preview-preset')?.previewImagePath,
       null,

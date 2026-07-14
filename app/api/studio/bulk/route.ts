@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { createBulkJob, listBulkJobs } from '@/app/lib/integrations/studio-bulk-service';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
+import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session, { permissions: 'canWrite' });
+  if (!studioRequest.scope) return studioRequest.response;
 
   let body: {
     product_ids?: string[];
@@ -38,7 +41,7 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const job = await createBulkJob(session.user.id, {
+    const job = await createBulkJob(studioRequest.scope, {
       productIds: body.product_ids,
       prompt: body.prompt,
       presetId: body.preset_id,
@@ -86,9 +89,11 @@ export async function GET(request: NextRequest) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+  const studioRequest = await requireStudioRequestScope(request, session);
+  if (!studioRequest.scope) return studioRequest.response;
 
   try {
-    const jobs = await listBulkJobs(session.user.id);
+    const jobs = await listBulkJobs(studioRequest.scope);
     return NextResponse.json({
       success: true,
       jobs: jobs.map((job) => ({
