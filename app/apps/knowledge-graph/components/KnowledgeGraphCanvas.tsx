@@ -55,11 +55,10 @@ function stopLayoutRun(run: LayoutRun | null): void {
 
 function focusRendererNode(
   renderer: SigmaInstance,
-  graph: GraphInstance,
   nodeId: string | null,
   duration: number,
 ): void {
-  if (!nodeId || !graph.nodes().includes(nodeId)) return;
+  if (!nodeId) return;
   const displayData = renderer.getNodeDisplayData(nodeId);
   if (!displayData) return;
   void renderer.getCamera().animate(
@@ -237,7 +236,7 @@ export function KnowledgeGraphCanvas({
         graph,
         gravity: gravityRef.current,
         inferSettings: forceAtlasModule.inferSettings,
-        onSettled: () => focusRendererNode(renderer!, graph, focusedNodeRef.current, 260),
+        onSettled: () => focusRendererNode(renderer!, focusedNodeRef.current, 260),
         scalingRatio: scalingRatioRef.current,
       });
       setRenderError(null);
@@ -302,7 +301,7 @@ export function KnowledgeGraphCanvas({
       graph,
       gravity,
       inferSettings,
-      onSettled: () => focusRendererNode(renderer, graph, focusedNodeRef.current, 260),
+      onSettled: () => focusRendererNode(renderer, focusedNodeRef.current, 260),
       scalingRatio,
     });
   }, [forceVersion, gravity, scalingRatio, topologyKey]);
@@ -313,7 +312,7 @@ export function KnowledgeGraphCanvas({
     const graph = graphRef.current;
     if (!renderer || !graph) return;
     renderer.refresh({ skipIndexation: true });
-    focusRendererNode(renderer, graph, focusNodeId, 520);
+    focusRendererNode(renderer, focusNodeId, 520);
   }, [focusNodeId, rendererVersion]);
 
   return (
