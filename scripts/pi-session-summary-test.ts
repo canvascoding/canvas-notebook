@@ -34,7 +34,7 @@ async function main() {
   };
 
   const { preparePiHistoryContext, summarizePiSessionHistory } = await import('../app/lib/pi/session-summary');
-  const { composePiHistoryForLlm, getUnsummarizedMessages } = await import('../app/lib/pi/history-budget');
+  const { composePiHistoryForLlm, estimateTextTokens, getUnsummarizedMessages } = await import('../app/lib/pi/history-budget');
   const { MAX_LLM_HISTORY_BYTES } = await import('../app/lib/pi/llm-payload-limits');
 
   const model = {
@@ -249,6 +249,26 @@ async function main() {
     toolTokens: 0,
   });
   assert.equal(compactedComposition.includedSummary, true);
+
+  const firstMessage = 'Recherchier im internet einmal nach einem marp präsentations doku um eine test marp präsi zu erstellen';
+  assert.equal(estimateTextTokens(firstMessage), Math.ceil(firstMessage.length / 4));
+  const initialMessageComposition = composePiHistoryForLlm({
+    messages: [{ role: 'user', content: firstMessage, timestamp: 8_000 } as unknown as AgentMessage],
+    summary: {
+      summaryText: null,
+      summaryUpdatedAt: null,
+      summaryThroughTimestamp: null,
+      summaryThroughSequence: null,
+    },
+    systemPromptTokens: 12_000,
+    contextWindow: 32_000,
+    modelMaxTokens: 32_000,
+    toolTokens: 6_000,
+    additionalContextTokens: 200,
+  });
+  assert.equal(initialMessageComposition.contextBudgetExceeded, false);
+  assert.equal(initialMessageComposition.llmMessages.length, 1);
+  assert.ok(initialMessageComposition.availableHistoryTokens >= initialMessageComposition.estimatedHistoryTokens);
 
   const oversizedComposition = composePiHistoryForLlm({
     messages: [{ role: 'user', content: 'x'.repeat(8_000), timestamp: 9_000 } as unknown as AgentMessage],
