@@ -177,6 +177,7 @@ export function KnowledgeGraphClient() {
   const focusedNode = useMemo(() => (
     graphData.nodes.find((node) => node.id === focusNodeId) ?? null
   ), [focusNodeId, graphData.nodes]);
+  const activeFocusNodeId = focusedNode?.id ?? null;
   const inspectedNode = hoveredNode ?? focusedNode;
   const selectedNavigatorNodeId = focusedNode?.id ?? '';
 
@@ -189,6 +190,9 @@ export function KnowledgeGraphClient() {
   }, [locale]);
   const handleNodeHover = useCallback((node: KnowledgeGraphNode | null) => {
     setHoveredNode(node);
+  }, []);
+  const handleNodeSelect = useCallback((node: KnowledgeGraphNode) => {
+    setFocusNodeId(node.id);
   }, []);
   const focusSearchResult = (node: KnowledgeGraphNode) => {
     setFocusNodeId(node.id);
@@ -219,11 +223,11 @@ export function KnowledgeGraphClient() {
       {!loading && !error && graphData.nodes.length > 0 ? (
         <KnowledgeGraphCanvas
           data={graphData}
-          focusNodeId={focusNodeId}
+          focusNodeId={activeFocusNodeId}
           forceVersion={appliedForces.version}
           gravity={appliedForces.gravity}
-          onNodeOpen={openDocument}
           onNodeHover={handleNodeHover}
+          onNodeSelect={handleNodeSelect}
           scalingRatio={appliedForces.scalingRatio}
           showLabels={showLabels}
         />

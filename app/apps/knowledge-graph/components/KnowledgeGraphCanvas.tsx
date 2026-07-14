@@ -19,8 +19,8 @@ type KnowledgeGraphCanvasProps = {
   focusNodeId: string | null;
   forceVersion: number;
   gravity: number;
-  onNodeOpen: (path: string) => void;
   onNodeHover: (node: KnowledgeGraphNode | null) => void;
+  onNodeSelect: (node: KnowledgeGraphNode) => void;
   scalingRatio: number;
   showLabels: boolean;
 };
@@ -127,8 +127,8 @@ export function KnowledgeGraphCanvas({
   focusNodeId,
   forceVersion,
   gravity,
-  onNodeOpen,
   onNodeHover,
+  onNodeSelect,
   scalingRatio,
   showLabels,
 }: KnowledgeGraphCanvasProps) {
@@ -204,18 +204,29 @@ export function KnowledgeGraphCanvas({
         nodeReducer: (node, attributes) => {
           const hoveredNode = hoveredNodeRef.current;
           const focusedNode = focusedNodeRef.current;
-          const activeNode = hoveredNode || focusedNode;
+          const activeNode = focusedNode || hoveredNode;
           if (!activeNode) return attributes;
           if (node === activeNode) {
-            return { ...attributes, color: '#f8fafc', highlighted: true, zIndex: 3 };
+            return {
+              ...attributes,
+              color: '#f8fafc',
+              highlighted: true,
+              size: attributes.size * 1.28,
+              zIndex: 3,
+            };
           }
           if (graph.areNeighbors(node, activeNode)) {
-            return { ...attributes, zIndex: 2 };
+            return {
+              ...attributes,
+              highlighted: true,
+              size: attributes.size * 1.12,
+              zIndex: 2,
+            };
           }
           return { ...attributes, color: 'rgba(100, 116, 139, 0.22)', label: '', zIndex: 0 };
         },
         edgeReducer: (edge, attributes) => {
-          const activeNode = hoveredNodeRef.current || focusedNodeRef.current;
+          const activeNode = focusedNodeRef.current || hoveredNodeRef.current;
           if (!activeNode) return attributes;
           const [source, target] = graph.extremities(edge);
           const connected = source === activeNode || target === activeNode;
@@ -229,7 +240,7 @@ export function KnowledgeGraphCanvas({
         hoveredNodeRef.current = node;
         const attributes = graph.getNodeAttributes(node);
         onNodeHover(attributes);
-        container.style.cursor = attributes.path ? 'pointer' : 'help';
+        container.style.cursor = 'pointer';
         renderer?.refresh({ skipIndexation: true });
       });
       renderer.on('leaveNode', () => {
@@ -239,8 +250,7 @@ export function KnowledgeGraphCanvas({
         renderer?.refresh({ skipIndexation: true });
       });
       renderer.on('clickNode', ({ node }) => {
-        const path = graph.getNodeAttribute(node, 'path');
-        if (path) onNodeOpen(path);
+        onNodeSelect(graph.getNodeAttributes(node));
       });
 
       graphRef.current = graph;
@@ -277,7 +287,7 @@ export function KnowledgeGraphCanvas({
       activeTopologyRef.current = null;
       container.replaceChildren();
     };
-  }, [onNodeHover, onNodeOpen, t, topologyKey]);
+  }, [onNodeHover, onNodeSelect, t, topologyKey]);
 
   useEffect(() => {
     const graph = graphRef.current;
