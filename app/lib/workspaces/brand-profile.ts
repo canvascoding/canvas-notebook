@@ -26,7 +26,8 @@ export interface WorkspaceBrandProfile {
   page: {
     size: WorkspaceBrandPageSize;
     backgroundColor: string;
-    marginMm: number;
+    verticalMarginMm: number;
+    horizontalMarginMm: number;
   };
   typography: {
     bodyFont: WorkspaceBrandFontId;
@@ -70,7 +71,8 @@ export const DEFAULT_WORKSPACE_BRAND_PROFILE: WorkspaceBrandProfile = {
   page: {
     size: 'A4',
     backgroundColor: '#ffffff',
-    marginMm: 20,
+    verticalMarginMm: 25,
+    horizontalMarginMm: 20,
   },
   typography: {
     bodyFont: 'canvas-sans',
@@ -105,7 +107,8 @@ export const WORKSPACE_BRAND_PRESETS = {
     page: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.page,
       backgroundColor: '#fbf8f1',
-      marginMm: 22,
+      verticalMarginMm: 24,
+      horizontalMarginMm: 22,
     },
     typography: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.typography,
@@ -161,7 +164,8 @@ export const WORKSPACE_BRAND_PRESETS = {
     enabled: true,
     page: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.page,
-      marginMm: 24,
+      verticalMarginMm: 26,
+      horizontalMarginMm: 24,
     },
     typography: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.typography,
@@ -257,7 +261,8 @@ export function normalizeWorkspaceBrandProfile(value: unknown): WorkspaceBrandPr
     page: {
       size: enumValue(page.size, WORKSPACE_BRAND_PAGE_SIZES, defaults.page.size),
       backgroundColor: colorValue(page.backgroundColor, defaults.page.backgroundColor),
-      marginMm: numberValue(page.marginMm, defaults.page.marginMm, 10, 35),
+      verticalMarginMm: numberValue(page.verticalMarginMm, defaults.page.verticalMarginMm, 10, 35),
+      horizontalMarginMm: numberValue(page.horizontalMarginMm, defaults.page.horizontalMarginMm, 10, 35),
     },
     typography: {
       bodyFont: enumValue(typography.bodyFont, WORKSPACE_BRAND_FONT_IDS, defaults.typography.bodyFont),

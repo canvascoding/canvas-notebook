@@ -71,11 +71,12 @@ async function main() {
     const normalized = normalizeWorkspaceBrandProfile({
       enabled: true,
       brandName: 'Canvas Studios',
-      page: { backgroundColor: '#FAF8F1', marginMm: 200 },
+      page: { backgroundColor: '#FAF8F1', verticalMarginMm: 200, horizontalMarginMm: 4 },
       colors: { accent: '#B24A2B' },
     });
     assert.equal(normalized.page.backgroundColor, '#faf8f1');
-    assert.equal(normalized.page.marginMm, 35);
+    assert.equal(normalized.page.verticalMarginMm, 35);
+    assert.equal(normalized.page.horizontalMarginMm, 10);
     assert.equal(normalized.colors.accent, '#b24a2b');
     assert.equal(normalized.colors.text, DEFAULT_WORKSPACE_BRAND_PROFILE.colors.text);
 

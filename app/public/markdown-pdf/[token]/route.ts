@@ -10,6 +10,7 @@ import {
   getPublicMarkdownExport,
 } from '@/app/lib/public-sharing/public-markdown-export';
 import { getBrowserExportErrorResponse } from '@/app/lib/exports/browser-export-service';
+import { getMarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
 
 export async function POST(
   _request: NextRequest,
@@ -24,7 +25,10 @@ export async function POST(
 
     await assertBrowserExportAvailable();
 
-    const pdfBuffer = await generatePdfFromHtml(result.html);
+    const pdfBuffer = await generatePdfFromHtml(
+      result.html,
+      getMarkdownPdfRenderOptions(result.brandProfile),
+    );
 
     return new NextResponse(new Uint8Array(pdfBuffer), {
       status: 200,

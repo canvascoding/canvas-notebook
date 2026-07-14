@@ -6,6 +6,8 @@ import path from 'node:path';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { renderMarpMarkdownToHtmlDocument } from '@/app/lib/marp/render';
 import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
+import { resolveMarkdownExportBrandState } from '@/app/lib/pdf/markdown-export-cache';
+import type { WorkspaceBrandProfile } from '@/app/lib/workspaces/brand-profile';
 import {
   resolvePublicShareToken,
   type PublicShareResolution,
@@ -18,6 +20,7 @@ export type PublicMarkdownExportResult = {
   fileName: string;
   workspacePath: string;
   html: string;
+  brandProfile: WorkspaceBrandProfile;
 } | {
   ok: false;
   status: number;
@@ -90,12 +93,15 @@ export async function getPublicMarkdownExport(token: string): Promise<PublicMark
 
   const { resolved } = publicMarkdown;
 
-  const html = await getCachedMarkdownHtmlDocument(resolved.workspacePath, { workspace: resolved.workspace });
+  const fileOptions = { workspace: resolved.workspace };
+  const brandState = await resolveMarkdownExportBrandState(fileOptions);
+  const html = await getCachedMarkdownHtmlDocument(resolved.workspacePath, fileOptions, brandState);
   return {
     ok: true,
     fileName: resolved.share.fileName,
     workspacePath: resolved.workspacePath,
     html,
+    brandProfile: brandState.profile,
   };
 }
 
@@ -124,5 +130,6 @@ export async function getPublicMarpPreview(token: string): Promise<PublicMarkdow
     fileName: resolved.share.fileName,
     workspacePath: resolved.workspacePath,
     html,
+    brandProfile: (await resolveMarkdownExportBrandState({ workspace: resolved.workspace })).profile,
   };
 }

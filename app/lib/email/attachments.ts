@@ -17,11 +17,13 @@ import {
 import {
   getFileStats as getWorkspaceFileStats,
   readFile as readWorkspaceFile,
+  type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
 import {
   getFileInfo as getUploadedFileInfo,
   readFile as readUploadedFile,
 } from '@/app/lib/filesystem/upload-handler';
+import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 
 export type ResolvedEmailAttachment = {
   content: Buffer;
@@ -101,10 +103,41 @@ function assertAttachmentLimit(metadata: Array<{ size: number }>) {
   }
 }
 
-async function resolveWorkspaceAttachmentMetadata(input: EmailAttachmentInput): Promise<EmailAttachmentMetadata> {
+function currentWorkspaceFileOptions(): WorkspaceFileOperationOptions | undefined {
+  const context = getAgentExecutionContext();
+  if (!context) return undefined;
+
+  return {
+    workspace: {
+      workspaceId: context.workspaceId,
+      workspaceType: context.workspaceType,
+      displayName: context.workspaceName ?? undefined,
+      rootPath: context.workspaceRoot,
+      rootRelativePath: context.workspaceRootRelativePath ?? undefined,
+      organizationId: context.organizationId,
+      customerId: context.customerId,
+      projectId: context.projectId,
+      actor: { userId: context.userId, role: 'member' },
+      permissions: {
+        canRead: true,
+        canWrite: context.canWrite,
+        canDelete: context.canDelete,
+        canCreatePublicLinks: context.canShare,
+        canManageWorkspace: false,
+        canRunAgent: true,
+      },
+      legacy: context.legacy,
+    },
+  };
+}
+
+async function resolveWorkspaceAttachmentMetadata(
+  input: EmailAttachmentInput,
+  fileOptions?: WorkspaceFileOperationOptions,
+): Promise<EmailAttachmentMetadata> {
   const workspacePath = cleanString(input.path);
   if (!workspacePath) throw new Error('Workspace attachment path is required.');
-  const stats = await getWorkspaceFileStats(workspacePath);
+  const stats = await getWorkspaceFileStats(workspacePath, fileOptions);
   if (!stats.isFile) throw new Error(`Attachment "${workspacePath}" is not a file.`);
   const name = cleanFileName(input.name || workspacePath);
   const wantsPdf = input.deliveryFormat === 'pdf';
@@ -158,16 +191,22 @@ async function resolveUploadAttachmentMetadata(input: EmailAttachmentInput): Pro
   };
 }
 
-async function resolveAttachmentMetadata(input: EmailAttachmentInput): Promise<EmailAttachmentMetadata> {
-  if (input.source === 'workspace') return resolveWorkspaceAttachmentMetadata(input);
+async function resolveAttachmentMetadata(
+  input: EmailAttachmentInput,
+  fileOptions?: WorkspaceFileOperationOptions,
+): Promise<EmailAttachmentMetadata> {
+  if (input.source === 'workspace') return resolveWorkspaceAttachmentMetadata(input, fileOptions);
   return resolveUploadAttachmentMetadata(input);
 }
 
-async function readAttachmentContent(metadata: EmailAttachmentMetadata): Promise<ResolvedEmailAttachment> {
+async function readAttachmentContent(
+  metadata: EmailAttachmentMetadata,
+  fileOptions?: WorkspaceFileOperationOptions,
+): Promise<ResolvedEmailAttachment> {
   const content = metadata.deliveryFormat === 'pdf'
-    ? await renderWorkspaceMarkdownPdf(metadata)
+    ? await renderWorkspaceMarkdownPdf(metadata, fileOptions)
     : metadata.source === 'workspace'
-      ? await readWorkspaceFile(metadata.input.path || '')
+      ? await readWorkspaceFile(metadata.input.path || '', fileOptions)
       : await readUploadedFile(metadata.input.uploadId || '');
 
   if (!content) throw new Error(`Attachment "${metadata.name}" could not be read.`);
@@ -186,23 +225,27 @@ async function readAttachmentContent(metadata: EmailAttachmentMetadata): Promise
   };
 }
 
-async function renderWorkspaceMarkdownPdf(metadata: EmailAttachmentMetadata): Promise<Buffer> {
+async function renderWorkspaceMarkdownPdf(
+  metadata: EmailAttachmentMetadata,
+  fileOptions?: WorkspaceFileOperationOptions,
+): Promise<Buffer> {
   if (metadata.source !== 'workspace' || !metadata.input.path) {
     throw new Error(`Attachment "${metadata.name}" cannot be rendered as PDF.`);
   }
 
   const { renderMarkdownWorkspaceFileToPdf } = await import('@/app/lib/pdf/markdown-pdf');
-  return renderMarkdownWorkspaceFileToPdf(metadata.input.path);
+  return renderMarkdownWorkspaceFileToPdf(metadata.input.path, fileOptions);
 }
 
 export async function resolveEmailAttachments(value: unknown): Promise<ResolvedEmailAttachment[]> {
   const inputs = normalizeEmailAttachmentInputs(value);
   if (inputs.length === 0) return [];
+  const fileOptions = currentWorkspaceFileOptions();
 
-  const metadata = await Promise.all(inputs.map(resolveAttachmentMetadata));
+  const metadata = await Promise.all(inputs.map((input) => resolveAttachmentMetadata(input, fileOptions)));
   assertAttachmentLimit(metadata);
 
-  const resolved = await Promise.all(metadata.map(readAttachmentContent));
+  const resolved = await Promise.all(metadata.map((attachment) => readAttachmentContent(attachment, fileOptions)));
   assertAttachmentLimit(resolved);
   return resolved;
 }

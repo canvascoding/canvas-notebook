@@ -8,7 +8,11 @@ import {
 } from '@/app/lib/email/attachment-types';
 import { assertBrowserExportAvailable } from '@/app/lib/pi/browser/settings-service';
 import { generatePdfFromHtml } from '@/app/lib/pdf/browser';
-import { getCachedMarkdownHtmlDocument } from '@/app/lib/pdf/markdown-export-cache';
+import {
+  getCachedMarkdownHtmlDocument,
+  resolveMarkdownExportBrandState,
+} from '@/app/lib/pdf/markdown-export-cache';
+import { getMarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 
 export function assertMarkdownPdfExportPath(filePath: string): void {
@@ -28,6 +32,7 @@ export async function renderMarkdownWorkspaceFileToPdf(
   assertMarkdownPdfExportPath(filePath);
   await assertBrowserExportAvailable();
 
-  const html = await getCachedMarkdownHtmlDocument(filePath, fileOptions);
-  return generatePdfFromHtml(html);
+  const brandState = await resolveMarkdownExportBrandState(fileOptions);
+  const html = await getCachedMarkdownHtmlDocument(filePath, fileOptions, brandState);
+  return generatePdfFromHtml(html, getMarkdownPdfRenderOptions(brandState.profile));
 }

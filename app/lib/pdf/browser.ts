@@ -14,6 +14,7 @@ import {
   type BrowserExportError,
   type BrowserExportJobContext,
 } from '@/app/lib/exports/browser-export-service';
+import type { MarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
 
 let browser: Browser | null = null;
 let launchPromise: Promise<Browser> | null = null;
@@ -119,7 +120,10 @@ async function closePageForTimedOutJob(page: Page | null, error: BrowserExportEr
   await disposePdfBrowser(`${context.label} timed out (${error.code})`);
 }
 
-export async function generatePdfFromHtml(html: string): Promise<Buffer> {
+export async function generatePdfFromHtml(
+  html: string,
+  options?: Partial<MarkdownPdfRenderOptions>,
+): Promise<Buffer> {
   let page: Page | null = null;
   return runBrowserExportJob({
     label: 'pdf-html',
@@ -134,10 +138,14 @@ export async function generatePdfFromHtml(html: string): Promise<Buffer> {
         page.setDefaultNavigationTimeout(20_000);
         await page.setContent(html, { waitUntil: 'domcontentloaded', timeout: 15_000 });
         await waitForPdfAssets(page);
+        const preferCssPageSize = options?.preferCssPageSize === true;
         const pdf = await page.pdf({
-          format: 'A4',
+          format: options?.format || 'A4',
           printBackground: true,
-          margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' },
+          preferCSSPageSize: preferCssPageSize,
+          ...(preferCssPageSize
+            ? {}
+            : { margin: { top: '25mm', right: '20mm', bottom: '25mm', left: '20mm' } }),
         });
         return Buffer.from(pdf);
       } catch (error) {
