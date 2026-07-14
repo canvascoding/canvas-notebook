@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
 import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/workspaces/client-types';
 import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
@@ -57,6 +58,7 @@ export function CreateWorkspaceDialog({
   const [projectsLoading, setProjectsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [createdWorkspace, setCreatedWorkspace] = useState<ClientWorkspaceSummary | null>(null);
 
   const loadProjects = useCallback(async () => {
     if (!open || !projectFeaturesEnabled || !canCreateTeamWorkspace) return;
@@ -118,6 +120,7 @@ export function CreateWorkspaceDialog({
     setIcon(getDefaultWorkspaceIcon('personal'));
     setIconCustomized(false);
     setProjectId('');
+    setCreatedWorkspace(null);
     setError(null);
     setIsSubmitting(false);
   };
@@ -163,9 +166,14 @@ export function CreateWorkspaceDialog({
       if (!response.ok || !payload.success || !payload.workspace) {
         throw new Error(payload.error || t('errors.createFailed'));
       }
-      await onCreated(payload.workspace as ClientWorkspaceSummary);
-      resetForm();
-      onOpenChange(false);
+      const workspace = payload.workspace as ClientWorkspaceSummary;
+      await onCreated(workspace);
+      if (workspace.type === 'team' || workspace.type === 'project') {
+        setCreatedWorkspace(workspace);
+      } else {
+        resetForm();
+        onOpenChange(false);
+      }
     } catch (err) {
       const message = err instanceof Error ? err.message : t('errors.createFailed');
       setError(message);
@@ -176,7 +184,28 @@ export function CreateWorkspaceDialog({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
+      <DialogContent className={createdWorkspace ? "!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_48rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none" : undefined}>
+        {createdWorkspace ? (
+          <div className="flex min-h-0 flex-1 flex-col">
+            <DialogHeader className="border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14">
+              <DialogTitle>{t('createDialog.accessTitle', { name: createdWorkspace.name })}</DialogTitle>
+              <DialogDescription>{t('createDialog.accessDescription')}</DialogDescription>
+            </DialogHeader>
+            <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6">
+              <WorkspaceMembersEditor
+                key={createdWorkspace.id}
+                active={open}
+                workspace={createdWorkspace}
+                onChanged={() => onCreated(createdWorkspace)}
+              />
+            </div>
+            <DialogFooter className="border-t border-border px-5 py-4 sm:px-6">
+              <Button type="button" onClick={() => handleOpenChange(false)}>
+                {t('createDialog.done')}
+              </Button>
+            </DialogFooter>
+          </div>
+        ) : (
         <form onSubmit={submit} className="flex flex-col gap-5">
           <DialogHeader>
             <DialogTitle>{t('createDialog.title')}</DialogTitle>
@@ -284,6 +313,7 @@ export function CreateWorkspaceDialog({
             </Button>
           </DialogFooter>
         </form>
+        )}
       </DialogContent>
     </Dialog>
   );

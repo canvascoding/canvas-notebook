@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
@@ -59,6 +60,7 @@ function EditWorkspaceDialogContent({
   ));
   const [error, setError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const supportsMembers = workspace?.type === 'team' || workspace?.type === 'project';
 
   const handleOpenChange = (nextOpen: boolean) => {
     if (!nextOpen && !isSubmitting) setError(null);
@@ -102,39 +104,47 @@ function EditWorkspaceDialogContent({
 
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
-      <DialogContent>
-        <form onSubmit={submit} className="flex flex-col gap-5">
-          <DialogHeader>
+      <DialogContent className={supportsMembers ? "!flex max-h-[calc(100dvh-2rem)] !w-[min(100%_-_2rem,_48rem)] !max-w-none !flex-col !gap-0 !overflow-hidden !p-0 sm:!max-w-none" : undefined}>
+        <form onSubmit={submit} className={supportsMembers ? "flex min-h-0 flex-1 flex-col" : "flex flex-col gap-5"}>
+          <DialogHeader className={supportsMembers ? "border-b border-border px-5 py-5 pr-12 sm:px-6 sm:pr-14" : undefined}>
             <DialogTitle>{t('editDialog.title')}</DialogTitle>
             <DialogDescription>
               {workspace ? t('editDialog.description', { name: workspace.name }) : t('editDialog.descriptionFallback')}
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor={nameId}>{t('fields.name')}</Label>
-              <Input
-                id={nameId}
-                value={name}
-                onChange={(event) => setName(event.target.value)}
-                maxLength={80}
-                required
-                disabled={isSubmitting}
-                aria-invalid={Boolean(error)}
-              />
+          <div className={supportsMembers ? "min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6" : "flex flex-col gap-4"}>
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={nameId}>{t('fields.name')}</Label>
+                <Input
+                  id={nameId}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  maxLength={80}
+                  required
+                  disabled={isSubmitting}
+                  aria-invalid={Boolean(error)}
+                />
+              </div>
+
+              <WorkspaceIconPicker value={icon} onChange={setIcon} disabled={isSubmitting} />
+
+              {error ? (
+                <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                  {error}
+                </p>
+              ) : null}
             </div>
 
-            <WorkspaceIconPicker value={icon} onChange={setIcon} disabled={isSubmitting} />
-
-            {error ? (
-              <p className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
-                {error}
-              </p>
+            {supportsMembers && workspace ? (
+              <div className="mt-6 border-t border-border pt-6">
+                <WorkspaceMembersEditor active={open} workspace={workspace} onChanged={onChanged} />
+              </div>
             ) : null}
           </div>
 
-          <DialogFooter>
+          <DialogFooter className={supportsMembers ? "border-t border-border px-5 py-4 sm:px-6" : undefined}>
             <Button type="button" variant="outline" onClick={() => onOpenChange(false)} disabled={isSubmitting}>
               {t('editDialog.cancel')}
             </Button>

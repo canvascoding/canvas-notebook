@@ -2965,7 +2965,7 @@
           "projectPlaceholder": "Select project"
         },
         "hints": {
-          "teamProjectAccess": "Access can be managed after creation.",
+          "teamProjectAccess": "After creation, you can add users and assign access roles in the next step.",
           "personalOnly": "Personal workspaces are only accessible to you."
         },
         "iconPicker": {
@@ -3048,12 +3048,15 @@
         "createDialog": {
           "title": "Create workspace",
           "description": "Create another personal workspace or a team workspace.",
-          "cancel": "Cancel"
+          "cancel": "Cancel",
+          "accessTitle": "Set access for {name}",
+          "accessDescription": "The workspace has been created. Add users and adjust their access roles now.",
+          "done": "Done"
         },
         "editDialog": {
           "title": "Edit workspace",
-          "description": "Update the name and icon for {name}.",
-          "descriptionFallback": "Update the workspace name and icon.",
+          "description": "Update the name, icon, and access for {name}.",
+          "descriptionFallback": "Update the workspace name, icon, and access.",
           "cancel": "Cancel",
           "save": "Save changes"
         },
