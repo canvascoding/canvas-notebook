@@ -14,7 +14,7 @@ import {
   Sparkles,
   Tag,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
 import { KnowledgeGraphCanvas } from './KnowledgeGraphCanvas';
@@ -29,7 +29,7 @@ import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Switch } from '@/components/ui/switch';
-import { useRouter } from '@/i18n/navigation';
+import { getPathname } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 
 type LinkIndexResponse = {
@@ -88,7 +88,7 @@ function ToggleRow({
 
 export function KnowledgeGraphClient() {
   const t = useTranslations('knowledgeGraph');
-  const router = useRouter();
+  const locale = useLocale();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [index, setIndex] = useState<WorkspaceLinkIndex>(EMPTY_INDEX);
   const [loading, setLoading] = useState(true);
@@ -163,8 +163,12 @@ export function KnowledgeGraphClient() {
   const inspectedNode = hoveredNode ?? focusedNode;
 
   const openDocument = useCallback((path: string) => {
-    router.push(`/notebook?path=${encodeURIComponent(path)}`);
-  }, [router]);
+    const notebookHref = getPathname({
+      locale,
+      href: { pathname: '/notebook', query: { path } },
+    });
+    window.open(notebookHref, '_blank', 'noopener,noreferrer');
+  }, [locale]);
   const handleNodeHover = useCallback((node: KnowledgeGraphNode | null) => {
     setHoveredNode(node);
   }, []);
