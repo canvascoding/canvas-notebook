@@ -7,6 +7,7 @@ import type { ManagedPromptFiles } from '../app/lib/agents/system-prompt-shared'
 import type { CanvasSkill } from '../app/lib/skills/canvas-skill-manifest';
 import { getSkillsContext } from '../app/lib/skills/skill-context';
 import { MAX_COMPOSED_SYSTEM_PROMPT_BYTES } from '../app/lib/agents/managed-file-limits';
+import { CANVAS_MARKDOWN_GUIDANCE_MARKER } from '../app/lib/markdown/canvas-markdown-agent-guidance';
 
 function createFiles(overrides: Partial<ManagedPromptFiles> = {}): ManagedPromptFiles {
   return {
@@ -34,6 +35,8 @@ assert.deepEqual(populated.diagnostics.includedFiles, ['AGENTS.md', 'MEMORY.md',
 assert.deepEqual(populated.diagnostics.emptyFiles, ['USER.md', 'SOUL.md']);
 assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas Notebook\./);
 assert.match(populated.systemPrompt, /^# Canvas Notebook Runtime/);
+assert.match(populated.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
+assert.match(populated.systemPrompt, /Write inline math as `\$E = mc\^2\$`/);
 assert.match(populated.systemPrompt, /# Canvas Base Tool Guidance/);
 assert.match(populated.systemPrompt, /Python 3 is available in the Linux container runtime/);
 assert.match(populated.systemPrompt, /## AGENTS\.md\n\n- Follow repo rules\./);

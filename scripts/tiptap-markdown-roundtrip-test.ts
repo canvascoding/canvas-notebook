@@ -103,6 +103,12 @@ const sampleMarkdown = `# Title
 
 Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](https://example.com). ![Link preview: example.com](https://cdn.example.com/og.png)
 
+Inline math $E = mc^2$ remains in the paragraph.
+
+$$
+\\int_0^1 x^2 \\, dx = \\frac{1}{3}
+$$
+
 ![Alt](images/pic.png)
 
 > Quote
@@ -153,6 +159,7 @@ async function main() {
   const { StarterKit } = await import('@tiptap/starter-kit');
   const { Markdown } = await import('@tiptap/markdown');
   const { Link } = await import('@tiptap/extension-link');
+  const { Mathematics } = await import('@tiptap/extension-mathematics');
   const { Image } = await import('@tiptap/extension-image');
   const { TaskList } = await import('@tiptap/extension-task-list');
   const { TaskItem } = await import('@tiptap/extension-task-item');
@@ -164,6 +171,15 @@ async function main() {
     extensions: [
       StarterKit.configure({ link: false }),
       Link.configure({ openOnClick: false }),
+      Mathematics.configure({
+        katexOptions: {
+          maxExpand: 1_000,
+          maxSize: 20,
+          strict: 'warn',
+          throwOnError: false,
+          trust: false,
+        },
+      }),
       Image,
       TaskList,
       TaskItem.configure({
@@ -193,6 +209,10 @@ async function main() {
   assert.match(output, /~~strike~~/);
   assert.match(output, /`code`/);
   assert.match(output, /\[link\]\(https:\/\/example\.com\)/);
+  assert.match(output, /Inline math \$E = mc\^2\$/);
+  assert.ok(output.includes(String.raw`$$
+\int_0^1 x^2 \, dx = \frac{1}{3}
+$$`));
   assert.match(output, /!\[Link preview: example\.com\]\(https:\/\/cdn\.example\.com\/og\.png\)/);
   assert.match(output, /!\[Alt\]\(images\/pic\.png\)/);
   assert.match(output, /^> Quote/m);
@@ -214,6 +234,8 @@ async function main() {
   assert.ok(tableAlignments.includes('center'), 'GFM table alignment should preserve center cells');
   assert.ok(tableAlignments.includes('right'), 'GFM table alignment should preserve right cells');
   assert.ok(nodeTypes.includes('image'), 'Markdown images should parse as image nodes');
+  assert.ok(nodeTypes.includes('inlineMath'), 'inline LaTeX should parse as an editable math node');
+  assert.ok(nodeTypes.includes('blockMath'), 'display LaTeX should parse as an editable math node');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');
   assert.ok(
     editor.view.dom.querySelector('li[data-type="taskItem"]'),

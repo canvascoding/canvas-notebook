@@ -2,10 +2,11 @@
 
 import React from 'react';
 import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
-import rehypeHighlight from 'rehype-highlight';
 import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
-import { rehypeInlineColorSwatch } from '@/app/lib/markdown/rehype-inline-color-swatch';
+import {
+  CANVAS_MARKDOWN_REHYPE_PLUGINS,
+  CANVAS_MARKDOWN_REMARK_PLUGINS,
+} from '@/app/lib/markdown/canvas-markdown';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { cn } from '@/lib/utils';
 
@@ -16,7 +17,7 @@ interface MarkdownRendererProps {
 }
 
 const SHARED_CLASSES =
-  'break-words [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold';
+  'break-words [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
 
 const VARIANT_CLASSES: Record<string, string> = {
   default:
@@ -109,8 +110,8 @@ export function MarkdownRenderer({
       )}
     >
       <ReactMarkdown
-        remarkPlugins={[remarkGfm]}
-        rehypePlugins={[rehypeInlineColorSwatch, rehypeHighlight]}
+        remarkPlugins={CANVAS_MARKDOWN_REMARK_PLUGINS}
+        rehypePlugins={CANVAS_MARKDOWN_REHYPE_PLUGINS}
         components={components}
       >
         {content}

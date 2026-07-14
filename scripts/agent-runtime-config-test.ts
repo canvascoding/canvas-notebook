@@ -100,6 +100,10 @@ async function main() {
   const { eq } = await import('drizzle-orm');
   const { MAX_COMPOSED_SYSTEM_PROMPT_BYTES } = await import('../app/lib/agents/managed-file-limits');
   const {
+    CANVAS_MARKDOWN_AGENT_GUIDANCE,
+    CANVAS_MARKDOWN_GUIDANCE_MARKER,
+  } = await import('../app/lib/markdown/canvas-markdown-agent-guidance');
+  const {
     createPiSystemPromptSnapshot,
     ensurePiSessionSystemPromptSnapshot,
     hashPiSystemPrompt,
@@ -422,6 +426,36 @@ async function main() {
   const storedSnapshot = await ensurePiSessionSystemPromptSnapshot(snapshottedSession);
   assert.equal(storedSnapshot.systemPrompt, originalSnapshot.systemPrompt);
   assert.doesNotMatch(storedSnapshot.systemPrompt, /Changed after session start/);
+  assert.match(storedSnapshot.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER));
+
+  const preMarkdownGuidancePrompt = originalSnapshot.systemPrompt.replace(
+    `${CANVAS_MARKDOWN_AGENT_GUIDANCE}\n\n`,
+    '',
+  );
+  await db.insert(piSessions).values({
+    sessionId: 'pre-markdown-guidance-session',
+    userId: 'snapshot-user',
+    agentId: customAgent.agentId,
+    provider: 'google',
+    model: 'gemini-1.5-pro',
+    thinkingLevel: 'off',
+    title: 'Prompt Guidance Migration Test',
+    channelId: 'app',
+    channelSessionKey: null,
+    createdAt: new Date(),
+    updatedAt: new Date(),
+    systemPromptSnapshot: preMarkdownGuidancePrompt,
+    systemPromptSnapshotHash: hashPiSystemPrompt(preMarkdownGuidancePrompt),
+    systemPromptSnapshotCreatedAt: new Date(),
+  });
+  const preMarkdownGuidanceSession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, 'pre-markdown-guidance-session'),
+  });
+  assert.ok(preMarkdownGuidanceSession);
+  const migratedGuidanceSnapshot = await ensurePiSessionSystemPromptSnapshot(preMarkdownGuidanceSession);
+  assert.match(migratedGuidanceSnapshot.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER));
+  assert.match(migratedGuidanceSnapshot.systemPrompt, /Original session prompt/);
+  assert.doesNotMatch(migratedGuidanceSnapshot.systemPrompt, /Changed after session start/);
 
   const oversizedStoredPrompt = 'x'.repeat(MAX_COMPOSED_SYSTEM_PROMPT_BYTES + 1_024);
   await db.insert(piSessions).values({

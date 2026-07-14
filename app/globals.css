@@ -1,5 +1,37 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@import "katex/dist/katex.min.css";
+
+.katex-display {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-block: 0.125rem;
+}
+
+.tiptap-mathematics-render {
+  max-width: 100%;
+  color: inherit;
+}
+
+.tiptap-mathematics-render[data-type="block-math"] {
+  margin-block: 0.75rem;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0.5rem;
+  text-align: center;
+}
+
+.tiptap-mathematics-render--editable {
+  border-radius: 0.375rem;
+  cursor: pointer;
+  transition: background-color 120ms ease, box-shadow 120ms ease;
+}
+
+.tiptap-mathematics-render--editable:hover {
+  background: color-mix(in oklab, var(--muted) 65%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 35%, transparent);
+}
 
 @custom-variant dark (&:is(.dark *));
 

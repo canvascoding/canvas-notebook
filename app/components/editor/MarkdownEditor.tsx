@@ -17,6 +17,7 @@ import {
 import { StarterKit } from '@tiptap/starter-kit';
 import { Markdown } from '@tiptap/markdown';
 import { Link } from '@tiptap/extension-link';
+import { Mathematics } from '@tiptap/extension-mathematics';
 import { Image } from '@tiptap/extension-image';
 import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList } from '@tiptap/extension-task-list';
@@ -55,6 +56,7 @@ import {
   Quote,
   Redo2,
   Rows3,
+  Sigma,
   Strikethrough,
   Table2,
   Trash2,
@@ -105,6 +107,7 @@ import {
   type ReorderableBlockRange,
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
+import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
 import { makeLinkPreviewImageAlt, parseLinkPreviewImageAlt } from '@/app/lib/markdown/link-preview-markdown';
 import {
   getWorkspaceTargetDirForMarkdown,
@@ -151,6 +154,7 @@ type ToolbarState = {
 };
 
 type SlashCommandActions = {
+  editMath?: (kind: 'inline' | 'block', latex: string, pos: number) => void;
   openImageDialog?: (editor: Editor, range: Range) => void;
   openTableDialog?: (editor: Editor, range: Range) => void;
 };
@@ -172,6 +176,8 @@ type SlashCommandItemId =
   | 'taskList'
   | 'quote'
   | 'codeBlock'
+  | 'inlineMath'
+  | 'blockMath'
   | 'table'
   | 'image'
   | 'divider'
@@ -194,6 +200,7 @@ type SlashCommandLabels = {
   group: string;
   imageAltPrompt: string;
   imageSrcPrompt: string;
+  latexPrompt: string;
   items: Record<SlashCommandItemId, SlashCommandItemLabel>;
   openBlockMenuHint: string;
   placeholder: string;
@@ -231,6 +238,13 @@ type BlockCommandMenuState = {
 type ImageDialogSeed = {
   id: number;
   range?: Range;
+};
+
+type MathEditRequest = {
+  id: number;
+  kind: 'inline' | 'block';
+  latex: string;
+  pos: number;
 };
 
 type ColorSwatchWidgetHost = HTMLSpanElement & {
@@ -739,6 +753,32 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     command: (context) => runAfterSlashDelete(context).setCodeBlock().run(),
   },
   {
+    id: 'inlineMath',
+    keywords: ['latex', 'katex', 'formula', 'equation'],
+    Icon: Sigma,
+    command: (context) => {
+      const latex = window.prompt(context.labels.latexPrompt);
+      if (!latex?.trim()) {
+        runAfterSlashDelete(context).run();
+        return;
+      }
+      runAfterSlashDelete(context).insertInlineMath({ latex: latex.trim() }).run();
+    },
+  },
+  {
+    id: 'blockMath',
+    keywords: ['latex', 'katex', 'formula', 'equation', 'display'],
+    Icon: Sigma,
+    command: (context) => {
+      const latex = window.prompt(context.labels.latexPrompt);
+      if (!latex?.trim()) {
+        runAfterSlashDelete(context).run();
+        return;
+      }
+      runAfterSlashDelete(context).insertBlockMath({ latex: latex.trim() }).run();
+    },
+  },
+  {
     id: 'table',
     keywords: ['grid'],
     Icon: Table2,
@@ -1210,6 +1250,7 @@ function createSlashCommandLabels(t: (key: string) => string): SlashCommandLabel
     group: t('markdownEditorSlashGroup'),
     imageAltPrompt: t('markdownEditorImageAltPrompt'),
     imageSrcPrompt: t('markdownEditorImageSrcPrompt'),
+    latexPrompt: t('markdownEditorLatexPrompt'),
     items: itemLabels,
     openBlockMenuHint: t('markdownEditorOpenBlockMenuHint'),
     placeholder: t('markdownEditorPlaceholder'),
@@ -1581,6 +1622,15 @@ function createEditorExtensions(filePath: string | undefined, labels: SlashComma
       showOnlyCurrent: true,
     }),
     CodeBlockWithMermaid,
+    Mathematics.configure({
+      inlineOptions: {
+        onClick: (node, pos) => actions?.editMath?.('inline', String(node.attrs.latex ?? ''), pos),
+      },
+      blockOptions: {
+        onClick: (node, pos) => actions?.editMath?.('block', String(node.attrs.latex ?? ''), pos),
+      },
+      katexOptions: CANVAS_KATEX_OPTIONS,
+    }),
     Link.configure({
       openOnClick: false,
       autolink: false,
@@ -3307,11 +3357,13 @@ function RichMarkdownEditor({
   const acceptedExternalValueRef = useRef(value);
   const applyingExternalValueRef = useRef(false);
   const pendingBlockCommandMenuFrameRef = useRef<number | null>(null);
+  const appliedMathEditRequestRef = useRef(0);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
   const [tableDialogRange, setTableDialogRange] = useState<Range | null>(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
+  const [mathEditRequest, setMathEditRequest] = useState<MathEditRequest | null>(null);
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
   const labels = useMemo(() => createSlashCommandLabels(t), [t]);
   const openImageDialogFromToolbar = useCallback((open: boolean, range?: Range) => {
@@ -3344,12 +3396,24 @@ function RichMarkdownEditor({
 
     openTableDialogAtRange({ from: insertPosition, to: insertPosition });
   }, [openTableDialogAtRange]);
+  const editMath = useCallback((kind: 'inline' | 'block', latex: string, pos: number) => {
+    const nextLatex = window.prompt(labels.latexPrompt, latex);
+    if (nextLatex === null) return;
+
+    setMathEditRequest({
+      id: Date.now(),
+      kind,
+      latex: nextLatex.trim(),
+      pos,
+    });
+  }, [labels.latexPrompt]);
   const slashCommandActions = useMemo<SlashCommandActions>(
     () => ({
+      editMath,
       openImageDialog: openImageDialogFromSlash,
       openTableDialog: openTableDialogFromSlash,
     }),
-    [openImageDialogFromSlash, openTableDialogFromSlash],
+    [editMath, openImageDialogFromSlash, openTableDialogFromSlash],
   );
   const extensions = useMemo(
     () => createEditorExtensions(filePath, labels, slashCommandActions),
@@ -3375,6 +3439,26 @@ function RichMarkdownEditor({
   });
 
   const markdownEditor = asMarkdownEditor(editor);
+  useEffect(() => {
+    if (!editor || !mathEditRequest || mathEditRequest.id <= appliedMathEditRequestRef.current) return;
+
+    appliedMathEditRequestRef.current = mathEditRequest.id;
+    const { kind, latex, pos } = mathEditRequest;
+    if (kind === 'inline') {
+      if (latex) {
+        editor.chain().focus().updateInlineMath({ latex, pos }).run();
+      } else {
+        editor.chain().focus().deleteInlineMath({ pos }).run();
+      }
+      return;
+    }
+
+    if (latex) {
+      editor.chain().focus().updateBlockMath({ latex, pos }).run();
+    } else {
+      editor.chain().focus().deleteBlockMath({ pos }).run();
+    }
+  }, [editor, mathEditRequest]);
   const isRichEditorFocused = useEditorState({
     editor,
     selector: ({ editor: currentEditor }) => Boolean(currentEditor?.isFocused),

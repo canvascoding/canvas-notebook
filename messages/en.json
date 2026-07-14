@@ -669,6 +669,7 @@
     "markdownEditorMobileRedo": "Redo",
     "markdownEditorImageAltPrompt": "Alt text",
     "markdownEditorImageSrcPrompt": "Image URL or workspace path",
+    "markdownEditorLatexPrompt": "LaTeX formula",
     "markdownEditorImageDialogTitle": "Insert image",
     "markdownEditorImageDialogDescription": "Upload an image into this note folder or import an external image as a local Markdown file reference.",
     "markdownEditorImageTabUpload": "Upload",
@@ -760,6 +761,14 @@
       "codeBlock": {
         "title": "Code block",
         "description": "Fenced code block"
+      },
+      "inlineMath": {
+        "title": "Inline formula",
+        "description": "LaTeX formula within text"
+      },
+      "blockMath": {
+        "title": "Formula block",
+        "description": "Centered LaTeX equation"
       },
       "table": {
         "title": "Table",

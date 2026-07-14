@@ -8,6 +8,7 @@ import type { AgentStorageScope } from '@/app/lib/agents/storage';
 import { truncateComposedSystemPrompt } from '@/app/lib/agents/system-prompt-shared';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
+import { ensureCanvasMarkdownAgentGuidance } from '@/app/lib/markdown/canvas-markdown-agent-guidance';
 
 type PiSessionPromptSnapshotRow = Pick<
   typeof piSessions.$inferSelect,
@@ -56,7 +57,9 @@ export async function ensurePiSessionSystemPromptSnapshot(
 ): Promise<PiSystemPromptSnapshot> {
   const existingPrompt = session.systemPromptSnapshot;
   if (existingPrompt && existingPrompt.length > 0) {
-    const boundedPrompt = truncateComposedSystemPrompt(existingPrompt);
+    const boundedPrompt = truncateComposedSystemPrompt(
+      ensureCanvasMarkdownAgentGuidance(existingPrompt),
+    );
     const snapshot = buildPiSystemPromptSnapshotFromText(
       boundedPrompt,
       session.systemPromptSnapshotCreatedAt ?? new Date(),

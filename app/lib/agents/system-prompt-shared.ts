@@ -6,6 +6,7 @@ import {
   truncateUtf8ToBytes,
 } from './managed-file-limits';
 import type { AgentStorageScope } from './storage';
+import { CANVAS_MARKDOWN_AGENT_GUIDANCE } from '../markdown/canvas-markdown-agent-guidance';
 
 export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 export const SYSTEM_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
@@ -93,7 +94,11 @@ export function composeManagedAgentSystemPrompt(
   skillsContext?: string,
   _source?: ManagedPromptSource,
 ): ManagedSystemPromptResult {
-  const fixedSystemBlocks = [CANVAS_BASE_SYSTEM_PROMPT, CANVAS_BASE_TOOL_GUIDANCE];
+  const fixedSystemBlocks = [
+    CANVAS_BASE_SYSTEM_PROMPT,
+    CANVAS_MARKDOWN_AGENT_GUIDANCE,
+    CANVAS_BASE_TOOL_GUIDANCE,
+  ];
   let remainingBytes = MAX_MANAGED_SYSTEM_PROMPT_BYTES;
   const sections = SYSTEM_PROMPT_FILE_NAMES.map((fileName) => {
     const rawContent = files[fileName] ?? '';

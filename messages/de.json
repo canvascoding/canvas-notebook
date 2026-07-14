@@ -668,6 +668,7 @@
     "markdownEditorMobileRedo": "Wiederholen",
     "markdownEditorImageAltPrompt": "Alt-Text",
     "markdownEditorImageSrcPrompt": "Bild-URL oder Workspace-Pfad",
+    "markdownEditorLatexPrompt": "LaTeX-Formel",
     "markdownEditorImageDialogTitle": "Bild einfügen",
     "markdownEditorImageDialogDescription": "Lade ein Bild in den Ordner dieser Notiz hoch oder importiere ein externes Bild als lokale Markdown-Referenz.",
     "markdownEditorImageTabUpload": "Upload",
@@ -759,6 +760,14 @@
       "codeBlock": {
         "title": "Codeblock",
         "description": "Codeblock mit Backticks"
+      },
+      "inlineMath": {
+        "title": "Inline-Formel",
+        "description": "LaTeX-Formel im Fließtext"
+      },
+      "blockMath": {
+        "title": "Formelblock",
+        "description": "Zentrierte LaTeX-Gleichung"
       },
       "table": {
         "title": "Tabelle",
