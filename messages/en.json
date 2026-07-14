@@ -1219,11 +1219,13 @@
     }
   },
   "knowledgeGraph": {
-    "title": "Knowledge Graph",
-    "description": "An interactive map of every Markdown document and its connections.",
+    "title": "Document Graph",
+    "description": "A local interactive map of every Markdown document and its connections.",
     "eyebrow": "Workspace topology",
     "loading": "Indexing connections",
     "search": {
+      "label": "Search document or alias",
+      "noResults": "No matching documents found.",
       "placeholder": "Search document or alias…"
     },
     "stats": {
@@ -1233,10 +1235,16 @@
     },
     "controls": {
       "title": "Graph controls",
+      "navigation": "Keyboard navigation",
       "filters": "Filters",
       "groups": "Groups",
       "display": "Display",
       "forces": "Forces"
+    },
+    "navigation": {
+      "description": "Choose any visible node with the keyboard. Selection focuses it in the graph.",
+      "label": "Graph node",
+      "placeholder": "Choose a node…"
     },
     "filters": {
       "orphans": "Show unlinked documents",
@@ -1269,6 +1277,7 @@
       "retry": "Try again",
       "recalculate": "Recalculate layout",
       "open": "Open document",
+      "openSelected": "Open selected document",
       "openDocument": "Open {title}",
       "zoomIn": "Zoom in",
       "zoomOut": "Zoom out",
@@ -1417,8 +1426,8 @@
         "description": "Files, chat, and editor – your central workspace."
       },
       "knowledgeGraph": {
-        "title": "Knowledge Graph",
-        "description": "Explore documents, backlinks, and unresolved connections as an interactive map."
+        "title": "Document Graph",
+        "description": "Explore local Markdown documents, backlinks, and unresolved connections as an interactive map."
       },
       "usage": {
         "title": "Usage Analytics",
@@ -2304,8 +2313,8 @@
           "description": "Allow retrieval-augmented answers only when Postgres, pgvector, scope filters, and source rechecks are ready."
         },
         "knowledgeGraphEnabled": {
-          "label": "Knowledge Graph",
-          "description": "Prepare graph entities and relations only from source-referenced Knowledge data under Postgres gates."
+          "label": "Entity graph (Postgres)",
+          "description": "Prepare source-referenced Knowledge entities and relations behind Postgres gates. This is separate from the always-available local Markdown Document Graph."
         },
         "liveCollaborationEnabled": {
           "label": "Live text collaboration",
@@ -2354,8 +2363,8 @@
           "description": "Requires Knowledge ingestion, embedding indexing, retrieval scope filters, source ACL rechecks, citations, Postgres, and pgvector."
         },
         "knowledge_graph": {
-          "label": "Knowledge Graph",
-          "description": "Requires source-referenced Knowledge metadata in Postgres so graph nodes cannot bypass workspace permissions."
+          "label": "Entity graph (Postgres)",
+          "description": "Requires source-referenced Knowledge metadata in Postgres so entity nodes cannot bypass workspace permissions. This gate does not control the local Markdown Document Graph."
         },
         "live_collaboration": {
           "label": "Live collaboration",

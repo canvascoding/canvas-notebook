@@ -5,6 +5,7 @@ import {
   FileText,
   Filter,
   FolderTree,
+  Keyboard,
   Layers3,
   Link2,
   Loader2,
@@ -62,7 +63,7 @@ function ControlSection({
   return (
     <details open={open} className="group border-b border-border/60 last:border-b-0">
       <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold marker:hidden hover:bg-muted/40">
-        <Icon className="h-4 w-4 text-cyan-500" />
+        <Icon aria-hidden="true" className="h-4 w-4 text-cyan-500" />
         <span>{title}</span>
         <span className="ml-auto font-mono text-xs text-muted-foreground transition-transform group-open:rotate-90">›</span>
       </summary>
@@ -83,7 +84,7 @@ function ToggleRow({
   return (
     <label className="flex items-center justify-between gap-3 text-xs text-muted-foreground">
       <span>{label}</span>
-      <Switch checked={checked} onCheckedChange={onCheckedChange} />
+      <Switch aria-label={label} checked={checked} onCheckedChange={onCheckedChange} />
     </label>
   );
 }
@@ -168,10 +169,16 @@ export function KnowledgeGraphClient() {
       .slice(0, 7);
   }, [graphData.nodes, query]);
 
+  const navigableNodes = useMemo(() => (
+    [...graphData.nodes]
+      .sort((left, right) => left.label.localeCompare(right.label, locale))
+  ), [graphData.nodes, locale]);
+
   const focusedNode = useMemo(() => (
     graphData.nodes.find((node) => node.id === focusNodeId) ?? null
   ), [focusNodeId, graphData.nodes]);
   const inspectedNode = hoveredNode ?? focusedNode;
+  const selectedNavigatorNodeId = focusedNode?.id ?? '';
 
   const openDocument = useCallback((path: string) => {
     const notebookHref = getPathname({
@@ -227,6 +234,9 @@ export function KnowledgeGraphClient() {
           <div className="flex items-center gap-2 border-b border-slate-700/60 px-3 py-2.5">
             <Search className="h-4 w-4 text-cyan-400" />
             <Input
+              aria-controls={query.trim() ? 'knowledge-graph-search-results' : undefined}
+              aria-label={t('search.label')}
+              role="searchbox"
               value={query}
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
@@ -243,6 +253,7 @@ export function KnowledgeGraphClient() {
               variant="ghost"
               className="text-slate-400 hover:bg-slate-800 hover:text-slate-100"
               onClick={refresh}
+              disabled={!activeWorkspaceId || loading}
               aria-label={t('actions.refresh')}
             >
               <RefreshCw className={cn('h-4 w-4', loading && 'animate-spin')} />
@@ -253,35 +264,60 @@ export function KnowledgeGraphClient() {
             <span><strong className="text-slate-200">{stats.links}</strong> {t('stats.links')}</span>
             <span><strong className={cn(stats.broken > 0 ? 'text-rose-400' : 'text-emerald-400')}>{stats.broken}</strong> {t('stats.broken')}</span>
           </div>
+          {!loading && !error && index.omittedDocuments.length > 0 ? (
+            <div className="flex items-start gap-2 border-t border-amber-400/20 px-3 py-2 text-xs text-amber-200">
+              <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 shrink-0" />
+              <span>{t('warnings.omitted', { count: index.omittedDocuments.length })}</span>
+            </div>
+          ) : null}
         </div>
 
-        {query.trim() && searchResults.length > 0 ? (
-          <div className="mt-1 max-h-72 overflow-y-auto border border-slate-700/70 bg-slate-950/92 p-1 shadow-2xl backdrop-blur-xl">
-            {searchResults.map((node) => (
-              <div key={node.id} className="group flex items-center gap-2 px-2 py-2 hover:bg-slate-800/80">
-                <button type="button" className="min-w-0 flex-1 text-left" onClick={() => focusSearchResult(node)}>
-                  <span className="block truncate text-xs font-semibold text-slate-100">{node.label}</span>
-                  <span className="block truncate font-mono text-[10px] text-slate-500">{node.path}</span>
-                </button>
-                {node.path ? (
-                  <Button
+        {query.trim() ? (
+          searchResults.length > 0 ? (
+            <div
+              id="knowledge-graph-search-results"
+              aria-live="polite"
+              className="mt-1 max-h-[25vh] overflow-y-auto border border-slate-700/70 bg-slate-950/92 p-1 shadow-2xl backdrop-blur-xl [@media(min-height:640px)]:max-h-72"
+            >
+              {searchResults.map((node) => (
+                <div key={node.id} className="group flex items-center gap-2 px-2 py-2 hover:bg-slate-800/80">
+                  <button
                     type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-slate-500 opacity-0 hover:bg-slate-700 hover:text-cyan-300 group-hover:opacity-100 focus-visible:opacity-100"
-                    aria-label={t('actions.openDocument', { title: node.label })}
-                    onClick={() => openDocument(node.path!)}
+                    aria-current={focusNodeId === node.id ? 'true' : undefined}
+                    className="min-w-0 flex-1 text-left"
+                    onClick={() => focusSearchResult(node)}
                   >
-                    <FileText className="h-4 w-4" />
-                  </Button>
-                ) : null}
-              </div>
-            ))}
-          </div>
+                    <span className="block truncate text-xs font-semibold text-slate-100">{node.label}</span>
+                    <span className="block truncate font-mono text-[10px] text-slate-500">{node.path}</span>
+                  </button>
+                  {node.path ? (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      className="text-slate-500 opacity-0 hover:bg-slate-700 hover:text-cyan-300 group-hover:opacity-100 focus-visible:opacity-100"
+                      aria-label={t('actions.openDocument', { title: node.label })}
+                      onClick={() => openDocument(node.path!)}
+                    >
+                      <FileText aria-hidden="true" className="h-4 w-4" />
+                    </Button>
+                  ) : null}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <div
+              id="knowledge-graph-search-results"
+              aria-live="polite"
+              className="mt-1 border border-slate-700/70 bg-slate-950/92 px-3 py-2 text-xs text-slate-400 shadow-2xl backdrop-blur-xl"
+            >
+              {t('search.noResults')}
+            </div>
+          )
         ) : null}
       </div>
 
-      <aside className="absolute bottom-4 right-4 top-auto z-20 max-h-[min(70vh,640px)] w-[min(320px,calc(100%-2rem))] overflow-y-auto border border-slate-700/70 bg-slate-950/82 text-slate-100 shadow-[0_24px_80px_-28px_rgba(0,0,0,.95)] backdrop-blur-xl md:bottom-6 md:right-6 md:top-6 md:max-h-none">
+      <aside className="absolute bottom-4 right-4 top-auto z-20 max-h-[42vh] w-[min(320px,calc(100%-2rem))] overflow-y-auto overscroll-contain border border-slate-700/70 bg-slate-950/82 text-slate-100 shadow-[0_24px_80px_-28px_rgba(0,0,0,.95)] backdrop-blur-xl [@media(min-height:640px)]:max-h-[65vh] md:bottom-6 md:right-6 md:top-6 md:max-h-none">
         <div className="border-b border-slate-700/60 px-4 py-4">
           <div className="font-mono text-[10px] uppercase tracking-[0.22em] text-cyan-400">{t('eyebrow')}</div>
           <h2 className="mt-1 text-base font-semibold tracking-tight">{t('controls.title')}</h2>
@@ -292,6 +328,39 @@ export function KnowledgeGraphClient() {
           <ToggleRow checked={showBroken} label={t('filters.broken')} onCheckedChange={setShowBroken} />
         </ControlSection>
 
+        <ControlSection icon={Keyboard} title={t('controls.navigation')} open>
+          <p id="knowledge-graph-node-navigator-description" className="text-xs leading-5 text-slate-400">
+            {t('navigation.description')}
+          </p>
+          <label htmlFor="knowledge-graph-node-navigator" className="block text-[10px] uppercase tracking-widest text-slate-500">
+            {t('navigation.label')}
+          </label>
+          <select
+            id="knowledge-graph-node-navigator"
+            aria-describedby="knowledge-graph-node-navigator-description"
+            value={selectedNavigatorNodeId}
+            onChange={(event) => setFocusNodeId(event.target.value || null)}
+            className="h-9 w-full border border-slate-700 bg-slate-900 px-2 text-xs text-slate-100 outline-none focus-visible:border-cyan-400 focus-visible:ring-2 focus-visible:ring-cyan-400/30"
+          >
+            <option value="">{t('navigation.placeholder')}</option>
+            {navigableNodes.map((node) => (
+              <option key={node.id} value={node.id}>{node.label}</option>
+            ))}
+          </select>
+          <Button
+            type="button"
+            size="sm"
+            className="w-full bg-cyan-400 text-slate-950 hover:bg-cyan-300"
+            disabled={!focusedNode?.path}
+            onClick={() => {
+              if (focusedNode?.path) openDocument(focusedNode.path);
+            }}
+          >
+            <FileText aria-hidden="true" className="h-4 w-4" />
+            {t('actions.openSelected')}
+          </Button>
+        </ControlSection>
+
         <ControlSection icon={Layers3} title={t('controls.groups')}>
           <div className="grid grid-cols-3 gap-1 border border-slate-700/70 bg-slate-900/60 p-1">
             {(['status', 'folder', 'tag'] as const).map((mode) => {
@@ -300,13 +369,14 @@ export function KnowledgeGraphClient() {
                 <button
                   key={mode}
                   type="button"
+                  aria-pressed={colorMode === mode}
                   onClick={() => setColorMode(mode)}
                   className={cn(
                     'flex flex-col items-center gap-1 px-1 py-2 text-[10px] transition-colors',
                     colorMode === mode ? 'bg-cyan-400 text-slate-950' : 'text-slate-400 hover:bg-slate-800 hover:text-slate-100',
                   )}
                 >
-                  <Icon className="h-3.5 w-3.5" />
+                  <Icon aria-hidden="true" className="h-3.5 w-3.5" />
                   {t(`groups.${mode}`)}
                 </button>
               );
@@ -350,7 +420,7 @@ export function KnowledgeGraphClient() {
         {inspectedNode ? (
           <div className="border-t border-slate-700/60 bg-slate-900/55 px-4 py-4">
             <div className="flex items-start gap-3">
-              {inspectedNode.kind === 'document' ? <FileText className="mt-0.5 h-4 w-4 text-cyan-400" /> : <AlertTriangle className="mt-0.5 h-4 w-4 text-rose-400" />}
+              {inspectedNode.kind === 'document' ? <FileText aria-hidden="true" className="mt-0.5 h-4 w-4 text-cyan-400" /> : <AlertTriangle aria-hidden="true" className="mt-0.5 h-4 w-4 text-rose-400" />}
               <div className="min-w-0 flex-1">
                 <div className="break-words text-sm font-semibold">{inspectedNode.label}</div>
                 {inspectedNode.path ? <div className="mt-1 break-all font-mono text-[10px] leading-4 text-slate-500">{inspectedNode.path}</div> : null}
@@ -412,14 +482,6 @@ export function KnowledgeGraphClient() {
             <Filter className="mx-auto h-8 w-8 text-cyan-400" />
             <h2 className="mt-4 text-lg font-semibold">{t('filtered.title')}</h2>
             <p className="mt-2 text-sm leading-6 text-slate-400">{t('filtered.description')}</p>
-          </div>
-        </div>
-      ) : null}
-      {!loading && !error && index.omittedDocuments.length > 0 ? (
-        <div className="absolute bottom-4 left-4 z-20 max-w-[min(420px,calc(100%-2rem))] border border-amber-400/30 bg-slate-950/90 px-3 py-2 text-xs text-amber-200 shadow-xl md:bottom-6 md:left-6">
-          <div className="flex items-start gap-2">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <span>{t('warnings.omitted', { count: index.omittedDocuments.length })}</span>
           </div>
         </div>
       ) : null}

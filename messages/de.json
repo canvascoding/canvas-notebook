@@ -1218,11 +1218,13 @@
     }
   },
   "knowledgeGraph": {
-    "title": "Knowledge Graph",
-    "description": "Interaktive Karte aller Markdown-Dokumente und ihrer Verbindungen.",
+    "title": "Dokument-Graph",
+    "description": "Lokale interaktive Karte aller Markdown-Dokumente und ihrer Verbindungen.",
     "eyebrow": "Workspace-Topologie",
     "loading": "Verbindungen werden indexiert",
     "search": {
+      "label": "Dokument oder Alias suchen",
+      "noResults": "Keine passenden Dokumente gefunden.",
       "placeholder": "Dokument oder Alias suchen …"
     },
     "stats": {
@@ -1232,10 +1234,16 @@
     },
     "controls": {
       "title": "Graph-Steuerung",
+      "navigation": "Tastaturnavigation",
       "filters": "Filter",
       "groups": "Gruppen",
       "display": "Darstellung",
       "forces": "Kräfte"
+    },
+    "navigation": {
+      "description": "Wähle jeden sichtbaren Knoten per Tastatur aus. Die Auswahl fokussiert ihn im Graphen.",
+      "label": "Graph-Knoten",
+      "placeholder": "Knoten auswählen …"
     },
     "filters": {
       "orphans": "Unverlinkte Dokumente anzeigen",
@@ -1268,6 +1276,7 @@
       "retry": "Erneut versuchen",
       "recalculate": "Layout neu berechnen",
       "open": "Dokument öffnen",
+      "openSelected": "Ausgewähltes Dokument öffnen",
       "openDocument": "{title} öffnen",
       "zoomIn": "Vergrößern",
       "zoomOut": "Verkleinern",
@@ -1416,8 +1425,8 @@
         "description": "Dateien, Chat und Editor – dein zentraler Workspace."
       },
       "knowledgeGraph": {
-        "title": "Knowledge Graph",
-        "description": "Dokumente, Backlinks und offene Verbindungen als interaktive Karte erkunden."
+        "title": "Dokument-Graph",
+        "description": "Lokale Markdown-Dokumente, Backlinks und offene Verbindungen als interaktive Karte erkunden."
       },
       "usage": {
         "title": "Usage Analytics",
@@ -2303,8 +2312,8 @@
           "description": "Retrieval-augmented Antworten nur erlauben, wenn Postgres, pgvector, Scope-Filter und Source-Rechecks bereit sind."
         },
         "knowledgeGraphEnabled": {
-          "label": "Knowledge Graph",
-          "description": "Graph-Entities und Relations nur aus quellreferenzierten Knowledge-Daten unter Postgres-Gates vorbereiten."
+          "label": "Entity-Graph (Postgres)",
+          "description": "Quellreferenzierte Knowledge-Entities und Relationen hinter Postgres-Gates vorbereiten. Dies ist vom immer verfügbaren lokalen Markdown-Dokument-Graphen getrennt."
         },
         "liveCollaborationEnabled": {
           "label": "Live Text Collaboration",
@@ -2353,8 +2362,8 @@
           "description": "Benötigt Knowledge-Ingestion, Embedding Indexing, Retrieval-Scope-Filter, Source-ACL-Rechecks, Quellenangaben, Postgres und pgvector."
         },
         "knowledge_graph": {
-          "label": "Knowledge Graph",
-          "description": "Benötigt quellreferenzierte Knowledge-Metadaten in Postgres, damit Graph-Knoten keine Workspace-Rechte umgehen."
+          "label": "Entity-Graph (Postgres)",
+          "description": "Benötigt quellreferenzierte Knowledge-Metadaten in Postgres, damit Entity-Knoten keine Workspace-Rechte umgehen. Dieses Gate steuert nicht den lokalen Markdown-Dokument-Graphen."
         },
         "live_collaboration": {
           "label": "Live Collaboration",

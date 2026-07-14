@@ -318,7 +318,11 @@ export function KnowledgeGraphCanvas({
 
   return (
     <div className="absolute inset-0">
-      <div ref={containerRef} className="knowledge-graph-webgl absolute inset-0 cursor-grab active:cursor-grabbing" />
+      <div
+        ref={containerRef}
+        aria-hidden="true"
+        className="knowledge-graph-webgl absolute inset-0 cursor-grab active:cursor-grabbing"
+      />
       {renderError ? (
         <div className="absolute inset-0 grid place-items-center p-6">
           <div className="max-w-md border border-destructive/30 bg-background/90 p-5 text-sm text-destructive shadow-xl backdrop-blur">
@@ -326,7 +330,7 @@ export function KnowledgeGraphCanvas({
           </div>
         </div>
       ) : null}
-      <div className="absolute bottom-4 left-4 flex items-center gap-px overflow-hidden border border-border/70 bg-background/85 shadow-lg backdrop-blur">
+      <div className="absolute bottom-6 left-6 hidden items-center gap-px overflow-hidden border border-border/70 bg-background/85 shadow-lg backdrop-blur md:flex">
         <Button
           type="button"
           variant="ghost"
