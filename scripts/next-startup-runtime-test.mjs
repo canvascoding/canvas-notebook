@@ -9,12 +9,16 @@ const nextImportIndex = serverSource.indexOf("const next = require('next')");
 const postgresMigrationFunctionIndex = serverSource.indexOf('async function runStartupDatabaseMigrations()');
 const postgresMigrationAwaitIndex = serverSource.indexOf('await runStartupDatabaseMigrations()');
 const websocketStartupIndex = serverSource.indexOf("console.log('[Startup] Initializing WebSocket Server...')");
+const agentRuntimeWarmupIndex = serverSource.indexOf('preloadAgentRuntimeModules()');
+const nextPrepareIndex = serverSource.indexOf('app.prepare(),');
 
 assert.notEqual(polyfillIndex, -1, 'server.js must polyfill globalThis.AsyncLocalStorage');
 assert.notEqual(nextImportIndex, -1, 'server.js must import next');
 assert.notEqual(postgresMigrationFunctionIndex, -1, 'server.js must define startup database migrations');
 assert.notEqual(postgresMigrationAwaitIndex, -1, 'server.js must await startup database migrations');
 assert.notEqual(websocketStartupIndex, -1, 'server.js must initialize websocket startup after migrations');
+assert.notEqual(agentRuntimeWarmupIndex, -1, 'server.js must preload agent runtime modules');
+assert.notEqual(nextPrepareIndex, -1, 'server.js must await Next preparation with runtime warmup');
 assert.ok(
   polyfillIndex < nextImportIndex,
   'server.js must polyfill globalThis.AsyncLocalStorage before importing next',
@@ -26,6 +30,10 @@ assert.ok(
 assert.ok(
   postgresMigrationAwaitIndex < websocketStartupIndex,
   'server.js must await startup database migrations before runtime modules touch the DB',
+);
+assert.ok(
+  websocketStartupIndex < agentRuntimeWarmupIndex && agentRuntimeWarmupIndex < nextPrepareIndex,
+  'server.js must start runtime warmup after websocket initialization and await it before readiness',
 );
 assert.ok(
   !dbIndexSource.includes('runPostgresMigrations'),

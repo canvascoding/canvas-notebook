@@ -654,6 +654,8 @@ async function startServer() {
     throw error;
   }
 
+  let agentRuntimeWarmupPromise = null;
+
   console.log('[Startup] Initializing WebSocket Server...');
   try {
     const websocketModule = await import('./server/websocket-server.ts');
@@ -670,6 +672,11 @@ async function startServer() {
     isChatWebSocketRequest = websocketServer.isChatWebSocketRequest;
     websocketServer.createWebSocketServer(server);
     console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+    const { preloadAgentRuntimeModules } = await import('./server/agent-runtime-loader.ts');
+    agentRuntimeWarmupPromise = preloadAgentRuntimeModules().then((result) => {
+      console.log('[Startup] Agent runtime modules preloaded', result);
+      return result;
+    });
   } catch (error) {
     console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
     console.error('[Startup] Stack trace:', error.stack);
@@ -692,7 +699,10 @@ async function startServer() {
   }
 
   console.log('[Startup] Preparing Next.js app...');
-  await app.prepare();
+  await Promise.all([
+    app.prepare(),
+    agentRuntimeWarmupPromise,
+  ]);
   console.log('[Startup] Next.js app prepared');
 
   server.listen(port, (err) => {

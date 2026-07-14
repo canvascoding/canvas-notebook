@@ -33,20 +33,10 @@ import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { createOperationTiming } from '@/app/lib/observability/operation-timing';
+import { getChannelRouter, getRuntimeService } from './agent-runtime-loader';
 
 type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
-
-type RuntimeService = typeof import('@/app/lib/pi/runtime-service');
-type ChannelRouter = typeof import('@/app/lib/channels/router');
-
-async function getRuntimeService(): Promise<RuntimeService> {
-  return import('@/app/lib/pi/runtime-service');
-}
-
-async function getChannelRouter(): Promise<ChannelRouter> {
-  return import('@/app/lib/channels/router');
-}
 
 async function isLicensedForRuntime(): Promise<boolean> {
   if (!isOnboardingEnabled() || !(await isOnboardingComplete())) {
