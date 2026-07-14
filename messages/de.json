@@ -4106,6 +4106,53 @@
       "team": "Organisation",
       "project": "Projekt"
     },
+    "workspace": {
+      "executionTitle": "Ausführungs-Workspace",
+      "executionDescription": "Hier liest, schreibt und arbeitet der Agent bei jedem Lauf.",
+      "current": "Aktueller Workspace",
+      "unavailable": "Kein Workspace verfügbar",
+      "impact": "Ein Workspace-Wechsel verändert Dateizugriff, Modellrichtlinien, Sichtbarkeit und verknüpfte Sessions dieser Automation.",
+      "change": {
+        "action": "Workspace wechseln",
+        "title": "Ausführungs-Workspace wechseln",
+        "description": "Canvas prüft vor dem Wechsel alle abhängigen Einstellungen. Der Wechsel wird erst nach deiner Bestätigung gespeichert.",
+        "from": "Bisher",
+        "to": "Danach",
+        "selectTarget": "Ziel auswählen",
+        "targetLabel": "Neuer Ausführungs-Workspace",
+        "impactTitle": "Dieser Wechsel hat weitreichende Auswirkungen",
+        "impactDescription": "Zukünftige Läufe verwenden ausschließlich den neuen Workspace. Frühere Läufe und ihre Historie bleiben dem ursprünglichen Workspace zugeordnet.",
+        "validationTitle": "Validierung der Auswirkungen",
+        "ready": "Bereit",
+        "blocked": "Blockiert",
+        "noIssues": "Alle Einstellungen sind im Ziel-Workspace verfügbar.",
+        "previewAction": "Auswirkungen prüfen",
+        "confirm": "Workspace verbindlich wechseln",
+        "cancel": "Abbrechen",
+        "success": "Automation läuft jetzt im Workspace „{workspace}“.",
+        "issues": {
+          "sameWorkspace": "Diese Automation läuft bereits im ausgewählten Workspace.",
+          "scopeChange": {
+            "personal": "Die gemeinsame Automation wird persönlich und ist danach nur noch für dich sichtbar.",
+            "organization": "Die persönliche Automation wird geteilt und ist für berechtigte Mitglieder des Ziel-Workspace sichtbar."
+          },
+          "inFlightRun": "Ein Lauf ist noch aktiv oder wartet auf einen Retry. Warte bis zu seinem Abschluss.",
+          "executorNoAccess": "Der verantwortliche Nutzer kann im Ziel-Workspace nicht lesen, schreiben oder den Agent ausführen.",
+          "agentUnavailable": "Der konfigurierte Agent „{value}“ ist nicht mehr verfügbar.",
+          "runtimeUnavailable": "Im Ziel-Workspace ist für diesen Agent kein erlaubtes und ausführbares KI-Modell verfügbar.",
+          "contextPathMissing": "Der Kontextpfad „{value}“ existiert im Ziel-Workspace nicht.",
+          "outputPathConflict": "Der Output-Pfad „{value}“ ist im Ziel-Workspace eine Datei statt eines Ordners.",
+          "skillReset": "Der bevorzugte Skill „{value}“ ist nicht verfügbar und wird auf automatische Auswahl zurückgesetzt.",
+          "fixedSessionReset": "Die feste Ziel-Session gehört zum bisherigen Workspace und wird durch eine neue Session ersetzt.",
+          "deliveryUnavailable": "Der konfigurierte Zustellungskanal ist aktuell nicht verfügbar.",
+          "composioUnavailable": "Das verwendete Composio-Konto ist für den verantwortlichen Nutzer aktuell nicht verbunden."
+        },
+        "errors": {
+          "preview": "Die Auswirkungen des Workspace-Wechsels konnten nicht geprüft werden.",
+          "apply": "Der Ausführungs-Workspace konnte nicht gewechselt werden."
+        }
+      }
+    },
     "triggers": {
       "composioTab": "Composio App",
       "loadingApps": "Lade Apps mit Webhook-Triggern...",

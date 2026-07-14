@@ -4107,6 +4107,53 @@
       "team": "Organization",
       "project": "Project"
     },
+    "workspace": {
+      "executionTitle": "Execution workspace",
+      "executionDescription": "This is where the agent reads, writes, and works during every run.",
+      "current": "Current workspace",
+      "unavailable": "No workspace available",
+      "impact": "Changing the workspace affects file access, model policies, visibility, and linked sessions for this automation.",
+      "change": {
+        "action": "Change workspace",
+        "title": "Change execution workspace",
+        "description": "Canvas validates every dependent setting before moving the automation. Nothing changes until you confirm.",
+        "from": "Current",
+        "to": "After change",
+        "selectTarget": "Select target",
+        "targetLabel": "New execution workspace",
+        "impactTitle": "This change has a broad impact",
+        "impactDescription": "Future runs use only the new workspace. Previous runs and their history remain associated with the original workspace.",
+        "validationTitle": "Impact validation",
+        "ready": "Ready",
+        "blocked": "Blocked",
+        "noIssues": "All settings are available in the target workspace.",
+        "previewAction": "Validate impact",
+        "confirm": "Confirm workspace change",
+        "cancel": "Cancel",
+        "success": "Automation now runs in “{workspace}”.",
+        "issues": {
+          "sameWorkspace": "This automation already runs in the selected workspace.",
+          "scopeChange": {
+            "personal": "The shared automation will become personal and will only be visible to you.",
+            "organization": "The personal automation will become shared with permitted members of the target workspace."
+          },
+          "inFlightRun": "A run is active or waiting for a retry. Wait until it has finished.",
+          "executorNoAccess": "The responsible user cannot read, write, or run the agent in the target workspace.",
+          "agentUnavailable": "The configured agent “{value}” is no longer available.",
+          "runtimeUnavailable": "No allowed and executable AI model is available for this agent in the target workspace.",
+          "contextPathMissing": "The context path “{value}” does not exist in the target workspace.",
+          "outputPathConflict": "The output path “{value}” is a file instead of a directory in the target workspace.",
+          "skillReset": "The preferred skill “{value}” is unavailable and will be reset to automatic selection.",
+          "fixedSessionReset": "The fixed delivery session belongs to the previous workspace and will be replaced with a new session.",
+          "deliveryUnavailable": "The configured delivery channel is currently unavailable.",
+          "composioUnavailable": "The Composio account is not currently connected for the responsible user."
+        },
+        "errors": {
+          "preview": "The impact of the workspace change could not be validated.",
+          "apply": "The execution workspace could not be changed."
+        }
+      }
+    },
     "triggers": {
       "composioTab": "Composio app",
       "loadingApps": "Loading apps with webhook triggers...",

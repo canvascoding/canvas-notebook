@@ -6,6 +6,7 @@ import { useEffect, useEffectEvent, useMemo, useRef, useState, type Dispatch, ty
 import {
   AlertTriangle,
   ArrowLeft,
+  ArrowRight,
   CalendarClock,
   CheckCircle2,
   Clock3,
@@ -47,6 +48,8 @@ import type {
   AutomationRunStatus,
   AutomationTriggerType,
   AutomationWeekday,
+  AutomationWorkspaceChangeIssue,
+  AutomationWorkspaceChangePreview,
   FriendlySchedule,
 } from '@/app/lib/automations/types';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
@@ -822,11 +825,17 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const workspaceInitialized = useWorkspaceStore((state) => state.initialized);
   const automationWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => workspace.status === 'active' && workspace.permissions.canRead && workspace.permissions.canWrite && workspace.permissions.canRunAgent),
+    () => workspaces.filter((workspace) => (
+      (workspace.type === 'personal' || workspace.type === 'organization' || workspace.type === 'team')
+      && workspace.status === 'active'
+      && workspace.permissions.canRead
+      && workspace.permissions.canWrite
+      && workspace.permissions.canRunAgent
+    )),
     [workspaces],
   );
   const hasSwitchableAutomationWorkspaces = useMemo(
-    () => automationWorkspaces.length > 1 && automationWorkspaces.some((workspace) => workspace.type !== 'personal'),
+    () => automationWorkspaces.length > 1,
     [automationWorkspaces],
   );
   const defaultAutomationWorkspaceId = useMemo(() => {
@@ -873,6 +882,11 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const [isDirectoryPickerOpen, setIsDirectoryPickerOpen] = useState(false);
   const [isComposerOpen, setIsComposerOpen] = useState(false);
   const [isRunSheetOpen, setIsRunSheetOpen] = useState(false);
+  const [isWorkspaceChangeOpen, setIsWorkspaceChangeOpen] = useState(false);
+  const [workspaceChangeTargetId, setWorkspaceChangeTargetId] = useState('');
+  const [workspaceChangePreview, setWorkspaceChangePreview] = useState<AutomationWorkspaceChangePreview | null>(null);
+  const [isPreviewingWorkspaceChange, setIsPreviewingWorkspaceChange] = useState(false);
+  const [isApplyingWorkspaceChange, setIsApplyingWorkspaceChange] = useState(false);
   const suppressComposerCloseRef = useRef(false);
 
   const selectedJob = useMemo(() => jobs.find((job) => job.id === selectedJobId) || null, [jobs, selectedJobId]);
@@ -884,6 +898,13 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const selectedTriggerWorkspace = triggerWorkspaceId ? workspaceById.get(triggerWorkspaceId) || null : null;
   const selectedCustomWebhookWorkspace = customWebhookWorkspaceId ? workspaceById.get(customWebhookWorkspaceId) || null : null;
   const selectedJobWorkspace = selectedJob?.workspaceId ? workspaceById.get(selectedJob.workspaceId) || null : null;
+  const workspaceChangeOptions = useMemo(
+    () => automationWorkspaces.filter((workspace) => workspace.id !== selectedJob?.workspaceId),
+    [automationWorkspaces, selectedJob?.workspaceId],
+  );
+  const selectedWorkspaceChangeTarget = workspaceChangeTargetId
+    ? workspaceById.get(workspaceChangeTargetId) || null
+    : null;
   const scheduledWorkspaceReady = Boolean(draft.id) || (workspaceInitialized && Boolean(draftWorkspaceId));
   const triggerWorkspaceReady = workspaceInitialized && Boolean(triggerWorkspaceId);
   const customWebhookWorkspaceReady = workspaceInitialized && Boolean(customWebhookWorkspaceId);
@@ -1291,6 +1312,91 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     // eslint-disable-next-line react-hooks/exhaustive-deps -- ids cover the polling data dependencies
   }, [selectedJobId, selectedRunId]);
 
+  function handleWorkspaceChangeOpenChange(open: boolean) {
+    setIsWorkspaceChangeOpen(open);
+    if (!open) {
+      setWorkspaceChangePreview(null);
+      setWorkspaceChangeTargetId('');
+    }
+  }
+
+  function openWorkspaceChangeDialog() {
+    const initialTarget = workspaceChangeOptions[0]?.id || '';
+    setWorkspaceChangeTargetId(initialTarget);
+    setWorkspaceChangePreview(null);
+    setIsWorkspaceChangeOpen(true);
+  }
+
+  async function handlePreviewWorkspaceChange() {
+    if (!selectedJobId || !workspaceChangeTargetId) return;
+    setIsPreviewingWorkspaceChange(true);
+    setWorkspaceChangePreview(null);
+    try {
+      const response = await fetch(`/api/automations/jobs/${selectedJobId}/workspace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ workspaceId: workspaceChangeTargetId }),
+      });
+      const payload = await readJsonResponse(response, 'Preview automation workspace change');
+      if (!response.ok || payload.success === false) {
+        throw new Error(stringValue(payload.error) || t('workspace.change.errors.preview'));
+      }
+      setWorkspaceChangePreview(payload.data as AutomationWorkspaceChangePreview);
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('workspace.change.errors.preview'));
+    } finally {
+      setIsPreviewingWorkspaceChange(false);
+    }
+  }
+
+  async function handleApplyWorkspaceChange() {
+    if (!selectedJobId || !workspaceChangeTargetId || !workspaceChangePreview?.canChange) return;
+    setIsApplyingWorkspaceChange(true);
+    try {
+      const response = await fetch(`/api/automations/jobs/${selectedJobId}/workspace`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ workspaceId: workspaceChangeTargetId, confirm: true }),
+      });
+      const payload = await readJsonResponse(response, 'Change automation workspace');
+      if (!response.ok || payload.success === false) {
+        throw new Error(stringValue(payload.error) || t('workspace.change.errors.apply'));
+      }
+      const data = asRecord(payload.data);
+      const movedJob = data.job as AutomationJobRecord;
+      if (!movedJob?.id) throw new Error(t('workspace.change.errors.apply'));
+      setDraft(mapJobToDraft(movedJob));
+      handleWorkspaceChangeOpenChange(false);
+      await loadJobs({ keepSelection: true });
+      toast.success(t('workspace.change.success', { workspace: workspaceById.get(movedJob.workspaceId || '')?.name || movedJob.workspaceId || '' }));
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : t('workspace.change.errors.apply'));
+    } finally {
+      setIsApplyingWorkspaceChange(false);
+    }
+  }
+
+  function workspaceChangeIssueMessage(entry: AutomationWorkspaceChangeIssue): string {
+    const value = entry.value || '';
+    switch (entry.code) {
+      case 'SAME_WORKSPACE': return t('workspace.change.issues.sameWorkspace');
+      case 'SCOPE_CHANGE': return t(`workspace.change.issues.scopeChange.${workspaceChangePreview?.nextScope || 'personal'}`);
+      case 'IN_FLIGHT_RUN': return t('workspace.change.issues.inFlightRun');
+      case 'EXECUTOR_NO_ACCESS': return t('workspace.change.issues.executorNoAccess');
+      case 'AGENT_UNAVAILABLE': return t('workspace.change.issues.agentUnavailable', { value });
+      case 'RUNTIME_UNAVAILABLE': return t('workspace.change.issues.runtimeUnavailable');
+      case 'CONTEXT_PATH_MISSING': return t('workspace.change.issues.contextPathMissing', { value });
+      case 'OUTPUT_PATH_CONFLICT': return t('workspace.change.issues.outputPathConflict', { value });
+      case 'SKILL_RESET': return t('workspace.change.issues.skillReset', { value });
+      case 'FIXED_SESSION_RESET': return t('workspace.change.issues.fixedSessionReset');
+      case 'DELIVERY_UNAVAILABLE': return t('workspace.change.issues.deliveryUnavailable');
+      case 'COMPOSIO_CONNECTION_UNAVAILABLE': return t('workspace.change.issues.composioUnavailable');
+      default: return entry.message;
+    }
+  }
+
   async function handleSave() {
     setIsSaving(true);
     try {
@@ -1624,10 +1730,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         ? selectedCustomWebhookWorkspace
         : selectedDraftWorkspace;
     const isExistingScheduledJob = target === 'scheduled' && Boolean(draft.id);
-    const isGermanLocale = locale.startsWith('de');
-    const label = 'Workspace';
     const scopeLabel = workspaceScopeLabel(selectedWorkspace, t);
-    const canSwitchWorkspace = hasSwitchableAutomationWorkspaces && !isExistingScheduledJob;
     const updateWorkspaceId = (workspaceId: string) => {
       if (target === 'trigger') {
         setTriggerDraft((current) => ({ ...current, workspaceId }));
@@ -1638,59 +1741,80 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       }
     };
 
-    if (!canSwitchWorkspace) {
-      return (
-        <div className="flex min-w-0 flex-col gap-1 text-sm">
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Folder className="h-3.5 w-3.5" />
-            {label}
-          </span>
-          <div
-            data-testid={`automation-${target}-workspace-readonly`}
-            className="flex min-w-0 items-center justify-between gap-2 rounded-md border border-border bg-muted/30 px-3 py-2"
-          >
-            <span className="min-w-0 truncate">
-              {selectedWorkspace?.name || (automationWorkspaces.length === 0
-                ? (isGermanLocale ? 'Kein Workspace verfügbar' : 'No workspace available')
-                : scopeLabel)}
-            </span>
-            {automationWorkspaces.length > 0 ? (
-              <Badge variant={isOrganizationScopedWorkspace(selectedWorkspace) ? 'default' : 'secondary'} className="shrink-0">
+    return (
+      <section
+        data-testid={`automation-${target}-workspace-panel`}
+        className="min-w-0 rounded-lg border border-primary/35 bg-primary/[0.045] p-4 shadow-sm"
+      >
+        <div className="flex min-w-0 items-start gap-3">
+          <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md bg-primary text-primary-foreground shadow-sm">
+            <Folder className="h-5 w-5" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-foreground">{t('workspace.executionTitle')}</p>
+            <p className="mt-0.5 text-xs leading-5 text-muted-foreground">{t('workspace.executionDescription')}</p>
+          </div>
+          {selectedWorkspace ? (
+            <Badge variant={isOrganizationScopedWorkspace(selectedWorkspace) ? 'default' : 'secondary'} className="shrink-0">
+              {scopeLabel}
+            </Badge>
+          ) : null}
+        </div>
+
+        <div className="mt-4">
+          {isExistingScheduledJob ? (
+            <div
+              data-testid={`automation-${target}-workspace-readonly`}
+              className="flex min-w-0 flex-col gap-3 rounded-md border bg-background px-3 py-3 sm:flex-row sm:items-center sm:justify-between"
+            >
+              <div className="min-w-0">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('workspace.current')}</p>
+                <p className="mt-1 truncate text-base font-semibold text-foreground">
+                  {selectedWorkspace?.name || t('workspace.unavailable')}
+                </p>
+              </div>
+              <Button
+                type="button"
+                variant="outline"
+                className="w-full shrink-0 sm:w-auto"
+                onClick={openWorkspaceChangeDialog}
+                disabled={workspaceChangeOptions.length === 0}
+                data-testid="automation-change-workspace"
+              >
+                <RefreshCw className="mr-2 h-4 w-4" />
+                {t('workspace.change.action')}
+              </Button>
+            </div>
+          ) : (
+            <div className="grid min-w-0 max-w-full gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
+              <select
+                data-testid={`automation-${target}-workspace`}
+                aria-label={t('workspace.executionTitle')}
+                className={AUTOMATION_FIELD_CLASS}
+                value={state.workspaceId || defaultAutomationWorkspaceId}
+                onChange={(event) => updateWorkspaceId(event.target.value)}
+                disabled={!hasSwitchableAutomationWorkspaces}
+              >
+                {automationWorkspaces.length === 0 ? (
+                  <option value="">{t('workspace.unavailable')}</option>
+                ) : automationWorkspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>
+                    {workspaceOptionLabel(workspace, t)}
+                  </option>
+                ))}
+              </select>
+              <Badge variant={isOrganizationScopedWorkspace(selectedWorkspace) ? 'default' : 'secondary'} className="h-10 justify-center px-3">
                 {scopeLabel}
               </Badge>
-            ) : null}
-          </div>
+            </div>
+          )}
         </div>
-      );
-    }
 
-    return (
-      <label className="flex min-w-0 flex-col gap-1 text-sm">
-        <span className="flex items-center gap-1 text-xs text-muted-foreground">
-          <Folder className="h-3.5 w-3.5" />
-          {label}
-        </span>
-        <div className="grid min-w-0 max-w-full gap-2 sm:grid-cols-[minmax(0,1fr)_auto]">
-          <select
-            data-testid={`automation-${target}-workspace`}
-            className={AUTOMATION_FIELD_CLASS}
-            value={state.workspaceId || defaultAutomationWorkspaceId}
-            onChange={(event) => updateWorkspaceId(event.target.value)}
-            disabled={automationWorkspaces.length === 0}
-          >
-            {automationWorkspaces.length === 0 ? (
-              <option value="">{isGermanLocale ? 'Kein Workspace verfügbar' : 'No workspace available'}</option>
-            ) : automationWorkspaces.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspaceOptionLabel(workspace, t)}
-              </option>
-            ))}
-          </select>
-          <Badge variant={isOrganizationScopedWorkspace(selectedWorkspace) ? 'default' : 'secondary'} className="h-10 justify-center px-3">
-            {scopeLabel}
-          </Badge>
-        </div>
-      </label>
+        <p className="mt-3 flex items-start gap-2 text-xs leading-5 text-muted-foreground">
+          <AlertTriangle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-amber-600" />
+          {t('workspace.impact')}
+        </p>
+      </section>
     );
   }
 
@@ -2650,6 +2774,121 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
           </Tabs>
         </SheetContent>
       </Sheet>
+
+      <Dialog open={isWorkspaceChangeOpen} onOpenChange={handleWorkspaceChangeOpenChange}>
+        <DialogContent className="max-h-[90dvh] max-w-2xl overflow-y-auto" data-testid="automation-workspace-change-dialog">
+          <DialogHeader>
+            <DialogTitle>{t('workspace.change.title')}</DialogTitle>
+            <DialogDescription>{t('workspace.change.description')}</DialogDescription>
+          </DialogHeader>
+
+          <div className="space-y-4">
+            <div className="grid min-w-0 items-center gap-2 sm:grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)]">
+              <div className="min-w-0 rounded-md border bg-muted/30 px-3 py-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('workspace.change.from')}</p>
+                <p className="mt-1 truncate text-sm font-semibold">{selectedJobWorkspace?.name || selectedJob?.workspaceId || t('workspace.unavailable')}</p>
+              </div>
+              <ArrowRight className="mx-auto h-4 w-4 rotate-90 text-muted-foreground sm:rotate-0" />
+              <div className="min-w-0 rounded-md border border-primary/30 bg-primary/5 px-3 py-3">
+                <p className="text-[11px] font-medium uppercase tracking-wide text-muted-foreground">{t('workspace.change.to')}</p>
+                <p className="mt-1 truncate text-sm font-semibold">{selectedWorkspaceChangeTarget?.name || t('workspace.change.selectTarget')}</p>
+              </div>
+            </div>
+
+            <label className="flex min-w-0 flex-col gap-1 text-sm">
+              <span className="text-xs font-medium text-muted-foreground">{t('workspace.change.targetLabel')}</span>
+              <select
+                className={AUTOMATION_FIELD_CLASS}
+                value={workspaceChangeTargetId}
+                onChange={(event) => {
+                  setWorkspaceChangeTargetId(event.target.value);
+                  setWorkspaceChangePreview(null);
+                }}
+                disabled={isPreviewingWorkspaceChange || isApplyingWorkspaceChange}
+                data-testid="automation-workspace-change-target"
+              >
+                {workspaceChangeOptions.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>{workspaceOptionLabel(workspace, t)}</option>
+                ))}
+              </select>
+            </label>
+
+            <div className="rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-3 text-sm">
+              <div className="flex items-start gap-2">
+                <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+                <div>
+                  <p className="font-medium text-foreground">{t('workspace.change.impactTitle')}</p>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('workspace.change.impactDescription')}</p>
+                </div>
+              </div>
+            </div>
+
+            {workspaceChangePreview ? (
+              <div className="space-y-2" data-testid="automation-workspace-change-preview">
+                <div className="flex items-center justify-between gap-3">
+                  <p className="text-sm font-semibold">{t('workspace.change.validationTitle')}</p>
+                  <Badge variant={workspaceChangePreview.canChange ? 'secondary' : 'destructive'}>
+                    {workspaceChangePreview.canChange ? t('workspace.change.ready') : t('workspace.change.blocked')}
+                  </Badge>
+                </div>
+                {workspaceChangePreview.issues.length === 0 ? (
+                  <div className="flex items-start gap-2 rounded-md border border-emerald-500/30 bg-emerald-500/5 px-3 py-3 text-sm">
+                    <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-emerald-600" />
+                    <span>{t('workspace.change.noIssues')}</span>
+                  </div>
+                ) : workspaceChangePreview.issues.map((entry, index) => (
+                  <div
+                    key={`${entry.code}-${entry.value || index}`}
+                    className={cn(
+                      'flex items-start gap-2 rounded-md border px-3 py-3 text-sm',
+                      entry.severity === 'blocker' && 'border-destructive/30 bg-destructive/5 text-destructive',
+                      entry.severity === 'warning' && 'border-amber-500/30 bg-amber-500/5',
+                      entry.severity === 'change' && 'border-blue-500/30 bg-blue-500/5',
+                      entry.severity === 'info' && 'bg-muted/30',
+                    )}
+                  >
+                    {entry.severity === 'change' ? (
+                      <RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-blue-600" />
+                    ) : entry.severity === 'info' ? (
+                      <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    ) : (
+                      <AlertTriangle className={cn('mt-0.5 h-4 w-4 shrink-0', entry.severity === 'warning' && 'text-amber-600')} />
+                    )}
+                    <span className="leading-5">{workspaceChangeIssueMessage(entry)}</span>
+                  </div>
+                ))}
+              </div>
+            ) : null}
+
+            <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+              <Button type="button" variant="outline" onClick={() => handleWorkspaceChangeOpenChange(false)} disabled={isApplyingWorkspaceChange}>
+                {t('workspace.change.cancel')}
+              </Button>
+              {workspaceChangePreview ? (
+                <Button
+                  type="button"
+                  onClick={() => void handleApplyWorkspaceChange()}
+                  disabled={!workspaceChangePreview.canChange || isApplyingWorkspaceChange}
+                  data-testid="automation-workspace-change-confirm"
+                >
+                  {isApplyingWorkspaceChange ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
+                  {t('workspace.change.confirm')}
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => void handlePreviewWorkspaceChange()}
+                  disabled={!workspaceChangeTargetId || isPreviewingWorkspaceChange}
+                  data-testid="automation-workspace-change-preview-action"
+                >
+                  {isPreviewingWorkspaceChange ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
+                  {t('workspace.change.previewAction')}
+                </Button>
+              )}
+            </div>
+          </div>
+        </DialogContent>
+      </Dialog>
 
       <WorkspaceDirectoryPickerDialog
         open={isDirectoryPickerOpen}
