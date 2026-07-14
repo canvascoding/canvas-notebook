@@ -61,4 +61,9 @@ assert.match(obsidianMarkdown, /data-callout-fold="-"/);
 assert.match(obsidianMarkdown, /id="block-decision-1"/);
 assert.doesNotMatch(obsidianMarkdown, /\^decision-1/);
 
+const escapedObsidianMarkdown = renderMarkdown(String.raw`\[[Literal]] and \![[Embed]]`);
+assert.match(escapedObsidianMarkdown, /\[\[Literal\]\]/);
+assert.match(escapedObsidianMarkdown, /!\[\[Embed\]\]/);
+assert.doesNotMatch(escapedObsidianMarkdown, /data-canvas-wiki-target/);
+
 console.log('canvas-markdown-rendering-test: ok');

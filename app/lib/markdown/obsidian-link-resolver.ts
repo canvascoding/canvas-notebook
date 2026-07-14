@@ -175,3 +175,37 @@ export function findObsidianWikiCompletionContext(
 export function getObsidianWikiCompletionInsertPath(filePath: string): string {
   return stripMarkdownExtension(normalizeWorkspacePath(filePath));
 }
+
+function safelyDecodeLinkTarget(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
+/** Converts a relative Markdown href into the same target format used by wiki links. */
+export function getWorkspaceMarkdownLinkTarget(
+  href: string,
+  sourcePath?: string | null,
+): string | null {
+  const trimmed = href.trim();
+  if (!trimmed || /^(?:[a-z][a-z0-9+.-]*:|\/\/)/i.test(trimmed)) return null;
+  if (trimmed.includes('?')) return null;
+  if (trimmed.startsWith('#')) {
+    return sourcePath ? safelyDecodeLinkTarget(trimmed) : null;
+  }
+
+  const hashIndex = trimmed.indexOf('#');
+  const path = hashIndex >= 0 ? trimmed.slice(0, hashIndex) : trimmed;
+  const fragment = hashIndex >= 0 ? trimmed.slice(hashIndex) : '';
+  const fileName = path.replace(/\\/g, '/').split('/').pop() || '';
+  const dotIndex = fileName.lastIndexOf('.');
+  const extension = dotIndex > 0 && dotIndex < fileName.length - 1
+    ? fileName.slice(dotIndex + 1).toLowerCase()
+    : null;
+  if (extension && !MARKDOWN_EXTENSIONS.has(extension)) return null;
+  if (path.startsWith('/') && !extension) return null;
+
+  return safelyDecodeLinkTarget(`${path}${fragment}`);
+}

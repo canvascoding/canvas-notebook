@@ -143,6 +143,14 @@ function findUnescapedPipe(value: string): number {
   return -1;
 }
 
+function isEscapedAt(value: string, start: number): boolean {
+  let backslashCount = 0;
+  for (let index = start - 1; index >= 0 && value[index] === '\\'; index -= 1) {
+    backslashCount += 1;
+  }
+  return backslashCount % 2 === 1;
+}
+
 export function parseObsidianWikiTarget(rawTarget: string): ObsidianWikiTarget | null {
   const raw = rawTarget.trim();
   if (!raw) return null;
@@ -182,6 +190,7 @@ export function parseObsidianWikiLinks(markdown: string): ObsidianWikiLink[] {
 
   for (const match of mask.matchAll(pattern)) {
     const start = match.index ?? 0;
+    if (isEscapedAt(markdown, start)) continue;
     const rawInnerStart = start + (match[1] ? 3 : 2);
     const rawInnerEnd = start + match[0].length - 2;
     const parsed = parseObsidianWikiTarget(markdown.slice(rawInnerStart, rawInnerEnd));

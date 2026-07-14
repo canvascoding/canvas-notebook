@@ -9,6 +9,7 @@ import {
 } from '@/app/lib/markdown/canvas-markdown';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { ObsidianWikiLink } from '@/app/components/shared/ObsidianWikiLink';
+import { getWorkspaceMarkdownLinkTarget } from '@/app/lib/markdown/obsidian-link-resolver';
 import { cn } from '@/lib/utils';
 
 interface MarkdownRendererProps {
@@ -74,6 +75,14 @@ export function MarkdownRenderer({
             sourcePath={sourcePath}
             embed={props['data-canvas-wiki-embed'] === 'true'}
           >
+            {children}
+          </ObsidianWikiLink>
+        );
+      }
+      const workspaceTarget = href ? getWorkspaceMarkdownLinkTarget(href, sourcePath) : null;
+      if (workspaceTarget) {
+        return (
+          <ObsidianWikiLink target={workspaceTarget} sourcePath={sourcePath}>
             {children}
           </ObsidianWikiLink>
         );

@@ -5,6 +5,11 @@ import {
   extractWorkspaceMarkdownHeadings,
   rewriteWorkspaceWikiLinksForRename,
 } from '../app/lib/markdown/workspace-link-index-core';
+import {
+  invalidateWorkspaceLinkIndexCache,
+  loadWorkspaceLinkIndex,
+  resolveWorkspaceLinkFromIndex,
+} from '../app/lib/markdown/workspace-link-index-client';
 
 const overview = `---
 title: Project overview
@@ -76,4 +81,38 @@ assert.equal(directoryRewrite.updatedLinks, 2);
 assert.match(directoryRewrite.content, /\[\[Archive\/Projects\/Plan#Outcome\|the plan\]\]/);
 assert.match(directoryRewrite.content, /\[\[Archive\/Projects\/Decision\]\]/);
 
-console.log('workspace-link-index-test: ok');
+async function testWorkspaceLinkIndexClient(): Promise<void> {
+  const originalFetch = globalThis.fetch;
+  let linkIndexRequests = 0;
+  globalThis.fetch = async () => {
+    linkIndexRequests += 1;
+    return new Response(JSON.stringify({ success: true, index }), {
+      headers: { 'Content-Type': 'application/json' },
+      status: 200,
+    });
+  };
+
+  try {
+    const [firstLoad, concurrentLoad] = await Promise.all([
+      loadWorkspaceLinkIndex('workspace-a'),
+      loadWorkspaceLinkIndex('workspace-a'),
+    ]);
+    assert.equal(firstLoad, concurrentLoad);
+    assert.equal(linkIndexRequests, 1);
+    assert.equal(
+      resolveWorkspaceLinkFromIndex('Decision Alias', firstLoad, 'Projects/Overview.md')?.path,
+      'Projects/Decision.md',
+    );
+
+    invalidateWorkspaceLinkIndexCache('workspace-a');
+    await loadWorkspaceLinkIndex('workspace-a');
+    assert.equal(linkIndexRequests, 2);
+  } finally {
+    globalThis.fetch = originalFetch;
+    invalidateWorkspaceLinkIndexCache();
+  }
+}
+
+void testWorkspaceLinkIndexClient().then(() => {
+  console.log('workspace-link-index-test: ok');
+});

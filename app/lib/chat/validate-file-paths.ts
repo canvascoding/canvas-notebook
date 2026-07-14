@@ -4,6 +4,7 @@ import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 import { withWorkspaceQuery, workspaceHeaders } from '@/app/lib/files/client';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
+import { invalidateWorkspaceLinkIndexCache } from '@/app/lib/markdown/workspace-link-index-client';
 
 const POSITIVE_VALIDATION_CACHE_TTL_MS = 30_000;
 const NEGATIVE_VALIDATION_CACHE_TTL_MS = 10_000;
@@ -70,6 +71,7 @@ export function invalidateFileReferenceValidationCache(options: {
     validationCache.delete(key);
   }
 
+  invalidateWorkspaceLinkIndexCache(workspaceId);
   notifyValidationListeners({ workspaceId, path: normalizedPath });
 }
 

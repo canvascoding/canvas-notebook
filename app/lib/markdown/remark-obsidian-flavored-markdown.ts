@@ -56,7 +56,41 @@ function highlightNode(value: string): PhrasingContent {
   };
 }
 
-function transformText(value: string, state: TransformState): PhrasingContent[] {
+function findEscapedWikiStarts(value: string, sourceValue: string): Set<number> {
+  const starts = new Set<number>();
+  let sourceIndex = 0;
+  let valueIndex = 0;
+
+  while (sourceIndex < sourceValue.length && valueIndex < value.length) {
+    if (
+      sourceValue[sourceIndex] === '\\'
+      && sourceValue[sourceIndex + 1] === value[valueIndex]
+    ) {
+      const escapedValue = sourceValue.slice(sourceIndex + 1);
+      if (escapedValue.startsWith('[[') || escapedValue.startsWith('![[')) {
+        starts.add(valueIndex);
+      }
+      sourceIndex += 1;
+      continue;
+    }
+
+    if (sourceValue[sourceIndex] === value[valueIndex]) {
+      sourceIndex += 1;
+      valueIndex += 1;
+      continue;
+    }
+
+    sourceIndex += 1;
+  }
+
+  return starts;
+}
+
+function transformText(
+  value: string,
+  state: TransformState,
+  escapedWikiStarts: Set<number> = new Set(),
+): PhrasingContent[] {
   const result: PhrasingContent[] = [];
   let plainText = '';
   let index = 0;
@@ -80,6 +114,13 @@ function transformText(value: string, state: TransformState): PhrasingContent[] 
       flushPlainText();
       state.inComment = true;
       index += 2;
+      continue;
+    }
+
+    if (escapedWikiStarts.has(index)) {
+      const openerLength = value.startsWith('![[', index) ? 3 : 2;
+      plainText += value.slice(index, index + openerLength);
+      index += openerLength;
       continue;
     }
 
@@ -162,12 +203,21 @@ function transformBlockId(node: Parent & NodeWithData): void {
   });
 }
 
-function transformChildren(parent: Parent, state: TransformState): void {
+function transformChildren(parent: Parent, state: TransformState, source: string): void {
   const transformed: Content[] = [];
 
   for (const child of parent.children) {
     if (child.type === 'text') {
-      transformed.push(...transformText(child.value, state));
+      const startOffset = child.position?.start.offset;
+      const endOffset = child.position?.end.offset;
+      const sourceValue = typeof startOffset === 'number' && typeof endOffset === 'number'
+        ? source.slice(startOffset, endOffset)
+        : child.value;
+      transformed.push(...transformText(
+        child.value,
+        state,
+        findEscapedWikiStarts(child.value, sourceValue),
+      ));
       continue;
     }
 
@@ -184,7 +234,7 @@ function transformChildren(parent: Parent, state: TransformState): void {
     if ('children' in child && Array.isArray(child.children)) {
       if (child.type === 'blockquote') transformCallout(child);
       if (child.type === 'paragraph' || child.type === 'heading') transformBlockId(child);
-      transformChildren(child, state);
+      transformChildren(child, state, source);
 
       if (child.children.length > 0 || child.type === 'paragraph') {
         transformed.push(child);
@@ -199,7 +249,7 @@ function transformChildren(parent: Parent, state: TransformState): void {
 }
 
 export function remarkObsidianFlavoredMarkdown() {
-  return (tree: Root) => {
-    transformChildren(tree, { inComment: false });
+  return (tree: Root, file: { value?: unknown }) => {
+    transformChildren(tree, { inComment: false }, typeof file.value === 'string' ? file.value : '');
   };
 }

@@ -13,6 +13,7 @@ import { parseObsidianFrontmatter } from '../app/lib/markdown/obsidian-metadata'
 import {
   findObsidianWikiCompletionContext,
   getObsidianWikiCompletionInsertPath,
+  getWorkspaceMarkdownLinkTarget,
   resolveObsidianWikiLink,
 } from '../app/lib/markdown/obsidian-link-resolver';
 
@@ -62,6 +63,10 @@ assert.deepEqual(
 assert.equal(links[1].embed, true);
 assert.equal(links[1].path, 'assets/chart.png');
 assert.equal(links[1].alias, '640');
+assert.deepEqual(
+  parseObsidianWikiLinks(String.raw`\[[Literal]] and \![[Embed]] and [[Real]]`).map((link) => link.target),
+  ['Real'],
+);
 
 const frontmatter = parseObsidianFrontmatter(markdown);
 assert.ok(frontmatter);
@@ -137,5 +142,9 @@ assert.equal(findObsidianWikiCompletionContext('`[[ignored`', 11), null);
 assert.equal(findObsidianWikiCompletionContext('[[Plan#Heading', 14), null);
 assert.equal(findObsidianWikiCompletionContext('[[Plan|Alias', 12), null);
 assert.equal(getObsidianWikiCompletionInsertPath('./projects/Plan.md'), 'projects/Plan');
+assert.equal(getWorkspaceMarkdownLinkTarget('../Shared.md#Reference', 'projects/Overview.md'), '../Shared.md#Reference');
+assert.equal(getWorkspaceMarkdownLinkTarget('#Local heading', 'projects/Overview.md'), '#Local heading');
+assert.equal(getWorkspaceMarkdownLinkTarget('https://example.com/Plan.md', 'projects/Overview.md'), null);
+assert.equal(getWorkspaceMarkdownLinkTarget('../assets/plan.pdf', 'projects/Overview.md'), null);
 
 console.log('obsidian-flavored-markdown-test: ok');
