@@ -10,6 +10,15 @@ const LICENSE_GATE_COOKIE = 'canvas_license_gate';
 // Public routes that don't require authentication
 const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/setup', '/api/auth', '/api/license', '/api/setup', '/api/automations/execute', '/api/automations/scheduler'];
 const PUBLIC_EXACT_ROUTES = ['/', '/api/health', '/manifest.webmanifest'];
+const PUBLIC_SHARE_PREFIX_ROUTES = [
+  '/p/',
+  '/public/files/',
+  '/public/view/',
+  '/public/markdown-assets/',
+  '/public/markdown-export/',
+  '/public/markdown-pdf/',
+  '/public/marp-preview/',
+];
 // The initial owner must be able to establish personal language and the
 // server-wide schedule time zone before a license is active. Both routes
 // authenticate and authorize again in their handlers.
@@ -27,7 +36,7 @@ function isWebSocketRoute(pathname: string) {
 }
 
 function isPublicShareRoute(pathname: string) {
-  return pathname.startsWith('/public/files/') || pathname.startsWith('/p/');
+  return PUBLIC_SHARE_PREFIX_ROUTES.some((route) => pathname.startsWith(route));
 }
 
 function getLocaleFromPathname(pathname: string) {
