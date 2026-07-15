@@ -101,7 +101,7 @@
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);
-  --font-sans: var(--font-geist-sans);
+  --font-sans: var(--app-font-sans);
   --font-mono: var(--font-geist-mono);
   --color-sidebar-ring: var(--sidebar-ring);
   --color-sidebar-border: var(--sidebar-border);
@@ -132,6 +132,7 @@
   --color-popover: var(--popover);
   --color-card-foreground: var(--card-foreground);
   --color-card: var(--card);
+  --radius-xs: var(--radius);
   --radius-sm: var(--radius);
   --radius-md: var(--radius);
   --radius-lg: var(--radius);
@@ -247,6 +248,7 @@
 }
 
 :root {
+  --app-font-sans: var(--font-geist-sans);
   --radius: 0px;
   --background: oklch(0.98 0.006 247);
   --foreground: oklch(0.22 0.022 247);
@@ -331,19 +333,13 @@
   }
   body {
     @apply bg-background text-foreground;
+    font-family: var(--app-font-sans);
     background-image:
       linear-gradient(to right, color-mix(in oklab, var(--border) 40%, transparent) 1px, transparent 1px),
       linear-gradient(to bottom, color-mix(in oklab, var(--border) 35%, transparent) 1px, transparent 1px),
       linear-gradient(160deg, color-mix(in oklab, var(--background) 94%, var(--primary)) 0%, var(--background) 38%, color-mix(in oklab, var(--background) 90%, var(--accent)) 100%);
     background-size: 40px 40px, 40px 40px, 100% 100%;
     letter-spacing: 0.005em;
-  }
-  button,
-  input,
-  select,
-  textarea,
-  [role="button"] {
-    border-radius: 0 !important;
   }
   ::selection {
     background: color-mix(in oklab, var(--primary) 28%, transparent);
@@ -356,8 +352,8 @@
 }
 
 @layer utilities {
-  [class*="rounded"] {
-    border-radius: 0 !important;
+  .rounded {
+    border-radius: var(--radius);
   }
   .no-scrollbar {
     -ms-overflow-style: none;

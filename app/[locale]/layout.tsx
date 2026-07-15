@@ -6,6 +6,7 @@ import "@excalidraw/excalidraw/index.css";
 import "../globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
+import { WorkspaceAppearanceProvider } from '@/app/components/WorkspaceAppearanceProvider';
 import { WebSocketProvider } from '@/app/components/websocket-provider';
 import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
@@ -106,11 +107,13 @@ export default async function LocaleLayout({
       >
         <NextIntlClientProvider messages={messages}>
           <AppThemeProvider>
-            <WebSocketProvider enabled={websocketEnabled}>
-              <LicenseGatePrimer enabled={Boolean(licenseStatus?.licensed)} />
-              {children}
-              <Toaster richColors position="top-right" />
-            </WebSocketProvider>
+            <WorkspaceAppearanceProvider>
+              <WebSocketProvider enabled={websocketEnabled}>
+                <LicenseGatePrimer enabled={Boolean(licenseStatus?.licensed)} />
+                {children}
+                <Toaster richColors position="top-right" />
+              </WebSocketProvider>
+            </WorkspaceAppearanceProvider>
           </AppThemeProvider>
         </NextIntlClientProvider>
       </body>
