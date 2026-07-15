@@ -1038,7 +1038,7 @@
     {
       "id": 47,
       "title": "Nutzerdaten-Backup ueber CLI/Agent mit lokalem Latest-Artefakt und Control-Plane-Download umsetzen",
-      "status": "in_progress",
+      "status": "completed",
       "repo": "cross-repo",
       "dependsOn": [
         36,
