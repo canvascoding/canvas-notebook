@@ -2012,11 +2012,20 @@ contentKind: document
       },
     });
 
+    const documentRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.resourceType() === 'document') {
+        documentRequests.push(request.url());
+      }
+    });
     await page.goto('/chat');
-    await page.getByRole('link', { name: /Open latest session Stopped runtime session/i }).click();
+    const documentRequestCountBeforeSessionOpen = documentRequests.length;
+    await page.getByRole('button', { name: /Open latest session Stopped runtime session/i }).click();
 
     await expect(page.getByTestId('chat-queue-panel')).toContainText('Continue after stop', { timeout: 15000 });
     await expect(page.getByTestId('chat-runtime-status')).toContainText('1 queued');
+    expect(documentRequests).toHaveLength(documentRequestCountBeforeSessionOpen);
+    expect(new URL(page.url()).searchParams.has('session')).toBe(false);
 
     await page.getByTestId('chat-queue-item').filter({ hasText: 'Continue after stop' }).first().getByTestId('chat-queue-item-steer').click();
 
@@ -2050,6 +2059,83 @@ contentKind: document
     await expect(page.getByTestId('chat-mobile-action-toggle')).toHaveCount(0);
     await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
     await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);
+  });
+
+  test('should open the latest session inside the mobile notebook without closing the chat', async ({ page }) => {
+    const sessionId = 'sess-mobile-latest-session';
+    const createdAt = new Date().toISOString();
+
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.addInitScript(() => {
+      window.sessionStorage.clear();
+      window.localStorage.removeItem('canvas.chat.sessionMessages.v1');
+    });
+    await page.route(/\/api\/sessions(?:\?.*)?$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          sessions: [{
+            id: 1,
+            sessionId,
+            title: 'Mobile latest session',
+            agentId: 'canvas-agent',
+            provider: 'openai',
+            model: 'gpt-4o',
+            createdAt,
+            lastMessageAt: createdAt,
+            lastViewedAt: createdAt,
+            hasUnread: false,
+          }],
+        }),
+      });
+    });
+    await page.route(/\/api\/sessions\/messages\?.*$/, async (route) => {
+      await route.fulfill({
+        status: 200,
+        contentType: 'application/json',
+        body: JSON.stringify({
+          success: true,
+          messages: [{
+            id: 'mobile-session-message',
+            role: 'assistant',
+            content: [{ type: 'text', text: 'Mobile session stays open.' }],
+            api: 'mock',
+            provider: 'mock',
+            model: 'mock-model',
+            usage: EMPTY_USAGE,
+            stopReason: 'stop',
+            timestamp: Date.now(),
+          }],
+        }),
+      });
+    });
+    await setupMockWebSocket(page, {
+      sessionId,
+      runtimeStatus: createMockRuntimeStatus(sessionId) as unknown as Record<string, unknown>,
+      sendEventsAfterSendMessage: false,
+    });
+
+    const documentRequests: string[] = [];
+    page.on('request', (request) => {
+      if (request.resourceType() === 'document') {
+        documentRequests.push(request.url());
+      }
+    });
+
+    await page.goto('/notebook');
+    await page.getByRole('button', { name: /AI Chat/i }).first().click();
+    const mobileChat = page.locator('#onboarding-notebook-chat');
+    await expect(mobileChat).toBeVisible();
+    const documentRequestCountBeforeSessionOpen = documentRequests.length;
+
+    await page.getByTestId('chat-open-latest-session').click();
+
+    await expect(page.getByText('Mobile session stays open.')).toBeVisible({ timeout: 15000 });
+    await expect(mobileChat).toBeVisible();
+    expect(documentRequests).toHaveLength(documentRequestCountBeforeSessionOpen);
+    expect(new URL(page.url()).searchParams.has('session')).toBe(false);
   });
 
   test('should auto-grow the composer up to the mobile max height and collapse on reset', async ({ page }) => {
@@ -2373,7 +2459,7 @@ contentKind: document
     });
 
     await page.goto('/chat');
-    await page.getByRole('link', { name: /Open latest session Compact session/i }).click();
+    await page.getByRole('button', { name: /Open latest session Compact session/i }).click();
 
     await expect(page.getByTestId('chat-compact')).toBeEnabled({ timeout: 15000 });
     await page.getByTestId('chat-compact').click();

@@ -146,7 +146,6 @@ export default function CanvasAgentChat({
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
   const pathname = useLocalePathname();
-  const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
   const resolvedRequestedSessionId = forcedSessionId ?? requestedSessionId;
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
@@ -334,6 +333,7 @@ export default function CanvasAgentChat({
   const subscribedSessionRequestRef = useRef<{ sessionId: string; promise: Promise<void> } | null>(null);
   const skipNextSessionStatusRefreshRef = useRef<string | null>(null);
   const historyPanelRef = useRef<HTMLDivElement | null>(null);
+  const openingLatestSessionRef = useRef<string | null>(null);
   const {
     addSessionToHistory,
     agentProfilesById,
@@ -620,8 +620,8 @@ export default function CanvasAgentChat({
     handleRemoveQueuedMessage,
     handleSend,
     handleStop,
-    selectChatAgent,
-    startNewChat,
+    selectChatAgent: selectChatAgentWithoutLoadCancellation,
+    startNewChat: startNewChatWithoutLoadCancellation,
   } = useChatControlActions({
     activeModel,
     activeProvider,
@@ -688,21 +688,7 @@ export default function CanvasAgentChat({
     wsRequest,
   });
 
-  useEffect(() => {
-    const handleWorkspaceChange = () => {
-      closeReferencePicker();
-      clearSessionParamFromUrl();
-      startNewChat(undefined, {
-        clearActiveSessionStorage: false,
-        restoreWorkspaceSession: true,
-      });
-    };
-
-    window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-    return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-  }, [clearSessionParamFromUrl, closeReferencePicker, startNewChat]);
-
-  const { loadOlderMessages, loadSession } = useChatSessionMessages({
+  const { cancelSessionLoad, loadOlderMessages, loadSession } = useChatSessionMessages({
     activeModel,
     activeProvider,
     activeThinkingLevel,
@@ -758,10 +744,54 @@ export default function CanvasAgentChat({
     setShowUnreadBanner,
     setTotalUnreadCount,
     shouldShowHistoryAsOverlay,
+    skipNextSessionStatusRefreshRef,
     t,
     userStartedNewChatRef,
     wsRequest,
   });
+
+  const startNewChat = useCallback((
+    agentIdOverride?: string,
+    options?: Parameters<typeof startNewChatWithoutLoadCancellation>[1],
+  ) => {
+    cancelSessionLoad();
+    openingLatestSessionRef.current = null;
+    startNewChatWithoutLoadCancellation(agentIdOverride, options);
+  }, [cancelSessionLoad, startNewChatWithoutLoadCancellation]);
+
+  const selectChatAgent = useCallback((agentId: string) => {
+    cancelSessionLoad();
+    openingLatestSessionRef.current = null;
+    selectChatAgentWithoutLoadCancellation(agentId);
+  }, [cancelSessionLoad, selectChatAgentWithoutLoadCancellation]);
+
+  const openLatestSession = useCallback(() => {
+    const targetSession = latestSession;
+    if (!targetSession || openingLatestSessionRef.current) {
+      return;
+    }
+
+    openingLatestSessionRef.current = targetSession.sessionId;
+    void loadSession(targetSession).finally(() => {
+      if (openingLatestSessionRef.current === targetSession.sessionId) {
+        openingLatestSessionRef.current = null;
+      }
+    });
+  }, [latestSession, loadSession]);
+
+  useEffect(() => {
+    const handleWorkspaceChange = () => {
+      closeReferencePicker();
+      clearSessionParamFromUrl();
+      startNewChat(undefined, {
+        clearActiveSessionStorage: false,
+        restoreWorkspaceSession: true,
+      });
+    };
+
+    window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
+    return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
+  }, [clearSessionParamFromUrl, closeReferencePicker, startNewChat]);
 
   const deleteSession = useCallback(async (id: string) => {
     if (!confirm(t('deleteSessionConfirm'))) return;
@@ -1186,8 +1216,8 @@ export default function CanvasAgentChat({
             {showStarterScreen && (
             <ChatStarterScreen
               latestSession={latestSession}
-              sessionBasePath={sessionBasePath}
               isStudioChatContext={isStudioChatContext}
+              onOpenLatestSession={openLatestSession}
             />
             )}
 

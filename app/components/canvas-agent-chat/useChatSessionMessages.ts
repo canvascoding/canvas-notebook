@@ -99,6 +99,7 @@ type UseChatSessionMessagesParams = {
   setShowUnreadBanner: Dispatch<SetStateAction<boolean>>;
   setTotalUnreadCount: Dispatch<SetStateAction<number>>;
   shouldShowHistoryAsOverlay: boolean;
+  skipNextSessionStatusRefreshRef: MutableRefObject<string | null>;
   t: ChatTranslator;
   userStartedNewChatRef: MutableRefObject<boolean>;
   wsRequest: WebSocketRequest;
@@ -160,13 +161,26 @@ export function useChatSessionMessages({
   setShowUnreadBanner,
   setTotalUnreadCount,
   shouldShowHistoryAsOverlay,
+  skipNextSessionStatusRefreshRef,
   t,
   userStartedNewChatRef,
   wsRequest,
 }: UseChatSessionMessagesParams) {
   const loadSessionRequestIdRef = useRef(0);
   const loadSessionAbortRef = useRef<AbortController | null>(null);
+  const loadingSessionIdRef = useRef<string | null>(null);
   const cachePersistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const cancelSessionLoad = useCallback(() => {
+    const cancelledSessionId = loadingSessionIdRef.current;
+    loadSessionRequestIdRef.current += 1;
+    loadSessionAbortRef.current?.abort();
+    loadSessionAbortRef.current = null;
+    loadingSessionIdRef.current = null;
+    if (cancelledSessionId && skipNextSessionStatusRefreshRef.current === cancelledSessionId) {
+      skipNextSessionStatusRefreshRef.current = null;
+    }
+  }, [skipNextSessionStatusRefreshRef]);
 
   const mapRawMessages = useCallback((rawMessages: Parameters<typeof mapPersistedChatMessages>[0]): ChatMessage[] => {
     return mapPersistedChatMessages(rawMessages, t('runStopped'));
@@ -174,14 +188,14 @@ export function useChatSessionMessages({
 
   useEffect(() => {
     return () => {
-      loadSessionAbortRef.current?.abort();
+      cancelSessionLoad();
       if (cachePersistTimerRef.current) {
         clearTimeout(cachePersistTimerRef.current);
         cachePersistTimerRef.current = null;
       }
       persistChatSessionCache();
     };
-  }, []);
+  }, [cancelSessionLoad]);
 
   useEffect(() => {
     const currentSessionId = sessionIdRef.current;
@@ -298,16 +312,22 @@ export function useChatSessionMessages({
   }, [refreshSavedMessages, refreshSavedMessagesRef]);
 
   const loadSession = useCallback(async (session: AISession) => {
+    if (loadingSessionIdRef.current === session.sessionId) {
+      return;
+    }
+
     const sessionAgentId = session.agentId || DEFAULT_AGENT_ID;
     const requestId = loadSessionRequestIdRef.current + 1;
     loadSessionRequestIdRef.current = requestId;
     loadSessionAbortRef.current?.abort();
     const abortController = new AbortController();
     loadSessionAbortRef.current = abortController;
+    loadingSessionIdRef.current = session.sessionId;
 
     resetStreamConnection();
     setSelectedAgentId(sessionAgentId);
     void saveLastActiveAgentId(sessionAgentId);
+    skipNextSessionStatusRefreshRef.current = session.sessionId;
     setSessionId(session.sessionId);
     setSessionTitle(resolveSessionTitle(session.sessionId, session.title));
     sessionIdRef.current = session.sessionId;
@@ -388,6 +408,23 @@ export function useChatSessionMessages({
         return null;
       });
 
+      void statusPromise.then((statusPayload) => {
+        if (
+          abortController.signal.aborted ||
+          loadSessionRequestIdRef.current !== requestId ||
+          sessionIdRef.current !== session.sessionId
+        ) {
+          return;
+        }
+
+        if (statusPayload?.success && statusPayload.status) {
+          setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
+          setLastCompactionMarker((statusPayload.status as RuntimeStatus).lastCompactionAt);
+        } else {
+          setRuntimeStatus(null);
+        }
+      });
+
       const messagesPayload = await fetchChatSessionMessages({
         agentId: sessionAgentId,
         sessionId: session.sessionId,
@@ -452,29 +489,12 @@ export function useChatSessionMessages({
       requestAnimationFrame(() => {
         scrollToBottom('auto');
       });
-
-      void statusPromise.then((statusPayload) => {
-        if (
-          abortController.signal.aborted ||
-          loadSessionRequestIdRef.current !== requestId ||
-          sessionIdRef.current !== session.sessionId
-        ) {
-          return;
-        }
-
-        if (statusPayload?.success && statusPayload.status) {
-          setRuntimeStatusWithReconciliation(statusPayload.status as RuntimeStatus);
-          setLastCompactionMarker((statusPayload.status as RuntimeStatus).lastCompactionAt);
-        } else {
-          setRuntimeStatus(null);
-        }
-      }).finally(() => {
-        if (loadSessionAbortRef.current === abortController) {
-          loadSessionAbortRef.current = null;
-        }
-      });
     } catch (err) {
-      if (abortController.signal.aborted || loadSessionRequestIdRef.current !== requestId) {
+      if (
+        abortController.signal.aborted ||
+        loadSessionRequestIdRef.current !== requestId ||
+        sessionIdRef.current !== session.sessionId
+      ) {
         return;
       }
       console.error('Failed to load messages', err);
@@ -482,11 +502,16 @@ export function useChatSessionMessages({
         setMessages([{ id: 'error', role: 'system', content: t('failedToLoadMessageHistory') }]);
       }
     } finally {
-      if (abortController.signal.aborted && loadSessionAbortRef.current === abortController) {
-        loadSessionAbortRef.current = null;
+      if (loadSessionRequestIdRef.current === requestId) {
+        if (loadSessionAbortRef.current === abortController) {
+          loadSessionAbortRef.current = null;
+        }
+        if (loadingSessionIdRef.current === session.sessionId) {
+          loadingSessionIdRef.current = null;
+        }
       }
     }
-  }, [activeWorkspaceId, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasMoreBefore, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, t, userStartedNewChatRef, wsRequest]);
+  }, [activeWorkspaceId, ensureSessionSubscribed, hydrateRuntimeMessageRefs, isMobile, mapRawMessages, resetRuntimeMessageRefs, resetStreamConnection, resolveSessionTitle, scrollToBottom, sessionAgentIdRef, sessionIdRef, sessionWorkspaceIdRef, setActiveModel, setActiveProvider, setActiveThinkingLevel, setExpandedRunKeys, setHasMoreBefore, setHasUnreadInCurrentSession, setHistory, setInput, setIsLoadingOlder, setLastCompactionMarker, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp, setRuntimeStatus, setRuntimeStatusWithReconciliation, setSelectedAgentId, setSessionId, setSessionTitle, setShowHistory, setShowMobileDetails, setShowUnreadBanner, setTotalUnreadCount, shouldShowHistoryAsOverlay, skipNextSessionStatusRefreshRef, t, userStartedNewChatRef, wsRequest]);
 
   const loadOlderMessages = useCallback(async () => {
     const currentSessionId = sessionIdRef.current;
@@ -544,6 +569,7 @@ export function useChatSessionMessages({
   }, [activeWorkspaceId, hasMoreBefore, isLoadingOlder, mapRawMessages, oldestMessageId, oldestSequence, oldestTimestamp, scrollContainerRef, selectedAgentId, sessionAgentIdRef, sessionIdRef, setHasMoreBefore, setIsLoadingOlder, setMessages, setOldestMessageId, setOldestSequence, setOldestTimestamp]);
 
   return {
+    cancelSessionLoad,
     loadOlderMessages,
     loadSession,
     refreshSavedMessages,

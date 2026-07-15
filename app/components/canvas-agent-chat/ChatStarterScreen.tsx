@@ -4,16 +4,15 @@ import { History } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import type { AISession } from '@/app/lib/chat/types';
-import { Link } from '@/i18n/navigation';
 
 export function ChatStarterScreen({
   latestSession,
-  sessionBasePath,
   isStudioChatContext,
+  onOpenLatestSession,
 }: {
   latestSession: AISession | null;
-  sessionBasePath: string;
   isStudioChatContext: boolean;
+  onOpenLatestSession: () => void;
 }) {
   const t = useTranslations('chat');
 
@@ -25,14 +24,16 @@ export function ChatStarterScreen({
         </h2>
         <p className="text-sm text-muted-foreground">{t('starterPromptHint')}</p>
         {latestSession ? (
-          <Link
-            href={`${sessionBasePath}?session=${encodeURIComponent(latestSession.sessionId)}`}
+          <button
+            type="button"
+            data-testid="chat-open-latest-session"
+            onClick={onOpenLatestSession}
             className="mt-2 inline-flex max-w-full min-w-0 items-center gap-2 text-xs text-muted-foreground transition-colors hover:text-foreground"
           >
             <History className="h-3.5 w-3.5 shrink-0" />
             <span className="font-medium">{t('openLatestSession')}</span>
             <span className="max-w-[14rem] truncate">{latestSession.title || latestSession.sessionId}</span>
-          </Link>
+          </button>
         ) : null}
       </div>
     </div>
