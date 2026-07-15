@@ -3071,7 +3071,7 @@
           "description": "Lege fest, wer auf diesen Workspace zugreifen darf und was diese Personen tun können.",
           "manageAccess": "Zugriff verwalten",
           "currentMembers": "Personen mit Zugriff",
-          "currentMembersDescription": "Wähle pro Person eine Zugriffsrolle. Personen mit Vollzugriff können Mitglieder und Workspace-Einstellungen verwalten.",
+          "currentMembersDescription": "Wähle pro Person eine Zugriffsrolle. Mindestens eine Person muss Vollzugriff behalten.",
           "addMember": "Member hinzufügen",
           "addMemberDescription": "Wähle einen verfügbaren Nutzer und dessen Zugriffsrolle.",
           "selectUser": "Nutzer auswählen",
@@ -3084,6 +3084,7 @@
           "noMembers": "Keine Member vorhanden.",
           "noCandidates": "Keine weiteren Nutzer verfügbar",
           "noCandidatesDescription": "Alle verfügbaren Nutzer haben bereits Zugriff auf diesen Workspace.",
+          "lastFullAccessHint": "Einziger Vollzugriff: Erst eine weitere Person mit Vollzugriff hinzufügen.",
           "close": "Schließen",
           "cancel": "Abbrechen",
           "accessLevels": {
@@ -3111,7 +3112,7 @@
             "load": "Workspace-Members konnten nicht geladen werden.",
             "save": "Workspace-Member konnte nicht gespeichert werden.",
             "remove": "Workspace-Member konnte nicht entfernt werden.",
-            "lastManager": "Der letzte Manager kann nicht entfernt werden. Bitte erst einen neuen Manager zuweisen."
+            "lastManager": "Die letzte Person mit Vollzugriff kann nicht entfernt oder herabgestuft werden. Weise zuerst einer weiteren Person Vollzugriff zu."
           }
         },
         "createDialog": {

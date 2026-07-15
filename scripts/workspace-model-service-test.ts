@@ -294,6 +294,23 @@ async function main() {
     assert.equal(collabMember.canManage, false);
     assert.equal(listTeamWorkspaceMembers(sqlite, teamWorkspace.workspaceId).length, 2);
     assert.throws(
+      () => upsertTeamWorkspaceMember(sqlite, {
+        actor: ownerActor,
+        organizationId,
+        workspaceId: teamWorkspace.workspaceId,
+        userId: 'user-owner',
+        role: 'member',
+        canRead: true,
+        canWrite: true,
+        canManage: false,
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_LAST_MANAGER',
+    );
+    assert.equal(
+      listTeamWorkspaceMembers(sqlite, teamWorkspace.workspaceId).find((member) => member.userId === 'user-owner')?.canManage,
+      true,
+    );
+    assert.throws(
       () => removeTeamWorkspaceMember(sqlite, {
         organizationId,
         workspaceId: teamWorkspace.workspaceId,
@@ -370,6 +387,28 @@ async function main() {
         projectId: project.id,
       }).map((member) => member.userId),
       ['user-owner', 'user-collab'],
+    );
+    assert.throws(
+      () => upsertProjectWorkspaceMember(sqlite, {
+        actor: ownerActor,
+        organizationId,
+        workspaceId: projectWorkspaceRecord.id,
+        projectId: project.id,
+        userId: 'user-owner',
+        role: 'member',
+        canRead: true,
+        canWrite: false,
+        canManage: false,
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_LAST_MANAGER',
+    );
+    assert.equal(
+      listProjectWorkspaceMembers(sqlite, {
+        workspaceId: projectWorkspaceRecord.id,
+        organizationId,
+        projectId: project.id,
+      }).find((member) => member.userId === 'user-owner')?.canManage,
+      true,
     );
     assert.throws(
       () => removeProjectWorkspaceMember(sqlite, {

@@ -1,7 +1,7 @@
 'use client';
 
 import { useId, useState } from 'react';
-import { Loader2, RefreshCw, Trash2, UserPlus } from 'lucide-react';
+import { Loader2, LockKeyhole, RefreshCw, Trash2, UserPlus } from 'lucide-react';
 
 import {
   AlertDialog,
@@ -21,6 +21,9 @@ export type MemberAccessPerson<TAccessLevel extends string> = {
   name: string | null;
   email: string | null;
   accessLevel: TAccessLevel;
+  accessLevelLocked?: boolean;
+  removalLocked?: boolean;
+  restrictionHint?: string | null;
 };
 
 export type MemberAccessCandidate = {
@@ -152,8 +155,12 @@ export function MemberAccessEditor<TAccessLevel extends string>({
                   const busy = activeAction?.endsWith(member.userId) ?? false;
                   const identity = getMemberIdentity(member);
                   const selectId = `${idPrefix}-${member.userId}-access`;
+                  const restrictionId = member.restrictionHint ? `${selectId}-restriction` : undefined;
                   return (
-                    <div key={member.userId} className="grid gap-4 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_10.5rem_auto] sm:items-center">
+                    <div
+                      key={member.userId}
+                      className={`grid gap-4 px-4 py-4 sm:grid-cols-[minmax(0,1fr)_10.5rem_auto] sm:items-center ${member.restrictionHint ? 'bg-muted/20' : ''}`}
+                    >
                       <div className="flex min-w-0 items-center gap-3">
                         <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-secondary text-xs font-semibold text-secondary-foreground">
                           {getUserInitials(member)}
@@ -161,6 +168,12 @@ export function MemberAccessEditor<TAccessLevel extends string>({
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-foreground">{identity.primary}</p>
                           {identity.secondary ? <p className="mt-0.5 truncate text-sm text-muted-foreground">{identity.secondary}</p> : null}
+                          {member.restrictionHint ? (
+                            <p id={restrictionId} className="mt-1.5 flex items-start gap-1.5 text-xs leading-4 text-muted-foreground">
+                              <LockKeyhole className="mt-0.5 size-3 shrink-0" aria-hidden="true" />
+                              <span>{member.restrictionHint}</span>
+                            </p>
+                          ) : null}
                         </div>
                       </div>
 
@@ -169,7 +182,9 @@ export function MemberAccessEditor<TAccessLevel extends string>({
                         <select
                           id={selectId}
                           value={member.accessLevel}
-                          disabled={busy || activeAction !== null}
+                          disabled={busy || activeAction !== null || member.accessLevelLocked}
+                          aria-describedby={restrictionId}
+                          title={member.accessLevelLocked ? member.restrictionHint || undefined : undefined}
                           onChange={(event) => {
                             const nextLevel = event.target.value as TAccessLevel;
                             if (nextLevel !== member.accessLevel) onUpdateMember(member.userId, nextLevel);
@@ -188,7 +203,9 @@ export function MemberAccessEditor<TAccessLevel extends string>({
                           variant="ghost"
                           size="sm"
                           className="text-destructive hover:bg-destructive/10 hover:text-destructive"
-                          disabled={busy || activeAction !== null}
+                          disabled={busy || activeAction !== null || member.removalLocked}
+                          aria-describedby={restrictionId}
+                          title={member.removalLocked ? member.restrictionHint || undefined : undefined}
                           onClick={() => setRemoveTarget(member)}
                         >
                           {busy ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <Trash2 data-icon="inline-start" />}

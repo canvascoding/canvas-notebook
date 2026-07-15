@@ -358,6 +358,19 @@ async function main() {
   assert.equal(removeLastManagerResponse.status, 409);
   assert.equal((await responseJson(removeLastManagerResponse)).code, 'WORKSPACE_LAST_MANAGER');
 
+  const downgradeLastManagerResponse = await membersRoute.POST(
+    jsonRequest(`http://localhost/api/workspaces/${teamWorkspaceId}/members`, 'POST', {
+      userId: 'owner-user',
+      role: 'member',
+      canRead: true,
+      canWrite: true,
+      canManage: false,
+    }),
+    { params: Promise.resolve({ id: teamWorkspaceId }) },
+  );
+  assert.equal(downgradeLastManagerResponse.status, 409);
+  assert.equal((await responseJson(downgradeLastManagerResponse)).code, 'WORKSPACE_LAST_MANAGER');
+
   const promoteMemberResponse = await membersRoute.POST(
     jsonRequest(`http://localhost/api/workspaces/${teamWorkspaceId}/members`, 'POST', {
       userId: 'member-user',

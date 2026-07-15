@@ -8,6 +8,11 @@ import path from 'node:path';
 import { resolveWorkspaceDataRoot } from './context';
 import { getDefaultWorkspaceIcon, isWorkspaceIcon, type WorkspaceIcon } from './icons';
 import { resolveWorkspacePermissions } from './permissions';
+import {
+  WORKSPACE_LAST_MANAGER_CODE,
+  WORKSPACE_LAST_MANAGER_MESSAGE,
+  wouldRemoveLastWorkspaceManager,
+} from './member-manager-policy';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType, WorkspaceUserRole } from './types';
 
 export interface WorkspaceRecord {
@@ -1564,6 +1569,71 @@ export function listProjectWorkspaceMembers(
   return rows.map(rowToWorkspaceMemberRecord);
 }
 
+function assertTeamWorkspaceRetainsManager(
+  sqlite: Database.Database,
+  params: { workspaceId: string; userId: string; nextCanManage: boolean },
+) {
+  const member = sqlite.prepare(`
+    SELECT can_manage
+    FROM canvas_workspace_members
+    WHERE workspace_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
+    LIMIT 1
+  `).get(params.workspaceId, params.userId) as { can_manage: number } | undefined;
+  if (member?.can_manage !== 1 || params.nextCanManage) return;
+
+  const row = sqlite.prepare(`
+    SELECT COUNT(*) AS count
+    FROM canvas_workspace_members
+    WHERE workspace_id = ?
+      AND COALESCE(status, 'active') = 'active'
+      AND can_manage = 1
+  `).get(params.workspaceId) as { count?: number } | undefined;
+  if (wouldRemoveLastWorkspaceManager({
+    targetIsActiveManager: true,
+    activeManagerCount: Number(row?.count || 0),
+    nextCanManage: params.nextCanManage,
+  })) {
+    throw new WorkspaceOperationError(
+      WORKSPACE_LAST_MANAGER_CODE,
+      WORKSPACE_LAST_MANAGER_MESSAGE,
+      409,
+    );
+  }
+}
+
+function assertProjectWorkspaceRetainsManager(
+  sqlite: Database.Database,
+  params: { organizationId: string; projectId: string; userId: string; nextCanManage: boolean },
+) {
+  const member = sqlite.prepare(`
+    SELECT can_manage
+    FROM canvas_project_members
+    WHERE organization_id = ? AND project_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
+    LIMIT 1
+  `).get(params.organizationId, params.projectId, params.userId) as { can_manage: number } | undefined;
+  if (member?.can_manage !== 1 || params.nextCanManage) return;
+
+  const row = sqlite.prepare(`
+    SELECT COUNT(*) AS count
+    FROM canvas_project_members
+    WHERE organization_id = ?
+      AND project_id = ?
+      AND COALESCE(status, 'active') = 'active'
+      AND can_manage = 1
+  `).get(params.organizationId, params.projectId) as { count?: number } | undefined;
+  if (wouldRemoveLastWorkspaceManager({
+    targetIsActiveManager: true,
+    activeManagerCount: Number(row?.count || 0),
+    nextCanManage: params.nextCanManage,
+  })) {
+    throw new WorkspaceOperationError(
+      WORKSPACE_LAST_MANAGER_CODE,
+      WORKSPACE_LAST_MANAGER_MESSAGE,
+      409,
+    );
+  }
+}
+
 export function upsertTeamWorkspaceMember(
   sqlite: Database.Database,
   params: {
@@ -1592,6 +1662,11 @@ export function upsertTeamWorkspaceMember(
   const canManage = Boolean(params.canManage);
   const canWrite = canManage || Boolean(params.canWrite);
   const canRead = canManage || canWrite || params.canRead !== false;
+  assertTeamWorkspaceRetainsManager(sqlite, {
+    workspaceId: params.workspaceId,
+    userId,
+    nextCanManage: canManage,
+  });
   const now = Date.now();
 
   sqlite.prepare(`
@@ -1666,6 +1741,12 @@ export function upsertProjectWorkspaceMember(
   const canManage = Boolean(params.canManage);
   const canWrite = canManage || Boolean(params.canWrite);
   const canRead = canManage || canWrite || params.canRead !== false;
+  assertProjectWorkspaceRetainsManager(sqlite, {
+    organizationId: params.organizationId,
+    projectId: params.projectId,
+    userId,
+    nextCanManage: canManage,
+  });
   const now = Date.now();
 
   sqlite.prepare(`
@@ -1719,30 +1800,11 @@ export function removeTeamWorkspaceMember(
     throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
   }
 
-  const member = sqlite.prepare(`
-    SELECT can_manage
-    FROM canvas_workspace_members
-    WHERE workspace_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
-    LIMIT 1
-  `).get(params.workspaceId, params.userId) as { can_manage: number } | undefined;
-  if (!member) return;
-
-  if (member.can_manage === 1) {
-    const row = sqlite.prepare(`
-      SELECT COUNT(*) AS count
-      FROM canvas_workspace_members
-      WHERE workspace_id = ?
-        AND COALESCE(status, 'active') = 'active'
-        AND can_manage = 1
-    `).get(params.workspaceId) as { count?: number } | undefined;
-    if (Number(row?.count || 0) <= 1) {
-      throw new WorkspaceOperationError(
-        'WORKSPACE_LAST_MANAGER',
-        'The last workspace manager cannot be removed.',
-        409,
-      );
-    }
-  }
+  assertTeamWorkspaceRetainsManager(sqlite, {
+    workspaceId: params.workspaceId,
+    userId: params.userId,
+    nextCanManage: false,
+  });
 
   sqlite.prepare(`
     DELETE FROM canvas_workspace_members
@@ -1764,31 +1826,12 @@ export function removeProjectWorkspaceMember(
     throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
   }
 
-  const member = sqlite.prepare(`
-    SELECT can_manage
-    FROM canvas_project_members
-    WHERE organization_id = ? AND project_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
-    LIMIT 1
-  `).get(params.organizationId, params.projectId, params.userId) as { can_manage: number } | undefined;
-  if (!member) return;
-
-  if (member.can_manage === 1) {
-    const row = sqlite.prepare(`
-      SELECT COUNT(*) AS count
-      FROM canvas_project_members
-      WHERE organization_id = ?
-        AND project_id = ?
-        AND COALESCE(status, 'active') = 'active'
-        AND can_manage = 1
-    `).get(params.organizationId, params.projectId) as { count?: number } | undefined;
-    if (Number(row?.count || 0) <= 1) {
-      throw new WorkspaceOperationError(
-        'WORKSPACE_LAST_MANAGER',
-        'The last workspace manager cannot be removed.',
-        409,
-      );
-    }
-  }
+  assertProjectWorkspaceRetainsManager(sqlite, {
+    organizationId: params.organizationId,
+    projectId: params.projectId,
+    userId: params.userId,
+    nextCanManage: false,
+  });
 
   sqlite.prepare(`
     DELETE FROM canvas_project_members

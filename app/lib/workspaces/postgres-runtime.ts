@@ -21,6 +21,11 @@ import {
   resolveDatabaseProviderGate,
 } from '@/app/lib/db/provider';
 import { getDefaultWorkspaceIcon, isWorkspaceIcon, type WorkspaceIcon } from './icons';
+import {
+  WORKSPACE_LAST_MANAGER_CODE,
+  WORKSPACE_LAST_MANAGER_MESSAGE,
+  wouldRemoveLastWorkspaceManager,
+} from './member-manager-policy';
 import { resolveWorkspacePermissions } from './permissions';
 import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType } from './types';
 import {
@@ -1913,6 +1918,53 @@ export async function listPostgresWorkspaceMembersForActor(
   }
 }
 
+async function assertPostgresWorkspaceRetainsManager(
+  database: RuntimeDb,
+  workspace: WorkspaceContext,
+  userId: string,
+  nextCanManage: boolean,
+) {
+  if (nextCanManage) return;
+
+  const rows = workspace.workspaceType === 'project'
+    ? await database.all(
+        `
+          SELECT user_id, can_manage
+          FROM canvas_project_members
+          WHERE organization_id = ?
+            AND project_id = ?
+            AND COALESCE(status, 'active') = 'active'
+          ORDER BY user_id
+          FOR UPDATE
+        `,
+        [workspace.organizationId, workspace.projectId],
+      ) as Array<{ user_id: string; can_manage: number }>
+    : await database.all(
+        `
+          SELECT user_id, can_manage
+          FROM canvas_workspace_members
+          WHERE workspace_id = ?
+            AND COALESCE(status, 'active') = 'active'
+          ORDER BY user_id
+          FOR UPDATE
+        `,
+        [workspace.workspaceId],
+      ) as Array<{ user_id: string; can_manage: number }>;
+  const target = rows.find((row) => row.user_id === userId);
+  const activeManagerCount = rows.filter((row) => Boolean(row.can_manage)).length;
+  if (wouldRemoveLastWorkspaceManager({
+    targetIsActiveManager: Boolean(target?.can_manage),
+    activeManagerCount,
+    nextCanManage,
+  })) {
+    throw new WorkspaceOperationError(
+      WORKSPACE_LAST_MANAGER_CODE,
+      WORKSPACE_LAST_MANAGER_MESSAGE,
+      409,
+    );
+  }
+}
+
 export async function upsertPostgresWorkspaceMemberForActor(
   actor: WorkspaceActor,
   workspaceId: string,
@@ -1973,6 +2025,7 @@ export async function upsertPostgresWorkspaceMemberForActor(
     const canManage = Boolean(input.canManage);
     const canWrite = canManage || Boolean(input.canWrite);
     const canRead = canManage || canWrite || input.canRead !== false;
+    await assertPostgresWorkspaceRetainsManager(database, workspace, userId, canManage);
     const now = Date.now();
     if (workspace.workspaceType === 'project') {
       await database.run(
@@ -2118,56 +2171,7 @@ export async function removePostgresWorkspaceMemberForActor(
       throw new WorkspaceOperationError('WORKSPACE_PROJECT_REQUIRED', 'Project workspace project id is required.', 409);
     }
 
-    const member = workspace.workspaceType === 'project'
-      ? await database.get(
-          `
-            SELECT can_manage
-            FROM canvas_project_members
-            WHERE organization_id = ? AND project_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
-            LIMIT 1
-          `,
-          [workspace.organizationId, workspace.projectId, userId],
-        ) as { can_manage: number } | undefined
-      : await database.get(
-          `
-            SELECT can_manage
-            FROM canvas_workspace_members
-            WHERE workspace_id = ? AND user_id = ? AND COALESCE(status, 'active') = 'active'
-            LIMIT 1
-          `,
-          [workspace.workspaceId, userId],
-        ) as { can_manage: number } | undefined;
-    if (member?.can_manage === 1) {
-      const row = workspace.workspaceType === 'project'
-        ? await database.get(
-            `
-              SELECT COUNT(*) AS count
-              FROM canvas_project_members
-              WHERE organization_id = ?
-                AND project_id = ?
-                AND COALESCE(status, 'active') = 'active'
-                AND can_manage = 1
-            `,
-            [workspace.organizationId, workspace.projectId],
-          ) as { count?: number | string } | undefined
-        : await database.get(
-            `
-              SELECT COUNT(*) AS count
-              FROM canvas_workspace_members
-              WHERE workspace_id = ?
-                AND COALESCE(status, 'active') = 'active'
-                AND can_manage = 1
-            `,
-            [workspace.workspaceId],
-          ) as { count?: number | string } | undefined;
-      if (Number(row?.count || 0) <= 1) {
-        throw new WorkspaceOperationError(
-          'WORKSPACE_LAST_MANAGER',
-          'The last workspace manager cannot be removed.',
-          409,
-        );
-      }
-    }
+    await assertPostgresWorkspaceRetainsManager(database, workspace, userId, false);
 
     if (workspace.workspaceType === 'project') {
       await database.run(

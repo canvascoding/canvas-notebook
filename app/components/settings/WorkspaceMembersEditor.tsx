@@ -8,6 +8,10 @@ import {
   type MemberAccessPerson,
 } from '@/app/components/settings/MemberAccessEditor';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
+import {
+  getSoleActiveWorkspaceManagerId,
+  WORKSPACE_LAST_MANAGER_CODE,
+} from '@/app/lib/workspaces/member-manager-policy';
 
 type WorkspaceMemberRecord = {
   workspaceId: string;
@@ -86,14 +90,21 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
     return () => window.clearTimeout(timeout);
   }, [active, loadMembers]);
 
-  const memberViews = useMemo<Array<MemberAccessPerson<WorkspaceAccessLevel>>>(() => (
-    members.map((member) => ({
-      userId: member.userId,
-      name: member.name,
-      email: member.email,
-      accessLevel: getAccessLevel(member),
-    }))
-  ), [members]);
+  const memberViews = useMemo<Array<MemberAccessPerson<WorkspaceAccessLevel>>>(() => {
+    const soleManagerId = getSoleActiveWorkspaceManagerId(members);
+    return members.map((member) => {
+      const protectsWorkspaceAccess = member.userId === soleManagerId;
+      return {
+        userId: member.userId,
+        name: member.name,
+        email: member.email,
+        accessLevel: getAccessLevel(member),
+        accessLevelLocked: protectsWorkspaceAccess,
+        removalLocked: protectsWorkspaceAccess,
+        restrictionHint: protectsWorkspaceAccess ? t('lastFullAccessHint') : null,
+      };
+    });
+  }, [members, t]);
   const availableCandidates = useMemo(() => {
     const memberIds = new Set(members.map((member) => member.userId));
     return candidates.filter((candidate) => !memberIds.has(candidate.userId));
@@ -110,7 +121,9 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
         body: JSON.stringify({ userId, ...getAccessInput(accessLevel) }),
       });
       const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.save'));
+      if (!response.ok || !payload.success) {
+        throw new Error(payload.code === WORKSPACE_LAST_MANAGER_CODE ? t('errors.lastManager') : payload.error || t('errors.save'));
+      }
       await loadMembers();
       setSelectedUserId('');
       setNewAccessLevel('viewer');
@@ -132,7 +145,7 @@ export function WorkspaceMembersEditor({ active, workspace, onChanged }: Workspa
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
-        throw new Error(payload.code === 'WORKSPACE_LAST_MANAGER' ? t('errors.lastManager') : payload.error || t('errors.remove'));
+        throw new Error(payload.code === WORKSPACE_LAST_MANAGER_CODE ? t('errors.lastManager') : payload.error || t('errors.remove'));
       }
       await loadMembers();
       await Promise.resolve(onChanged?.()).catch(() => undefined);

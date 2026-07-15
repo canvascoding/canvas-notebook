@@ -3072,7 +3072,7 @@
           "description": "Choose who can access this workspace and what they can do.",
           "manageAccess": "Manage access",
           "currentMembers": "People with access",
-          "currentMembersDescription": "Set one access level per person. Managers can update workspace members and settings.",
+          "currentMembersDescription": "Set one access level per person. At least one person must retain full access.",
           "addMember": "Add member",
           "addMemberDescription": "Select an available user and their access level.",
           "selectUser": "Select user",
@@ -3085,6 +3085,7 @@
           "noMembers": "No members.",
           "noCandidates": "No more users available",
           "noCandidatesDescription": "All available users already have access to this workspace.",
+          "lastFullAccessHint": "Only full-access member: add another person with full access first.",
           "close": "Close",
           "cancel": "Cancel",
           "accessLevels": {
@@ -3112,7 +3113,7 @@
             "load": "Failed to load workspace members.",
             "save": "Failed to save workspace member.",
             "remove": "Failed to remove workspace member.",
-            "lastManager": "The last manager cannot be removed. Please assign a new manager first."
+            "lastManager": "The last person with full access cannot be removed or downgraded. Give another person full access first."
           }
         },
         "createDialog": {

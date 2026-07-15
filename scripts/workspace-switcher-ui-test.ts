@@ -146,6 +146,10 @@ async function main() {
     hasWorkspaceSwitcherOptions,
   } = await import('../app/components/workspaces/WorkspaceSwitcher');
   const { canExportWorkspaceFiles } = await import('../app/lib/workspaces/export-access');
+  const {
+    getSoleActiveWorkspaceManagerId,
+    wouldRemoveLastWorkspaceManager,
+  } = await import('../app/lib/workspaces/member-manager-policy');
 
   assert.equal(hasWorkspaceSwitcherOptions([personalWorkspace]), false);
   assert.equal(hasWorkspaceSwitcherOptions([personalWorkspace, additionalPersonalWorkspace]), true);
@@ -158,6 +162,24 @@ async function main() {
     canRead: true,
     status: 'active',
   }), true);
+  assert.equal(getSoleActiveWorkspaceManagerId([
+    { userId: 'manager-1', status: 'active', canManage: true },
+    { userId: 'editor-1', status: 'active', canManage: false },
+  ]), 'manager-1');
+  assert.equal(getSoleActiveWorkspaceManagerId([
+    { userId: 'manager-1', status: 'active', canManage: true },
+    { userId: 'manager-2', status: 'active', canManage: true },
+  ]), null);
+  assert.equal(wouldRemoveLastWorkspaceManager({
+    targetIsActiveManager: true,
+    activeManagerCount: 1,
+    nextCanManage: false,
+  }), true);
+  assert.equal(wouldRemoveLastWorkspaceManager({
+    targetIsActiveManager: true,
+    activeManagerCount: 2,
+    nextCanManage: false,
+  }), false);
   assert.equal(canExportWorkspaceFiles({
     workspaceType: 'team',
     isPersonalOwner: false,
