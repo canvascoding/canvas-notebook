@@ -2800,7 +2800,7 @@
     },
     "brandDesign": {
       "loading": "Loading brand profile...",
-      "saved": "Brand profile saved. New exports and agent messages use the changes immediately.",
+      "saved": "Brand profile saved. The interface, exports, and agent messages use the changes immediately.",
       "resetDone": "The brand profile was reset to the Canvas default.",
       "readOnly": "You can view this brand profile, but you do not have permission to change it.",
       "save": "Save brand profile",
@@ -2810,7 +2810,7 @@
       "reset": "Reset to Canvas default",
       "scope": {
         "title": "Choose the brand scope",
-        "description": "Admins define the organization default. Each workspace can intentionally replace it with a complete override.",
+        "description": "Admins define the organization default for the interface, documents, and brand voice. Each workspace can intentionally override it.",
         "organization": "Organization",
         "workspace": "Workspace",
         "organizationTitle": "Edit the organization default",
@@ -2827,9 +2827,9 @@
         "organizationBadge": "Inherited from organization",
         "canvasBadge": "Canvas default",
         "overrideBadge": "Workspace override",
-        "organizationDescription": "PDF exports and the agent context automatically use the organization design. Changes to the default flow through without extra maintenance.",
+        "organizationDescription": "The interface, PDF exports, and agent context automatically use the organization design. Changes to the default flow through without extra maintenance.",
         "canvasDescription": "The organization does not have a brand profile yet, so the Canvas default applies.",
-        "overrideDescription": "All brand values in this workspace take precedence over the organization default.",
+        "overrideDescription": "All brand values in this workspace take precedence over the organization default. Later organization changes flow through again after resetting the override.",
         "createOverride": "Create workspace override",
         "overrideCreated": "Workspace override created. You can now tailor the inherited design.",
         "useOrganization": "Use organization default",
@@ -2837,7 +2837,7 @@
       },
       "organizationDefault": {
         "title": "Default for every workspace in the organization",
-        "description": "Workspaces without their own override automatically inherit this design for PDF exports and the agent context."
+        "description": "Workspaces without their own override automatically inherit this design for the interface, PDF exports, and agent context."
       },
       "empty": {
         "title": "No workspace available",
@@ -2848,6 +2848,53 @@
         "description": "Applies the design to Markdown PDFs and adds the brand guidelines to the agent's workspace context.",
         "on": "Active",
         "off": "Inactive"
+      },
+      "appearance": {
+        "title": "Canvas interface",
+        "description": "A simple foundation for the whole workspace. The same colors and font are also used in your documents.",
+        "apply": "Use in Canvas",
+        "on": "The interface follows the brand design",
+        "off": "The interface keeps the Canvas default",
+        "base": {
+          "title": "Foundation",
+          "description": "Three colors and one font are enough. Canvas creates matching surfaces, borders, and states automatically."
+        },
+        "colors": {
+          "accent": "Primary color",
+          "accentHint": "Buttons and active elements",
+          "background": "Background",
+          "backgroundHint": "Base surface for pages and documents",
+          "text": "Text",
+          "textHint": "Readable color for content"
+        },
+        "font": "Font",
+        "fontHint": "Applies to the interface and body copy in documents.",
+        "radius": "Corner style",
+        "radiusHint": "Changes cards, buttons, and fields. Circles and switches stay round.",
+        "radiusSquare": "Sharp",
+        "radiusSoft": "Soft",
+        "radiusValue": "{value} px",
+        "modeHint": "Your personal light or dark mode stays in place. Canvas adapts surfaces and contrast automatically.",
+        "preview": {
+          "label": "Live interface preview",
+          "active": "In use",
+          "inactive": "Preview only",
+          "ariaLabel": "Preview of the Canvas interface with the selected brand settings",
+          "brandFallback": "Your brand",
+          "workspace": "Workspace",
+          "eyebrow": "Overview",
+          "title": "Welcome to the workspace",
+          "description": "Colors, font, and corner style work together throughout the interface.",
+          "cardOne": "Recent files",
+          "cardTwo": "Team activity",
+          "action": "Create new"
+        }
+      },
+      "documentDetails": {
+        "title": "Document details",
+        "description": "Additional colors, typography, and page margins for PDF exports.",
+        "formatSummary": "Format: {format}",
+        "fontSummary": "Headings: {font}"
       },
       "presets": {
         "canvas": "Canvas Default",
@@ -2886,8 +2933,8 @@
         }
       },
       "colors": {
-        "title": "Color system",
-        "description": "A focused palette for the document canvas, hierarchy, and functional elements.",
+        "title": "Additional document colors",
+        "description": "Optional detail colors for headings, tables, code, and lines.",
         "fields": {
           "pageBackground": "Page background",
           "text": "Body text",
@@ -2901,8 +2948,8 @@
         }
       },
       "typography": {
-        "title": "Typography and hierarchy",
-        "description": "Fonts, sizes, and heading treatments for recognizable PDF documents.",
+        "title": "Document typography",
+        "description": "Sizes and heading treatments for recognizable PDF documents.",
         "bodyFont": "Body font",
         "headingFont": "Heading font",
         "bodySize": "Body size (pt)",

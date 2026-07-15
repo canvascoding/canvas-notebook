@@ -2799,7 +2799,7 @@
     },
     "brandDesign": {
       "loading": "Brand-Profil wird geladen...",
-      "saved": "Brand-Profil gespeichert. Neue Exporte und Agent-Nachrichten verwenden die Änderungen sofort.",
+      "saved": "Brand-Profil gespeichert. Oberfläche, Exporte und Agent-Nachrichten verwenden die Änderungen sofort.",
       "resetDone": "Brand-Profil wurde auf den Canvas-Standard zurückgesetzt.",
       "readOnly": "Du kannst dieses Brand-Profil ansehen, hast aber keine Berechtigung, es zu ändern.",
       "save": "Brand-Profil speichern",
@@ -2809,7 +2809,7 @@
       "reset": "Auf Canvas-Standard zurücksetzen",
       "scope": {
         "title": "Brand-Ebene festlegen",
-        "description": "Admins definieren den Organisationsstandard. Jeder Workspace kann ihn gezielt und vollständig überschreiben.",
+        "description": "Admins definieren den Organisationsstandard für Oberfläche, Dokumente und Markensprache. Jeder Workspace kann ihn gezielt überschreiben.",
         "organization": "Organisation",
         "workspace": "Workspace",
         "organizationTitle": "Organisationsstandard bearbeiten",
@@ -2826,9 +2826,9 @@
         "organizationBadge": "Von Organisation geerbt",
         "canvasBadge": "Canvas-Standard",
         "overrideBadge": "Workspace-Override",
-        "organizationDescription": "PDF-Exporte und Agent-Kontext verwenden automatisch das Organisationsdesign. Änderungen am Standard greifen hier ohne weitere Pflege.",
+        "organizationDescription": "Oberfläche, PDF-Exporte und Agent-Kontext verwenden automatisch das Organisationsdesign. Änderungen am Standard greifen hier ohne weitere Pflege.",
         "canvasDescription": "Für die Organisation ist noch kein Brand-Profil gesetzt. Bis dahin gilt der Canvas-Standard.",
-        "overrideDescription": "Alle Brand-Werte dieses Workspaces haben Vorrang vor dem Organisationsstandard.",
+        "overrideDescription": "Alle Brand-Werte dieses Workspaces haben Vorrang vor dem Organisationsstandard. Spätere Organisationsänderungen werden erst nach dem Zurücksetzen wieder übernommen.",
         "createOverride": "Workspace-Override anlegen",
         "overrideCreated": "Workspace-Override angelegt. Du kannst das übernommene Design jetzt individuell anpassen.",
         "useOrganization": "Organisationsstandard verwenden",
@@ -2836,7 +2836,7 @@
       },
       "organizationDefault": {
         "title": "Standard für alle Workspaces der Organisation",
-        "description": "Workspaces ohne eigenen Override übernehmen dieses Design für PDF-Exporte und den Agent-Kontext automatisch."
+        "description": "Workspaces ohne eigenen Override übernehmen dieses Design für Oberfläche, PDF-Exporte und Agent-Kontext automatisch."
       },
       "empty": {
         "title": "Kein Workspace verfügbar",
@@ -2847,6 +2847,53 @@
         "description": "Aktiviert das Design für Markdown-PDFs und gibt die Markenrichtlinien dem Agenten im Workspace-Kontext mit.",
         "on": "Aktiv",
         "off": "Inaktiv"
+      },
+      "appearance": {
+        "title": "Canvas-Oberfläche",
+        "description": "Ein einfaches Grunddesign für den gesamten Workspace. Die gleichen Farben und die gleiche Schrift werden auch in deinen Dokumenten verwendet.",
+        "apply": "In Canvas verwenden",
+        "on": "Oberfläche folgt dem Brand-Design",
+        "off": "Oberfläche bleibt im Canvas-Standard",
+        "base": {
+          "title": "Grunddesign",
+          "description": "Drei Farben und eine Schrift reichen aus. Passende Flächen, Rahmen und Zustände erzeugt Canvas automatisch."
+        },
+        "colors": {
+          "accent": "Hauptfarbe",
+          "accentHint": "Buttons und aktive Elemente",
+          "background": "Hintergrund",
+          "backgroundHint": "Grundfläche von Seiten und Dokumenten",
+          "text": "Text",
+          "textHint": "Lesefarbe für Inhalte"
+        },
+        "font": "Schriftart",
+        "fontHint": "Gilt für die Oberfläche und den Fließtext in Dokumenten.",
+        "radius": "Eckenstil",
+        "radiusHint": "Verändert Karten, Buttons und Eingabefelder. Kreise und Schalter bleiben rund.",
+        "radiusSquare": "Kantig",
+        "radiusSoft": "Weich",
+        "radiusValue": "{value} px",
+        "modeHint": "Der persönliche Hell- oder Dunkelmodus bleibt erhalten. Canvas passt Flächen und Kontraste automatisch an.",
+        "preview": {
+          "label": "Live-Oberflächenvorschau",
+          "active": "Wird verwendet",
+          "inactive": "Nur Vorschau",
+          "ariaLabel": "Vorschau der Canvas-Oberfläche mit den gewählten Brand-Einstellungen",
+          "brandFallback": "Deine Marke",
+          "workspace": "Workspace",
+          "eyebrow": "Übersicht",
+          "title": "Willkommen im Workspace",
+          "description": "Farben, Schrift und Eckenstil wirken gemeinsam in der gesamten Oberfläche.",
+          "cardOne": "Aktuelle Dateien",
+          "cardTwo": "Team-Aktivität",
+          "action": "Neu erstellen"
+        }
+      },
+      "documentDetails": {
+        "title": "Dokumentdetails",
+        "description": "Zusätzliche Farben, Typografie und Seitenränder für PDF-Exporte.",
+        "formatSummary": "Format: {format}",
+        "fontSummary": "Überschriften: {font}"
       },
       "presets": {
         "canvas": "Canvas Standard",
@@ -2885,8 +2932,8 @@
         }
       },
       "colors": {
-        "title": "Farbwelt",
-        "description": "Eine konzentrierte Palette für Dokumentfläche, Hierarchie und funktionale Elemente.",
+        "title": "Zusätzliche Dokumentfarben",
+        "description": "Optionale Detailfarben für Überschriften, Tabellen, Code und Linien.",
         "fields": {
           "pageBackground": "Seitenhintergrund",
           "text": "Fließtext",
@@ -2900,8 +2947,8 @@
         }
       },
       "typography": {
-        "title": "Typografie und Hierarchie",
-        "description": "Schriften, Größen und Überschriftenstile für wiedererkennbare PDF-Dokumente.",
+        "title": "Dokumenttypografie",
+        "description": "Größen und Überschriftenstile für wiedererkennbare PDF-Dokumente.",
         "bodyFont": "Schrift für Fließtext",
         "headingFont": "Schrift für Überschriften",
         "bodySize": "Textgröße (pt)",

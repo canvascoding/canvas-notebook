@@ -3,7 +3,7 @@
 import Image from 'next/image';
 import { startTransition, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlignLeft, AlignRight, Boxes, Building2, CheckCircle2, FileImage, FileText, Loader2, Palette, RotateCcw, Save, ShieldCheck, Sparkles, Trash2, Upload } from 'lucide-react';
+import { AlignLeft, AlignRight, Boxes, Building2, CheckCircle2, FileImage, FileText, Loader2, Monitor, Palette, RotateCcw, Save, ShieldCheck, SlidersHorizontal, Sparkles, Trash2, Upload } from 'lucide-react';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { Textarea } from '@/components/ui/textarea';
+import { SettingsAccordionCard } from '@/app/components/settings/SettingsAccordionCard';
+import { WORKSPACE_APPEARANCE_UPDATED_EVENT } from '@/app/lib/workspaces/appearance-theme';
 import {
   WORKSPACE_BRAND_CURATED_FONT_IDS,
   WORKSPACE_BRAND_HEADING_STYLES,
@@ -28,7 +30,7 @@ import {
   type WorkspaceBrandProfileSource,
   type WorkspaceBrandProfileState,
 } from '@/app/lib/workspaces/brand-profile';
-import { workspaceBrandFontStack } from '@/app/lib/workspaces/brand-fonts';
+import { workspaceBrandFontStack, workspaceBrandUiFontStack } from '@/app/lib/workspaces/brand-fonts';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
@@ -110,6 +112,59 @@ function ColorField({
         />
       </div>
     </div>
+  );
+}
+
+function SimpleColorField({
+  id,
+  label,
+  hint,
+  value,
+  disabled,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  hint: string;
+  value: string;
+  disabled: boolean;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <label
+      htmlFor={id}
+      className={cn(
+        'flex min-w-0 items-center gap-3 rounded-lg border border-border/80 bg-background/70 p-3 transition-colors',
+        disabled ? 'cursor-not-allowed opacity-60' : 'cursor-pointer hover:border-primary/35 hover:bg-background',
+      )}
+    >
+      <input
+        id={id}
+        type="color"
+        value={value}
+        disabled={disabled}
+        onChange={(event) => onChange(event.target.value)}
+        className="h-11 w-11 shrink-0 cursor-pointer rounded-md border border-border bg-transparent p-1 disabled:cursor-not-allowed"
+      />
+      <span className="min-w-0">
+        <span className="block text-sm font-semibold text-foreground">{label}</span>
+        <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{hint}</span>
+      </span>
+    </label>
+  );
+}
+
+function BrandFontOptions() {
+  const t = useTranslations('settings.brandDesign');
+  return (
+    <>
+      <optgroup label={t('fontGroups.curated')}>
+        {WORKSPACE_BRAND_CURATED_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
+      </optgroup>
+      <optgroup label={t('fontGroups.standard')}>
+        {WORKSPACE_BRAND_STANDARD_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
+      </optgroup>
+    </>
   );
 }
 
@@ -436,6 +491,84 @@ function BrandDocumentPreview({
   );
 }
 
+function BrandInterfacePreview({ profile }: { profile: WorkspaceBrandProfile }) {
+  const t = useTranslations('settings.brandDesign.appearance.preview');
+  const radius = `${profile.appearance.radiusPx}px`;
+  const background = profile.page.backgroundColor;
+  const text = profile.colors.text;
+  const accent = profile.colors.accent;
+  const border = `color-mix(in oklab, ${background} 80%, ${text})`;
+  const surface = `color-mix(in oklab, ${background} 94%, ${text})`;
+  const accentSurface = `color-mix(in oklab, ${background} 86%, ${accent})`;
+
+  return (
+    <div className="space-y-2.5">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t('label')}</p>
+        <Badge variant={profile.appearance.enabled ? 'default' : 'secondary'}>
+          {profile.appearance.enabled ? t('active') : t('inactive')}
+        </Badge>
+      </div>
+      <div
+        role="img"
+        aria-label={t('ariaLabel')}
+        className="overflow-hidden border shadow-[0_18px_45px_rgba(15,23,42,0.12)]"
+        style={{
+          backgroundColor: background,
+          borderColor: border,
+          borderRadius: radius,
+          color: text,
+          fontFamily: workspaceBrandUiFontStack(profile.typography.bodyFont),
+        }}
+      >
+        <div className="flex h-11 items-center justify-between border-b px-3" style={{ borderColor: border }}>
+          <div className="flex items-center gap-2">
+            <span className="h-5 w-5" style={{ backgroundColor: accent, borderRadius: radius }} />
+            <span className="text-[11px] font-semibold">{profile.brandName || t('brandFallback')}</span>
+          </div>
+          <span className="border px-2 py-1 text-[9px] font-semibold" style={{ borderColor: border, borderRadius: radius }}>
+            {t('workspace')}
+          </span>
+        </div>
+        <div className="grid min-h-52 grid-cols-[82px_minmax(0,1fr)]">
+          <div className="space-y-2 border-r p-2" style={{ background: surface, borderColor: border }}>
+            {[0, 1, 2, 3].map((item) => (
+              <span
+                key={item}
+                className="block h-6"
+                style={{
+                  background: item === 0 ? accentSurface : 'transparent',
+                  borderRadius: radius,
+                }}
+              />
+            ))}
+          </div>
+          <div className="p-4">
+            <p className="text-[9px] font-semibold uppercase tracking-[0.16em]" style={{ color: accent }}>{t('eyebrow')}</p>
+            <p className="mt-1 text-base font-semibold">{t('title')}</p>
+            <p className="mt-1 max-w-[240px] text-[10px] leading-4 opacity-70">{t('description')}</p>
+            <div className="mt-4 grid grid-cols-2 gap-2">
+              {[t('cardOne'), t('cardTwo')].map((label) => (
+                <div key={label} className="border p-2.5" style={{ background: surface, borderColor: border, borderRadius: radius }}>
+                  <span className="block h-1.5 w-6" style={{ background: accent, borderRadius: radius }} />
+                  <span className="mt-2 block text-[10px] font-semibold">{label}</span>
+                  <span className="mt-1 block h-1 w-3/4 opacity-20" style={{ background: text, borderRadius: radius }} />
+                </div>
+              ))}
+            </div>
+            <span
+              className="mt-3 inline-flex px-3 py-1.5 text-[10px] font-semibold"
+              style={{ background: accent, borderRadius: radius, color: '#ffffff' }}
+            >
+              {t('action')}
+            </span>
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function BrandSettingsPanel({
   canManageOrganizationBrand = false,
 }: {
@@ -458,6 +591,7 @@ export function BrandSettingsPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isDocumentDetailsOpen, setIsDocumentDetailsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const profileLoadIdRef = useRef(0);
@@ -555,6 +689,7 @@ export function BrandSettingsPanel({
     updateProfile((current) => ({
       ...preset,
       enabled: current.enabled || preset.enabled,
+      appearance: current.appearance,
       brandName: current.brandName,
       logoPath: current.logoPath,
       logoPosition: current.logoPosition,
@@ -581,6 +716,7 @@ export function BrandSettingsPanel({
         throw new Error(payload.error || t('errors.save'));
       }
       applyResponseState(payload, scope, scopeEntityKey);
+      window.dispatchEvent(new Event(WORKSPACE_APPEARANCE_UPDATED_EVENT));
       setSuccess(successMessage);
     } catch (saveError) {
       setError(saveError instanceof Error ? saveError.message : t('errors.save'));
@@ -670,6 +806,7 @@ export function BrandSettingsPanel({
         throw new Error(payload.error || t('errors.reset'));
       }
       applyResponseState(payload, scope, scopeEntityKey);
+      window.dispatchEvent(new Event(WORKSPACE_APPEARANCE_UPDATED_EVENT));
       setSuccess(scope === 'workspace' ? t('inheritance.inheritedAgain') : t('resetDone'));
     } catch (resetError) {
       setError(resetError instanceof Error ? resetError.message : t('errors.reset'));
@@ -853,6 +990,127 @@ export function BrandSettingsPanel({
         </Card>
       )}
 
+      <Card className="overflow-hidden border-border/80">
+        <CardHeader className="border-b border-border/70 bg-muted/20">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+            <div className="flex min-w-0 items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
+                <Monitor className="h-5 w-5" />
+              </span>
+              <div>
+                <CardTitle>{t('appearance.title')}</CardTitle>
+                <CardDescription className="mt-1 max-w-2xl leading-6">{t('appearance.description')}</CardDescription>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2 sm:justify-start">
+              <div>
+                <Label htmlFor="brand-appearance-enabled" className="text-sm font-semibold">{t('appearance.apply')}</Label>
+                <p className="text-xs text-muted-foreground">
+                  {profile.appearance.enabled ? t('appearance.on') : t('appearance.off')}
+                </p>
+              </div>
+              <Switch
+                id="brand-appearance-enabled"
+                checked={profile.appearance.enabled}
+                disabled={controlsDisabled}
+                onCheckedChange={(enabled) => updateProfile((current) => ({
+                  ...current,
+                  appearance: { ...current.appearance, enabled },
+                }))}
+              />
+            </div>
+          </div>
+        </CardHeader>
+        <CardContent className="grid gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.88fr)] lg:items-start">
+          <div className="space-y-5">
+            <div>
+              <p className="text-sm font-semibold">{t('appearance.base.title')}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('appearance.base.description')}</p>
+            </div>
+            <div className="grid gap-3 sm:grid-cols-3">
+              <SimpleColorField
+                id="brand-base-accent"
+                label={t('appearance.colors.accent')}
+                hint={t('appearance.colors.accentHint')}
+                value={profile.colors.accent}
+                disabled={controlsDisabled}
+                onChange={(accent) => updateProfile((current) => ({
+                  ...current,
+                  colors: { ...current.colors, accent },
+                }))}
+              />
+              <SimpleColorField
+                id="brand-base-background"
+                label={t('appearance.colors.background')}
+                hint={t('appearance.colors.backgroundHint')}
+                value={profile.page.backgroundColor}
+                disabled={controlsDisabled}
+                onChange={(backgroundColor) => updateProfile((current) => ({
+                  ...current,
+                  page: { ...current.page, backgroundColor },
+                }))}
+              />
+              <SimpleColorField
+                id="brand-base-text"
+                label={t('appearance.colors.text')}
+                hint={t('appearance.colors.textHint')}
+                value={profile.colors.text}
+                disabled={controlsDisabled}
+                onChange={(text) => updateProfile((current) => ({
+                  ...current,
+                  colors: { ...current.colors, text },
+                }))}
+              />
+            </div>
+            <div className="grid gap-4 sm:grid-cols-2">
+              <FieldGroup label={t('appearance.font')} hint={t('appearance.fontHint')}>
+                <NativeSelect
+                  value={profile.typography.bodyFont}
+                  disabled={controlsDisabled}
+                  ariaLabel={t('appearance.font')}
+                  onChange={(value) => updateProfile((current) => ({
+                    ...current,
+                    typography: { ...current.typography, bodyFont: value as WorkspaceBrandFontId },
+                  }))}
+                >
+                  <BrandFontOptions />
+                </NativeSelect>
+              </FieldGroup>
+              <FieldGroup label={t('appearance.radius')} hint={t('appearance.radiusHint')}>
+                <div className="rounded-lg border border-border/80 bg-background/70 px-3 py-2.5">
+                  <div className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+                    <span>{t('appearance.radiusSquare')}</span>
+                    <output htmlFor="brand-appearance-radius" className="text-foreground">
+                      {t('appearance.radiusValue', { value: profile.appearance.radiusPx })}
+                    </output>
+                    <span>{t('appearance.radiusSoft')}</span>
+                  </div>
+                  <input
+                    id="brand-appearance-radius"
+                    type="range"
+                    min={0}
+                    max={16}
+                    step={2}
+                    value={profile.appearance.radiusPx}
+                    disabled={controlsDisabled}
+                    aria-valuetext={t('appearance.radiusValue', { value: profile.appearance.radiusPx })}
+                    onChange={(event) => updateProfile((current) => ({
+                      ...current,
+                      appearance: { ...current.appearance, radiusPx: Number(event.target.value) },
+                    }))}
+                    className="mt-2 h-7 w-full cursor-pointer accent-primary disabled:cursor-not-allowed"
+                  />
+                </div>
+              </FieldGroup>
+            </div>
+            <p className="rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2 text-xs leading-5 text-muted-foreground">
+              {t('appearance.modeHint')}
+            </p>
+          </div>
+          <BrandInterfacePreview profile={profile} />
+        </CardContent>
+      </Card>
+
       <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.92fr)]">
         <div className="space-y-4">
           <Card>
@@ -919,174 +1177,156 @@ export function BrandSettingsPanel({
             </CardContent>
           </Card>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('colors.title')}</CardTitle>
-              <CardDescription>{t('colors.description')}</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
-              {([
-                ['pageBackground', 'page', 'backgroundColor'],
-                ['text', 'colors', 'text'],
-                ['heading', 'colors', 'heading'],
-                ['accent', 'colors', 'accent'],
-                ['link', 'colors', 'link'],
-                ['border', 'colors', 'border'],
-                ['surface', 'colors', 'surface'],
-                ['codeBackground', 'colors', 'codeBackground'],
-                ['tableHeader', 'colors', 'tableHeaderBackground'],
-              ] as const).map(([labelKey, group, field]) => {
-                const value = group === 'page' ? profile.page.backgroundColor : profile.colors[field];
-                return (
+          <SettingsAccordionCard
+            title={t('documentDetails.title')}
+            description={t('documentDetails.description')}
+            icon={SlidersHorizontal}
+            isOpen={isDocumentDetailsOpen}
+            onOpenChange={setIsDocumentDetailsOpen}
+            summaryItems={[
+              t('documentDetails.formatSummary', { format: profile.page.size }),
+              t('documentDetails.fontSummary', { font: t(`fonts.${profile.typography.headingFont}`) }),
+            ]}
+            contentClassName="space-y-7"
+          >
+            <section className="space-y-4 border-t border-border/70 pt-5">
+              <div>
+                <p className="text-sm font-semibold">{t('colors.title')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('colors.description')}</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
+                {([
+                  ['heading', 'heading'],
+                  ['link', 'link'],
+                  ['border', 'border'],
+                  ['surface', 'surface'],
+                  ['codeBackground', 'codeBackground'],
+                  ['tableHeader', 'tableHeaderBackground'],
+                ] as const).map(([labelKey, field]) => (
                   <ColorField
                     key={labelKey}
                     id={`brand-color-${labelKey}`}
                     label={t(`colors.fields.${labelKey}`)}
-                    value={value}
+                    value={profile.colors[field]}
                     disabled={controlsDisabled}
-                    onChange={(color) => updateProfile((current) => {
-                      if (group === 'page') {
-                        return { ...current, page: { ...current.page, backgroundColor: color } };
-                      }
-                      return { ...current, colors: { ...current.colors, [field]: color } };
-                    })}
-                  />
-                );
-              })}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('typography.title')}</CardTitle>
-              <CardDescription>{t('typography.description')}</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-2">
-              <FieldGroup label={t('typography.bodyFont')}>
-                <NativeSelect
-                  value={profile.typography.bodyFont}
-                  disabled={controlsDisabled}
-                  ariaLabel={t('typography.bodyFont')}
-                  onChange={(value) => updateProfile((current) => ({
-                    ...current,
-                    typography: { ...current.typography, bodyFont: value as WorkspaceBrandFontId },
-                  }))}
-                >
-                  <optgroup label={t('fontGroups.curated')}>
-                    {WORKSPACE_BRAND_CURATED_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
-                  </optgroup>
-                  <optgroup label={t('fontGroups.standard')}>
-                    {WORKSPACE_BRAND_STANDARD_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
-                  </optgroup>
-                </NativeSelect>
-              </FieldGroup>
-              <FieldGroup label={t('typography.headingFont')}>
-                <NativeSelect
-                  value={profile.typography.headingFont}
-                  disabled={controlsDisabled}
-                  ariaLabel={t('typography.headingFont')}
-                  onChange={(value) => updateProfile((current) => ({
-                    ...current,
-                    typography: { ...current.typography, headingFont: value as WorkspaceBrandFontId },
-                  }))}
-                >
-                  <optgroup label={t('fontGroups.curated')}>
-                    {WORKSPACE_BRAND_CURATED_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
-                  </optgroup>
-                  <optgroup label={t('fontGroups.standard')}>
-                    {WORKSPACE_BRAND_STANDARD_FONT_IDS.map((font) => <option key={font} value={font}>{t(`fonts.${font}`)}</option>)}
-                  </optgroup>
-                </NativeSelect>
-              </FieldGroup>
-              {([
-                ['bodySizePt', 'bodySize', 8, 16, 0.5],
-                ['lineHeight', 'lineHeight', 1.2, 2, 0.05],
-                ['h1SizePt', 'h1Size', 16, 36, 0.5],
-                ['h2SizePt', 'h2Size', 12, 28, 0.5],
-                ['headingWeight', 'headingWeight', 400, 800, 100],
-              ] as const).map(([field, labelKey, min, max, step]) => (
-                <FieldGroup key={field} label={t(`typography.${labelKey}`)}>
-                  <Input
-                    type="number"
-                    value={profile.typography[field]}
-                    disabled={controlsDisabled}
-                    min={min}
-                    max={max}
-                    step={step}
-                    onChange={(event) => updateProfile((current) => ({
+                    onChange={(color) => updateProfile((current) => ({
                       ...current,
-                      typography: { ...current.typography, [field]: Number(event.target.value) },
+                      colors: { ...current.colors, [field]: color },
                     }))}
                   />
-                </FieldGroup>
-              ))}
-              {(['h1Style', 'h2Style'] as const).map((field) => (
-                <FieldGroup key={field} label={t(`typography.${field}`)}>
+                ))}
+              </div>
+            </section>
+
+            <section className="space-y-4 border-t border-border/70 pt-5">
+              <div>
+                <p className="text-sm font-semibold">{t('typography.title')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('typography.description')}</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-2">
+                <FieldGroup label={t('typography.headingFont')}>
                   <NativeSelect
-                    value={profile.typography[field]}
+                    value={profile.typography.headingFont}
                     disabled={controlsDisabled}
-                    ariaLabel={t(`typography.${field}`)}
+                    ariaLabel={t('typography.headingFont')}
                     onChange={(value) => updateProfile((current) => ({
                       ...current,
-                      typography: { ...current.typography, [field]: value as WorkspaceBrandHeadingStyle },
+                      typography: { ...current.typography, headingFont: value as WorkspaceBrandFontId },
                     }))}
                   >
-                    {WORKSPACE_BRAND_HEADING_STYLES.map((style) => <option key={style} value={style}>{t(`headingStyles.${style}`)}</option>)}
+                    <BrandFontOptions />
                   </NativeSelect>
                 </FieldGroup>
-              ))}
-            </CardContent>
-          </Card>
+                {([
+                  ['bodySizePt', 'bodySize', 8, 16, 0.5],
+                  ['lineHeight', 'lineHeight', 1.2, 2, 0.05],
+                  ['h1SizePt', 'h1Size', 16, 36, 0.5],
+                  ['h2SizePt', 'h2Size', 12, 28, 0.5],
+                  ['headingWeight', 'headingWeight', 400, 800, 100],
+                ] as const).map(([field, labelKey, min, max, step]) => (
+                  <FieldGroup key={field} label={t(`typography.${labelKey}`)}>
+                    <Input
+                      type="number"
+                      value={profile.typography[field]}
+                      disabled={controlsDisabled}
+                      min={min}
+                      max={max}
+                      step={step}
+                      onChange={(event) => updateProfile((current) => ({
+                        ...current,
+                        typography: { ...current.typography, [field]: Number(event.target.value) },
+                      }))}
+                    />
+                  </FieldGroup>
+                ))}
+                {(['h1Style', 'h2Style'] as const).map((field) => (
+                  <FieldGroup key={field} label={t(`typography.${field}`)}>
+                    <NativeSelect
+                      value={profile.typography[field]}
+                      disabled={controlsDisabled}
+                      ariaLabel={t(`typography.${field}`)}
+                      onChange={(value) => updateProfile((current) => ({
+                        ...current,
+                        typography: { ...current.typography, [field]: value as WorkspaceBrandHeadingStyle },
+                      }))}
+                    >
+                      {WORKSPACE_BRAND_HEADING_STYLES.map((style) => <option key={style} value={style}>{t(`headingStyles.${style}`)}</option>)}
+                    </NativeSelect>
+                  </FieldGroup>
+                ))}
+              </div>
+            </section>
 
-          <Card>
-            <CardHeader>
-              <CardTitle>{t('page.title')}</CardTitle>
-              <CardDescription>{t('page.description')}</CardDescription>
-            </CardHeader>
-            <CardContent className="grid gap-4 sm:grid-cols-3">
-              <FieldGroup label={t('page.size')}>
-                <NativeSelect
-                  value={profile.page.size}
-                  disabled={controlsDisabled}
-                  ariaLabel={t('page.size')}
-                  onChange={(value) => updateProfile((current) => ({
-                    ...current,
-                    page: { ...current.page, size: value as WorkspaceBrandPageSize },
-                  }))}
-                >
-                  {WORKSPACE_BRAND_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
-                </NativeSelect>
-              </FieldGroup>
-              <FieldGroup label={t('page.verticalMargin')}>
-                <Input
-                  type="number"
-                  value={profile.page.verticalMarginMm}
-                  disabled={controlsDisabled}
-                  min={10}
-                  max={35}
-                  step={1}
-                  onChange={(event) => updateProfile((current) => ({
-                    ...current,
-                    page: { ...current.page, verticalMarginMm: Number(event.target.value) },
-                  }))}
-                />
-              </FieldGroup>
-              <FieldGroup label={t('page.horizontalMargin')}>
-                <Input
-                  type="number"
-                  value={profile.page.horizontalMarginMm}
-                  disabled={controlsDisabled}
-                  min={10}
-                  max={35}
-                  step={1}
-                  onChange={(event) => updateProfile((current) => ({
-                    ...current,
-                    page: { ...current.page, horizontalMarginMm: Number(event.target.value) },
-                  }))}
-                />
-              </FieldGroup>
-            </CardContent>
-          </Card>
+            <section className="space-y-4 border-t border-border/70 pt-5">
+              <div>
+                <p className="text-sm font-semibold">{t('page.title')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('page.description')}</p>
+              </div>
+              <div className="grid gap-4 sm:grid-cols-3">
+                <FieldGroup label={t('page.size')}>
+                  <NativeSelect
+                    value={profile.page.size}
+                    disabled={controlsDisabled}
+                    ariaLabel={t('page.size')}
+                    onChange={(value) => updateProfile((current) => ({
+                      ...current,
+                      page: { ...current.page, size: value as WorkspaceBrandPageSize },
+                    }))}
+                  >
+                    {WORKSPACE_BRAND_PAGE_SIZES.map((size) => <option key={size} value={size}>{size}</option>)}
+                  </NativeSelect>
+                </FieldGroup>
+                <FieldGroup label={t('page.verticalMargin')}>
+                  <Input
+                    type="number"
+                    value={profile.page.verticalMarginMm}
+                    disabled={controlsDisabled}
+                    min={10}
+                    max={35}
+                    step={1}
+                    onChange={(event) => updateProfile((current) => ({
+                      ...current,
+                      page: { ...current.page, verticalMarginMm: Number(event.target.value) },
+                    }))}
+                  />
+                </FieldGroup>
+                <FieldGroup label={t('page.horizontalMargin')}>
+                  <Input
+                    type="number"
+                    value={profile.page.horizontalMarginMm}
+                    disabled={controlsDisabled}
+                    min={10}
+                    max={35}
+                    step={1}
+                    onChange={(event) => updateProfile((current) => ({
+                      ...current,
+                      page: { ...current.page, horizontalMarginMm: Number(event.target.value) },
+                    }))}
+                  />
+                </FieldGroup>
+              </div>
+            </section>
+          </SettingsAccordionCard>
 
           <Card>
             <CardHeader>
