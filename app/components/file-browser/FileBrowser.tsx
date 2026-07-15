@@ -65,6 +65,11 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const isFullscreen = variant === 'fullscreen';
   const isMobileSheet = variant === 'mobile-sheet';
 
+  const handleFileOpened = useCallback((path: string) => {
+    if (isFullscreen) setActiveFilePath(path);
+    onFileSelect?.(path);
+  }, [isFullscreen, onFileSelect]);
+
   const {
     refreshDirectory,
     refreshVisibleTree,
@@ -168,7 +173,9 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
     return trimmed.slice(0, lastSlash);
   };
 
-  const { createDialogProps, openCreateDialog } = useCreateItemDialog();
+  const { createDialogProps, openCreateDialog } = useCreateItemDialog({
+    onFileOpened: handleFileOpened,
+  });
   const handleNewFile = () => openCreateDialog('file');
   const handleNewExcalidraw = () => openCreateDialog('excalidraw');
   const handleNewFolder = () => openCreateDialog('directory');
@@ -282,10 +289,9 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         }
 
         notifyWorkspaceFileOpened(path, 'file-browser');
-        if (isFullscreen) setActiveFilePath(path);
-        onFileSelect?.(path);
+        handleFileOpened(path);
       });
-  }, [isFullscreen, onFileSelect]);
+  }, [handleFileOpened]);
 
   const pathParam = normalizeWorkspacePathParam(searchParams.get('path'));
 
@@ -470,6 +476,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         <FileGridView
           variant={variant}
           onOpenFile={handleOpenFile}
+          onFileOpened={handleFileOpened}
           onUpload={handleUploadClick}
           onCreateFolder={handleNewFolder}
         />

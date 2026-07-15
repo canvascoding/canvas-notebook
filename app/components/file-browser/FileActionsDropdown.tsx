@@ -212,7 +212,7 @@ export function FileActionsDropdown({
     onOpenChange?.(false);
   }, [onOpenChange]);
 
-  const { createDialogProps, openCreateDialog } = useCreateItemDialog(closeMenu);
+  const { createDialogProps, openCreateDialog } = useCreateItemDialog({ onBeforeOpen: closeMenu });
 
   const handleOpenInStudio = () => {
     if (!node) return;

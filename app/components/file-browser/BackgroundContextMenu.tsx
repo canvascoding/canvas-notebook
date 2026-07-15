@@ -22,7 +22,11 @@ import { UploadDialog } from './UploadDialog';
 import { useCreateItemDialog } from './useCreateItemDialog';
 import { useShallow } from 'zustand/react/shallow';
 
-export function BackgroundContextMenu() {
+interface BackgroundContextMenuProps {
+  onFileOpened?: (path: string) => void;
+}
+
+export function BackgroundContextMenu({ onFileOpened }: BackgroundContextMenuProps) {
   const t = useTranslations('notebook');
   const [uploadOpen, setUploadOpen] = useState(false);
 
@@ -48,7 +52,10 @@ export function BackgroundContextMenu() {
     closeBackgroundContextMenu();
   }, [closeBackgroundContextMenu]);
 
-  const { createDialogProps, openCreateDialog } = useCreateItemDialog(closeMenu);
+  const { createDialogProps, openCreateDialog } = useCreateItemDialog({
+    onBeforeOpen: closeMenu,
+    onFileOpened,
+  });
 
   const handleNewFile = () => {
     openCreateDialog('file');

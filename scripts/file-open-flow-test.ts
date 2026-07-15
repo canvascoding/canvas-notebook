@@ -139,6 +139,62 @@ async function testLatestOpenRequestWins() {
   });
 }
 
+async function testCreatedEmptyFileOpensAfterCreateRefresh() {
+  const requestOrder: string[] = [];
+
+  useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-a' });
+  useEditorStore.getState().clear();
+  useFileStore.setState({
+    fileTree: [],
+    fileTreeWorkspaceId: 'workspace-a',
+    currentFile: null,
+    currentFileWorkspaceId: null,
+    selectedNode: null,
+    mobileFileOpenedCount: 0,
+    lastMobileFileOpen: null,
+    expandedDirs: new Set<string>(),
+    loadingDirs: new Set<string>(),
+    directoryErrors: {},
+    treeError: null,
+  });
+
+  globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+    const url = new URL(String(input), 'http://localhost');
+    if (url.pathname === '/api/files/create' && init?.method === 'POST') {
+      requestOrder.push('create');
+      return Response.json({ success: true });
+    }
+    if (url.pathname === '/api/files/tree') {
+      requestOrder.push('tree');
+      return treeResponse([{ name: 'empty.md', path: 'empty.md', type: 'file' }]);
+    }
+    if (url.pathname === '/api/files/read') {
+      requestOrder.push('read');
+      return Response.json({
+        success: true,
+        data: {
+          path: 'empty.md',
+          content: '',
+          stats: { size: 0, modified: 1, permissions: '100644' },
+        },
+      });
+    }
+    throw new Error(`Unexpected request: ${url}`);
+  }) as typeof fetch;
+
+  await useFileStore.getState().createPath('empty.md', 'file');
+  const result = await useFileStore.getState().revealAndLoadFile('empty.md', {
+    workspaceId: 'workspace-a',
+    transitionId: 'created-empty-file',
+  });
+
+  assert.equal(result.status, 'opened');
+  assert.deepEqual(requestOrder, ['create', 'tree', 'read']);
+  assert.equal(useFileStore.getState().currentFile?.path, 'empty.md');
+  assert.equal(useFileStore.getState().currentFile?.content, '');
+  assert.equal(useFileStore.getState().lastMobileFileOpen?.transitionId, 'created-empty-file');
+}
+
 async function testSamePathOpenKeepsRequestCorrelation() {
   useWorkspaceStore.setState({ activeWorkspaceId: 'workspace-a' });
   useEditorStore.getState().clear();
@@ -442,6 +498,7 @@ async function main() {
   try {
     await testConcurrentDirectoryLoadsShareTheSamePromise();
     await testLatestOpenRequestWins();
+    await testCreatedEmptyFileOpensAfterCreateRefresh();
     await testSamePathOpenKeepsRequestCorrelation();
     await testRepeatedChatFileOpenSharesTheActiveRequest();
     await testWorkspaceSwitchRejectsOldTreeResponse();

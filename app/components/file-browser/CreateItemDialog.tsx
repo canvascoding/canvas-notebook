@@ -24,6 +24,7 @@ interface CreateItemDialogProps {
   type: CreateItemType;
   defaultPath: string;
   onCreate: (fullPath: string, type: 'file' | 'directory', options?: { template?: 'excalidraw' }) => Promise<void>;
+  onCreated?: (fullPath: string, type: 'file' | 'directory') => void;
 }
 
 function hasExtension(name: string): boolean {
@@ -36,7 +37,7 @@ function hasExcalidrawExtension(name: string): boolean {
   return name.toLowerCase().endsWith('.excalidraw');
 }
 
-export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCreate }: CreateItemDialogProps) {
+export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCreate, onCreated }: CreateItemDialogProps) {
   const t = useTranslations('notebook');
   const fileTree = useFileStore((state) => state.fileTree);
   const [name, setName] = useState('');
@@ -86,12 +87,14 @@ export function CreateItemDialog({ open, onOpenChange, type, defaultPath, onCrea
     const fullPath = targetDir === '.' ? resolvedName : `${targetDir}/${resolvedName}`;
     setIsCreating(true);
     try {
+      const itemType = type === 'directory' ? 'directory' : 'file';
       await onCreate(
         fullPath,
-        type === 'directory' ? 'directory' : 'file',
+        itemType,
         type === 'excalidraw' ? { template: 'excalidraw' } : undefined
       );
       onOpenChange(false);
+      onCreated?.(fullPath, itemType);
     } catch (createError) {
       setError(createError instanceof Error ? createError.message : t('createFailed'));
     } finally {

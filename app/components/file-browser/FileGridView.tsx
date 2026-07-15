@@ -33,6 +33,7 @@ import type { FileSortKey } from '@/app/lib/files/sort';
 interface FileGridViewProps {
   variant?: 'default' | 'mobile-sheet' | 'fullscreen';
   onOpenFile?: (path: string) => void;
+  onFileOpened?: (path: string) => void;
   onUpload?: () => void;
   onCreateFolder?: () => void;
 }
@@ -47,6 +48,7 @@ const FILE_SORT_OPTIONS: Array<{ key: FileSortKey; labelKey: string }> = [
 export function FileGridView({
   variant = 'default',
   onOpenFile,
+  onFileOpened,
   onUpload,
   onCreateFolder,
 }: FileGridViewProps) {
@@ -373,7 +375,7 @@ export function FileGridView({
       >
         {renderEmptyState()}
         {marqueeOverlay}
-        <BackgroundContextMenu />
+        <BackgroundContextMenu onFileOpened={onFileOpened} />
       </div>
     );
   }
@@ -433,7 +435,7 @@ export function FileGridView({
         )}
         {marqueeOverlay}
         <FileContextMenu />
-        <BackgroundContextMenu />
+        <BackgroundContextMenu onFileOpened={onFileOpened} />
         <BulkMoveDialog />
       </div>
     );
@@ -507,7 +509,7 @@ export function FileGridView({
         )}
         {marqueeOverlay}
         <FileContextMenu />
-        <BackgroundContextMenu />
+        <BackgroundContextMenu onFileOpened={onFileOpened} />
         <BulkMoveDialog />
       </div>
     );
@@ -569,7 +571,7 @@ export function FileGridView({
       )}
       {marqueeOverlay}
       <FileContextMenu />
-      <BackgroundContextMenu />
+      <BackgroundContextMenu onFileOpened={onFileOpened} />
       <BulkMoveDialog />
     </div>
   );

@@ -69,6 +69,7 @@ import {
   WORKSPACE_FILE_OPENED_EVENT,
   type WorkspaceFileOpenedDetail,
 } from '@/app/lib/files/workspace-file-events';
+import { createWorkspaceFileTransitionId } from '@/app/lib/files/open-transition';
 import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 
 
@@ -126,13 +127,6 @@ function clearStoredNotebookOpenFilePathIfMatches(path: string) {
   if (readStoredNotebookOpenFilePath() === path) {
     clearStoredNotebookOpenFilePath();
   }
-}
-
-function createNotebookFileTransitionId(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
-    return crypto.randomUUID();
-  }
-  return `${Date.now()}-${Math.random().toString(16).slice(2)}`;
 }
 
 function readStoredDesktopSidebarVisible() {
@@ -381,7 +375,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const normalizedPath = normalizeNotebookFilePath(path);
     if (!normalizedPath) return null;
 
-    const transitionId = createNotebookFileTransitionId();
+    const transitionId = createWorkspaceFileTransitionId();
     if (options.preserveMobileChat) {
       preserveMobileChatTransitionIdsRef.current.add(transitionId);
     }
