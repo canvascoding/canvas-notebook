@@ -58,6 +58,7 @@ import {
   Redo2,
   Rows3,
   Sigma,
+  SquareSigma,
   Strikethrough,
   Table2,
   Trash2,
@@ -801,7 +802,7 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
   {
     id: 'blockMath',
     keywords: ['latex', 'katex', 'formula', 'equation', 'display'],
-    Icon: Sigma,
+    Icon: SquareSigma,
     command: (context) => {
       const latex = window.prompt(context.labels.latexPrompt);
       if (!latex?.trim()) {
@@ -2602,6 +2603,7 @@ function MarkdownToolbar({
   filePath,
   imageDialogSeed,
   imageDialogOpen,
+  labels,
   onSourceMode,
   onImageDialogOpenChange,
   onOpenTableDialog,
@@ -2610,6 +2612,7 @@ function MarkdownToolbar({
   filePath?: string;
   imageDialogSeed: ImageDialogSeed;
   imageDialogOpen: boolean;
+  labels: SlashCommandLabels;
   onSourceMode: () => void;
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
@@ -2654,6 +2657,20 @@ function MarkdownToolbar({
     }));
     handleLinkDialogOpenChange(true);
   }, [editor, handleLinkDialogOpenChange]);
+
+  const insertMath = useCallback((kind: 'inline' | 'block') => {
+    if (!editor) return;
+
+    const latex = window.prompt(labels.latexPrompt, getSelectedText(editor));
+    if (!latex?.trim()) return;
+
+    const chain = editor.chain().focus();
+    if (kind === 'inline') {
+      chain.insertInlineMath({ latex: latex.trim() }).run();
+    } else {
+      chain.insertBlockMath({ latex: latex.trim() }).run();
+    }
+  }, [editor, labels.latexPrompt]);
 
   const openLinkPopoverFromSelection = useCallback(() => {
     if (!editor || linkDialogOpen) return;
@@ -2869,6 +2886,20 @@ function MarkdownToolbar({
           <Code2 />
         </TooltipIconButton>
         <TooltipIconButton
+          label={labels.items.inlineMath.title}
+          disabled={!canUseCommands}
+          onClick={() => insertMath('inline')}
+        >
+          <Sigma />
+        </TooltipIconButton>
+        <TooltipIconButton
+          label={labels.items.blockMath.title}
+          disabled={!canUseCommands}
+          onClick={() => insertMath('block')}
+        >
+          <SquareSigma />
+        </TooltipIconButton>
+        <TooltipIconButton
           label="Horizontal rule"
           disabled={!canUseCommands}
           onClick={() => editor?.chain().focus().setHorizontalRule().run()}
@@ -3017,6 +3048,8 @@ const MOBILE_BLOCK_COMMAND_IDS = new Set<SlashCommandItemId>([
   'taskList',
   'quote',
   'codeBlock',
+  'inlineMath',
+  'blockMath',
   'table',
   'image',
   'divider',
@@ -3345,13 +3378,18 @@ function MobileMarkdownToolbar({
     });
   }, [actions, editor, labels, restoreSavedRange]);
 
+  const commandItems = useMemo(() => getLocalizedSlashCommandItems(labels), [labels]);
   const blockItems = useMemo(
-    () => getLocalizedSlashCommandItems(labels).filter((item) => MOBILE_BLOCK_COMMAND_IDS.has(item.id)),
-    [labels],
+    () => commandItems.filter((item) => MOBILE_BLOCK_COMMAND_IDS.has(item.id)),
+    [commandItems],
   );
   const styleItems = useMemo(
-    () => getLocalizedSlashCommandItems(labels).filter((item) => MOBILE_STYLE_COMMAND_IDS.has(item.id)),
-    [labels],
+    () => commandItems.filter((item) => MOBILE_STYLE_COMMAND_IDS.has(item.id)),
+    [commandItems],
+  );
+  const inlineMathItem = useMemo(
+    () => commandItems.find((item) => item.id === 'inlineMath'),
+    [commandItems],
   );
   const activeSheet = keyboardActive || isInteractingWithToolbar ? sheet : null;
   const sheetItems = activeSheet === 'styles' ? styleItems : blockItems;
@@ -3428,6 +3466,15 @@ function MobileMarkdownToolbar({
         </MobileToolbarButton>
         <MobileToolbarButton label={t('markdownEditorLinkDialogTitle')} active={toolbarState.isLink} disabled={!canUseCommands} onClick={openLinkDialog}>
           <LinkIcon className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton
+          label={labels.items.inlineMath.title}
+          disabled={!canUseCommands || !inlineMathItem}
+          onClick={() => {
+            if (inlineMathItem) runCommandItem(inlineMathItem);
+          }}
+        >
+          <Sigma className="h-5 w-5" />
         </MobileToolbarButton>
         <MobileToolbarButton label={labels.items.inlineCode.title} active={toolbarState.isCode} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleCode().run())}>
           <Code className="h-5 w-5" />
@@ -3891,6 +3938,7 @@ function RichMarkdownEditor({
           filePath={filePath}
           imageDialogOpen={imageDialogOpen}
           imageDialogSeed={imageDialogSeed}
+          labels={labels}
           onSourceMode={onSourceMode}
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
