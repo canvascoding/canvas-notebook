@@ -156,6 +156,10 @@ export function resolveOrganizationAgentTemplatesDir(organizationId: string, cwd
   return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'agent-templates');
 }
 
+export function resolveOrganizationAgentsDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'agents');
+}
+
 export function resolveOrganizationSkillTemplatesDir(organizationId: string, cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'skill-templates');
 }

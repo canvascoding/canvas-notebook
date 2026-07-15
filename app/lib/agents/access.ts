@@ -2,13 +2,19 @@ import 'server-only';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import { listAgentProfiles, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 
 export type AgentAccess = {
   canUse: boolean;
   canEdit: boolean;
   canManage: boolean;
+};
+
+export type AgentAccessContext = {
+  organizationId?: string | null;
+  workspaceId?: string | null;
+  projectId?: string | null;
 };
 
 export type AgentMemberRecord = AgentAccess & {
@@ -75,6 +81,14 @@ function booleanFromDb(value: unknown): boolean {
   return value === true || value === 1 || value === '1';
 }
 
+function mergeAgentAccess(...entries: AgentAccess[]): AgentAccess {
+  return {
+    canUse: entries.some((entry) => entry.canUse),
+    canEdit: entries.some((entry) => entry.canEdit),
+    canManage: entries.some((entry) => entry.canManage),
+  };
+}
+
 function rowToMember(row: AgentMemberRow): AgentMemberRecord {
   return {
     agentId: row.agent_id,
@@ -114,7 +128,11 @@ async function assertSpecialAgent(database: SqlConnection, agentId: string): Pro
   }
 }
 
-export async function getAgentAccess(userId: string, agentIdInput?: string | null): Promise<AgentAccess> {
+export async function getAgentAccess(
+  userId: string,
+  agentIdInput?: string | null,
+  context: AgentAccessContext = {},
+): Promise<AgentAccess> {
   const agentId = normalizeManagedAgentId(agentIdInput);
   if (agentId === DEFAULT_MANAGED_AGENT_ID) return MAIN_AGENT_ACCESS;
 
@@ -122,7 +140,9 @@ export async function getAgentAccess(userId: string, agentIdInput?: string | nul
   try {
     const row = await database.get(
       `
-        SELECT a.access_policy, m.can_use, m.can_edit, m.can_manage
+        SELECT
+          a.access_policy, a.scope_type, a.organization_id, a.owner_user_id,
+          m.can_use, m.can_edit, m.can_manage
         FROM agents a
         LEFT JOIN agent_members m
           ON m.agent_id = a.agent_id AND m.user_id = ? AND m.status = 'active'
@@ -130,14 +150,64 @@ export async function getAgentAccess(userId: string, agentIdInput?: string | nul
         LIMIT 1
       `,
       [userId, agentId],
-    ) as { access_policy: string; can_use: unknown; can_edit: unknown; can_manage: unknown } | undefined;
+    ) as {
+      access_policy: string;
+      scope_type: string;
+      organization_id: string | null;
+      owner_user_id: string | null;
+      can_use: unknown;
+      can_edit: unknown;
+      can_manage: unknown;
+    } | undefined;
     if (!row) return NO_AGENT_ACCESS;
     if (row.access_policy === 'legacy') return MAIN_AGENT_ACCESS;
-    return {
+    if (row.scope_type === 'user' && row.owner_user_id === userId) return MAIN_AGENT_ACCESS;
+    const directAccess: AgentAccess = {
       canUse: booleanFromDb(row.can_use),
       canEdit: booleanFromDb(row.can_edit),
       canManage: booleanFromDb(row.can_manage),
     };
+    // Pre-scope agents have no owner and continue to use their legacy member grants.
+    if (row.scope_type === 'user') {
+      return row.owner_user_id ? NO_AGENT_ACCESS : directAccess;
+    }
+    if (row.scope_type !== 'organization' || !row.organization_id) return NO_AGENT_ACCESS;
+
+    const permission = await database.get(
+      `SELECT role, status FROM organization_user_permissions
+       WHERE organization_id = ? AND user_id = ? LIMIT 1`,
+      [row.organization_id, userId],
+    ) as { role?: string | null; status?: string | null } | undefined;
+    if (!permission || permission.status !== 'active') return NO_AGENT_ACCESS;
+    if (context.organizationId && context.organizationId !== row.organization_id) return NO_AGENT_ACCESS;
+
+    const grantRows = await database.all(
+      `SELECT target_type, target_id, can_use, can_edit, can_manage
+       FROM agent_grants
+       WHERE agent_id = ? AND organization_id = ?`,
+      [agentId, row.organization_id],
+    ) as Array<{
+      target_type: string;
+      target_id: string;
+      can_use: unknown;
+      can_edit: unknown;
+      can_manage: unknown;
+    }>;
+    const matchedGrantAccess = grantRows
+      .filter((grant) => {
+        if (grant.target_type === 'organization') return grant.target_id === row.organization_id;
+        if (grant.target_type === 'role') return grant.target_id === permission.role;
+        if (grant.target_type === 'user') return grant.target_id === userId;
+        if (grant.target_type === 'workspace') return Boolean(context.workspaceId && grant.target_id === context.workspaceId);
+        if (grant.target_type === 'project') return Boolean(context.projectId && grant.target_id === context.projectId);
+        return false;
+      })
+      .map((grant): AgentAccess => ({
+        canUse: booleanFromDb(grant.can_use),
+        canEdit: booleanFromDb(grant.can_edit),
+        canManage: booleanFromDb(grant.can_manage),
+      }));
+    return mergeAgentAccess(directAccess, ...matchedGrantAccess);
   } finally {
     await database.close();
   }
@@ -147,41 +217,24 @@ export async function requireAgentAccess(
   userId: string,
   agentId: string,
   permission: keyof AgentAccess,
+  context: AgentAccessContext = {},
 ): Promise<AgentAccess> {
-  const access = await getAgentAccess(userId, agentId);
+  const access = await getAgentAccess(userId, agentId, context);
   if (!access[permission]) {
     throw new AgentAccessError('AGENT_ACCESS_DENIED', 'Agent access denied.', 403);
   }
   return access;
 }
 
-export async function listAgentAccessForUser(userId: string): Promise<Map<string, AgentAccess>> {
-  const database = await openDb();
-  try {
-    const rows = await database.all(
-      `
-        SELECT agent_id, can_use, can_edit, can_manage
-        FROM agent_members
-        WHERE user_id = ? AND status = 'active' AND can_use = 1
-      `,
-      [userId],
-    ) as Array<{ agent_id: string; can_use: unknown; can_edit: unknown; can_manage: unknown }>;
-    const result = new Map<string, AgentAccess>([[DEFAULT_MANAGED_AGENT_ID, MAIN_AGENT_ACCESS]]);
-    const legacyRows = await database.all(
-      `SELECT agent_id FROM agents WHERE type != 'main' AND access_policy = 'legacy'`,
-    ) as Array<{ agent_id: string }>;
-    for (const row of legacyRows) result.set(row.agent_id, MAIN_AGENT_ACCESS);
-    for (const row of rows) {
-      result.set(row.agent_id, {
-        canUse: booleanFromDb(row.can_use),
-        canEdit: booleanFromDb(row.can_edit),
-        canManage: booleanFromDb(row.can_manage),
-      });
-    }
-    return result;
-  } finally {
-    await database.close();
-  }
+export async function listAgentAccessForUser(
+  userId: string,
+  context: AgentAccessContext = {},
+): Promise<Map<string, AgentAccess>> {
+  const profiles = await listAgentProfiles();
+  const entries = await Promise.all(profiles.map(async (profile) => (
+    [profile.agentId, await getAgentAccess(userId, profile.agentId, context)] as const
+  )));
+  return new Map(entries.filter(([, access]) => access.canUse));
 }
 
 export async function createAgentManagerMembership(agentIdInput: string, userId: string): Promise<AgentMemberRecord> {

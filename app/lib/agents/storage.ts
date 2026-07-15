@@ -8,7 +8,12 @@ import { DISABLED_ALL_TOOLS_SENTINEL, isLegacyEnabledToolsValue } from '../pi/en
 import { SKILL_TOOL_NAMES } from '../pi/toolsets';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneCatalog } from '../managed/control-plane-models';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
-import { resolveAgentStorageDir, resolveAgentsStorageRoot, resolveUserAgentsDir } from '../runtime-data-paths';
+import {
+  resolveAgentStorageDir,
+  resolveAgentsStorageRoot,
+  resolveOrganizationAgentsDir,
+  resolveUserAgentsDir,
+} from '../runtime-data-paths';
 import { getManagedAgentFileLimitBytes } from './managed-file-limits';
 import {
   ensureSettingsStorageDirectory,
@@ -25,6 +30,7 @@ export const PI_RUNTIME_CONFIG_PATH = resolveSettingsStoragePath(PI_RUNTIME_CONF
 export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 export const SPECIAL_AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 export const CANVAS_INHERITED_FILE_NAMES = ['USER.md'] as const;
+export const ORGANIZATION_AGENT_DEFINITION_FILE_NAMES = ['AGENTS.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentManagedFiles = Record<AgentManagedFileName, string>;
@@ -35,6 +41,8 @@ export type AgentStorageScope = {
   role?: string | null;
   workspaceId?: string | null;
   projectId?: string | null;
+  agentScopeType?: 'user' | 'organization' | 'system' | null;
+  ownerUserId?: string | null;
 };
 
 // Seed system prompts directory (relative to project root)
@@ -232,7 +240,37 @@ async function writeTextAtomic(filePath: string, content: string): Promise<void>
   await fs.rename(tempPath, filePath);
 }
 
-function resolveAgentStorageRootForScope(scope?: AgentStorageScope | null): string {
+function resolveAgentStorageRootForScope(
+  fileName: AgentManagedFileName,
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+): string {
+  const normalizedAgentId = normalizeManagedAgentId(agentId);
+  if (normalizedAgentId !== DEFAULT_MANAGED_AGENT_ID && scope?.agentScopeType === 'organization') {
+    const organizationId = scope.organizationId?.trim();
+    if (!organizationId) {
+      throw new AgentConfigValidationError('organizationId is required for organization agent storage.');
+    }
+    if ((ORGANIZATION_AGENT_DEFINITION_FILE_NAMES as readonly string[]).includes(fileName)) {
+      return path.join(resolveOrganizationAgentsDir(organizationId), normalizedAgentId, 'definition');
+    }
+    const userId = scope.userId?.trim();
+    if (!userId) {
+      throw new AgentConfigValidationError(`${fileName} requires an executing user scope.`);
+    }
+    return resolveUserAgentsDir(userId);
+  }
+
+  if (normalizedAgentId !== DEFAULT_MANAGED_AGENT_ID && scope?.agentScopeType === 'user') {
+    const ownerUserId = scope.ownerUserId?.trim() || scope.userId?.trim();
+    if (!ownerUserId) {
+      // Profiles created before scoped ownership was introduced keep their
+      // legacy shared storage location until a migration assigns an owner.
+      return AGENTS_STORAGE_ROOT;
+    }
+    return resolveUserAgentsDir(ownerUserId);
+  }
+
   const userId = scope?.userId?.trim();
   return userId ? resolveUserAgentsDir(userId) : AGENTS_STORAGE_ROOT;
 }
@@ -249,12 +287,24 @@ function resolveScopedChildPath(root: string, childName: string, label: string):
   return resolvedPath;
 }
 
-function resolveAgentScopedStorageDir(agentId?: string | null, scope?: AgentStorageScope | null): string {
-  return resolveScopedChildPath(resolveAgentStorageRootForScope(scope), normalizeManagedAgentId(agentId), 'agentId');
+function resolveAgentScopedStorageDir(
+  fileName: AgentManagedFileName,
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+): string {
+  const root = resolveAgentStorageRootForScope(fileName, agentId, scope);
+  if (
+    normalizeManagedAgentId(agentId) !== DEFAULT_MANAGED_AGENT_ID
+    && scope?.agentScopeType === 'organization'
+    && (ORGANIZATION_AGENT_DEFINITION_FILE_NAMES as readonly string[]).includes(fileName)
+  ) {
+    return root;
+  }
+  return resolveScopedChildPath(root, normalizeManagedAgentId(agentId), 'agentId');
 }
 
 function resolveManagedFilePath(fileName: AgentManagedFileName, agentId?: string | null, scope?: AgentStorageScope | null): string {
-  return resolveScopedChildPath(resolveAgentScopedStorageDir(agentId, scope), fileName, 'agent managed file');
+  return resolveScopedChildPath(resolveAgentScopedStorageDir(fileName, agentId, scope), fileName, 'agent managed file');
 }
 
 function resolveLegacyManagedFilePath(fileName: AgentManagedFileName): string {
@@ -310,7 +360,6 @@ async function migrateLegacyCanvasAgentFileIfMissing(
 }
 
 export async function ensureAgentManagedFilesExist(agentId?: string | null, scope?: AgentStorageScope | null): Promise<void> {
-  await fs.mkdir(resolveAgentScopedStorageDir(agentId, scope), { recursive: true });
   const shouldUseLegacyMigration = !scope?.userId && shouldMigrateLegacyCanvasAgentFiles(agentId);
   if (shouldUseLegacyMigration) {
     await ensureLegacyAgentStorageDirectory();
@@ -318,6 +367,7 @@ export async function ensureAgentManagedFilesExist(agentId?: string | null, scop
 
   for (const fileName of getOwnedManagedFileNames(agentId)) {
     const filePath = resolveManagedFilePath(fileName, agentId, scope);
+    await fs.mkdir(path.dirname(filePath), { recursive: true });
     let existing = await readFileIfExists(filePath);
 
     // A present empty file is intentional, for example after resetting USER.md or MEMORY.md.
@@ -357,8 +407,8 @@ export async function resetManagedAgentFile(
   agentId?: string | null,
   scope?: AgentStorageScope | null,
 ): Promise<string> {
-  await fs.mkdir(resolveAgentScopedStorageDir(agentId, scope), { recursive: true });
   const filePath = resolveManagedFilePath(fileName, agentId, scope);
+  await fs.mkdir(path.dirname(filePath), { recursive: true });
   const seedContent = await readSeedFile(fileName);
 
   await writeTextAtomic(filePath, seedContent ?? '');
@@ -370,7 +420,13 @@ export async function readManagedAgentFiles(agentId?: string | null, scope?: Age
 
   const entries = await Promise.all(
     AGENT_MANAGED_FILE_NAMES.map(async (fileName) => {
-      const content = await readManagedAgentFile(fileName, agentId, scope);
+      const inherited = normalizeManagedAgentId(agentId) !== DEFAULT_MANAGED_AGENT_ID
+        && (CANVAS_INHERITED_FILE_NAMES as readonly string[]).includes(fileName);
+      const content = await readManagedAgentFile(
+        fileName,
+        inherited ? DEFAULT_MANAGED_AGENT_ID : agentId,
+        inherited ? { ...scope, agentScopeType: undefined, ownerUserId: undefined } : scope,
+      );
       return [fileName, content] as const;
     })
   );
@@ -388,7 +444,11 @@ export async function readRuntimeManagedAgentFiles(agentId?: string | null, scop
     AGENT_MANAGED_FILE_NAMES.map(async (fileName) => {
       const inherited = (CANVAS_INHERITED_FILE_NAMES as readonly string[]).includes(fileName);
       const sourceAgentId = inherited ? DEFAULT_MANAGED_AGENT_ID : normalizedAgentId;
-      const content = await readManagedAgentFile(fileName, sourceAgentId, scope);
+      const content = await readManagedAgentFile(
+        fileName,
+        sourceAgentId,
+        inherited ? { ...scope, agentScopeType: undefined, ownerUserId: undefined } : scope,
+      );
       return [fileName, content] as const;
     }),
   );
@@ -407,6 +467,20 @@ export async function writeManagedAgentFile(
   const filePath = resolveManagedFilePath(fileName, agentId, scope);
   await writeTextAtomic(filePath, content);
   return readManagedAgentFile(fileName, agentId, scope);
+}
+
+export async function deleteManagedAgentDefinitionStorage(
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+): Promise<void> {
+  const normalizedAgentId = normalizeManagedAgentId(agentId);
+  if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
+    throw new AgentConfigValidationError('Canvas Agent storage cannot be deleted.');
+  }
+  const sampleFile: AgentManagedFileName = scope?.agentScopeType === 'organization' ? 'AGENTS.md' : 'MEMORY.md';
+  const directory = resolveAgentScopedStorageDir(sampleFile, normalizedAgentId, scope);
+  const target = scope?.agentScopeType === 'organization' ? path.dirname(directory) : directory;
+  await fs.rm(target, { recursive: true, force: true });
 }
 
 /**

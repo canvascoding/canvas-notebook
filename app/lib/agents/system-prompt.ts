@@ -144,12 +144,14 @@ function getPromptSkillsForAgent<T extends { name: string; enabled?: boolean }>(
   normalizedAgentId: string,
   skills: Array<T & { core?: boolean }>,
   relevantSkills?: string[] | null,
+  requiredSkillNames: Iterable<string> = [],
 ): Array<T & { core?: boolean }> {
   if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
     return skills;
   }
 
-  const coreSkills = skills.filter((skill) => skill.enabled && skill.core);
+  const requiredSet = new Set(requiredSkillNames);
+  const coreSkills = skills.filter((skill) => skill.enabled && (skill.core || requiredSet.has(skill.name)));
 
   if (relevantSkills === null || relevantSkills === undefined) {
     return skills;
@@ -160,7 +162,7 @@ function getPromptSkillsForAgent<T extends { name: string; enabled?: boolean }>(
   }
 
   const relevantSet = new Set(relevantSkills);
-  return skills.filter((skill) => skill.enabled && (skill.core || relevantSet.has(skill.name)));
+  return skills.filter((skill) => skill.enabled && (skill.core || requiredSet.has(skill.name) || relevantSet.has(skill.name)));
 }
 
 function formatConnectionName(connectionId: string, prefix: string): string {
@@ -376,30 +378,52 @@ export async function loadManagedAgentSystemPrompt(
 ): Promise<ManagedSystemPromptResult> {
   try {
     const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
-    const files = await readRuntimeManagedAgentFiles(normalizedAgentId, scope);
     const agentProfile = await getAgentProfile(normalizedAgentId);
+    const agentStorageScope: AgentStorageScope = {
+      ...scope,
+      agentScopeType: agentProfile?.scopeType,
+      ownerUserId: agentProfile?.ownerUserId,
+      organizationId: agentProfile?.organizationId || scope?.organizationId,
+    };
+    const files = await readRuntimeManagedAgentFiles(normalizedAgentId, agentStorageScope);
     
     // Resolve the complete organization/user capability cascade when workspace
     // context is available. Legacy callers keep the existing user-only loader.
-    const skills = scope?.organizationId && scope.userId
-      ? await loadEffectiveSkills(await resolveEffectiveCapabilitySnapshot({
+    const capabilitySnapshot = scope?.organizationId && scope.userId
+      ? await resolveEffectiveCapabilitySnapshot({
         organizationId: scope.organizationId,
         userId: scope.userId,
         role: scope.role,
         workspaceId: scope.workspaceId,
         projectId: scope.projectId,
-      }))
+      })
+      : null;
+    const skills = capabilitySnapshot
+      ? await loadEffectiveSkills(capabilitySnapshot)
       : await loadSkillsFromDisk(await readEnabledSkillsForScope(scope), scope);
+    const requiredSkillNames = capabilitySnapshot?.capabilities
+      .filter((entry) => (
+        entry.ref.resourceType === 'skill'
+        && entry.effectivePolicy === 'required'
+        && entry.effectiveEnabled
+        && entry.readiness === 'available'
+      ))
+      .map((entry) => entry.ref.name) || [];
 
     // The Canvas Agent receives all effectively enabled skills. Specialized
     // agents receive their selected subset after organization policy resolution.
-    const promptSkills = getPromptSkillsForAgent(normalizedAgentId, skills, agentProfile?.relevantSkills);
+    const promptSkills = getPromptSkillsForAgent(
+      normalizedAgentId,
+      skills,
+      agentProfile?.relevantSkills,
+      requiredSkillNames,
+    );
     const skillsContext = getSkillsContext(promptSkills);
     
     const result = composeManagedAgentSystemPrompt(files, skillsContext, {
       agentId: normalizedAgentId,
       inheritedFiles: normalizedAgentId === DEFAULT_MANAGED_AGENT_ID ? [] : CANVAS_INHERITED_FILE_NAMES,
-      scope,
+      scope: agentStorageScope,
     });
     
     let systemPrompt = result.systemPrompt;

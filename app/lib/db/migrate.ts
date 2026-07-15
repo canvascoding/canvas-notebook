@@ -575,8 +575,16 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       relevant_skills_json TEXT,
       relevant_connections_json TEXT,
       access_policy TEXT NOT NULL DEFAULT 'legacy',
+      scope_type TEXT NOT NULL DEFAULT 'user',
+      organization_id TEXT,
+      owner_user_id TEXT,
+      created_by_user_id TEXT,
+      revision INTEGER NOT NULL DEFAULT 1,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (owner_user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS agent_members (
@@ -596,6 +604,53 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
       FOREIGN KEY (invited_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_grants (
+      id TEXT PRIMARY KEY NOT NULL,
+      agent_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL,
+      target_type TEXT NOT NULL CHECK (target_type IN ('organization', 'role', 'workspace', 'project', 'user')),
+      target_id TEXT NOT NULL,
+      can_use INTEGER NOT NULL DEFAULT 1,
+      can_edit INTEGER NOT NULL DEFAULT 0,
+      can_manage INTEGER NOT NULL DEFAULT 0,
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_by_user_id TEXT,
+      updated_by_user_id TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON DELETE SET NULL,
+      FOREIGN KEY (updated_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_capability_bindings (
+      id TEXT PRIMARY KEY NOT NULL,
+      agent_id TEXT NOT NULL,
+      resource_type TEXT NOT NULL CHECK (resource_type IN ('skill', 'plugin', 'connection')),
+      scope_type TEXT NOT NULL CHECK (scope_type IN ('system', 'organization', 'user')),
+      resource_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      version TEXT,
+      requirement TEXT NOT NULL DEFAULT 'optional' CHECK (requirement IN ('optional', 'required')),
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS agent_user_preferences (
+      agent_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      preferences_json TEXT NOT NULL DEFAULT '{}',
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (agent_id, user_id),
+      FOREIGN KEY (agent_id) REFERENCES agents(agent_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
     );
 
     CREATE TABLE IF NOT EXISTS todo_categories (
@@ -1726,6 +1781,13 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_agents_agent_id ON agents (agent_id);
     CREATE INDEX IF NOT EXISTS idx_agent_members_org_user ON agent_members (organization_id, user_id, status);
     CREATE INDEX IF NOT EXISTS idx_agent_members_agent_status ON agent_members (agent_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_grants_binding ON agent_grants (agent_id, target_type, target_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_grants_org_target ON agent_grants (organization_id, target_type, target_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_grants_agent ON agent_grants (agent_id, updated_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_agent_capability_bindings_binding ON agent_capability_bindings (agent_id, resource_type, resource_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_capability_bindings_agent_type ON agent_capability_bindings (agent_id, resource_type);
+    CREATE INDEX IF NOT EXISTS idx_agent_capability_bindings_resource ON agent_capability_bindings (resource_type, resource_id);
+    CREATE INDEX IF NOT EXISTS idx_agent_user_preferences_user ON agent_user_preferences (user_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_pi_messages_session_timestamp ON pi_messages (pi_session_db_id, timestamp, id);
     CREATE INDEX IF NOT EXISTS idx_todo_categories_user_sort ON todo_categories (user_id, sort_order);
     CREATE INDEX IF NOT EXISTS idx_todo_categories_user_archived ON todo_categories (user_id, is_archived);
@@ -1783,6 +1845,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // ── Column additions for existing volumes ────────────────────────────────────
   // Each block adds columns that were missing from older schema versions.
   // ALTER TABLE ADD COLUMN is idempotent here because we check PRAGMA table_info first.
+
+  addColumns(sqlite, 'agents', {
+    scope_type: "TEXT NOT NULL DEFAULT 'user'",
+    organization_id: 'TEXT',
+    owner_user_id: 'TEXT',
+    created_by_user_id: 'TEXT',
+    revision: 'INTEGER NOT NULL DEFAULT 1',
+  });
 
   addColumns(sqlite, 'pi_sessions', {
     title_generation_state: 'TEXT',
@@ -2089,6 +2159,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     DROP INDEX IF EXISTS idx_canvas_workspaces_team_organization;
 
     CREATE INDEX IF NOT EXISTS idx_canvas_org_settings_owner ON canvas_organization_settings (owner_user_id);
+    CREATE INDEX IF NOT EXISTS idx_agents_organization_scope ON agents (organization_id, scope_type, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_agents_owner_scope ON agents (owner_user_id, scope_type, updated_at);
     CREATE INDEX IF NOT EXISTS idx_organization_brand_profiles_updated ON organization_brand_profiles (updated_at);
     CREATE INDEX IF NOT EXISTS idx_canvas_customers_organization ON canvas_customers (organization_id, status, name);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_customers_org_slug ON canvas_customers (organization_id, slug);
@@ -2324,6 +2396,33 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     UPDATE agents
     SET access_policy = 'restricted'
     WHERE type != 'main' AND access_policy = 'legacy'
+  `);
+
+  sqlite.exec(`
+    UPDATE agents
+    SET scope_type = 'system', organization_id = NULL, owner_user_id = NULL
+    WHERE type = 'main';
+
+    UPDATE agents
+    SET
+      scope_type = 'organization',
+      organization_id = (
+        SELECT MIN(m.organization_id)
+        FROM agent_members m
+        WHERE m.agent_id = agents.agent_id AND m.status = 'active'
+      ),
+      owner_user_id = NULL,
+      created_by_user_id = COALESCE(created_by_user_id, (
+        SELECT MIN(m.user_id)
+        FROM agent_members m
+        WHERE m.agent_id = agents.agent_id AND m.status = 'active' AND m.can_manage = 1
+      ))
+    WHERE type != 'main'
+      AND created_by_user_id IS NULL
+      AND EXISTS (
+        SELECT 1 FROM agent_members m
+        WHERE m.agent_id = agents.agent_id AND m.status = 'active'
+      );
   `);
 
   sqlite.exec(`

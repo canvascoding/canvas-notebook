@@ -256,6 +256,52 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     await pool.query(createTableSql(table));
   }
 
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_yjs_states (
+      document_id text PRIMARY KEY,
+      workspace_id text NOT NULL,
+      organization_id text,
+      path text NOT NULL,
+      representation text NOT NULL CHECK (representation IN ('plain_text', 'tiptap_xml')),
+      lifecycle_generation bigint NOT NULL DEFAULT 1,
+      schema_version bigint NOT NULL DEFAULT 1,
+      yjs_state bytea NOT NULL,
+      state_vector bytea NOT NULL,
+      document_sequence bigint NOT NULL DEFAULT 0,
+      persisted_at bigint NOT NULL,
+      checkpointed_at bigint,
+      checkpoint_sequence bigint NOT NULL DEFAULT 0,
+      canonical_hash text,
+      serialized_hash text,
+      newline_style text NOT NULL DEFAULT 'lf' CHECK (newline_style IN ('lf', 'crlf')),
+      has_bom bigint NOT NULL DEFAULT 0,
+      degraded bigint NOT NULL DEFAULT 0
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_workspace_path ON collaboration_yjs_states (workspace_id, path)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_persisted ON collaboration_yjs_states (persisted_at)');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_agent_operations (
+      operation_id text PRIMARY KEY,
+      document_id text NOT NULL,
+      workspace_id text NOT NULL,
+      initiated_by_user_id text NOT NULL,
+      actor_id text NOT NULL,
+      idempotency_key text NOT NULL,
+      run_generation bigint NOT NULL DEFAULT 1,
+      payload_hash text NOT NULL,
+      status text NOT NULL,
+      base_state_vector bytea NOT NULL,
+      result_json text,
+      cas_version bigint NOT NULL DEFAULT 0,
+      created_at bigint NOT NULL,
+      updated_at bigint NOT NULL,
+      UNIQUE (document_id, initiated_by_user_id, idempotency_key)
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_document_status ON collaboration_agent_operations (document_id, status, updated_at)');
+
   for (const table of tables) {
     const config = getTableConfig(table as never) as {
       columns: SchemaColumn[];
@@ -378,5 +424,30 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     UPDATE agents
     SET access_policy = 'restricted'
     WHERE type != 'main' AND access_policy = 'legacy'
+  `);
+  await pool.query(`
+    UPDATE agents
+    SET scope_type = 'system', organization_id = NULL, owner_user_id = NULL
+    WHERE type = 'main'
+  `);
+  await pool.query(`
+    UPDATE agents a
+    SET
+      scope_type = 'organization',
+      organization_id = source.organization_id,
+      owner_user_id = NULL,
+      created_by_user_id = COALESCE(a.created_by_user_id, source.manager_user_id)
+    FROM (
+      SELECT
+        m.agent_id,
+        MIN(m.organization_id) AS organization_id,
+        MIN(CASE WHEN m.can_manage = 1 THEN m.user_id ELSE NULL END) AS manager_user_id
+      FROM agent_members m
+      WHERE m.status = 'active'
+      GROUP BY m.agent_id
+    ) source
+    WHERE a.agent_id = source.agent_id
+      AND a.type != 'main'
+      AND a.created_by_user_id IS NULL
   `);
 }

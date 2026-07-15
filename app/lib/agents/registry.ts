@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { asc, eq } from 'drizzle-orm';
+import { and, asc, eq, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { agents, piSessions } from '@/app/lib/db/schema';
@@ -23,9 +23,23 @@ export type AgentProfile = {
   enabledTools: string[] | null;
   relevantSkills: string[] | null;
   relevantConnections: string[] | null;
+  scopeType: 'user' | 'organization' | 'system';
+  organizationId: string | null;
+  ownerUserId: string | null;
+  createdByUserId: string | null;
+  revision: number;
   createdAt: string;
   updatedAt: string;
 };
+
+export class AgentRevisionConflictError extends Error {
+  readonly code = 'AGENT_REVISION_CONFLICT';
+
+  constructor(readonly currentRevision: number) {
+    super(`Agent revision changed. Reload the agent and retry with revision ${currentRevision}.`);
+    this.name = 'AgentRevisionConflictError';
+  }
+}
 
 const THINKING_LEVELS = new Set<PiThinkingLevel>(['off', 'minimal', 'low', 'medium', 'high', 'xhigh']);
 const PROVIDER_INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
@@ -87,6 +101,15 @@ function mapAgent(row: typeof agents.$inferSelect): AgentProfile {
     enabledTools: parseEnabledTools(row.enabledToolsJson),
     relevantSkills: parseStringList(row.relevantSkillsJson),
     relevantConnections: parseStringList(row.relevantConnectionsJson),
+    scopeType: row.type === 'main'
+      ? 'system'
+      : row.scopeType === 'organization'
+        ? 'organization'
+        : 'user',
+    organizationId: row.organizationId ?? null,
+    ownerUserId: row.ownerUserId ?? null,
+    createdByUserId: row.createdByUserId ?? null,
+    revision: row.revision || 1,
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
   };
@@ -148,6 +171,8 @@ export async function ensureCanvasAgent(): Promise<AgentProfile> {
       iconId: DEFAULT_AGENT_ICON_ID,
       type: 'main',
       removable: false,
+      scopeType: 'system',
+      revision: 1,
       createdAt: now,
       updatedAt: now,
     })
@@ -204,6 +229,10 @@ export async function createAgentProfile(input: {
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
   accessPolicy?: 'legacy' | 'restricted';
+  scopeType?: 'user' | 'organization';
+  organizationId?: string | null;
+  ownerUserId?: string | null;
+  createdByUserId?: string | null;
 }): Promise<AgentProfile> {
   const name = input.name.trim();
   if (!name) {
@@ -216,6 +245,19 @@ export async function createAgentProfile(input: {
   }
 
   const agentDefault = normalizeAgentDefaultTuple(input);
+  const scopeType = input.scopeType === 'organization' ? 'organization' : 'user';
+  const organizationId = input.organizationId?.trim() || null;
+  const ownerUserId = input.ownerUserId?.trim() || null;
+  const createdByUserId = input.createdByUserId?.trim() || null;
+  if (scopeType === 'organization' && !organizationId) {
+    throw new Error('organizationId is required for an organization agent.');
+  }
+  if (scopeType === 'organization' && ownerUserId) {
+    throw new Error('Organization agents cannot have a personal owner.');
+  }
+  if (scopeType === 'user' && organizationId && !ownerUserId) {
+    throw new Error('ownerUserId is required for a personal organization member agent.');
+  }
 
   const now = new Date();
   await db.insert(agents).values({
@@ -229,6 +271,11 @@ export async function createAgentProfile(input: {
     relevantSkillsJson: stringifyStringList(input.relevantSkills),
     relevantConnectionsJson: stringifyStringList(input.relevantConnections),
     accessPolicy: input.accessPolicy === 'restricted' ? 'restricted' : 'legacy',
+    scopeType,
+    organizationId,
+    ownerUserId,
+    createdByUserId,
+    revision: 1,
     createdAt: now,
     updatedAt: now,
   });
@@ -251,11 +298,18 @@ export async function updateAgentProfile(input: {
   enabledTools?: string[] | null;
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
+  scopeType?: 'user' | 'organization';
+  organizationId?: string | null;
+  ownerUserId?: string | null;
+  expectedRevision?: number;
 }): Promise<AgentProfile> {
   const agentId = normalizeManagedAgentId(input.agentId);
   const existing = await getAgentProfile(agentId);
   if (!existing) {
     throw new Error('Agent not found.');
+  }
+  if (input.expectedRevision !== undefined && input.expectedRevision !== existing.revision) {
+    throw new AgentRevisionConflictError(existing.revision);
   }
 
   const nextName = input.name === undefined || input.name === null ? existing.name : input.name.trim();
@@ -278,6 +332,23 @@ export async function updateAgentProfile(input: {
       })
     : null;
 
+  const nextScopeType = input.scopeType ?? (existing.scopeType === 'system' ? 'user' : existing.scopeType);
+  const nextOrganizationId = input.organizationId === undefined
+    ? existing.organizationId
+    : input.organizationId?.trim() || null;
+  const nextOwnerUserId = input.ownerUserId === undefined
+    ? existing.ownerUserId
+    : input.ownerUserId?.trim() || null;
+  if (existing.type === 'main' && input.scopeType !== undefined) {
+    throw new Error('Canvas Agent scope cannot be changed.');
+  }
+  if (nextScopeType === 'organization' && !nextOrganizationId) {
+    throw new Error('organizationId is required for an organization agent.');
+  }
+  if (nextScopeType === 'organization' && nextOwnerUserId) {
+    throw new Error('Organization agents cannot have a personal owner.');
+  }
+
   await db.update(agents)
     .set({
       name: nextName,
@@ -291,18 +362,30 @@ export async function updateAgentProfile(input: {
       enabledToolsJson: input.enabledTools === undefined ? stringifyEnabledTools(existing.enabledTools) : stringifyEnabledTools(input.enabledTools),
       relevantSkillsJson: input.relevantSkills === undefined ? stringifyStringList(existing.relevantSkills) : stringifyStringList(input.relevantSkills),
       relevantConnectionsJson: input.relevantConnections === undefined ? stringifyStringList(existing.relevantConnections) : stringifyStringList(input.relevantConnections),
+      scopeType: existing.type === 'main' ? 'system' : nextScopeType,
+      organizationId: existing.type === 'main' ? null : nextOrganizationId,
+      ownerUserId: existing.type === 'main' ? null : nextOwnerUserId,
+      revision: sql`${agents.revision} + 1`,
       updatedAt: new Date(),
     })
-    .where(eq(agents.agentId, agentId));
+    .where(input.expectedRevision === undefined
+      ? eq(agents.agentId, agentId)
+      : and(eq(agents.agentId, agentId), eq(agents.revision, input.expectedRevision)));
 
   const updated = await getAgentProfile(agentId);
   if (!updated) {
     throw new Error('Agent could not be updated.');
   }
+  if (
+    input.expectedRevision !== undefined &&
+    updated.revision !== input.expectedRevision + 1
+  ) {
+    throw new AgentRevisionConflictError(updated.revision);
+  }
   return updated;
 }
 
-export async function deleteAgentProfile(agentIdInput: string): Promise<void> {
+export async function deleteAgentProfile(agentIdInput: string, expectedRevision?: number): Promise<void> {
   const agentId = normalizeManagedAgentId(agentIdInput);
   const existing = await getAgentProfile(agentId);
   if (!existing) {
@@ -311,8 +394,13 @@ export async function deleteAgentProfile(agentIdInput: string): Promise<void> {
   if (!existing.removable) {
     throw new Error('Canvas Agent cannot be removed.');
   }
+  if (expectedRevision !== undefined && expectedRevision !== existing.revision) {
+    throw new AgentRevisionConflictError(existing.revision);
+  }
 
   const sessions = await db.select({ id: piSessions.id }).from(piSessions).where(eq(piSessions.agentId, agentId));
   await deletePiSessionsByDbIds(sessions.map((session) => session.id));
-  await db.delete(agents).where(eq(agents.agentId, agentId));
+  await db.delete(agents).where(expectedRevision === undefined
+    ? eq(agents.agentId, agentId)
+    : and(eq(agents.agentId, agentId), eq(agents.revision, expectedRevision)));
 }

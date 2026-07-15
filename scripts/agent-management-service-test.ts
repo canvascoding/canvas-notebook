@@ -1,0 +1,198 @@
+import assert from 'node:assert/strict';
+import { existsSync, mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import Module from 'node:module';
+import { tmpdir } from 'node:os';
+import path from 'node:path';
+
+import Database from 'better-sqlite3';
+
+const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-agent-management-'));
+process.env.DATA = dataDir;
+
+const moduleInternals = Module as typeof Module & {
+  _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+};
+const originalLoad = moduleInternals._load;
+moduleInternals._load = (request, parent, isMain) => {
+  if (request === '@earendil-works/pi-ai/compat') {
+    return {
+      getModels: () => [],
+      getProviders: () => [],
+      registerBuiltInApiProviders: () => undefined,
+    };
+  }
+  if (request === '@earendil-works/pi-ai/oauth') {
+    return { getOAuthProvider: () => null };
+  }
+  return originalLoad(request, parent, isMain);
+};
+
+function insertMember(sqlite: Database.Database, organizationId: string, userId: string) {
+  const now = Date.now();
+  sqlite.prepare(`
+    INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
+    VALUES (?, ?, ?, 1, 'user', ?, ?)
+  `).run(userId, userId, `${userId}@example.test`, now, now);
+  sqlite.prepare(`
+    INSERT INTO organization_user_permissions (
+      organization_id, user_id, role, status, created_at, updated_at
+    ) VALUES (?, ?, 'member', 'active', ?, ?)
+  `).run(organizationId, userId, now, now);
+}
+
+async function main() {
+  const { createInitialOwner } = await import('../app/lib/auth-setup');
+  const {
+    createManagedAgent,
+    deleteManagedAgent,
+    inspectManagedAgent,
+    listManagedAgents,
+    previewManagedAgentDeletion,
+    setManagedAgentGrant,
+    updateManagedAgentFile,
+    updateManagedAgentProfile,
+  } = await import('../app/lib/agents/management-actions');
+  const { AgentRevisionConflictError } = await import('../app/lib/agents/registry');
+  const { getAgentAccess } = await import('../app/lib/agents/access');
+
+  const owner = await createInitialOwner({
+    name: 'Agent Management Owner',
+    email: 'agent-management-owner@example.test',
+    password: 'OwnerPassword123!',
+  });
+  const sqlite = new Database(path.join(dataDir, 'sqlite.db'));
+  const organization = sqlite.prepare(`
+    SELECT organization_id AS organizationId FROM canvas_organization_settings LIMIT 1
+  `).get() as { organizationId: string };
+  insertMember(sqlite, organization.organizationId, 'marketing-user');
+  sqlite.close();
+
+  const memberActor = { userId: 'marketing-user', organizationId: organization.organizationId, source: 'api' as const };
+  const ownerActor = { userId: owner.id, organizationId: organization.organizationId, source: 'api' as const };
+
+  const personal = await createManagedAgent(memberActor, {
+    name: 'Personal Marketing Helper',
+    scopeType: 'user',
+    enabledTools: ['read', 'web_search'],
+    files: { 'AGENTS.md': '# Personal marketing instructions' },
+  });
+  assert.equal(personal.agent.scopeType, 'user');
+  assert.equal(personal.agent.ownerUserId, 'marketing-user');
+  assert.equal((await listManagedAgents(memberActor)).some((agent) => agent.agentId === personal.agent.agentId), true);
+  assert.equal(
+    existsSync(path.join(dataDir, 'users', 'marketing-user', 'agents', personal.agent.agentId, 'AGENTS.md')),
+    true,
+  );
+
+  await assert.rejects(
+    () => createManagedAgent(memberActor, { name: 'Forbidden Organization Agent', scopeType: 'organization' }),
+    (error: unknown) => error instanceof Error && 'code' in error && error.code === 'AGENT_ORGANIZATION_ADMIN_REQUIRED',
+  );
+
+  const organizationAgent = await createManagedAgent(ownerActor, {
+    name: 'Organization Marketing Agent',
+    scopeType: 'organization',
+    enabledTools: ['read', 'web_search'],
+    relevantConnections: ['hubspot'],
+    files: {
+      'AGENTS.md': '# Organization marketing instructions',
+      'MEMORY.md': 'Owner-specific marketing memory',
+    },
+  });
+  assert.equal(organizationAgent.agent.scopeType, 'organization');
+  assert.equal(organizationAgent.agent.organizationId, organization.organizationId);
+  assert.equal(organizationAgent.agent.ownerUserId, null);
+  assert.equal(organizationAgent.readiness[0]?.readiness, 'personal-connection-required');
+
+  const definitionPath = path.join(
+    dataDir,
+    'organizations',
+    organization.organizationId,
+    'agents',
+    organizationAgent.agent.agentId,
+    'definition',
+    'AGENTS.md',
+  );
+  const memoryPath = path.join(dataDir, 'users', owner.id, 'agents', organizationAgent.agent.agentId, 'MEMORY.md');
+  assert.equal(readFileSync(definitionPath, 'utf8').trim(), '# Organization marketing instructions');
+  assert.equal(readFileSync(memoryPath, 'utf8').trim(), 'Owner-specific marketing memory');
+
+  const granted = await setManagedAgentGrant({
+    actor: ownerActor,
+    agentId: organizationAgent.agent.agentId,
+    expectedRevision: organizationAgent.agent.revision,
+    targetType: 'role',
+    targetId: 'member',
+    canUse: true,
+  });
+  assert.deepEqual(await getAgentAccess('marketing-user', organizationAgent.agent.agentId), {
+    canUse: true,
+    canEdit: false,
+    canManage: false,
+  });
+
+  const inspected = await inspectManagedAgent(memberActor, organizationAgent.agent.agentId);
+  assert.equal(inspected.agent.agentId, organizationAgent.agent.agentId);
+  assert.equal(inspected.access.canUse, true);
+  assert.equal(inspected.files, undefined, 'users without edit access cannot disclose definition files');
+
+  await assert.rejects(
+    () => updateManagedAgentProfile({
+      actor: ownerActor,
+      agentId: organizationAgent.agent.agentId,
+      expectedRevision: organizationAgent.agent.revision,
+      name: 'Stale update',
+    }),
+    (error: unknown) => error instanceof AgentRevisionConflictError,
+  );
+
+  const fileUpdate = await updateManagedAgentFile({
+    actor: ownerActor,
+    agentId: organizationAgent.agent.agentId,
+    expectedRevision: granted.agent.revision,
+    fileName: 'AGENTS.md',
+    content: '# Updated organization marketing instructions',
+  });
+  assert.equal(readFileSync(definitionPath, 'utf8').trim(), '# Updated organization marketing instructions');
+
+  const preview = await previewManagedAgentDeletion(ownerActor, organizationAgent.agent.agentId);
+  assert.equal(preview.impacts.grants, 1);
+  assert.equal(preview.agent.revision, fileUpdate.agent.revision);
+  await assert.rejects(
+    () => deleteManagedAgent({
+      actor: ownerActor,
+      agentId: organizationAgent.agent.agentId,
+      expectedRevision: fileUpdate.agent.revision,
+      confirmationToken: `${preview.confirmationToken}invalid`,
+    }),
+    /confirmation is invalid/,
+  );
+  await deleteManagedAgent({
+    actor: ownerActor,
+    agentId: organizationAgent.agent.agentId,
+    expectedRevision: fileUpdate.agent.revision,
+    confirmationToken: preview.confirmationToken,
+  });
+  assert.equal(existsSync(path.dirname(path.dirname(definitionPath))), false);
+
+  const personalPreview = await previewManagedAgentDeletion(memberActor, personal.agent.agentId);
+  await deleteManagedAgent({
+    actor: memberActor,
+    agentId: personal.agent.agentId,
+    expectedRevision: personal.agent.revision,
+    confirmationToken: personalPreview.confirmationToken,
+  });
+  assert.equal((await listManagedAgents(memberActor)).some((agent) => agent.agentId === personal.agent.agentId), false);
+
+  console.log('agent management service tests passed');
+}
+
+main()
+  .finally(() => {
+    moduleInternals._load = originalLoad;
+    rmSync(dataDir, { recursive: true, force: true });
+  })
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });

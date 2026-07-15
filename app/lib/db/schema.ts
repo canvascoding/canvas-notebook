@@ -583,10 +583,17 @@ export const agents = sqliteTable("agents", {
   relevantSkillsJson: text("relevant_skills_json"),
   relevantConnectionsJson: text("relevant_connections_json"),
   accessPolicy: text("access_policy").notNull().default("legacy"),
+  scopeType: text("scope_type").notNull().default("user"),
+  organizationId: text("organization_id").references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  ownerUserId: text("owner_user_id").references(() => user.id, { onDelete: 'cascade' }),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  revision: integer("revision").notNull().default(1),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   agentIdIdx: uniqueIndex("idx_agents_agent_id").on(table.agentId),
+  organizationScopeIdx: index("idx_agents_organization_scope").on(table.organizationId, table.scopeType, table.updatedAt),
+  ownerScopeIdx: index("idx_agents_owner_scope").on(table.ownerUserId, table.scopeType, table.updatedAt),
 }));
 
 export const agentMembers = sqliteTable("agent_members", {
@@ -605,6 +612,60 @@ export const agentMembers = sqliteTable("agent_members", {
   pk: primaryKey(table.agentId, table.userId),
   organizationUserIdx: index("idx_agent_members_org_user").on(table.organizationId, table.userId, table.status),
   agentStatusIdx: index("idx_agent_members_agent_status").on(table.agentId, table.status),
+}));
+
+export const agentGrants = sqliteTable("agent_grants", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull().references(() => agents.agentId, { onDelete: 'cascade' }),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  canUse: integer("can_use", { mode: "boolean" }).notNull().default(true),
+  canEdit: integer("can_edit", { mode: "boolean" }).notNull().default(false),
+  canManage: integer("can_manage", { mode: "boolean" }).notNull().default(false),
+  revision: integer("revision").notNull().default(1),
+  createdByUserId: text("created_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  updatedByUserId: text("updated_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  bindingIdx: uniqueIndex("idx_agent_grants_binding").on(table.agentId, table.targetType, table.targetId),
+  organizationTargetIdx: index("idx_agent_grants_org_target").on(table.organizationId, table.targetType, table.targetId),
+  agentIdx: index("idx_agent_grants_agent").on(table.agentId, table.updatedAt),
+  targetTypeCheck: check("agent_grants_target_type_check", sql`${table.targetType} IN ('organization', 'role', 'workspace', 'project', 'user')`),
+}));
+
+export const agentCapabilityBindings = sqliteTable("agent_capability_bindings", {
+  id: text("id").primaryKey(),
+  agentId: text("agent_id").notNull().references(() => agents.agentId, { onDelete: 'cascade' }),
+  resourceType: text("resource_type").notNull(),
+  scopeType: text("scope_type").notNull(),
+  resourceId: text("resource_id").notNull(),
+  name: text("name").notNull(),
+  version: text("version"),
+  requirement: text("requirement").notNull().default("optional"),
+  revision: integer("revision").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  bindingIdx: uniqueIndex("idx_agent_capability_bindings_binding").on(table.agentId, table.resourceType, table.resourceId),
+  agentTypeIdx: index("idx_agent_capability_bindings_agent_type").on(table.agentId, table.resourceType),
+  resourceIdx: index("idx_agent_capability_bindings_resource").on(table.resourceType, table.resourceId),
+  resourceTypeCheck: check("agent_capability_bindings_resource_type_check", sql`${table.resourceType} IN ('skill', 'plugin', 'connection')`),
+  scopeTypeCheck: check("agent_capability_bindings_scope_type_check", sql`${table.scopeType} IN ('system', 'organization', 'user')`),
+  requirementCheck: check("agent_capability_bindings_requirement_check", sql`${table.requirement} IN ('optional', 'required')`),
+}));
+
+export const agentUserPreferences = sqliteTable("agent_user_preferences", {
+  agentId: text("agent_id").notNull().references(() => agents.agentId, { onDelete: 'cascade' }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  preferencesJson: text("preferences_json").notNull().default("{}"),
+  revision: integer("revision").notNull().default(1),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey(table.agentId, table.userId),
+  userIdx: index("idx_agent_user_preferences_user").on(table.userId, table.updatedAt),
 }));
 
 export const piMessages = sqliteTable("pi_messages", {
