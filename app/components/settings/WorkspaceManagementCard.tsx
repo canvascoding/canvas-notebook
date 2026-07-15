@@ -260,7 +260,7 @@ export function WorkspaceManagementCard({
                         </div>
                       </div>
 
-                      <div className="flex items-center justify-end gap-1">
+                      <div className="flex min-w-0 flex-wrap items-center justify-start gap-1 sm:justify-end">
                         {workspace.permissions.canManageWorkspace ? (
                           <Button
                             type="button"
