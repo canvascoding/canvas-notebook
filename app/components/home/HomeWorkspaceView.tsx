@@ -71,14 +71,6 @@ export function HomeWorkspaceView({ licenseLocked = false }: { licenseLocked?: b
           </div>
           <div className="min-w-[260px] max-w-[320px] flex-1">
             <ToolCard
-              icon={Workflow}
-              title={tApps('automations.title')}
-              description={tApps('automations.description')}
-              href="/automations"
-            />
-          </div>
-          <div className="min-w-[260px] max-w-[320px] flex-1">
-            <ToolCard
               icon={ListTodo}
               title={tApps('todos.title')}
               description={tApps('todos.description')}
@@ -107,6 +99,14 @@ export function HomeWorkspaceView({ licenseLocked = false }: { licenseLocked?: b
               title={tApps('studio.title')}
               description={tApps('studio.description')}
               href="/studio"
+            />
+          </div>
+          <div className="min-w-[260px] max-w-[320px] flex-1">
+            <ToolCard
+              icon={Workflow}
+              title={tApps('automations.title')}
+              description={tApps('automations.description')}
+              href="/automations"
             />
           </div>
         </div>
