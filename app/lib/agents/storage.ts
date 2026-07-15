@@ -31,6 +31,10 @@ export type AgentManagedFiles = Record<AgentManagedFileName, string>;
 export type AgentStorageScope = {
   userId?: string | null;
   userName?: string | null;
+  organizationId?: string | null;
+  role?: string | null;
+  workspaceId?: string | null;
+  projectId?: string | null;
 };
 
 // Seed system prompts directory (relative to project root)

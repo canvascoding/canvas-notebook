@@ -4159,6 +4159,45 @@
       "plugins": "Plugins",
       "skills": "Skills"
     },
+    "scope": {
+      "title": "Verfuegbarkeitsbereich",
+      "description": "Lege fest, ob Pakete nur fuer dich oder zentral fuer die Organisation verwaltet werden.",
+      "personal": "Nur ich",
+      "organization": "Organisation",
+      "personalHint": "Persoenliche Pakete und Aktivierungseinstellungen werden in deinem User-Scope gespeichert.",
+      "organizationHint": "Organization-Pakete werden zentral versioniert und per Policy fuer Mitarbeiter aufgeloest; persoenliche Verbindungen und Secrets werden nie kopiert.",
+      "centralManaged": "Zentral verwaltet",
+      "policy": {
+        "title": "Verteilungs-Policies",
+        "description": "Ordne Organization-Pakete der gesamten Organisation, einer Rolle, einem Workspace, Projekt oder User zu. Blockiert gewinnt immer; erforderliche Ressourcen koennen nicht persoenlich deaktiviert werden.",
+        "resource": "Paket",
+        "targetType": "Ziel",
+        "targetId": "Ziel-ID",
+        "targetPlaceholder": "Rollen-, Workspace-, Projekt- oder User-ID",
+        "effect": "Policy",
+        "save": "Anwenden",
+        "remove": "Entfernen",
+        "empty": "Noch keine Verteilungs-Policies konfiguriert.",
+        "targets": {
+          "organization": "Organisation",
+          "role": "Rolle",
+          "workspace": "Workspace",
+          "project": "Projekt",
+          "user": "User"
+        },
+        "effects": {
+          "optional": "Optional",
+          "default-enabled": "Standardmaessig aktiviert",
+          "required": "Erforderlich",
+          "blocked": "Blockiert"
+        },
+        "errors": {
+          "load": "Capability-Policies konnten nicht geladen werden.",
+          "save": "Capability-Policy konnte nicht gespeichert werden.",
+          "remove": "Capability-Policy konnte nicht entfernt werden."
+        }
+      }
+    },
     "stats": {
       "total": "Skills gesamt",
       "enabled": "Aktiviert",
@@ -4170,6 +4209,8 @@
     },
     "plugins": {
       "title": "Canvas Plugins",
+      "organizationScope": "Organisation",
+      "personalScope": "Persönlich",
       "description": "Installiere und verwalte Plugin-Bundles aus dem Canvas Plugin Store. Ein Plugin kann mehrere Skills plus Connector-Empfehlungen bereitstellen.",
       "stats": "{enabled}/{total} aktiviert",
       "reload": "Neu laden",

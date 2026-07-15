@@ -2,6 +2,8 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
+import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { getCanvasPlugin, type CanvasPluginInstallRecord } from '@/app/lib/plugins/canvas-plugin-registry';
 import {
   isValidCanvasPluginName,
@@ -34,6 +36,7 @@ export async function POST(request: Request) {
       name?: unknown;
       version?: unknown;
       connector?: unknown;
+      scope?: unknown;
     };
     const source = body.source === 'store'
       ? 'store'
@@ -62,7 +65,11 @@ export async function POST(request: Request) {
       return NextResponse.json({ success: true, template });
     }
 
-    const plugin = await getCanvasPlugin(pluginName, { userId: session.user.id });
+    const plugin = await getCanvasPlugin(pluginName, resolveCapabilityStorageScope({
+      requestedScope: body.scope,
+      userId: session.user.id,
+      organizationState: await readOrganizationPermissionForUser(session.user.id),
+    }));
     if (!plugin) {
       return NextResponse.json({ success: false, error: 'Plugin not found' }, { status: 404 });
     }

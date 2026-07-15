@@ -1,17 +1,19 @@
 import { NextResponse } from 'next/server';
-import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
+import { setAllPersonalOrganizationCapabilityActivations } from '@/app/lib/capabilities/activation-actions';
+import { requireActiveCapabilityUser } from '@/app/lib/capabilities/request-auth';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
 import { writeEnabledSkillsForScope } from '@/app/lib/skills/skill-settings';
 
 export async function POST(request: Request) {
   try {
-    const skillPermission = await requireOrganizationPermission(request, 'canSharePluginsAndSkills', {
-      errorMessage: 'Forbidden: plugin and skill sharing permission required',
-    });
-    if (!skillPermission.ok) return skillPermission.response;
+    const capabilityUser = await requireActiveCapabilityUser(request);
+    if (!capabilityUser.ok) return capabilityUser.response;
 
-    const scope = { userId: skillPermission.session.user.id };
+    const scope = {
+      scopeType: 'user' as const,
+      userId: capabilityUser.session.user.id,
+      organizationId: capabilityUser.state.organizationId,
+    };
     
     // Load all available skills
     const allSkills = await loadSkillsFromDisk(undefined, scope);
@@ -20,25 +22,23 @@ export async function POST(request: Request) {
     // Enable all skills by setting enabledSkills to empty array (which means all enabled)
     await writeEnabledSkillsForScope([], {
       scope,
-      updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
+      updatedBy: capabilityUser.session.user.email || capabilityUser.session.user.id,
     });
-    await recordAuditEvent({
-      organizationId: skillPermission.state.organizationId,
-      userId: skillPermission.session.user.id,
-      source: 'skills',
-      eventType: 'plugin',
-      entityType: 'canvas_skill_settings',
-      action: 'skills.enable_all',
-      status: 'success',
-      summary: 'All skills enabled.',
-      metadata: {
-        skillCount: allSkillNames.length,
-      },
-    });
+    const organizationCapabilityCount = capabilityUser.state.organizationId && capabilityUser.state.permission
+      ? await setAllPersonalOrganizationCapabilityActivations({
+        context: {
+          organizationId: capabilityUser.state.organizationId,
+          userId: capabilityUser.session.user.id,
+          role: capabilityUser.state.permission.role,
+        },
+        actorUserId: capabilityUser.session.user.id,
+        enabled: true,
+      })
+      : 0;
     
     return NextResponse.json({
       success: true,
-      message: `All ${allSkillNames.length} skills enabled`,
+      message: `All ${allSkillNames.length} personal skills and ${organizationCapabilityCount} organization capabilities enabled`,
       enabledSkills: [],
       allEnabled: true,
     });

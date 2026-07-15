@@ -3,8 +3,20 @@ import path from 'node:path';
 
 const CONTAINER_DATA_ROOT = '/data';
 
+export type DataStorageScopeType = 'user' | 'organization' | 'system' | 'legacy';
+
 export type UserScopedDataStorageScope = {
   userId?: string | null;
+  organizationId?: string | null;
+  scopeType?: DataStorageScopeType | null;
+};
+
+export type CapabilityDataStorageScope = UserScopedDataStorageScope;
+
+export type ResolvedDataStorageScope = {
+  scopeType: DataStorageScopeType;
+  userId: string | null;
+  organizationId: string | null;
 };
 
 export type SecretDataStorageScope = UserScopedDataStorageScope & {
@@ -152,6 +164,14 @@ export function resolveOrganizationPluginTemplatesDir(organizationId: string, cw
   return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'plugin-templates');
 }
 
+export function resolveOrganizationSkillsDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'skills');
+}
+
+export function resolveOrganizationPluginsDir(organizationId: string, cwd?: string): string {
+  return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'plugins');
+}
+
 export function resolveOrganizationMcpTemplatesDir(organizationId: string, cwd?: string): string {
   return path.join(/* turbopackIgnore: true */ resolveOrganizationDataRoot(organizationId, cwd), 'mcp-templates');
 }
@@ -201,9 +221,53 @@ function resolveScopedUserId(scope?: UserScopedDataStorageScope | null): string 
   return userId ? normalizeDataScopeId(userId, 'userId') : null;
 }
 
-export function resolveScopedSettingsDir(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
+function resolveScopedOrganizationId(scope?: UserScopedDataStorageScope | null): string | null {
+  const organizationId = scope?.organizationId?.trim();
+  return organizationId ? normalizeDataScopeId(organizationId, 'organizationId') : null;
+}
+
+export function resolveDataStorageScope(
+  scope?: UserScopedDataStorageScope | null,
+): ResolvedDataStorageScope {
   const userId = resolveScopedUserId(scope);
-  return userId ? resolveUserSettingsDir(userId, cwd) : resolveSettingsStorageDir(cwd);
+  const organizationId = resolveScopedOrganizationId(scope);
+  const requestedScopeType = scope?.scopeType ?? null;
+
+  if (requestedScopeType === 'user') {
+    if (!userId) throw new Error('userId is required for user-scoped storage.');
+    return { scopeType: 'user', userId, organizationId };
+  }
+  if (requestedScopeType === 'organization') {
+    if (!organizationId) throw new Error('organizationId is required for organization-scoped storage.');
+    return { scopeType: 'organization', userId: null, organizationId };
+  }
+  if (requestedScopeType === 'system') {
+    return { scopeType: 'system', userId: null, organizationId: null };
+  }
+  if (requestedScopeType === 'legacy') {
+    return { scopeType: 'legacy', userId: null, organizationId: null };
+  }
+  if (userId) {
+    return { scopeType: 'user', userId, organizationId };
+  }
+  if (organizationId) {
+    return { scopeType: 'organization', userId: null, organizationId };
+  }
+  return { scopeType: 'legacy', userId: null, organizationId: null };
+}
+
+export function resolveScopedSettingsDir(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
+  const resolvedScope = resolveDataStorageScope(scope);
+  if (resolvedScope.scopeType === 'user') {
+    return resolveUserSettingsDir(resolvedScope.userId!, cwd);
+  }
+  if (resolvedScope.scopeType === 'organization') {
+    return resolveOrganizationSettingsDir(resolvedScope.organizationId!, cwd);
+  }
+  if (resolvedScope.scopeType === 'system') {
+    return resolveSystemSettingsDir(cwd);
+  }
+  return resolveSettingsStorageDir(cwd);
 }
 
 export function resolveScopedPiOAuthStatesDir(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
@@ -214,8 +278,17 @@ export function resolveScopedPiOAuthStatesDir(scope?: UserScopedDataStorageScope
 }
 
 export function resolveScopedSkillsDataDir(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
-  const userId = resolveScopedUserId(scope);
-  return userId ? resolveUserSkillsDir(userId, cwd) : resolveSkillsDataDir(cwd);
+  const resolvedScope = resolveDataStorageScope(scope);
+  if (resolvedScope.scopeType === 'user') {
+    return resolveUserSkillsDir(resolvedScope.userId!, cwd);
+  }
+  if (resolvedScope.scopeType === 'organization') {
+    return resolveOrganizationSkillsDir(resolvedScope.organizationId!, cwd);
+  }
+  if (resolvedScope.scopeType === 'system') {
+    return path.join(/* turbopackIgnore: true */ resolveSystemManagedDir(cwd), 'skills');
+  }
+  return resolveSkillsDataDir(cwd);
 }
 
 export function resolveScopedSkillRegistryPath(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
@@ -230,8 +303,9 @@ export async function shouldUseLegacyScopedSkillsFallback(
   scope?: UserScopedDataStorageScope | null,
   cwd?: string,
 ): Promise<boolean> {
-  const userId = resolveScopedUserId(scope);
-  return Boolean(userId) && !(await directoryExists(resolveScopedSkillsDataDir(scope, cwd)));
+  const resolvedScope = resolveDataStorageScope(scope);
+  return resolvedScope.scopeType === 'user'
+    && !(await directoryExists(resolveScopedSkillsDataDir(scope, cwd)));
 }
 
 export async function resolveReadableScopedSkillsDataDir(
@@ -264,8 +338,17 @@ export function resolvePluginRegistryPath(cwd?: string): string {
 }
 
 export function resolveScopedPluginsDataDir(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
-  const userId = resolveScopedUserId(scope);
-  return userId ? resolveUserPluginsDir(userId, cwd) : resolvePluginsDataDir(cwd);
+  const resolvedScope = resolveDataStorageScope(scope);
+  if (resolvedScope.scopeType === 'user') {
+    return resolveUserPluginsDir(resolvedScope.userId!, cwd);
+  }
+  if (resolvedScope.scopeType === 'organization') {
+    return resolveOrganizationPluginsDir(resolvedScope.organizationId!, cwd);
+  }
+  if (resolvedScope.scopeType === 'system') {
+    return path.join(/* turbopackIgnore: true */ resolveSystemManagedDir(cwd), 'plugins');
+  }
+  return resolvePluginsDataDir(cwd);
 }
 
 export function resolveScopedInstalledPluginsDir(scope?: UserScopedDataStorageScope | null, cwd?: string): string {
@@ -280,8 +363,9 @@ export async function shouldUseLegacyScopedPluginsFallback(
   scope?: UserScopedDataStorageScope | null,
   cwd?: string,
 ): Promise<boolean> {
-  const userId = resolveScopedUserId(scope);
-  return Boolean(userId) && !(await directoryExists(resolveScopedPluginsDataDir(scope, cwd)));
+  const resolvedScope = resolveDataStorageScope(scope);
+  return resolvedScope.scopeType === 'user'
+    && !(await directoryExists(resolveScopedPluginsDataDir(scope, cwd)));
 }
 
 export async function resolveReadableScopedPluginsDataDir(

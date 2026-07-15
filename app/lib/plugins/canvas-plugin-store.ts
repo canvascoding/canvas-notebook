@@ -20,15 +20,14 @@ import {
   isValidCanvasPluginName,
   isValidCanvasPluginVersion,
   validateCanvasPluginPackage,
-  type CanvasPluginComposioConnector,
   type CanvasPluginConnectorManifest,
-  type CanvasPluginEmailConnector,
   type CanvasPluginMcpConnector,
 } from '@/app/lib/plugins/canvas-plugin-manifest';
-import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
-import { listEmailAccounts } from '@/app/lib/email/service';
-import { readMcpConfig } from '@/app/lib/mcp/config';
-import { getMcpOAuthStatus } from '@/app/lib/mcp/oauth';
+import {
+  normalizeComposioConnectors,
+  normalizeMcpConnectors,
+  resolvePluginConnectionReadiness,
+} from '@/app/lib/plugins/plugin-connection-readiness';
 import { readPluginMcpTemplateFile } from '@/app/lib/plugins/plugin-mcp-template-service';
 import { readCanvasSkillRegistry, type CanvasSkillInstallRecord } from '@/app/lib/skills/canvas-skill-store';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
@@ -391,73 +390,6 @@ async function buildInstalledPluginSkillState(
   }));
 
   return { skills, summary: summarizeSkillStates(skills) };
-}
-
-function normalizeComposioConnectors(connectors: CanvasPluginConnectorManifest | undefined): CanvasPluginComposioConnector[] {
-  const values = Array.isArray(connectors?.composio) ? connectors.composio as unknown[] : [];
-  const legacy = (connectors?.composioToolkits || []).map((toolkit) => ({ toolkit, recommended: true }));
-  return [...values, ...legacy]
-    .map((connector): CanvasPluginComposioConnector | null => {
-      const legacyToolkit = stringValue(connector);
-      if (legacyToolkit) return { toolkit: legacyToolkit, recommended: true };
-      if (!isRecord(connector)) return null;
-      const toolkit = stringValue(connector.toolkit ?? connector.slug ?? connector.toolkitSlug);
-      if (!toolkit) return null;
-      return {
-        toolkit,
-        label: stringValue(connector.label ?? connector.name),
-        reason: stringValue(connector.reason),
-        recommended: connector.recommended === true,
-        required: connector.required === true,
-        tools: stringArrayValue(connector.tools),
-      };
-    })
-    .filter((connector): connector is CanvasPluginComposioConnector => Boolean(connector?.toolkit));
-}
-
-function normalizeEmailConnectors(connectors: CanvasPluginConnectorManifest | undefined): CanvasPluginEmailConnector[] {
-  const values = Array.isArray(connectors?.email) ? connectors.email as unknown[] : [];
-  return values
-    .map((connector): CanvasPluginEmailConnector | null => {
-      if (!isRecord(connector)) return null;
-      const providers = stringArrayValue(connector.providers)
-        ?.filter((provider): provider is 'gmail' | 'imap-smtp' => provider === 'gmail' || provider === 'imap-smtp');
-      return {
-        kind: stringValue(connector.kind) === 'mailbox' ? 'mailbox' as const : undefined,
-        label: stringValue(connector.label ?? connector.name),
-        reason: stringValue(connector.reason),
-        recommended: connector.recommended === true,
-        required: connector.required === true,
-        providers,
-      };
-    })
-    .filter((connector): connector is CanvasPluginEmailConnector => Boolean(connector));
-}
-
-function normalizeMcpConnectors(connectors: CanvasPluginConnectorManifest | undefined): CanvasPluginMcpConnector[] {
-  const values = Array.isArray(connectors?.mcp) ? connectors.mcp as unknown[] : [];
-  const legacy = connectors?.mcpServers
-    ? [{ name: 'mcp', label: 'MCP', configPath: connectors.mcpServers, recommended: true }]
-    : [];
-  return [...values, ...legacy]
-    .map((connector): CanvasPluginMcpConnector | null => {
-      const legacyName = stringValue(connector);
-      if (legacyName) return { name: legacyName, label: legacyName, recommended: true };
-      if (!isRecord(connector)) return null;
-      const name = stringValue(connector.name ?? connector.id);
-      if (!name) return null;
-      return {
-        name,
-        label: stringValue(connector.label),
-        reason: stringValue(connector.reason),
-        recommended: connector.recommended === true,
-        required: connector.required === true,
-        configPath: stringValue(connector.configPath ?? connector.config_path),
-        env: stringArrayValue(connector.env),
-        oauth: connector.oauth === true,
-      };
-    })
-    .filter((connector): connector is CanvasPluginMcpConnector => Boolean(connector?.name));
 }
 
 function getRegistryUrl(): string {
@@ -981,129 +913,20 @@ export async function preflightCanvasPluginFromStore(
   const installedPlugin = (await listCanvasPlugins(scope)).find((entry) => entry.name === plugin.name);
   const skillRegistry = await readCanvasSkillRegistry(scope);
   const skillState = await buildInstalledPluginSkillState(plugin, installedPlugin, selectedVersion, skillRegistry, scope);
-  const items: CanvasPluginStorePreflightItem[] = [];
-
-  const composioConnectors = normalizeComposioConnectors(plugin.connectors);
-  if (composioConnectors.length > 0) {
-    const composioScope = scope?.userId ? { userId: scope.userId } : undefined;
-    const status = await getGatewayStatus(composioScope).catch(() => ({
-      configured: false,
-      apiKeyValid: false,
-      connectedAccounts: [],
-    }));
-    const connectedBySlug = new Set(
-      (status.connectedAccounts || [])
-        .map((account) => account.toolkit?.slug)
-        .filter((slug): slug is string => Boolean(slug)),
-    );
-    let toolkitBySlug = new Map<string, { name?: string; logo?: string }>();
-    if (status.configured && status.apiKeyValid) {
-      const toolkitResult = await getGatewayToolkits(composioScope).catch(() => ({ toolkits: [] }));
-      if (Array.isArray(toolkitResult.toolkits)) {
-        toolkitBySlug = new Map(
-          toolkitResult.toolkits
-            .map((toolkit) => isRecord(toolkit) ? toolkit : {})
-            .map((toolkit) => [stringValue(toolkit.slug) || '', {
-              name: stringValue(toolkit.name),
-              logo: stringValue(toolkit.logo),
-            }] as const)
-            .filter(([slug]) => Boolean(slug)),
-        );
-      }
-    }
-
-    for (const connector of composioConnectors) {
-      const toolkit = toolkitBySlug.get(connector.toolkit);
-      const configured = Boolean(status.configured && status.apiKeyValid);
-      const available = configured && Boolean(toolkit);
-      const connected = connectedBySlug.has(connector.toolkit);
-      items.push({
-        type: 'composio',
-        key: connector.toolkit,
-        label: connector.label || toolkit?.name || connector.toolkit,
-        required: connector.required === true,
-        ready: available && connected,
-        available,
-        connected,
-        configured,
-        logo: toolkit?.logo,
-        reason: connector.reason,
-        details: connector.tools?.length ? [`Tools: ${connector.tools.join(', ')}`] : undefined,
-        action: !configured ? 'configure-composio' : connected ? 'none' : 'connect-composio',
-      });
-    }
-  }
-
-  const emailConnectors = normalizeEmailConnectors(plugin.connectors);
-  if (emailConnectors.length > 0) {
-    const accountsResult = await listEmailAccounts(userId).catch(() => ({ accounts: [] }));
-    const accountCount = Array.isArray(accountsResult.accounts) ? accountsResult.accounts.length : 0;
-    for (const [index, connector] of emailConnectors.entries()) {
-      const providers = connector.providers?.length ? connector.providers.join(', ') : 'gmail, imap-smtp';
-      items.push({
-        type: 'email',
-        key: connector.label || `email-${index}`,
-        label: connector.label || 'Email account',
-        required: connector.required === true,
-        ready: accountCount > 0,
-        configured: accountCount > 0,
-        connected: accountCount > 0,
-        reason: connector.reason,
-        details: [`Providers: ${providers}`, `Connected accounts: ${accountCount}`],
-        action: accountCount > 0 ? 'none' : 'configure-email',
-      });
-    }
-  }
-
-  const mcpConnectors = normalizeMcpConnectors(plugin.connectors);
-  if (mcpConnectors.length > 0) {
-    const config = await readMcpConfig(scope?.userId ? { userId: scope.userId } : undefined).catch(() => ({ mcpServers: {} }));
-    const mcpServers = config.mcpServers as Record<string, { enabled?: boolean } | undefined>;
-    for (const connector of mcpConnectors) {
-      const server = mcpServers[connector.name];
-      const configured = Boolean(server);
-      const enabled = configured && server?.enabled !== false;
-      const oauth = connector.oauth && scope?.userId
-        ? await getMcpOAuthStatus(connector.name, undefined, { userId: scope.userId }).catch(() => null)
-        : null;
-      const authorized = connector.oauth ? Boolean(oauth?.authorized) : true;
-      const ready = configured && enabled && authorized;
-      const details = [
-        connector.configPath ? `Example config: ${connector.configPath}` : null,
-        connector.env?.length ? `Env: ${connector.env.join(', ')}` : null,
-        connector.oauth ? (authorized ? 'OAuth authorized' : 'OAuth authorization required') : null,
-      ].filter((detail): detail is string => Boolean(detail));
-      items.push({
-        type: 'mcp',
-        key: connector.name,
-        label: connector.label || connector.name,
-        required: connector.required === true,
-        ready,
-        configured,
-        connected: ready,
-        reason: connector.reason,
-        details,
-        action: ready ? 'none' : 'configure-mcp',
-      });
-    }
-  }
-
-  const requiredMissing = items.filter((item) => item.required && !item.ready).length;
-  const recommendedMissing = items.filter((item) => !item.required && !item.ready).length;
+  const connectionReadiness = await resolvePluginConnectionReadiness({
+    connectors: plugin.connectors,
+    userId,
+    fresh: true,
+  });
   return {
     pluginName: plugin.name,
     version: selectedVersion,
-    ready: requiredMissing === 0,
-    hasRequiredMissing: requiredMissing > 0,
+    ready: connectionReadiness.ready,
+    hasRequiredMissing: connectionReadiness.summary.requiredMissing > 0,
     hasSkillIssues: skillState.summary.repairable > 0 || skillState.summary.modified > 0,
-    items,
+    items: connectionReadiness.items,
     skills: skillState.skills,
-    summary: {
-      total: items.length,
-      ready: items.filter((item) => item.ready).length,
-      requiredMissing,
-      recommendedMissing,
-    },
+    summary: connectionReadiness.summary,
     skillSummary: skillState.summary,
   };
 }

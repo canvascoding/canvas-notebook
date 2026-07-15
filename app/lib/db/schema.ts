@@ -377,6 +377,34 @@ export const organizationUserPermissions = sqliteTable("organization_user_permis
   singleOwnerIdx: uniqueIndex("idx_org_user_permissions_single_owner").on(table.organizationId).where(sql`${table.role} = 'owner'`),
 }));
 
+export const capabilityPolicies = sqliteTable("capability_policies", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  resourceType: text("resource_type").notNull(),
+  resourceId: text("resource_id").notNull(),
+  targetType: text("target_type").notNull(),
+  targetId: text("target_id").notNull(),
+  effect: text("effect").notNull(),
+  revision: integer("revision").notNull().default(1),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id, { onDelete: 'restrict' }),
+  updatedByUserId: text("updated_by_user_id").notNull().references(() => user.id, { onDelete: 'restrict' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  organizationResourceIdx: index("idx_capability_policies_org_resource").on(table.organizationId, table.resourceType, table.resourceId),
+  organizationTargetIdx: index("idx_capability_policies_org_target").on(table.organizationId, table.targetType, table.targetId),
+  bindingIdx: uniqueIndex("idx_capability_policies_binding").on(
+    table.organizationId,
+    table.resourceType,
+    table.resourceId,
+    table.targetType,
+    table.targetId,
+  ),
+  resourceTypeCheck: check("capability_policies_resource_type_check", sql`${table.resourceType} IN ('skill', 'plugin')`),
+  targetTypeCheck: check("capability_policies_target_type_check", sql`${table.targetType} IN ('organization', 'role', 'workspace', 'project', 'user')`),
+  effectCheck: check("capability_policies_effect_check", sql`${table.effect} IN ('optional', 'default-enabled', 'required', 'blocked')`),
+}));
+
 export const aiProviderInstallations = sqliteTable("ai_provider_installations", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),

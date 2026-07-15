@@ -1,6 +1,6 @@
 # Canvas Skills and Plugins Architecture
 
-Stand: 2026-07-08
+Stand: 2026-07-15
 
 ## Implementierter Stand
 
@@ -10,7 +10,7 @@ Die Canvas-Skill-Runtime, die Canvas-Plugin-Runtime und der erste offizielle Can
 - User-Skills werden im User-Scope unter `/data/users/{userId}/skills/` installiert; Legacy-/Single-User-Fallbacks lesen weiterhin `/data/skills`.
 - User-Plugins werden im User-Scope unter `/data/users/{userId}/plugins/installed/<plugin-name>/<version>/` installiert; Legacy-/Single-User-Fallbacks lesen weiterhin `/data/plugins`.
 - Die lokale User-Plugin-Registry liegt unter `/data/users/{userId}/plugins/registry.json`; die lokale User-Skill-Registry liegt unter `/data/users/{userId}/skills/registry.json`.
-- Plugin-Skills werden beim Installieren eines Plugins im User-Skill-Scope materialisiert, sofern dort noch kein Standalone-Skill mit diesem Namen existiert. Die Skill-Quelle kann ein gebuendelter Plugin-Ordner oder eine App-interne Seed-Skill-Referenz (`skillRefs`) sein.
+- Plugin-Skills werden beim Installieren im jeweiligen Personal- oder Organization-Skill-Scope materialisiert, sofern dort noch kein Standalone-Skill mit diesem Namen existiert. Die effektive Runtime liest Organization-Plugin-Skills aus dem immutable Versionspaket; die Skill-Quelle kann ein gebuendelter Plugin-Ordner oder eine App-interne Seed-Skill-Referenz (`skillRefs`) sein.
 - Wenn ein Skill-Name bereits als Standalone-Skill existiert, ueberschreibt das Plugin ihn nicht. Das Plugin wird trotzdem installiert und merkt im Plugin-Record, dass dieser Skill bereits vorhanden war.
 - Plugin-Skills koennen weiterhin aus dem Plugin-Paket als Fallback geladen werden, falls ein aelteres Plugin noch nicht materialisiert wurde oder der Standalone-Skill spaeter entfernt wurde.
 - Skill- und Plugin-Assets werden ueber authentifizierte Asset-Endpunkte ausgeliefert.
@@ -30,6 +30,14 @@ Die Canvas-Skill-Runtime, die Canvas-Plugin-Runtime und der erste offizielle Can
 - Plugins mit MCP-, E-Mail- oder Composio-Empfehlungen zeigen Connector-Karten mit Setup-CTA. Store-Plugins laden App-/Connector-Status erst per explizitem Preflight fuer das konkrete Plugin; installierte Plugins duerfen ihren Connector-Status anzeigen. Die Connector-Angaben werden als Metadaten gespeichert, enthalten keine Secrets und werden nicht automatisch in Connector-Konfigurationen geschrieben.
 - Beim Containerstart werden kuratierte Default-Seed-Pakete nur in den passenden scoped Runtime-Pfad oder in Legacy-/Single-User-Fallbacks kopiert. Bestehende Skills und Plugins werden nicht ueberschrieben.
 - Core Skills ersetzen fuer Basisfunktionen die fruehere Annahme, dass Creator-/Discovery-Skills zwingend als Seed-Skills in jedes Runtime-Volume kopiert werden muessen.
+- Skills und Plugins koennen jetzt explizit im Personal- oder Organization-Scope installiert werden. Organization-Pakete liegen zentral unter `/data/organizations/{organizationId}/skills/` beziehungsweise `/data/organizations/{organizationId}/plugins/` und werden nicht in User-Verzeichnisse kopiert.
+- Organization-Standalone-Skills und Organization-Plugins werden als immutable Versionspakete gespeichert. Ein veraenderter Paketinhalt unter derselben Version wird abgelehnt; Updates erzeugen eine neue Registry-Revision und behalten alte Organization-Versionen fuer bereits gepinnte Agent-Turns.
+- Jede effektive Skill-/Plugin-Ressource besitzt eine stabile, scope-aware `resourceId` sowie Scope, Quelle, Version, Revision und Checksum. Core, Organization Standalone, Organization Plugin, Personal Standalone und Personal Plugin laufen durch denselben Effective-Capability-Resolver.
+- Die Tabelle `capability_policies` verteilt Organization-Ressourcen an Organization, Rolle, Workspace, Projekt oder User als `optional`, `default-enabled`, `required` oder `blocked`. `blocked` gewinnt immer, danach `required`; bei weichen Defaults gewinnt das spezifischste Ziel. Persoenliche Aktivierungen werden revisionsgeschuetzt im User-Scope gespeichert.
+- Gleichnamige Ressourcen werden nicht still ueberschrieben. Core- und Organization-Namen schuetzen niedrigere Scopes; Konflikte im gleichen Scope blockieren alle beteiligten Ressourcen und werden mit Scope, Quelle und Version in der UI sichtbar.
+- Connector-Anforderungen eines Organization-Plugins werden fuer den jeweils ausfuehrenden User aufgeloest und bis zu den Plugin-Skills kaskadiert. Fehlende erforderliche OAuth-, E-Mail-, Composio- oder MCP-Verbindungen erscheinen als `personal-connection-required`; Organization-Pakete enthalten keine User-Verbindungen oder Secret-Dateien, und Connector-Manifeste akzeptieren nur Env-Variablennamen statt Inline-Werten.
+- Neue Agent-Prompts verwenden den effektiven Capability-Snapshot aus Organization, Workspace, Projekt und User. Paket- und Policy-Aenderungen invalidieren gespeicherte Prompts fuer den naechsten sicheren Turn-Grenzpunkt, ohne den bereits laufenden Modellaufruf zu veraendern.
+- REST-Endpunkte fuer effektive Capabilities, Organization-Policies und persoenliche Aktivierung liegen unter `/api/skills/effective`, `/api/skills/policies` und `/api/skills/preferences`. Die Settings-UI bietet berechtigten Managern einen Personal-/Organization-Scope und die Policy-Zuordnung; normale Mitarbeiter sehen zugewiesene Organization-Ressourcen im persoenlichen Effective View.
 
 ## Zielbild
 
@@ -222,7 +230,7 @@ Canvas unterscheidet Skill-Besitz und Skill-Verteilung explizit:
 |---|---|---|---|
 | Core/System | App-Bundle | Canvas/App-Update | immer verfuegbar |
 | Personal Local | `/data/users/{userId}/skills/` | jeweiliger User mit Permission | nur dieser User |
-| Organization Shared | `/data/organizations/{organizationId}/skill-templates/{skillName}/{version}/` | Admin oder Skill-Manager | mehrere Nutzer nach Policy |
+| Organization Shared | `/data/organizations/{organizationId}/skills/installed/{skillName}/{version}/` | Admin oder Skill-Manager | mehrere Nutzer nach Policy |
 | Marketplace | Remote Registry, danach lokaler User-Scope | Registry-Publisher, Installation durch User/Admin | installierbares Paket |
 
 Ziel fuer eigene Skills:
@@ -237,7 +245,7 @@ Ziel fuer eigene Skills:
 - Workspace-Drafts unter `.canvas-skill-drafts/` sind temporaer und werden nach erfolgreichem Install/Update standardmaessig geloescht.
 - Fuer allgemeine temporaere Berechnungen bekommt jeder Agent einen eigenen Runtime-Temp-Ordner unter `/data/temp/agent-runtime/...`; dort koennen Wegwerf-Scripts, Caches und Zwischenergebnisse entstehen, ohne den Workspace zu fuellen. Session-Temp-Ordner werden retention-basiert bereinigt; aktive Runtime-Temp-Ordner werden uebersprungen und nicht direkt bei Runtime-Dispose oder PI-Session-Loeschung geloescht. Default ist 24 Stunden.
 
-Ziel fuer zentrale Skills:
+Implementierter Stand fuer zentrale Skills:
 
 - Ein Admin kann einen Skill als Organization Shared Skill veroeffentlichen.
 - Organization Skills sind versionierte, zentral gepflegte Pakete, nicht pro User kopierte und separat editierte Dateien.
@@ -324,6 +332,10 @@ Canvas Notebook installiert Pakete nach:
 /data/users/{userId}/skills/<skill-name>/
 /data/users/{userId}/skills/registry.json
 /data/users/{userId}/skills/.backups/<skill-name>/<timestamp>/
+/data/organizations/{organizationId}/plugins/installed/<plugin-name>/<version>/
+/data/organizations/{organizationId}/plugins/registry.json
+/data/organizations/{organizationId}/skills/installed/<skill-name>/<version>/
+/data/organizations/{organizationId}/skills/registry.json
 ```
 
 Standalone Skills bleiben moeglich. Plugin-Skills werden bei der Installation als Standalone-Skills materialisiert und im lokalen Skill-Registry-Eintrag mit `sourceType: "plugin"`, `sourcePluginName` und `sourcePluginVersion` markiert. Das Plugin bleibt weiterhin das Bundle fuer Connector-Kontext, Kuration und Marketplace-Installation.
@@ -363,10 +375,10 @@ Mehrere Marketplace-Quellen bleiben ein geplanter Ausbau. Das Datenmodell und di
 
 Die lokale Runtime stellt diese authentifizierten Endpunkte bereit:
 
-- `GET /api/plugins` — installierte Plugins listen
+- `GET /api/plugins` — installierte beziehungsweise effektive Plugins listen; optional `scope=user|organization`
 - `GET /api/plugins/store` — offiziellen Plugin Store mit Installations-, Update- und Skill-Health-Status listen; Query: `page`, `pageSize`, `q`, `state=all|available|installed|updates`
 - `POST /api/plugins/store/preflight` — Connector- und Skill-Health-Preflight fuer ein Store-Plugin ausfuehren (`name`, optional `version`). Der Response enthaelt `skills[]`, `skillSummary` und `hasSkillIssues`, damit das Frontend fehlende oder reparierbare Plugin-Skills direkt im Plugin-Detail anzeigen kann.
-- `POST /api/plugins/store/install` — Plugin aus dem Store installieren (`name`, optional `version`, `enable`, `replace`)
+- `POST /api/plugins/store/install` — Plugin aus dem Store installieren (`name`, optional `version`, `enable`, `replace`, `scope`)
 - `GET /api/plugins/[name]` — Plugin-Details lesen
 - `POST /api/plugins/validate` — lokales Plugin-Paket validieren (`sourcePath`)
 - `POST /api/plugins/install` — lokales Plugin-Paket installieren (`sourcePath`, optional `enable`, `replace`)
@@ -374,8 +386,11 @@ Die lokale Runtime stellt diese authentifizierten Endpunkte bereit:
 - `POST /api/plugins/[name]/disable` — Plugin deaktivieren
 - `DELETE /api/plugins/[name]` — Plugin entfernen
 - `GET /api/plugins/asset?plugin=<name>&path=<relative-image-path>` — Plugin-Bilder laden
-- `GET /api/skills/store` — offizielle Skill Library mit Installations-, Update- und Modified-Status listen; Query: `page`, `pageSize`, `q`, `state=all|available|installed|updates`
-- `POST /api/skills/store/install` — Standalone-Skill aus der Library installieren (`name`, optional `version`, `enable`, `replace`)
+- `GET /api/skills/store` — offizielle Skill Library mit Installations-, Update- und Modified-Status listen; Query: `page`, `pageSize`, `q`, `state=all|available|installed|updates`, `scope=user|organization`
+- `POST /api/skills/store/install` — Standalone-Skill aus der Library installieren (`name`, optional `version`, `enable`, `replace`, `scope`)
+- `GET /api/skills/effective` — zugriffsgeprueften Organization-/Workspace-/Projekt-/User-Snapshot mit stabilen Referenzen, Readiness und Konflikten laden
+- `GET|PUT|DELETE /api/skills/policies` — revisionsgeschuetzte Organization-Policies verwalten
+- `PUT /api/skills/preferences` — persoenliche Aktivierung einer optionalen oder default-enabled Organization-Ressource revisionsgeschuetzt setzen
 - `POST /api/skills/upload` — User-Skill aus Text, ZIP oder Ordner-Upload validiert importieren
 - `POST /api/skills/[name]/restore` — Standalone-Skill aus Store oder Seed wiederherstellen (`prefer=store|seed`, optional `version`, `enable`)
 

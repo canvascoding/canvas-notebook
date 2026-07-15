@@ -402,6 +402,58 @@ async function findPluginPackageSymlinks(rootDir: string, currentDir = rootDir):
   return symlinks;
 }
 
+function isSensitivePluginPackageFile(fileName: string): boolean {
+  const normalized = fileName.toLowerCase();
+  if (
+    normalized === '.env'
+    || normalized === '.npmrc'
+    || normalized === '.netrc'
+    || normalized === '.git-credentials'
+  ) return true;
+  if (normalized.startsWith('.env.')) {
+    return !['.env.example', '.env.sample', '.env.template'].includes(normalized);
+  }
+  if (['.pem', '.key', '.p12', '.pfx', '.jks'].some((extension) => normalized.endsWith(extension))) {
+    return true;
+  }
+  if ([
+    'credentials.json',
+    'credentials',
+    'secrets.json',
+    'token.json',
+    'oauth-token.json',
+    'auth.json',
+    'service-account.json',
+    'client-secret.json',
+    'id_rsa',
+    'id_ed25519',
+    'id_ecdsa',
+    'id_dsa',
+  ].includes(normalized) || normalized.includes('private-key')) {
+    return true;
+  }
+  return /(?:^|[-_.])(credentials?|secrets?|tokens?|oauth)(?:[-_.]|$)/.test(normalized)
+    && /\.(?:json|ya?ml|toml|ini|conf|config)$/.test(normalized);
+}
+
+export async function findSensitiveCanvasPackageFiles(rootDir: string, currentDir = rootDir): Promise<string[]> {
+  const currentRelativePath = path.relative(rootDir, currentDir);
+  const safeCurrentDir = requirePathInside(rootDir, currentRelativePath || '.');
+  const entries = await fs.readdir(safeCurrentDir, { withFileTypes: true });
+  const sensitiveFiles: string[] = [];
+
+  for (const entry of entries) {
+    if (IGNORED_PLUGIN_PACKAGE_ENTRIES.has(entry.name)) continue;
+    const fullPath = requirePathInside(rootDir, currentRelativePath || '.', entry.name);
+    if (entry.isDirectory()) {
+      sensitiveFiles.push(...await findSensitiveCanvasPackageFiles(rootDir, fullPath));
+    } else if (entry.isFile() && isSensitivePluginPackageFile(entry.name)) {
+      sensitiveFiles.push(path.relative(rootDir, fullPath).split(path.sep).join('/'));
+    }
+  }
+  return sensitiveFiles;
+}
+
 export async function validateCanvasPluginPackage(sourcePath: string): Promise<CanvasPluginValidationResult> {
   const errors: string[] = [];
   const warnings: string[] = [];
@@ -432,6 +484,16 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
       return {
         valid: false,
         errors: [`Plugin packages must not contain symbolic links: ${symlinks.slice(0, 5).join(', ')}${symlinks.length > 5 ? ', ...' : ''}`],
+        warnings,
+        rootDir,
+        manifestPath,
+      };
+    }
+    const sensitiveFiles = await findSensitiveCanvasPackageFiles(rootDir);
+    if (sensitiveFiles.length > 0) {
+      return {
+        valid: false,
+        errors: [`Plugin packages must reference user connections and environment variable names instead of bundling secret files: ${sensitiveFiles.slice(0, 5).join(', ')}${sensitiveFiles.length > 5 ? ', ...' : ''}`],
         warnings,
         rootDir,
         manifestPath,
@@ -524,6 +586,11 @@ export async function validateCanvasPluginPackage(sourcePath: string): Promise<C
     }
 
     for (const [index, connector] of (manifest.connectors?.mcp || []).entries()) {
+      for (const [envIndex, envName] of (connector.env || []).entries()) {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(envName)) {
+          errors.push(`connectors.mcp[${index}].env[${envIndex}]: Must contain an environment variable name, never a value.`);
+        }
+      }
       if (!connector.configPath) continue;
       const mcpPath = validateRelativePath(`connectors.mcp[${index}].configPath`, rootDir, connector.configPath, errors);
       if (!mcpPath) continue;

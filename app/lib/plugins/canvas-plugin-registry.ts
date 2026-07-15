@@ -11,10 +11,13 @@ import {
   resolveScopedSettingsDir,
   resolveScopedSkillRegistryPath,
   resolveScopedSkillsDataDir,
+  resolveDataStorageScope,
   shouldUseLegacyScopedPluginsFallback,
+  type DataStorageScopeType,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import { PI_RUNTIME_CONFIG_PATH } from '@/app/lib/agents/storage';
+import { createCapabilityResourceId } from '@/app/lib/capabilities/reference';
 import {
   disableSkillInConfig,
   enableSkillInConfig,
@@ -51,6 +54,16 @@ export interface CanvasPluginSkillRecord {
 }
 
 export interface CanvasPluginInstallRecord {
+  resourceId?: string;
+  scopeType?: DataStorageScopeType;
+  sourceType?: 'standalone';
+  organizationId?: string | null;
+  ownerUserId?: string | null;
+  revision?: number;
+  effectivePolicy?: 'optional' | 'default-enabled' | 'required' | 'blocked';
+  readiness?: 'available' | 'disabled' | 'blocked' | 'conflict' | 'personal-connection-required';
+  blockedReason?: string | null;
+  conflictResourceIds?: string[];
   name: string;
   version: string;
   description: string;
@@ -79,6 +92,11 @@ export interface CanvasPluginRegistry {
 }
 
 interface StandaloneSkillRegistryRecord {
+  resourceId?: string;
+  scopeType?: DataStorageScopeType;
+  organizationId?: string | null;
+  ownerUserId?: string | null;
+  revision?: number;
   name: string;
   version: string;
   description: string;
@@ -649,7 +667,21 @@ async function writeMaterializedSkillRecord(params: {
 
   const registry = await readStandaloneSkillRegistry(params.scope);
   const existing = registry.skills[params.skillName];
+  const storageScope = resolveDataStorageScope(params.scope);
   registry.skills[params.skillName] = {
+    resourceId: createCapabilityResourceId({
+      resourceType: 'skill',
+      scopeType: storageScope.scopeType === 'legacy' ? 'system' : storageScope.scopeType,
+      name: skill.name,
+      sourceType: 'plugin',
+      organizationId: storageScope.organizationId,
+      ownerUserId: storageScope.userId,
+      sourcePluginName: params.pluginName,
+    }),
+    scopeType: storageScope.scopeType,
+    organizationId: storageScope.organizationId,
+    ownerUserId: storageScope.userId,
+    revision: (existing?.revision || 0) + 1,
     name: skill.name,
     version: skill.version || params.version,
     description: skill.description,
@@ -803,7 +835,21 @@ async function buildPluginRecordFromInstalledPackage(
 
   const checksum = await computeCanvasPluginChecksum(installDir);
   const timestamp = nowIso();
+  const storageScope = resolveDataStorageScope(options.scope);
   const record: CanvasPluginInstallRecord = {
+    resourceId: createCapabilityResourceId({
+      resourceType: 'plugin',
+      scopeType: storageScope.scopeType === 'legacy' ? 'system' : storageScope.scopeType,
+      name: installedValidation.manifest.name,
+      sourceType: 'standalone',
+      organizationId: storageScope.organizationId,
+      ownerUserId: storageScope.userId,
+    }),
+    scopeType: storageScope.scopeType,
+    sourceType: 'standalone',
+    organizationId: storageScope.organizationId,
+    ownerUserId: storageScope.userId,
+    revision: 1,
     name: installedValidation.manifest.name,
     version: installedValidation.manifest.version,
     description: installedValidation.manifest.description,
@@ -1018,9 +1064,9 @@ async function restorePluginMutationFile(snapshot: PluginMutationFileSnapshot): 
 }
 
 function resolveEnabledSkillsStoragePath(scope?: CanvasPluginStorageScope | null): string {
-  return scope?.userId?.trim()
-    ? path.join(resolveScopedSettingsDir(scope), 'skills.json')
-    : PI_RUNTIME_CONFIG_PATH;
+  return resolveDataStorageScope(scope).scopeType === 'legacy'
+    ? PI_RUNTIME_CONFIG_PATH
+    : path.join(resolveScopedSettingsDir(scope), 'skills.json');
 }
 
 async function updateRuntimeConfigForPluginSkills(
@@ -1160,11 +1206,24 @@ export async function installCanvasPluginFromPath(
       }
       built.record.skills = await materializePluginSkills(built.record, options.scope);
 
+      if (
+        existingRecord
+        && resolveDataStorageScope(options.scope).scopeType === 'organization'
+        && existingRecord.version === built.record.version
+        && existingRecord.checksum !== built.record.checksum
+      ) {
+        throw new Error('Organization plugin package contents changed without a version bump. Publish a new version.');
+      }
+
       const hasExistingInstall = await fs.stat(installDir).then(() => true).catch(() => false);
       if (hasExistingInstall) {
         await fs.rename(installDir, backupDir);
       }
-      if (existingRecord && path.resolve(existingRecord.installDir) !== path.resolve(installDir)) {
+      if (
+        existingRecord
+        && path.resolve(existingRecord.installDir) !== path.resolve(installDir)
+        && resolveDataStorageScope(options.scope).scopeType !== 'organization'
+      ) {
         previousInstallBackupDir = `${existingRecord.installDir}.rollback-${process.pid}-${Date.now()}-${Math.random().toString(16).slice(2)}`;
         const hasPreviousInstall = await fs.stat(existingRecord.installDir).then(() => true).catch(() => false);
         if (hasPreviousInstall) {
@@ -1178,6 +1237,7 @@ export async function installCanvasPluginFromPath(
       registry.plugins[manifest.name] = {
         ...installedRecord,
         installedAt: existingRecord?.installedAt || installedRecord.installedAt,
+        revision: (existingRecord?.revision || 0) + 1,
         updatedAt: nowIso(),
       };
       await writeCanvasPluginRegistry(registry, options.scope);
@@ -1284,6 +1344,7 @@ export async function setCanvasPluginEnabled(
     const enabledSkillsSnapshot = await snapshotPluginMutationFile(resolveEnabledSkillsStoragePath(scope));
     try {
       plugin.enabled = enabled;
+      plugin.revision = (plugin.revision || 0) + 1;
       plugin.updatedAt = nowIso();
       await writeCanvasPluginRegistry(registry, scope);
       await updateRuntimeConfigForPluginSkills(getPluginInstallEnabledSkillNames(plugin), enabled, scope, updatedBy);

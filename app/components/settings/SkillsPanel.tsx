@@ -83,7 +83,35 @@ type RightPanelView = 'info' | 'preview';
 type SkillsPanelTab = 'plugins' | 'skills';
 type PluginStoreTab = 'discover' | 'installed' | 'updates' | 'advanced';
 type SkillLibraryTab = 'installed' | 'library' | 'updates';
-type SelectedPluginDetail = { source: 'store' | 'installed'; name: string };
+type SelectedPluginDetail = {
+  source: 'store' | 'installed';
+  name: string;
+  resourceId?: string;
+};
+type CapabilityManagementScope = 'user' | 'organization';
+type CapabilityPolicyEffect = 'optional' | 'default-enabled' | 'required' | 'blocked';
+type CapabilityPolicyTargetType = 'organization' | 'role' | 'workspace' | 'project' | 'user';
+
+type CapabilityPolicyRecord = {
+  id: string;
+  resourceType: 'skill' | 'plugin';
+  resourceId: string;
+  targetType: CapabilityPolicyTargetType;
+  targetId: string;
+  effect: CapabilityPolicyEffect;
+  revision: number;
+};
+
+type EffectiveCapabilitySummary = {
+  ref: {
+    resourceType: 'skill' | 'plugin';
+    scopeType: 'system' | 'organization' | 'user';
+    resourceId: string;
+    name: string;
+    version: string;
+  };
+  readiness: string;
+};
 
 const PANEL_TAB_STORAGE_KEY = 'canvas.skills.panelTab';
 const PLUGIN_STORE_TAB_STORAGE_KEY = 'canvas.skills.pluginStoreTab';
@@ -110,6 +138,11 @@ function writeStoredTab(key: string, value: string) {
   } catch {
     // Ignore unavailable storage; tabs still work for the current render.
   }
+}
+
+function capabilityScopeUrl(url: string, scope: CapabilityManagementScope): string {
+  const separator = url.includes('?') ? '&' : '?';
+  return `${url}${separator}scope=${scope}`;
 }
 
 type CanvasPluginComposioConnector = {
@@ -142,6 +175,14 @@ type CanvasPluginMcpConnector = {
 };
 
 type CanvasPluginSettingsRecord = {
+  resourceId?: string;
+  scopeType?: 'system' | 'organization' | 'user' | 'legacy';
+  sourceType?: 'standalone';
+  revision?: number;
+  effectivePolicy?: CapabilityPolicyEffect;
+  readiness?: 'available' | 'disabled' | 'blocked' | 'conflict' | 'personal-connection-required';
+  blockedReason?: string | null;
+  conflictResourceIds?: string[];
   name: string;
   version: string;
   description: string;
@@ -473,7 +514,13 @@ function getPreflightKey(pluginName: string, version?: string): string {
   return `${pluginName}@${version || 'latest'}`;
 }
 
-function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => void }) {
+function CanvasPluginsSection({
+  managementScope,
+  onPluginsChanged,
+}: {
+  managementScope: CapabilityManagementScope;
+  onPluginsChanged: () => void;
+}) {
   const t = useTranslations('skills.plugins');
   const [plugins, setPlugins] = useState<CanvasPluginSettingsRecord[]>([]);
   const [storePlugins, setStorePlugins] = useState<CanvasPluginStoreEntry[]>([]);
@@ -500,13 +547,21 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   const [selectedPluginDetail, setSelectedPluginDetail] = useState<SelectedPluginDetail | null>(null);
   const pluginLoadRequestRef = useRef(0);
   const deferredSearchQuery = useDeferredValue(searchQuery);
+  const selectedInstalledPlugin = useMemo(() => {
+    if (selectedPluginDetail?.source !== 'installed') return undefined;
+    return plugins.find((plugin) => (
+      selectedPluginDetail.resourceId
+        ? plugin.resourceId === selectedPluginDetail.resourceId
+        : plugin.name === selectedPluginDetail.name
+    ));
+  }, [plugins, selectedPluginDetail]);
   const requiredComposioToolkits = useMemo(() => {
     if (!selectedPluginDetail) return [];
     const connectors = selectedPluginDetail.source === 'store'
       ? storePlugins.find((plugin) => plugin.name === selectedPluginDetail.name)?.connectors
-      : plugins.find((plugin) => plugin.name === selectedPluginDetail.name)?.connectors;
+      : selectedInstalledPlugin?.connectors;
     return uniqueByKey(getComposioRecommendations(connectors), (connector) => connector.toolkit);
-  }, [plugins, selectedPluginDetail, storePlugins]);
+  }, [selectedInstalledPlugin, selectedPluginDetail, storePlugins]);
 
   const loadPluginData = useCallback(async () => {
     const requestId = ++pluginLoadRequestRef.current;
@@ -516,6 +571,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       pageSize: String(PLUGIN_STORE_PAGE_SIZE),
       q: deferredSearchQuery.trim(),
       state: storeState,
+      scope: managementScope,
     });
 
     setIsLoading(true);
@@ -523,7 +579,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     setStoreError(null);
     try {
       const [pluginsResult, storeResult] = await Promise.allSettled([
-        fetch('/api/plugins', { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
+        fetch(capabilityScopeUrl('/api/plugins', managementScope), { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
         fetch(`/api/plugins/store?${storeParams.toString()}`, { credentials: 'include', cache: 'no-store' }).then((response) => response.json()),
       ]);
 
@@ -560,7 +616,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
         setIsLoading(false);
       }
     }
-  }, [deferredSearchQuery, storePage, storeTab, t]);
+  }, [deferredSearchQuery, managementScope, storePage, storeTab, t]);
 
   useEffect(() => {
     startTransition(() => {
@@ -656,7 +712,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       const response = await fetch('/api/plugins/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ sourcePath: trimmedPath, enable: true, replace: true }),
+        body: JSON.stringify({ sourcePath: trimmedPath, enable: true, replace: true, scope: managementScope }),
       });
       const data = await response.json();
       if (!data.success) {
@@ -684,7 +740,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
       const response = await fetch('/api/plugins/store/preflight', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: pluginName, version }),
+        body: JSON.stringify({ name: pluginName, version, scope: managementScope }),
       });
       const data = await response.json();
       if (!data.success) {
@@ -730,6 +786,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
           version,
           enable: storePlugin?.installed.installed ? storePlugin.installed.enabled : true,
           replace: true,
+          scope: managementScope,
         }),
       });
       const data = await response.json();
@@ -751,11 +808,17 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     }
   }
 
-  async function setPluginEnabled(pluginName: string, enabled: boolean) {
-    setPendingPluginName(pluginName);
+  async function setPluginEnabled(plugin: CanvasPluginSettingsRecord, enabled: boolean) {
+    setPendingPluginName(plugin.name);
     setError(null);
     try {
-      const response = await fetch(`/api/plugins/${pluginName}/${enabled ? 'enable' : 'disable'}`, { method: 'POST' });
+      const response = plugin.scopeType === 'organization' && managementScope === 'user'
+        ? await fetch('/api/skills/preferences', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resourceId: plugin.resourceId, enabled }),
+        })
+        : await fetch(capabilityScopeUrl(`/api/plugins/${plugin.name}/${enabled ? 'enable' : 'disable'}`, managementScope), { method: 'POST' });
       const data = await response.json();
       if (!data.success) {
         throw new Error(data.error || t('errors.toggle'));
@@ -777,7 +840,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     setPendingPluginName(pluginName);
     setError(null);
     try {
-      const response = await fetch(`/api/plugins/${pluginName}`, { method: 'DELETE' });
+      const response = await fetch(capabilityScopeUrl(`/api/plugins/${pluginName}`, managementScope), { method: 'DELETE' });
       const data = await response.json();
       if (!data.success) {
         throw new Error(data.error || t('errors.delete'));
@@ -789,6 +852,23 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     } finally {
       setPendingPluginName(null);
     }
+  }
+
+  function isAssignedOrganizationPlugin(plugin: CanvasPluginSettingsRecord): boolean {
+    return managementScope === 'user' && plugin.scopeType === 'organization';
+  }
+
+  function isPluginPreferenceLocked(plugin: CanvasPluginSettingsRecord): boolean {
+    if (managementScope !== 'user') return false;
+
+    if (plugin.readiness === 'blocked' || plugin.readiness === 'conflict') {
+      return true;
+    }
+
+    return isAssignedOrganizationPlugin(plugin) && (
+      plugin.effectivePolicy === 'required'
+      || plugin.effectivePolicy === 'blocked'
+    );
   }
 
   async function pollComposioConnector(toolkit: string) {
@@ -893,6 +973,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             name: options.pluginName,
             version: options.version,
             connector: options.connector.name,
+            scope: managementScope,
           }),
         }),
       ]);
@@ -1404,7 +1485,6 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   }
 
   const storeByName = new Map(storePlugins.map((plugin) => [plugin.name, plugin]));
-  const installedByName = new Map(plugins.map((plugin) => [plugin.name, plugin]));
 
   function isStoreEntry(plugin: CanvasPluginStoreEntry | CanvasPluginSettingsRecord): plugin is CanvasPluginStoreEntry {
     return 'latestVersion' in plugin;
@@ -1443,7 +1523,11 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   }
 
   function openInstalledPluginDetail(plugin: CanvasPluginSettingsRecord) {
-    setSelectedPluginDetail({ source: 'installed', name: plugin.name });
+    setSelectedPluginDetail({
+      source: 'installed',
+      name: plugin.name,
+      resourceId: plugin.resourceId,
+    });
     const storePlugin = storeByName.get(plugin.name);
     if (storePlugin) {
       maybeCheckStorePluginPreflight(storePlugin);
@@ -1467,7 +1551,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
     if (!selectedPluginDetail) return null;
 
     const storePlugin = storeByName.get(selectedPluginDetail.name);
-    const installedPlugin = installedByName.get(selectedPluginDetail.name) || storePlugin?.installed.installedPlugin;
+    const installedPlugin = selectedInstalledPlugin || storePlugin?.installed.installedPlugin;
     const displayName = storePlugin?.displayName || installedPlugin?.interface?.displayName || selectedPluginDetail.name;
     const description = storePlugin?.description
       || installedPlugin?.interface?.shortDescription
@@ -1630,8 +1714,8 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
               <label className="flex w-full items-center gap-2 text-sm text-muted-foreground sm:w-auto">
                 <Switch
                   checked={installedEnabled}
-                  disabled={isPending}
-                  onCheckedChange={(checked) => void setPluginEnabled(installedPlugin.name, checked)}
+                  disabled={isPending || isPluginPreferenceLocked(installedPlugin)}
+                  onCheckedChange={(checked) => void setPluginEnabled(installedPlugin, checked)}
                   aria-label={t('toggle', { name: installedPlugin.name })}
                 />
                 {installedEnabled ? t('enabled') : t('disabled')}
@@ -1640,7 +1724,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
               <span className="w-full text-sm text-muted-foreground sm:w-auto">{t('details.notInstalled')}</span>
             )}
             <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:items-center">
-              {installedPlugin ? (
+              {installedPlugin && !isAssignedOrganizationPlugin(installedPlugin) ? (
                 <Button
                   variant="ghost"
                   size="sm"
@@ -1652,7 +1736,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                   {t('delete')}
                 </Button>
               ) : null}
-              {storePlugin ? (
+              {storePlugin && (!installedPlugin || !isAssignedOrganizationPlugin(installedPlugin)) ? (
                 <Button
                   variant={canInstallFromStore ? 'default' : 'outline'}
                   size="sm"
@@ -1822,7 +1906,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
 
     return (
       <div
-        key={plugin.name}
+        key={plugin.resourceId || `${plugin.scopeType || 'legacy'}:${plugin.name}`}
         role="button"
         tabIndex={0}
         onClick={() => openInstalledPluginDetail(plugin)}
@@ -1843,12 +1927,29 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                 {plugin.enabled ? t('enabled') : t('disabled')}
               </Badge>
               <Badge variant="outline" className="text-[10px]">v{plugin.version}</Badge>
+              {plugin.scopeType === 'organization' || plugin.scopeType === 'user' ? (
+                <Badge variant="outline" className="text-[10px]">
+                  {plugin.scopeType === 'organization' ? t('organizationScope') : t('personalScope')}
+                </Badge>
+              ) : null}
+              {plugin.sourceType ? <Badge variant="outline" className="text-[10px]">{plugin.sourceType}</Badge> : null}
+              {plugin.readiness && plugin.readiness !== 'available' && plugin.readiness !== 'disabled' ? (
+                <Badge
+                  variant={plugin.readiness === 'blocked' || plugin.readiness === 'conflict' ? 'destructive' : 'secondary'}
+                  className="text-[10px]"
+                >
+                  {plugin.readiness}
+                </Badge>
+              ) : null}
               {updateAvailable ? <Badge variant="destructive" className="text-[10px]">{t('updateAvailable')}</Badge> : null}
               {skillRepairAvailable ? <Badge variant="destructive" className="text-[10px]">{t('repairNeeded')}</Badge> : null}
               {plugin.license ? <Badge variant="outline" className="text-[10px]">{plugin.license}</Badge> : null}
             </div>
             <div className="mt-1 font-mono text-xs text-muted-foreground">/{plugin.name}</div>
             <p className="mt-2 line-clamp-3 text-sm text-muted-foreground">{description}</p>
+            {plugin.blockedReason ? (
+              <p className="mt-2 line-clamp-2 text-xs text-destructive">{plugin.blockedReason}</p>
+            ) : null}
             <div className="mt-3 flex flex-wrap gap-1.5">
               {plugin.skills.map((skill) => (
                 <Badge key={skill.name} variant="secondary" className="max-w-full text-[10px]">
@@ -1865,9 +1966,9 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
           >
             <Switch
               checked={plugin.enabled}
-              disabled={isPending}
+              disabled={isPending || isPluginPreferenceLocked(plugin)}
               onClick={(event) => event.stopPropagation()}
-              onCheckedChange={(checked) => void setPluginEnabled(plugin.name, checked)}
+              onCheckedChange={(checked) => void setPluginEnabled(plugin, checked)}
               aria-label={t('toggle', { name: plugin.name })}
             />
             {plugin.enabled ? t('enabled') : t('disabled')}
@@ -1900,7 +2001,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
                 {updateNeedsPreflight ? t('details.openDetails') : skillRepairAvailable ? t('repair') : t('update')}
               </Button>
             ) : null}
-            <Button
+            {!isAssignedOrganizationPlugin(plugin) ? <Button
               variant="ghost"
               size="sm"
               disabled={isPending}
@@ -1912,7 +2013,7 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
             >
               {isPending ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Trash2 className="h-3.5 w-3.5" />}
               {t('delete')}
-            </Button>
+            </Button> : null}
           </div>
         </div>
       </div>
@@ -2135,8 +2236,212 @@ function CanvasPluginsSection({ onPluginsChanged }: { onPluginsChanged: () => vo
   );
 }
 
+function OrganizationCapabilityPolicyPanel() {
+  const t = useTranslations('skills.scope.policy');
+  const [capabilities, setCapabilities] = useState<EffectiveCapabilitySummary[]>([]);
+  const [policies, setPolicies] = useState<CapabilityPolicyRecord[]>([]);
+  const [organizationId, setOrganizationId] = useState('');
+  const [resourceId, setResourceId] = useState('');
+  const [targetType, setTargetType] = useState<CapabilityPolicyTargetType>('organization');
+  const [targetId, setTargetId] = useState('');
+  const [effect, setEffect] = useState<CapabilityPolicyEffect>('optional');
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const load = useCallback(async () => {
+    setPending(true);
+    setError(null);
+    try {
+      const [effectiveResponse, policiesResponse] = await Promise.all([
+        fetch('/api/skills/effective', { credentials: 'include', cache: 'no-store' }),
+        fetch('/api/skills/policies', { credentials: 'include', cache: 'no-store' }),
+      ]);
+      const [effectivePayload, policiesPayload] = await Promise.all([
+        effectiveResponse.json(),
+        policiesResponse.json(),
+      ]);
+      if (!effectivePayload.success) throw new Error(effectivePayload.error || t('errors.load'));
+      if (!policiesPayload.success) throw new Error(policiesPayload.error || t('errors.load'));
+      const organizationCapabilities = (effectivePayload.snapshot?.capabilities || [])
+        .filter((entry: EffectiveCapabilitySummary) => entry.ref?.scopeType === 'organization');
+      setCapabilities(organizationCapabilities);
+      setPolicies(Array.isArray(policiesPayload.policies) ? policiesPayload.policies : []);
+      const nextOrganizationId = effectivePayload.snapshot?.organizationId || '';
+      setOrganizationId(nextOrganizationId);
+      setTargetId((current) => current || nextOrganizationId);
+      setResourceId((current) => current || organizationCapabilities[0]?.ref.resourceId || '');
+    } catch (loadError) {
+      setError(loadError instanceof Error ? loadError.message : t('errors.load'));
+    } finally {
+      setPending(false);
+    }
+  }, [t]);
+
+  useEffect(() => {
+    startTransition(() => {
+      void load();
+    });
+  }, [load]);
+
+  async function savePolicy() {
+    if (!resourceId || !targetId.trim()) return;
+    const capability = capabilities.find((entry) => entry.ref.resourceId === resourceId);
+    if (!capability) return;
+    const existing = policies.find((policy) => (
+      policy.resourceId === resourceId
+      && policy.targetType === targetType
+      && policy.targetId === targetId.trim()
+    ));
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/skills/policies', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resourceType: capability.ref.resourceType,
+          resourceId,
+          targetType,
+          targetId: targetId.trim(),
+          effect,
+          expectedRevision: existing?.revision || 0,
+        }),
+      });
+      const payload = await response.json();
+      if (!payload.success) throw new Error(payload.error || t('errors.save'));
+      await load();
+    } catch (saveError) {
+      setError(saveError instanceof Error ? saveError.message : t('errors.save'));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  async function removePolicy(policy: CapabilityPolicyRecord) {
+    setPending(true);
+    setError(null);
+    try {
+      const response = await fetch('/api/skills/policies', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ policyId: policy.id, expectedRevision: policy.revision }),
+      });
+      const payload = await response.json();
+      if (!payload.success) throw new Error(payload.error || t('errors.remove'));
+      await load();
+    } catch (removeError) {
+      setError(removeError instanceof Error ? removeError.message : t('errors.remove'));
+    } finally {
+      setPending(false);
+    }
+  }
+
+  function handleTargetTypeChange(nextTargetType: CapabilityPolicyTargetType) {
+    setTargetType(nextTargetType);
+    setTargetId(nextTargetType === 'organization' ? organizationId : '');
+  }
+
+  return (
+    <Card data-testid="organization-capability-policies">
+      <CardContent className="space-y-4 p-4">
+        <div>
+          <h3 className="text-sm font-semibold">{t('title')}</h3>
+          <p className="mt-1 text-xs text-muted-foreground">{t('description')}</p>
+        </div>
+        {error ? (
+          <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+            {error}
+          </div>
+        ) : null}
+        <div className="grid gap-3 lg:grid-cols-[minmax(0,1.5fr)_minmax(9rem,.7fr)_minmax(0,1fr)_minmax(10rem,.8fr)_auto]">
+          <label className="space-y-1 text-xs text-muted-foreground">
+            <span>{t('resource')}</span>
+            <select
+              value={resourceId}
+              onChange={(event) => setResourceId(event.target.value)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
+              disabled={pending || capabilities.length === 0}
+            >
+              {capabilities.map((capability) => (
+                <option key={capability.ref.resourceId} value={capability.ref.resourceId}>
+                  {capability.ref.resourceType}: {capability.ref.name} · v{capability.ref.version}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            <span>{t('targetType')}</span>
+            <select
+              value={targetType}
+              onChange={(event) => handleTargetTypeChange(event.target.value as CapabilityPolicyTargetType)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
+              disabled={pending}
+            >
+              {(['organization', 'role', 'workspace', 'project', 'user'] as const).map((value) => (
+                <option key={value} value={value}>{t(`targets.${value}`)}</option>
+              ))}
+            </select>
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            <span>{t('targetId')}</span>
+            <Input
+              value={targetId}
+              onChange={(event) => setTargetId(event.target.value)}
+              disabled={pending || targetType === 'organization'}
+              placeholder={t('targetPlaceholder')}
+            />
+          </label>
+          <label className="space-y-1 text-xs text-muted-foreground">
+            <span>{t('effect')}</span>
+            <select
+              value={effect}
+              onChange={(event) => setEffect(event.target.value as CapabilityPolicyEffect)}
+              className="h-9 w-full rounded-md border bg-background px-3 text-sm text-foreground"
+              disabled={pending}
+            >
+              {(['optional', 'default-enabled', 'required', 'blocked'] as const).map((value) => (
+                <option key={value} value={value}>{t(`effects.${value}`)}</option>
+              ))}
+            </select>
+          </label>
+          <div className="flex items-end">
+            <Button onClick={() => void savePolicy()} disabled={pending || !resourceId || !targetId.trim()}>
+              {pending ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : null}
+              {t('save')}
+            </Button>
+          </div>
+        </div>
+        <div className="space-y-2">
+          {policies.length === 0 ? (
+            <p className="text-xs text-muted-foreground">{t('empty')}</p>
+          ) : policies.map((policy) => {
+            const capability = capabilities.find((entry) => entry.ref.resourceId === policy.resourceId);
+            return (
+              <div key={policy.id} className="flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center">
+                <div className="min-w-0 flex-1 text-xs">
+                  <span className="font-medium">{capability?.ref.name || policy.resourceId}</span>
+                  <span className="text-muted-foreground"> · {t(`targets.${policy.targetType}`)}: {policy.targetId}</span>
+                </div>
+                <Badge variant={policy.effect === 'blocked' ? 'destructive' : policy.effect === 'required' ? 'default' : 'secondary'}>
+                  {t(`effects.${policy.effect}`)}
+                </Badge>
+                <Button variant="ghost" size="sm" disabled={pending} onClick={() => void removePolicy(policy)}>
+                  <Trash2 className="mr-1.5 h-3.5 w-3.5" />
+                  {t('remove')}
+                </Button>
+              </div>
+            );
+          })}
+        </div>
+      </CardContent>
+    </Card>
+  );
+}
+
 export function SkillsPanel() {
   const t = useTranslations('skills');
+  const [managementScope, setManagementScope] = useState<CapabilityManagementScope>('user');
+  const [canManageOrganizationCapabilities, setCanManageOrganizationCapabilities] = useState(false);
   const [skills, setSkills] = useState<CanvasSkill[]>([]);
   const [stats, setStats] = useState({ total: 0, enabled: 0, disabled: 0 });
   const [isLoading, setIsLoading] = useState(true);
@@ -2178,21 +2483,28 @@ export function SkillsPanel() {
     try {
       setIsLoading(true);
       const [skillsRes, statusRes] = await Promise.all([
-        fetch('/api/skills'),
+        fetch(capabilityScopeUrl('/api/skills', managementScope)),
         fetch('/api/skills/status'),
       ]);
       const skillsData = await skillsRes.json();
       const statusData = await statusRes.json();
 
       if (skillsData.success) {
+        const canManageOrganization = skillsData.canManageOrganizationCapabilities === true;
+        setCanManageOrganizationCapabilities(canManageOrganization);
+        if (!canManageOrganization && managementScope === 'organization') {
+          setManagementScope('user');
+        }
         const allSkills: CanvasSkill[] = skillsData.skills;
         const enabledNames: string[] = statusData.success ? (statusData.enabledSkills || []) : [];
         const allEnabled = statusData.success && statusData.allEnabled === true;
 
-        const merged = allSkills.map((skill: CanvasSkill) => ({
-          ...skill,
-          enabled: Boolean(skill.core) || allEnabled || enabledNames.includes(skill.name),
-        }));
+        const merged = managementScope === 'organization' || allSkills.some((skill) => Boolean(skill.resourceId))
+          ? allSkills
+          : allSkills.map((skill: CanvasSkill) => ({
+            ...skill,
+            enabled: Boolean(skill.core) || allEnabled || enabledNames.includes(skill.name),
+          }));
 
         const enabledCount = merged.filter((s: CanvasSkill) => s.enabled).length;
         setSkills(merged);
@@ -2201,6 +2513,13 @@ export function SkillsPanel() {
           enabled: enabledCount,
           disabled: merged.length - enabledCount,
         });
+        if (managementScope === 'organization') {
+          setSkillTree(merged.map((skill) => ({
+            name: skill.name,
+            path: skill.name,
+            type: 'directory' as const,
+          })));
+        }
       }
     } catch (error) {
       console.error('Failed to load skills:', error);
@@ -2210,6 +2529,9 @@ export function SkillsPanel() {
   }
 
   async function loadSkillTree() {
+    if (managementScope === 'organization') {
+      return;
+    }
     try {
       const res = await fetch('/api/skills/tree?depth=4');
       const data = await res.json();
@@ -2228,6 +2550,7 @@ export function SkillsPanel() {
       pageSize: String(SKILL_STORE_PAGE_SIZE),
       q: deferredSkillStoreQuery.trim(),
       state: storeState,
+      scope: managementScope,
     });
 
     setSkillStoreLoading(true);
@@ -2254,14 +2577,16 @@ export function SkillsPanel() {
     } finally {
       setSkillStoreLoading(false);
     }
-  }, [deferredSkillStoreQuery, skillLibraryTab, skillStorePage, t]);
+  }, [deferredSkillStoreQuery, managementScope, skillLibraryTab, skillStorePage, t]);
 
   useEffect(() => {
     startTransition(() => {
       loadSkills();
       loadSkillTree();
     });
-  }, []);
+    // Both loaders intentionally rerun only when the selected ownership scope changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [managementScope]);
 
   useEffect(() => {
     if (skillLibraryTab === 'library' || skillLibraryTab === 'updates') {
@@ -2284,7 +2609,11 @@ export function SkillsPanel() {
   }, []);
 
   const handleSkillClick = useCallback((skillName: string) => {
-    const skill = skills.find(s => s.name === skillName);
+    const namedSkills = skills.filter((skill) => skill.name === skillName);
+    const skill = namedSkills.find((entry) => entry.scopeType === 'user')
+      || namedSkills.find((entry) => entry.scopeType === 'system')
+      || namedSkills.find((entry) => entry.scopeType !== 'organization')
+      || namedSkills[0];
     if (skill) {
       setSelectedSkill(skill);
       setRightView('info');
@@ -2312,27 +2641,27 @@ export function SkillsPanel() {
     }
   }, []);
 
-  async function toggleSkill(skillName: string, enabled: boolean) {
-    const currentSkill = skills.find((skill) => skill.name === skillName);
-    if (currentSkill?.core && !enabled) {
+  async function toggleSkill(skill: CanvasSkill, enabled: boolean) {
+    if (skill.core && !enabled) {
       setSkillActionError(t('detail.coreProtected'));
       return;
     }
 
     try {
-      const endpoint = enabled ? `/api/skills/${skillName}/enable` : `/api/skills/${skillName}/disable`;
-      const response = await fetch(endpoint, { method: 'POST' });
+      const response = managementScope === 'user' && skill.scopeType === 'organization' && skill.resourceId
+        ? await fetch('/api/skills/preferences', {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ resourceId: skill.resourceId, enabled }),
+        })
+        : await fetch(
+          enabled ? `/api/skills/${encodeURIComponent(skill.name)}/enable` : `/api/skills/${encodeURIComponent(skill.name)}/disable`,
+          { method: 'POST' },
+        );
       const data = await response.json();
 
       if (data.success) {
-        setSkills(prev => prev.map(skill =>
-          skill.name === skillName ? { ...skill, enabled } : skill
-        ));
-        setStats(prev => ({
-          ...prev,
-          enabled: enabled ? prev.enabled + 1 : prev.enabled - 1,
-          disabled: enabled ? prev.disabled - 1 : prev.disabled + 1
-        }));
+        await loadSkills();
       } else {
         setSkillActionError(data.error || t('plugins.errors.toggle'));
       }
@@ -2346,8 +2675,7 @@ export function SkillsPanel() {
       const response = await fetch('/api/skills/enable-all', { method: 'POST' });
       const data = await response.json();
       if (data.success) {
-        setSkills(prev => prev.map(skill => ({ ...skill, enabled: true })));
-        setStats(prev => ({ ...prev, enabled: prev.total, disabled: 0 }));
+        await loadSkills();
       }
     } catch (error) {
       console.error('Failed to enable all skills:', error);
@@ -2359,12 +2687,7 @@ export function SkillsPanel() {
       const response = await fetch('/api/skills/disable-all', { method: 'POST' });
       const data = await response.json();
       if (data.success) {
-        setSkills(prev => {
-          const next = prev.map(skill => ({ ...skill, enabled: Boolean(skill.core) }));
-          const enabledCount = next.filter(skill => skill.enabled).length;
-          setStats({ total: next.length, enabled: enabledCount, disabled: next.length - enabledCount });
-          return next;
-        });
+        await loadSkills();
       }
     } catch (error) {
       console.error('Failed to disable all skills:', error);
@@ -2378,7 +2701,7 @@ export function SkillsPanel() {
       const response = await fetch('/api/skills/store/install', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: skillName, version, enable: true, replace: true }),
+        body: JSON.stringify({ name: skillName, version, enable: true, replace: true, scope: managementScope }),
       });
       const data = await response.json();
       if (!data.success) {
@@ -2401,7 +2724,7 @@ export function SkillsPanel() {
       const response = await fetch(`/api/skills/${encodeURIComponent(skillName)}/restore`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ prefer, enable: true }),
+        body: JSON.stringify({ prefer, enable: true, scope: managementScope }),
       });
       const data = await response.json();
       if (!data.success) {
@@ -2423,7 +2746,7 @@ export function SkillsPanel() {
     setPendingSkillAction(`delete:${skillName}`);
     setSkillActionError(null);
     try {
-      const response = await fetch(`/api/skills/${encodeURIComponent(skillName)}/delete`, { method: 'DELETE' });
+      const response = await fetch(capabilityScopeUrl(`/api/skills/${encodeURIComponent(skillName)}/delete`, managementScope), { method: 'DELETE' });
       const data = await response.json();
       if (!data.success) {
         throw new Error(data.error || t('detail.errors.deleteFailed'));
@@ -2450,7 +2773,7 @@ export function SkillsPanel() {
       const response = await fetch('/api/skills/reset', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ confirm: resetSkillsConfirm }),
+        body: JSON.stringify({ confirm: resetSkillsConfirm, scope: managementScope }),
       });
       const data = await response.json();
       if (!data.success) {
@@ -2495,7 +2818,12 @@ export function SkillsPanel() {
   function renderTree(nodes: SkillFileNode[], depth: number = 0): React.ReactNode {
     return nodes.map(node => {
       const isSkillDir = node.type === 'directory' && depth === 0;
-      const skill = isSkillDir ? skills.find(s => s.name === node.name) : null;
+      const namedSkills = isSkillDir ? skills.filter((entry) => entry.name === node.name) : [];
+      const skill = namedSkills.find((entry) => entry.scopeType === 'user')
+        || namedSkills.find((entry) => entry.scopeType === 'system')
+        || namedSkills.find((entry) => entry.scopeType !== 'organization')
+        || namedSkills[0]
+        || null;
       const isExpanded = expandedDirs.has(node.path);
       const isSelected = selectedPath === node.path;
 
@@ -2546,9 +2874,15 @@ export function SkillsPanel() {
             {isSkillDir && skill && (
               <Switch
                 checked={skill.enabled}
-                disabled={skill.core}
+                disabled={
+                  skill.core
+                  || managementScope === 'organization'
+                  || skill.effectivePolicy === 'required'
+                  || skill.readiness === 'blocked'
+                  || skill.readiness === 'conflict'
+                }
                 onCheckedChange={(checked) => {
-                  toggleSkill(skill.name, checked);
+                  void toggleSkill(skill, checked);
                 }}
                 onClick={(e) => e.stopPropagation()}
                 onKeyDown={(e) => e.stopPropagation()}
@@ -2719,7 +3053,15 @@ export function SkillsPanel() {
   }
 
   const selectedSkillData = selectedPath
-    ? skills.find(s => s.name === selectedPath)
+    ? (selectedSkill?.resourceId
+      ? skills.find((skill) => skill.resourceId === selectedSkill.resourceId)
+      : skills.find((skill) => (
+        skill.name === selectedSkill?.name
+        && skill.scopeType === selectedSkill.scopeType
+        && skill.sourceType === selectedSkill.sourceType
+      )))
+      || selectedSkill
+      || skills.find((skill) => skill.name === selectedPath)
     : null;
   const selectedSkillDeleting = selectedSkillData
     ? pendingSkillAction === `delete:${selectedSkillData.name}`
@@ -2727,6 +3069,42 @@ export function SkillsPanel() {
 
   return (
     <>
+      <div className="mb-4 rounded-lg border bg-muted/20 p-4" data-testid="capability-scope-selector">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <p className="text-sm font-medium">{t('scope.title')}</p>
+            <p className="mt-1 text-xs text-muted-foreground">{t('scope.description')}</p>
+          </div>
+          <div className="flex rounded-md border bg-background p-1">
+            <Button
+              type="button"
+              size="sm"
+              variant={managementScope === 'user' ? 'secondary' : 'ghost'}
+              onClick={() => setManagementScope('user')}
+            >
+              {t('scope.personal')}
+            </Button>
+            {canManageOrganizationCapabilities ? (
+              <Button
+                type="button"
+                size="sm"
+                variant={managementScope === 'organization' ? 'secondary' : 'ghost'}
+                onClick={() => setManagementScope('organization')}
+              >
+                {t('scope.organization')}
+              </Button>
+            ) : null}
+          </div>
+        </div>
+        <p className="mt-3 text-xs text-muted-foreground">
+          {managementScope === 'organization' ? t('scope.organizationHint') : t('scope.personalHint')}
+        </p>
+      </div>
+      {managementScope === 'organization' ? (
+        <div className="mb-4">
+          <OrganizationCapabilityPolicyPanel />
+        </div>
+      ) : null}
       <Tabs
         value={panelTab}
         onValueChange={(value) => {
@@ -2748,6 +3126,7 @@ export function SkillsPanel() {
 
         <TabsContent value="plugins" className="space-y-4">
           <CanvasPluginsSection
+            managementScope={managementScope}
             onPluginsChanged={() => {
               void loadSkills();
               void loadSkillTree();
@@ -2794,6 +3173,7 @@ export function SkillsPanel() {
                     <span>{stats.disabled} {t('stats.disabled').toLowerCase()}</span>
                   </div>
                   <div className="flex-1" />
+                  {managementScope === 'user' ? <>
                   <Button variant="outline" size="sm" onClick={enableAllSkills} disabled={stats.enabled === stats.total} className="gap-1.5">
                     <CheckCircle2 className="h-3.5 w-3.5 text-green-600" />
                     {t('actions.enableAll')}
@@ -2864,6 +3244,7 @@ export function SkillsPanel() {
                       </AlertDialogFooter>
                     </AlertDialogContent>
                   </AlertDialog>
+                  </> : <Badge variant="outline">{t('scope.centralManaged')}</Badge>}
                 </div>
 
                 <div
@@ -2885,6 +3266,49 @@ export function SkillsPanel() {
                       ) : (
                         renderTree(skillTree)
                       )}
+                      {managementScope === 'user' ? skills
+                        .filter((skill) => skill.scopeType === 'organization')
+                        .map((skill) => (
+                          <div
+                            key={skill.resourceId || skill.name}
+                            role="button"
+                            tabIndex={0}
+                            className={cn(
+                              'mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted',
+                              selectedSkill?.resourceId === skill.resourceId && 'bg-primary/10 text-primary',
+                            )}
+                            onClick={() => {
+                              setSelectedSkill(skill);
+                              setSelectedPath(skill.name);
+                              setRightView('info');
+                            }}
+                            onKeyDown={(event) => {
+                              if (event.key === 'Enter' || event.key === ' ') {
+                                event.preventDefault();
+                                setSelectedSkill(skill);
+                                setSelectedPath(skill.name);
+                                setRightView('info');
+                              }
+                            }}
+                          >
+                            <CanvasSkillIcon skill={skill} className="h-5 w-5 text-[10px]" />
+                            <span className="min-w-0 flex-1 truncate">{skill.name}</span>
+                            {skill.version ? <Badge variant="outline" className="text-[9px]">v{skill.version}</Badge> : null}
+                            {skill.readiness === 'blocked' || skill.readiness === 'conflict' ? (
+                              <Badge variant="destructive" className="text-[9px]">
+                                {skill.readiness}
+                              </Badge>
+                            ) : null}
+                            <Switch
+                              checked={skill.enabled}
+                              disabled={skill.effectivePolicy === 'required' || skill.readiness === 'blocked' || skill.readiness === 'conflict'}
+                              onClick={(event) => event.stopPropagation()}
+                              onCheckedChange={(checked) => void toggleSkill(skill, checked)}
+                              className="scale-75 shrink-0"
+                              aria-label={t('toggleSkill', { name: skill.name })}
+                            />
+                          </div>
+                        )) : null}
                     </div>
                   </div>
 
@@ -2896,7 +3320,7 @@ export function SkillsPanel() {
                             <CanvasSkillIcon skill={selectedSkillData} className="h-12 w-12 text-sm" />
                             <div className="min-w-0">
                               <h2 className="text-xl font-bold">{selectedSkillData.title}</h2>
-                              <div className="flex items-center gap-2 mt-1">
+                              <div className="mt-1 flex flex-wrap items-center gap-2">
                                 <span className="text-sm font-mono text-muted-foreground">{selectedSkillData.name}</span>
                                 <Badge variant={selectedSkillData.enabled ? 'default' : 'secondary'} className="text-xs">
                                   {selectedSkillData.enabled ? t('detail.enabled') : t('detail.disabled')}
@@ -2906,13 +3330,38 @@ export function SkillsPanel() {
                                     {t('detail.core')}
                                   </Badge>
                                 ) : null}
+                                {selectedSkillData.scopeType ? (
+                                  <Badge variant="outline" className="text-xs">
+                                    {selectedSkillData.scopeType === 'organization' ? t('scope.organization') : t('scope.personal')}
+                                  </Badge>
+                                ) : null}
+                                {selectedSkillData.sourceType ? (
+                                  <Badge variant="outline" className="text-xs">{selectedSkillData.sourceType}</Badge>
+                                ) : null}
+                                {selectedSkillData.version ? (
+                                  <Badge variant="outline" className="text-xs">v{selectedSkillData.version}</Badge>
+                                ) : null}
+                                {selectedSkillData.readiness && selectedSkillData.readiness !== 'available' && selectedSkillData.readiness !== 'disabled' ? (
+                                  <Badge
+                                    variant={selectedSkillData.readiness === 'blocked' || selectedSkillData.readiness === 'conflict' ? 'destructive' : 'secondary'}
+                                    className="text-xs"
+                                  >
+                                    {selectedSkillData.readiness}
+                                  </Badge>
+                                ) : null}
                               </div>
                             </div>
                           </div>
                           <Switch
                             checked={selectedSkillData.enabled}
-                            disabled={selectedSkillData.core}
-                            onCheckedChange={(checked) => toggleSkill(selectedSkillData.name, checked)}
+                            disabled={
+                              selectedSkillData.core
+                              || managementScope === 'organization'
+                              || selectedSkillData.effectivePolicy === 'required'
+                              || selectedSkillData.readiness === 'blocked'
+                              || selectedSkillData.readiness === 'conflict'
+                            }
+                            onCheckedChange={(checked) => void toggleSkill(selectedSkillData, checked)}
                             aria-label={t('toggleSkill', { name: selectedSkillData.name })}
                           />
                         </div>
@@ -2922,6 +3371,12 @@ export function SkillsPanel() {
                             {selectedSkillData.description}
                           </p>
                         </div>
+
+                        {selectedSkillData.blockedReason ? (
+                          <div className="rounded-lg border border-destructive/30 bg-destructive/10 p-4 text-sm text-destructive">
+                            {selectedSkillData.blockedReason}
+                          </div>
+                        ) : null}
 
                         {(selectedSkillData.compatibility || selectedSkillData.license) && (
                           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-sm">
@@ -2941,7 +3396,7 @@ export function SkillsPanel() {
                         )}
 
                         <div className="flex flex-wrap gap-2">
-                          <Button
+                          {managementScope === 'user' ? <Button
                             variant="outline"
                             size="sm"
                             onClick={() => {
@@ -2952,8 +3407,8 @@ export function SkillsPanel() {
                           >
                             <Info className="h-4 w-4" />
                             {t('detail.viewDocumentation')}
-                          </Button>
-                          {!selectedSkillData.plugin && !selectedSkillData.core ? (
+                          </Button> : null}
+                          {managementScope === 'user' && !selectedSkillData.plugin && !selectedSkillData.core ? (
                             <Button
                               variant="outline"
                               size="sm"
@@ -2969,7 +3424,7 @@ export function SkillsPanel() {
                               {t('skillLibrary.restore')}
                             </Button>
                           ) : null}
-                          {!selectedSkillData.plugin && !selectedSkillData.core ? (
+                          {managementScope === 'user' && !selectedSkillData.plugin && !selectedSkillData.core ? (
                             <AlertDialog>
                               <AlertDialogTrigger asChild>
                                 <Button

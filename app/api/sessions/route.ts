@@ -575,6 +575,9 @@ export async function POST(request: NextRequest) {
       const promptSnapshot = await createPiSystemPromptSnapshot(requestedAgentId, {
         userId: session.user.id,
         userName: session.user.name,
+        organizationId: workspace.organizationId,
+        workspaceId: workspace.workspaceId,
+        projectId: workspace.projectId,
       });
       const channelId = typeof payload.channelId === 'string' ? payload.channelId : 'app';
       const normalizedChannelId = normalizeStoredChannelId(channelId);

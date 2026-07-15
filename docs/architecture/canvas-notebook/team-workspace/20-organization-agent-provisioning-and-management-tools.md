@@ -26,13 +26,13 @@ Bereits vorhanden:
 - Im aktuellen Arbeitsstand existiert mit `agent_members` eine individuelle Agent-Freigabe mit `canUse`, `canEdit` und `canManage`.
 - Die Tool-Registry besitzt Progressive-Disclosure-Gateways mit `search`, `describe` und `call`.
 - Read-only Automation-Tools bleiben direkt sichtbar, waehrend schreibende Automation-Operationen im Gateway `automation_manage` zusammengefasst werden.
+- Organization-Skills und Organization-Plugins besitzen seit Aufgabe `49` stabile scope-aware Referenzen, immutable Versionspakete, Policy-Kaskade, Konfliktblockierung, persoenliche Aktivierung und user-spezifische Connection Readiness.
 
 Noch fehlend:
 
 - `agents` besitzt keinen eindeutigen Personal-/Organization-Scope mit Owner und Creator.
 - Agent-Freigaben gelten nur fuer einzelne User, nicht fuer Organization, Rolle, Workspace oder Projekt.
 - Agent-Definition und agent-/user-spezifischer Zustand werden im Filesystem nicht sauber getrennt.
-- Organization-Skills und Organization-Plugins sind noch keine effektiv aufloesbaren Runtime-Ressourcen.
 - Agent-Skill-/Plugin-Zuordnungen sind lose Namenslisten statt stabiler, scope-aware Referenzen.
 - UI und REST-Route orchestrieren Agent-Erstellung direkt; es gibt noch keine gemeinsame Agent-Management-Anwendungsschicht fuer UI, API und Tool.
 - Es gibt keine aktive Tool-Kategorie fuer Agent-Definitionen und keinen Progressive-Disclosure-Gateway fuer Agent-Management.

@@ -12,7 +12,15 @@ import { ensureCanvasMarkdownAgentGuidance } from '@/app/lib/markdown/canvas-mar
 
 type PiSessionPromptSnapshotRow = Pick<
   typeof piSessions.$inferSelect,
-  'id' | 'userId' | 'agentId' | 'systemPromptSnapshot' | 'systemPromptSnapshotHash' | 'systemPromptSnapshotCreatedAt'
+  | 'id'
+  | 'userId'
+  | 'agentId'
+  | 'organizationId'
+  | 'workspaceId'
+  | 'projectId'
+  | 'systemPromptSnapshot'
+  | 'systemPromptSnapshotHash'
+  | 'systemPromptSnapshotCreatedAt'
 >;
 
 export type PiSystemPromptSnapshot = {
@@ -78,7 +86,12 @@ export async function ensurePiSessionSystemPromptSnapshot(
     return snapshot;
   }
 
-  const snapshot = await createPiSystemPromptSnapshot(session.agentId, { userId: session.userId });
+  const snapshot = await createPiSystemPromptSnapshot(session.agentId, {
+    userId: session.userId,
+    organizationId: session.organizationId,
+    workspaceId: session.workspaceId,
+    projectId: session.projectId,
+  });
   await db
     .update(piSessions)
     .set(piSystemPromptSnapshotDbFields(snapshot))
@@ -100,6 +113,24 @@ export async function invalidatePiSystemPromptSnapshotsForUser(userId: string): 
       systemPromptSnapshotCreatedAt: null,
     })
     .where(eq(piSessions.userId, userId));
+}
+
+export async function invalidatePiSystemPromptSnapshotsForOrganization(
+  organizationId: string,
+): Promise<string[]> {
+  const sessions = await db
+    .select({ userId: piSessions.userId })
+    .from(piSessions)
+    .where(eq(piSessions.organizationId, organizationId));
+  await db
+    .update(piSessions)
+    .set({
+      systemPromptSnapshot: null,
+      systemPromptSnapshotHash: null,
+      systemPromptSnapshotCreatedAt: null,
+    })
+    .where(eq(piSessions.organizationId, organizationId));
+  return Array.from(new Set(sessions.map((session) => session.userId)));
 }
 
 export async function loadPiSessionSystemPromptSnapshot(input: {

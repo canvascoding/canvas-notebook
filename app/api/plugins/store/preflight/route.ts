@@ -2,6 +2,8 @@ import { headers } from 'next/headers';
 import { NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
+import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { preflightCanvasPluginFromStore } from '@/app/lib/plugins/canvas-plugin-store';
 
 export async function POST(request: Request) {
@@ -14,6 +16,7 @@ export async function POST(request: Request) {
     const body = await request.json() as {
       name?: unknown;
       version?: unknown;
+      scope?: unknown;
     };
 
     if (typeof body.name !== 'string' || body.name.trim().length === 0) {
@@ -23,11 +26,16 @@ export async function POST(request: Request) {
       );
     }
 
+    const capabilityScope = resolveCapabilityStorageScope({
+      requestedScope: body.scope,
+      userId: session.user.id,
+      organizationState: await readOrganizationPermissionForUser(session.user.id),
+    });
     const preflight = await preflightCanvasPluginFromStore(
       body.name.trim(),
       typeof body.version === 'string' ? body.version.trim() : undefined,
       session.user.id,
-      { userId: session.user.id },
+      capabilityScope,
     );
 
     return NextResponse.json({ success: true, preflight });

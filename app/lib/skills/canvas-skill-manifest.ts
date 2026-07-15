@@ -44,6 +44,15 @@ export interface CanvasSkill {
   enabled: boolean;
   core?: boolean;
   isCustom?: boolean;
+  resourceId?: string;
+  scopeType?: 'system' | 'organization' | 'user';
+  sourceType?: 'core' | 'standalone' | 'plugin';
+  revision?: number;
+  checksum?: string;
+  readiness?: 'available' | 'disabled' | 'blocked' | 'conflict' | 'personal-connection-required';
+  effectivePolicy?: 'optional' | 'default-enabled' | 'required' | 'blocked';
+  blockedReason?: string | null;
+  conflictResourceIds?: string[];
   interface?: CanvasSkillInterface;
   plugin?: {
     name: string;

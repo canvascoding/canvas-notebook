@@ -21,6 +21,10 @@ import {
 import { getAgentProfile } from './registry';
 import { loadSkillsFromDisk, getSkillsContext } from '../skills/skill-loader';
 import { readEnabledSkillsForScope } from '../skills/skill-settings';
+import {
+  loadEffectiveSkills,
+  resolveEffectiveCapabilitySnapshot,
+} from '../capabilities/catalog';
 import { isComposioConfigured } from '../composio/composio-client';
 import {
   isDefaultToolsConfig,
@@ -375,12 +379,20 @@ export async function loadManagedAgentSystemPrompt(
     const files = await readRuntimeManagedAgentFiles(normalizedAgentId, scope);
     const agentProfile = await getAgentProfile(normalizedAgentId);
     
-    // Load enabled skills for the effective user scope.
-    const enabledSkills = await readEnabledSkillsForScope(scope);
-    
-    // The Canvas Agent receives all globally enabled skills. Specialized agents
-    // receive only their selected relevant skills, intersected with global enablement.
-    const skills = await loadSkillsFromDisk(enabledSkills, scope);
+    // Resolve the complete organization/user capability cascade when workspace
+    // context is available. Legacy callers keep the existing user-only loader.
+    const skills = scope?.organizationId && scope.userId
+      ? await loadEffectiveSkills(await resolveEffectiveCapabilitySnapshot({
+        organizationId: scope.organizationId,
+        userId: scope.userId,
+        role: scope.role,
+        workspaceId: scope.workspaceId,
+        projectId: scope.projectId,
+      }))
+      : await loadSkillsFromDisk(await readEnabledSkillsForScope(scope), scope);
+
+    // The Canvas Agent receives all effectively enabled skills. Specialized
+    // agents receive their selected subset after organization policy resolution.
     const promptSkills = getPromptSkillsForAgent(normalizedAgentId, skills, agentProfile?.relevantSkills);
     const skillsContext = getSkillsContext(promptSkills);
     

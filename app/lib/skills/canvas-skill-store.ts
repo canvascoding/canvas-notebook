@@ -7,17 +7,23 @@ import { fileURLToPath } from 'url';
 
 import JSZip from 'jszip';
 
+import { createCapabilityResourceId } from '@/app/lib/capabilities/reference';
 import {
   createAtomicTempPath,
   resolveReadableScopedSkillsDataDir,
   resolveScopedSkillBackupsDir,
   resolveScopedSkillRegistryPath,
   resolveScopedSkillsDataDir,
+  resolveDataStorageScope,
   shouldUseLegacyScopedSkillsFallback,
+  type DataStorageScopeType,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
 import { computeCanvasPluginChecksum } from '@/app/lib/plugins/canvas-plugin-registry';
-import { isValidCanvasPluginVersion } from '@/app/lib/plugins/canvas-plugin-manifest';
+import {
+  findSensitiveCanvasPackageFiles,
+  isValidCanvasPluginVersion,
+} from '@/app/lib/plugins/canvas-plugin-manifest';
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 import {
   loadCanvasSkillInterface,
@@ -83,6 +89,11 @@ export interface CanvasSkillStoreRegistry {
 }
 
 export interface CanvasSkillInstallRecord {
+  resourceId?: string;
+  scopeType?: DataStorageScopeType;
+  organizationId?: string | null;
+  ownerUserId?: string | null;
+  revision?: number;
   name: string;
   version: string;
   description: string;
@@ -511,12 +522,12 @@ async function enrichStoreSkillsWithInstalledState(
     return {
       ...skill,
       installed: {
-        installed: Boolean(installedSummary),
-        enabled: Boolean(installedSummary?.enabled),
+        installed: Boolean(installedSkill || installedSummary),
+        enabled: installedSummary?.enabled ?? Boolean(installedSkill),
         version: installedVersion,
         updateAvailable,
         modified: false,
-        restoreAvailable: Boolean(installedSummary),
+        restoreAvailable: Boolean(installedSkill || installedSummary),
         installedSkill,
       },
     };
@@ -559,8 +570,8 @@ async function addPageStateDetails(
 ): Promise<CanvasSkillStoreSkillWithState> {
   if (!skill.installed.installed) return skill;
 
-  const installDir = path.join(await resolveReadableScopedSkillsDataDir(scope), skill.name);
   const record = skill.installed.installedSkill;
+  const installDir = record?.installDir || path.join(await resolveReadableScopedSkillsDataDir(scope), skill.name);
   const [seedAvailable, currentChecksum] = await Promise.all([
     seedSkillExists(skill.name),
     record?.checksum ? computeCanvasPluginChecksum(installDir).catch(() => '') : Promise.resolve(''),
@@ -674,6 +685,10 @@ async function verifyPackageChecksum(packageRoot: string, expectedChecksum: stri
 }
 
 async function validateSkillPackage(packageRoot: string, expectedName: string) {
+  const sensitiveFiles = await findSensitiveCanvasPackageFiles(packageRoot);
+  if (sensitiveFiles.length > 0) {
+    throw new Error(`Skill packages must reference environment variable names instead of bundling secret files: ${sensitiveFiles.slice(0, 5).join(', ')}${sensitiveFiles.length > 5 ? ', ...' : ''}`);
+  }
   const skillPath = requirePathInside(packageRoot, 'SKILL.md');
   const stat = await fs.stat(skillPath).catch(() => null);
   if (!stat?.isFile()) {
@@ -694,6 +709,9 @@ async function backupExistingSkill(
   skillName: string,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<string | undefined> {
+  if (resolveDataStorageScope(scope).scopeType === 'organization') {
+    return undefined;
+  }
   const skillsDir = await resolveReadableScopedSkillsDataDir(scope);
   const skillDir = requirePathInside(skillsDir, skillName);
   const stat = await fs.stat(skillDir).catch(() => null);
@@ -709,14 +727,30 @@ async function backupExistingSkill(
 async function copySkillPackage(
   packageRoot: string,
   skillName: string,
+  version: string,
   scope?: CanvasSkillStoreScope | null,
 ): Promise<string> {
   const skillsDir = resolveScopedSkillsDataDir(scope);
-  const targetDir = requirePathInside(skillsDir, skillName);
+  const storageScope = resolveDataStorageScope(scope);
+  const targetDir = storageScope.scopeType === 'organization'
+    ? requirePathInside(skillsDir, 'installed', skillName, version)
+    : requirePathInside(skillsDir, skillName);
   const resolvedTarget = path.resolve(/*turbopackIgnore: true*/ targetDir);
   const resolvedSkillsDir = path.resolve(/*turbopackIgnore: true*/ skillsDir);
   if (!resolvedTarget.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
     throw new Error('Invalid skill name: path traversal detected.');
+  }
+
+  const existingTarget = await fs.stat(targetDir).catch(() => null);
+  if (existingTarget && storageScope.scopeType === 'organization') {
+    const [existingChecksum, incomingChecksum] = await Promise.all([
+      computeCanvasPluginChecksum(targetDir),
+      computeCanvasPluginChecksum(packageRoot),
+    ]);
+    if (existingChecksum !== incomingChecksum) {
+      throw new Error('Organization skill package contents changed without a version bump. Publish a new version.');
+    }
+    return targetDir;
   }
 
   await fs.rm(targetDir, { recursive: true, force: true });
@@ -735,7 +769,12 @@ async function enableInstalledSkill(
   updatedBy?: string,
 ): Promise<void> {
   const enabledSkills = await readEnabledSkillsForScope(scope);
-  const allSkillNames = await getSkillNames(scope);
+  const registry = await readCanvasSkillRegistry(scope);
+  const allSkillNames = Array.from(new Set([
+    ...await getSkillNames(scope),
+    ...Object.keys(registry.skills),
+    skillName,
+  ]));
   const nextEnabledSkills = enableSkillInConfig(skillName, enabledSkills, allSkillNames);
   await writeEnabledSkillsForScope(nextEnabledSkills, { scope, updatedBy });
 }
@@ -753,7 +792,20 @@ async function writeInstalledSkillRecord(
   const checksum = await computeCanvasPluginChecksum(installDir);
   const registry = await readCanvasSkillRegistry(scope);
   const existing = registry.skills[skillName];
+  const storageScope = resolveDataStorageScope(scope);
   const record: CanvasSkillInstallRecord = {
+    resourceId: createCapabilityResourceId({
+      resourceType: 'skill',
+      scopeType: storageScope.scopeType === 'legacy' ? 'system' : storageScope.scopeType,
+      name: skill.name,
+      sourceType: 'standalone',
+      organizationId: storageScope.organizationId,
+      ownerUserId: storageScope.userId,
+    }),
+    scopeType: storageScope.scopeType,
+    organizationId: storageScope.organizationId,
+    ownerUserId: storageScope.userId,
+    revision: (existing?.revision || 0) + 1,
     name: skill.name,
     version,
     description: skill.description,
@@ -783,6 +835,7 @@ async function ensureStandaloneSkillInstallAllowed(
     throw new Error(coreSkillInstallError(skillName));
   }
 
+  const registered = (await readCanvasSkillRegistry(scope)).skills[skillName];
   const existing = await loadSkillByName(skillName, scope, { legacyFallback: false });
   const standalonePath = requirePathInside(resolveScopedSkillsDataDir(scope), skillName, 'SKILL.md');
   const hasStandalone = await fs.stat(standalonePath).then((stat) => stat.isFile()).catch(() => false);
@@ -792,7 +845,7 @@ async function ensureStandaloneSkillInstallAllowed(
   if (existing && !hasStandalone) {
     throw new Error(`Skill "${skillName}" already exists and is not a standalone skill.`);
   }
-  if (hasStandalone && !replace) {
+  if ((hasStandalone || registered) && !replace) {
     throw new Error(`Skill "${skillName}" is already installed. Use replace to reinstall it.`);
   }
 }
@@ -839,7 +892,7 @@ export async function installCanvasSkillFromStore(
     await verifyPackageChecksum(extracted.packageRoot, storeVersion.checksum);
     await validateSkillPackage(extracted.packageRoot, skillName);
     const backupPath = await backupExistingSkill(skillName, options.scope);
-    const installDir = await copySkillPackage(extracted.packageRoot, skillName, options.scope);
+    const installDir = await copySkillPackage(extracted.packageRoot, skillName, selectedVersion, options.scope);
     const record = await writeInstalledSkillRecord(
       skillName,
       selectedVersion,
@@ -891,7 +944,8 @@ async function restoreSeedSkill(
     await ensureStandaloneSkillInstallAllowed(skillName, options.replace ?? true, options.scope);
     await validateSkillPackage(seedRoot, skillName);
     const backupPath = await backupExistingSkill(skillName, options.scope);
-    const installDir = await copySkillPackage(seedRoot, skillName, options.scope);
+    const sourceSkill = await validateSkillPackage(seedRoot, skillName);
+    const installDir = await copySkillPackage(seedRoot, skillName, sourceSkill.version || 'seed', options.scope);
     const skill = await validateSkillPackage(installDir, skillName);
     const record = await writeInstalledSkillRecord(
       skillName,

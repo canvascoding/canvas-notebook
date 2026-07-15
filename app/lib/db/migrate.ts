@@ -363,6 +363,24 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (offboarded_by_user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS capability_policies (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      resource_type TEXT NOT NULL CHECK (resource_type IN ('skill', 'plugin')),
+      resource_id TEXT NOT NULL,
+      target_type TEXT NOT NULL CHECK (target_type IN ('organization', 'role', 'workspace', 'project', 'user')),
+      target_id TEXT NOT NULL,
+      effect TEXT NOT NULL CHECK (effect IN ('optional', 'default-enabled', 'required', 'blocked')),
+      revision INTEGER NOT NULL DEFAULT 1,
+      created_by_user_id TEXT NOT NULL,
+      updated_by_user_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id) ON DELETE RESTRICT,
+      FOREIGN KEY (updated_by_user_id) REFERENCES user(id) ON DELETE RESTRICT
+    );
+
     CREATE TABLE IF NOT EXISTS ai_provider_installations (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT NOT NULL,
@@ -2121,6 +2139,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_role ON organization_user_permissions (organization_id, role);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_status ON organization_user_permissions (organization_id, status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_user_permissions_single_owner ON organization_user_permissions (organization_id) WHERE role = 'owner';
+    CREATE INDEX IF NOT EXISTS idx_capability_policies_org_resource ON capability_policies (organization_id, resource_type, resource_id);
+    CREATE INDEX IF NOT EXISTS idx_capability_policies_org_target ON capability_policies (organization_id, target_type, target_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_capability_policies_binding ON capability_policies (organization_id, resource_type, resource_id, target_type, target_id);
 
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_last_message ON pi_sessions (last_message_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_created ON pi_sessions (user_id, created_at);

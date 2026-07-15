@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
+import { refreshPersonalCapabilityRuntime } from '@/app/lib/capabilities/activation-actions';
+import { requireActiveCapabilityUser } from '@/app/lib/capabilities/request-auth';
 import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { disableSkillInConfig, resolveEnabledSkillNames } from '@/app/lib/skills/enabled-skills';
 import { loadSkillsFromDisk } from '@/app/lib/skills/skill-loader';
@@ -11,10 +12,8 @@ export async function POST(
   { params }: { params: Promise<{ name: string }> }
 ) {
   try {
-    const skillPermission = await requireOrganizationPermission(request, 'canSharePluginsAndSkills', {
-      errorMessage: 'Forbidden: plugin and skill sharing permission required',
-    });
-    if (!skillPermission.ok) return skillPermission.response;
+    const capabilityUser = await requireActiveCapabilityUser(request);
+    if (!capabilityUser.ok) return capabilityUser.response;
 
     const { name } = await params;
     if (isCoreSkillName(name)) {
@@ -24,23 +23,28 @@ export async function POST(
       );
     }
 
-    const scope = { userId: skillPermission.session.user.id };
+    const scope = {
+      scopeType: 'user' as const,
+      userId: capabilityUser.session.user.id,
+      organizationId: capabilityUser.state.organizationId,
+    };
     
     const enabledSkills = await readEnabledSkillsForScope(scope);
     const allSkills = await loadSkillsFromDisk(undefined, scope);
-    const allSkillNames = allSkills.map((skill) => skill.name);
+    const allSkillNames = Array.from(new Set(allSkills.map((skill) => skill.name)));
     const nextEnabledSkills = disableSkillInConfig(name, enabledSkills, allSkillNames);
 
     if (JSON.stringify(nextEnabledSkills) !== JSON.stringify(enabledSkills || [])) {
       await writeEnabledSkillsForScope(nextEnabledSkills, {
         scope,
-        updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
+        updatedBy: capabilityUser.session.user.email || capabilityUser.session.user.id,
       });
+      await refreshPersonalCapabilityRuntime(capabilityUser.session.user.id);
     }
 
     await recordAuditEvent({
-      organizationId: skillPermission.state.organizationId,
-      userId: skillPermission.session.user.id,
+      organizationId: capabilityUser.state.organizationId,
+      userId: capabilityUser.session.user.id,
       source: 'skills',
       eventType: 'plugin',
       entityType: 'canvas_skill',
@@ -50,11 +54,13 @@ export async function POST(
       summary: `Skill ${name} disabled.`,
       metadata: {
         skillName: name,
+        scopeType: 'user',
       },
     });
     return NextResponse.json({
       success: true,
       message: `Skill "${name}" disabled`,
+      name,
       enabledSkills: Array.from(resolveEnabledSkillNames(allSkillNames, nextEnabledSkills)),
     });
   } catch (error) {

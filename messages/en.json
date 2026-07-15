@@ -4160,6 +4160,45 @@
       "plugins": "Plugins",
       "skills": "Skills"
     },
+    "scope": {
+      "title": "Availability scope",
+      "description": "Choose whether packages are managed only for you or centrally for the organization.",
+      "personal": "Only me",
+      "organization": "Organization",
+      "personalHint": "Personal packages and activation settings are stored in your user scope.",
+      "organizationHint": "Organization packages are centrally versioned and resolved for employees through policies; personal connections and secrets are never copied.",
+      "centralManaged": "Centrally managed",
+      "policy": {
+        "title": "Distribution policies",
+        "description": "Assign organization packages to the whole organization, a role, workspace, project, or user. Blocked always wins; required resources cannot be disabled personally.",
+        "resource": "Package",
+        "targetType": "Target",
+        "targetId": "Target ID",
+        "targetPlaceholder": "Role, workspace, project, or user ID",
+        "effect": "Policy",
+        "save": "Apply",
+        "remove": "Remove",
+        "empty": "No distribution policies configured.",
+        "targets": {
+          "organization": "Organization",
+          "role": "Role",
+          "workspace": "Workspace",
+          "project": "Project",
+          "user": "User"
+        },
+        "effects": {
+          "optional": "Optional",
+          "default-enabled": "Enabled by default",
+          "required": "Required",
+          "blocked": "Blocked"
+        },
+        "errors": {
+          "load": "Failed to load capability policies.",
+          "save": "Failed to save capability policy.",
+          "remove": "Failed to remove capability policy."
+        }
+      }
+    },
     "stats": {
       "total": "Total Skills",
       "enabled": "Enabled",
@@ -4171,6 +4210,8 @@
     },
     "plugins": {
       "title": "Canvas Plugins",
+      "organizationScope": "Organization",
+      "personalScope": "Personal",
       "description": "Install and manage plugin bundles from the Canvas Plugin Store. A plugin can provide multiple skills plus connector recommendations.",
       "stats": "{enabled}/{total} enabled",
       "reload": "Reload",

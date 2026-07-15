@@ -84,7 +84,12 @@ async function createRuntimePinnedChannelSession(
       throw new Error('Complete the app AI runtime setup before creating a channel session.');
     }
     const workspaceId = workspace.workspaceId;
-    const promptSnapshot = await createPiSystemPromptSnapshot(agentId, { userId: input.userId });
+    const promptSnapshot = await createPiSystemPromptSnapshot(agentId, {
+      userId: input.userId,
+      organizationId: workspace.organizationId,
+      workspaceId: workspace.workspaceId,
+      projectId: workspace.projectId,
+    });
 
     for (let attempt = 0; attempt < 2; attempt += 1) {
       if (attempt > 0) {

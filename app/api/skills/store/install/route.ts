@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { refreshCapabilityRuntimeForScope } from '@/app/lib/capabilities/activation-actions';
+import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { installCanvasSkillFromStore } from '@/app/lib/skills/canvas-skill-store';
 
@@ -16,6 +18,7 @@ export async function POST(request: Request) {
       version?: unknown;
       enable?: unknown;
       replace?: unknown;
+      scope?: unknown;
     };
 
     if (typeof body.name !== 'string' || body.name.trim().length === 0) {
@@ -25,13 +28,18 @@ export async function POST(request: Request) {
       );
     }
 
+    const capabilityScope = resolveCapabilityStorageScope({
+      requestedScope: body.scope,
+      userId: skillPermission.session.user.id,
+      organizationState: skillPermission.state,
+    });
     const result = await installCanvasSkillFromStore(
       body.name.trim(),
       typeof body.version === 'string' ? body.version.trim() : undefined,
       {
         enable: body.enable !== false,
         replace: body.replace !== false,
-        scope: { userId: skillPermission.session.user.id },
+        scope: capabilityScope,
         updatedBy: skillPermission.session.user.email || skillPermission.session.user.id,
       },
     );
@@ -52,9 +60,20 @@ export async function POST(request: Request) {
       metadata: {
         skillName: body.name.trim(),
         requestedVersion: typeof body.version === 'string' ? body.version.trim() : null,
+        version: result.skill?.version,
+        sourceType: result.skill?.sourceType,
         enable: body.enable !== false,
         replace: body.replace !== false,
+        scopeType: capabilityScope.scopeType,
+        resourceId: result.skill?.resourceId,
+        checksum: result.skill?.checksum,
+        revision: result.skill?.revision,
+        policy: null,
       },
+    });
+    await refreshCapabilityRuntimeForScope({
+      scope: capabilityScope,
+      actorUserId: skillPermission.session.user.id,
     });
 
     return NextResponse.json(result);

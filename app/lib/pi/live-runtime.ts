@@ -734,7 +734,15 @@ class LivePiRuntime {
   }
 
   private async refreshSystemPrompt(): Promise<void> {
-    const snapshot = await createPiSystemPromptSnapshot(this.agentId, { userId: this.userId });
+    const session = await db.query.piSessions.findFirst({
+      where: and(eq(piSessions.sessionId, this.sessionId), eq(piSessions.userId, this.userId)),
+    });
+    const snapshot = await createPiSystemPromptSnapshot(this.agentId, {
+      userId: this.userId,
+      organizationId: session?.organizationId,
+      workspaceId: session?.workspaceId,
+      projectId: session?.projectId,
+    });
     this.systemPrompt = snapshot.systemPrompt;
     this.systemPromptRefreshRequested = false;
     this.lastComposition = null;

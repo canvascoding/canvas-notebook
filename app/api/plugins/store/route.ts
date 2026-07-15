@@ -2,6 +2,8 @@ import { headers } from 'next/headers';
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
+import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
+import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { listCanvasPluginStore, type CanvasPluginStoreStateFilter } from '@/app/lib/plugins/canvas-plugin-store';
 
 function parsePositiveInteger(value: string | null): number | undefined {
@@ -22,7 +24,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const scope = { userId: session.user.id };
+    const organizationState = await readOrganizationPermissionForUser(session.user.id);
+    const scope = resolveCapabilityStorageScope({
+      requestedScope: request.nextUrl.searchParams.get('scope'),
+      userId: session.user.id,
+      organizationState,
+    });
     const store = await listCanvasPluginStore({
       page: parsePositiveInteger(request.nextUrl.searchParams.get('page')),
       pageSize: parsePositiveInteger(request.nextUrl.searchParams.get('pageSize')),

@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { refreshCapabilityRuntimeForScope } from '@/app/lib/capabilities/activation-actions';
+import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { installCanvasPluginFromStore } from '@/app/lib/plugins/canvas-plugin-store';
 
@@ -16,6 +18,7 @@ export async function POST(request: Request) {
       version?: unknown;
       enable?: unknown;
       replace?: unknown;
+      scope?: unknown;
     };
 
     if (typeof body.name !== 'string' || body.name.trim().length === 0) {
@@ -25,6 +28,11 @@ export async function POST(request: Request) {
       );
     }
 
+    const capabilityScope = resolveCapabilityStorageScope({
+      requestedScope: body.scope,
+      userId: pluginPermission.session.user.id,
+      organizationState: pluginPermission.state,
+    });
     const result = await installCanvasPluginFromStore(
       body.name.trim(),
       typeof body.version === 'string' ? body.version.trim() : undefined,
@@ -32,7 +40,7 @@ export async function POST(request: Request) {
         enable: body.enable !== false,
         replace: body.replace !== false,
         installedBy: pluginPermission.session.user.email || pluginPermission.session.user.id,
-        scope: { userId: pluginPermission.session.user.id },
+        scope: capabilityScope,
       },
     );
 
@@ -53,9 +61,19 @@ export async function POST(request: Request) {
         pluginName: result.plugin?.name ?? body.name.trim(),
         requestedVersion: typeof body.version === 'string' ? body.version.trim() : null,
         installedVersion: result.plugin?.version,
+        sourceType: 'standalone',
         enabled: result.plugin?.enabled,
         replace: body.replace !== false,
+        scopeType: capabilityScope.scopeType,
+        resourceId: result.plugin?.resourceId,
+        checksum: result.plugin?.checksum,
+        revision: result.plugin?.revision,
+        policy: null,
       },
+    });
+    await refreshCapabilityRuntimeForScope({
+      scope: capabilityScope,
+      actorUserId: pluginPermission.session.user.id,
     });
 
     return NextResponse.json(result);

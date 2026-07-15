@@ -6,6 +6,7 @@ import path from 'path';
 import { readPiRuntimeConfig, writePiRuntimeConfig } from '@/app/lib/agents/storage';
 import {
   createAtomicTempPath,
+  resolveDataStorageScope,
   resolveScopedSettingsDir,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
@@ -25,8 +26,8 @@ function nowIso(): string {
   return new Date().toISOString();
 }
 
-function hasUserScope(scope?: SkillSettingsScope | null): boolean {
-  return Boolean(scope?.userId?.trim());
+function hasDedicatedScope(scope?: SkillSettingsScope | null): boolean {
+  return resolveDataStorageScope(scope).scopeType !== 'legacy';
 }
 
 function createSkillSettings(enabledSkills: string[], updatedBy?: string): CanvasSkillSettings {
@@ -78,10 +79,13 @@ async function writeUserSkillSettings(settings: CanvasSkillSettings, scope: Skil
 export async function readEnabledSkillsForScope(
   scope?: SkillSettingsScope | null,
 ): Promise<string[] | undefined> {
-  if (hasUserScope(scope)) {
+  if (hasDedicatedScope(scope)) {
     const userSettings = await readUserSkillSettings(scope as SkillSettingsScope);
     if (userSettings) {
       return userSettings.enabledSkills;
+    }
+    if (resolveDataStorageScope(scope).scopeType === 'organization') {
+      return undefined;
     }
   }
 
@@ -96,7 +100,7 @@ export async function writeEnabledSkillsForScope(
     updatedBy?: string;
   } = {},
 ): Promise<void> {
-  if (hasUserScope(options.scope)) {
+  if (hasDedicatedScope(options.scope)) {
     await writeUserSkillSettings(
       createSkillSettings(enabledSkills, options.updatedBy),
       options.scope as SkillSettingsScope,

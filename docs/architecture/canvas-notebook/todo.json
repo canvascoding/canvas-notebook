@@ -1225,7 +1225,7 @@
     {
       "id": 49,
       "title": "Organization-Skills und -Plugins mit Policy-Resolver, stabilen Capability-Referenzen und konfliktfreier Kaskade umsetzen",
-      "status": "planned",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "dependsOn": [
         5,
