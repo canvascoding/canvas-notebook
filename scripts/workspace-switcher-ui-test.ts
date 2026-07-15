@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 
 import type { ClientWorkspaceSummary } from '../app/lib/workspaces/client-types';
 
@@ -125,6 +127,15 @@ const additionalPersonalWorkspace: ClientWorkspaceSummary = {
 );
 
 async function main() {
+  const knowledgeGraphShellSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'apps', 'knowledge-graph', 'components', 'KnowledgeGraphShell.tsx'),
+    'utf8',
+  );
+  assert.match(
+    knowledgeGraphShellSource,
+    /headerActions=\{<WorkspaceSwitcher source="navbar" variant="compact" \/>\}/,
+  );
+
   const {
     WORKSPACE_CHANGED_EVENT,
     selectActiveWorkspace,
