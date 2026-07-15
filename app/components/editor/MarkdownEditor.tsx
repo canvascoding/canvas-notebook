@@ -40,6 +40,8 @@ import {
   Copy,
   Eye,
   ExternalLink,
+  FileText,
+  Globe2,
   GripVertical,
   Heading1,
   Heading2,
@@ -117,13 +119,22 @@ import {
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
 import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
-import { getWorkspaceMarkdownNavigationTarget } from '@/app/lib/markdown/obsidian-link-resolver';
+import {
+  buildObsidianWikiLinkTarget,
+  findObsidianWikiCompletionContext,
+  getWorkspaceMarkdownNavigationTarget,
+} from '@/app/lib/markdown/obsidian-link-resolver';
 import {
   composeCanvasMarkdownDocument,
   parseCanvasMarkdownDocument,
   splitCanvasMarkdownForRichEditor,
 } from '@/app/lib/markdown/obsidian-metadata';
 import { openWorkspaceMarkdownTarget } from '@/app/lib/markdown/workspace-markdown-navigation-client';
+import {
+  getWorkspaceWikiCompletionItems,
+  loadWorkspaceLinkIndex,
+} from '@/app/lib/markdown/workspace-link-index-client';
+import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
 import {
   consumeWorkspaceMarkdownLocation,
   getWorkspaceMarkdownLocationFromEvent,
@@ -1793,6 +1804,13 @@ type LinkPreviewState =
   | { status: 'loaded'; error?: undefined; imageUrl: string | null; host: string }
   | { status: 'error'; error: string; imageUrl?: undefined; host?: undefined };
 
+type LinkDialogMode = 'workspace' | 'web';
+
+type WorkspaceLinkIndexState =
+  | { status: 'idle'; index?: undefined; workspaceId?: undefined }
+  | { status: 'loaded'; index: WorkspaceLinkIndex; workspaceId: string }
+  | { status: 'error'; index?: undefined; workspaceId: string };
+
 type LinkDialogSeed = {
   id: number;
   href: string;
@@ -1980,6 +1998,7 @@ function MarkdownLinkDialog({
   initialHref,
   initialText,
   canEditText,
+  sourcePath,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
   open: boolean;
@@ -1987,16 +2006,24 @@ function MarkdownLinkDialog({
   initialHref: string;
   initialText: string;
   canEditText: boolean;
+  sourcePath?: string;
 }) {
   const t = useTranslations('notebook');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const initialWorkspaceTarget = getWorkspaceMarkdownNavigationTarget(initialHref, sourcePath) ?? '';
+  const [mode, setMode] = useState<LinkDialogMode>(
+    initialHref && !initialWorkspaceTarget ? 'web' : 'workspace',
+  );
   const [href, setHref] = useState(initialHref);
+  const [workspaceTarget, setWorkspaceTarget] = useState(initialWorkspaceTarget);
   const [text, setText] = useState(initialText);
   const [previewEnabled, setPreviewEnabled] = useState(true);
   const [previewState, setPreviewState] = useState<LinkPreviewState>({ status: 'idle' });
+  const [workspaceIndexState, setWorkspaceIndexState] = useState<WorkspaceLinkIndexState>({ status: 'idle' });
   const linkActive = Boolean(editor?.isActive('link'));
 
   useEffect(() => {
-    if (!open || !previewEnabled) return;
+    if (!open || mode !== 'web' || !previewEnabled) return;
 
     const previewUrl = normalizeLinkHref(href);
     if (!/^https?:\/\//iu.test(previewUrl)) return;
@@ -2034,9 +2061,82 @@ function MarkdownLinkDialog({
       window.clearTimeout(timeout);
       controller.abort();
     };
-  }, [href, open, previewEnabled, t]);
+  }, [href, mode, open, previewEnabled, t]);
 
-  const applyLink = useCallback(() => {
+  useEffect(() => {
+    if (!open || mode !== 'workspace') return;
+    if (!activeWorkspaceId) return;
+
+    let cancelled = false;
+    void loadWorkspaceLinkIndex(activeWorkspaceId)
+      .then((index) => {
+        if (!cancelled) setWorkspaceIndexState({ status: 'loaded', index, workspaceId: activeWorkspaceId });
+      })
+      .catch(() => {
+        if (!cancelled) setWorkspaceIndexState({ status: 'error', workspaceId: activeWorkspaceId });
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [activeWorkspaceId, mode, open]);
+
+  const workspaceIndexStatus = !activeWorkspaceId
+    ? 'error'
+    : workspaceIndexState.workspaceId !== activeWorkspaceId
+      ? 'loading'
+      : workspaceIndexState.status;
+
+  const workspaceSuggestions = useMemo(() => {
+    if (
+      workspaceIndexState.status !== 'loaded'
+      || workspaceIndexState.workspaceId !== activeWorkspaceId
+    ) return [];
+
+    const unwrappedQuery = workspaceTarget
+      .trim()
+      .replace(/^!?\[\[/u, '')
+      .replace(/\]\]$/u, '')
+      .split('|', 1)[0];
+    const source = `[[${unwrappedQuery}`;
+    const context = findObsidianWikiCompletionContext(source, source.length);
+    if (!context) return [];
+
+    return getWorkspaceWikiCompletionItems(
+      workspaceIndexState.index,
+      context,
+      sourcePath,
+      8,
+    );
+  }, [activeWorkspaceId, sourcePath, workspaceIndexState, workspaceTarget]);
+
+  const workspaceWikiTarget = useMemo(
+    () => buildObsidianWikiLinkTarget(workspaceTarget, text),
+    [text, workspaceTarget],
+  );
+
+  const applyWorkspaceLink = useCallback(() => {
+    if (!editor || !workspaceWikiTarget) return;
+
+    const activeLink = getActiveLinkDetails(editor);
+    const replacementRange = activeLink?.range ?? {
+      from: editor.state.selection.from,
+      to: editor.state.selection.to,
+    };
+    const existingPreviewRange = activeLink
+      ? findAdjacentLinkPreviewImageRange(editor, activeLink.range.to)
+      : null;
+    const chain = editor.chain().focus();
+
+    if (existingPreviewRange) chain.deleteRange(existingPreviewRange);
+    chain.insertContentAt(replacementRange, {
+      type: 'obsidianWikiLink',
+      attrs: { embed: false, target: workspaceWikiTarget },
+    }).run();
+    onOpenChange(false);
+  }, [editor, onOpenChange, workspaceWikiTarget]);
+
+  const applyWebLink = useCallback(() => {
     if (!editor) return;
 
     const normalizedHref = normalizeLinkHref(href);
@@ -2090,6 +2190,8 @@ function MarkdownLinkDialog({
     onOpenChange(false);
   }, [editor, href, onOpenChange, previewEnabled, previewState, text]);
 
+  const applyLink = mode === 'workspace' ? applyWorkspaceLink : applyWebLink;
+
   const removeLink = useCallback(() => {
     editor?.chain().focus().extendMarkRange('link').unsetLink().run();
     onOpenChange(false);
@@ -2097,103 +2199,198 @@ function MarkdownLinkDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="max-h-[min(90dvh,44rem)] overflow-y-auto sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>{t('markdownEditorLinkDialogTitle')}</DialogTitle>
           <DialogDescription>{t('markdownEditorLinkDialogDescription')}</DialogDescription>
         </DialogHeader>
 
-        <div className="grid gap-4">
-          <div className="grid gap-2">
-            <Label htmlFor="markdown-link-url">{t('markdownEditorLinkUrl')}</Label>
-            <Input
-              id="markdown-link-url"
-              value={href}
-              placeholder="https://example.com"
-              onChange={(event) => {
-                setHref(event.target.value);
-                setPreviewState({ status: 'idle' });
-              }}
-              onKeyDown={(event) => {
-                if (event.key === 'Enter') {
-                  event.preventDefault();
-                  applyLink();
-                }
-              }}
-            />
-          </div>
+        <Tabs value={mode} onValueChange={(value) => setMode(value as LinkDialogMode)}>
+          <TabsList className="grid w-full grid-cols-2">
+            <TabsTrigger value="workspace" className="gap-2">
+              <FileText className="h-4 w-4" />
+              {t('markdownEditorLinkWorkspaceTab')}
+            </TabsTrigger>
+            <TabsTrigger value="web" className="gap-2">
+              <Globe2 className="h-4 w-4" />
+              {t('markdownEditorLinkWebTab')}
+            </TabsTrigger>
+          </TabsList>
 
-          {canEditText ? (
+          <TabsContent value="workspace" className="mt-4 grid gap-4">
             <div className="grid gap-2">
-              <Label htmlFor="markdown-link-text">{t('markdownEditorLinkText')}</Label>
+              <Label htmlFor="markdown-link-workspace-target">{t('markdownEditorLinkWorkspaceTarget')}</Label>
               <Input
-                id="markdown-link-text"
+                id="markdown-link-workspace-target"
+                autoComplete="off"
+                value={workspaceTarget}
+                placeholder={t('markdownEditorLinkWorkspacePlaceholder')}
+                onChange={(event) => setWorkspaceTarget(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter' && workspaceWikiTarget) {
+                    event.preventDefault();
+                    applyWorkspaceLink();
+                  }
+                }}
+              />
+              <p className="text-xs text-muted-foreground">{t('markdownEditorLinkWorkspaceHint')}</p>
+            </div>
+
+            <div className="overflow-hidden rounded-md border bg-muted/10">
+              <div className="border-b px-3 py-2 text-xs font-medium text-muted-foreground">
+                {t('markdownEditorWikiSuggestions')}
+              </div>
+              <Command shouldFilter={false} className="bg-transparent">
+                <CommandList className="max-h-48">
+                  {workspaceIndexStatus === 'loading' ? (
+                    <div className="px-3 py-4 text-sm text-muted-foreground">
+                      {t('markdownEditorLinkWorkspaceLoading')}
+                    </div>
+                  ) : null}
+                  {workspaceIndexStatus === 'error' ? (
+                    <div className="px-3 py-4 text-sm text-destructive">
+                      {t('markdownEditorLinkWorkspaceUnavailable')}
+                    </div>
+                  ) : null}
+                  {workspaceIndexStatus === 'loaded' && workspaceSuggestions.length === 0 ? (
+                    <CommandEmpty>{t('markdownEditorWikiNoMatch')}</CommandEmpty>
+                  ) : null}
+                  {workspaceSuggestions.length > 0 ? (
+                    <CommandGroup>
+                      {workspaceSuggestions.map((item, index) => (
+                        <CommandItem
+                          key={`${item.kind}:${item.target}:${index}`}
+                          value={`${item.displayLabel} ${item.detail}`}
+                          onSelect={() => setWorkspaceTarget(item.target)}
+                          className="items-start gap-3 py-2.5"
+                        >
+                          <FileText className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                          <span className="min-w-0">
+                            <span className="block truncate text-sm font-medium">{item.displayLabel}</span>
+                            <span className="block truncate text-xs text-muted-foreground">{item.detail}</span>
+                          </span>
+                        </CommandItem>
+                      ))}
+                    </CommandGroup>
+                  ) : null}
+                </CommandList>
+              </Command>
+            </div>
+
+            <div className="grid gap-2">
+              <Label htmlFor="markdown-link-workspace-text">{t('markdownEditorLinkWorkspaceAlias')}</Label>
+              <Input
+                id="markdown-link-workspace-text"
                 value={text}
-                placeholder={t('markdownEditorLinkTextPlaceholder')}
+                placeholder={t('markdownEditorLinkWorkspaceAliasPlaceholder')}
                 onChange={(event) => setText(event.target.value)}
               />
             </div>
-          ) : null}
 
-          <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-            <div className="min-w-0">
-              <Label htmlFor="markdown-link-preview-toggle">{t('markdownEditorLinkPreviewToggle')}</Label>
-              <p className="mt-1 text-xs text-muted-foreground">{t('markdownEditorLinkPreviewHint')}</p>
+            <div className="rounded-md border bg-muted/30 px-3 py-2.5">
+              <div className="text-xs font-medium text-muted-foreground">
+                {t('markdownEditorLinkWorkspaceSyntax')}
+              </div>
+              <code className="mt-1 block break-all text-sm">
+                {workspaceWikiTarget
+                  ? `[[${workspaceWikiTarget}]]`
+                  : `[[${t('markdownEditorLinkWorkspaceExample')}]]`}
+              </code>
             </div>
-            <Switch
-              id="markdown-link-preview-toggle"
-              checked={previewEnabled}
-              onCheckedChange={(checked) => {
-                setPreviewEnabled(checked);
-                if (!checked) setPreviewState({ status: 'idle' });
-              }}
-            />
-          </div>
+          </TabsContent>
 
-          {previewEnabled ? (
-            <div className="min-h-20 rounded-md border bg-muted/20 p-2">
-              {previewState.status === 'loading' ? (
-                <div className="flex h-16 items-center text-sm text-muted-foreground">
-                  {t('markdownEditorLinkPreviewLoading')}
-                </div>
-              ) : null}
+          <TabsContent value="web" className="mt-4 grid gap-4">
+            <div className="grid gap-2">
+              <Label htmlFor="markdown-link-url">{t('markdownEditorLinkUrl')}</Label>
+              <Input
+                id="markdown-link-url"
+                value={href}
+                placeholder="https://example.com"
+                onChange={(event) => {
+                  setHref(event.target.value);
+                  setPreviewState({ status: 'idle' });
+                }}
+                onKeyDown={(event) => {
+                  if (event.key === 'Enter') {
+                    event.preventDefault();
+                    applyWebLink();
+                  }
+                }}
+              />
+            </div>
 
-              {previewState.status === 'loaded' ? (
-                previewState.imageUrl ? (
-                  <div className="flex items-center gap-3">
-                    {/* eslint-disable-next-line @next/next/no-img-element */}
-                    <img
-                      src={previewState.imageUrl}
-                      alt=""
-                      referrerPolicy="no-referrer"
-                      className="h-16 w-24 shrink-0 rounded-sm border bg-background object-cover"
-                    />
-                    <div className="min-w-0">
-                      <div className="truncate text-sm font-medium">{previewState.host}</div>
-                      <div className="truncate text-xs text-muted-foreground">
-                        {t('markdownEditorLinkPreviewImageLoaded')}
+            {canEditText ? (
+              <div className="grid gap-2">
+                <Label htmlFor="markdown-link-text">{t('markdownEditorLinkText')}</Label>
+                <Input
+                  id="markdown-link-text"
+                  value={text}
+                  placeholder={t('markdownEditorLinkTextPlaceholder')}
+                  onChange={(event) => setText(event.target.value)}
+                />
+              </div>
+            ) : null}
+
+            <div className="flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+              <div className="min-w-0">
+                <Label htmlFor="markdown-link-preview-toggle">{t('markdownEditorLinkPreviewToggle')}</Label>
+                <p className="mt-1 text-xs text-muted-foreground">{t('markdownEditorLinkPreviewHint')}</p>
+              </div>
+              <Switch
+                id="markdown-link-preview-toggle"
+                checked={previewEnabled}
+                onCheckedChange={(checked) => {
+                  setPreviewEnabled(checked);
+                  if (!checked) setPreviewState({ status: 'idle' });
+                }}
+              />
+            </div>
+
+            {previewEnabled ? (
+              <div className="min-h-20 rounded-md border bg-muted/20 p-2">
+                {previewState.status === 'loading' ? (
+                  <div className="flex h-16 items-center text-sm text-muted-foreground">
+                    {t('markdownEditorLinkPreviewLoading')}
+                  </div>
+                ) : null}
+
+                {previewState.status === 'loaded' ? (
+                  previewState.imageUrl ? (
+                    <div className="flex items-center gap-3">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img
+                        src={previewState.imageUrl}
+                        alt=""
+                        referrerPolicy="no-referrer"
+                        className="h-16 w-24 shrink-0 rounded-sm border bg-background object-cover"
+                      />
+                      <div className="min-w-0">
+                        <div className="truncate text-sm font-medium">{previewState.host}</div>
+                        <div className="truncate text-xs text-muted-foreground">
+                          {t('markdownEditorLinkPreviewImageLoaded')}
+                        </div>
                       </div>
                     </div>
-                  </div>
-                ) : (
+                  ) : (
+                    <div className="flex h-16 items-center text-sm text-muted-foreground">
+                      {t('markdownEditorLinkPreviewNoImage')}
+                    </div>
+                  )
+                ) : null}
+
+                {previewState.status === 'error' ? (
+                  <div className="flex h-16 items-center text-sm text-destructive">{previewState.error}</div>
+                ) : null}
+
+                {previewState.status === 'idle' ? (
                   <div className="flex h-16 items-center text-sm text-muted-foreground">
-                    {t('markdownEditorLinkPreviewNoImage')}
+                    {t('markdownEditorLinkPreviewIdle')}
                   </div>
-                )
-              ) : null}
-
-              {previewState.status === 'error' ? (
-                <div className="flex h-16 items-center text-sm text-destructive">{previewState.error}</div>
-              ) : null}
-
-              {previewState.status === 'idle' ? (
-                <div className="flex h-16 items-center text-sm text-muted-foreground">
-                  {t('markdownEditorLinkPreviewIdle')}
-                </div>
-              ) : null}
-            </div>
-          ) : null}
-        </div>
+                ) : null}
+              </div>
+            ) : null}
+          </TabsContent>
+        </Tabs>
 
         <DialogFooter>
           {linkActive ? (
@@ -2204,7 +2401,7 @@ function MarkdownLinkDialog({
           <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
             {t('cancel')}
           </Button>
-          <Button type="button" onClick={applyLink}>
+          <Button type="button" disabled={mode === 'workspace' && !workspaceWikiTarget} onClick={applyLink}>
             {t('markdownEditorLinkApply')}
           </Button>
         </DialogFooter>
@@ -3023,6 +3220,7 @@ function MarkdownToolbar({
         initialHref={linkDialogSeed.href}
         initialText={linkDialogSeed.text}
         canEditText={linkDialogSeed.canEditText}
+        sourcePath={filePath}
       />
       <MarkdownImageDialog
         key={`image-${imageDialogSeed.id}`}
@@ -3227,6 +3425,7 @@ function MobileCommandTile({
 function MobileMarkdownToolbar({
   actions,
   editor,
+  filePath,
   keyboardActive,
   labels,
   onImageDialogOpenChange,
@@ -3236,6 +3435,7 @@ function MobileMarkdownToolbar({
 }: {
   actions?: SlashCommandActions;
   editor: MarkdownEditorWithMarkdown | null;
+  filePath?: string;
   keyboardActive: boolean;
   labels: SlashCommandLabels;
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
@@ -3541,6 +3741,7 @@ function MobileMarkdownToolbar({
         initialHref={linkDialogSeed.href}
         initialText={linkDialogSeed.text}
         canEditText={linkDialogSeed.canEditText}
+        sourcePath={filePath}
       />
     </>
   );
@@ -3951,6 +4152,7 @@ function RichMarkdownEditor({
         <MobileMarkdownToolbar
           actions={slashCommandActions}
           editor={markdownEditor}
+          filePath={filePath}
           keyboardActive={isMobileKeyboardActive}
           labels={labels}
           onImageDialogOpenChange={openImageDialogFromToolbar}

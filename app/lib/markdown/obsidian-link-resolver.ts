@@ -186,6 +186,38 @@ export function getObsidianWikiCompletionInsertPath(filePath: string): string {
   return stripMarkdownExtension(normalizeWorkspacePath(filePath));
 }
 
+/** Builds the canonical inner value used by an Obsidian [[wiki link]]. */
+export function buildObsidianWikiLinkTarget(
+  rawTarget: string,
+  displayText?: string | null,
+): string | null {
+  let unwrappedTarget = rawTarget.trim();
+  if (unwrappedTarget.startsWith('!')) unwrappedTarget = unwrappedTarget.slice(1).trim();
+  if (unwrappedTarget.startsWith('[[') && unwrappedTarget.endsWith(']]')) {
+    unwrappedTarget = unwrappedTarget.slice(2, -2).trim();
+  }
+
+  const parsed = parseObsidianWikiTarget(unwrappedTarget);
+  if (!parsed) return null;
+
+  const path = parsed.path ? getObsidianWikiCompletionInsertPath(parsed.path) : '';
+  const fragment = parsed.blockId
+    ? `#^${parsed.blockId}`
+    : parsed.heading
+      ? `#${parsed.heading}`
+      : '';
+  const target = `${path}${fragment}`;
+  if (!target) return null;
+
+  const alias = displayText?.trim() || parsed.alias;
+  if (!alias) return target;
+
+  const escapedAlias = alias
+    .replace(/\]\]/gu, '] ]')
+    .replace(/\|/gu, '\\|');
+  return `${target}|${escapedAlias}`;
+}
+
 function safelyDecodeLinkTarget(value: string): string {
   try {
     return decodeURIComponent(value);

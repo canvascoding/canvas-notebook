@@ -18,6 +18,7 @@ import {
   updateCanvasMarkdownProperties,
 } from '../app/lib/markdown/obsidian-metadata';
 import {
+  buildObsidianWikiLinkTarget,
   findObsidianWikiCompletionContext,
   getCanvasNotebookMarkdownLinkTarget,
   getObsidianWikiCompletionInsertPath,
@@ -227,6 +228,16 @@ assert.deepEqual(findObsidianWikiCompletionContext('[[Plan#Heading', 14), {
 assert.equal(findObsidianWikiCompletionContext('[[Plan#^block', 14)?.kind, 'block');
 assert.equal(findObsidianWikiCompletionContext('[[Plan|Alias', 12), null);
 assert.equal(getObsidianWikiCompletionInsertPath('./projects/Plan.md'), 'projects/Plan');
+assert.equal(
+  buildObsidianWikiLinkTarget('projects/Plan.md#Outcome', 'the plan'),
+  'projects/Plan#Outcome|the plan',
+);
+assert.equal(
+  buildObsidianWikiLinkTarget('![[projects/Plan#^decision|old label]]', 'new | label'),
+  String.raw`projects/Plan#^decision|new \| label`,
+);
+assert.equal(buildObsidianWikiLinkTarget('#Local heading'), '#Local heading');
+assert.equal(buildObsidianWikiLinkTarget(''), null);
 assert.equal(getWorkspaceMarkdownLinkTarget('../Shared.md#Reference', 'projects/Overview.md'), '../Shared.md#Reference');
 assert.equal(getWorkspaceMarkdownLinkTarget('#Local heading', 'projects/Overview.md'), '#Local heading');
 assert.equal(getWorkspaceMarkdownLinkTarget('https://example.com/Plan.md', 'projects/Overview.md'), null);
