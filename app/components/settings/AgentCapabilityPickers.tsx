@@ -57,6 +57,20 @@ type AgentConnectionsPickerProps = {
   pageSize?: number;
 };
 
+export type AgentPluginSelection = {
+  resourceType: 'plugin';
+  resourceId: string;
+  name: string;
+  scopeType: 'system' | 'organization' | 'user';
+};
+
+type AgentPluginsPickerProps = {
+  enabled: boolean;
+  organizationOnly?: boolean;
+  selectedPlugins: AgentPluginSelection[];
+  onSelectedPluginsChange: (plugins: AgentPluginSelection[]) => void;
+};
+
 const DEFAULT_PAGE_SIZE = 8;
 const connectionLogoLoadCache = new Map<string, string | null>();
 
@@ -395,6 +409,97 @@ export function AgentRelevantSkillsPicker({
         </div>
       )}
       <PaginationControls pagination={pagination} onPageChange={setPage} />
+    </div>
+  );
+}
+
+export function AgentPluginsPicker({
+  enabled,
+  organizationOnly = false,
+  selectedPlugins,
+  onSelectedPluginsChange,
+}: AgentPluginsPickerProps) {
+  const [status, setStatus] = useState<LoadStatus>('idle');
+  const [plugins, setPlugins] = useState<AgentPluginSelection[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const selectedIds = useMemo(() => new Set(selectedPlugins.map((plugin) => plugin.resourceId)), [selectedPlugins]);
+
+  useEffect(() => {
+    if (!enabled) return;
+    const controller = new AbortController();
+    queueMicrotask(() => setStatus('loading'));
+    void fetch('/api/skills/effective', { credentials: 'include', cache: 'no-store', signal: controller.signal })
+      .then(async (response) => {
+        const payload = (await response.json().catch(() => ({}))) as {
+          success?: boolean;
+          error?: string;
+          snapshot?: {
+            capabilities?: Array<{
+              ref: { resourceType: string; resourceId: string; name: string; scopeType: 'system' | 'organization' | 'user' };
+              effectiveEnabled: boolean;
+              readiness: string;
+            }>;
+          };
+        };
+        if (!response.ok || !payload.success) throw new Error(payload.error || 'Plugins could not be loaded.');
+        const next = (payload.snapshot?.capabilities || [])
+          .filter((entry) => (
+            entry.ref.resourceType === 'plugin'
+            && entry.effectiveEnabled
+            && entry.readiness === 'available'
+            && (!organizationOnly || entry.ref.scopeType !== 'user')
+          ))
+          .map((entry): AgentPluginSelection => ({
+            resourceType: 'plugin',
+            resourceId: entry.ref.resourceId,
+            name: entry.ref.name,
+            scopeType: entry.ref.scopeType,
+          }));
+        setPlugins(next);
+        setError(null);
+        setStatus('loaded');
+      })
+      .catch((loadError) => {
+        if (controller.signal.aborted) return;
+        setError(loadError instanceof Error ? loadError.message : 'Plugins could not be loaded.');
+        setStatus('error');
+      });
+    return () => controller.abort();
+  }, [enabled, organizationOnly]);
+
+  if (!enabled) return null;
+  if (status === 'idle' || status === 'loading') return <LoadingSkeletonGrid rows={2} />;
+  if (status === 'error') return <p className="text-sm text-destructive">{error}</p>;
+  if (plugins.length === 0) return <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">No enabled plugins are available for this scope.</p>;
+
+  return (
+    <div className="grid min-w-0 gap-2 sm:grid-cols-2" data-testid="agent-plugin-picker">
+      {plugins.map((plugin) => {
+        const selected = selectedIds.has(plugin.resourceId);
+        return (
+          <button
+            key={plugin.resourceId}
+            type="button"
+            aria-pressed={selected}
+            onClick={() => onSelectedPluginsChange(selected
+              ? selectedPlugins.filter((entry) => entry.resourceId !== plugin.resourceId)
+              : [...selectedPlugins, plugin])}
+            className={cn(
+              'flex min-w-0 items-center gap-3 rounded-md border p-3 text-left transition',
+              selected ? 'border-primary bg-primary/5' : 'bg-background hover:bg-muted/40',
+            )}
+          >
+            <span className={cn(
+              'inline-flex h-5 w-5 shrink-0 items-center justify-center rounded border',
+              selected ? 'border-primary bg-primary text-primary-foreground' : 'border-border',
+            )}>{selected ? <Check className="h-3.5 w-3.5" /> : <Plug className="h-3.5 w-3.5" />}</span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-sm font-medium">{plugin.name}</span>
+              <span className="block text-xs text-muted-foreground">{plugin.scopeType}</span>
+            </span>
+          </button>
+        );
+      })}
     </div>
   );
 }

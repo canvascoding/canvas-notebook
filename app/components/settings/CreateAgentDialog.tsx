@@ -6,9 +6,14 @@ import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
-import { AgentMembersEditor } from '@/app/components/agents/AgentMembersEditor';
+import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
 import { AgentManagedFilesEditor, type ManagedFileName } from './AgentManagedFilesCard';
-import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
+import {
+  AgentConnectionsPicker,
+  AgentPluginsPicker,
+  AgentRelevantSkillsPicker,
+  type AgentPluginSelection,
+} from './AgentCapabilityPickers';
 import {
   AgentCatalogModelOverrideEditor,
   initialAgentCatalogSelection,
@@ -146,6 +151,7 @@ const AGENT_TEMPLATES: CreateAgentTemplate[] = [
 export type CreateAgentInput = {
   name: string;
   iconId: AgentIconId;
+  scopeType: 'user' | 'organization';
   defaultProviderInstallationId: string | null;
   defaultProvider: string | null;
   defaultModel: string | null;
@@ -155,11 +161,14 @@ export type CreateAgentInput = {
   enabledTools: string[] | null;
   relevantSkills: string[] | null;
   relevantConnections: string[] | null;
+  capabilities: Array<{ resourceType: 'plugin'; resourceId: string; name: string }> | null;
 };
 
 export type CreatedAgent = {
   agentId: string;
   name: string;
+  scopeType: 'user' | 'organization' | 'system';
+  revision: number;
 };
 
 type CreateAgentDialogProps = {
@@ -320,6 +329,7 @@ export function CreateAgentDialog({
   const [selectedTemplateId, setSelectedTemplateId] = useState<CreateAgentTemplateId>('custom');
   const [name, setName] = useState('');
   const [iconId, setIconId] = useState<AgentIconId>('bot');
+  const [scopeType, setScopeType] = useState<'user' | 'organization'>('user');
   const [iconPickerOpen, setIconPickerOpen] = useState(false);
   const [templatePickerOpen, setTemplatePickerOpen] = useState(false);
   const [fileDrafts, setFileDrafts] = useState<Record<ManagedFileName, string>>(() => mergeFileDrafts(AGENT_TEMPLATES[0]));
@@ -327,6 +337,9 @@ export function CreateAgentDialog({
   const [selectedSkills, setSelectedSkills] = useState<string[]>([]);
   const [skillsOverrideEnabled, setSkillsOverrideEnabled] = useState(false);
   const [selectedConnections, setSelectedConnections] = useState<string[]>([]);
+  const [selectedPlugins, setSelectedPlugins] = useState<AgentPluginSelection[]>([]);
+  const [pluginsOverrideEnabled, setPluginsOverrideEnabled] = useState(false);
+  const [pluginsOpen, setPluginsOpen] = useState(false);
   const [connectionsOverrideEnabled, setConnectionsOverrideEnabled] = useState(false);
   const [modelOverrideEnabled, setModelOverrideEnabled] = useState(false);
   const [modelOpen, setModelOpen] = useState(true);
@@ -437,6 +450,13 @@ export function CreateAgentDialog({
     };
   }, [availableTools, customEnabledTools, inheritedEnabledTools, toolsOverrideEnabled]);
 
+  useEffect(() => {
+    if (scopeType !== 'organization') return;
+    queueMicrotask(() => {
+      setSelectedPlugins((current) => current.filter((plugin) => plugin.scopeType !== 'user'));
+    });
+  }, [scopeType]);
+
   const isCreateToolEnabled = useCallback((toolName: string): boolean => {
     const allNames = availableTools.map((tool) => tool.name);
     const enabledTools = customEnabledTools ?? [];
@@ -496,6 +516,10 @@ export function CreateAgentDialog({
   const resetDialog = useCallback(() => {
     applyTemplate(AGENT_TEMPLATES[0]);
     setSelectedConnections([]);
+    setSelectedPlugins([]);
+    setPluginsOverrideEnabled(false);
+    setPluginsOpen(false);
+    setScopeType('user');
     setConnectionsOverrideEnabled(false);
     setConnectionsOpen(false);
     setModelOverrideEnabled(false);
@@ -538,6 +562,7 @@ export function CreateAgentDialog({
     const agent = await onCreate({
       name: name.trim(),
       iconId,
+      scopeType,
       defaultProviderInstallationId: usesModelOverride ? modelDraft?.providerInstallationId ?? null : null,
       defaultProvider: usesModelOverride ? modelDraft?.providerId ?? null : null,
       defaultModel: usesModelOverride ? modelDraft?.modelId ?? null : null,
@@ -549,6 +574,9 @@ export function CreateAgentDialog({
       enabledTools: toolsOverrideEnabled ? customEnabledTools ?? [] : null,
       relevantSkills: skillsOverrideEnabled ? selectedSkills : null,
       relevantConnections: connectionsOverrideEnabled ? selectedConnections : null,
+      capabilities: pluginsOverrideEnabled
+        ? selectedPlugins.map(({ resourceType, resourceId, name }) => ({ resourceType, resourceId, name }))
+        : null,
     });
     if (agent) setCreatedAgent(agent);
   }
@@ -567,11 +595,18 @@ export function CreateAgentDialog({
             </DialogHeader>
             <ScrollArea className="h-full min-h-0">
               <div className="mx-auto w-full max-w-4xl p-4 sm:p-6">
-                <AgentMembersEditor
-                  key={createdAgent.agentId}
-                  active={open}
-                  agentId={createdAgent.agentId}
-                />
+                {createdAgent.scopeType === 'organization' ? (
+                  <AgentGrantsEditor
+                    key={createdAgent.agentId}
+                    active={open}
+                    agentId={createdAgent.agentId}
+                    revision={createdAgent.revision}
+                  />
+                ) : (
+                  <div className="rounded-md border bg-muted/20 p-4 text-sm text-muted-foreground" data-testid="personal-agent-created">
+                    {t('personalCreatedDescription')}
+                  </div>
+                )}
               </div>
             </ScrollArea>
             <DialogFooter className="shrink-0 border-t bg-background/95 px-4 py-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] sm:px-5 sm:py-4">
@@ -650,6 +685,38 @@ export function CreateAgentDialog({
                           className="h-12 min-w-0 text-base font-semibold sm:text-lg"
                           placeholder={t('namePlaceholder')}
                         />
+                        <div className="space-y-2 pt-1" data-testid="agent-scope-picker">
+                          <span className="block text-xs font-medium uppercase text-muted-foreground">{t('scope.label')}</span>
+                          <div className="grid gap-2 sm:grid-cols-2">
+                            <button
+                              type="button"
+                              onClick={() => setScopeType('user')}
+                              aria-pressed={scopeType === 'user'}
+                              className={cn(
+                                'rounded-md border px-3 py-2 text-left text-sm transition-colors',
+                                scopeType === 'user' ? 'border-primary bg-primary/5' : 'hover:bg-muted/40',
+                              )}
+                            >
+                              <span className="block font-medium">{t('scope.personal')}</span>
+                              <span className="mt-0.5 block text-xs text-muted-foreground">{t('scope.personalDescription')}</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => canManageAgentDefaults && setScopeType('organization')}
+                              aria-pressed={scopeType === 'organization'}
+                              disabled={!canManageAgentDefaults}
+                              className={cn(
+                                'rounded-md border px-3 py-2 text-left text-sm transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                                scopeType === 'organization' ? 'border-primary bg-primary/5' : 'hover:bg-muted/40',
+                              )}
+                            >
+                              <span className="block font-medium">{t('scope.organization')}</span>
+                              <span className="mt-0.5 block text-xs text-muted-foreground">
+                                {canManageAgentDefaults ? t('scope.organizationDescription') : t('scope.organizationAdminOnly')}
+                              </span>
+                            </button>
+                          </div>
+                        </div>
                       </div>
                     </div>
                   </section>
@@ -739,6 +806,23 @@ export function CreateAgentDialog({
                       selectedConnectionIds={selectedConnections}
                       onSelectedConnectionIdsChange={setSelectedConnections}
                       pageSize={6}
+                    />
+                  </CreateAgentSection>
+
+                  <CreateAgentSection
+                    title={t('plugins.title')}
+                    description={t('plugins.description')}
+                    icon={Sparkles}
+                    open={pluginsOpen}
+                    onOpenChange={setPluginsOpen}
+                    enabled={pluginsOverrideEnabled}
+                    onEnabledChange={setPluginsOverrideEnabled}
+                  >
+                    <AgentPluginsPicker
+                      enabled={pluginsOverrideEnabled}
+                      organizationOnly={scopeType === 'organization'}
+                      selectedPlugins={selectedPlugins}
+                      onSelectedPluginsChange={setSelectedPlugins}
                     />
                   </CreateAgentSection>
 

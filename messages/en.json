@@ -862,7 +862,11 @@
       "revisionCheck": "Revision checked",
       "lockRequired": "Lock required",
       "locked": "Locked",
-      "revisionShort": "Revision {revision}"
+      "revisionShort": "Revision {revision}",
+      "connecting": "Connecting collaboration…",
+      "live": "Live collaboration",
+      "readOnly": "Live · read only",
+      "degraded": "Collaboration persistence degraded"
     },
     "binaryPreviewUnavailable": "Binary file preview is not available.",
     "downloadFile": "Download file",
@@ -3329,6 +3333,7 @@
         "createPlaceholder": "Name of the new special agent",
         "delete": "Delete agent",
         "confirmDelete": "Delete this special agent including its sessions?",
+        "confirmDeleteImpact": "Delete this agent? This removes {sessions} sessions, {grants} access assignments, {capabilities} capability bindings, and {files} managed files. This cannot be undone.",
         "loading": "Loading agents...",
         "empty": "No agents found.",
         "mainAgent": "Main",
@@ -3406,7 +3411,16 @@
         "creating": "Creating agent...",
         "accessTitle": "Set access for {name}",
         "accessDescription": "The agent has been created. Add users and decide whether they can use, edit, or manage it.",
+        "personalCreatedDescription": "This personal agent is ready and available only to you. Its configuration and memory stay in your user scope.",
         "done": "Done",
+        "scope": {
+          "label": "Availability",
+          "personal": "Only me",
+          "personalDescription": "A personal agent with private configuration and memory.",
+          "organization": "Organization",
+          "organizationDescription": "A central agent that can be assigned to roles, workspaces, projects, or users.",
+          "organizationAdminOnly": "Only organization owners and admins can create central agents."
+        },
         "templates": {
           "custom": {
             "name": "Custom Agent",
@@ -3464,6 +3478,10 @@
           "mcpDetail": "{count} cached tools",
           "composioDetail": "{count} tools",
           "loadMore": "Show {count} more"
+        },
+        "plugins": {
+          "title": "Plugins",
+          "description": "Bind enabled plugins by stable organization or user capability reference."
         },
         "skills": {
           "title": "Relevant skills",

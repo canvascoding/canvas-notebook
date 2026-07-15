@@ -210,6 +210,11 @@ export type AgentProfile = {
   iconId?: string;
   type: string;
   removable: boolean;
+  scopeType?: 'user' | 'organization' | 'system';
+  organizationId?: string | null;
+  ownerUserId?: string | null;
+  createdByUserId?: string | null;
+  revision?: number;
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
   access?: {

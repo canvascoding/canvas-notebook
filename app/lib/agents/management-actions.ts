@@ -274,6 +274,21 @@ async function resolveCapabilityBindings(input: {
     if (seen.has(key)) continue;
     seen.add(key);
     bindings.push({ ...selected.ref, requirement: selection.requirement });
+    if (selected.ref.resourceType === 'plugin') {
+      const pluginSkills = snapshot?.capabilities.filter((candidate) => (
+        candidate.ref.resourceType === 'skill'
+        && candidate.pluginResourceId === selected.ref.resourceId
+        && candidate.effectiveEnabled
+        && candidate.readiness === 'available'
+        && (input.scopeType !== 'organization' || candidate.ref.scopeType !== 'user')
+      )) || [];
+      for (const pluginSkill of pluginSkills) {
+        const skillKey = `${pluginSkill.ref.resourceType}:${pluginSkill.ref.scopeType}:${pluginSkill.ref.resourceId}`;
+        if (seen.has(skillKey)) continue;
+        seen.add(skillKey);
+        bindings.push({ ...pluginSkill.ref, requirement: selection.requirement });
+      }
+    }
   }
 
   for (const rawName of input.relevantConnections || []) {
@@ -293,6 +308,40 @@ async function resolveCapabilityBindings(input: {
     });
   }
   return { bindings, snapshot };
+}
+
+async function validateSpecialAgentTools(enabledTools: string[] | null | undefined): Promise<void> {
+  if (!enabledTools) return;
+  const protectedAgentTools = new Set([
+    'agent_manage',
+    'list_agents',
+    'inspect_agent',
+    'create_agent',
+    'update_agent_profile',
+    'update_agent_runtime',
+    'update_agent_capabilities',
+    'update_agent_file',
+    'set_agent_grant',
+    'remove_agent_grant',
+    'preview_agent_deletion',
+    'delete_agent',
+  ]);
+  const { getPiToolMetadata } = await import('@/app/lib/pi/tool-registry');
+  const known = new Set((await getPiToolMetadata()).map((tool) => tool.name));
+  known.add('__none__');
+  const unknown = enabledTools.filter((toolName) => !known.has(toolName));
+  if (unknown.length > 0) {
+    throw new AgentManagementError('AGENT_TOOL_UNKNOWN', `Unknown agent tools: ${unknown.join(', ')}`);
+  }
+  const protectedSelections = enabledTools.filter((toolName) => protectedAgentTools.has(toolName));
+  if (protectedSelections.length > 0) {
+    throw new AgentManagementError(
+      'AGENT_RECURSIVE_MANAGEMENT_BLOCKED',
+      'Specialized agents cannot receive agent-management tools.',
+      403,
+      { protectedSelections },
+    );
+  }
 }
 
 function readinessForBindings(
@@ -395,6 +444,7 @@ export async function createManagedAgent(actor: AgentManagementActor, input: Cre
     ? await requireOrganizationAdmin(actor)
     : actorOrganizationId;
   const enabledTools = Array.isArray(input.enabledTools) ? input.enabledTools : null;
+  await validateSpecialAgentTools(enabledTools);
   await assertBrowserToolCanBeEnabled({ nextEnabledTools: enabledTools });
   const resolvedCapabilities = await resolveCapabilityBindings({
     actor,
@@ -526,6 +576,7 @@ export async function updateManagedAgentRuntime(input: {
   if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent runtime is configured in app settings.', 403);
   ensureExpectedRevision(existing, input.expectedRevision);
   const nextEnabledTools = input.enabledTools === undefined ? existing.enabledTools : input.enabledTools;
+  if (input.enabledTools !== undefined) await validateSpecialAgentTools(input.enabledTools);
   await assertBrowserToolCanBeEnabled({ previousEnabledTools: existing.enabledTools, nextEnabledTools });
   const changesDefault = [
     input.defaultProviderInstallationId,

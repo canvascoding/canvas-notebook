@@ -8,7 +8,7 @@ import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import { EditAgentProfileDialog } from '@/app/components/agents/EditAgentProfileDialog';
 import { authClient } from '@/app/lib/auth-client';
 import type { AgentProfile } from '@/app/lib/chat/types';
-import { CreateAgentDialog, type CreateAgentInput } from '@/app/components/settings/CreateAgentDialog';
+import { CreateAgentDialog, type CreateAgentInput, type CreatedAgent } from '@/app/components/settings/CreateAgentDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { cn } from '@/lib/utils';
 
@@ -47,7 +47,7 @@ export function ChatAgentSelector({
   const { data: session } = authClient.useSession();
   const canManageAgentDefaults = session?.user?.role === 'admin';
 
-  const createAgent = useCallback(async (input: CreateAgentInput): Promise<AgentProfile | null> => {
+  const createAgent = useCallback(async (input: CreateAgentInput): Promise<CreatedAgent | null> => {
     setCreating(true);
     setCreateError(null);
     try {
@@ -69,7 +69,12 @@ export function ChatAgentSelector({
 
       await onReloadAgents?.();
       onSelectAgent(createdAgent.agentId);
-      return createdAgent;
+      return {
+        agentId: createdAgent.agentId,
+        name: createdAgent.name,
+        scopeType: createdAgent.scopeType || input.scopeType,
+        revision: createdAgent.revision || 1,
+      };
     } catch (error) {
       setCreateError(error instanceof Error ? error.message : t('agentCreateFailed'));
       return null;

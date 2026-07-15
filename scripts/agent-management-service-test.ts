@@ -14,6 +14,7 @@ const moduleInternals = Module as typeof Module & {
 };
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
+  if (request === '@earendil-works/pi-agent-core') return {};
   if (request === '@earendil-works/pi-ai/compat') {
     return {
       getModels: () => [],
@@ -82,6 +83,14 @@ async function main() {
   assert.equal(
     existsSync(path.join(dataDir, 'users', 'marketing-user', 'agents', personal.agent.agentId, 'AGENTS.md')),
     true,
+  );
+  await assert.rejects(
+    () => createManagedAgent(memberActor, {
+      name: 'Recursive Agent Factory',
+      scopeType: 'user',
+      enabledTools: ['create_agent'],
+    }),
+    (error: unknown) => error instanceof Error && 'code' in error && error.code === 'AGENT_RECURSIVE_MANAGEMENT_BLOCKED',
   );
 
   await assert.rejects(

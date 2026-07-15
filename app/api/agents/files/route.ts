@@ -137,7 +137,13 @@ export async function POST(request: NextRequest) {
       expectedRevision: payload.expectedRevision,
       fileName,
     });
-    return NextResponse.json({ success: true, data: { ...data, reset: true } });
+    const single = fileName ? data.files[0] : null;
+    return NextResponse.json({
+      success: true,
+      data: single
+        ? { ...single, agent: data.agent, reset: true }
+        : { ...data, reset: true },
+    });
   } catch (error) {
     return errorResponse(error, 'Failed to reset agent files.');
   }

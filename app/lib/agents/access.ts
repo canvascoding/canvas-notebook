@@ -193,13 +193,41 @@ export async function getAgentAccess(
       can_edit: unknown;
       can_manage: unknown;
     }>;
+    const [workspaceRows, projectRows] = await Promise.all([
+      context.workspaceId ? Promise.resolve([]) : database.all(
+        `SELECT DISTINCT w.id
+         FROM canvas_workspaces w
+         LEFT JOIN canvas_workspace_members wm
+           ON wm.workspace_id = w.id AND wm.user_id = ? AND wm.status = 'active'
+         LEFT JOIN canvas_project_members pm
+           ON pm.project_id = w.project_id AND pm.user_id = ? AND pm.status = 'active'
+         WHERE w.organization_id = ? AND w.status = 'active'
+           AND (w.type = 'organization' OR w.owner_user_id = ? OR wm.user_id IS NOT NULL OR pm.user_id IS NOT NULL)`,
+        [userId, userId, row.organization_id, userId],
+      ),
+      context.projectId ? Promise.resolve([]) : database.all(
+        `SELECT DISTINCT p.id
+         FROM canvas_projects p
+         LEFT JOIN canvas_project_members pm
+           ON pm.project_id = p.id AND pm.user_id = ? AND pm.status = 'active'
+         WHERE p.organization_id = ? AND p.status = 'active'
+           AND (p.created_by_user_id = ? OR pm.user_id IS NOT NULL OR ? IN ('owner', 'admin'))`,
+        [userId, row.organization_id, userId, permission.role || 'member'],
+      ),
+    ]) as [Array<{ id: string }>, Array<{ id: string }>];
+    const accessibleWorkspaceIds = new Set(workspaceRows.map((entry) => entry.id));
+    const accessibleProjectIds = new Set(projectRows.map((entry) => entry.id));
     const matchedGrantAccess = grantRows
       .filter((grant) => {
         if (grant.target_type === 'organization') return grant.target_id === row.organization_id;
         if (grant.target_type === 'role') return grant.target_id === permission.role;
         if (grant.target_type === 'user') return grant.target_id === userId;
-        if (grant.target_type === 'workspace') return Boolean(context.workspaceId && grant.target_id === context.workspaceId);
-        if (grant.target_type === 'project') return Boolean(context.projectId && grant.target_id === context.projectId);
+        if (grant.target_type === 'workspace') {
+          return context.workspaceId ? grant.target_id === context.workspaceId : accessibleWorkspaceIds.has(grant.target_id);
+        }
+        if (grant.target_type === 'project') {
+          return context.projectId ? grant.target_id === context.projectId : accessibleProjectIds.has(grant.target_id);
+        }
         return false;
       })
       .map((grant): AgentAccess => ({

@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { Bot, Lock, Plus, RefreshCw, Trash2 } from 'lucide-react';
+import { Bot, Building2, Lock, Plus, RefreshCw, Trash2, UserRound } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
@@ -24,6 +24,11 @@ export type AgentProfileItem = {
   enabledTools: string[] | null;
   relevantSkills: string[] | null;
   relevantConnections: string[] | null;
+  scopeType: 'user' | 'organization' | 'system';
+  organizationId: string | null;
+  ownerUserId: string | null;
+  createdByUserId: string | null;
+  revision: number;
   access?: {
     canUse: boolean;
     canEdit: boolean;
@@ -130,6 +135,15 @@ export function AgentSelectorCard({
                         <Badge variant={agent.type === 'main' ? 'default' : 'secondary'} className="max-w-full whitespace-normal text-left">
                           {agent.type === 'main' ? t('agentPanel.selector.mainAgent') : t('agentPanel.selector.specialAgent')}
                         </Badge>
+                        {agent.type !== 'main' ? (
+                          <Badge variant="outline" className="max-w-full gap-1 whitespace-normal text-left" data-testid={`agent-scope-${agent.agentId}`}>
+                            {agent.scopeType === 'organization' ? <Building2 className="h-3 w-3" /> : <UserRound className="h-3 w-3" />}
+                            {agent.scopeType === 'organization'
+                              ? t('agentPanel.createDialog.scope.organization')
+                              : t('agentPanel.createDialog.scope.personal')}
+                          </Badge>
+                        ) : null}
+                        <Badge variant="outline" className="font-mono text-[10px]">r{agent.revision}</Badge>
                         {!agent.removable && (
                           <Badge variant="outline" className="max-w-full gap-1 whitespace-normal text-left">
                             <Lock className="h-3 w-3 shrink-0" />

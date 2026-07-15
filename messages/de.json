@@ -861,7 +861,11 @@
       "revisionCheck": "Revision geprüft",
       "lockRequired": "Lock erforderlich",
       "locked": "Gesperrt",
-      "revisionShort": "Revision {revision}"
+      "revisionShort": "Revision {revision}",
+      "connecting": "Live-Bearbeitung wird verbunden…",
+      "live": "Live-Bearbeitung aktiv",
+      "readOnly": "Live · schreibgeschützt",
+      "degraded": "Persistenz der Live-Bearbeitung gestört"
     },
     "binaryPreviewUnavailable": "Für Binärdateien ist keine Vorschau verfügbar.",
     "downloadFile": "Datei herunterladen",
@@ -3328,6 +3332,7 @@
         "createPlaceholder": "Name des neuen Spezial-Agenten",
         "delete": "Agent löschen",
         "confirmDelete": "Diesen Spezial-Agenten inklusive seiner Sessions löschen?",
+        "confirmDeleteImpact": "Diesen Agenten löschen? Dabei werden {sessions} Sessions, {grants} Zugriffszuweisungen, {capabilities} Capability-Bindings und {files} verwaltete Dateien entfernt. Das kann nicht rückgängig gemacht werden.",
         "loading": "Lade Agenten...",
         "empty": "Keine Agenten gefunden.",
         "mainAgent": "Main",
@@ -3405,7 +3410,16 @@
         "creating": "Agent wird erstellt...",
         "accessTitle": "Zugriff für {name} festlegen",
         "accessDescription": "Der Agent ist erstellt. Füge jetzt Nutzer hinzu und lege fest, ob sie ihn nutzen, bearbeiten oder verwalten dürfen.",
+        "personalCreatedDescription": "Dieser persönliche Agent ist einsatzbereit und nur für dich verfügbar. Konfiguration und Memory bleiben in deinem Nutzer-Scope.",
         "done": "Fertig",
+        "scope": {
+          "label": "Verfügbarkeit",
+          "personal": "Nur für mich",
+          "personalDescription": "Persönlicher Agent mit privater Konfiguration und Memory.",
+          "organization": "Organisation",
+          "organizationDescription": "Zentraler Agent für Rollen, Workspaces, Projekte oder einzelne Nutzer.",
+          "organizationAdminOnly": "Nur Organisations-Owner und -Admins können zentrale Agenten erstellen."
+        },
         "templates": {
           "custom": {
             "name": "Custom Agent",
@@ -3463,6 +3477,10 @@
           "mcpDetail": "{count} gecachte Tools",
           "composioDetail": "{count} Tools",
           "loadMore": "{count} weitere anzeigen"
+        },
+        "plugins": {
+          "title": "Plugins",
+          "description": "Binde aktivierte Plugins über stabile Organisations- oder Nutzer-Capability-Referenzen."
         },
         "skills": {
           "title": "Relevante Skills",

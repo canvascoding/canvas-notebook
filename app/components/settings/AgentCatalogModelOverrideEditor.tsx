@@ -245,6 +245,7 @@ export function AgentCatalogModelOverrideEditor({
 
 type AgentDefaultProfile = {
   agentId: string;
+  revision: number;
   defaultProviderInstallationId: string | null;
   defaultProvider: string | null;
   defaultModel: string | null;
@@ -284,6 +285,7 @@ function selectionFromAgent(agent: AgentDefaultProfile): AgentCatalogModelSelect
 
 async function patchAgentDefault(input: {
   agentId: string;
+  expectedRevision: number;
   catalogRevision?: number;
   selection: AgentCatalogModelSelection | null;
 }) {
@@ -294,6 +296,7 @@ async function patchAgentDefault(input: {
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       agentId: input.agentId,
+      expectedRevision: input.expectedRevision,
       defaultProviderInstallationId: input.selection?.providerInstallationId ?? null,
       defaultProvider: input.selection?.providerId ?? null,
       defaultModel: input.selection?.modelId ?? null,
@@ -366,6 +369,7 @@ export function AgentCatalogModelOverrideCard({
     try {
       await patchAgentDefault({
         agentId: agent.agentId,
+        expectedRevision: agent.revision,
         catalogRevision: catalog?.revision,
         selection: overrideEnabled ? selection : null,
       });

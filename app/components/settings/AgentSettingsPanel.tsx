@@ -17,10 +17,11 @@ import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
-import { AgentManagedFilesCard, getVisibleManagedFileNames, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
+import { AgentManagedFilesCard, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
 import { AgentChatDisplayCard } from './AgentChatDisplayCard';
+import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { AgentRuntimePreferenceCard } from './AgentRuntimePreferenceCard';
@@ -418,6 +419,9 @@ export function AgentSettingsPanel({
     () => agents.find((agent) => agent.agentId === selectedAgentId) || null,
     [agents, selectedAgentId],
   );
+  const mergeAgent = useCallback((agent: AgentProfileItem) => {
+    setAgents((current) => current.map((entry) => entry.agentId === agent.agentId ? { ...entry, ...agent } : entry));
+  }, []);
   const isMainAgent = selectedAgentId === DEFAULT_AGENT_ID || selectedAgent?.type === 'main';
   const toolsOverrideEnabled = isMainAgent || Array.isArray(selectedAgent?.enabledTools);
   const skillsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantSkills);
@@ -487,6 +491,7 @@ export function AgentSettingsPanel({
         body: JSON.stringify({
           name,
           iconId: input.iconId,
+          scopeType: input.scopeType,
           defaultProviderInstallationId: input.defaultProviderInstallationId,
           defaultProvider: input.defaultProvider,
           defaultModel: input.defaultModel,
@@ -496,6 +501,7 @@ export function AgentSettingsPanel({
           enabledTools: input.enabledTools,
           relevantSkills: input.relevantSkills,
           relevantConnections: input.relevantConnections,
+          capabilities: input.capabilities,
         }),
       });
       await loadAgents();
@@ -510,18 +516,35 @@ export function AgentSettingsPanel({
   };
 
   const deleteAgent = async (agentId: string) => {
-    if (!window.confirm(t('agentPanel.selector.confirmDelete'))) {
-      return;
-    }
-
     setAgentDeletingId(agentId);
     setAgentsError(null);
 
     try {
-      const params = new URLSearchParams({ agentId });
-      const response = await fetch(`/api/agents?${params.toString()}`, {
+      const preview = await fetchJson<{
+        agent: AgentProfileItem;
+        impacts: { sessions: number; members: number; grants: number; capabilityBindings: number; managedFiles: string[] };
+        confirmationToken: string;
+      }>('/api/agents/delete-preview', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ agentId }),
+      });
+      const confirmed = window.confirm(t('agentPanel.selector.confirmDeleteImpact', {
+        sessions: preview.impacts.sessions,
+        grants: preview.impacts.grants + preview.impacts.members,
+        capabilities: preview.impacts.capabilityBindings,
+        files: preview.impacts.managedFiles.length,
+      }));
+      if (!confirmed) return;
+      const response = await fetch('/api/agents', {
         method: 'DELETE',
         credentials: 'include',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          agentId,
+          expectedRevision: preview.agent.revision,
+          confirmationToken: preview.confirmationToken,
+        }),
       });
       const body = (await response.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!response.ok || !body.success) {
@@ -643,18 +666,20 @@ export function AgentSettingsPanel({
   }, []);
 
   const patchSelectedAgent = useCallback(async (payload: Record<string, unknown>) => {
-    if (isMainAgent) return;
-    await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
+    if (isMainAgent || !selectedAgent) return;
+    const result = await fetchJson<{ agent: AgentProfileItem }>('/api/agents', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         agentId: selectedAgentId,
+        expectedRevision: selectedAgent.revision,
         ...payload,
       }),
     });
+    mergeAgent(result.agent);
     await loadAgents();
     await loadToolsConfig();
-  }, [isMainAgent, loadAgents, loadToolsConfig, selectedAgentId]);
+  }, [isMainAgent, loadAgents, loadToolsConfig, mergeAgent, selectedAgent, selectedAgentId]);
 
   const setAgentSectionOpen = useCallback((sectionId: AgentSettingsSectionId, isOpen: boolean) => {
     setAgentSectionOpenById((current) => {
@@ -760,11 +785,12 @@ export function AgentSettingsPanel({
     }));
   };
 
-  const requestResetManagedFile = async (fileName: ManagedFileName) => fetchJson<{ fileName: ManagedFileName; content: string }>('/api/agents/files', {
+  const requestResetManagedFile = async (fileName: ManagedFileName) => fetchJson<{ fileName: ManagedFileName; content: string; agent?: AgentProfileItem }>('/api/agents/files', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
       agentId: selectedAgentId,
+      expectedRevision: selectedAgent?.revision,
       action: 'reset',
       fileName,
     }),
@@ -786,17 +812,19 @@ export function AgentSettingsPanel({
 
     try {
       const content = fileDrafts[fileName] ?? '';
-      const payload = await fetchJson<{ fileName: ManagedFileName; content: string }>('/api/agents/files', {
+      const payload = await fetchJson<{ fileName: ManagedFileName; content: string; agent?: AgentProfileItem }>('/api/agents/files', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: selectedAgentId,
+          expectedRevision: selectedAgent?.revision,
           fileName,
           content,
         }),
       });
 
       applyManagedFileContent(payload.fileName, payload.content);
+      if (payload.agent) mergeAgent(payload.agent);
       options.setSuccess(options.successMessage(payload.fileName));
     } catch (error) {
       options.setError(error instanceof Error ? error.message : options.errorMessage);
@@ -836,12 +864,21 @@ export function AgentSettingsPanel({
       if (resetTarget === 'current') {
         const payload = await requestResetManagedFile(activeFile);
         applyManagedFileContent(payload.fileName, payload.content);
+        if (payload.agent) mergeAgent(payload.agent);
         setFilesSuccess(t('agentPanel.files.resetSuccess', { fileName: payload.fileName }));
       } else {
-        const payload = await Promise.all(getVisibleManagedFileNames(isMainAgent).map((fileName) => requestResetManagedFile(fileName)));
+        const payload = await fetchJson<{ files: Array<{ fileName: ManagedFileName; content: string }>; agent?: AgentProfileItem }>('/api/agents/files', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: selectedAgentId,
+            expectedRevision: selectedAgent?.revision,
+            action: 'reset',
+          }),
+        });
 
         const newFiles: Record<ManagedFileName, string> = { ...fileDrafts };
-        for (const { fileName, content } of payload) {
+        for (const { fileName, content } of payload.files) {
           newFiles[fileName] = content;
         }
 
@@ -850,6 +887,7 @@ export function AgentSettingsPanel({
           ...newFiles,
         }));
         setFileDrafts(newFiles);
+        if (payload.agent) mergeAgent(payload.agent);
         setFilesSuccess(t('agentPanel.files.resetAllSuccess'));
       }
     } catch (error) {
@@ -874,6 +912,7 @@ export function AgentSettingsPanel({
     try {
       const payload = await requestResetManagedFile('HEARTBEAT.md');
       applyManagedFileContent(payload.fileName, payload.content);
+      if (payload.agent) mergeAgent(payload.agent);
       setHeartbeatFileSuccess(t('agentPanel.heartbeat.fileResetSuccess'));
     } catch (error) {
       setHeartbeatFileError(error instanceof Error ? error.message : t('agentPanel.heartbeat.errors.fileReset'));
@@ -1200,6 +1239,19 @@ export function AgentSettingsPanel({
         onDelete={(agentId) => void deleteAgent(agentId)}
         onReload={() => void loadAgents()}
       />
+
+      {selectedAgent?.scopeType === 'organization' && selectedAgent.access?.canManage ? (
+        <Card>
+          <CardContent className="pt-6">
+            <AgentGrantsEditor
+              active
+              agentId={selectedAgent.agentId}
+              revision={selectedAgent.revision}
+              onChanged={(updated) => mergeAgent({ ...selectedAgent, ...updated })}
+            />
+          </CardContent>
+        </Card>
+      ) : null}
 
       {!isMainAgent && (
         <Card>

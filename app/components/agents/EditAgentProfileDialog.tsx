@@ -7,6 +7,7 @@ import { useTranslations } from 'next-intl';
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
 import { AgentMembersEditor } from '@/app/components/agents/AgentMembersEditor';
+import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
 import type { AgentIconId } from '@/app/lib/agents/icons';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { Button } from '@/components/ui/button';
@@ -90,6 +91,7 @@ export function EditAgentProfileDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           agentId: agent.agentId,
+          expectedRevision: agent.revision,
           name: trimmedName,
           iconId,
         }),
@@ -163,7 +165,16 @@ export function EditAgentProfileDialog({
                 ) : null}
               </div>
 
-              {canManageAccess && agent ? (
+              {canManageAccess && agent?.scopeType === 'organization' ? (
+                <div className="mt-6 border-t border-border pt-6">
+                  <AgentGrantsEditor
+                    active={open}
+                    agentId={agent.agentId}
+                    revision={agent.revision || 1}
+                    onChanged={(updated) => onChanged({ ...agent, ...updated })}
+                  />
+                </div>
+              ) : canManageAccess && agent && !agent.scopeType ? (
                 <div className="mt-6 border-t border-border pt-6">
                   <AgentMembersEditor
                     active={open}
