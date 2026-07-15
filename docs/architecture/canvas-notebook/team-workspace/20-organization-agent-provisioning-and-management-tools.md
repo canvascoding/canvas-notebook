@@ -16,7 +16,7 @@ Der Zielablauf lautet:
 
 Der Agent-Tool-Pfad darf kein zweiter, abweichender Agent-CRUD werden.
 
-## Aktueller Befund
+## Ausgangsbefund
 
 Bereits vorhanden:
 
@@ -28,7 +28,7 @@ Bereits vorhanden:
 - Read-only Automation-Tools bleiben direkt sichtbar, waehrend schreibende Automation-Operationen im Gateway `automation_manage` zusammengefasst werden.
 - Organization-Skills und Organization-Plugins besitzen seit Aufgabe `49` stabile scope-aware Referenzen, immutable Versionspakete, Policy-Kaskade, Konfliktblockierung, persoenliche Aktivierung und user-spezifische Connection Readiness.
 
-Noch fehlend:
+Zum Planungszeitpunkt noch fehlend:
 
 - `agents` besitzt keinen eindeutigen Personal-/Organization-Scope mit Owner und Creator.
 - Agent-Freigaben gelten nur fuer einzelne User, nicht fuer Organization, Rolle, Workspace oder Projekt.
@@ -36,6 +36,30 @@ Noch fehlend:
 - Agent-Skill-/Plugin-Zuordnungen sind lose Namenslisten statt stabiler, scope-aware Referenzen.
 - UI und REST-Route orchestrieren Agent-Erstellung direkt; es gibt noch keine gemeinsame Agent-Management-Anwendungsschicht fuer UI, API und Tool.
 - Es gibt keine aktive Tool-Kategorie fuer Agent-Definitionen und keinen Progressive-Disclosure-Gateway fuer Agent-Management.
+
+## Implementierungsstatus
+
+Status: `complete` seit 2026-07-15.
+
+Die geplante Architektur ist umgesetzt:
+
+- `agents` besitzt `scopeType`, Organization-, Owner- und Creator-Kontext sowie eine optimistisch gepruefte `revision`. SQLite- und Postgres-Migrationen legen zusaetzlich Grants, stabile Capability-Bindings und user-spezifische Preferences an und migrieren Bestandsagenten.
+- `app/lib/agents/management-actions.ts` ist die gemeinsame fachliche Anwendungsschicht fuer REST, UI und Agent-Tools. Profil, Runtime, Capabilities, Managed Files, Grants, Loeschvorschau und Loeschung verwenden dieselben Permission-, Validierungs-, Revisions-, Rollback- und Audit-Regeln.
+- Organization-Definitionen liegen zentral unter `/data/organizations/{organizationId}/agents/{agentId}/definition/`. Persoenliches `MEMORY.md` bleibt unter `/data/users/{userId}/agents/{agentId}/`; Legacy-Pfade werden nur als Migrations-Fallback gelesen.
+- `agent_grants` bildet Organization-, Rollen-, Workspace-, Projekt- und User-Zuweisungen mit `canUse`, `canEdit` und `canManage` ab. Session-, Delegation-, Chat- und Ausfuehrungspfade reichen den Workspace-/Projektkontext an dieselbe Access-Aufloesung weiter.
+- `agent_capability_bindings` speichert stabile Task-49-Referenzen. Organization-Agenten koennen keine user-scoped Plugins oder Skills binden; Plugin-Skills werden aus der effektiven Plugin-Ressource abgeleitet. Readiness und blockierte beziehungsweise fehlende Ressourcen werden strukturiert ausgegeben.
+- `/api/agents`, `/api/agents/files`, `/api/agents/grants` und `/api/agents/delete-preview` sind Adapter der Management Actions. Mutationen verlangen `expectedRevision`; Loeschungen verlangen zusaetzlich einen kurzlebigen revisionsgebundenen Bestaetigungstoken.
+- `app/lib/pi/agent-management-tools.ts` stellt `list_agents` und `inspect_agent` direkt und planning-safe bereit. Mutationen werden zur Laufzeit ueber das Progressive Gateway `agent_manage` mit `search`, `describe` und `call` geladen. Gruppe und Toolset heissen `Agents`; alle Agent-Management-Capabilities sind standardmaessig deaktiviert und nur fuer den Main Agent zulaessig.
+- Der Settings-Dialog erstellt Personal- oder Organization-Agenten mit Templates, Modell/Thinking, Tools, Skills, Plugins, Connections und Managed Files. Organization-Agenten koennen anschließend zentral an Organization, Rolle, Workspace, Projekt oder User vergeben werden; Scope und Revision sind im Agent-Katalog sichtbar.
+- Eine vollstaendige `create_agent`-Spezifikation mit Capability-Bindings, Connection-Anforderungen und initialen Grants bildet das Ausstattungspaket fuer einen Mitarbeiter oder Workspace. Sie referenziert Organization-Ressourcen, ohne Owner-Secrets oder persoenliche Connections zu kopieren; ein separates persistiertes Template-Objekt ist dafuer nicht erforderlich.
+- Main Agent, letzter Manager und fremde Personal-Agenten sind geschuetzt. Spezial-Agenten duerfen keine Agent-Management-Tools erhalten. Audit-Eintraege speichern Actor, Quelle, Scope, Operation und Revision sowie bei grossen Inhalten nur Hash/Laenge.
+
+Abnahme am 2026-07-15:
+
+- Service-, Tool- und API-Tests: `scripts/agent-management-service-test.ts`, `scripts/agent-management-tool-test.ts`, `scripts/agent-management-api-test.ts`.
+- Regressionspruefungen fuer Agent Access, Managed Files, Runtime, Sessions, Delegation, Tool-Registry, Progressive Gateway und Organization-Capability-Aufloesung.
+- Playwright-E2E auf Desktop und Mobile: Personal- und Organization-Erstellung, Scope-Anzeige, Revisionsfortschritt, ungueltiger Grant, Rollen-Grant, Gruppe `Agents`, default-disabled/on-demand Tools und Loeschvorschau.
+- `npx tsc --noEmit`, `npm run lint` und `npm run build` erfolgreich.
 
 ## Grundentscheidungen
 

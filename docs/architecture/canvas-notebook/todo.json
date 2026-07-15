@@ -1278,7 +1278,7 @@
     {
       "id": 50,
       "title": "Personal-/Organization-Agenten provisionieren und vollwertige Agent-Erstellung/-Bearbeitung als Progressive-Disclosure-Tool bereitstellen",
-      "status": "planned",
+      "status": "complete",
       "repo": "canvasstudios-notebook",
       "dependsOn": [
         5,
