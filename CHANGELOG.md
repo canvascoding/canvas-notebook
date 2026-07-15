@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.15.3] - 2026-07-15
+
+### Added
+
+- Added drag-and-drop and shared workflows for moving files within a workspace.
+- Added workspace-aware export controls and Obsidian-compatible workspace links in the Markdown editor.
+- Added direct opening of newly created files and folders from the explorer.
+
+### Changed
+
+- Refined knowledge-graph workspace navigation, automation placement, and document-graph copy.
+
+### Fixed
+
+- Prevented accidental mobile editor-toolbar actions and mobile workspace action overflow.
+- Preserved the required final full-access workspace member and cleared stale explorer selections.
+- Restored in-place loading of the latest chat session.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.15.2] - 2026-07-15
 
 ### Fixed
