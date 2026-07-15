@@ -43,6 +43,19 @@ function writeCachedAppearance(workspaceId: string, definition: WorkspaceAppeara
   }
 }
 
+function clearCachedAppearances() {
+  try {
+    const keysToRemove: string[] = [];
+    for (let index = 0; index < window.localStorage.length; index += 1) {
+      const key = window.localStorage.key(index);
+      if (key?.startsWith(CACHE_PREFIX)) keysToRemove.push(key);
+    }
+    for (const key of keysToRemove) window.localStorage.removeItem(key);
+  } catch {
+    // Cache invalidation is best-effort; every workspace is revalidated by the API on activation.
+  }
+}
+
 function clearWorkspaceAppearance(root: HTMLElement) {
   delete root.dataset.workspaceAppearance;
   delete root.dataset.workspaceAppearanceWorkspace;
@@ -134,6 +147,7 @@ export function WorkspaceAppearanceProvider({ children }: { children: ReactNode 
   }, [activeWorkspaceId, refreshRevision, workspaceAppearanceAllowed]);
 
   const refreshAppearance = useCallback(() => {
+    clearCachedAppearances();
     setRefreshRevision((current) => current + 1);
   }, []);
 
