@@ -48,6 +48,7 @@
     "studio": "Studio"
   },
   "workspaces": {
+    "edit": "Edit workspace",
     "label": "Workspace",
     "loadingWorkspace": "Loading workspace",
     "loadingWorkspaces": "Loading workspaces...",

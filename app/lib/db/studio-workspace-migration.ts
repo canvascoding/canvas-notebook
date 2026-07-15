@@ -8,7 +8,7 @@ export const STUDIO_WORKSPACE_TABLES = [
 ] as const;
 
 function workspaceAssignmentSql(table: string, options: { hasVisibility?: boolean; presets?: boolean } = {}): string {
-  const contentPredicate = options.presets ? 'COALESCE(is_default, FALSE) = FALSE' : '1 = 1';
+  const contentPredicate = options.presets ? 'COALESCE(is_default, 0) = 0' : '1 = 1';
   const organizationPredicate = options.hasVisibility
     ? "organization_id IS NOT NULL AND COALESCE(visibility, 'user') = 'organization'"
     : 'organization_id IS NOT NULL';
@@ -67,7 +67,7 @@ function workspaceAssignmentSql(table: string, options: { hasVisibility?: boolea
 }
 
 function synchronizeWorkspaceFieldsSql(table: string, options: { presets?: boolean } = {}): string {
-  const contentPredicate = options.presets ? 'COALESCE(is_default, FALSE) = FALSE' : '1 = 1';
+  const contentPredicate = options.presets ? 'COALESCE(is_default, 0) = 0' : '1 = 1';
   return `
     UPDATE ${table}
     SET
@@ -99,7 +99,7 @@ export const STUDIO_WORKSPACE_BACKFILL_STATEMENTS = [
     UPDATE studio_styles SET visibility = 'workspace' WHERE workspace_id IS NOT NULL
   `,
   `
-    UPDATE studio_presets SET visibility = 'workspace' WHERE workspace_id IS NOT NULL AND COALESCE(is_default, FALSE) = FALSE
+    UPDATE studio_presets SET visibility = 'workspace' WHERE workspace_id IS NOT NULL AND COALESCE(is_default, 0) = 0
   `,
   `
     UPDATE studio_generation_outputs
