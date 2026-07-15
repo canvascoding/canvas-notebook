@@ -21,7 +21,7 @@ import { FileGridItem } from './FileGridItem';
 import { BackgroundContextMenu } from './BackgroundContextMenu';
 import { useFileExplorerViewModel } from './useFileExplorerViewModel';
 import { useMarqueeSelection } from './useMarqueeSelection';
-import { useWorkspaceMove } from './useWorkspaceMove';
+import type { WorkspaceMoveController } from './useWorkspaceMove';
 import { useFilePresence } from './useFilePresence';
 import {
   DropdownMenu,
@@ -37,6 +37,8 @@ interface FileGridViewProps {
   onFileOpened?: (path: string) => void;
   onUpload?: () => void;
   onCreateFolder?: () => void;
+  moveController: WorkspaceMoveController;
+  dropTargetPath?: string | null;
 }
 
 const FILE_SORT_OPTIONS: Array<{ key: FileSortKey; labelKey: string }> = [
@@ -52,6 +54,8 @@ export function FileGridView({
   onFileOpened,
   onUpload,
   onCreateFolder,
+  moveController,
+  dropTargetPath,
 }: FileGridViewProps) {
   useFilePresence();
   const t = useTranslations('notebook');
@@ -82,7 +86,6 @@ export function FileGridView({
     visibleSearchResultCount,
   } = useFileExplorerViewModel({ containerRef, variant });
   const { marqueeHandlers, marqueeOverlayRect } = useMarqueeSelection(containerRef);
-  const moveController = useWorkspaceMove();
 
   const handleFileOpen = useCallback((path: string) => {
     if (onOpenFile) {
@@ -415,6 +418,7 @@ export function FileGridView({
                 selectionOrder={gridSelectionOrder}
                 showPath={Boolean(normalizedSearchQuery)}
                 openOnSingleClick={variant !== 'fullscreen'}
+                dropTargetPath={dropTargetPath}
               />
             ))}
           </div>
@@ -487,6 +491,7 @@ export function FileGridView({
                     showPath={Boolean(normalizedSearchQuery)}
                     openOnSingleClick={variant !== 'fullscreen'}
                     showListMetadata={variant === 'fullscreen'}
+                    dropTargetPath={dropTargetPath}
                   />
                 ))}
               </SidebarMenu>
@@ -549,6 +554,7 @@ export function FileGridView({
                   onOpenFile={handleFileOpen}
                   selectionOrder={treeSelectionOrder}
                   showPath={Boolean(normalizedSearchQuery)}
+                  dropTargetPath={dropTargetPath}
                 />
               ))}
             </SidebarMenu>

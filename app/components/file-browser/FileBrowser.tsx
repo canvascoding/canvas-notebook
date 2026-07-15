@@ -33,6 +33,8 @@ import { invalidateFileReferenceValidationCache } from '@/app/lib/chat/validate-
 import { useShallow } from 'zustand/react/shallow';
 import { useTrashUndo } from './useTrashUndo';
 import { UploadProgress } from './UploadProgress';
+import { useWorkspaceMove } from './useWorkspaceMove';
+import { useFileMoveDrag } from './useFileMoveDrag';
 
 
 import { AppLauncher } from '@/app/components/AppLauncher';
@@ -113,6 +115,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   })));
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const deleteWithUndo = useTrashUndo();
+  const moveController = useWorkspaceMove();
+  const fileMoveDrag = useFileMoveDrag({ controller: moveController });
 
   useEffect(() => {
     if (!activeWorkspaceId) return;
@@ -183,17 +187,32 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
   const handleUpload = async (files: File[], targetDir: string) => { await imagePreprocess.handleFiles(files, targetDir); };
 
   const handleDragEnter = (event: DragEvent<HTMLElement>) => {
+    if (fileMoveDrag.isWorkspaceFileDrag(event.dataTransfer)) return;
     event.preventDefault();
     dragCounter.current += 1;
     setIsDragging(true);
   };
   const handleDragLeave = (event: DragEvent<HTMLElement>) => {
+    if (fileMoveDrag.isWorkspaceFileDrag(event.dataTransfer)) {
+      fileMoveDrag.handlers.onDragLeave(event);
+      return;
+    }
     event.preventDefault();
     dragCounter.current -= 1;
     if (dragCounter.current <= 0) { dragCounter.current = 0; setIsDragging(false); }
   };
-  const handleDragOver = (event: DragEvent<HTMLElement>) => { event.preventDefault(); };
+  const handleDragOver = (event: DragEvent<HTMLElement>) => {
+    if (fileMoveDrag.isWorkspaceFileDrag(event.dataTransfer)) {
+      fileMoveDrag.handlers.onDragOver(event);
+      return;
+    }
+    event.preventDefault();
+  };
   const handleDrop = async (event: DragEvent<HTMLElement>) => {
+    if (fileMoveDrag.isWorkspaceFileDrag(event.dataTransfer)) {
+      await fileMoveDrag.handlers.onDrop(event);
+      return;
+    }
     event.preventDefault();
     dragCounter.current = 0;
     setIsDragging(false);
@@ -389,6 +408,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
       onDragLeave={handleDragLeave}
       onDragOver={handleDragOver}
       onDrop={handleDrop}
+      onDragStart={fileMoveDrag.handlers.onDragStart}
+      onDragEnd={fileMoveDrag.handlers.onDragEnd}
     >
       {isDragging && (
         <div className="pointer-events-none absolute inset-3 z-30 flex items-center justify-center border-2 border-dashed border-border bg-background/95 text-sm text-foreground">
@@ -433,6 +454,7 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
         <div className={cn('border-t border-border bg-muted/30', isFullscreen ? 'px-4 py-2' : 'px-3 py-2')}>
           <FileBreadcrumb
             currentDirectory={currentDirectory}
+            dropTargetPath={fileMoveDrag.dropTargetPath}
             onNavigate={(dir) => {
               setSearchQuery('');
               void navigateToDirectory(dir);
@@ -479,6 +501,8 @@ export function FileBrowser({ variant = 'default', onFileSelect }: FileBrowserPr
           onFileOpened={handleFileOpened}
           onUpload={handleUploadClick}
           onCreateFolder={handleNewFolder}
+          moveController={moveController}
+          dropTargetPath={fileMoveDrag.dropTargetPath}
         />
       </div>
 

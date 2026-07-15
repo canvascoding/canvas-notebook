@@ -38,6 +38,7 @@ interface FileTreeNodeProps {
   showPath?: boolean;
   openOnSingleClick?: boolean;
   showListMetadata?: boolean;
+  dropTargetPath?: string | null;
 }
 
 function FileTreeNodeComponent({
@@ -50,6 +51,7 @@ function FileTreeNodeComponent({
   showPath = false,
   openOnSingleClick = true,
   showListMetadata = false,
+  dropTargetPath,
 }: FileTreeNodeProps) {
   const t = useTranslations('notebook');
   const locale = useLocale();
@@ -78,6 +80,7 @@ function FileTreeNodeComponent({
   })));
 
   const isDirectory = node.type === 'directory';
+  const isDropTarget = isDirectory && dropTargetPath === node.path;
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const hasLoadedChildren = Array.isArray(node.children);
@@ -302,11 +305,17 @@ function FileTreeNodeComponent({
         <SidebarMenuItem role="none">
           <div
             data-file-path={node.path}
+            data-file-type={node.type}
+            data-file-name={node.name}
+            data-file-drop-path={node.path}
+            data-file-drop-target={isDropTarget || undefined}
+            draggable
             className={cn(
               'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
               'py-1.5 md:py-0.5',
               isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
-              isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
+              isPublic && 'border-l-2 border-amber-500 bg-amber-500/10',
+              isDropTarget && 'bg-primary/10 ring-2 ring-inset ring-primary/60'
             )}
             onContextMenu={handleContextMenuForListMode}
           >
@@ -371,12 +380,19 @@ function FileTreeNodeComponent({
         <SidebarMenuItem role="none">
           <div
             data-file-path={node.path}
-          className={cn(
-            'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
-            'py-1.5 pl-[var(--tree-mobile-padding)] md:py-0.5 md:pl-2',
-            isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
-            isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
-          )}
+            data-file-type={node.type}
+            data-file-name={node.name}
+            data-file-drop-path={node.path}
+            data-file-drop-expand="true"
+            data-file-drop-target={isDropTarget || undefined}
+            draggable
+            className={cn(
+              'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
+              'py-1.5 pl-[var(--tree-mobile-padding)] md:py-0.5 md:pl-2',
+              isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
+              isPublic && 'border-l-2 border-amber-500 bg-amber-500/10',
+              isDropTarget && 'bg-primary/10 ring-2 ring-inset ring-primary/60'
+            )}
             style={rowPaddingStyle}
             onContextMenu={handleContextMenu}
           >
@@ -472,6 +488,7 @@ function FileTreeNodeComponent({
                     showPath={showPath}
                     openOnSingleClick={openOnSingleClick}
                     showListMetadata={showListMetadata}
+                    dropTargetPath={dropTargetPath}
                   />
                 ))
               )}
@@ -486,12 +503,15 @@ function FileTreeNodeComponent({
     <SidebarMenuItem role="none">
       <div
         data-file-path={node.path}
-          className={cn(
-            'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
-            'py-1.5 pl-[var(--tree-mobile-padding)] md:py-0.5 md:pl-2',
-            isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
-            isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
-          )}
+        data-file-type={node.type}
+        data-file-name={node.name}
+        draggable
+        className={cn(
+          'group relative flex w-full min-w-0 items-center px-2 text-foreground transition-colors',
+          'py-1.5 pl-[var(--tree-mobile-padding)] md:py-0.5 md:pl-2',
+          isRowActive ? 'bg-accent/70' : 'hover:bg-accent/50',
+          isPublic && 'border-l-2 border-amber-500 bg-amber-500/10'
+        )}
         style={rowPaddingStyle}
         onContextMenu={handleContextMenu}
       >

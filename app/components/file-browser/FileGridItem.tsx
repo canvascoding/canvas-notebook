@@ -23,6 +23,7 @@ interface FileGridItemProps {
   selectionOrder?: string[];
   showPath?: boolean;
   openOnSingleClick?: boolean;
+  dropTargetPath?: string | null;
 }
 
 const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'bmp', 'ico', 'heic', 'heif']);
@@ -41,6 +42,7 @@ function FileGridItemComponent({
   selectionOrder,
   showPath = false,
   openOnSingleClick = true,
+  dropTargetPath,
 }: FileGridItemProps) {
   const t = useTranslations('notebook');
   const {
@@ -62,6 +64,7 @@ function FileGridItemComponent({
   })));
 
   const isDirectory = node.type === 'directory';
+  const isDropTarget = isDirectory && dropTargetPath === node.path;
   const isRowActive = isSelected || isMultiSelected;
   const isPublic = node.type === 'file' && node.publicShare?.status === 'active';
   const displayName = getFileDisplayName(node);
@@ -190,13 +193,19 @@ function FileGridItemComponent({
   return (
     <div
       data-file-path={node.path}
+      data-file-type={node.type}
+      data-file-name={node.name}
+      data-file-drop-path={isDirectory ? node.path : undefined}
+      data-file-drop-target={isDropTarget || undefined}
+      draggable
       className={cn(
         'group relative flex flex-col items-center rounded-lg border transition-all cursor-pointer outline-none',
         'hover:bg-accent/50 hover:border-primary/30',
         'focus-visible:border-primary focus-visible:ring-2 focus-visible:ring-ring/50',
         isRowActive ? 'bg-accent/70 border-primary/50' : 'border-border bg-background',
         isDirectory && 'border-dashed',
-        isPublic && 'border-amber-500 bg-amber-500/10 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)]'
+        isPublic && 'border-amber-500 bg-amber-500/10 shadow-[inset_0_0_0_1px_rgba(245,158,11,0.25)]',
+        isDropTarget && 'border-primary bg-primary/10 ring-2 ring-inset ring-primary/60 shadow-sm'
       )}
       onClick={handleClick}
       onDoubleClick={handleDoubleClick}
@@ -268,6 +277,7 @@ function FileGridItemComponent({
             <img
               src={thumbnailSrc}
               alt={node.name}
+              draggable={false}
               className="h-full w-full object-cover transition-opacity"
               loading="lazy"
               decoding="async"
