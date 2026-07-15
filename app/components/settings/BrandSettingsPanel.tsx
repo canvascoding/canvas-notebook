@@ -577,6 +577,7 @@ export function BrandSettingsPanel({
   const t = useTranslations('settings.brandDesign');
   const workspaces = useWorkspaceStore((state) => state.workspaces);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const organizationId = useWorkspaceStore((state) => state.organizationId);
   const initialized = useWorkspaceStore((state) => state.initialized);
   const isWorkspaceLoading = useWorkspaceStore((state) => state.isLoading);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
@@ -604,7 +605,10 @@ export function BrandSettingsPanel({
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) || null,
     [selectedWorkspaceId, workspaces],
   );
-  const selectedOrganizationId = selectedWorkspace?.organizationId || null;
+  const selectedOrganizationId = organizationId
+    || activeWorkspace?.organizationId
+    || selectedWorkspace?.organizationId
+    || null;
   const scopeEntityKey = scope === 'organization'
     ? selectedOrganizationId ? `organization:${selectedOrganizationId}` : null
     : selectedWorkspaceId ? `workspace:${selectedWorkspaceId}` : null;
@@ -884,30 +888,33 @@ export function BrandSettingsPanel({
             ) : null}
           </div>
 
-          <div className="grid gap-3 border-t border-border/70 pt-5 sm:grid-cols-[minmax(0,1fr)_minmax(240px,288px)] sm:items-center">
-            <div>
-              <p className="text-sm font-semibold">
-                {scope === 'organization' ? t('scope.organizationTitle') : t('workspace.title')}
-              </p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">
-                {scope === 'organization' ? t('scope.organizationDescription') : t('workspace.description')}
-              </p>
+          {scope === 'workspace' ? (
+            <div className="grid gap-3 border-t border-border/70 pt-5 sm:grid-cols-[minmax(0,1fr)_minmax(240px,288px)] sm:items-center">
+              <div>
+                <p className="text-sm font-semibold">{t('workspace.title')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('workspace.description')}</p>
+              </div>
+              <NativeSelect
+                value={selectedWorkspaceId || ''}
+                ariaLabel={t('workspace.select')}
+                onChange={setManualWorkspaceId}
+              >
+                {workspaces.map((workspace) => (
+                  <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
+                ))}
+              </NativeSelect>
             </div>
-            <NativeSelect
-              value={selectedWorkspaceId || ''}
-              ariaLabel={t('workspace.select')}
-              onChange={(value) => {
-                setManualWorkspaceId(value);
-                if (scope === 'organization' && !workspaces.find((workspace) => workspace.id === value)?.organizationId) {
-                  setScope('workspace');
-                }
-              }}
-            >
-              {workspaces.map((workspace) => (
-                <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
-              ))}
-            </NativeSelect>
-          </div>
+          ) : (
+            <div className="flex items-start gap-3 border-t border-border/70 pt-5">
+              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
+                <Building2 className="h-4 w-4" />
+              </span>
+              <div>
+                <p className="text-sm font-semibold">{t('organizationDefault.title')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('organizationDefault.description')}</p>
+              </div>
+            </div>
+          )}
         </CardContent>
       </Card>
 
@@ -976,19 +983,7 @@ export function BrandSettingsPanel({
             ) : null}
           </CardContent>
         </Card>
-      ) : (
-        <Card className="border-primary/25 bg-primary/[0.025]">
-          <CardContent className="flex items-start gap-3 p-4 sm:p-5">
-            <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
-              <Building2 className="h-4 w-4" />
-            </span>
-            <div>
-              <p className="text-sm font-semibold">{t('organizationDefault.title')}</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('organizationDefault.description')}</p>
-            </div>
-          </CardContent>
-        </Card>
-      )}
+      ) : null}
 
       <Card className="overflow-hidden border-border/80">
         <CardHeader className="border-b border-border/70 bg-muted/20">

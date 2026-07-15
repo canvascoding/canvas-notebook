@@ -2812,9 +2812,7 @@
         "title": "Choose the brand scope",
         "description": "Admins define the organization default for the interface, documents, and brand voice. Each workspace can intentionally override it.",
         "organization": "Organization",
-        "workspace": "Workspace",
-        "organizationTitle": "Edit the organization default",
-        "organizationDescription": "The selected workspace determines which organization's default is being edited."
+        "workspace": "Workspace"
       },
       "workspace": {
         "title": "Choose a workspace",
@@ -2836,8 +2834,8 @@
         "inheritedAgain": "The workspace now uses the organization default again."
       },
       "organizationDefault": {
-        "title": "Default for every workspace in the organization",
-        "description": "Workspaces without their own override automatically inherit this design for the interface, PDF exports, and agent context."
+        "title": "Default and fallback for every workspace",
+        "description": "This design applies automatically to every workspace in the organization unless that workspace has its own design saved."
       },
       "empty": {
         "title": "No workspace available",

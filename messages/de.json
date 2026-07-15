@@ -2811,9 +2811,7 @@
         "title": "Brand-Ebene festlegen",
         "description": "Admins definieren den Organisationsstandard für Oberfläche, Dokumente und Markensprache. Jeder Workspace kann ihn gezielt überschreiben.",
         "organization": "Organisation",
-        "workspace": "Workspace",
-        "organizationTitle": "Organisationsstandard bearbeiten",
-        "organizationDescription": "Der ausgewählte Workspace bestimmt, für welche Organisation der Standard gilt."
+        "workspace": "Workspace"
       },
       "workspace": {
         "title": "Workspace auswählen",
@@ -2835,8 +2833,8 @@
         "inheritedAgain": "Der Workspace verwendet wieder den Organisationsstandard."
       },
       "organizationDefault": {
-        "title": "Standard für alle Workspaces der Organisation",
-        "description": "Workspaces ohne eigenen Override übernehmen dieses Design für Oberfläche, PDF-Exporte und Agent-Kontext automatisch."
+        "title": "Standard und Fallback für alle Workspaces",
+        "description": "Dieses Design gilt automatisch in allen Workspaces der Organisation, solange dort kein eigenes Workspace-Design gespeichert ist."
       },
       "empty": {
         "title": "Kein Workspace verfügbar",
