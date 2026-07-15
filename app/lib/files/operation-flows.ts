@@ -87,6 +87,40 @@ export function splitProtectedWorkspacePaths(paths: Iterable<string>) {
   };
 }
 
+export interface WorkspaceMovePlanEntry {
+  sourcePath: string;
+  destinationPath: string;
+}
+
+export interface WorkspaceMovePlan {
+  sourcePaths: string[];
+  entries: WorkspaceMovePlanEntry[];
+  protectedPaths: string[];
+  invalidSourcePath: string | null;
+}
+
+export function createWorkspaceMovePlan(
+  paths: Iterable<string>,
+  targetDir: string,
+): WorkspaceMovePlan {
+  const sourcePaths = compactWorkspaceSelection(paths);
+  const { protectedPaths } = splitProtectedWorkspacePaths(sourcePaths);
+  const entries = sourcePaths.map((sourcePath) => ({
+    sourcePath,
+    destinationPath: resolveMoveDestination(targetDir, getWorkspacePathName(sourcePath)),
+  }));
+  const invalidSourcePath = entries.find(({ sourcePath, destinationPath }) => (
+    isMoveIntoSelf(sourcePath, destinationPath)
+  ))?.sourcePath ?? null;
+
+  return {
+    sourcePaths,
+    entries,
+    protectedPaths,
+    invalidSourcePath,
+  };
+}
+
 export function summarizeWorkspaceBatchResult(result: WorkspaceBatchResultLike): WorkspaceBatchResultSummary {
   const copiedCount = result.copied.length;
   const unresolvedCount = result.failed.length + result.skipped.length;

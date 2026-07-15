@@ -13,54 +13,35 @@ import {
 } from '@/components/ui/dialog';
 import { Button } from '@/components/ui/button';
 import { useFileStore } from '@/app/store/file-store';
-import {
-  compactWorkspaceSelection,
-  getWorkspacePathName,
-  isMoveIntoSelf,
-  resolveMoveDestination,
-} from '@/app/lib/files/operation-flows';
-import { toast } from 'sonner';
+import { compactWorkspaceSelection, getWorkspacePathName } from '@/app/lib/files/operation-flows';
 import { DirectoryBrowser } from './DirectoryBrowser';
 import { useShallow } from 'zustand/react/shallow';
+import type { WorkspaceMoveController, WorkspaceMoveResolution } from './useWorkspaceMove';
 
-interface ConflictState {
-  type: 'file' | 'directory';
-  sourcePath: string;
-  destPath: string;
-  remainingPaths: string[];
-  successCount: number;
-  skippedCount: number;
+interface BulkMoveDialogProps {
+  controller: WorkspaceMoveController;
 }
 
-export function BulkMoveDialog() {
+export function BulkMoveDialog({ controller }: BulkMoveDialogProps) {
   const t = useTranslations('notebook');
   const [moveTarget, setMoveTarget] = useState('.');
   const [moveExpandedDirs, setMoveExpandedDirs] = useState(new Set<string>());
-  const [conflict, setConflict] = useState<ConflictState | null>(null);
-  const [isMoving, setIsMoving] = useState(false);
   const {
     fileTree,
     multiSelectPaths,
-    clearMultiSelect,
-    renamePath,
-    refreshVisibleTree,
     bulkMoveOpen,
     setBulkMoveOpen,
   } = useFileStore(useShallow((state) => ({
     fileTree: state.fileTree,
     multiSelectPaths: state.multiSelectPaths,
-    clearMultiSelect: state.clearMultiSelect,
-    renamePath: state.renamePath,
-    refreshVisibleTree: state.refreshVisibleTree,
     bulkMoveOpen: state.bulkMoveOpen,
     setBulkMoveOpen: state.setBulkMoveOpen,
   })));
+  const { conflict, isMoving, startMove, resolveConflict } = controller;
 
   const resetDialogState = () => {
     setMoveTarget('.');
     setMoveExpandedDirs(new Set());
-    setConflict(null);
-    setIsMoving(false);
   };
 
   const selectedMovePaths = useMemo(
@@ -85,149 +66,14 @@ export function BulkMoveDialog() {
     });
   };
 
-  const completeMove = async (successCount: number, skippedCount: number) => {
-    clearMultiSelect();
-    await refreshVisibleTree();
-    closeDialog();
-    if (skippedCount > 0) {
-      toast.warning(t('moveMultiplePartialSuccess', { moved: successCount, skipped: skippedCount }));
-      return;
-    }
-    toast.success(t('moveMultipleSuccess', { count: successCount }));
-  };
-
-  const processMoveQueue = async (
-    pathsToMove: string[],
-    initialSuccessCount = 0,
-    initialSkippedCount = 0,
-  ) => {
-    let successCount = initialSuccessCount;
-    let skippedCount = initialSkippedCount;
-
-    for (let index = 0; index < pathsToMove.length; index++) {
-      const path = pathsToMove[index];
-      const destination = resolveMoveDestination(moveTarget, getWorkspacePathName(path));
-
-      if (path === destination) {
-        successCount++;
-        continue;
-      }
-
-      if (isMoveIntoSelf(path, destination)) {
-        if (successCount > 0) await refreshVisibleTree();
-        toast.error(t('moveIntoSelf'));
-        setIsMoving(false);
-        return;
-      }
-
-      try {
-        await renamePath(path, destination, false, false);
-        successCount++;
-      } catch (error) {
-        const err = error as Error & { code?: string; type?: string; sourcePath?: string; destPath?: string };
-
-        if (err.code === 'FILE_EXISTS') {
-          setConflict({
-            type: (err.type === 'directory' ? 'directory' : 'file'),
-            sourcePath: err.sourcePath || path,
-            destPath: err.destPath || destination,
-            remainingPaths: pathsToMove.slice(index + 1),
-            successCount,
-            skippedCount,
-          });
-          return;
-        }
-
-        if (err.code === 'DIRECTORY_EXISTS') {
-          if (successCount > 0) await refreshVisibleTree();
-          toast.error(t('directoryConflictError', {
-            source: path || '',
-            destination,
-          }));
-          setIsMoving(false);
-          return;
-        }
-
-        if (err.code === 'SOURCE_NOT_FOUND') {
-          skippedCount += 1;
-          continue;
-        }
-
-        console.error(`Failed to move ${path}:`, error);
-        if (successCount > 0) await refreshVisibleTree();
-        toast.error(t('moveError', { path, error: err.message }));
-        setIsMoving(false);
-        return;
-      }
-    }
-
-    await completeMove(successCount, skippedCount);
-  };
-
-  const handleConflictResolution = async (action: 'overwrite-selection' | 'overwrite-existing' | 'skip') => {
-    if (!conflict) return;
-
-    const activeConflict = conflict;
-    setConflict(null);
-
-    if (action === 'skip') {
-      await processMoveQueue(
-        activeConflict.remainingPaths,
-        activeConflict.successCount,
-        activeConflict.skippedCount + 1,
-      );
-    } else if (action === 'overwrite-selection') {
-      try {
-        await renamePath(activeConflict.sourcePath, activeConflict.destPath, true, false);
-        await processMoveQueue(
-          activeConflict.remainingPaths,
-          activeConflict.successCount + 1,
-          activeConflict.skippedCount,
-        );
-      } catch (error) {
-        await handleMoveError(error);
-      }
-    } else if (action === 'overwrite-existing') {
-      await processMoveQueue(
-        activeConflict.remainingPaths,
-        activeConflict.successCount,
-        activeConflict.skippedCount + 1,
-      );
-    }
-  };
-
-  const handleMoveError = async (error: unknown) => {
-    await refreshVisibleTree();
-    const err = error as Error & { code?: string; type?: string; sourcePath?: string; destPath?: string };
-    
-    if (err.code === 'DIRECTORY_EXISTS') {
-      toast.error(t('directoryConflictError', { destination: err.destPath || '' }));
-      setIsMoving(false);
-      return;
-    }
-    
-    if (err.code === 'SOURCE_NOT_FOUND') {
-      toast.error(t('sourceNotFoundError', { path: err.sourcePath || '' }));
-      setIsMoving(false);
-      return;
-    }
-    
-    // For other errors, show generic error
-    toast.error(t('moveError', { error: err.message }));
-    setIsMoving(false);
-  };
-
   const handleConfirmMove = async () => {
-    const invalidSource = selectedMovePaths.find((path) => (
-      isMoveIntoSelf(path, resolveMoveDestination(moveTarget, getWorkspacePathName(path)))
-    ));
-    if (invalidSource) {
-      toast.error(t('moveIntoSelf'));
-      return;
-    }
+    const result = await startMove(selectedMovePaths, moveTarget);
+    if (result === 'completed') closeDialog();
+  };
 
-    setIsMoving(true);
-    await processMoveQueue(selectedMovePaths);
+  const handleConflictResolution = async (action: WorkspaceMoveResolution) => {
+    const result = await resolveConflict(action);
+    if (result === 'completed') closeDialog();
   };
 
   const handleCancel = () => {
@@ -281,7 +127,7 @@ export function BulkMoveDialog() {
       </Dialog>
 
       {/* File Conflict Dialog */}
-      <Dialog open={bulkMoveOpen && conflict !== null} onOpenChange={() => {}}>
+      <Dialog open={conflict !== null} onOpenChange={() => {}}>
         <DialogContent className="max-w-md">
           <DialogHeader>
             <DialogTitle className="flex items-center gap-2">

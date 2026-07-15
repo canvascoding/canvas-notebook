@@ -21,6 +21,7 @@ import { FileGridItem } from './FileGridItem';
 import { BackgroundContextMenu } from './BackgroundContextMenu';
 import { useFileExplorerViewModel } from './useFileExplorerViewModel';
 import { useMarqueeSelection } from './useMarqueeSelection';
+import { useWorkspaceMove } from './useWorkspaceMove';
 import { useFilePresence } from './useFilePresence';
 import {
   DropdownMenu,
@@ -81,6 +82,7 @@ export function FileGridView({
     visibleSearchResultCount,
   } = useFileExplorerViewModel({ containerRef, variant });
   const { marqueeHandlers, marqueeOverlayRect } = useMarqueeSelection(containerRef);
+  const moveController = useWorkspaceMove();
 
   const handleFileOpen = useCallback((path: string) => {
     if (onOpenFile) {
@@ -436,7 +438,7 @@ export function FileGridView({
         {marqueeOverlay}
         <FileContextMenu />
         <BackgroundContextMenu onFileOpened={onFileOpened} />
-        <BulkMoveDialog />
+        <BulkMoveDialog controller={moveController} />
       </div>
     );
   }
@@ -510,7 +512,7 @@ export function FileGridView({
         {marqueeOverlay}
         <FileContextMenu />
         <BackgroundContextMenu onFileOpened={onFileOpened} />
-        <BulkMoveDialog />
+        <BulkMoveDialog controller={moveController} />
       </div>
     );
 
@@ -572,7 +574,7 @@ export function FileGridView({
       {marqueeOverlay}
       <FileContextMenu />
       <BackgroundContextMenu onFileOpened={onFileOpened} />
-      <BulkMoveDialog />
+      <BulkMoveDialog controller={moveController} />
     </div>
   );
 
