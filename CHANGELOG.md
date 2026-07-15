@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.15.1] - 2026-07-15
+
+### Added
+
+- Added live document collaboration with presence indicators, checkpoints, agent-operation review, and resilient reconnect handling.
+- Added organization agent provisioning, scoped management tools, member grants, and organization-wide skill and plugin policies.
+- Added workspace-aware Studio navigation, access controls, knowledge-graph refinements, and richer Markdown editing and navigation.
+
+### Changed
+
+- Improved managed agent-runtime startup, session continuity, configuration persistence, and responsive chat, editor, and settings experiences.
+- Expanded agent capability package handling with transactional imports, personal skill forks, package verification, and Markdown skill previews.
+
+### Fixed
+
+- Fixed archived collaboration-store race conditions and SQLite-compatible Studio workspace migrations.
+- Improved workspace localization for editing actions.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.14.7] - 2026-07-14
 
 ### Added
