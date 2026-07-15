@@ -87,6 +87,15 @@ async function main() {
     assert.equal(normalized.page.horizontalMarginMm, 10);
     assert.equal(normalized.colors.accent, '#b24a2b');
     assert.equal(normalized.colors.text, DEFAULT_WORKSPACE_BRAND_PROFILE.colors.text);
+    assert.deepEqual(normalized.appearance, { enabled: false, radiusPx: 0 });
+    const appearance = normalizeWorkspaceBrandProfile({
+      appearance: { enabled: true, radiusPx: 40 },
+    });
+    assert.deepEqual(appearance.appearance, { enabled: true, radiusPx: 16 });
+    assert.equal(
+      normalizeWorkspaceBrandProfile({ appearance: { radiusPx: Number.NaN } }).appearance.radiusPx,
+      0,
+    );
     assert.equal(normalized.logoPosition, 'left');
     assert.equal(normalizeWorkspaceBrandProfile({ logoPosition: 'center' }).logoPosition, 'right');
     assert.equal(

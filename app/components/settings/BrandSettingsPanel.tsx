@@ -28,7 +28,7 @@ import {
   type WorkspaceBrandProfileSource,
   type WorkspaceBrandProfileState,
 } from '@/app/lib/workspaces/brand-profile';
-import { workspaceBrandFontStack } from '@/app/lib/pdf/markdown-brand';
+import { workspaceBrandFontStack } from '@/app/lib/workspaces/brand-fonts';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 

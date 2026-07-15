@@ -9,8 +9,11 @@ import {
   createWorkspaceBrandHeaderHtml,
   createWorkspaceBrandPdfHeaderTemplate,
   getMarkdownPdfRenderOptions,
-  workspaceBrandFontStack,
 } from '../app/lib/pdf/markdown-brand';
+import {
+  workspaceBrandFontStack,
+  workspaceBrandUiFontStack,
+} from '../app/lib/workspaces/brand-fonts';
 
 const corporate = cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.corporate);
 corporate.brandName = '<Canvas & Studios>';
@@ -31,6 +34,8 @@ assert.match(css, /Avenir Next/u);
 assert.match(workspaceBrandFontStack('arial-sans'), /Liberation Sans/u);
 assert.match(workspaceBrandFontStack('georgia-serif'), /Liberation Serif/u);
 assert.match(workspaceBrandFontStack('courier-mono'), /Liberation Mono/u);
+assert.match(workspaceBrandUiFontStack('canvas-sans'), /--font-geist-sans/u);
+assert.equal(workspaceBrandUiFontStack('editorial-serif'), workspaceBrandFontStack('editorial-serif'));
 
 const header = createWorkspaceBrandHeaderHtml({
   profile: corporate,

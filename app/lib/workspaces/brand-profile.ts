@@ -36,6 +36,10 @@ export type WorkspaceBrandLogoPosition = (typeof WORKSPACE_BRAND_LOGO_POSITIONS)
 
 export interface WorkspaceBrandProfile {
   enabled: boolean;
+  appearance: {
+    enabled: boolean;
+    radiusPx: number;
+  };
   brandName: string;
   logoPath: string;
   logoPosition: WorkspaceBrandLogoPosition;
@@ -91,6 +95,10 @@ export interface ResolvedWorkspaceBrandProfileState extends WorkspaceBrandProfil
 
 export const DEFAULT_WORKSPACE_BRAND_PROFILE: WorkspaceBrandProfile = {
   enabled: false,
+  appearance: {
+    enabled: false,
+    radiusPx: 0,
+  },
   brandName: '',
   logoPath: '',
   logoPosition: 'right',
@@ -275,6 +283,7 @@ function logoPathValue(value: unknown, fallback: string): string {
 
 export function normalizeWorkspaceBrandProfile(value: unknown): WorkspaceBrandProfile {
   const source = recordValue(value);
+  const appearance = recordValue(source.appearance);
   const page = recordValue(source.page);
   const typography = recordValue(source.typography);
   const colors = recordValue(source.colors);
@@ -282,6 +291,10 @@ export function normalizeWorkspaceBrandProfile(value: unknown): WorkspaceBrandPr
 
   return {
     enabled: booleanValue(source.enabled, defaults.enabled),
+    appearance: {
+      enabled: booleanValue(appearance.enabled, defaults.appearance.enabled),
+      radiusPx: numberValue(appearance.radiusPx, defaults.appearance.radiusPx, 0, 16),
+    },
     brandName: stringValue(source.brandName, defaults.brandName, 120),
     logoPath: logoPathValue(source.logoPath, defaults.logoPath),
     logoPosition: enumValue(source.logoPosition, WORKSPACE_BRAND_LOGO_POSITIONS, defaults.logoPosition),
