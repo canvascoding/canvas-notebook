@@ -11,7 +11,6 @@ import {
   Download,
   FileArchive,
   FolderArchive,
-  HardDrive,
   ImageIcon,
   KeyRound,
   Loader2,
@@ -25,6 +24,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { WorkspaceManagementCard } from '@/app/components/settings/WorkspaceManagementCard';
+import { WorkspaceExportCard } from '@/app/components/settings/WorkspaceExportCard';
 import { TeamModeHostedOnlyNotice } from '@/app/components/team/TeamModeHostedOnlyNotice';
 import {
   DEFAULT_MIGRATION_COMPONENTS,
@@ -41,12 +41,6 @@ import {
   getMigrationUploadTotalParts,
 } from '@/app/lib/migration/upload-chunks';
 
-interface WorkspaceStats {
-  fileCount: number;
-  totalSize: number;
-  totalSizeHuman: string;
-}
-
 interface WorkspaceSettingsPanelProps {
   isAdmin?: boolean;
   workspaceManagementOpen?: boolean;
@@ -58,8 +52,6 @@ type SettingsDataSection = 'workspace' | 'system';
 type SettingsDataContentProps = WorkspaceSettingsPanelProps & {
   section: SettingsDataSection;
 };
-
-type DownloadScope = 'personal';
 
 interface OrganizationBootstrapStatus {
   configured: boolean;
@@ -144,13 +136,9 @@ function SettingsDataContent({
   createWorkspaceOpen = false,
 }: SettingsDataContentProps) {
   const t = useTranslations('settings');
-  const [stats, setStats] = useState<WorkspaceStats | null>(null);
-  const [isLoading, setIsLoading] = useState(true);
   const [organizationStatus, setOrganizationStatus] = useState<OrganizationBootstrapStatus | null>(null);
   const [isOrganizationLoading, setIsOrganizationLoading] = useState(section === 'system' && isAdmin);
   const [organizationError, setOrganizationError] = useState<string | null>(null);
-  const [activeDownload, setActiveDownload] = useState<DownloadScope | null>(null);
-  const [error, setError] = useState<string | null>(null);
   const [migrationComponents, setMigrationComponents] = useState<MigrationComponents>(() => ({
     ...DEFAULT_MIGRATION_COMPONENTS,
     secrets: false,
@@ -197,29 +185,6 @@ function SettingsDataContent({
     }
   }, [isAdmin, t]);
 
-  const loadStats = useCallback(async () => {
-    setIsLoading(true);
-    setError(null);
-    try {
-      const response = await fetch('/api/files/workspace-stats?scope=personal', { credentials: 'include' });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) {
-        throw new Error(payload.error || t('workspacePanel.errors.loadStats'));
-      }
-      setStats(payload.data);
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('workspacePanel.errors.loadStats');
-      setError(message);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [t]);
-
-  useEffect(() => {
-    if (section !== 'workspace') return;
-    startTransition(() => { void loadStats(); });
-  }, [loadStats, section]);
-
   useEffect(() => {
     if (section !== 'system' || !isAdmin) return;
     startTransition(() => { void loadOrganizationStatus(); });
@@ -242,26 +207,6 @@ function SettingsDataContent({
 
     return () => window.clearInterval(interval);
   }, [exportJob]);
-
-  const handleDownload = async (scope: DownloadScope) => {
-    setActiveDownload(scope);
-    setError(null);
-    try {
-      const url = '/api/files/download?scope=personal&download=1';
-      const anchor = document.createElement('a');
-      anchor.href = url;
-      anchor.download = 'workspace.zip';
-      anchor.rel = 'noopener';
-      document.body.appendChild(anchor);
-      anchor.click();
-      anchor.remove();
-    } catch (err) {
-      const message = err instanceof Error ? err.message : t('workspacePanel.errors.downloadFailed');
-      setError(message);
-    } finally {
-      setTimeout(() => setActiveDownload(null), 2000);
-    }
-  };
 
   const toggleMigrationComponent = (key: MigrationComponentKey) => {
     setMigrationComponents((current) => ({
@@ -559,75 +504,7 @@ function SettingsDataContent({
 
       {section === 'workspace' ? (
         <>
-      <Card>
-        <CardHeader className="px-4 sm:px-6">
-          <CardTitle>{t('workspacePanel.personalExport.title')}</CardTitle>
-          <CardDescription>{t('workspacePanel.personalExport.description')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
-          {isLoading ? (
-            <div className="flex items-center text-sm text-muted-foreground">
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-              {t('workspacePanel.loadingStats')}
-            </div>
-          ) : error && !stats ? (
-            <p className="text-sm text-destructive">{error}</p>
-          ) : stats ? (
-            <>
-              <div className="grid gap-4 sm:grid-cols-2">
-                <div className="flex items-center gap-3 rounded-lg border border-border p-4">
-                  <HardDrive className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">{t('workspacePanel.totalSize')}</p>
-                    <p className="text-2xl font-bold">{stats.totalSizeHuman}</p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-3 rounded-lg border border-border p-4">
-                  <FolderArchive className="h-5 w-5 text-muted-foreground" />
-                  <div>
-                    <p className="text-sm font-medium">{t('workspacePanel.fileCount')}</p>
-                    <p className="text-2xl font-bold">
-                      {stats.fileCount.toLocaleString()}
-                    </p>
-                  </div>
-                </div>
-              </div>
-
-              {error && <p className="text-sm text-destructive">{error}</p>}
-
-              <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
-                <Button
-                  className="w-full justify-center sm:w-auto"
-                  onClick={() => handleDownload('personal')}
-                  disabled={activeDownload !== null || stats.fileCount === 0}
-                >
-                  {activeDownload === 'personal' ? (
-                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
-                  ) : (
-                    <Download className="mr-2 h-4 w-4" />
-                  )}
-                  {activeDownload === 'personal' ? t('workspacePanel.downloading') : t('workspacePanel.downloadZip')}
-                </Button>
-                <Button
-                  type="button"
-                  variant="outline"
-                  className="w-full justify-center sm:w-auto"
-                  onClick={() => void loadStats()}
-                  disabled={isLoading}
-                >
-                  <RefreshCw className="mr-2 h-4 w-4" />
-                  {t('workspacePanel.refresh')}
-                </Button>
-              </div>
-              <p className="text-sm text-muted-foreground">{t('workspacePanel.personalExport.hint')}</p>
-
-              {stats.fileCount === 0 && (
-                <p className="text-sm text-muted-foreground">{t('workspacePanel.emptyWorkspace')}</p>
-              )}
-            </>
-          ) : null}
-        </CardContent>
-      </Card>
+      <WorkspaceExportCard isAdmin={isAdmin} />
 
       <WorkspaceManagementCard
         isAdmin={isAdmin}

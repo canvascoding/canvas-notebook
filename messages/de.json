@@ -2073,7 +2073,7 @@
       },
       "descriptions": {
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
-        "workspace": "Persönlichen Workspace exportieren und Workspace-Zugriffe verwalten.",
+        "workspace": "Workspace auswählen, Exporte verwalten und Workspace-Zugriffe prüfen.",
         "brandDesign": "Markenauftritt für PDF-Exporte und den aktiven Agent-Kontext festlegen.",
         "knowledge": "Knowledge-Verarbeitung, Ressourcen und Feature-Gates konfigurieren.",
         "agentSettings": "Identität, Fähigkeiten, Tools und Laufzeitverhalten der Agents steuern.",
@@ -2976,11 +2976,29 @@
     },
     "workspacePanel": {
       "title": "Workspace",
-      "description": "Den kompletten Workspace als ZIP-Archiv herunterladen.",
+      "description": "Einen zugänglichen Workspace auswählen und als ZIP-Archiv herunterladen.",
       "personalExport": {
         "title": "Mein persönlicher Workspace",
         "description": "Exportiere ausschließlich die Dateien aus deinem persönlichen Workspace.",
         "hint": "Team-, Projekt- und Organisations-Workspaces sowie Einstellungen und Zugangsdaten sind nicht enthalten."
+      },
+      "workspaceExport": {
+        "title": "Workspace exportieren",
+        "description": "Wähle zuerst einen Workspace aus. Persönliche Workspaces kannst du selbst exportieren; gemeinsame Workspaces benötigen einen Administrator.",
+        "stepSelect": "1. Workspace auswählen",
+        "stepExport": "2. Export prüfen und herunterladen",
+        "loadingWorkspaces": "Workspaces werden geladen...",
+        "noWorkspaces": "Keine zugänglichen Workspaces",
+        "active": "Aktiv",
+        "personalExport": "Eigener Export",
+        "adminExport": "Admin-Export",
+        "adminOnlyTitle": "Für diesen Workspace ist ein Admin-Export erforderlich",
+        "adminOnlyDescription": "Team-, Projekt- und Organisations-Workspaces können nur von Administratoren exportiert werden. Wähle einen persönlichen Workspace oder wende dich an einen Administrator.",
+        "personalHint": "Enthalten sind nur die Dateien dieses persönlichen Workspace. Einstellungen und Zugangsdaten werden nicht exportiert.",
+        "sharedHint": "Enthalten sind nur die Dateien dieses gemeinsamen Workspace. Einstellungen und Zugangsdaten werden nicht exportiert.",
+        "fullExportTitle": "Mehrere oder alle Workspaces exportieren",
+        "fullExportDescription": "Nutze als Administrator die Datenmigration für einen vollständigen, versionierten Export der Instanz.",
+        "fullExportAction": "Zur Datenmigration"
       },
       "loadingStats": "Lade Workspace-Statistiken...",
       "totalSize": "Gesamtgröße",
@@ -2988,7 +3006,7 @@
       "downloadZip": "Workspace als ZIP exportieren",
       "downloading": "Download wird vorbereitet...",
       "refresh": "Aktualisieren",
-      "emptyWorkspace": "Dein Workspace ist leer.",
+      "emptyWorkspace": "Der ausgewählte Workspace ist leer.",
       "management": {
         "title": "Workspaces verwalten",
         "description": "Workspaces anlegen, löschen und Zugriffsstatus prüfen.",

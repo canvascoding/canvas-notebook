@@ -145,11 +145,33 @@ async function main() {
     hasWorkspaceManagementControls,
     hasWorkspaceSwitcherOptions,
   } = await import('../app/components/workspaces/WorkspaceSwitcher');
+  const { canExportWorkspaceFiles } = await import('../app/lib/workspaces/export-access');
 
   assert.equal(hasWorkspaceSwitcherOptions([personalWorkspace]), false);
   assert.equal(hasWorkspaceSwitcherOptions([personalWorkspace, additionalPersonalWorkspace]), true);
   assert.equal(hasWorkspaceManagementControls([personalWorkspace]), true);
   assert.equal(hasWorkspaceManagementControls([teamWorkspace]), false);
+  assert.equal(canExportWorkspaceFiles({
+    workspaceType: 'personal',
+    isPersonalOwner: true,
+    isInstanceAdmin: false,
+    canRead: true,
+    status: 'active',
+  }), true);
+  assert.equal(canExportWorkspaceFiles({
+    workspaceType: 'team',
+    isPersonalOwner: false,
+    isInstanceAdmin: false,
+    canRead: true,
+    status: 'active',
+  }), false);
+  assert.equal(canExportWorkspaceFiles({
+    workspaceType: 'team',
+    isPersonalOwner: false,
+    isInstanceAdmin: true,
+    canRead: true,
+    status: 'active',
+  }), true);
 
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, personalWorkspace.id);

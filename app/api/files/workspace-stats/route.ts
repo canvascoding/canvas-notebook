@@ -48,6 +48,13 @@ function formatSize(bytes: number): string {
 
 export async function GET(request: NextRequest) {
   const scope = request.nextUrl.searchParams.get('scope');
+  if (scope === 'workspace' && !request.nextUrl.searchParams.get('workspaceId')?.trim()) {
+    return NextResponse.json(
+      { success: false, error: 'Workspace selection is required' },
+      { status: 400 },
+    );
+  }
+
   const workspaceResult = scope === 'personal'
     ? await requireRequestPersonalWorkspace(request, { permissions: 'canRead' })
     : await requireRequestWorkspace(request, { permissions: 'canRead' });

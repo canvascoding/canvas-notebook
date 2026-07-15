@@ -247,6 +247,29 @@ async function main() {
   assert.equal(personalDownloadResponse.status, 200);
   assert.equal(personalDownloadResponse.headers.get('content-disposition'), 'attachment; filename="workspace.zip"');
 
+  const missingWorkspaceStatsResponse = await workspaceStatsRoute.GET(
+    request('http://localhost/api/files/workspace-stats?scope=workspace'),
+  );
+  assert.equal(missingWorkspaceStatsResponse.status, 400);
+
+  const missingWorkspaceDownloadResponse = await downloadRoute.GET(
+    request('http://localhost/api/files/download?scope=workspace'),
+  );
+  assert.equal(missingWorkspaceDownloadResponse.status, 400);
+
+  const selectedTeamStatsResponse = await workspaceStatsRoute.GET(
+    request(`http://localhost/api/files/workspace-stats?scope=workspace&workspaceId=${teamWorkspaceId}`),
+  );
+  assert.equal(selectedTeamStatsResponse.status, 200);
+  const selectedTeamStats = expectObject(await responseJson(selectedTeamStatsResponse), 'selected team workspace stats');
+  assert.equal(expectObject(selectedTeamStats.data, 'selected team workspace stats data').fileCount, 1);
+
+  const adminTeamDownloadResponse = await downloadRoute.GET(
+    request(`http://localhost/api/files/download?scope=workspace&workspaceId=${teamWorkspaceId}`),
+  );
+  assert.equal(adminTeamDownloadResponse.status, 200);
+  assert.equal(adminTeamDownloadResponse.headers.get('content-disposition'), 'attachment; filename="workspace.zip"');
+
   const retiredDataDownloadResponse = await downloadRoute.GET(
     request('http://localhost/api/files/download?scope=data'),
   );
@@ -396,6 +419,28 @@ async function main() {
       id: 'member-route-test-session',
     },
   };
+
+  const memberWorkspacesResponse = await workspacesRoute.GET(request('http://localhost/api/workspaces'));
+  assert.equal(memberWorkspacesResponse.status, 200);
+  const memberWorkspaces = await responseJson(memberWorkspacesResponse);
+  const memberPersonalWorkspace = workspaceByType(memberWorkspaces, 'personal');
+  assert.equal(typeof memberPersonalWorkspace.id, 'string');
+  assert.equal(typeof memberPersonalWorkspace.rootRelativePath, 'string');
+  const memberPersonalRoot = path.join(dataRoot, memberPersonalWorkspace.rootRelativePath as string);
+  await fs.mkdir(memberPersonalRoot, { recursive: true });
+  await fs.writeFile(path.join(memberPersonalRoot, 'member-personal.txt'), 'member personal export');
+
+  const memberPersonalDownloadResponse = await downloadRoute.GET(
+    request(`http://localhost/api/files/download?scope=workspace&workspaceId=${memberPersonalWorkspace.id}`),
+  );
+  assert.equal(memberPersonalDownloadResponse.status, 200);
+
+  const memberTeamDownloadResponse = await downloadRoute.GET(
+    request(`http://localhost/api/files/download?scope=workspace&workspaceId=${teamWorkspaceId}`),
+  );
+  assert.equal(memberTeamDownloadResponse.status, 403);
+  assert.equal((await responseJson(memberTeamDownloadResponse)).code, 'WORKSPACE_EXPORT_ADMIN_REQUIRED');
+
   const deniedMigrationExport = await requireMigrationExportPermission(request('http://localhost/api/migration/export'));
   assert.equal(deniedMigrationExport.ok, false);
   if (!deniedMigrationExport.ok) assert.equal(deniedMigrationExport.response.status, 403);

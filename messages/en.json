@@ -2074,7 +2074,7 @@
       },
       "descriptions": {
         "general": "Manage your account, language, and basic instance options.",
-        "workspace": "Export your personal workspace and manage workspace access.",
+        "workspace": "Select a workspace, manage exports, and review workspace access.",
         "brandDesign": "Define the brand experience for PDF exports and the active agent context.",
         "knowledge": "Configure knowledge processing, resources, and feature gates.",
         "agentSettings": "Control agent identity, capabilities, tools, and runtime behavior.",
@@ -2977,11 +2977,29 @@
     },
     "workspacePanel": {
       "title": "Workspace",
-      "description": "Download your entire workspace as a ZIP archive.",
+      "description": "Select an accessible workspace and download it as a ZIP archive.",
       "personalExport": {
         "title": "My personal workspace",
         "description": "Export only the files in your personal workspace.",
         "hint": "Team, project, and organization workspaces, settings, and credentials are not included."
+      },
+      "workspaceExport": {
+        "title": "Export workspace",
+        "description": "Select a workspace first. You can export personal workspaces yourself; shared workspaces require an administrator.",
+        "stepSelect": "1. Select workspace",
+        "stepExport": "2. Review and download export",
+        "loadingWorkspaces": "Loading workspaces...",
+        "noWorkspaces": "No accessible workspaces",
+        "active": "Active",
+        "personalExport": "Personal export",
+        "adminExport": "Admin export",
+        "adminOnlyTitle": "This workspace requires an admin export",
+        "adminOnlyDescription": "Only administrators can export team, project, and organization workspaces. Select a personal workspace or contact an administrator.",
+        "personalHint": "Only files from this personal workspace are included. Settings and credentials are not exported.",
+        "sharedHint": "Only files from this shared workspace are included. Settings and credentials are not exported.",
+        "fullExportTitle": "Export multiple or all workspaces",
+        "fullExportDescription": "As an administrator, use data migration for a complete, versioned export of this instance.",
+        "fullExportAction": "Open data migration"
       },
       "loadingStats": "Loading workspace stats...",
       "totalSize": "Total Size",
@@ -2989,7 +3007,7 @@
       "downloadZip": "Export workspace as ZIP",
       "downloading": "Preparing download...",
       "refresh": "Refresh",
-      "emptyWorkspace": "Your workspace is empty.",
+      "emptyWorkspace": "The selected workspace is empty.",
       "management": {
         "title": "Manage workspaces",
         "description": "Create and delete workspaces and review access status.",

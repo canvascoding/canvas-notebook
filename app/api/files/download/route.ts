@@ -5,6 +5,8 @@ import { createReadStream, getFileStats, validatePath } from '@/app/lib/filesyst
 import { Readable } from 'stream';
 import ZipStream from 'zip-stream';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { isAdminUser } from '@/app/lib/admin-auth';
+import { canExportWorkspaceFiles } from '@/app/lib/workspaces/export-access';
 import {
   requireRequestPersonalWorkspace,
   requireRequestWorkspace,
@@ -105,11 +107,39 @@ export async function GET(request: NextRequest) {
     );
   }
 
+  if (scope === 'workspace' && !searchParams.get('workspaceId')?.trim()) {
+    return NextResponse.json(
+      { success: false, error: 'Workspace selection is required' },
+      { status: 400 },
+    );
+  }
+
   const workspaceResult = scope === 'personal'
     ? await requireRequestPersonalWorkspace(request, { permissions: 'canRead' })
     : await requireRequestWorkspace(request, { permissions: 'canRead' });
   if (workspaceResult.response) return workspaceResult.response;
-  const { workspace } = workspaceResult;
+  const { session, workspace } = workspaceResult;
+
+  if (scope === 'workspace') {
+    const canExportWorkspace = canExportWorkspaceFiles({
+      workspaceType: workspace.workspaceType,
+      isPersonalOwner: workspace.workspaceType === 'personal' && workspace.ownerUserId === session.user.id,
+      isInstanceAdmin: isAdminUser(session.user),
+      canRead: workspace.permissions.canRead,
+      status: workspace.status,
+    });
+    if (!canExportWorkspace) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: 'Shared workspace exports are restricted to administrators',
+          code: 'WORKSPACE_EXPORT_ADMIN_REQUIRED',
+        },
+        { status: 403 },
+      );
+    }
+  }
+
   const fileOptions = workspaceFileOptions(workspace);
 
   const limited = rateLimit(request, {
@@ -122,14 +152,15 @@ export async function GET(request: NextRequest) {
   }
 
   const filePath = searchParams.get('path');
-  const effectiveFilePath = scope === 'personal' ? '.' : filePath;
+  const isWorkspaceArchive = scope === 'personal' || scope === 'workspace';
+  const effectiveFilePath = isWorkspaceArchive ? '.' : filePath;
   if (!effectiveFilePath) {
     return NextResponse.json({ success: false, error: 'Path parameter is required' }, { status: 400 });
   }
 
   try {
     const stats = await getFileStats(effectiveFilePath, fileOptions);
-    const downloadName = scope === 'personal' ? 'workspace' : resolveDownloadName(effectiveFilePath);
+    const downloadName = isWorkspaceArchive ? 'workspace' : resolveDownloadName(effectiveFilePath);
 
     if (stats.isDirectory) {
       if (stats.size > MAX_ZIP_DOWNLOAD_SIZE) {
