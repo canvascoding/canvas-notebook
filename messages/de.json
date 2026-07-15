@@ -1527,7 +1527,7 @@
       },
       "knowledgeGraph": {
         "title": "Dokument-Graph",
-        "description": "Lokale Markdown-Dokumente, Backlinks und offene Verbindungen als interaktive Karte erkunden."
+        "description": "Dokumente, Backlinks und Verbindungen als interaktive Karte erkunden."
       },
       "usage": {
         "title": "Usage Analytics",
