@@ -33,7 +33,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { useTheme } from '@/app/components/ThemeProvider';
 import { EXCALIDRAW_FILE_SOURCE, createEmptyExcalidrawFileContent } from '@/app/lib/excalidraw-file';
 import { parseExcalidrawContent } from '@/app/lib/excalidraw-scene';
-import { CodeEditor } from './CodeEditor';
+import { CodeEditor } from './CodeEditorClient';
 
 interface ExcalidrawEditorProps {
   path: string;

@@ -17,7 +17,7 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
-import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
 import type {
   AutomationDeliveryMode,
   AutomationDeliverySessionMode,

@@ -26,6 +26,7 @@ import { ImageThumbnailIcon } from '@/app/components/shared/ImageThumbnailIcon';
 import { formatCompactFileDate, formatCompactFileSize } from '@/app/lib/files/format';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { useLocale, useTranslations } from 'next-intl';
+import { FilePresenceMarkers } from './FilePresenceMarkers';
 
 interface FileTreeNodeProps {
   node: FileNodeType;
@@ -277,6 +278,7 @@ function FileTreeNodeComponent({
             aria-label={t('publicShareBadge')}
           />
         )}
+        {!isDirectory && <FilePresenceMarkers path={node.path} />}
       </span>
       {showListMetadata && (
         <>
@@ -521,6 +523,7 @@ function FileTreeNodeComponent({
               aria-label={t('publicShareBadge')}
             />
           )}
+          {browserMode === 'tree' && <FilePresenceMarkers path={node.path} />}
           {!showListMetadata && !isDirectory && node.size !== undefined && (
             <span className="ml-auto hidden shrink-0 text-xs text-muted-foreground md:inline">
               {formatCompactFileSize(node.size)}

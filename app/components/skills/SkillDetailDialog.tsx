@@ -23,7 +23,7 @@ import {
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Loader2, X, Save, AlertCircle, Trash2 } from 'lucide-react';
-import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 

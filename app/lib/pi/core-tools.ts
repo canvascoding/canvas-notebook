@@ -262,7 +262,7 @@ export const piTools: AgentTool[] = [
       expectedOccurrences: Type.Optional(Type.Number({ description: 'Exact number of expected oldText matches. Defaults to 1.' })),
       expectedSha256: Type.Optional(Type.String({ description: 'Optional SHA-256 hash that must match the current file before editing.' })),
     }),
-    execute: async (_toolCallId, params) => {
+    execute: async (toolCallId, params) => {
       const { path: filePath, oldText, newText, expectedOccurrences, expectedSha256 } = params as {
         path: string;
         oldText: string;
@@ -277,6 +277,7 @@ export const piTools: AgentTool[] = [
           newText,
           expectedOccurrences,
           expectedSha256,
+          idempotencyKey: toolCallId,
         });
         return {
           content: [{ type: 'text', text: formatFileChangeResult(result) }],

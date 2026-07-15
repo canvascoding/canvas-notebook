@@ -13,6 +13,7 @@ import { useTranslations } from 'next-intl';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { formatCompactFileSize } from '@/app/lib/files/format';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
+import { FilePresenceMarkers } from './FilePresenceMarkers';
 
 interface FileGridItemProps {
   node: FileNodeType;
@@ -281,6 +282,7 @@ function FileGridItemComponent({
       </div>
 
       <div className="w-full px-2 pb-2 pt-0 text-center">
+        {!isDirectory && <span className="mb-1 flex justify-center"><FilePresenceMarkers path={node.path} /></span>}
         <p className={cn(
           'truncate text-xs sm:text-sm leading-tight',
           isRowActive ? 'font-medium text-foreground' : 'text-foreground/90'

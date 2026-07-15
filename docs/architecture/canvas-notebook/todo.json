@@ -1094,7 +1094,7 @@
     {
       "id": 48,
       "title": "Echte Markdown-/Text-Live-Collaboration mit Yjs, Hocuspocus und File-Tree-Presence umsetzen",
-      "status": "planned",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "dependsOn": [
         34,
@@ -1143,6 +1143,7 @@
       ],
       "acceptanceCriteria": [
         "Markdown und reine Textdateien nutzen in berechtigten Postgres-Team-Workspaces einen echten persistierten Yjs-Dokumentzustand statt Whole-File-Autosave",
+        "Aufgabe 48 bleibt auf Markdown und reine Textdateien begrenzt; Excalidraw ist ausdruecklich Aufgabe 52 mit eigenem Scene-Provider und wird nicht als JSON in Y.Text aufgenommen",
         "Rich-faehiges Markdown verwendet Tiptap Collaboration mit Y.XmlFragment; Raw Text und source-only Markdown verwenden ein CodeMirror-Binding an Y.Text",
         "Hocuspocus laeuft unter /ws/collaboration auf demselben App-Port, waehrend /ws/chat protokollseitig getrennt bleibt",
         "Kurzlebige serverseitig ausgestellte Tickets binden User, Workspace, Dokument, Permission, Session und Schema-Version und werden beim Connect revalidiert",

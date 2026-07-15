@@ -37,13 +37,17 @@ import {
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
+import { useTranslations } from 'next-intl';
+import { yCollab } from 'y-codemirror.next';
+import { useCollaborationDocument } from '@/app/lib/collaboration/client';
 
-interface CodeEditorProps {
+export interface CodeEditorProps {
   value: string;
   onChange: (value: string) => void;
   readOnly?: boolean;
   path?: string;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
+  collaborationEnabled?: boolean;
 }
 
 const CODE_MIRROR_BASIC_SETUP = {
@@ -297,11 +301,28 @@ export function CodeEditor({
   readOnly = false,
   path,
   markdownNavigationTarget,
+  collaborationEnabled,
 }: CodeEditorProps) {
+  const t = useTranslations('notebook');
   const { currentFile } = useFileStore();
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const { resolvedTheme } = useTheme();
   const languagePath = path || currentFile?.path;
+  const extension = languagePath?.split('.').pop()?.toLowerCase();
+  const supportsCollaboration = extension === 'md' || extension === 'markdown' || extension === 'txt';
+  const shouldCollaborate = collaborationEnabled ?? Boolean(currentFile?.collaboration?.crdtCapable && supportsCollaboration);
+  const collaboration = useCollaborationDocument({
+    enabled: shouldCollaborate,
+    workspaceId: activeWorkspaceId,
+    path: languagePath,
+    representation: 'plain_text',
+  });
+  const collaborationReadOnly = shouldCollaborate && (
+    !collaboration?.session
+    || collaboration.session.permission !== 'write'
+    || collaboration.status === 'degraded'
+  );
+  const effectiveReadOnly = readOnly || collaborationReadOnly;
   const performanceProfile = useMemo(() => getTextEditorPerformanceProfile(value), [value]);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
 
@@ -314,7 +335,7 @@ export function CodeEditor({
       nextExtensions.push(EditorView.lineWrapping);
     }
     if (
-      !readOnly
+      !effectiveReadOnly
       && activeWorkspaceId
       && isMarkdownPath(languagePath)
       && !performanceProfile.disableLanguageExtension
@@ -326,17 +347,36 @@ export function CodeEditor({
         nextExtensions.push(createObsidianWikiOpenExtension(activeWorkspaceId, languagePath));
       }
     }
+    if (collaboration?.provider?.awareness) {
+      nextExtensions.push(yCollab(collaboration.doc.getText('content'), collaboration.provider.awareness));
+      nextExtensions.push(EditorView.domEventHandlers({
+        compositionstart(_event, view) {
+          const selection = view.state.selection.main;
+          collaboration.setComposition({ textName: 'content', from: selection.from, to: selection.to });
+          return false;
+        },
+        compositionend() {
+          collaboration.setComposition(null);
+          return false;
+        },
+        blur() {
+          collaboration.setComposition(null);
+          return false;
+        },
+      }));
+    }
     return nextExtensions;
   }, [
     activeWorkspaceId,
     languagePath,
     performanceProfile.disableLanguageExtension,
     performanceProfile.disableLineWrapping,
-    readOnly,
+    effectiveReadOnly,
+    collaboration,
   ]);
 
   useEffect(() => {
-    if (readOnly) return;
+    if (effectiveReadOnly) return;
 
     // Handle Cmd/Ctrl+S keyboard shortcut
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -348,7 +388,7 @@ export function CodeEditor({
 
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
-  }, [readOnly]);
+  }, [effectiveReadOnly]);
 
   useEffect(() => {
     if (!editorView || !markdownNavigationTarget) return;
@@ -362,19 +402,34 @@ export function CodeEditor({
   }, [editorView, markdownNavigationTarget]);
 
   return (
-    <div className="h-full w-full">
+    <div className="relative h-full w-full">
       <CodeMirror
-        value={value}
+        value={collaboration ? collaboration.doc.getText('content').toString() : value}
         height="100%"
         theme={resolvedTheme === 'light' ? 'light' : 'dark'}
         extensions={extensions}
         onChange={onChange}
         onCreateEditor={(view) => setEditorView(view)}
-        editable={!readOnly}
+        editable={!effectiveReadOnly}
         basicSetup={performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
         style={CODE_MIRROR_STYLE}
         className="codemirror-wrapper"
       />
+      {shouldCollaborate && (
+        <div className="pointer-events-none absolute right-3 top-2 z-10 rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
+          {collaboration?.status === 'degraded'
+            ? collaboration.error || t('collaboration.degraded')
+            : collaboration?.status === 'saved' || collaboration?.status === 'live'
+              ? t('collaboration.live')
+              : collaboration?.status === 'persisting'
+                ? t('collaboration.persisting')
+                : collaboration?.status === 'offline' || collaboration?.status === 'reconnecting'
+                  ? t('collaboration.offline')
+              : collaboration?.status === 'read_only'
+                ? t('collaboration.readOnly')
+                : collaboration?.status || t('collaboration.connecting')}
+        </div>
+      )}
       <style jsx global>{`
         .codemirror-wrapper {
           height: 100%;

@@ -557,6 +557,7 @@ const server = http.createServer((req, res) => {
 });
 
 let shutdownInProgress = false;
+let flushCollaborationDocuments = async () => {};
 
 function exitCodeForSignal(signal) {
   if (signal === 'SIGINT') return 130;
@@ -564,7 +565,7 @@ function exitCodeForSignal(signal) {
   return 0;
 }
 
-function shutdownServer(signal) {
+async function shutdownServer(signal) {
   if (shutdownInProgress) {
     return;
   }
@@ -577,6 +578,11 @@ function shutdownServer(signal) {
   }, 10_000);
   forceExitTimer.unref?.();
 
+  try {
+    await flushCollaborationDocuments();
+  } catch (error) {
+    console.error('[Startup] Error while flushing collaboration documents:', error);
+  }
   server.close((error) => {
     if (error) {
       console.error(`[Startup] Error while closing HTTP server after ${signal}:`, error);
@@ -602,7 +608,7 @@ process.on('unhandledRejection', (reason) => {
 // listeners. After app.prepare() we wrap Next's listeners so they never see
 // /ws/chat sockets; otherwise Next can still corrupt or close the upgraded
 // connection after our ws server has accepted it.
-let isChatWebSocketRequest = () => false;
+let isCanvasWebSocketRequest = () => false;
 
 function guardNonChatUpgradeListener(listener) {
   if (typeof listener !== 'function' || listener.__canvasUpgradeGuarded) {
@@ -610,7 +616,7 @@ function guardNonChatUpgradeListener(listener) {
   }
 
   const guardedListener = function guardedUpgradeListener(request, socket, head) {
-    if (isChatWebSocketRequest(request.url)) {
+    if (isCanvasWebSocketRequest(request.url)) {
       return;
     }
 
@@ -670,9 +676,18 @@ async function startServer() {
     ) {
       throw new Error('WebSocket server module did not expose expected functions');
     }
-    isChatWebSocketRequest = websocketServer.isChatWebSocketRequest;
     websocketServer.createWebSocketServer(server);
     console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+    // Keep the custom server and Next server externals on the CommonJS Yjs
+    // entry so the long-lived Node process has exactly one constructor set.
+    const collaborationModule = require('./server/collaboration-server.ts');
+    collaborationModule.createCollaborationServer(server);
+    flushCollaborationDocuments = collaborationModule.flushCollaborationDocuments;
+    isCanvasWebSocketRequest = (requestUrl) => (
+      websocketServer.isChatWebSocketRequest(requestUrl)
+      || collaborationModule.isCollaborationWebSocketRequest(requestUrl)
+    );
+    console.log('[Startup] Collaboration WebSocket ready on ws://localhost:' + port + '/ws/collaboration');
     const { preloadAgentRuntimeModules } = await import('./server/agent-runtime-loader.ts');
     agentRuntimeWarmupPromise = preloadAgentRuntimeModules().then((result) => {
       console.log('[Startup] Agent runtime modules preloaded', result);
@@ -690,7 +705,7 @@ async function startServer() {
   } catch (error) {
     console.error('[Startup] ERROR initializing WebSocket Server:', error.message);
     console.error('[Startup] Stack trace:', error.stack);
-    isChatWebSocketRequest = () => false;
+    isCanvasWebSocketRequest = () => false;
     if (process.env.CANVAS_ALLOW_HTTP_WITHOUT_CHAT_WS !== 'true') {
       throw error;
     }

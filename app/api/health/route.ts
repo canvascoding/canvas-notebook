@@ -8,6 +8,8 @@ import {
   areTeamFeaturesEnabled,
   getDeploymentMode,
 } from '@/app/lib/organization/bootstrap';
+import { getCollaborationRuntimeHealth, setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
+import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
 
 export async function GET() {
   const checks: Record<string, 'ok' | 'error'> = {
@@ -30,6 +32,30 @@ export async function GET() {
     connection = await openDb();
     await connection.get('SELECT 1');
     checks.db = 'ok';
+    if (teamFeaturesEnabled) {
+      const collaboration = getCollaborationRuntimeHealth();
+      try {
+        await requireTeamRuntimeLicense();
+        await requireRuntimeCapability('liveCollaboration');
+        collaboration.capabilityReady = true;
+      } catch {
+        collaboration.capabilityReady = false;
+      }
+      if (collaboration.capabilityReady) {
+        try {
+          await connection.get('SELECT 1 AS ok FROM collaboration_yjs_states LIMIT 1');
+          collaboration.persistenceReady = true;
+        } catch {
+          collaboration.persistenceReady = false;
+        }
+        checks.collaboration = collaboration.websocketReady && collaboration.persistenceReady ? 'ok' : 'error';
+        if (checks.collaboration === 'error') status = 503;
+      }
+      setCollaborationRuntimeHealth({
+        capabilityReady: collaboration.capabilityReady,
+        persistenceReady: collaboration.persistenceReady,
+      });
+    }
   } catch {
     checks.db = 'error';
     status = 503;
@@ -45,6 +71,10 @@ export async function GET() {
       deployment: {
         mode: deploymentMode,
         teamFeaturesEnabled,
+      },
+      collaboration: {
+        enabled: teamFeaturesEnabled && checks.collaboration === 'ok' && getCollaborationRuntimeHealth().capabilityReady,
+        ...getCollaborationRuntimeHealth(),
       },
       timestamp: new Date().toISOString(),
     },

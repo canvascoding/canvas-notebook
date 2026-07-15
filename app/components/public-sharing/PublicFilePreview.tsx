@@ -7,9 +7,9 @@ import { AlertCircle, Code2, Download, Eye, FileText, Loader2, RefreshCw, Share2
 import { useTranslations } from 'next-intl';
 
 import { Button } from '@/components/ui/button';
-import { CodeEditor } from '@/app/components/editor/CodeEditor';
+import { CodeEditor } from '@/app/components/editor/CodeEditorClient';
 import { ImageViewer } from '@/app/components/editor/ImageViewer';
-import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
 import { MediaViewer } from '@/app/components/editor/MediaViewer';
 import { PdfViewer } from '@/app/components/editor/PdfViewer';
 import { ShareMarkdownDialog } from '@/app/components/file-browser/ShareMarkdownDialog';

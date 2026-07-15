@@ -1,7 +1,7 @@
 'use client';
 
 import { useState } from 'react';
-import { CodeEditor } from './CodeEditor';
+import { CodeEditor } from './CodeEditorClient';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
 import { HtmlPreviewBlocked, HtmlPreviewConsent } from './HtmlPreviewConsent';
 import { useWorkspaceStore } from '@/app/store/workspace-store';

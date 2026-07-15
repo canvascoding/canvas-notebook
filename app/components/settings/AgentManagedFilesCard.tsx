@@ -22,7 +22,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 
 export const MANAGED_FILES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;

@@ -21,6 +21,7 @@ import { FileGridItem } from './FileGridItem';
 import { BackgroundContextMenu } from './BackgroundContextMenu';
 import { useFileExplorerViewModel } from './useFileExplorerViewModel';
 import { useMarqueeSelection } from './useMarqueeSelection';
+import { useFilePresence } from './useFilePresence';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -49,6 +50,7 @@ export function FileGridView({
   onUpload,
   onCreateFolder,
 }: FileGridViewProps) {
+  useFilePresence();
   const t = useTranslations('notebook');
   const containerRef = useRef<HTMLDivElement>(null);
   const {

@@ -17,11 +17,12 @@ import { LocalFileWriteTracker } from '@/app/lib/files/local-write-tracker';
 import { useEditorStore } from '@/app/store/editor-store';
 import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/client';
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
-import { MarkdownEditor } from './MarkdownEditor';
+import { MarkdownEditor } from './MarkdownEditorClient';
 import { MarpPreview } from './MarpPreview';
 import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
 import { FileActionsDropdown } from '../file-browser/FileActionsDropdown';
-import { CodeEditor } from './CodeEditor';
+import { CodeEditor } from './CodeEditorClient';
+import { CollaborationAgentOperations } from './CollaborationAgentOperations';
 import { HtmlViewer } from './HtmlViewer';
 import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
@@ -553,7 +554,11 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     // Case 2: The same file is being refreshed from the server.
     // The `currentFile` object is new, but the path is the same.
     // We only want to update the editor's draft if the user doesn't have unsaved changes.
-    if (currentFile.path === editorState.activePath && !editorState.isDirty) {
+    if (
+      currentFile.path === editorState.activePath
+      && !editorState.isDirty
+      && !currentFile.collaboration?.crdtCapable
+    ) {
       // If the content from the server is different from the draft, update the editor.
       if (currentFile.content !== editorState.draft) {
         setActiveFile(currentFile.path, currentFile.content);
@@ -562,6 +567,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile, clear, setActiveFile]);
 
   useEffect(() => {
+    if (currentFile?.collaboration?.crdtCapable) {
+      if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
+      return;
+    }
     if (!activePath || !isDirty) return;
     if (activeExternalTextChangePath) return;
 
@@ -601,7 +610,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [activeExternalTextChangePath, activePath, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
+  }, [activeExternalTextChangePath, activePath, currentFile?.collaboration?.crdtCapable, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
 
   const extension = useMemo(() => {
     if (!currentFile) return '';
@@ -620,6 +629,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
   const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isExcalidraw && !isAudio && !isVideo && !isOffice;
   const collaboration = currentFile?.collaboration ?? null;
+  const updateCollaborativeDraft = useCallback((value: string) => {
+    updateDraft(value);
+    if (collaboration?.crdtCapable) markSaved();
+  }, [collaboration?.crdtCapable, markSaved, updateDraft]);
   const collaborationLabel = useMemo(() => {
     if (!collaboration) return null;
     if (collaboration.activeLock) return t('collaboration.locked');
@@ -929,7 +942,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [handleImageNext, handleImagePrev, imagePaths.length, isImage]);
 
   useEffect(() => {
-    if (!currentFile?.path || !isText || isExcalidraw) return;
+    if (!currentFile?.path || !isText || isExcalidraw || currentFile.collaboration?.crdtCapable) return;
 
     const watchedFilePath = currentFile.path;
     const client = getFileWatcherClient();
@@ -971,7 +984,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         externalReloadTimeoutRef.current = null;
       }
     };
-  }, [currentFile?.path, isExcalidraw, isText, loadExternalTextChange, refreshCurrentFileContent]);
+  }, [currentFile?.collaboration?.crdtCapable, currentFile?.path, isExcalidraw, isText, loadExternalTextChange, refreshCurrentFileContent]);
 
   useEffect(() => {
     if (!currentFile?.path || !isExcalidraw) return;
@@ -1015,7 +1028,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile?.path, isExcalidraw, refreshCurrentFileContent]);
 
   useEffect(() => {
-    if (!currentFile?.path || !isText || isExcalidraw) return;
+    if (!currentFile?.path || !isText || isExcalidraw || currentFile.collaboration?.crdtCapable) return;
 
     const watchedFilePath = currentFile.path;
     const revalidateCleanFile = () => {
@@ -1033,7 +1046,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       window.removeEventListener('focus', revalidateCleanFile);
       document.removeEventListener('visibilitychange', handleVisibilityChange);
     };
-  }, [currentFile?.path, isExcalidraw, isText, refreshCurrentFileContent]);
+  }, [currentFile?.collaboration?.crdtCapable, currentFile?.path, isExcalidraw, isText, refreshCurrentFileContent]);
 
   if (isLoadingFile && !currentFile) {
     const pendingPath = loadingFilePath ?? null;
@@ -1296,6 +1309,9 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           </div>
         </div>
       ) : null}
+      {collaboration?.crdtCapable && collaboration.document?.id ? (
+        <CollaborationAgentOperations documentId={collaboration.document.id} />
+      ) : null}
       <div className={isImage || isVideo || isMarkdown || isHtml || isExcalidraw ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
@@ -1372,10 +1388,16 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
             isMarpMarkdownFile && markdownViewMode === 'slides' ? (
               <MarpPreview path={currentFile.path} content={draft} refreshKey={marpRefreshKey} />
             ) : (
-              <MarkdownEditor key={currentFile.path} value={draft} onChange={updateDraft} filePath={currentFile.path} />
+              <MarkdownEditor
+                key={currentFile.path}
+                value={draft}
+                onChange={updateCollaborativeDraft}
+                filePath={currentFile.path}
+                collaborationEnabled={Boolean(collaboration?.crdtCapable)}
+              />
             )
           ) : (
-            <CodeEditor value={draft} onChange={updateDraft} readOnly={false} />
+            <CodeEditor value={draft} onChange={updateCollaborativeDraft} readOnly={false} />
           )}
       </div>
     </div>

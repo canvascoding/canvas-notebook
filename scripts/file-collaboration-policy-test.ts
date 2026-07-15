@@ -95,13 +95,17 @@ async function main() {
     assert.equal(markdownState.document?.provider, 'yjs');
     assert.equal(markdownState.document?.snapshotRevisionId, initialRevision.id);
 
-    assert.doesNotThrow(() => assertFileCollaborationWriteAllowed({
-      workspace,
-      path: 'notes.md',
-      actorUserId: 'user-a',
-      baseRevisionId: initialRevision.id,
-      nowMs: 10_002,
-    }));
+    assert.throws(
+      () => assertFileCollaborationWriteAllowed({
+        workspace,
+        path: 'notes.md',
+        actorUserId: 'user-a',
+        baseRevisionId: initialRevision.id,
+        nowMs: 10_002,
+      }),
+      (error) => error instanceof FileCollaborationPolicyError
+        && error.code === 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED',
+    );
 
     const secondBuffer = Buffer.from('# V2\n');
     const secondRevision = ensureFileRevisionForCurrentContent({
@@ -171,13 +175,17 @@ async function main() {
     });
     assert.equal(replacedState.latestRevision?.id, conflictCopyRevision.id);
     assert.equal(replacedState.activeLock, null);
-    assert.doesNotThrow(() => assertFileCollaborationWriteAllowed({
-      workspace,
-      path: 'notes.md',
-      actorUserId: 'user-b',
-      baseRevisionId: conflictCopyRevision.id,
-      nowMs: 10_010,
-    }));
+    assert.throws(
+      () => assertFileCollaborationWriteAllowed({
+        workspace,
+        path: 'notes.md',
+        actorUserId: 'user-b',
+        baseRevisionId: conflictCopyRevision.id,
+        nowMs: 10_010,
+      }),
+      (error) => error instanceof FileCollaborationPolicyError
+        && error.code === 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED',
+    );
 
     const continuedCopyBuffer = Buffer.from('# Local conflict copy, continued\n');
     const continuedCopyRevision = ensureFileRevisionForCurrentContent({

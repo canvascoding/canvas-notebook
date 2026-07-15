@@ -5,6 +5,7 @@ import { trashWorkspacePaths } from '@/app/lib/filesystem/workspace-trash';
 import { syncPublicSharesAfterDelete } from '@/app/lib/public-sharing/public-file-shares';
 import { getParentDirectory } from '@/app/lib/files/path-utils';
 import { archiveFileCollaborationPaths } from '@/app/lib/files/collaboration-policy';
+import { archivePersistedCollaborationPaths } from '@/app/lib/collaboration/persistence';
 import {
   applyRateLimit,
   invalidateWorkspaceFileViews,
@@ -55,6 +56,10 @@ export async function DELETE(request: NextRequest) {
         path: entry.originalPath,
         trashEntryId: entry.id,
       })),
+    });
+    await archivePersistedCollaborationPaths({
+      workspaceId: workspaceResult.workspace.workspaceId,
+      paths: deletedPaths,
     });
     await syncPublicSharesAfterDelete(deletedPaths, workspaceResult.workspace);
 

@@ -81,7 +81,8 @@ export class FileCollaborationPolicyError extends Error {
     | 'FILE_LOCK_REQUIRED'
     | 'FILE_REVISION_ID_CONFLICT'
     | 'FILE_LOCK_NOT_FOUND'
-    | 'FILE_LOCK_PERMISSION_DENIED';
+    | 'FILE_LOCK_PERMISSION_DENIED'
+    | 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED';
   readonly status: 403 | 404 | 409 | 423;
   readonly path: string;
   readonly currentRevisionId: string | null;
@@ -845,6 +846,17 @@ export function assertFileCollaborationWriteAllowed(params: {
         message: 'File requires an active edit lock before it can be changed.',
         path: normalizedPath,
         currentRevisionId: latestRevision.id,
+        baseRevisionId: params.baseRevisionId ?? null,
+      });
+    }
+
+    if (state.crdtCapable && state.document) {
+      throw new FileCollaborationPolicyError({
+        code: 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED',
+        status: 409,
+        message: 'This file has an active collaboration document. Apply edits through the collaboration service instead of replacing the whole file.',
+        path: normalizedPath,
+        currentRevisionId: latestRevision?.id ?? null,
         baseRevisionId: params.baseRevisionId ?? null,
       });
     }

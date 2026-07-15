@@ -275,32 +275,147 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       serialized_hash text,
       newline_style text NOT NULL DEFAULT 'lf' CHECK (newline_style IN ('lf', 'crlf')),
       has_bom bigint NOT NULL DEFAULT 0,
-      degraded bigint NOT NULL DEFAULT 0
+      degraded bigint NOT NULL DEFAULT 0,
+      compacted_at bigint,
+      compaction_count bigint NOT NULL DEFAULT 0,
+      status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived'))
     )
   `);
+  await pool.query("ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'");
+  await pool.query('ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS compacted_at bigint');
+  await pool.query('ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS compaction_count bigint NOT NULL DEFAULT 0');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_workspace_path ON collaboration_yjs_states (workspace_id, path)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_persisted ON collaboration_yjs_states (persisted_at)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_yjs_state_backups (
+      backup_id text PRIMARY KEY,
+      document_id text NOT NULL,
+      lifecycle_generation bigint NOT NULL,
+      schema_version bigint NOT NULL,
+      representation text NOT NULL,
+      yjs_state bytea NOT NULL,
+      state_vector bytea NOT NULL,
+      document_sequence bigint NOT NULL,
+      reason text NOT NULL CHECK (reason IN ('compaction', 'representation_change')),
+      created_at bigint NOT NULL,
+      expires_at bigint NOT NULL
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_backup_document ON collaboration_yjs_state_backups (document_id, created_at)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_backup_expiry ON collaboration_yjs_state_backups (expires_at)');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_agent_operations (
       operation_id text PRIMARY KEY,
       document_id text NOT NULL,
       workspace_id text NOT NULL,
+      organization_id text,
+      document_lifecycle_generation bigint NOT NULL DEFAULT 1,
+      schema_version bigint NOT NULL DEFAULT 1,
       initiated_by_user_id text NOT NULL,
       actor_id text NOT NULL,
+      agent_run_id text,
+      actor_session_id text,
+      supersedes_operation_id text,
       idempotency_key text NOT NULL,
       run_generation bigint NOT NULL DEFAULT 1,
       payload_hash text NOT NULL,
+      operation_type text NOT NULL DEFAULT 'apply',
+      requested_mode text NOT NULL DEFAULT 'direct_apply',
+      atomicity text NOT NULL DEFAULT 'all_or_nothing',
+      operation_payload text,
+      reverse_payload text,
       status text NOT NULL,
       base_state_vector bytea NOT NULL,
+      base_document_sequence bigint NOT NULL DEFAULT 0,
+      resulting_state_vector_hash text,
+      checkpoint_revision_id text,
       result_json text,
       cas_version bigint NOT NULL DEFAULT 0,
+      cancel_requested_at bigint,
+      applied_at bigint,
+      persisted_at bigint,
+      checkpointed_at bigint,
+      expires_at bigint,
+      error_code text,
+      correlation_id text,
+      causation_id text,
+      trigger_depth bigint NOT NULL DEFAULT 0,
+      expected_canonical_hash text,
+      applied_document_sequence bigint,
+      action_keys_json text NOT NULL DEFAULT '{}',
       created_at bigint NOT NULL,
       updated_at bigint NOT NULL,
       UNIQUE (document_id, initiated_by_user_id, idempotency_key)
     )
   `);
+  const collaborationAgentColumns = [
+    'organization_id text',
+    'document_lifecycle_generation bigint NOT NULL DEFAULT 1',
+    'schema_version bigint NOT NULL DEFAULT 1',
+    'agent_run_id text',
+    'actor_session_id text',
+    'supersedes_operation_id text',
+    "operation_type text NOT NULL DEFAULT 'apply'",
+    "requested_mode text NOT NULL DEFAULT 'direct_apply'",
+    "atomicity text NOT NULL DEFAULT 'all_or_nothing'",
+    'operation_payload text',
+    'reverse_payload text',
+    'base_document_sequence bigint NOT NULL DEFAULT 0',
+    'resulting_state_vector_hash text',
+    'checkpoint_revision_id text',
+    'cancel_requested_at bigint',
+    'applied_at bigint',
+    'persisted_at bigint',
+    'checkpointed_at bigint',
+    'expires_at bigint',
+    'error_code text',
+    'correlation_id text',
+    'causation_id text',
+    'trigger_depth bigint NOT NULL DEFAULT 0',
+    'expected_canonical_hash text',
+    'applied_document_sequence bigint',
+    "action_keys_json text NOT NULL DEFAULT '{}'",
+  ];
+  for (const column of collaborationAgentColumns) {
+    await pool.query(`ALTER TABLE collaboration_agent_operations ADD COLUMN IF NOT EXISTS ${column}`);
+  }
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_document_status ON collaboration_agent_operations (document_id, status, updated_at)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_expiry ON collaboration_agent_operations (status, expires_at)');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_agent_sagas (
+      saga_id text PRIMARY KEY,
+      workspace_id text NOT NULL,
+      organization_id text,
+      initiated_by_user_id text NOT NULL,
+      actor_id text NOT NULL,
+      idempotency_key text NOT NULL,
+      requested_atomicity text NOT NULL CHECK (requested_atomicity IN ('saga', 'all_or_nothing')),
+      status text NOT NULL,
+      correlation_id text,
+      causation_id text,
+      error_code text,
+      created_at bigint NOT NULL,
+      updated_at bigint NOT NULL,
+      UNIQUE (workspace_id, initiated_by_user_id, idempotency_key)
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_saga_status ON collaboration_agent_sagas (workspace_id, status, updated_at)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_agent_saga_documents (
+      saga_id text NOT NULL,
+      document_id text NOT NULL,
+      ordinal bigint NOT NULL,
+      operation_id text,
+      compensation_operation_id text,
+      status text NOT NULL,
+      error_code text,
+      updated_at bigint NOT NULL,
+      PRIMARY KEY (saga_id, document_id)
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_saga_document ON collaboration_agent_saga_documents (document_id, status, updated_at)');
 
   for (const table of tables) {
     const config = getTableConfig(table as never) as {

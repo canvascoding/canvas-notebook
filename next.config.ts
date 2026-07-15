@@ -13,6 +13,12 @@ const externalPackages = [
   '@earendil-works/pi-agent-core',
   '@eigenpal/docx-js-editor',
   'file-type',
+  '@hocuspocus/server',
+  '@hocuspocus/transformer',
+  '@tiptap/y-tiptap',
+  'y-prosemirror',
+  'y-protocols',
+  'yjs',
 ];
 
 const sentryTunnelRoute = process.env.SENTRY_TUNNEL_ROUTE?.trim() || undefined;

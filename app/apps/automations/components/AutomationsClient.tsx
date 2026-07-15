@@ -68,7 +68,7 @@ import { ScrollArea } from '@/components/ui/scroll-area';
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from '@/components/ui/sheet';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
-import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
 import { Link, useRouter } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 

@@ -28,7 +28,7 @@ import {
   ArrowUpCircle,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { MarkdownEditor } from '@/app/components/editor/MarkdownEditor';
+import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
 import {

@@ -23,6 +23,7 @@ import { Placeholder } from '@tiptap/extension-placeholder';
 import { TaskList } from '@tiptap/extension-task-list';
 import { TaskItem } from '@tiptap/extension-task-item';
 import { TableKit } from '@tiptap/extension-table';
+import UniqueID from '@tiptap/extension-unique-id';
 import { CodeBlock } from '@tiptap/extension-code-block';
 import { Suggestion, type SuggestionProps } from '@tiptap/suggestion';
 import { Plugin, PluginKey } from '@tiptap/pm/state';
@@ -133,18 +134,22 @@ import { resolveMarkdownImageUrl } from '@/app/lib/markdown/markdown-image-url';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
-import { CodeEditor } from './CodeEditor';
+import { CodeEditor } from './CodeEditorClient';
 import { MarkdownBacklinksPanel } from './MarkdownBacklinksPanel';
 import { MarkdownPropertiesPanel } from './MarkdownPropertiesPanel';
 import { createObsidianWikiLinkExtensions } from './ObsidianWikiLinkExtension';
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
+import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
+import CollaborationCaret from '@tiptap/extension-collaboration-caret';
+import { useCollaborationDocument, type CollaborationDocument } from '@/app/lib/collaboration/client';
 
-interface MarkdownEditorProps {
+export interface MarkdownEditorProps {
   value: string;
   onChange?: (value: string) => void;
   readOnly?: boolean;
   filePath?: string;
   externalValueSync?: 'always' | 'when-blurred';
+  collaborationEnabled?: boolean;
 }
 
 type EditorMode = 'rich' | 'source';
@@ -322,11 +327,15 @@ function getActiveTableCellAlign(editor: Editor): ToolbarState['cellAlign'] {
 }
 
 function getMarkdownToolbarState(editor: Editor | null): ToolbarState {
-  if (!editor) return EMPTY_TOOLBAR_STATE;
+  if (!editor || editor.isDestroyed) return EMPTY_TOOLBAR_STATE;
+  const availableCommands = editor.can() as ReturnType<Editor['can']> & {
+    undo?: () => boolean;
+    redo?: () => boolean;
+  };
 
   return {
-    canUndo: editor.can().undo(),
-    canRedo: editor.can().redo(),
+    canUndo: availableCommands.undo?.() ?? false,
+    canRedo: availableCommands.redo?.() ?? false,
     isBold: editor.isActive('bold'),
     isItalic: editor.isActive('italic'),
     isStrike: editor.isActive('strike'),
@@ -1041,7 +1050,10 @@ function updateSlashCommandPosition(element: HTMLElement, props: SuggestionProps
 }
 
 function getSlashCommandMountElement(editor: Editor) {
-  const overlayHost = editor.view.dom.closest('[data-slot="dialog-content"], [data-slot="sheet-content"]');
+  const editorElement = editor.options.element;
+  const overlayHost = editorElement instanceof Element
+    ? editorElement.closest('[data-slot="dialog-content"], [data-slot="sheet-content"]')
+    : null;
   return overlayHost instanceof HTMLElement ? overlayHost : document.body;
 }
 
@@ -1401,7 +1413,8 @@ function MarkdownBlockControls({
   useEffect(() => {
     if (!editor) return;
 
-    const editorElement = editor.view.dom;
+    const editorElement = editor.options.element;
+    if (!(editorElement instanceof HTMLElement)) return;
 
     const handleDragOver = (event: DragEvent) => {
       const isInternalBlockDrag = hasCanvasBlockDragData(event.dataTransfer);
@@ -1637,11 +1650,13 @@ function createEditorExtensions(
   actions?: SlashCommandActions,
   workspaceId: string | null = null,
   wikiLabels: { empty: string; group: string } = { empty: '', group: '' },
+  collaboration: CollaborationDocument | null = null,
 ) {
-  return [
+  const extensions = [
     StarterKit.configure({
       codeBlock: false,
       link: false,
+      undoRedo: collaboration ? false : undefined,
     }),
     Placeholder.configure({
       placeholder: ({ node }) => node.type.name === 'paragraph' ? labels.placeholder : '',
@@ -1676,6 +1691,10 @@ function createEditorExtensions(
         resizable: false,
       },
     }),
+    UniqueID.configure({
+      types: 'all',
+      filterTransaction: (transaction) => !isChangeOrigin(transaction),
+    }),
     ColorSwatchDecorations,
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
@@ -1692,6 +1711,19 @@ function createEditorExtensions(
       },
     }),
   ];
+  if (collaboration?.provider && collaboration.session) {
+    extensions.push(
+      Collaboration.configure({ document: collaboration.doc, field: 'body' }),
+      CollaborationCaret.configure({
+        provider: collaboration.provider,
+        user: {
+          name: collaboration.session.user.name,
+          color: collaboration.session.user.color,
+        },
+      }),
+    );
+  }
+  return extensions;
 }
 
 function MarkdownSourceToolbar({
@@ -2587,7 +2619,7 @@ function MarkdownToolbar({
     canEditText: true,
   });
   const [linkPopover, setLinkPopover] = useState<LinkPopoverState | null>(null);
-  const canUseCommands = Boolean(editor?.isEditable);
+  const canUseCommands = Boolean(editor && !editor.isDestroyed && editor.isEditable);
   const toolbarState = useMarkdownToolbarState(editor);
 
   const closeLinkPopover = useCallback(() => {
@@ -2652,7 +2684,8 @@ function MarkdownToolbar({
   useEffect(() => {
     if (!editor) return;
 
-    const editorElement = editor.view.dom;
+    const editorElement = editor.options.element;
+    if (!(editorElement instanceof HTMLElement)) return;
 
     const handleEditorClick = (event: MouseEvent) => {
       const target = event.target;
@@ -3423,6 +3456,7 @@ function RichMarkdownEditor({
   isMobileKeyboardActive,
   onSourceMode,
   markdownNavigationTarget,
+  collaborationEnabled = false,
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
@@ -3444,6 +3478,18 @@ function RichMarkdownEditor({
   const [mathEditRequest, setMathEditRequest] = useState<MathEditRequest | null>(null);
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const collaboration = useCollaborationDocument({
+    enabled: collaborationEnabled,
+    workspaceId: activeWorkspaceId,
+    path: filePath,
+    representation: 'tiptap_xml',
+  });
+  const collaborationReadOnly = collaborationEnabled && (
+    !collaboration?.session
+    || collaboration.session.permission !== 'write'
+    || collaboration.status === 'degraded'
+  );
+  const effectiveReadOnly = readOnly || collaborationReadOnly;
   const labels = useMemo(() => createSlashCommandLabels(t), [t]);
   const wikiLabels = useMemo(() => ({
     empty: t('markdownEditorWikiNoMatch'),
@@ -3505,18 +3551,42 @@ function RichMarkdownEditor({
       slashCommandActions,
       activeWorkspaceId,
       wikiLabels,
+      collaboration,
     ),
-    [activeWorkspaceId, filePath, labels, slashCommandActions, wikiLabels],
+    [activeWorkspaceId, collaboration, filePath, labels, slashCommandActions, wikiLabels],
   );
 
   const editor = useEditor({
     extensions,
-    content: documentParts.body,
+    content: collaborationEnabled ? undefined : documentParts.body,
     contentType: 'markdown',
-    editable: !readOnly,
+    editable: !effectiveReadOnly,
     immediatelyRender: false,
+    // Tiptap's createView reads editorProps synchronously; passing an explicit
+    // undefined during the pre-session render overrides its default object.
+    editorProps: collaboration ? {
+      handleDOMEvents: {
+        compositionstart: (view) => {
+          const selection = view.state.selection;
+          collaboration.setComposition({
+            textName: 'body',
+            from: selection.from,
+            to: selection.to,
+          });
+          return false;
+        },
+        compositionend: () => {
+          collaboration.setComposition(null);
+          return false;
+        },
+        blur: () => {
+          collaboration.setComposition(null);
+          return false;
+        },
+      },
+    } : {},
     onUpdate: ({ editor: updateEditor }) => {
-      if (readOnly || applyingExternalValueRef.current) return;
+      if (effectiveReadOnly || applyingExternalValueRef.current) return;
 
       const markdownEditor = asMarkdownEditor(updateEditor);
       const markdown = markdownEditor?.getMarkdown() ?? '';
@@ -3527,12 +3597,33 @@ function RichMarkdownEditor({
         onChange?.(nextValue);
       }
     },
-  });
+  }, [collaboration?.provider]);
 
   const handlePropertiesChange = useCallback((nextValue: string) => {
+    if (collaborationEnabled && collaboration) {
+      const prefix = splitCanvasMarkdownForRichEditor(nextValue).prefix;
+      const frontmatter = collaboration.doc.getText('frontmatter');
+      collaboration.doc.transact(() => {
+        if (frontmatter.length) frontmatter.delete(0, frontmatter.length);
+        if (prefix) frontmatter.insert(0, prefix);
+      }, 'canvas-properties');
+    }
     latestValueRef.current = nextValue;
     onChange?.(nextValue);
-  }, [onChange]);
+  }, [collaboration, collaborationEnabled, onChange]);
+
+  useEffect(() => {
+    if (!collaboration) return;
+    const frontmatter = collaboration.doc.getText('frontmatter');
+    const updateValue = () => {
+      const body = asMarkdownEditor(editor)?.getMarkdown() ?? '';
+      const nextValue = composeCanvasMarkdownDocument(frontmatter.toString(), body);
+      latestValueRef.current = nextValue;
+      onChange?.(nextValue);
+    };
+    frontmatter.observe(updateValue);
+    return () => frontmatter.unobserve(updateValue);
+  }, [collaboration, editor, onChange]);
 
   const markdownEditor = asMarkdownEditor(editor);
   useEffect(() => {
@@ -3648,6 +3739,7 @@ function RichMarkdownEditor({
   }, [cancelPendingBlockCommandMenu]);
 
   useEffect(() => {
+    if (collaborationEnabled) return;
     if (!markdownEditor) return;
 
     const currentMarkdown = markdownEditor.getMarkdown();
@@ -3673,15 +3765,16 @@ function RichMarkdownEditor({
       emitUpdate: false,
     });
     applyingExternalValueRef.current = false;
-  }, [documentParts.body, externalValueSync, markdownEditor, readOnly, value]);
+  }, [collaborationEnabled, documentParts.body, externalValueSync, markdownEditor, readOnly, value]);
 
   useEffect(() => {
-    editor?.setEditable(!readOnly);
-  }, [editor, readOnly]);
+    editor?.setEditable(!effectiveReadOnly);
+  }, [editor, effectiveReadOnly]);
 
   useEffect(() => {
     if (!editor) return undefined;
-    const editorElement = editor.view.dom;
+    const editorElement = editor.options.element;
+    if (!(editorElement instanceof HTMLElement)) return undefined;
 
     const handleWorkspaceLinkClick = (event: MouseEvent) => {
       const target = event.target;
@@ -3711,9 +3804,10 @@ function RichMarkdownEditor({
   }, [activeWorkspaceId, editor, filePath, t]);
 
   useEffect(() => {
-    if (!editor || readOnly) return undefined;
+    if (!editor || effectiveReadOnly) return undefined;
 
-    const editorElement = editor.view.dom;
+    const editorElement = editor.options.element;
+    if (!(editorElement instanceof HTMLElement)) return undefined;
 
     const handleKeyDown = (event: KeyboardEvent) => {
       if (!(event.metaKey || event.ctrlKey) || event.key !== '/') return;
@@ -3725,21 +3819,21 @@ function RichMarkdownEditor({
 
     editorElement.addEventListener('keydown', handleKeyDown, true);
     return () => editorElement.removeEventListener('keydown', handleKeyDown, true);
-  }, [editor, openCurrentBlockCommandMenu, readOnly]);
+  }, [editor, effectiveReadOnly, openCurrentBlockCommandMenu]);
 
   useEffect(() => {
-    if (!readOnly) return undefined;
+    if (!effectiveReadOnly) return undefined;
 
     const frame = window.requestAnimationFrame(() => {
       closeBlockCommandMenu();
     });
 
     return () => window.cancelAnimationFrame(frame);
-  }, [closeBlockCommandMenu, readOnly]);
+  }, [closeBlockCommandMenu, effectiveReadOnly]);
 
   return (
     <div className="flex h-full min-h-0 flex-col overflow-hidden bg-background">
-      {!readOnly ? (
+      {!effectiveReadOnly ? (
         <MarkdownToolbar
           editor={markdownEditor}
           filePath={filePath}
@@ -3750,10 +3844,10 @@ function RichMarkdownEditor({
           onOpenTableDialog={openTableDialogAtRange}
         />
       ) : null}
-      {!readOnly ? (
+      {!effectiveReadOnly ? (
         <MarkdownTableDialog open={tableDialogOpen} onOpenChange={handleTableDialogOpenChange} onInsert={insertTable} />
       ) : null}
-      {!readOnly ? (
+      {!effectiveReadOnly ? (
         <MobileMarkdownToolbar
           actions={slashCommandActions}
           editor={markdownEditor}
@@ -3765,8 +3859,23 @@ function RichMarkdownEditor({
           visible={isMobileToolbarVisible}
         />
       ) : null}
-      <div ref={scrollContainerRef} className="relative min-h-0 flex-1 overflow-auto">
-        {!readOnly ? (
+      <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">
+        {collaborationEnabled ? (
+          <div className="pointer-events-none sticky right-3 top-2 z-20 ml-auto mr-3 w-fit rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
+            {collaboration?.status === 'degraded'
+              ? collaboration.error || t('collaboration.degraded')
+              : collaboration?.status === 'saved' || collaboration?.status === 'live'
+                ? t('collaboration.live')
+                : collaboration?.status === 'persisting'
+                  ? t('collaboration.persisting')
+                  : collaboration?.status === 'offline' || collaboration?.status === 'reconnecting'
+                    ? t('collaboration.offline')
+                : collaboration?.status === 'read_only'
+                  ? t('collaboration.readOnly')
+                  : collaboration?.status || t('collaboration.connecting')}
+          </div>
+        ) : null}
+        {!effectiveReadOnly ? (
           <div className="hidden md:block">
             <TooltipProvider>
               <MarkdownBlockControls
@@ -3782,12 +3891,12 @@ function RichMarkdownEditor({
         <MarkdownPropertiesPanel
           filePath={filePath}
           onChange={handlePropertiesChange}
-          readOnly={readOnly}
+          readOnly={effectiveReadOnly}
           value={value}
         />
         <EditorContent editor={editor} className="tiptap-editor-shell" />
         <MarkdownBacklinksPanel filePath={filePath} />
-        {!readOnly && editor && blockCommandMenu ? (
+        {!effectiveReadOnly && editor && blockCommandMenu ? (
           <MarkdownBlockCommandMenu
             key={blockCommandMenu.id}
             actions={slashCommandActions}
@@ -3812,6 +3921,7 @@ function SourceMarkdownEditor({
   isMobileKeyboardActive,
   onRichMode,
   markdownNavigationTarget,
+  collaborationEnabled = false,
 }: MarkdownEditorProps & {
   initiallyShowMobileToolbar?: boolean;
   richModeAvailable: boolean;
@@ -3885,6 +3995,7 @@ function SourceMarkdownEditor({
           readOnly={readOnly}
           path={filePath ?? 'document.md'}
           markdownNavigationTarget={markdownNavigationTarget}
+          collaborationEnabled={collaborationEnabled}
         />
       </div>
     </div>
@@ -3897,6 +4008,7 @@ export function MarkdownEditor({
   readOnly = false,
   filePath,
   externalValueSync = 'always',
+  collaborationEnabled = false,
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
 
@@ -3938,15 +4050,16 @@ export function MarkdownEditor({
   }, [filePath]);
 
   const switchToSourceMode = useCallback(() => {
+    if (collaborationEnabled) return;
     setSourceModeRequested(true);
     setMode('source');
-  }, []);
+  }, [collaborationEnabled]);
 
   const switchToRichMode = useCallback(() => {
-    if (sourceModeRequired) return;
+    if (sourceModeRequired || collaborationEnabled) return;
     setSourceModeRequested(false);
     setMode('rich');
-  }, [sourceModeRequired]);
+  }, [collaborationEnabled, sourceModeRequired]);
 
   if (readOnly && effectiveMode === 'source') {
     return (
@@ -3972,7 +4085,7 @@ export function MarkdownEditor({
     return (
       <SourceMarkdownEditor
         initiallyShowMobileToolbar={sourceModeRequested}
-        richModeAvailable={!sourceModeRequired}
+        richModeAvailable={!sourceModeRequired && !collaborationEnabled}
         value={value}
         onChange={onChange}
         readOnly={readOnly}
@@ -3980,6 +4093,7 @@ export function MarkdownEditor({
         isMobileKeyboardActive={isMobileKeyboardActive}
         onRichMode={switchToRichMode}
         markdownNavigationTarget={markdownNavigationTarget}
+        collaborationEnabled={collaborationEnabled}
       />
     );
   }
@@ -3994,6 +4108,7 @@ export function MarkdownEditor({
       isMobileKeyboardActive={isMobileKeyboardActive}
       onSourceMode={switchToSourceMode}
       markdownNavigationTarget={markdownNavigationTarget}
+      collaborationEnabled={collaborationEnabled}
     />
   );
 }
