@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.15.2] - 2026-07-15
+
+### Fixed
+
+- Declared the Hocuspocus Transformer runtime dependency required by clean container builds.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.15.1] - 2026-07-15
 
 ### Added
