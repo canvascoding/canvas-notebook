@@ -533,6 +533,20 @@ Datenbank-Folge:
 
 Die Detailpolicy steht in `18-collaboration-and-file-conflict-policy.md`.
 
+`.excalidraw` wird nicht als Textdatei und nicht als JSON-String in Yjs behandelt. Die separate Aufgabe `52` prueft zuerst in einem Zwei-Client-Spike die offizielle Excalidraw-Reconciliation nach Element-ID, `version`, `versionNonce`, Tombstones und Fractional Indices. Das bevorzugte Zielbild behaelt den eingebetteten npm-Editor und nutzt einen Canvas-nativen Scene-Provider, der Ticket/Auth, Workspace-Permissions, den bestehenden WebSocket-Port, Postgres, Presence und Datei-Checkpoints mit Aufgabe `48` teilt. Ein Excalidraw-Fork oder Excalidraw+ bleibt eine explizit zu begruendende Alternative und wird nicht still zur zweiten Datei-/Workspace-Wahrheit.
+
+Die Excalidraw-Detailpolicy steht in `22-excalidraw-live-collaboration-policy.md`.
+
+## Drittanbieter-Lizenzen und Notices
+
+Vor einem kommerziellen Release muessen alle integrierten und ausgelieferten Drittanbieter-Komponenten inventarisiert und gegen ihre konkrete Lizenz geprueft werden. Das gilt fuer direkte und transitive npm-Pakete ebenso wie fuer kopierten Quellcode, Patches, Seed-Skills/-Plugins, Fonts, Icons, Assets, native Komponenten, Docker-/OS-Pakete, CLI-, Electron- und Installer-Artefakte.
+
+Der erste zwingende Schwerpunkt ist eine vollstaendige Erfassung aller MIT-Komponenten inklusive Excalidraw. Fuer jede ausgelieferte MIT-Komponente muessen Version beziehungsweise Commit, Upstream-Quelle, Copyright-Hinweis und der vollstaendige Lizenztext nachvollziehbar in einer zentralen Third-Party-Notice-Liste enthalten sein. Da im aktuellen Lockfile auch fehlende und andere Lizenzangaben vorkommen, muss der Prozess alle Lizenzen klassifizieren und `unknown`, ungeklaerte Mehrfachlizenzen, Copyleft- und Source-Available-Lizenzen bis zu einer dokumentierten Entscheidung blockieren.
+
+Ein deterministischer Generator erzeugt maschinenlesbares Inventar, menschenlesbare Notices und optional ein SPDX-/CycloneDX-SBOM. CI blockiert Dependency- oder Asset-Drift ohne aktualisierte Lizenzentscheidung. Die Notice-Liste wird in Source, Docker, CLI/Installer, Electron und weiteren kommerziellen Artefakten mitgeliefert und in der App unter Legal/About erreichbar gemacht.
+
+Die verbindliche Detailpolicy steht in `21-third-party-license-inventory-and-notices-policy.md`; die Umsetzung ist Aufgabe `51`.
+
 ## Lizenz- und Feature-Gating
 
 Die bestehende Lizenzlogik sollte Teamfunktionen freischalten oder sperren.
@@ -815,6 +829,7 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 - Wie stark Better Auth Organizations/Teams in Canvas Notebook selbst genutzt werden.
 - Ob der Agent im Team Workspace nur nach expliziter Auswahl schreiben darf oder ob Admins Default-Policies setzen koennen.
 - Die Dateiarten-Strategie ist in `18-collaboration-and-file-conflict-policy.md` entschieden: Markdown/Text live kollaborativ, Office/PDF/Assets per Lock, QMD/MDX/JSON/YAML/Code per Revision/Konflikt.
+- Fuer Excalidraw entscheidet der Spike aus Aufgabe `52` abschliessend zwischen dem bevorzugten Canvas-nativen Scene-Provider und einem begruendeten Fork; Excalidraw+ ist derzeit nur eine optionale externe Integration, keine eingebettete Realtime-API.
 - Ob Team Knowledge Base als Teil des Team Workspace oder als eigene Datenquelle modelliert wird.
 - Welche gepinnte Postgres-/pgvector-Image-Linie fuer den ersten produktiven Installer verwendet wird.
 - Ob `CANVAS_TEAM_FEATURES_ENABLED` und verwandte Boolean-ENV-Keys langfristig benoetigt werden oder ob Canvas Notebook vollstaendig ueber `CANVAS_DEPLOYMENT_MODE` plus `CANVAS_LICENSE_CERT` entscheidet.
@@ -897,6 +912,8 @@ Die verbindliche Detailregel steht in `13-resource-aware-ingestion-and-job-backp
 44. Collaboration Foundation mit Revisionen, Locks, Yjs-Metadaten und File-Conflict-Guards fuer Text, Office/PDF und Assets implementieren.
 45. Agent-faehige Skill-Erstellung und Organization Shared Skills ueber dedizierte validierende Installer und Skill-Policies implementieren.
 46. Echte Markdown-/Text-Live-Collaboration mit Yjs, Tiptap/CodeMirror, Hocuspocus, Postgres-Persistenz, Datei-Checkpoints, Agent-Patches und workspace-weiten farbigen Nutzerhinweisen im File Tree implementieren.
+47. Alle ausgelieferten Drittanbieter-Komponenten inventarisieren, MIT- und weitere Lizenzpflichten verifizieren, Third-Party Notices generieren und den Compliance-Drift-Check als Release-Gate einfuehren.
+48. Excalidraw-Live-Collaboration als separate Aufgabe mit Zwei-Client-Spike, Excalidraw-spezifischer Reconciliation, Canvas-Auth/Presence/Postgres, Asset-Pipeline und versionierten `.excalidraw`-Checkpoints umsetzen.
 
 ## Bezug zu bestehenden Control-Plane-Dokumenten
 

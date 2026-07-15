@@ -1339,6 +1339,134 @@
         "npm run build",
         "UI-/E2E-Test mit Playwright oder Chrome DevTools nach expliziter Freigabe"
       ]
+    },
+    {
+      "id": 51,
+      "title": "Alle integrierten Drittanbieter- und MIT-Lizenzen inventarisieren und vollstaendige Third-Party Notices als Release-Gate ausliefern",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [],
+      "planningArtifacts": [
+        "LICENSE",
+        "package.json",
+        "package-lock.json",
+        "docs/architecture/canvas-notebook/team-workspace/21-third-party-license-inventory-and-notices-policy.md"
+      ],
+      "implementationTargets": [
+        "THIRD_PARTY_NOTICES.md",
+        "docs/compliance/third-party-components.json",
+        "docs/compliance/third-party-license-policy.json",
+        "scripts/generate-third-party-notices.ts",
+        "scripts/third-party-license-compliance-test.ts",
+        "app/settings oder About/Legal-Ansicht",
+        "Dockerfile und Release-/CLI-/Electron-Packaging"
+      ],
+      "acceptanceCriteria": [
+        "Alle direkten, transitiven, optionalen und tatsaechlich gebuendelten npm-Komponenten sind mit Version, Quelle, Lieferartefakt und verifizierter Lizenz inventarisiert",
+        "Alle MIT-lizenzierten Komponenten enthalten nachvollziehbar den korrekten Copyright-Hinweis und vollstaendigen MIT-Lizenztext in den ausgelieferten Third-Party Notices",
+        "Kopierter oder veraenderter Upstream-Code, Patches, Seed-Skills/-Plugins, Templates, Fonts, Icons, Assets, native Binaries sowie Build-Downloads sind ausserhalb des npm-Trees erfasst",
+        "Docker-Base-Images und im finalen Image installierte OS-/Native-Pakete werden als eigener Lieferumfang inventarisiert",
+        "Development-only-Komponenten bleiben im Gesamtinventar sichtbar, werden aber nicht faelschlich als ausgelieferter Runtime-Bestand behandelt",
+        "Fehlende oder widerspruechliche Lizenzmetadaten werden gegen die exakte Upstream-Version geprueft und durch versionierte Overrides mit Quelle, Begruendung und Text-Hash dokumentiert",
+        "Unknown, ungeklaerte Mehrfachlizenzen, Copyleft- und Source-Available-Lizenzen sind review_required oder blocked und koennen keinen kommerziellen Release ungeprueft passieren",
+        "Excalidraw und jeder uebernommene Teil aus Excalidraw-App, excalidraw-room oder deren Collaboration-Code ist mit exakter Version/Commit, MIT-Text und Copyright-Hinweis enthalten",
+        "Ein deterministischer Generator erzeugt maschinenlesbares Inventar und menschenlesbare Third-Party Notices ohne manuelle Drift",
+        "CI blockiert neue, aktualisierte, fehlende, unbekannte, nicht freigegebene oder gegenueber den generierten Notices gedriftete Komponenten",
+        "Third-Party Notices sind offline in Source-/Release-Archiv, Docker-Image, CLI-/Installer- und Electron-Artefakten enthalten und in der App unter Legal/About erreichbar",
+        "Die erste vollstaendige Bestandsaufnahme besitzt vor kommerzieller Freigabe eine dokumentierte verantwortliche oder rechtliche Abnahme"
+      ],
+      "verification": [
+        "tsx scripts/third-party-license-compliance-test.ts",
+        "Notice-Generator zweimal ausfuehren und git diff --exit-code fuer reproduzierbare Ausgabe pruefen",
+        "Produktions-, Next.js-Server-, CLI-, Electron- und Container-Lieferumfang gegen das Komponentenmanifest vergleichen",
+        "MIT-Stichprobe plus automatische Vollstaendigkeitspruefung fuer Lizenztext und Copyright-Zuordnung",
+        "Negativtests fuer fehlende Lizenz, neue unbekannte Lizenz, unreviewte Mehrfachlizenz und veraltete Notice-Datei",
+        "Artefakttest fuer lesbare Third-Party Notices in Source-Release, Docker, CLI/Installer und Electron",
+        "npm run lint",
+        "npm run build"
+      ]
+    },
+    {
+      "id": 52,
+      "title": "Excalidraw-Live-Collaboration als separaten Canvas Scene Provider mit Multi-User-Presence, Persistenz und Datei-Checkpoints umsetzen",
+      "status": "planned",
+      "repo": "canvasstudios-notebook",
+      "dependsOn": [
+        42,
+        43,
+        44,
+        48,
+        51
+      ],
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/17-database-provider-postgres-rag-collaboration-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/18-collaboration-and-file-conflict-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/21-third-party-license-inventory-and-notices-policy.md",
+        "docs/architecture/canvas-notebook/team-workspace/22-excalidraw-live-collaboration-policy.md"
+      ],
+      "implementationTargets": [
+        "app/components/editor/ExcalidrawEditor.tsx",
+        "app/components/editor/FileEditor.tsx",
+        "app/lib/excalidraw-collaboration/*",
+        "app/lib/excalidraw-scene.ts",
+        "app/lib/files/collaboration-policy.ts",
+        "app/lib/collaboration/*",
+        "server/collaboration-server.ts",
+        "server/excalidraw-collaboration/*",
+        "app/api/files/collaboration/session/route.ts",
+        "app/api/files/excalidraw-assets/*",
+        "app/lib/db/schema.ts",
+        "app/lib/db/postgres.ts",
+        "app/components/file-browser/FileTreeNode.tsx",
+        "app/components/file-browser/FileGridView.tsx",
+        "app/lib/pi/agent-file-operations.ts",
+        "scripts/excalidraw-collaboration-spike.ts",
+        "scripts/excalidraw-live-collaboration-test.ts",
+        "scripts/excalidraw-asset-collaboration-test.ts",
+        "scripts/excalidraw-collaboration-security-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Ein vorgeschalteter Zwei-Client-Spike prueft npm-API-Grenzen, offizielle Reconciliation, Undo/Redo, Bindings, Gruppen, Frames, Reihenfolge, Assets, Reconnect und den Aufwand eines Forks",
+        "Die Architekturentscheidung dokumentiert Canvas-nativen Scene-Provider oder einen konkret nachgewiesenen Fork-Blocker; ein Fork ist keine unbegruendete Default-Entscheidung",
+        "Excalidraw bleibt ausserhalb von Aufgabe 48 und wird weder als kompletter JSON-String in Y.Text noch als Hocuspocus-Y.Doc behandelt",
+        "Der bevorzugte Canvas-native Provider behaelt @excalidraw/excalidraw als upgradefaehige npm-Abhaengigkeit und verwendet die offizielle beziehungsweise kompatibilitaetsgetestete reconcileElements-Semantik",
+        "Kurzlebige Tickets binden User, Organization, Workspace, stabile Collaboration-Dokument-ID, Permission, Session, Provider, Schema und Ablaufzeit",
+        "excalidraw-v1 nutzt den bestehenden App-Port und gemeinsamen Upgrade-Router, bleibt aber protokollseitig von Yjs/Hocuspocus und /ws/chat getrennt",
+        "Szenenaenderungen werden pro Dokument serialisiert, validiert und nach Element-ID, version, versionNonce, Tombstones und Fractional Indices deterministisch reconciled",
+        "Monotone Scene Sequence, Message-ID, ACK, Idempotenz und Resync reparieren verlorene, doppelte und spaet eintreffende Updates ohne stillen Whole-File-Overwrite",
+        "Remote-Szeneaenderungen werden mit CaptureUpdateAction.NEVER angewendet und landen nicht in fremden lokalen Undo-Stacks",
+        "Zwei oder mehr berechtigte User sehen Elemente, Cursor, Selections und Presence in Echtzeit und konvergieren bei verschiedenen sowie gleichen Elementaenderungen",
+        "Der File Tree, die Listen- und Grid-Ansicht verwenden den gemeinsamen workspace-weiten Presence-Bus und zeigen Bearbeiter vor dem Oeffnen ohne eigenen Room-Beitritt",
+        "Der bestehende Drei-Sekunden-Whole-File-Autosave und externe Voll-Reload laufen fuer aktive Excalidraw-Rooms nicht parallel weiter",
+        "Postgres-Szenenstate ueberlebt Server-Neustart und Offline-Reconnect; die UI unterscheidet connecting, live, persisting, saved, reconnecting, read_only und degraded",
+        "BinaryFiles werden workspace-scoped separat, authentifiziert und begrenzt gespeichert und nicht bei jedem Szenenupdate als vollstaendige Data-URLs uebertragen",
+        "Portable .excalidraw-Checkpoints, File Revisions, Public Preview, Export, Backup und Restore entsprechen dem letzten bestaetigten Szenenstand",
+        "Rename/Move behaelt Dokument-ID, Copy forkt den Zustand, Delete flusht/archiviert und Restore verwendet eine neue Lifecycle-Generation",
+        "Membership-/Permission-Entzug, Workspace-Isolation, Trusted Origin, Schema-, Element-, Asset- und Payload-Limits werden serverseitig revalidiert",
+        "File-Tools, Shells, Automations und Integrationen koennen aktive Excalidraw-Rooms nicht per Whole-File-Write umgehen; Agent-Writes bleiben bis zu einem validierten Scene-Patch-/Review-Modell blockiert",
+        "Canvas behauptet keine Excalidraw-E2EE, solange serverseitige Szenenverarbeitung aktiv und kein explizites Key-/Recovery-Modell umgesetzt ist",
+        "Alle uebernommenen Excalidraw-/excalidraw-room-Codeanteile sind mit exaktem Commit, MIT-Text und Copyright-Hinweis in Aufgabe 51 erfasst",
+        "Produktstatus enabled setzt Team-Capability, Postgres, aktuelle Migrationen, WebSocket-, Scene-Persistence- und Asset-Health sowie erfolgreiches Architektur-Gate voraus"
+      ],
+      "verification": [
+        "tsx --conditions react-server scripts/excalidraw-collaboration-spike.ts",
+        "tsx --conditions react-server scripts/excalidraw-live-collaboration-test.ts",
+        "tsx --conditions react-server scripts/excalidraw-asset-collaboration-test.ts",
+        "tsx --conditions react-server scripts/excalidraw-collaboration-security-test.ts",
+        "Zwei-/Drei-Client-Konvergenztest fuer verschiedene und gleichzeitig dasselbe Element",
+        "Loesch-, Undo/Redo-, Binding-, Group-, Frame- und Fractional-Index-Test",
+        "Offline-, Duplicate-Message-, Out-of-order-, ACK/Resync- und Server-Restart-Test",
+        "Asset-Test fuer Upload, Deduplizierung, permission-geprueften Download, Reconnect und portablen Datei-Roundtrip",
+        "Lifecycle-Test fuer Rename, Move, Copy, Delete, Restore, Public Preview und Backup/Restore",
+        "Bypass-Test fuer Autosave, File Tool, Shell, Automation, Integration und externen File-Watcher-Write",
+        "Upstream-Kompatibilitaetstest gegen die gepinnte @excalidraw/excalidraw-Version",
+        "npm run test:files:collaboration",
+        "npm run test:websocket:origin",
+        "npx tsc --noEmit --pretty false",
+        "npm run lint",
+        "npm run build",
+        "UI-/E2E-Multi-User-Test mit Playwright oder Chrome DevTools nach expliziter Freigabe"
+      ]
     }
   ]
 }

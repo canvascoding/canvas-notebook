@@ -35,6 +35,7 @@ Lieferumfang:
 - Querschnittsentscheidung fuer Fresh Install, Onboarding und Update-Migration bestehender Instanzen.
 - Querschnittsentscheidung fuer Resource Profile, Backpressure und Degradation bei schweren Jobs.
 - Querschnittsentscheidung fuer Database Provider, Postgres-Pflicht bei Team/Advanced/RAG, pgvector, Installer, Control Plane Provisioning und SQLite-zu-Postgres-Migration.
+- Querschnittsentscheidung fuer Drittanbieter-Lizenzinventar, MIT-/Copyright-Notices, Policy-Overrides und Release-Drift-Gates.
 
 Tests:
 
@@ -277,6 +278,34 @@ Tests:
 
 Die vollstaendige technische Policy, Datenmodelle, UI-Regeln und Abnahmekriterien stehen in `18-collaboration-and-file-conflict-policy.md`.
 
+### P7c Excalidraw Scene Collaboration
+
+Zweck: `.excalidraw`-Dateien in Team Workspaces mit einer eigenen, zur offiziellen Excalidraw-Semantik kompatiblen Scene-Collaboration ausstatten, ohne sie in das Yjs-Textmodell von P7b zu pressen.
+
+Diese Phase ist eine eigene Aufgabe `52` und beginnt mit einem verpflichtenden Architektur-Spike. Sie darf Querschnittsinfrastruktur aus P7b wiederverwenden, erweitert aber nicht den Scope von Aufgabe `48`.
+
+Reihenfolge:
+
+1. Zwei-Client-Spike fuer npm-API, `reconcileElements`, Undo/Redo, Bindings, Reihenfolge, Bilder, Reconnect und Fork-Vergleich.
+2. Explizite Entscheidung fuer Canvas-nativen Scene-Provider oder dokumentierten Fork-Ausnahmefall.
+3. Excalidraw-Provider/Document-Kind, Szenenrepository, Sequence, Tombstones und Asset-Referenzen in Postgres.
+4. `excalidraw-v1` im gemeinsamen WebSocket-Router mit Ticket/Auth, Workspace-Permission, ACK/Resync, Limits und serialisierter Apply-Section.
+5. Editor-Provider mit deaktiviertem Whole-File-Autosave, Remote-Reconciliation, Cursor/Selection und separater Binary-Asset-Pipeline.
+6. Datei-Checkpoints, Revision, Public Preview, File Watcher, Presence, Backup/Restore und Lifecycle integrieren.
+7. Mehrclient-, Offline-, Restart-, Security-, Last- und Upstream-Kompatibilitaetstests; stufenweises Feature-Gate.
+
+Tests:
+
+- Zwei-/Drei-Client-Konvergenz fuer verschiedene und gleiche Elemente.
+- Loesch-, Undo/Redo-, Binding-, Group-, Frame- und Fractional-Index-Tests.
+- Asset-Upload-/Download-/Reconnect-/Retention-Tests ohne wiederholte Data-URL-Full-Scene-Payloads.
+- Ticket-, Workspace-Isolation-, Permission-Entzug-, Origin-, Schema- und Payload-Limit-Tests.
+- Persistence-, ACK/Resync-, Server-Restart-, File-Checkpoint- und Backup/Restore-Tests.
+- Nach expliziter Freigabe sichtbarer Multi-User-UI-/E2E-Test mit Playwright oder Chrome DevTools.
+- `npm run build`.
+
+Die vollstaendige Variantenbewertung und Zielpolicy steht in `22-excalidraw-live-collaboration-policy.md`.
+
 ### P8 Export, Import, Backup und Restore
 
 Zweck: Team-Instanzen sicher migrieren und wiederherstellen koennen.
@@ -328,10 +357,13 @@ Lieferumfang:
 - Security Review.
 - Admin-Dokumentation.
 - Release Notes.
+- Reproduzierbares Drittanbieter-Inventar und ausgelieferte Third-Party Notices fuer Source, Container, CLI/Installer und Electron.
+- Blockierender Compliance-Check fuer fehlende, unbekannte, unreviewte oder gegenueber den Notices gedriftete Lizenzdaten.
 
 Tests:
 
 - `npm run test:all`, wenn fuer Release/Deploy relevant.
+- Lizenzinventar-/Notice-Generator zweimal ausfuehren und Differenzfreiheit sowie Vollstaendigkeit in allen Release-Artefakten pruefen.
 - Zusaetzlich UI- und E2E-Tests nach expliziter Freigabe.
 - Kein Container-Build ohne ausdrueckliche Anforderung.
 
@@ -362,8 +394,9 @@ Minimal je Change:
 6. P6: Feature-Migrationen einzeln.
 7. P7: Audit, Revisionen, Locks und Retention.
 8. P7b: echte Text-Collaboration, Datei-Checkpoints, File-Tree-Presence und Agent-Patches.
-9. P8: Export/Import und Backup/Restore inklusive Yjs-State.
-10. P9: Hardening und Release Readiness.
+9. P7c: separate Excalidraw-Scene-Collaboration nach abgeschlossenem Architektur-Spike.
+10. P8: Export/Import und Backup/Restore inklusive Yjs- und Excalidraw-Szenenstate.
+11. P9: Hardening und Release Readiness.
 
 ## Naechster konkreter Schritt
 
