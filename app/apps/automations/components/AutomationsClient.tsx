@@ -37,6 +37,7 @@ import { toast } from 'sonner';
 
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automations/components/WorkspaceDirectoryPickerDialog';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
+import { buildAutomationMutationPayload } from '@/app/lib/automations/client-payload';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import { formatTimeZoneLabel, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import type { CanvasSkillIconSource } from '@/app/lib/skills/skill-icons';
@@ -635,7 +636,7 @@ function isOrganizationScopedWorkspace(workspace: Pick<ClientWorkspaceSummary, '
 
 function buildPayload(
   draft: JobDraft,
-  options: { includeScope?: boolean; workspace?: Pick<ClientWorkspaceSummary, 'type'> | null } = {},
+  workspace: Pick<ClientWorkspaceSummary, 'type'> | null,
 ) {
   const deliveryChannelId = normalizeDeliveryChannelIdForPayload(draft.deliveryMode, draft.deliveryChannelId);
 
@@ -651,7 +652,6 @@ function buildPayload(
   const payload = {
     name: draft.name,
     prompt: draft.prompt,
-    workspaceId: draft.workspaceId || null,
     preferredSkill: draft.preferredSkill || 'auto',
     workspaceContextPaths: parseWorkspaceContext(draft.workspaceContextText),
     targetOutputPath: draft.targetOutputPath.trim() || null,
@@ -665,9 +665,11 @@ function buildPayload(
     schedule,
   };
 
-  return options.includeScope
-    ? { ...payload, scope: automationScopeForWorkspace(options.workspace) }
-    : payload;
+  return buildAutomationMutationPayload(payload, {
+    jobId: draft.id,
+    workspaceId: draft.workspaceId || null,
+    scope: automationScopeForWorkspace(workspace),
+  });
 }
 
 function normalizeDeliveryChannelIdForPayload(mode: AutomationDeliveryMode, channelId: string): string | null {
@@ -1419,7 +1421,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               deliveryChannelSessionKey: normalizeDeliveryChannelSessionKeyForPayload(deliveryChannelId, effectiveDraft.deliveryChannelSessionKey),
             };
           })()
-        : buildPayload(effectiveDraft, { includeScope: !draft.id, workspace: selectedDraftWorkspace });
+        : buildPayload(effectiveDraft, selectedDraftWorkspace);
       const response = await fetch(draft.id ? `/api/automations/jobs/${draft.id}` : '/api/automations/jobs', {
         method: draft.id ? 'PATCH' : 'POST',
         headers: { 'Content-Type': 'application/json' },

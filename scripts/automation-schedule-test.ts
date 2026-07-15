@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 
+import { buildAutomationMutationPayload } from '../app/lib/automations/client-payload';
 import { getDefaultAutomationTargetOutputPath, getEffectiveAutomationTargetOutputPath } from '../app/lib/automations/paths';
 import { buildAutomationPrompt } from '../app/lib/automations/prompt';
 import { computeNextRunAt, validateFriendlySchedule } from '../app/lib/automations/schedule';
@@ -250,5 +251,27 @@ const composioPrompt = buildAutomationPrompt({
 assert.match(composioPrompt, /This run was started by a Composio trigger/);
 assert.match(composioPrompt, /\*\*Composio integration\/toolkit used:\*\* gmail/);
 assert.match(composioPrompt, /\*\*Webhook source:\*\* managed/);
+
+const createMutationPayload = buildAutomationMutationPayload(
+  { name: 'Create automation' },
+  { jobId: null, workspaceId: 'workspace-personal', scope: 'personal' },
+);
+assert.deepEqual(createMutationPayload, {
+  name: 'Create automation',
+  workspaceId: 'workspace-personal',
+  scope: 'personal',
+});
+
+const updateMutationPayload = buildAutomationMutationPayload(
+  { name: 'Update automation' },
+  { jobId: 'job-existing', workspaceId: 'workspace-team', scope: 'organization' },
+);
+assert.deepEqual(
+  updateMutationPayload,
+  { name: 'Update automation' },
+  'ordinary edits must omit workspace fields so workspace changes stay on the dedicated endpoint',
+);
+assert.equal('workspaceId' in updateMutationPayload, false);
+assert.equal('scope' in updateMutationPayload, false);
 
 console.log('automation schedule tests passed');
