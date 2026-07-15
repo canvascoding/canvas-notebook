@@ -4,6 +4,7 @@ import {
   marqueeRectsIntersect,
   mergeMarqueeSelection,
   normalizeMarqueeRect,
+  shouldClearSelectionOnBackgroundClick,
 } from '../app/lib/files/marquee-selection';
 
 const selectionRect = normalizeMarqueeRect(
@@ -49,6 +50,21 @@ assert.deepEqual(
   Array.from(mergeMarqueeSelection(['replaced.md'], intersectingPaths, false)),
   ['docs/a.md', 'docs/b.md'],
   'plain marquee selection should replace the prior selection',
+);
+assert.equal(
+  shouldClearSelectionOnBackgroundClick(false, false),
+  true,
+  'a plain background click should clear the current multi-selection',
+);
+assert.equal(
+  shouldClearSelectionOnBackgroundClick(false, true),
+  false,
+  'a modifier-assisted background click should preserve the current selection',
+);
+assert.equal(
+  shouldClearSelectionOnBackgroundClick(true, false),
+  false,
+  'finishing an active marquee should commit its calculated selection',
 );
 
 console.log('file-marquee-selection-test: ok');

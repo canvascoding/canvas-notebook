@@ -56,3 +56,10 @@ export function mergeMarqueeSelection(
   }
   return paths;
 }
+
+export function shouldClearSelectionOnBackgroundClick(
+  marqueeActive: boolean,
+  additive: boolean,
+): boolean {
+  return !marqueeActive && !additive;
+}

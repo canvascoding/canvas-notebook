@@ -6,6 +6,7 @@ import {
   getIntersectingMarqueePaths,
   mergeMarqueeSelection,
   normalizeMarqueeRect,
+  shouldClearSelectionOnBackgroundClick,
   type MarqueePoint,
   type MarqueeRect,
 } from '@/app/lib/files/marquee-selection';
@@ -212,7 +213,13 @@ export function useMarqueeSelection(containerRef: MarqueeContainerRef) {
     restoreBodySelection(session);
     setOverlayRect(null);
 
-    if (!session.active) return;
+    if (commit && shouldClearSelectionOnBackgroundClick(session.active, session.additive)) {
+      useFileStore.getState().clearMultiSelect();
+      return;
+    }
+    if (!session.active) {
+      return;
+    }
     if (commit) {
       useFileStore.getState().setMultiSelectPaths(
         session.currentPaths,
