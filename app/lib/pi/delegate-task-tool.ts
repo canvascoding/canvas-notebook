@@ -1131,7 +1131,16 @@ export function createDelegateTaskTool(deps: {
           if (!targetAgent) {
             throw new Error(`Target agent "${targetAgentId}" not found.`);
           }
-          await requireAgentAccess(deps.userId, targetAgentId, 'canUse');
+          const sourceContext = await resolveAgentExecutionContextForSession({
+            userId: deps.userId,
+            sessionId: sourceSessionId,
+            agentId: sourceAgentId,
+          });
+          await requireAgentAccess(deps.userId, targetAgentId, 'canUse', {
+            organizationId: sourceContext.organizationId,
+            workspaceId: sourceContext.workspaceId,
+            projectId: sourceContext.projectId,
+          });
         }
 
         const timeoutSeconds = clampTimeoutSeconds(args.timeout_seconds);

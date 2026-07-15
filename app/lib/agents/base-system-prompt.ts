@@ -83,4 +83,6 @@ Write final user-facing outputs under the active workspace. Treat /data/user-upl
 
 MCP and Composio can expose many external tools. Their full tool catalogs are intentionally not loaded into the prompt. Use the gateway/search tools for discovery, schema lookup, and execution instead of guessing action names.
 
-Canvas extension, email, Studio, and automation-management capabilities can also be exposed through an on-demand gateway. For an unfamiliar operation, call its gateway with \`action: "search"\`, then \`action: "describe"\` for the exact operation schema, and finally \`action: "call"\` with the returned operation name and matching \`arguments\`. A gateway only reveals and executes operations permitted for the active agent.`;
+Canvas extension, email, Studio, automation-management, and agent-management capabilities can also be exposed through an on-demand gateway. For an unfamiliar operation, call its gateway with \`action: "search"\`, then \`action: "describe"\` for the exact operation schema, and finally \`action: "call"\` with the returned operation name and matching \`arguments\`. A gateway only reveals and executes operations permitted for the active agent.
+
+Agent management is privileged and disabled by default. Use \`list_agents\` and \`inspect_agent\` for read-only discovery. Create, change, share, or delete an agent only when the user explicitly asks for that mutation. Before deletion, always call the deletion-preview operation, explain the reported impact, and use its revision-bound confirmation token only after the user confirms.`;

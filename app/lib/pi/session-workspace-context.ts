@@ -345,11 +345,15 @@ export async function resolveAgentExecutionContextForSession(input: {
   userId: string;
   agentId?: string | null;
 }): Promise<AgentExecutionContext> {
-  await requireAgentAccess(input.userId, input.agentId || 'canvas-agent', 'canUse');
   const workspace = await ensurePiSessionWorkspaceSnapshot({
     sessionId: input.sessionId,
     userId: input.userId,
     agentId: input.agentId,
+  });
+  await requireAgentAccess(input.userId, input.agentId || 'canvas-agent', 'canUse', {
+    organizationId: workspace.organizationId,
+    workspaceId: workspace.workspaceId,
+    projectId: workspace.projectId,
   });
 
   return workspaceToAgentExecutionContext({

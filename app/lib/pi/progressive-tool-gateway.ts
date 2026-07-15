@@ -249,6 +249,22 @@ export function withAllowedProgressiveGatewayOperations(
 
 export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinition[] = [
   {
+    name: 'agent_manage',
+    label: 'Managing agents',
+    description: 'On-demand gateway for creating and changing complete personal or organization agents. Use search, describe, then call. Mutations require explicit user intent and enforce the same scope, permission, policy, revision, storage, confirmation, and audit rules as the UI/API.',
+    operations: [
+      'create_agent',
+      'update_agent_profile',
+      'update_agent_runtime',
+      'update_agent_capabilities',
+      'update_agent_file',
+      'set_agent_grant',
+      'remove_agent_grant',
+      'preview_agent_deletion',
+      'delete_agent',
+    ],
+  },
+  {
     name: 'canvas_extensions',
     label: 'Managing Canvas extensions',
     description: 'On-demand gateway for personal Canvas plugins and skills. Use search to discover permitted operations, describe to load exactly one input schema, then call to execute it. Plugin and skill permissions are enforced for every operation.',

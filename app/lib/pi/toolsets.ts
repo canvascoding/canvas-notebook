@@ -1,4 +1,5 @@
 export type PiToolset =
+  | 'agents'
   | 'audio'
   | 'automation'
   | 'browser'
@@ -22,6 +23,11 @@ export type PiToolsetInfo = {
 };
 
 export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
+  agents: {
+    name: 'agents',
+    label: 'Agents',
+    description: 'Inspect, create, configure, share, and delete managed personal or organization agents.',
+  },
   audio: {
     name: 'audio',
     label: 'Audio',
@@ -114,6 +120,20 @@ export const SKILL_TOOL_NAMES = [
 ] as const;
 
 const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
+  agents: new Set([
+    'agent_manage',
+    'list_agents',
+    'inspect_agent',
+    'create_agent',
+    'update_agent_profile',
+    'update_agent_runtime',
+    'update_agent_capabilities',
+    'update_agent_file',
+    'set_agent_grant',
+    'remove_agent_grant',
+    'preview_agent_deletion',
+    'delete_agent',
+  ]),
   audio: new Set(['transcribe_audio']),
   automation: new Set([
     'automation_manage',

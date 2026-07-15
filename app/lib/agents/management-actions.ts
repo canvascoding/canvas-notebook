@@ -49,6 +49,7 @@ import {
   isWritableManagedAgentFileName,
   readManagedAgentFile,
   readManagedAgentFiles,
+  resetManagedAgentFile,
   writeManagedAgentFile,
   type AgentManagedFileName,
   type AgentStorageScope,
@@ -643,6 +644,49 @@ export async function updateManagedAgentFile(input: {
     return { agent, fileName: input.fileName, content: input.content };
   } catch (error) {
     await writeManagedAgentFile(input.fileName, previous, existing.agentId, scope);
+    throw error;
+  }
+}
+
+export async function resetManagedAgentFiles(input: {
+  actor: AgentManagementActor;
+  agentId: string;
+  expectedRevision: number;
+  fileName?: AgentManagedFileName | string | null;
+}) {
+  const existing = await requireProfile(input.actor, input.agentId, 'canEdit');
+  if (existing.type === 'main') {
+    throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent files are configured through the existing settings editor.', 403);
+  }
+  ensureExpectedRevision(existing, input.expectedRevision);
+  const fileNames = input.fileName
+    ? [input.fileName]
+    : AGENT_MANAGED_FILE_NAMES.filter((fileName) => isWritableManagedAgentFileName(fileName, existing.agentId));
+  if (fileNames.some((fileName) => !isManagedAgentFileName(fileName) || !isWritableManagedAgentFileName(fileName, existing.agentId))) {
+    throw new AgentManagementError('AGENT_FILE_INVALID', 'This managed agent file cannot be reset.');
+  }
+  const scope = storageScope(existing, input.actor);
+  const previous = new Map<AgentManagedFileName, string>();
+  const results: Array<{ fileName: AgentManagedFileName; content: string }> = [];
+  for (const fileName of fileNames as AgentManagedFileName[]) {
+    previous.set(fileName, await readManagedAgentFile(fileName, existing.agentId, scope));
+    results.push({ fileName, content: await resetManagedAgentFile(fileName, existing.agentId, scope) });
+  }
+  try {
+    const agent = await updateAgentProfile({ agentId: existing.agentId, expectedRevision: input.expectedRevision });
+    await auditAgentAction({
+      actor: input.actor,
+      profile: agent,
+      agentId: agent.agentId,
+      action: 'agent.reset_files',
+      metadata: { fileNames },
+      output: { revision: agent.revision },
+    });
+    return { agent, files: results };
+  } catch (error) {
+    for (const [fileName, content] of previous) {
+      await writeManagedAgentFile(fileName, content, existing.agentId, scope);
+    }
     throw error;
   }
 }

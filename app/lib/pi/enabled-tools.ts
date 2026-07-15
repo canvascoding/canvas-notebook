@@ -1,7 +1,21 @@
 export const DISABLED_ALL_TOOLS_SENTINEL = '__none__';
 
 const LEGACY_TOOL_NAMES = new Set(['filesystem', 'terminal', 'web-search']);
-const DEFAULT_DISABLED_TOOL_NAMES = ['browser', 'studio_bulk_generate'];
+const DEFAULT_DISABLED_TOOL_NAMES = [
+  'browser',
+  'studio_bulk_generate',
+  'list_agents',
+  'inspect_agent',
+  'create_agent',
+  'update_agent_profile',
+  'update_agent_runtime',
+  'update_agent_capabilities',
+  'update_agent_file',
+  'set_agent_grant',
+  'remove_agent_grant',
+  'preview_agent_deletion',
+  'delete_agent',
+];
 const LEGACY_SKILL_MANAGEMENT_TOOL_NAMES = [
   'create_canvas_skill_draft',
   'discard_canvas_skill_draft',

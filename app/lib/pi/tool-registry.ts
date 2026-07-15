@@ -14,6 +14,8 @@ import {
   ONBOARDING_PROFILE_TOOL_NAME,
 } from '@/app/lib/onboarding/profile';
 import { createOnboardingProfileTool, createUserScopedTools } from '@/app/lib/pi/scoped-tools';
+import { createAgentManagementTools } from '@/app/lib/pi/agent-management-tools';
+import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage, wrapToolWithExecutionContext } from '@/app/lib/pi/tool-runtime-helpers';
@@ -32,7 +34,7 @@ export {
   createStudioGenerateVideoTool,
 } from '@/app/lib/pi/studio-tools';
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security' | 'Skills' | 'Onboarding';
+export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Agents' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security' | 'Skills' | 'Onboarding';
 
 export type PiToolMetadata = {
   name: string;
@@ -60,6 +62,7 @@ export type PiToolMetadata = {
 
 function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === ONBOARDING_PROFILE_TOOL_NAME) return 'Onboarding';
+  if (toolName === 'agent_manage' || toolName === 'list_agents' || toolName === 'inspect_agent' || toolName.includes('_agent')) return 'Agents';
   if (toolName === 'mcp' || toolName.startsWith('mcp_')) return 'MCP';
   if (toolName === 'memory') return 'Memory';
   if (toolName === 'browser') return 'Browser';
@@ -115,6 +118,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   }
   if (group === 'Automation') {
     notes.push('May create, update, delete, or trigger scheduled automation jobs.');
+  }
+  if (group === 'Agents') {
+    notes.push('Creates and changes personal or organization agents through the same permission, revision, policy, storage, confirmation, and audit actions as the UI/API.');
+    notes.push('Disabled by default and available only to the Canvas Agent. Agent creation or mutation requires an explicit user request.');
   }
   if (group === 'Audio') {
     notes.push('Reads local audio files and may call external transcription services.');
@@ -192,17 +199,25 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
 
 export function buildPiToolRegistry(userId?: string, agentId?: string | null, sessionId?: string | null): AgentTool[] {
   const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
-  const overriddenNames = new Set(userScopedTools.map((t) => t.name));
+  const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
+  const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
+    ? createAgentManagementTools(userId || '__tool-metadata__', normalizedAgentId, sessionId)
+    : [];
+  const overriddenNames = new Set([...userScopedTools, ...agentManagementTools].map((t) => t.name));
   const coreTools = [
     ...piTools.filter((tool) => tool.name !== 'mcp' && !overriddenNames.has(tool.name)),
     ...(overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
   ];
-  return collapseProgressiveToolGroups([...coreTools, ...userScopedTools]);
+  return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...agentManagementTools]);
 }
 
 export async function buildPiToolRegistryAsync(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
   const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
-  const overriddenNames = new Set(userScopedTools.map((t) => t.name));
+  const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
+  const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
+    ? createAgentManagementTools(userId || '__tool-metadata__', normalizedAgentId, sessionId)
+    : [];
+  const overriddenNames = new Set([...userScopedTools, ...agentManagementTools].map((t) => t.name));
   const coreTools = [
     ...piTools.filter((tool) => tool.name !== 'mcp' && !overriddenNames.has(tool.name)),
     ...(overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
@@ -222,7 +237,7 @@ export async function buildPiToolRegistryAsync(userId?: string, agentId?: string
       console.error('[ToolRegistry] Error building direct MCP tools:', error);
       return [];
     });
-  return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...composioTools, ...directMcpTools]);
+  return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...agentManagementTools, ...composioTools, ...directMcpTools]);
 }
 
 export async function getPiToolMetadata(): Promise<PiToolMetadata[]> {

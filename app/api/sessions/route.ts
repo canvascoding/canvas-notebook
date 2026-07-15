@@ -518,14 +518,6 @@ export async function POST(request: NextRequest) {
       if (!requestedAgent) {
         return NextResponse.json({ success: false, error: 'Agent not found' }, { status: 404 });
       }
-      try {
-        await requireAgentAccess(session.user.id, requestedAgentId, 'canUse');
-      } catch {
-        return NextResponse.json(
-          { success: false, code: 'AGENT_ACCESS_DENIED', error: 'Agent access denied.' },
-          { status: 403 },
-        );
-      }
       let workspace: Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>>;
       try {
         workspace = await resolveAgentSessionWorkspaceForUser({
@@ -536,6 +528,18 @@ export async function POST(request: NextRequest) {
       } catch {
         return NextResponse.json(
           { success: false, code: 'WORKSPACE_ACCESS_DENIED', error: 'Workspace not found or inaccessible.' },
+          { status: 403 },
+        );
+      }
+      try {
+        await requireAgentAccess(session.user.id, requestedAgentId, 'canUse', {
+          organizationId: workspace.organizationId,
+          workspaceId: workspace.workspaceId,
+          projectId: workspace.projectId,
+        });
+      } catch {
+        return NextResponse.json(
+          { success: false, code: 'AGENT_ACCESS_DENIED', error: 'Agent access denied.' },
           { status: 403 },
         );
       }

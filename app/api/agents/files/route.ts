@@ -2,270 +2,143 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
-import { rateLimit } from '@/app/lib/utils/rate-limit';
 import {
-  AgentConfigValidationError,
-  isManagedAgentFileName,
-  readManagedAgentFiles,
-  resetManagedAgentFile,
-  writeManagedAgentFile,
+  inspectManagedAgent,
+  managementErrorDetails,
+  resetManagedAgentFiles,
+  updateManagedAgentFile,
+  type AgentManagementActor,
+} from '@/app/lib/agents/management-actions';
+import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
+import {
   AGENT_MANAGED_FILE_NAMES,
   DEFAULT_MANAGED_AGENT_ID,
-  SPECIAL_AGENT_MANAGED_FILE_NAMES,
-  isWritableManagedAgentFileName,
+  isManagedAgentFileName,
+  resetManagedAgentFile,
+  writeManagedAgentFile,
   type AgentManagedFileName,
 } from '@/app/lib/agents/storage';
-import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
-import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
+import { rateLimit } from '@/app/lib/utils/rate-limit';
 
-type PutPayload = {
-  agentId?: string;
-  fileName?: string;
-  content?: string;
-};
+type AuthSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
 
-type PostPayload = {
-  action: 'reset';
-  agentId?: string;
-  fileName?: string;
-};
-
-async function requireSession(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return {
-      session: null,
-      response: NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 }),
-    };
-  }
-
-  return { session, response: null };
+function actor(request: NextRequest, session: AuthSession): AgentManagementActor {
+  return {
+    userId: session.user.id,
+    sessionId: session.session.id,
+    source: 'api',
+    organizationId: request.nextUrl.searchParams.get('organizationId'),
+    workspaceId: request.nextUrl.searchParams.get('workspaceId'),
+    projectId: request.nextUrl.searchParams.get('projectId'),
+  };
 }
 
-function isInheritedFileForAgent(fileName: AgentManagedFileName, agentId?: string | null): boolean {
-  return !isWritableManagedAgentFileName(fileName, agentId);
+function errorResponse(error: unknown, fallback: string) {
+  const details = managementErrorDetails(error);
+  return NextResponse.json(
+    { success: false, code: details.code, error: details.message || fallback, ...(details.details || {}) },
+    { status: details.status },
+  );
 }
 
 export async function GET(request: NextRequest) {
-  const { session, response } = await requireSession(request);
-  if (response) {
-    return response;
-  }
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const limited = rateLimit(request, {
-    limit: 60,
-    windowMs: 60_000,
-    keyPrefix: 'agents-files-get',
-  });
-  if (!limited.ok) {
-    return limited.response;
-  }
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'agents-files-get' });
+  if (!limited.ok) return limited.response;
 
   try {
-    const agentId = request.nextUrl.searchParams.get('agentId');
-    await requireAgentAccess(session.user.id, normalizeManagedAgentId(agentId), 'canEdit');
-    const files = await readManagedAgentFiles(agentId, { userId: session.user.id });
-    return NextResponse.json({
-      success: true,
-      data: { files },
-    });
+    const data = await inspectManagedAgent(
+      actor(request, session),
+      request.nextUrl.searchParams.get('agentId') || DEFAULT_MANAGED_AGENT_ID,
+      { includeFiles: true },
+    );
+    return NextResponse.json({ success: true, data: { files: data.files, agent: data.agent } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to read agent files.';
-    const status = error instanceof AgentAccessError ? error.status : error instanceof AgentConfigValidationError ? 400 : 500;
-    return NextResponse.json({ success: false, error: message }, { status });
+    return errorResponse(error, 'Failed to read agent files.');
   }
 }
 
 export async function PUT(request: NextRequest) {
-  const { session, response } = await requireSession(request);
-  if (response) {
-    return response;
-  }
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const limited = rateLimit(request, {
-    limit: 30,
-    windowMs: 60_000,
-    keyPrefix: 'agents-files-put',
-  });
-  if (!limited.ok) {
-    return limited.response;
-  }
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'agents-files-put' });
+  if (!limited.ok) return limited.response;
 
   try {
-    const payload = (await request.json()) as PutPayload;
-    const agentId = payload.agentId;
-    await requireAgentAccess(session.user.id, normalizeManagedAgentId(agentId), 'canEdit');
-    const fileName = payload.fileName?.trim();
+    const payload = (await request.json()) as Record<string, unknown>;
+    const agentId = typeof payload.agentId === 'string' ? payload.agentId : DEFAULT_MANAGED_AGENT_ID;
+    const fileName = typeof payload.fileName === 'string' ? payload.fileName.trim() : '';
+    if (!isManagedAgentFileName(fileName)) throw new Error('Invalid managed agent fileName.');
+    if (typeof payload.content !== 'string') throw new Error('content must be a string.');
 
-    if (!fileName || !isManagedAgentFileName(fileName)) {
-      return NextResponse.json(
-        {
-          success: false,
-          error: 'Invalid fileName. Allowed: AGENTS.md, USER.md, MEMORY.md, SOUL.md, TOOLS.md, HEARTBEAT.md',
-        },
-        { status: 400 }
-      );
+    if (normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID) {
+      const inspected = await inspectManagedAgent(actor(request, session), agentId);
+      if (!inspected.access.canEdit) throw new Error('Agent access denied.');
+      const content = await writeManagedAgentFile(fileName, payload.content, agentId, { userId: session.user.id });
+      await recordAuditEvent({
+        userId: session.user.id,
+        agentId: DEFAULT_MANAGED_AGENT_ID,
+        source: 'agents',
+        eventType: 'agent',
+        entityType: 'agent_managed_file',
+        entityId: `${DEFAULT_MANAGED_AGENT_ID}:${fileName}`,
+        action: 'agent_file.write',
+        metadata: { fileName, contentLength: payload.content.length },
+      });
+      return NextResponse.json({ success: true, data: { fileName, content, agent: inspected.agent } });
     }
 
-    if (typeof payload.content !== 'string') {
-      return NextResponse.json({ success: false, error: 'content must be a string.' }, { status: 400 });
-    }
-    if (isInheritedFileForAgent(fileName, agentId)) {
-      return NextResponse.json({ success: false, error: `${fileName} is inherited from the Canvas Agent and cannot be edited for specialized agents.` }, { status: 400 });
-    }
-
-    const content = await writeManagedAgentFile(fileName, payload.content, agentId, { userId: session.user.id });
-    const normalizedAgentId = normalizeManagedAgentId(agentId);
-    await recordAuditEvent({
-      userId: session.user.id,
-      agentId: normalizedAgentId,
-      source: 'agents',
-      eventType: 'agent',
-      entityType: 'agent_managed_file',
-      entityId: `${normalizedAgentId}:${fileName}`,
-      action: 'agent_file.write',
-      status: 'success',
-      summary: `Managed agent file ${fileName} written for ${normalizedAgentId}.`,
-      metadata: {
-        fileName,
-        contentLength: payload.content.length,
-      },
-      input: {
-        fileName,
-        contentLength: payload.content.length,
-      },
+    if (typeof payload.expectedRevision !== 'number') throw new Error('expectedRevision is required.');
+    const data = await updateManagedAgentFile({
+      actor: actor(request, session),
+      agentId,
+      expectedRevision: payload.expectedRevision,
+      fileName,
+      content: payload.content,
     });
-    return NextResponse.json({
-      success: true,
-      data: {
-        fileName,
-        content,
-      },
-    });
+    return NextResponse.json({ success: true, data });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to write agent file.';
-    const status = error instanceof AgentAccessError ? error.status : error instanceof AgentConfigValidationError ? 400 : 500;
-    return NextResponse.json({ success: false, error: message }, { status });
+    return errorResponse(error, 'Failed to write agent file.');
   }
 }
 
-// POST /api/agents/files - Reset to seed
 export async function POST(request: NextRequest) {
-  const { session, response } = await requireSession(request);
-  if (response) {
-    return response;
-  }
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const limited = rateLimit(request, {
-    limit: 10,
-    windowMs: 60_000,
-    keyPrefix: 'agents-files-post',
-  });
-  if (!limited.ok) {
-    return limited.response;
-  }
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const limited = rateLimit(request, { limit: 10, windowMs: 60_000, keyPrefix: 'agents-files-post' });
+  if (!limited.ok) return limited.response;
 
   try {
-    const payload = (await request.json()) as PostPayload;
-    const agentId = payload.agentId;
-    await requireAgentAccess(session.user.id, normalizeManagedAgentId(agentId), 'canEdit');
+    const payload = (await request.json()) as Record<string, unknown>;
+    if (payload.action !== 'reset') throw new Error('Only the reset action is supported.');
+    const agentId = typeof payload.agentId === 'string' ? payload.agentId : DEFAULT_MANAGED_AGENT_ID;
+    const fileName = typeof payload.fileName === 'string' ? payload.fileName.trim() : null;
+    if (fileName && !isManagedAgentFileName(fileName)) throw new Error('Invalid managed agent fileName.');
 
-    if (payload.action !== 'reset') {
-      return NextResponse.json(
-        { success: false, error: 'Invalid action. Only "reset" is supported.' },
-        { status: 400 }
-      );
+    if (normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID) {
+      const inspected = await inspectManagedAgent(actor(request, session), agentId);
+      if (!inspected.access.canEdit) throw new Error('Agent access denied.');
+      const fileNames = fileName ? [fileName] : [...AGENT_MANAGED_FILE_NAMES];
+      const files = [];
+      for (const nextFileName of fileNames as AgentManagedFileName[]) {
+        files.push({
+          fileName: nextFileName,
+          content: await resetManagedAgentFile(nextFileName, agentId, { userId: session.user.id }),
+        });
+      }
+      return NextResponse.json({ success: true, data: { files, reset: true, agent: inspected.agent } });
     }
 
-    // Reset single file or all files
-    if (payload.fileName) {
-      // Reset single file
-      const fileName = payload.fileName.trim() as AgentManagedFileName;
-      if (!isManagedAgentFileName(fileName)) {
-        return NextResponse.json(
-          {
-            success: false,
-            error: 'Invalid fileName. Allowed: AGENTS.md, USER.md, MEMORY.md, SOUL.md, TOOLS.md, HEARTBEAT.md',
-          },
-          { status: 400 }
-        );
-      }
-      if (isInheritedFileForAgent(fileName, agentId)) {
-        return NextResponse.json({ success: false, error: `${fileName} is inherited from the Canvas Agent and cannot be reset for specialized agents.` }, { status: 400 });
-      }
-
-      const content = await resetManagedAgentFile(fileName, agentId, { userId: session.user.id });
-      const normalizedAgentId = normalizeManagedAgentId(agentId);
-      await recordAuditEvent({
-        userId: session.user.id,
-        agentId: normalizedAgentId,
-        source: 'agents',
-        eventType: 'agent',
-        entityType: 'agent_managed_file',
-        entityId: `${normalizedAgentId}:${fileName}`,
-        action: 'agent_file.reset',
-        status: 'success',
-        summary: `Managed agent file ${fileName} reset for ${normalizedAgentId}.`,
-        metadata: {
-          fileName,
-        },
-      });
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          fileName,
-          content,
-          reset: true,
-        },
-      });
-    } else {
-      // Reset all files
-      const results: Array<{ fileName: AgentManagedFileName; content: string }> = [];
-      const fileNames = normalizeManagedAgentId(agentId) === DEFAULT_MANAGED_AGENT_ID
-        ? AGENT_MANAGED_FILE_NAMES
-        : SPECIAL_AGENT_MANAGED_FILE_NAMES;
-
-      for (const fileName of fileNames) {
-        const content = await resetManagedAgentFile(fileName, agentId, { userId: session.user.id });
-        results.push({ fileName, content });
-      }
-      const normalizedAgentId = normalizeManagedAgentId(agentId);
-      await recordAuditEvent({
-        userId: session.user.id,
-        agentId: normalizedAgentId,
-        source: 'agents',
-        eventType: 'agent',
-        entityType: 'agent_managed_file',
-        entityId: normalizedAgentId,
-        action: 'agent_files.reset_all',
-        status: 'success',
-        summary: `Managed agent files reset for ${normalizedAgentId}.`,
-        metadata: {
-          fileNames,
-        },
-      });
-
-      return NextResponse.json({
-        success: true,
-        data: {
-          files: results,
-          reset: true,
-        },
-      });
-    }
+    if (typeof payload.expectedRevision !== 'number') throw new Error('expectedRevision is required.');
+    const data = await resetManagedAgentFiles({
+      actor: actor(request, session),
+      agentId,
+      expectedRevision: payload.expectedRevision,
+      fileName,
+    });
+    return NextResponse.json({ success: true, data: { ...data, reset: true } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Failed to reset agent file.';
-    const status = error instanceof AgentAccessError ? error.status : error instanceof AgentConfigValidationError ? 400 : 500;
-    return NextResponse.json({ success: false, error: message }, { status });
+    return errorResponse(error, 'Failed to reset agent files.');
   }
 }

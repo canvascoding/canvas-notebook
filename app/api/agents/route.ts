@@ -1,148 +1,44 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import {
-  agentDefaultErrorResponse,
-  parseAgentDefaultCatalogRevision,
-  parseAgentDefaultFields,
-  writeAgentDefaultWithCatalogValidation,
-} from '@/app/lib/agent-runtime-policy/agent-default-service';
-import { isAdminUser } from '@/app/lib/admin-auth';
-import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import {
-  AgentAccessError,
-  createAgentManagerMembership,
-  listAgentAccessForUser,
-  requireAgentAccess,
-} from '@/app/lib/agents/access';
-import {
-  createAgentProfile,
-  deleteAgentProfile,
-  getAgentProfile,
-  listAgentProfiles,
-  updateAgentProfile,
-} from '@/app/lib/agents/registry';
-import { normalizeAgentIconId } from '@/app/lib/agents/icons';
-import {
-  isManagedAgentFileName,
-  isWritableManagedAgentFileName,
-  writeManagedAgentFile,
-  type AgentManagedFileName,
-} from '@/app/lib/agents/storage';
-import { assertBrowserToolCanBeEnabled } from '@/app/lib/pi/browser/settings-service';
-import {
-  isOrganizationAdminLike,
-  readOrganizationPermissionForUser,
-} from '@/app/lib/organization/permissions';
+  createManagedAgent,
+  deleteManagedAgent,
+  inspectManagedAgent,
+  listManagedAgents,
+  managementErrorDetails,
+  updateManagedAgentCapabilities,
+  updateManagedAgentProfile,
+  updateManagedAgentRuntime,
+  type AgentManagementActor,
+  type CreateManagedAgentInput,
+} from '@/app/lib/agents/management-actions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
-
-const AGENT_DEFAULT_FIELDS = [
-  'defaultProviderInstallationId',
-  'defaultProvider',
-  'defaultModel',
-  'defaultThinking',
-] as const;
 
 type AuthSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
 
-function hasAgentDefaultMutation(payload: Record<string, unknown>): boolean {
-  return AGENT_DEFAULT_FIELDS.some((field) => Object.hasOwn(payload, field));
+function actorFromRequest(request: NextRequest, session: AuthSession): AgentManagementActor {
+  return {
+    userId: session.user.id,
+    sessionId: session.session.id,
+    source: 'api',
+    organizationId: request.nextUrl.searchParams.get('organizationId'),
+    workspaceId: request.nextUrl.searchParams.get('workspaceId'),
+    projectId: request.nextUrl.searchParams.get('projectId'),
+  };
 }
 
-async function requireAgentDefaultAdmin(session: AuthSession) {
-  if (!isAdminUser(session.user)) {
-    return {
-      ok: false as const,
-      response: NextResponse.json(
-        { success: false, code: 'ADMIN_REQUIRED', error: 'Instance admin permission required.' },
-        { status: 403 },
-      ),
-    };
-  }
-  const state = await readOrganizationPermissionForUser(session.user.id);
-  if (!state.configured || !state.organizationId) {
-    return {
-      ok: false as const,
-      response: NextResponse.json(
-        {
-          success: false,
-          code: 'ORGANIZATION_SETUP_REQUIRED',
-          error: 'Complete the app setup before configuring agent model defaults.',
-        },
-        { status: 409 },
-      ),
-    };
-  }
-  if (!isOrganizationAdminLike(state.permission)) {
-    return {
-      ok: false as const,
-      response: NextResponse.json(
-        { success: false, code: 'ADMIN_REQUIRED', error: 'Organization admin permission required.' },
-        { status: 403 },
-      ),
-    };
-  }
-  return { ok: true as const, organizationId: state.organizationId };
-}
-
-function agentMutationError(error: unknown, fallback: string) {
-  if (error instanceof AgentAccessError) {
-    return NextResponse.json(
-      { success: false, code: error.code, error: error.message },
-      { status: error.status },
-    );
-  }
-  const runtimeError = agentDefaultErrorResponse(error);
-  if (runtimeError.code !== 'AGENT_DEFAULT_UPDATE_FAILED') {
-    return NextResponse.json(
-      {
-        success: false,
-        code: runtimeError.code,
-        error: runtimeError.message,
-        ...(runtimeError.currentCatalogRevision === undefined
-          ? {}
-          : { currentCatalogRevision: runtimeError.currentCatalogRevision }),
-      },
-      { status: runtimeError.status },
-    );
-  }
+function errorResponse(error: unknown, fallback: string): NextResponse {
+  const details = managementErrorDetails(error);
   return NextResponse.json(
-    { success: false, error: error instanceof Error ? error.message : fallback },
-    { status: 400 },
+    {
+      success: false,
+      code: details.code,
+      error: details.message || fallback,
+      ...(details.details || {}),
+    },
+    { status: details.status },
   );
-}
-
-export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const limited = rateLimit(request, {
-    limit: 60,
-    windowMs: 60_000,
-    keyPrefix: 'agents-list-get',
-  });
-  if (!limited.ok) {
-    return limited.response;
-  }
-
-  try {
-    const [agents, accessByAgentId] = await Promise.all([
-      listAgentProfiles(),
-      listAgentAccessForUser(session.user.id),
-    ]);
-    const accessibleAgents = agents.flatMap((agent) => {
-      const access = accessByAgentId.get(agent.agentId);
-      return access?.canUse ? [{ ...agent, access }] : [];
-    });
-    return NextResponse.json({ success: true, data: { agents: accessibleAgents } });
-  } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to list agents.' },
-      { status: 500 },
-    );
-  }
 }
 
 function stringValue(value: unknown): string | undefined {
@@ -154,286 +50,136 @@ function stringArrayValue(value: unknown): string[] | null {
   return value.filter((entry): entry is string => typeof entry === 'string');
 }
 
-function managedFilesValue(value: unknown): Partial<Record<AgentManagedFileName, string>> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
-  const result: Partial<Record<AgentManagedFileName, string>> = {};
-  for (const [fileName, content] of Object.entries(value)) {
-    if (isManagedAgentFileName(fileName) && typeof content === 'string') {
-      result[fileName] = content;
-    }
-  }
-  return result;
+function hasAny(payload: Record<string, unknown>, fields: readonly string[]): boolean {
+  return fields.some((field) => Object.hasOwn(payload, field));
 }
 
-async function writeInitialAgentFiles(
-  agentId: string,
-  files: Partial<Record<AgentManagedFileName, string>>,
-  userId: string,
-): Promise<void> {
-  for (const [fileName, content] of Object.entries(files)) {
-    if (!isManagedAgentFileName(fileName) || !isWritableManagedAgentFileName(fileName, agentId)) {
-      continue;
+export async function GET(request: NextRequest) {
+  const session = await auth.api.getSession({ headers: request.headers });
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'agents-list-get' });
+  if (!limited.ok) return limited.response;
+
+  try {
+    const actor = actorFromRequest(request, session);
+    const agentId = request.nextUrl.searchParams.get('agentId');
+    if (agentId) {
+      const inspected = await inspectManagedAgent(actor, agentId, {
+        includeFiles: request.nextUrl.searchParams.get('includeFiles') === 'true',
+        includeAccess: request.nextUrl.searchParams.get('includeAccess') === 'true',
+      });
+      return NextResponse.json({ success: true, data: inspected });
     }
-    await writeManagedAgentFile(fileName, content ?? '', agentId, { userId });
+    return NextResponse.json({ success: true, data: { agents: await listManagedAgents(actor) } });
+  } catch (error) {
+    return errorResponse(error, 'Failed to list agents.');
   }
 }
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const limited = rateLimit(request, {
-    limit: 20,
-    windowMs: 60_000,
-    keyPrefix: 'agents-create-post',
-  });
-  if (!limited.ok) {
-    return limited.response;
-  }
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'agents-create-post' });
+  if (!limited.ok) return limited.response;
 
   try {
     const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
-    const enabledTools = stringArrayValue(payload.enabledTools);
-    await assertBrowserToolCanBeEnabled({ nextEnabledTools: enabledTools });
-    const defaultSelection = parseAgentDefaultFields({
-      providerInstallationId: payload.defaultProviderInstallationId,
-      providerId: payload.defaultProvider,
-      modelId: payload.defaultModel,
-      thinkingLevel: payload.defaultThinking,
-    });
-    let organizationId: string | undefined;
-    let expectedCatalogRevision: number | undefined;
-    if (defaultSelection) {
-      const admin = await requireAgentDefaultAdmin(session);
-      if (!admin.ok) return admin.response;
-      organizationId = admin.organizationId;
-      expectedCatalogRevision = parseAgentDefaultCatalogRevision(payload.expectedCatalogRevision, true)!;
-    }
-    let agent = await createAgentProfile({
-      name: stringValue(payload.name) || '',
-      agentId: stringValue(payload.agentId) || null,
-      iconId: normalizeAgentIconId(payload.iconId),
-      enabledTools,
-      relevantSkills: stringArrayValue(payload.relevantSkills),
-      relevantConnections: stringArrayValue(payload.relevantConnections),
-      accessPolicy: 'restricted',
-    });
-    let catalogRevision: number | undefined;
-    if (defaultSelection && organizationId) {
-      try {
-        const result = await writeAgentDefaultWithCatalogValidation({
-          organizationId,
-          agentId: agent.agentId,
-          selection: defaultSelection,
-          expectedCatalogRevision,
-        });
-        catalogRevision = result.catalogRevision ?? undefined;
-        agent = (await getAgentProfile(agent.agentId)) ?? agent;
-      } catch (error) {
-        await deleteAgentProfile(agent.agentId).catch(() => undefined);
-        throw error;
-      }
-    }
-    try {
-      await createAgentManagerMembership(agent.agentId, session.user.id);
-    } catch (error) {
-      await deleteAgentProfile(agent.agentId).catch(() => undefined);
-      throw error;
-    }
-    const managedFiles = managedFilesValue(payload.files);
-    await writeInitialAgentFiles(agent.agentId, managedFiles, session.user.id);
-    await recordAuditEvent({
-      organizationId,
-      userId: session.user.id,
-      agentId: agent.agentId,
-      source: 'agents',
-      eventType: 'agent',
-      entityType: 'agent_profile',
-      entityId: agent.agentId,
-      action: 'agent.create',
-      status: 'success',
-      summary: `Agent ${agent.agentId} created.`,
-      metadata: {
-        name: agent.name,
-        defaultProviderInstallationId: agent.defaultProviderInstallationId,
-        defaultProvider: agent.defaultProvider,
-        defaultModel: agent.defaultModel,
-        defaultThinking: agent.defaultThinking,
-        catalogRevision,
-        managedFiles: Object.keys(managedFiles),
-      },
-    });
-    return NextResponse.json({
-      success: true,
-      data: {
-        agent: {
-          ...agent,
-          access: { canUse: true, canEdit: true, canManage: true },
-        },
-      },
-    });
+    const result = await createManagedAgent(actorFromRequest(request, session), payload as CreateManagedAgentInput);
+    return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    return agentMutationError(error, 'Failed to create agent.');
+    return errorResponse(error, 'Failed to create agent.');
   }
 }
 
 export async function PATCH(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const limited = rateLimit(request, {
-    limit: 30,
-    windowMs: 60_000,
-    keyPrefix: 'agents-update-patch',
-  });
-  if (!limited.ok) {
-    return limited.response;
-  }
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'agents-update-patch' });
+  if (!limited.ok) return limited.response;
 
   try {
     const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
     const agentId = stringValue(payload.agentId);
-    if (!agentId) {
-      throw new Error('agentId is required.');
-    }
-    const access = await requireAgentAccess(session.user.id, agentId, 'canEdit');
-    if (typeof payload.name === 'string' && !payload.name.trim()) {
-      // Validate profile fields before the catalog-guarded default write so a
-      // rejected combined PATCH cannot leave a partially updated agent.
-      throw new Error('Agent name is required.');
-    }
-    const runtimeMutation = hasAgentDefaultMutation(payload);
-    const existingAgent = runtimeMutation || Object.hasOwn(payload, 'enabledTools')
-      ? await getAgentProfile(agentId)
-      : null;
-    if ((runtimeMutation || Object.hasOwn(payload, 'enabledTools')) && !existingAgent) {
-      throw new Error('Agent not found.');
-    }
-    const nextEnabledTools = Object.hasOwn(payload, 'enabledTools') ? stringArrayValue(payload.enabledTools) : undefined;
-    if (nextEnabledTools !== undefined) {
-      await assertBrowserToolCanBeEnabled({
-        previousEnabledTools: existingAgent?.enabledTools ?? null,
-        nextEnabledTools,
-      });
-    }
+    const expectedRevision = payload.expectedRevision;
+    if (!agentId) throw new Error('agentId is required.');
+    if (typeof expectedRevision !== 'number') throw new Error('expectedRevision is required.');
+    const actor = actorFromRequest(request, session);
+    let revision = expectedRevision;
+    let agent;
 
-    let defaultSelection: ReturnType<typeof parseAgentDefaultFields> | undefined;
-    let organizationId: string | undefined;
-    let catalogRevision: number | undefined;
-    if (runtimeMutation) {
-      if (existingAgent?.type === 'main') {
-        throw new Error('The Canvas Agent runtime is configured through app and user runtime settings.');
-      }
-      const admin = await requireAgentDefaultAdmin(session);
-      if (!admin.ok) return admin.response;
-      organizationId = admin.organizationId;
-      defaultSelection = parseAgentDefaultFields({
-        providerInstallationId: Object.hasOwn(payload, 'defaultProviderInstallationId')
-          ? payload.defaultProviderInstallationId
-          : existingAgent?.defaultProviderInstallationId,
-        providerId: Object.hasOwn(payload, 'defaultProvider')
-          ? payload.defaultProvider
-          : existingAgent?.defaultProvider,
-        modelId: Object.hasOwn(payload, 'defaultModel')
-          ? payload.defaultModel
-          : existingAgent?.defaultModel,
-        thinkingLevel: Object.hasOwn(payload, 'defaultThinking')
-          ? payload.defaultThinking
-          : existingAgent?.defaultThinking,
+    if (hasAny(payload, ['name', 'iconId'])) {
+      agent = await updateManagedAgentProfile({
+        actor,
+        agentId,
+        expectedRevision: revision,
+        name: stringValue(payload.name),
+        iconId: payload.iconId as string | null | undefined,
       });
-      if (defaultSelection) {
-        const expectedCatalogRevision = parseAgentDefaultCatalogRevision(payload.expectedCatalogRevision, true)!;
-        const validation = await writeAgentDefaultWithCatalogValidation({
-          organizationId,
-          agentId,
-          selection: defaultSelection,
-          expectedCatalogRevision,
-        });
-        catalogRevision = validation.catalogRevision ?? undefined;
-      } else {
-        await writeAgentDefaultWithCatalogValidation({
-          organizationId,
-          agentId,
-          selection: null,
-        });
-      }
+      revision = agent.revision;
     }
-    const agent = await updateAgentProfile({
-      agentId,
-      name: stringValue(payload.name),
-      iconId: Object.hasOwn(payload, 'iconId') ? normalizeAgentIconId(payload.iconId) : undefined,
-      enabledTools: nextEnabledTools,
-      relevantSkills: Object.hasOwn(payload, 'relevantSkills') ? stringArrayValue(payload.relevantSkills) : undefined,
-      relevantConnections: Object.hasOwn(payload, 'relevantConnections') ? stringArrayValue(payload.relevantConnections) : undefined,
-    });
-    await recordAuditEvent({
-      organizationId,
-      userId: session.user.id,
-      agentId: agent.agentId,
-      source: 'agents',
-      eventType: 'agent',
-      entityType: 'agent_profile',
-      entityId: agent.agentId,
-      action: 'agent.update',
-      status: 'success',
-      summary: `Agent ${agent.agentId} updated.`,
-      metadata: {
-        changedFields: Object.keys(payload).filter((key) => key !== 'files'),
-        defaultProviderInstallationId: agent.defaultProviderInstallationId,
-        defaultProvider: agent.defaultProvider,
-        defaultModel: agent.defaultModel,
-        defaultThinking: agent.defaultThinking,
-        catalogRevision,
-      },
-    });
-    return NextResponse.json({ success: true, data: { agent: { ...agent, access } } });
+    if (hasAny(payload, [
+      'enabledTools',
+      'defaultProviderInstallationId',
+      'defaultProvider',
+      'defaultModel',
+      'defaultThinking',
+    ])) {
+      agent = await updateManagedAgentRuntime({
+        actor,
+        agentId,
+        expectedRevision: revision,
+        enabledTools: Object.hasOwn(payload, 'enabledTools') ? stringArrayValue(payload.enabledTools) : undefined,
+        defaultProviderInstallationId: payload.defaultProviderInstallationId,
+        defaultProvider: payload.defaultProvider,
+        defaultModel: payload.defaultModel,
+        defaultThinking: payload.defaultThinking,
+        expectedCatalogRevision: payload.expectedCatalogRevision,
+      });
+      revision = agent.revision;
+    }
+    if (hasAny(payload, ['capabilities', 'relevantSkills', 'relevantConnections'])) {
+      const result = await updateManagedAgentCapabilities({
+        actor,
+        agentId,
+        expectedRevision: revision,
+        capabilities: Array.isArray(payload.capabilities)
+          ? payload.capabilities as Parameters<typeof updateManagedAgentCapabilities>[0]['capabilities']
+          : undefined,
+        relevantSkills: Object.hasOwn(payload, 'relevantSkills') ? stringArrayValue(payload.relevantSkills) : undefined,
+        relevantConnections: Object.hasOwn(payload, 'relevantConnections') ? stringArrayValue(payload.relevantConnections) : undefined,
+      });
+      agent = result.agent;
+      revision = agent.revision;
+    }
+    if (!agent) throw new Error('No supported agent changes were provided.');
+    const access = await inspectManagedAgent(actor, agentId);
+    return NextResponse.json({ success: true, data: { agent: { ...agent, access: access.access } } });
   } catch (error) {
-    return agentMutationError(error, 'Failed to update agent.');
+    return errorResponse(error, 'Failed to update agent.');
   }
 }
 
 export async function DELETE(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  }
-
-  const limited = rateLimit(request, {
-    limit: 20,
-    windowMs: 60_000,
-    keyPrefix: 'agents-delete',
-  });
-  if (!limited.ok) {
-    return limited.response;
-  }
+  if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const limited = rateLimit(request, { limit: 20, windowMs: 60_000, keyPrefix: 'agents-delete' });
+  if (!limited.ok) return limited.response;
 
   try {
-    const agentId = request.nextUrl.searchParams.get('agentId');
-    if (!agentId) {
-      throw new Error('agentId is required.');
-    }
-    await requireAgentAccess(session.user.id, agentId, 'canManage');
-    await deleteAgentProfile(agentId);
-    await recordAuditEvent({
-      userId: session.user.id,
+    const payload = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+    const agentId = stringValue(payload.agentId) || request.nextUrl.searchParams.get('agentId') || '';
+    const expectedRevision = payload.expectedRevision;
+    const confirmationToken = stringValue(payload.confirmationToken) || '';
+    if (typeof expectedRevision !== 'number') throw new Error('expectedRevision is required.');
+    if (!confirmationToken) throw new Error('confirmationToken is required. Request a delete preview first.');
+    const result = await deleteManagedAgent({
+      actor: actorFromRequest(request, session),
       agentId,
-      source: 'agents',
-      eventType: 'agent',
-      entityType: 'agent_profile',
-      entityId: agentId,
-      action: 'agent.delete',
-      status: 'success',
-      summary: `Agent ${agentId} deleted.`,
+      expectedRevision,
+      confirmationToken,
     });
-    return NextResponse.json({ success: true });
+    return NextResponse.json({ success: true, data: result });
   } catch (error) {
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to delete agent.' },
-      { status: 400 },
-    );
+    return errorResponse(error, 'Failed to delete agent.');
   }
 }
