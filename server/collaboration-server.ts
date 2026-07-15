@@ -15,6 +15,7 @@ import {
 } from '@/app/lib/collaboration/agent-operations';
 import { richMarkdownFromYDoc } from '@/app/lib/collaboration/markdown-state';
 import {
+  CollaborationStateInactiveError,
   loadCollaborationState,
   markCollaborationDegraded,
   persistCollaborationYDoc,
@@ -237,6 +238,10 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       try {
         state = await persistCollaborationYDoc(documentName, document);
       } catch (error) {
+        // Delete/archive increments the lifecycle generation and invalidates
+        // the room. A previously scheduled debounce may still run once; it
+        // must not resurrect the file or report a false durability incident.
+        if (error instanceof CollaborationStateInactiveError) return;
         await markCollaborationDegraded(documentName).catch(() => undefined);
         document.broadcastStateless(JSON.stringify({
           type: 'degraded',

@@ -21,6 +21,8 @@ import {
 } from '../app/lib/collaboration/agent-sagas';
 import { installCollaborationDirectConnection } from '../app/lib/collaboration/direct-connection';
 import {
+  CollaborationStateInactiveError,
+  archivePersistedCollaborationPaths,
   ensureCollaborationState,
   changeCollaborationRepresentation,
   compactCollaborationState,
@@ -45,6 +47,7 @@ const richDocumentId = `agent-operation-rich-test-${suffix}`;
 const compactionDocumentId = `agent-operation-compaction-test-${suffix}`;
 const sagaFirstDocumentId = `agent-operation-saga-first-${suffix}`;
 const sagaSecondDocumentId = `agent-operation-saga-second-${suffix}`;
+const archivedDocumentId = `agent-operation-archived-${suffix}`;
 const workspaceId = `agent-operation-workspace-${suffix}`;
 const userId = `agent-operation-user-${suffix}`;
 const workspace: WorkspaceContext = {
@@ -726,6 +729,31 @@ try {
   assert.equal(await persistedText(sagaFirstDocumentId), 'Saga A');
   assert.equal(await persistedText(sagaSecondDocumentId), 'Saga C');
 
+  // A debounce queued before delete/archive may fire once afterwards. It is
+  // a lifecycle no-op, not a degraded persistence incident or resurrection.
+  await ensureCollaborationState({
+    documentId: archivedDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: `agent-operation-archived-${suffix}.txt`,
+    representation: 'plain_text',
+    initialContent: 'Archived content',
+  });
+  const beforeArchive = await loadCollaborationState(archivedDocumentId);
+  assert(beforeArchive);
+  const archivedDoc = new Y.Doc({ gc: true });
+  Y.applyUpdate(archivedDoc, beforeArchive.yjsState);
+  await archivePersistedCollaborationPaths({
+    workspaceId,
+    paths: [beforeArchive.path],
+  });
+  await assert.rejects(
+    () => persistCollaborationYDoc(archivedDocumentId, archivedDoc),
+    (error: unknown) => error instanceof CollaborationStateInactiveError
+      && error.code === 'COLLABORATION_STATE_INACTIVE',
+  );
+  archivedDoc.destroy();
+
   state = await loadCollaborationState(documentId);
   const staleReview = await applyPersistedAgentTextOperation({
     documentId,
@@ -772,6 +800,7 @@ try {
       compactionDocumentId,
       sagaFirstDocumentId,
       sagaSecondDocumentId,
+      archivedDocumentId,
     ]) {
       await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);
       await database.run('DELETE FROM collaboration_yjs_state_backups WHERE document_id = ?', [cleanupDocumentId]);

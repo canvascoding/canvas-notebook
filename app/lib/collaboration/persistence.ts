@@ -112,6 +112,15 @@ export function sha256Text(value: string): string {
   return crypto.createHash('sha256').update(value, 'utf8').digest('hex');
 }
 
+export class CollaborationStateInactiveError extends Error {
+  readonly code = 'COLLABORATION_STATE_INACTIVE';
+
+  constructor(documentId: string) {
+    super(`Collaboration state ${documentId} is archived.`);
+    this.name = 'CollaborationStateInactiveError';
+  }
+}
+
 export async function loadCollaborationState(documentId: string): Promise<PersistedCollaborationState | null> {
   assertPostgres();
   const database = await openDb();
@@ -223,7 +232,14 @@ export async function persistCollaborationYDoc(
       `,
       [Buffer.from(update), Buffer.from(vector), now, documentId],
     ) as StateRow | undefined;
-    if (!row) throw new Error('Collaboration state does not exist.');
+    if (!row) {
+      const existing = await database.get(
+        'SELECT status FROM collaboration_yjs_states WHERE document_id = ? LIMIT 1',
+        [documentId],
+      ) as { status?: string } | undefined;
+      if (existing?.status === 'archived') throw new CollaborationStateInactiveError(documentId);
+      throw new Error('Collaboration state does not exist.');
+    }
     return mapState(row);
   } finally {
     await database.close();
