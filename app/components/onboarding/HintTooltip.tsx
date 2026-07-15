@@ -348,7 +348,7 @@ export function HintTooltip({
         <style>{`
           .onboarding-highlight-target {
             box-shadow: 0 0 0 4px rgba(245,158,11,0.5), 0 0 20px rgba(245,158,11,0.3) !important;
-            border-radius: 8px !important;
+            border-radius: var(--radius) !important;
             animation: onboarding-pulse 2s ease-in-out infinite !important;
             cursor: pointer !important;
           }
@@ -412,7 +412,7 @@ export function HintTooltip({
       <style>{`
         .onboarding-highlight-target {
           box-shadow: 0 0 0 4px rgba(245,158,11,0.5), 0 0 20px rgba(245,158,11,0.3) !important;
-          border-radius: 8px !important;
+          border-radius: var(--radius) !important;
           animation: onboarding-pulse 2s ease-in-out infinite !important;
           cursor: pointer !important;
         }
