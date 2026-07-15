@@ -585,7 +585,7 @@ export function CreateAgentDialog({
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogContent
         layout="viewport"
-        className="h-[100dvh] w-full max-w-full bg-background p-0 sm:h-[calc(100dvh-2rem)] md:h-[calc(100dvh-3rem)] lg:h-[calc(100dvh-4rem)]"
+        className="h-[100dvh] min-w-0 bg-background p-0 sm:h-[calc(100dvh-2rem)] md:h-[calc(100dvh-3rem)] lg:h-[calc(100dvh-4rem)]"
       >
         {createdAgent ? (
           <div className="grid h-full min-h-0 flex-1 grid-rows-[auto_minmax(0,1fr)_auto]">
