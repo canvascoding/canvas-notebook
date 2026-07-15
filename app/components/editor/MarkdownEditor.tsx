@@ -92,6 +92,10 @@ import {
   isEditorRangeInsideDoc,
   isEditorPositionInsideDoc,
 } from '@/app/lib/editor/prosemirror-ranges';
+import {
+  hasMobileToolbarPressMoved,
+  isMobileToolbarReleaseInside,
+} from '@/app/lib/editor/mobile-toolbar-gesture';
 import { getMarkdownSourceModeReason } from '@/app/lib/editor/text-editor-guards';
 import {
   createCurrentBlockCommandTarget,
@@ -3035,35 +3039,30 @@ function preserveEditorSelectionOnPointerDown(event: React.PointerEvent<HTMLElem
 }
 
 function useMobileToolbarPress(onPress: () => void, disabled = false) {
-  const handledPressRef = useRef(false);
-  const handledPressResetRef = useRef<number | null>(null);
+  const pressRef = useRef<{
+    cancelled: boolean;
+    pointerId: number;
+    startX: number;
+    startY: number;
+  } | null>(null);
+  const ignoreClickRef = useRef(false);
+  const ignoreClickResetRef = useRef<number | null>(null);
 
-  const clearHandledPress = useCallback(() => {
-    handledPressRef.current = false;
-    if (handledPressResetRef.current !== null) {
-      window.clearTimeout(handledPressResetRef.current);
-      handledPressResetRef.current = null;
+  const clearIgnoredClick = useCallback(() => {
+    ignoreClickRef.current = false;
+    if (ignoreClickResetRef.current !== null) {
+      window.clearTimeout(ignoreClickResetRef.current);
+      ignoreClickResetRef.current = null;
     }
   }, []);
 
-  const handlePressStart = useCallback(() => {
-    if (disabled || handledPressRef.current) return;
-
-    handledPressRef.current = true;
-    if (handledPressResetRef.current !== null) {
-      window.clearTimeout(handledPressResetRef.current);
-    }
-    handledPressResetRef.current = window.setTimeout(clearHandledPress, 750);
-    onPress();
-  }, [clearHandledPress, disabled, onPress]);
-
-  useEffect(() => clearHandledPress, [clearHandledPress]);
+  useEffect(() => clearIgnoredClick, [clearIgnoredClick]);
 
   return {
     onClick: (event: React.MouseEvent<HTMLElement>) => {
       event.preventDefault();
-      if (handledPressRef.current) {
-        clearHandledPress();
+      if (ignoreClickRef.current && event.detail !== 0) {
+        clearIgnoredClick();
         return;
       }
       if (!disabled) onPress();
@@ -3073,13 +3072,66 @@ function useMobileToolbarPress(onPress: () => void, disabled = false) {
     },
     onPointerDown: (event: React.PointerEvent<HTMLElement>) => {
       event.preventDefault();
-      if (event.pointerType !== 'mouse') handlePressStart();
+      if (disabled || event.pointerType === 'mouse' || !event.isPrimary) return;
+
+      pressRef.current = {
+        cancelled: false,
+        pointerId: event.pointerId,
+        startX: event.clientX,
+        startY: event.clientY,
+      };
+      try {
+        event.currentTarget.setPointerCapture(event.pointerId);
+      } catch {
+        // Pointer capture is an enhancement; release validation still prevents stray taps.
+      }
     },
-    onTouchStart: (event: React.TouchEvent<HTMLElement>) => {
-      // iOS can still move focus to a native button after a prevented pointerdown.
-      // Cancelling touchstart keeps the contenteditable focused and the keyboard open.
+    onPointerMove: (event: React.PointerEvent<HTMLElement>) => {
+      const press = pressRef.current;
+      if (!press || press.pointerId !== event.pointerId || press.cancelled) return;
+
+      if (hasMobileToolbarPressMoved(
+        { clientX: press.startX, clientY: press.startY },
+        { clientX: event.clientX, clientY: event.clientY },
+      )) {
+        press.cancelled = true;
+      }
+    },
+    onPointerUp: (event: React.PointerEvent<HTMLElement>) => {
       event.preventDefault();
-      handlePressStart();
+      const press = pressRef.current;
+      if (!press || press.pointerId !== event.pointerId) return;
+      pressRef.current = null;
+
+      try {
+        if (event.currentTarget.hasPointerCapture(event.pointerId)) {
+          event.currentTarget.releasePointerCapture(event.pointerId);
+        }
+      } catch {
+        // Some WebViews release capture before React receives pointerup.
+      }
+
+      const moved = press.cancelled || hasMobileToolbarPressMoved(
+        { clientX: press.startX, clientY: press.startY },
+        { clientX: event.clientX, clientY: event.clientY },
+      );
+      const releasedInside = isMobileToolbarReleaseInside(
+        event.currentTarget.getBoundingClientRect(),
+        { clientX: event.clientX, clientY: event.clientY },
+      );
+      if (disabled || moved || !releasedInside) return;
+
+      ignoreClickRef.current = true;
+      if (ignoreClickResetRef.current !== null) {
+        window.clearTimeout(ignoreClickResetRef.current);
+      }
+      ignoreClickResetRef.current = window.setTimeout(clearIgnoredClick, 0);
+      onPress();
+    },
+    onPointerCancel: (event: React.PointerEvent<HTMLElement>) => {
+      if (pressRef.current?.pointerId === event.pointerId) {
+        pressRef.current = null;
+      }
     },
   };
 }

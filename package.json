@@ -86,6 +86,7 @@
     "test:files:zip": "tsx --conditions react-server scripts/zip-extraction-test.ts",
     "test:files:sort": "tsx scripts/file-sort-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",
+    "test:editor:mobile-toolbar": "tsx scripts/mobile-toolbar-gesture-test.ts",
     "test:markdown:rendering": "tsx scripts/canvas-markdown-rendering-test.ts",
     "test:markdown:obsidian": "tsx scripts/obsidian-flavored-markdown-test.ts",
     "test:markdown:links": "tsx scripts/workspace-link-index-test.ts",
