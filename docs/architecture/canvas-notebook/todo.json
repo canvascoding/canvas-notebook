@@ -989,7 +989,7 @@
     {
       "id": 46,
       "title": "Agent-faehige Skill-Erstellung und Organization Shared Skills mit dedizierten Install-Tools umsetzen",
-      "status": "planned",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "dependsOn": [
         5,
