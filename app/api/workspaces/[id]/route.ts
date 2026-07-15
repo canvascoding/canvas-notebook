@@ -156,6 +156,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
             })
           : await updatePostgresWorkspaceForActor(actor, workspaceId, {
               name: payload.name,
+              description: payload.description,
               icon: payload.icon,
             });
         return NextResponse.json({ success: true, workspace });
@@ -189,6 +190,7 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
             actor,
             workspaceId,
             name: payload.name,
+            description: payload.description,
             icon: payload.icon,
           });
       sqlite.exec('COMMIT');

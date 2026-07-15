@@ -67,6 +67,7 @@ const personalWorkspace: ClientWorkspaceSummary = {
   id: 'ws_personal',
   type: 'personal',
   name: 'Personal Workspace',
+  description: 'Personal planning and notes.',
   organizationId: 'org_1',
   ownerUserId: 'user_1',
   rootRelativePath: 'workspaces/personal/user_1/files',
@@ -127,6 +128,21 @@ const additionalPersonalWorkspace: ClientWorkspaceSummary = {
 );
 
 async function main() {
+  const createWorkspaceDialogSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'components', 'settings', 'CreateWorkspaceDialog.tsx'),
+    'utf8',
+  );
+  const editWorkspaceDialogSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'components', 'settings', 'EditWorkspaceDialog.tsx'),
+    'utf8',
+  );
+  for (const dialogSource of [createWorkspaceDialogSource, editWorkspaceDialogSource]) {
+    assert.match(dialogSource, /<Textarea/u);
+    assert.match(dialogSource, /maxLength=\{WORKSPACE_DESCRIPTION_MAX_LENGTH\}/u);
+    assert.match(dialogSource, /fields\.descriptionCount/u);
+    assert.match(dialogSource, /description\.trim\(\)/u);
+  }
+
   const knowledgeGraphShellSource = fs.readFileSync(
     path.join(process.cwd(), 'app', 'apps', 'knowledge-graph', 'components', 'KnowledgeGraphShell.tsx'),
     'utf8',
@@ -199,6 +215,7 @@ async function main() {
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, personalWorkspace.id);
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.type, 'personal');
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.icon, 'notebook-pen');
+  assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.description, 'Personal planning and notes.');
 
   localStorage.setItem('canvas.activeWorkspaceId', teamWorkspace.id);
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });

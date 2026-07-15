@@ -470,6 +470,7 @@ export default function CanvasAgentChat({
         workspaceId: activeWorkspace.id,
         workspaceType: activeWorkspace.type,
         workspaceName: activeWorkspace.name,
+        workspaceDescription: activeWorkspace.description,
         organizationId: activeWorkspace.organizationId,
         canWrite: activeWorkspace.permissions.canWrite,
         canDelete: activeWorkspace.permissions.canDelete,

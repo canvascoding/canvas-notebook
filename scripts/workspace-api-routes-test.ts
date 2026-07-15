@@ -205,12 +205,17 @@ async function main() {
   const teamCreateResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
     type: 'team',
     name: 'Route Team',
+    description: 'Shared planning and delivery workspace for the route team.',
     icon: 'briefcase-business',
   }));
   assert.equal(teamCreateResponse.status, 201);
   const teamCreate = await responseJson(teamCreateResponse);
   const teamWorkspaceId = workspaceId(teamCreate);
   assert.equal(expectObject(teamCreate.workspace, 'workspace').icon, 'briefcase-business');
+  assert.equal(
+    expectObject(teamCreate.workspace, 'workspace').description,
+    'Shared planning and delivery workspace for the route team.',
+  );
 
   const workspacePathsDb = new Database(path.join(dataRoot, 'sqlite.db'));
   let personalWorkspacePath = '';
@@ -285,6 +290,7 @@ async function main() {
   const workspaceUpdateResponse = await workspaceRoute.PATCH(
     jsonRequest(`http://localhost/api/workspaces/${extraPersonalId}`, 'PATCH', {
       name: 'Canvas Notebook',
+      description: 'Notebook experiments and implementation notes.',
       icon: 'notebook-pen',
     }),
     { params: Promise.resolve({ id: extraPersonalId }) },
@@ -292,7 +298,17 @@ async function main() {
   assert.equal(workspaceUpdateResponse.status, 200);
   const updatedWorkspace = expectObject((await responseJson(workspaceUpdateResponse)).workspace, 'updated workspace');
   assert.equal(updatedWorkspace.displayName, 'Canvas Notebook');
+  assert.equal(updatedWorkspace.description, 'Notebook experiments and implementation notes.');
   assert.equal(updatedWorkspace.icon, 'notebook-pen');
+
+  const tooLongDescriptionResponse = await workspaceRoute.PATCH(
+    jsonRequest(`http://localhost/api/workspaces/${extraPersonalId}`, 'PATCH', {
+      description: 'x'.repeat(281),
+    }),
+    { params: Promise.resolve({ id: extraPersonalId }) },
+  );
+  assert.equal(tooLongDescriptionResponse.status, 400);
+  assert.equal((await responseJson(tooLongDescriptionResponse)).code, 'WORKSPACE_DESCRIPTION_TOO_LONG');
 
   const invalidIconResponse = await workspaceRoute.PATCH(
     jsonRequest(`http://localhost/api/workspaces/${extraPersonalId}`, 'PATCH', { icon: 'not-an-icon' }),

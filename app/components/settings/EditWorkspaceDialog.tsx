@@ -15,9 +15,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
+import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from '@/app/lib/workspaces/description';
 import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
 
 type EditWorkspaceDialogProps = {
@@ -54,7 +56,9 @@ function EditWorkspaceDialogContent({
 }: EditWorkspaceDialogProps) {
   const t = useTranslations('settings.workspacePanel.management');
   const nameId = useId();
+  const descriptionId = useId();
   const [name, setName] = useState(() => workspace?.name ?? '');
+  const [description, setDescription] = useState(() => workspace?.description ?? '');
   const [icon, setIcon] = useState<WorkspaceIcon>(() => (
     workspace ? workspace.icon ?? getDefaultWorkspaceIcon(workspace.type) : getDefaultWorkspaceIcon('personal')
   ));
@@ -79,6 +83,11 @@ function EditWorkspaceDialogContent({
       setError(t('errors.nameTooLong'));
       return;
     }
+    const trimmedDescription = description.trim();
+    if (trimmedDescription.length > WORKSPACE_DESCRIPTION_MAX_LENGTH) {
+      setError(t('errors.descriptionTooLong', { max: WORKSPACE_DESCRIPTION_MAX_LENGTH }));
+      return;
+    }
 
     setIsSubmitting(true);
     setError(null);
@@ -87,7 +96,7 @@ function EditWorkspaceDialogContent({
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmedName, icon }),
+        body: JSON.stringify({ name: trimmedName, description: trimmedDescription, icon }),
       });
       const payload = await response.json();
       if (!response.ok || !payload.success) {
@@ -126,6 +135,31 @@ function EditWorkspaceDialogContent({
                   disabled={isSubmitting}
                   aria-invalid={Boolean(error)}
                 />
+              </div>
+
+              <div className="flex flex-col gap-2">
+                <Label htmlFor={descriptionId}>{t('fields.description')}</Label>
+                <Textarea
+                  id={descriptionId}
+                  value={description}
+                  onChange={(event) => setDescription(event.target.value)}
+                  maxLength={WORKSPACE_DESCRIPTION_MAX_LENGTH}
+                  rows={3}
+                  disabled={isSubmitting}
+                  aria-describedby={`${descriptionId}-hint ${descriptionId}-count`}
+                  placeholder={t('fields.descriptionPlaceholder')}
+                />
+                <div className="flex items-start justify-between gap-4 text-xs text-muted-foreground">
+                  <p id={`${descriptionId}-hint`}>
+                    {t('fields.descriptionHint')}
+                  </p>
+                  <span id={`${descriptionId}-count`} className="shrink-0 tabular-nums" aria-live="polite">
+                    {t('fields.descriptionCount', {
+                      count: description.length,
+                      max: WORKSPACE_DESCRIPTION_MAX_LENGTH,
+                    })}
+                  </span>
+                </div>
               </div>
 
               <WorkspaceIconPicker value={icon} onChange={setIcon} disabled={isSubmitting} />

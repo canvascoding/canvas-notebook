@@ -22,6 +22,7 @@ import {
   removeTeamWorkspaceMember,
   resolveDefaultWorkspaceContext,
   resolveWorkspaceContextById,
+  updateWorkspaceRecord,
   upsertProjectWorkspaceMember,
   upsertTeamWorkspaceMember,
   WorkspaceOperationError,
@@ -186,9 +187,11 @@ async function main() {
       organizationId,
       type: 'personal',
       name: 'Research Notes',
+      description: 'Private research, source notes, and draft findings.',
       teamFeaturesEnabled: true,
     });
     assert.equal(extraPersonal.workspaceType, 'personal');
+    assert.equal(extraPersonal.description, 'Private research, source notes, and draft findings.');
     assert.equal(extraPersonal.isDefault, false);
     assert.equal(extraPersonal.ownerUserId, 'user-owner');
     assert.equal(
@@ -196,6 +199,21 @@ async function main() {
       path.posix.join('workspaces', 'personal', 'user-owner', 'research-notes', 'files'),
     );
     await fs.access(extraPersonal.rootPath);
+
+    const updatedExtraPersonal = updateWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      workspaceId: extraPersonal.workspaceId,
+      description: 'Research briefs and verified source material.',
+    });
+    assert.equal(updatedExtraPersonal.description, 'Research briefs and verified source material.');
+    assert.throws(
+      () => updateWorkspaceRecord(sqlite, {
+        actor: ownerActor,
+        workspaceId: extraPersonal.workspaceId,
+        description: 'x'.repeat(281),
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_DESCRIPTION_TOO_LONG',
+    );
 
     const extraPersonalDuplicateSlug = createWorkspaceRecord(sqlite, {
       actor: ownerActor,

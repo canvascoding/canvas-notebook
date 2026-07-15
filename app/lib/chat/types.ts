@@ -19,6 +19,7 @@ export interface ChatRequestContext {
     workspaceId: string;
     workspaceType: ChatWorkspaceType;
     workspaceName: string;
+    workspaceDescription?: string;
     organizationId?: string | null;
     canWrite: boolean;
     canDelete: boolean;

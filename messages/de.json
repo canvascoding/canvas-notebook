@@ -3028,6 +3028,10 @@
         "fields": {
           "name": "Name",
           "namePlaceholder": "z.B. Kampagnen-Workspace",
+          "description": "Kurzbeschreibung",
+          "descriptionPlaceholder": "Worum geht es in diesem Workspace?",
+          "descriptionHint": "Diese kurze Einordnung wird dem KI-Agenten im aktiven Workspace mitgegeben.",
+          "descriptionCount": "{count}/{max} Zeichen",
           "icon": "Icon",
           "type": "Typ",
           "project": "Projekt",
@@ -3125,8 +3129,8 @@
         },
         "editDialog": {
           "title": "Workspace bearbeiten",
-          "description": "Name, Icon und Zugriff für {name} anpassen.",
-          "descriptionFallback": "Name, Icon und Zugriff des Workspace anpassen.",
+          "description": "Name, Kurzbeschreibung, Icon und Zugriff für {name} anpassen.",
+          "descriptionFallback": "Name, Kurzbeschreibung, Icon und Zugriff des Workspace anpassen.",
           "cancel": "Abbrechen",
           "save": "Änderungen speichern"
         },
@@ -3156,6 +3160,7 @@
         "errors": {
           "nameRequired": "Name ist erforderlich.",
           "nameTooLong": "Name darf höchstens 80 Zeichen lang sein.",
+          "descriptionTooLong": "Die Kurzbeschreibung darf höchstens {max} Zeichen lang sein.",
           "projectRequired": "Projekt ist erforderlich.",
           "createFailed": "Workspace konnte nicht erstellt werden.",
           "updateFailed": "Workspace konnte nicht aktualisiert werden.",

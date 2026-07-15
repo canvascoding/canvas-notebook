@@ -113,6 +113,7 @@ function normalizeWorkspace(candidate: unknown): ClientWorkspaceSummary | null {
     id: record.id,
     type: record.type,
     name: typeof record.name === 'string' && record.name.trim() ? record.name : `${record.type} workspace`,
+    description: typeof record.description === 'string' ? record.description : '',
     organizationId: typeof record.organizationId === 'string' ? record.organizationId : null,
     customerId: typeof record.customerId === 'string' ? record.customerId : null,
     projectId: typeof record.projectId === 'string' ? record.projectId : null,

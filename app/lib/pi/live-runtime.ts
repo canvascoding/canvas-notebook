@@ -60,6 +60,7 @@ import {
 import { and, eq } from 'drizzle-orm';
 import {
   applyPiRuntimePromptContext,
+  buildActiveWorkspacePromptBlock,
   type PiRuntimePromptContext,
   type RuntimePromptContextTarget,
 } from '@/app/lib/pi/runtime-prompt-context';
@@ -787,35 +788,7 @@ class LivePiRuntime {
   }
 
   private getWorkspaceContextBlock(): string | null {
-    if (!this.workspaceContext) {
-      return null;
-    }
-
-    const lines = [
-      '## Active Workspace Context',
-      `Workspace type: ${formatRuntimeContextValue(this.workspaceContext.workspaceType)}`,
-      `Workspace name: ${formatRuntimeContextValue(this.workspaceContext.workspaceName)}`,
-      `Workspace ID: ${formatRuntimeContextValue(this.workspaceContext.workspaceId)}`,
-      'All workspace-relative file paths resolve inside this workspace. Do not switch workspace inside this session; a workspace switch requires a new chat session.',
-    ];
-
-    if (this.workspaceContext.organizationId) {
-      pushRuntimeContextLine(lines, 'Organization ID', this.workspaceContext.organizationId);
-    }
-    if (!this.workspaceContext.canWrite) {
-      lines.push('Workspace writes are disabled for this session. Read files only unless the user switches to a workspace with write permission.');
-    }
-    if (!this.workspaceContext.canDelete) {
-      lines.push('Workspace deletes are disabled for this session.');
-    }
-    if (!this.workspaceContext.canShare) {
-      lines.push('Public sharing is disabled for this session.');
-    }
-    if (this.workspaceContext.brandContext) {
-      lines.push('', this.workspaceContext.brandContext);
-    }
-
-    return lines.join('\n');
+    return buildActiveWorkspacePromptBlock(this.workspaceContext);
   }
 
   private getStudioContextBlock(): string | null {

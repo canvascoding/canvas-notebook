@@ -14,7 +14,6 @@ import {
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { requireAgentAccess } from '@/app/lib/agents/access';
 import { loadManagedAgentSystemPrompt } from '@/app/lib/agents/system-prompt';
-import { appendWorkspaceBrandPromptBlock } from '@/app/lib/agents/workspace-brand-context';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { DEFAULT_PI_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { createPiSessionWithRuntimeSnapshot, savePiSession } from '@/app/lib/pi/session-store';
@@ -26,6 +25,7 @@ import {
   createPiSystemPromptSnapshot,
 } from '@/app/lib/pi/system-prompt-snapshot';
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { buildActiveWorkspacePromptBlock } from '@/app/lib/pi/runtime-prompt-context';
 import {
   resolveAgentExecutionContextForSession,
   resolveAgentSessionWorkspaceForUser,
@@ -607,8 +607,19 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         const { systemPrompt: baseSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
           userId: request.userId,
         });
+        const workspacePromptBlock = buildActiveWorkspacePromptBlock({
+          workspaceId: childExecutionContext.workspaceId,
+          workspaceType: childExecutionContext.workspaceType,
+          workspaceName: childExecutionContext.workspaceName || childExecutionContext.workspaceType,
+          workspaceDescription: childExecutionContext.workspaceDescription || undefined,
+          organizationId: childExecutionContext.organizationId,
+          canWrite: childExecutionContext.canWrite,
+          canDelete: childExecutionContext.canDelete,
+          canShare: childExecutionContext.canShare,
+          brandContext: childExecutionContext.brandContext,
+        });
         const systemPrompt = buildEphemeralSystemPrompt(
-          appendWorkspaceBrandPromptBlock(baseSystemPrompt, childExecutionContext.brandContext),
+          workspacePromptBlock ? `${baseSystemPrompt}\n\n${workspacePromptBlock}` : baseSystemPrompt,
           request,
           tools,
         );

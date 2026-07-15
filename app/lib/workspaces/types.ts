@@ -29,6 +29,7 @@ export interface WorkspaceContext {
   rootPath: string;
   rootRelativePath?: string;
   displayName?: string;
+  description?: string;
   icon?: WorkspaceIcon;
   status?: WorkspaceStatus;
   isDefault?: boolean;

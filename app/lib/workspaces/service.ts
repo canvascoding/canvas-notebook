@@ -6,6 +6,7 @@ import { cpSync, existsSync, mkdirSync, readdirSync, renameSync, rmSync } from '
 import path from 'node:path';
 
 import { resolveWorkspaceDataRoot } from './context';
+import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from './description';
 import { getDefaultWorkspaceIcon, isWorkspaceIcon, type WorkspaceIcon } from './icons';
 import { resolveWorkspacePermissions } from './permissions';
 import {
@@ -24,6 +25,7 @@ export interface WorkspaceRecord {
   projectId: string | null;
   rootRelativePath: string;
   displayName: string;
+  description: string;
   icon: WorkspaceIcon;
   status: WorkspaceStatus;
   isDefault: boolean;
@@ -69,6 +71,7 @@ type WorkspaceRow = {
   project_id: string | null;
   root_relative_path: string;
   display_name: string;
+  description: string;
   workspace_icon: string | null;
   status: string;
   is_default: number;
@@ -174,6 +177,7 @@ function rowToWorkspaceRecord(row: WorkspaceRow): WorkspaceRecord {
     projectId: row.project_id,
     rootRelativePath: row.root_relative_path,
     displayName: row.display_name,
+    description: row.description,
     icon: isWorkspaceIcon(row.workspace_icon) ? row.workspace_icon : getDefaultWorkspaceIcon(row.type),
     status: normalizeWorkspaceStatus(row.status),
     isDefault: row.is_default === 1,
@@ -293,6 +297,26 @@ function normalizeWorkspaceIcon(value: unknown, type: WorkspaceType): WorkspaceI
   throw new WorkspaceOperationError('WORKSPACE_ICON_INVALID', 'Workspace icon is invalid.', 400);
 }
 
+export function normalizeWorkspaceDescription(value: unknown): string {
+  if (value === undefined || value === null) return '';
+  if (typeof value !== 'string') {
+    throw new WorkspaceOperationError(
+      'WORKSPACE_DESCRIPTION_INVALID',
+      'Workspace description must be text.',
+      400,
+    );
+  }
+  const description = value.trim();
+  if (description.length > WORKSPACE_DESCRIPTION_MAX_LENGTH) {
+    throw new WorkspaceOperationError(
+      'WORKSPACE_DESCRIPTION_TOO_LONG',
+      `Workspace description must be ${WORKSPACE_DESCRIPTION_MAX_LENGTH} characters or fewer.`,
+      400,
+    );
+  }
+  return description;
+}
+
 function reserveWorkspaceRootRelativePath(
   sqlite: Database.Database,
   baseSlug: string,
@@ -319,7 +343,7 @@ function reserveWorkspaceRootRelativePath(
 
 function getWorkspaceById(sqlite: Database.Database, workspaceId: string): WorkspaceRecord | null {
   const row = sqlite.prepare(`
-    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
+    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
     FROM canvas_workspaces
     WHERE id = ?
     LIMIT 1
@@ -330,7 +354,7 @@ function getWorkspaceById(sqlite: Database.Database, workspaceId: string): Works
 
 function getPersonalWorkspace(sqlite: Database.Database, userId: string): WorkspaceRecord | null {
   const row = sqlite.prepare(`
-    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
+    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
     FROM canvas_workspaces
     WHERE type = 'personal' AND owner_user_id = ?
     ORDER BY is_default DESC, created_at ASC
@@ -342,7 +366,7 @@ function getPersonalWorkspace(sqlite: Database.Database, userId: string): Worksp
 
 function getOrganizationWorkspace(sqlite: Database.Database, organizationId: string): WorkspaceRecord | null {
   const row = sqlite.prepare(`
-    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
+    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
     FROM canvas_workspaces
     WHERE type = 'organization' AND organization_id = ?
     ORDER BY is_default DESC, created_at ASC
@@ -354,7 +378,7 @@ function getOrganizationWorkspace(sqlite: Database.Database, organizationId: str
 
 function getProjectWorkspace(sqlite: Database.Database, organizationId: string, projectId: string): WorkspaceRecord | null {
   const row = sqlite.prepare(`
-    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
+    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
     FROM canvas_workspaces
     WHERE type = 'project' AND organization_id = ? AND project_id = ?
     LIMIT 1
@@ -373,6 +397,7 @@ function insertWorkspace(
     projectId?: string | null;
     rootRelativePath: string;
     displayName: string;
+    description?: string;
     icon: WorkspaceIcon;
     isDefault?: boolean;
   },
@@ -385,8 +410,8 @@ function insertWorkspace(
   const id = createWorkspaceId();
   sqlite.prepare(`
     INSERT INTO canvas_workspaces (
-      id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+      id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
   `).run(
     id,
     input.organizationId,
@@ -396,6 +421,7 @@ function insertWorkspace(
     input.projectId ?? null,
     input.rootRelativePath,
     input.displayName,
+    input.description ?? '',
     input.icon,
     input.isDefault ? 1 : 0,
     now,
@@ -733,6 +759,7 @@ export function workspaceContextFromRecord(
     rootPath: workspaceAbsoluteRoot(record.rootRelativePath),
     rootRelativePath: record.rootRelativePath,
     displayName: record.displayName,
+    description: record.description,
     icon: record.icon,
     status: record.status,
     isDefault: record.isDefault,
@@ -769,7 +796,7 @@ export function listWorkspaceContextsForUser(
   },
 ): WorkspaceContext[] {
   const rows = sqlite.prepare(`
-    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, workspace_icon, status, is_default, created_at, updated_at
+    SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
     FROM canvas_workspaces
     WHERE organization_id = ? AND status = 'active'
       AND (type != 'personal' OR owner_user_id = ?)
@@ -838,6 +865,7 @@ export function createWorkspaceRecord(
     organizationId: string;
     type: WorkspaceType;
     name: unknown;
+    description?: unknown;
     icon?: unknown;
     teamFeaturesEnabled: boolean;
     projectFeaturesEnabled?: boolean;
@@ -845,6 +873,7 @@ export function createWorkspaceRecord(
   },
 ): WorkspaceContext {
   const name = normalizeWorkspaceName(params.name);
+  const description = normalizeWorkspaceDescription(params.description);
   const icon = normalizeWorkspaceIcon(params.icon, params.type);
   const permission = getPermissionRow(sqlite, params.organizationId, params.actor.userId);
   if (!permission || permission.status !== 'active' || permission.role === 'external') {
@@ -914,6 +943,7 @@ export function createWorkspaceRecord(
     projectId: params.type === 'project' ? project?.id ?? null : params.projectId ?? null,
     rootRelativePath,
     displayName: name,
+    description,
     icon,
     isDefault: false,
   });
@@ -952,6 +982,7 @@ export function updateWorkspaceRecord(
     actor: WorkspaceActor;
     workspaceId: string;
     name?: unknown;
+    description?: unknown;
     icon?: unknown;
   },
 ): WorkspaceContext {
@@ -972,14 +1003,21 @@ export function updateWorkspaceRecord(
   }
 
   const nextName = params.name === undefined ? record.displayName : normalizeWorkspaceName(params.name);
+  const nextDescription = params.description === undefined
+    ? record.description
+    : normalizeWorkspaceDescription(params.description);
   const nextIcon = params.icon === undefined ? record.icon : normalizeWorkspaceIcon(params.icon, record.type);
-  if (nextName === record.displayName && nextIcon === record.icon) return context;
+  if (
+    nextName === record.displayName
+    && nextDescription === record.description
+    && nextIcon === record.icon
+  ) return context;
 
   sqlite.prepare(`
     UPDATE canvas_workspaces
-    SET display_name = ?, workspace_icon = ?, updated_at = ?
+    SET display_name = ?, description = ?, workspace_icon = ?, updated_at = ?
     WHERE id = ?
-  `).run(nextName, nextIcon, Date.now(), record.id);
+  `).run(nextName, nextDescription, nextIcon, Date.now(), record.id);
 
   const updated = getWorkspaceById(sqlite, record.id);
   if (!updated) throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);

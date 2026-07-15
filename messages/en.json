@@ -3029,6 +3029,10 @@
         "fields": {
           "name": "Name",
           "namePlaceholder": "e.g. Campaign workspace",
+          "description": "Short description",
+          "descriptionPlaceholder": "What is this workspace about?",
+          "descriptionHint": "This short summary is included in the AI agent's active workspace context.",
+          "descriptionCount": "{count}/{max} characters",
           "icon": "Icon",
           "type": "Type",
           "project": "Project",
@@ -3126,8 +3130,8 @@
         },
         "editDialog": {
           "title": "Edit workspace",
-          "description": "Update the name, icon, and access for {name}.",
-          "descriptionFallback": "Update the workspace name, icon, and access.",
+          "description": "Update the name, short description, icon, and access for {name}.",
+          "descriptionFallback": "Update the workspace name, short description, icon, and access.",
           "cancel": "Cancel",
           "save": "Save changes"
         },
@@ -3157,6 +3161,7 @@
         "errors": {
           "nameRequired": "Name is required.",
           "nameTooLong": "Name must be 80 characters or fewer.",
+          "descriptionTooLong": "The short description must be {max} characters or fewer.",
           "projectRequired": "Project is required.",
           "createFailed": "Failed to create workspace.",
           "updateFailed": "Failed to update workspace.",

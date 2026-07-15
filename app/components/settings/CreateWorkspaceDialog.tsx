@@ -15,9 +15,11 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { Textarea } from '@/components/ui/textarea';
 import { WorkspaceMembersEditor } from '@/app/components/settings/WorkspaceMembersEditor';
 import { WorkspaceIconPicker } from '@/app/components/workspaces/WorkspaceIconPicker';
 import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/workspaces/client-types';
+import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from '@/app/lib/workspaces/description';
 import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
 
 type CreateWorkspaceType = Extract<ClientWorkspaceType, 'personal' | 'team' | 'project'>;
@@ -48,8 +50,10 @@ export function CreateWorkspaceDialog({
   const t = useTranslations('settings.workspacePanel.management');
   const workspaceTypesT = useTranslations('workspaces.types');
   const nameId = useId();
+  const descriptionId = useId();
   const typeId = useId();
   const [name, setName] = useState('');
+  const [description, setDescription] = useState('');
   const [type, setType] = useState<CreateWorkspaceType>('personal');
   const [icon, setIcon] = useState<WorkspaceIcon>(getDefaultWorkspaceIcon('personal'));
   const [iconCustomized, setIconCustomized] = useState(false);
@@ -116,6 +120,7 @@ export function CreateWorkspaceDialog({
 
   const resetForm = () => {
     setName('');
+    setDescription('');
     setType('personal');
     setIcon(getDefaultWorkspaceIcon('personal'));
     setIconCustomized(false);
@@ -143,6 +148,11 @@ export function CreateWorkspaceDialog({
       setError(t('errors.nameTooLong'));
       return;
     }
+    const trimmedDescription = description.trim();
+    if (trimmedDescription.length > WORKSPACE_DESCRIPTION_MAX_LENGTH) {
+      setError(t('errors.descriptionTooLong', { max: WORKSPACE_DESCRIPTION_MAX_LENGTH }));
+      return;
+    }
     if (type === 'project' && !projectId) {
       setError(t('errors.projectRequired'));
       return;
@@ -157,6 +167,7 @@ export function CreateWorkspaceDialog({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: trimmedName,
+          description: trimmedDescription,
           type,
           icon,
           projectId: type === 'project' ? projectId : undefined,
@@ -224,6 +235,31 @@ export function CreateWorkspaceDialog({
                 aria-invalid={Boolean(error)}
                 placeholder={t('fields.namePlaceholder')}
               />
+            </div>
+
+            <div className="flex flex-col gap-2">
+              <Label htmlFor={descriptionId}>{t('fields.description')}</Label>
+              <Textarea
+                id={descriptionId}
+                value={description}
+                onChange={(event) => setDescription(event.target.value)}
+                maxLength={WORKSPACE_DESCRIPTION_MAX_LENGTH}
+                rows={3}
+                disabled={isSubmitting}
+                aria-describedby={`${descriptionId}-hint ${descriptionId}-count`}
+                placeholder={t('fields.descriptionPlaceholder')}
+              />
+              <div className="flex items-start justify-between gap-4 text-xs text-muted-foreground">
+                <p id={`${descriptionId}-hint`}>
+                  {t('fields.descriptionHint')}
+                </p>
+                <span id={`${descriptionId}-count`} className="shrink-0 tabular-nums" aria-live="polite">
+                  {t('fields.descriptionCount', {
+                    count: description.length,
+                    max: WORKSPACE_DESCRIPTION_MAX_LENGTH,
+                  })}
+                </span>
+              </div>
             </div>
 
             <div className="flex flex-col gap-2">

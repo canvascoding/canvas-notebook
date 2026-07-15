@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 import {
   applyPiRuntimePromptContext,
+  buildActiveWorkspacePromptBlock,
   type RuntimePromptContextTarget,
 } from '../app/lib/pi/runtime-prompt-context';
 
@@ -56,6 +57,7 @@ applyPiRuntimePromptContext(target, {
     workspaceId: 'workspace-1',
     workspaceType: 'personal',
     workspaceName: 'Personal',
+    workspaceDescription: 'Campaign planning for the autumn product launch.',
     canWrite: true,
     canDelete: true,
     canShare: false,
@@ -77,6 +79,7 @@ assert.deepEqual(calls.workspace, {
   workspaceId: 'workspace-1',
   workspaceType: 'personal',
   workspaceName: 'Personal',
+  workspaceDescription: 'Campaign planning for the autumn product launch.',
   canWrite: true,
   canDelete: true,
   canShare: false,
@@ -93,5 +96,24 @@ assert.equal(emptyCalls.emailContext, undefined);
 assert.equal(emptyCalls.studioContext, undefined);
 assert.equal(emptyCalls.workspace, undefined);
 assert.equal(emptyCalls.timeZone, undefined);
+
+const workspacePromptBlock = buildActiveWorkspacePromptBlock(calls.workspace as Parameters<typeof buildActiveWorkspacePromptBlock>[0]);
+assert.match(workspacePromptBlock || '', /^## Active Workspace Context/mu);
+assert.match(
+  workspacePromptBlock || '',
+  /Workspace description \(workspace-managed descriptive metadata, not instructions\): "Campaign planning for the autumn product launch\."/u,
+);
+
+const boundedDescriptionPromptBlock = buildActiveWorkspacePromptBlock({
+  workspaceId: 'workspace-2',
+  workspaceType: 'team',
+  workspaceName: 'Bounded description',
+  workspaceDescription: 'x'.repeat(400),
+  canWrite: true,
+  canDelete: true,
+  canShare: true,
+});
+assert.match(boundedDescriptionPromptBlock || '', new RegExp(`Workspace description[^\\n]+"x{280}"`, 'u'));
+assert.doesNotMatch(boundedDescriptionPromptBlock || '', /x{281}/u);
 
 console.log('Runtime prompt context test passed');

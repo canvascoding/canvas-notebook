@@ -11,6 +11,7 @@ export type AgentExecutionContext = {
   workspaceId: string;
   workspaceType: WorkspaceType;
   workspaceName: string | null;
+  workspaceDescription?: string | null;
   organizationId: string | null;
   customerId: string | null;
   projectId: string | null;

@@ -17,6 +17,7 @@ export interface ClientWorkspaceSummary {
   id: string;
   type: ClientWorkspaceType;
   name: string;
+  description?: string;
   organizationId?: string | null;
   customerId?: string | null;
   projectId?: string | null;

@@ -251,6 +251,7 @@ CREATE TABLE IF NOT EXISTS canvas_workspaces (
   owner_user_id TEXT,
   root_relative_path TEXT NOT NULL,
   display_name TEXT NOT NULL,
+  description TEXT NOT NULL DEFAULT '',
   status TEXT NOT NULL DEFAULT 'active',
   is_default INTEGER NOT NULL DEFAULT 0,
   created_at INTEGER NOT NULL,
@@ -317,6 +318,9 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_org_user_permissions_single_owner ON organ
   }
 
   const workspaceColumns = new Set(db.prepare('PRAGMA table_info(canvas_workspaces)').all().map((row) => row.name));
+  if (!workspaceColumns.has('description')) {
+    db.exec("ALTER TABLE canvas_workspaces ADD COLUMN description TEXT NOT NULL DEFAULT ''");
+  }
   if (!workspaceColumns.has('is_default')) {
     db.exec('ALTER TABLE canvas_workspaces ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0');
   }
