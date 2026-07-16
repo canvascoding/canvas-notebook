@@ -82,7 +82,7 @@
     "test:browser-export": "tsx scripts/browser-export-service-test.ts",
     "test:browser-start": "tsx scripts/browser-runtime-test.ts",
     "test:browser-url-policy": "tsx scripts/browser-url-policy-test.ts",
-    "test:file-watcher": "tsx --conditions react-server scripts/file-watcher-service-test.ts && tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts && tsx scripts/file-open-flow-test.ts",
+    "test:file-watcher": "tsx --conditions react-server scripts/file-watcher-service-test.ts && tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts && tsx scripts/file-open-flow-test.ts && tsx scripts/notebook-open-file-storage-test.ts",
     "test:files:zip": "tsx --conditions react-server scripts/zip-extraction-test.ts",
     "test:files:sort": "tsx scripts/file-sort-test.ts",
     "test:editor:markdown": "tsx scripts/tiptap-markdown-roundtrip-test.ts",

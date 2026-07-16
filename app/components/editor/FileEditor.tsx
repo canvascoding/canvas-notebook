@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, GitBranch, Loader2, Lock, MoreVertical, Presentation, RefreshCw, Save, Share2, UsersRound, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, GitBranch, Info, Loader2, Lock, MoreVertical, Presentation, RefreshCw, Save, Share2, UsersRound, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -407,6 +407,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     loadingFilePath,
     fileError,
     fileErrorPath,
+    missingFilePath,
     saveFile,
     downloadFile,
     loadFile,
@@ -420,6 +421,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     loadingFilePath: state.loadingFilePath,
     fileError: state.fileError,
     fileErrorPath: state.fileErrorPath,
+    missingFilePath: state.missingFilePath,
     saveFile: state.saveFile,
     downloadFile: state.downloadFile,
     loadFile: state.loadFile,
@@ -1070,6 +1072,20 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       <div className="flex h-full flex-col items-center justify-center gap-2 text-center">
         <AlertCircle className="h-6 w-6 text-destructive" />
         <p className="text-sm text-destructive">{displayFileError}</p>
+      </div>
+    );
+  }
+
+  if (!currentFile && missingFilePath) {
+    return (
+      <div
+        data-testid="missing-file-notice"
+        role="status"
+        className="flex h-full flex-col items-center justify-center gap-2 px-6 text-center text-muted-foreground"
+      >
+        <Info className="h-6 w-6" />
+        <p className="text-sm font-medium text-foreground">{t('fileUnavailableTitle')}</p>
+        <p className="max-w-md text-sm">{t('fileUnavailableDescription')}</p>
       </div>
     );
   }

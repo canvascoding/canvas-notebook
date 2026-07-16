@@ -418,7 +418,15 @@ async function testFailedOpenDoesNotTriggerMobileTransition() {
   const result = await useFileStore.getState().revealAndLoadFile('missing.md', { workspaceId: 'workspace-a' });
   assert.equal(result.status, 'missing');
   assert.equal(useFileStore.getState().mobileFileOpenedCount, 7);
-  assert.match(useFileStore.getState().fileError ?? '', /not found/i);
+  assert.equal(useFileStore.getState().fileError, null);
+  assert.equal(useFileStore.getState().missingFilePath, 'missing.md');
+
+  useFileStore.getState().resetWorkspaceView('workspace-a');
+  assert.equal(
+    useFileStore.getState().missingFilePath,
+    null,
+    'switching or resetting the workspace should dismiss a stale missing-file notice',
+  );
 }
 
 async function testSamePathInAnotherWorkspaceReloadsContent() {

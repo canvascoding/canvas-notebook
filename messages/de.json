@@ -862,6 +862,8 @@
     "externalChangeCopySaved": "Entwurf als Kopie gespeichert.",
     "externalChangeLoadFailed": "Neueste Version konnte nicht geladen werden.",
     "selectFileToPreview": "Wähle eine Datei für die Vorschau aus.",
+    "fileUnavailableTitle": "Datei nicht mehr verfügbar",
+    "fileUnavailableDescription": "Die zuvor geöffnete Datei ist in diesem Workspace nicht verfügbar. Wähle eine andere Datei aus, um fortzufahren.",
     "fileLabel": "Datei",
     "readOnly": "Schreibgeschützt",
     "saving": "Speichert...",

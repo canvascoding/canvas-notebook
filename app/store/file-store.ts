@@ -260,6 +260,7 @@ interface FileStoreState {
   openFileRequestId: number;
   fileError: string | null;
   fileErrorPath: string | null;
+  missingFilePath: string | null;
   fileRevisions: Record<string, string>;
 
   // Browser mode
@@ -424,6 +425,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   openFileRequestId: 0,
   fileError: null,
   fileErrorPath: null,
+  missingFilePath: null,
 
   expandedDirs: new Set<string>(),
   currentDirectory: '.',
@@ -813,6 +815,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       loadingFilePath: path,
       fileError: null,
       fileErrorPath: null,
+      missingFilePath: null,
     });
 
     try {
@@ -857,13 +860,26 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
 
       if (error instanceof Response && error.status === 404) {
         const message = 'File not found';
-        set((state) => ({
-          ...(state.currentFile ? {} : { currentFile: null, currentFileWorkspaceId: null }),
-          isLoadingFile: false,
-          loadingFilePath: null,
-          fileError: message,
-          fileErrorPath: path,
-        }));
+        set((state) => {
+          const shouldClearCurrentFile =
+            !state.currentFile ||
+            state.currentFile.path === path ||
+            state.currentFileWorkspaceId !== workspaceId;
+          return {
+            ...(shouldClearCurrentFile
+              ? {
+                  currentFile: null,
+                  currentFileWorkspaceId: null,
+                  selectedNode: state.selectedNode?.path === path ? null : state.selectedNode,
+                }
+              : {}),
+            isLoadingFile: false,
+            loadingFilePath: null,
+            fileError: null,
+            fileErrorPath: null,
+            missingFilePath: path,
+          };
+        });
         return { status: 'missing', path, error: message };
       }
       const message =
@@ -879,6 +895,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       set({
         fileError: message,
         fileErrorPath: path,
+        missingFilePath: null,
         isLoadingFile: false,
         loadingFilePath: null,
       });
@@ -930,6 +947,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           currentFile: refreshedFile,
           fileError: null,
           fileErrorPath: null,
+          missingFilePath: null,
           fileRevisions: nextFileRevisions,
         });
       }
@@ -937,12 +955,14 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       return refreshedFile;
     } catch (error) {
       if (error instanceof Response && error.status === 404 && get().currentFile?.path === path) {
-        set({
+        set((state) => ({
+          selectedNode: state.selectedNode?.path === path ? null : state.selectedNode,
           currentFile: null,
           currentFileWorkspaceId: null,
           fileError: null,
           fileErrorPath: null,
-        });
+          missingFilePath: path,
+        }));
         return null;
       }
       console.warn('[FileStore] Failed to refresh current file content:', error);
@@ -1072,7 +1092,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       ? useWorkspaceStore.getState().activeWorkspaceId
       : requestedWorkspaceId;
     return enqueueFileSave(workspaceId, path, async () => {
-    set({ fileError: null, fileErrorPath: null });
+    set({ fileError: null, fileErrorPath: null, missingFilePath: null });
 
     try {
       const { currentFile: currentFileBeforeSave, fileRevisions } = get();
@@ -1245,6 +1265,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
             fileLoadRequestId: state.fileLoadRequestId + 1,
             fileError: null,
             fileErrorPath: null,
+            missingFilePath: null,
           }));
         }
       }
@@ -1293,7 +1314,12 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
         : currentFile;
       set((state) => ({
         selectedNode: updatedSelectedNode,
-        ...(updatedCurrentFile !== currentFile ? { currentFile: updatedCurrentFile, fileError: null, fileErrorPath: null } : {}),
+        ...(updatedCurrentFile !== currentFile ? {
+          currentFile: updatedCurrentFile,
+          fileError: null,
+          fileErrorPath: null,
+          missingFilePath: null,
+        } : {}),
         fileRevisions: remapFileRevisions(state.fileRevisions, oldPath, newPath),
       }));
 
@@ -1351,7 +1377,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
   },
 
   downloadFile: async (path: string) => {
-    set({ fileError: null, fileErrorPath: null });
+    set({ fileError: null, fileErrorPath: null, missingFilePath: null });
 
     try {
       triggerWorkspaceDownload(path);
@@ -1392,6 +1418,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       loadingFilePath: null,
       fileError: null,
       fileErrorPath: null,
+      missingFilePath: null,
       fileLoadRequestId: state.fileLoadRequestId + 1,
       openFileRequestId: state.openFileRequestId + 1,
     }));
@@ -1420,6 +1447,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       openFileRequestId: state.openFileRequestId + 1,
       fileError: null,
       fileErrorPath: null,
+      missingFilePath: null,
       expandedDirs: nextExpandedDirs,
       currentDirectory: '.',
       uploadProgress: null,

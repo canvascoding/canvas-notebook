@@ -47,7 +47,11 @@ import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/compone
 
 import { useFileStore } from '@/app/store/file-store';
 import { useEditorStore } from '@/app/store/editor-store';
-import { WORKSPACE_CHANGED_EVENT } from '@/app/store/workspace-store';
+import {
+  useWorkspaceStore,
+  WORKSPACE_CHANGED_EVENT,
+  type WorkspaceChangedDetail,
+} from '@/app/store/workspace-store';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
@@ -71,6 +75,13 @@ import {
 } from '@/app/lib/files/workspace-file-events';
 import { createWorkspaceFileTransitionId } from '@/app/lib/files/open-transition';
 import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
+import {
+  clearLegacyStoredNotebookOpenFilePath,
+  clearStoredNotebookOpenFilePath,
+  normalizeNotebookFilePath,
+  readStoredNotebookOpenFilePath,
+  writeStoredNotebookOpenFilePath,
+} from '@/app/lib/files/notebook-open-file-storage';
 
 
 
@@ -83,49 +94,19 @@ const LEFT_SIDEBAR_MAX = 940;
 const CHAT_PANEL_MIN = 300;
 const CHAT_PANEL_MAX = 800;
 const MIN_EDITOR_WIDTH = 360;
-const NOTEBOOK_OPEN_FILE_STORAGE_KEY = 'canvas.notebookOpenFilePath';
 const NOTEBOOK_DESKTOP_SIDEBAR_VISIBLE_STORAGE_KEY = 'canvas.notebookDesktopSidebarVisible';
 const NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY = 'canvas.leftSidebarWidth';
 const NOTEBOOK_CHAT_WIDTH_STORAGE_KEY = 'canvas.notebookChatWidth';
 
-function normalizeNotebookFilePath(path: string | null) {
-  const normalized = path?.replace(/^\.\/|\/+$/g, '').trim();
-  return normalized || null;
-}
-
-function readStoredNotebookOpenFilePath() {
-  if (typeof window === 'undefined') return null;
+function clearStoredNotebookOpenFilePathIfMatches(path: string, workspaceId: string | null) {
+  if (!workspaceId || typeof window === 'undefined') return;
 
   try {
-    return normalizeNotebookFilePath(window.localStorage.getItem(NOTEBOOK_OPEN_FILE_STORAGE_KEY));
-  } catch {
-    return null;
-  }
-}
-
-function writeStoredNotebookOpenFilePath(path: string) {
-  if (typeof window === 'undefined') return;
-
-  try {
-    window.localStorage.setItem(NOTEBOOK_OPEN_FILE_STORAGE_KEY, path);
-  } catch {
-    // Non-critical: the notebook can still open files without persistence.
-  }
-}
-
-function clearStoredNotebookOpenFilePath() {
-  if (typeof window === 'undefined') return;
-
-  try {
-    window.localStorage.removeItem(NOTEBOOK_OPEN_FILE_STORAGE_KEY);
+    if (readStoredNotebookOpenFilePath(window.localStorage, workspaceId) === path) {
+      clearStoredNotebookOpenFilePath(window.localStorage, workspaceId);
+    }
   } catch {
     // Non-critical: stale local UI state can be ignored on the next load.
-  }
-}
-
-function clearStoredNotebookOpenFilePathIfMatches(path: string) {
-  if (readStoredNotebookOpenFilePath() === path) {
-    clearStoredNotebookOpenFilePath();
   }
 }
 
@@ -249,12 +230,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const initialNotebookStateResolvedRef = useRef(false);
   const desktopDefaultChatAppliedRef = useRef(false);
   const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
-  const previousCurrentFilePathRef = useRef<string | null>(null);
+  const previousCurrentFileIdentityRef = useRef<string | null>(null);
   const preserveMobileChatTransitionIdsRef = useRef(new Set<string>());
   const currentFile = useFileStore((state) => state.currentFile);
   const isLoadingFile = useFileStore((state) => state.isLoadingFile);
   const fileError = useFileStore((state) => state.fileError);
   const currentDirectory = useFileStore((state) => state.currentDirectory);
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
 
   const currentDirectoryLabel =
@@ -380,20 +362,27 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       preserveMobileChatTransitionIdsRef.current.add(transitionId);
     }
 
-    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, { transitionId });
+    const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, { transitionId, workspaceId });
     if (result.status !== 'opened') {
       preserveMobileChatTransitionIdsRef.current.delete(transitionId);
       if (result.status !== 'superseded') {
-        clearStoredNotebookOpenFilePathIfMatches(normalizedPath);
+        clearStoredNotebookOpenFilePathIfMatches(normalizedPath, workspaceId);
       }
       return result;
     }
 
     const loadedPath = useFileStore.getState().currentFile?.path ?? null;
     if (loadedPath === normalizedPath) {
-      writeStoredNotebookOpenFilePath(normalizedPath);
+      if (workspaceId) {
+        try {
+          writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, normalizedPath);
+        } catch {
+          // Non-critical: the notebook can still open files without persistence.
+        }
+      }
     } else {
-      clearStoredNotebookOpenFilePathIfMatches(normalizedPath);
+      clearStoredNotebookOpenFilePathIfMatches(normalizedPath, workspaceId);
     }
 
     useFileStore.getState().setMobileSurface('editor');
@@ -498,7 +487,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [chatOpenRequestId, forcedChatSessionId, openMobileChat, viewportMode]);
 
   useEffect(() => {
-    if (viewportMode === null || initialNotebookStateResolvedRef.current) return;
+    if (viewportMode === null || !activeWorkspaceId || initialNotebookStateResolvedRef.current) return;
 
     initialNotebookStateResolvedRef.current = true;
 
@@ -507,7 +496,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       return;
     }
 
-    const storedPath = readStoredNotebookOpenFilePath();
+    let storedPath: string | null = null;
+    try {
+      clearLegacyStoredNotebookOpenFilePath(window.localStorage);
+      storedPath = readStoredNotebookOpenFilePath(window.localStorage, activeWorkspaceId);
+    } catch {
+      // Non-critical: start with an empty editor if local storage is unavailable.
+    }
     if (storedPath) {
       openedPathRef.current = storedPath;
       void openNotebookFile(storedPath, {
@@ -523,18 +518,27 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
     useFileStore.getState().clearCurrentFile();
     queueMicrotask(() => openInitialNotebookChat(viewportMode, { forceOpenChat: shouldForceChatOpen }));
-  }, [openDesktopSideChat, openInitialNotebookChat, openNotebookFile, routeFilePath, shouldForceChatOpen, viewportMode]);
+  }, [activeWorkspaceId, openDesktopSideChat, openInitialNotebookChat, openNotebookFile, routeFilePath, shouldForceChatOpen, viewportMode]);
 
   useEffect(() => {
-    previousCurrentFilePathRef.current = useFileStore.getState().currentFile?.path ?? null;
+    const initialFileState = useFileStore.getState();
+    previousCurrentFileIdentityRef.current = initialFileState.currentFile && initialFileState.currentFileWorkspaceId
+      ? `${initialFileState.currentFileWorkspaceId}\0${initialFileState.currentFile.path}`
+      : null;
 
     const unsubscribe = useFileStore.subscribe((state) => {
       const nextPath = state.currentFile?.path ?? null;
-      const previousPath = previousCurrentFilePathRef.current;
-      previousCurrentFilePathRef.current = nextPath;
+      const workspaceId = state.currentFileWorkspaceId;
+      const nextIdentity = nextPath && workspaceId ? `${workspaceId}\0${nextPath}` : null;
+      const previousIdentity = previousCurrentFileIdentityRef.current;
+      previousCurrentFileIdentityRef.current = nextIdentity;
 
-      if (nextPath && nextPath !== previousPath) {
-        writeStoredNotebookOpenFilePath(nextPath);
+      if (nextPath && workspaceId && nextIdentity !== previousIdentity) {
+        try {
+          writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, nextPath);
+        } catch {
+          // Non-critical: the notebook can still open files without persistence.
+        }
       }
 
       // File selection should not override a manually hidden desktop chat.
@@ -545,19 +549,35 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, []);
 
   useEffect(() => {
-    const handleWorkspaceChange = () => {
+    const handleWorkspaceChange = (event: Event) => {
+      const { activeWorkspaceId: nextWorkspaceId } = (event as CustomEvent<WorkspaceChangedDetail>).detail;
       openedPathRef.current = routeFilePath;
-      previousCurrentFilePathRef.current = null;
+      previousCurrentFileIdentityRef.current = null;
       preserveMobileChatTransitionIdsRef.current.clear();
-      clearStoredNotebookOpenFilePath();
-      useFileStore.getState().clearCurrentFile();
+      useFileStore.getState().resetWorkspaceView(nextWorkspaceId);
       useEditorStore.getState().clear();
       setMobileSurface('editor');
+
+      if (routeFilePath) return;
+
+      let storedPath: string | null = null;
+      try {
+        storedPath = readStoredNotebookOpenFilePath(window.localStorage, nextWorkspaceId);
+      } catch {
+        // Non-critical: leave the editor empty if local storage is unavailable.
+      }
+      if (!storedPath) return;
+
+      openedPathRef.current = storedPath;
+      window.setTimeout(() => {
+        if (useWorkspaceStore.getState().activeWorkspaceId !== nextWorkspaceId) return;
+        void openNotebookFile(storedPath);
+      }, 0);
     };
 
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
     return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-  }, [routeFilePath]);
+  }, [openNotebookFile, routeFilePath]);
 
   const applySidebarPanelWidth = useCallback((nextWidth: number) => {
     desktopSidebarRef.current?.style.setProperty('--desktop-sidebar-width', `${nextWidth}px`);
@@ -645,7 +665,13 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const handleClosePreview = useCallback(() => {
     useFileStore.getState().clearCurrentFile();
-    clearStoredNotebookOpenFilePath();
+    if (activeWorkspaceId) {
+      try {
+        clearStoredNotebookOpenFilePath(window.localStorage, activeWorkspaceId);
+      } catch {
+        // Non-critical: stale local UI state can be ignored on the next load.
+      }
+    }
     setChatVisible(true);
 
     if (viewportMode === 'desktop') {
@@ -658,7 +684,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       setMobileExplorerOpen(false);
       openMobileChat();
     }
-  }, [openMobileChat, viewportMode]);
+  }, [activeWorkspaceId, openMobileChat, viewportMode]);
 
   useEffect(() => {
     const handleViewport = () => {

@@ -863,6 +863,8 @@
     "externalChangeCopySaved": "Draft saved as a copy.",
     "externalChangeLoadFailed": "Could not load the latest version.",
     "selectFileToPreview": "Select a file to preview.",
+    "fileUnavailableTitle": "File no longer available",
+    "fileUnavailableDescription": "The previously opened file is not available in this workspace. Select another file to continue.",
     "fileLabel": "File",
     "readOnly": "Read-only",
     "saving": "Saving...",
