@@ -5,7 +5,7 @@ versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.7.16.2
 - Lockfile SHA-256: `900689ec66bf8da07a175d3ed8abb6184b2bb2c80c7e1b838e1b08561f859b2a`
-- Distributed components: 1475
+- Distributed components: 1473
 - Release gate: **blocked**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -44,9 +44,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @aws-sdk/client-bedrock-runtime | 3.1048.0 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/core | 3.975.1 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/credential-provider-env | 3.972.57 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-http | 3.972.59 | runtime | Apache-2.0 | review_required |
+| @aws-sdk/credential-provider-http | 3.972.59 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/credential-provider-ini | 3.973.1 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-login | 3.972.63 | runtime | Apache-2.0 | review_required |
+| @aws-sdk/credential-provider-login | 3.972.63 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/credential-provider-node | 3.972.66 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/credential-provider-process | 3.972.57 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/credential-provider-sso | 3.973.1 | runtime | Apache-2.0 | allowed |
@@ -54,7 +54,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @aws-sdk/eventstream-handler-node | 3.972.26 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/middleware-eventstream | 3.972.22 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/middleware-websocket | 3.972.39 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/nested-clients | 3.997.31 | runtime | Apache-2.0 | review_required |
+| @aws-sdk/nested-clients | 3.997.31 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/signature-v4-multi-region | 3.996.39 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/token-providers | 3.1048.0 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/token-providers | 3.1083.0 | runtime | Apache-2.0 | allowed |
@@ -130,36 +130,36 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @csstools/postcss-is-pseudo-class | 5.0.3 | runtime | MIT-0 | allowed |
 | @csstools/selector-resolve-nested | 3.1.0 | runtime | MIT-0 | allowed |
 | @csstools/selector-specificity | 5.0.0 | runtime | MIT-0 | allowed |
-| @earendil-works/pi-agent-core | 0.80.6 | runtime | MIT | review_required |
-| @earendil-works/pi-ai | 0.80.6 | runtime | MIT | review_required |
+| @earendil-works/pi-agent-core | 0.80.6 | runtime | MIT | allowed |
+| @earendil-works/pi-ai | 0.80.6 | runtime | MIT | allowed |
 | @eigenpal/docx-js-editor | 0.5.3 | runtime | MIT | review_required |
 | @emnapi/runtime | 1.11.2 | runtime | MIT | allowed |
-| @esbuild/aix-ppc64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/android-arm | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/android-arm64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/android-x64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/darwin-arm64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/darwin-x64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/freebsd-arm64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/freebsd-x64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-arm | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-arm64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-ia32 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-loong64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-mips64el | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-ppc64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-riscv64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-s390x | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/linux-x64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/netbsd-arm64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/netbsd-x64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/openbsd-arm64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/openbsd-x64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/openharmony-arm64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/sunos-x64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/win32-arm64 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/win32-ia32 | 0.28.1 | runtime | MIT | review_required |
-| @esbuild/win32-x64 | 0.28.1 | runtime | MIT | review_required |
+| @esbuild/aix-ppc64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/android-arm | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/android-arm64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/android-x64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/darwin-arm64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/darwin-x64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/freebsd-arm64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/freebsd-x64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-arm | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-arm64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-ia32 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-loong64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-mips64el | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-ppc64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-riscv64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-s390x | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/linux-x64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/netbsd-arm64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/netbsd-x64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/openbsd-arm64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/openbsd-x64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/openharmony-arm64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/sunos-x64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/win32-arm64 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/win32-ia32 | 0.28.1 | runtime | MIT | allowed |
+| @esbuild/win32-x64 | 0.28.1 | runtime | MIT | allowed |
 | @excalidraw/excalidraw | 0.18.1 | runtime | MIT | allowed |
 | @excalidraw/laser-pointer | 1.3.1 | runtime | MIT | allowed |
 | @excalidraw/markdown-to-text | 0.1.2 | runtime | MIT | allowed |
@@ -278,38 +278,38 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @mixmark-io/domino | 2.2.0 | runtime | BSD-2-Clause | allowed |
 | @modelcontextprotocol/sdk | 1.29.0 | runtime | MIT | allowed |
 | @mozilla/readability | 0.6.0 | runtime | Apache-2.0 | allowed |
-| @napi-rs/canvas-android-arm64 | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-android-arm64 | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-darwin-arm64 | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-darwin-arm64 | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-darwin-x64 | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-darwin-x64 | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-arm-gnueabihf | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-arm-gnueabihf | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-arm64-gnu | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-arm64-gnu | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-arm64-musl | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-arm64-musl | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-riscv64-gnu | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-riscv64-gnu | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-x64-gnu | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-x64-gnu | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-x64-musl | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-linux-x64-musl | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-win32-arm64-msvc | 1.0.2 | runtime | MIT | review_required |
-| @napi-rs/canvas-win32-x64-msvc | 0.1.80 | runtime | MIT | review_required |
-| @napi-rs/canvas-win32-x64-msvc | 1.0.2 | runtime | MIT | review_required |
+| @napi-rs/canvas-android-arm64 | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-android-arm64 | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-darwin-arm64 | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-darwin-arm64 | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-darwin-x64 | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-darwin-x64 | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-arm-gnueabihf | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-arm-gnueabihf | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-arm64-gnu | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-arm64-gnu | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-arm64-musl | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-arm64-musl | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-riscv64-gnu | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-riscv64-gnu | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-x64-gnu | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-x64-gnu | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-x64-musl | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-linux-x64-musl | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-win32-arm64-msvc | 1.0.2 | runtime | MIT | allowed |
+| @napi-rs/canvas-win32-x64-msvc | 0.1.80 | runtime | MIT | allowed |
+| @napi-rs/canvas-win32-x64-msvc | 1.0.2 | runtime | MIT | allowed |
 | @napi-rs/canvas | 0.1.80 | runtime | MIT | allowed |
 | @napi-rs/canvas | 1.0.2 | runtime | MIT | allowed |
-| @next/env | 16.2.10 | runtime | MIT | review_required |
-| @next/swc-darwin-arm64 | 16.2.10 | runtime | MIT | review_required |
-| @next/swc-darwin-x64 | 16.2.10 | runtime | MIT | review_required |
-| @next/swc-linux-arm64-gnu | 16.2.10 | runtime | MIT | review_required |
-| @next/swc-linux-arm64-musl | 16.2.10 | runtime | MIT | review_required |
-| @next/swc-linux-x64-gnu | 16.2.10 | runtime | MIT | review_required |
-| @next/swc-linux-x64-musl | 16.2.10 | runtime | MIT | review_required |
-| @next/swc-win32-arm64-msvc | 16.2.10 | runtime | MIT | review_required |
-| @next/swc-win32-x64-msvc | 16.2.10 | runtime | MIT | review_required |
+| @next/env | 16.2.10 | runtime | MIT | allowed |
+| @next/swc-darwin-arm64 | 16.2.10 | runtime | MIT | allowed |
+| @next/swc-darwin-x64 | 16.2.10 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-gnu | 16.2.10 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-musl | 16.2.10 | runtime | MIT | allowed |
+| @next/swc-linux-x64-gnu | 16.2.10 | runtime | MIT | allowed |
+| @next/swc-linux-x64-musl | 16.2.10 | runtime | MIT | allowed |
+| @next/swc-win32-arm64-msvc | 16.2.10 | runtime | MIT | allowed |
+| @next/swc-win32-x64-msvc | 16.2.10 | runtime | MIT | allowed |
 | @noble/ciphers | 2.2.0 | runtime | MIT | allowed |
 | @noble/hashes | 2.2.0 | runtime | MIT | allowed |
 | @opentelemetry/api-logs | 0.220.0 | runtime | Apache-2.0 | allowed |
@@ -347,46 +347,46 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @protobufjs/path | 1.1.2 | runtime | BSD-3-Clause | allowed |
 | @protobufjs/pool | 1.1.0 | runtime | BSD-3-Clause | allowed |
 | @protobufjs/utf8 | 1.1.2 | runtime | BSD-3-Clause | allowed |
-| @puppeteer/browsers | 2.13.2 | runtime | Apache-2.0 | review_required |
-| @puppeteer/browsers | 3.0.6 | runtime | Apache-2.0 | review_required |
+| @puppeteer/browsers | 2.13.2 | runtime | Apache-2.0 | allowed |
+| @puppeteer/browsers | 3.0.6 | runtime | Apache-2.0 | allowed |
 | @radix-ui/number | 1.1.2 | runtime | MIT | allowed |
-| @radix-ui/primitive | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/primitive | 1.1.1 | runtime | MIT | review_required |
+| @radix-ui/primitive | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/primitive | 1.1.1 | runtime | MIT | allowed |
 | @radix-ui/primitive | 1.1.5 | runtime | MIT | allowed |
 | @radix-ui/react-accessible-icon | 1.1.11 | runtime | MIT | allowed |
 | @radix-ui/react-accordion | 1.2.16 | runtime | MIT | allowed |
 | @radix-ui/react-alert-dialog | 1.1.19 | runtime | MIT | allowed |
 | @radix-ui/react-arrow | 1.1.11 | runtime | MIT | allowed |
-| @radix-ui/react-arrow | 1.1.2 | runtime | MIT | review_required |
+| @radix-ui/react-arrow | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/react-aspect-ratio | 1.1.11 | runtime | MIT | allowed |
 | @radix-ui/react-avatar | 1.2.2 | runtime | MIT | allowed |
 | @radix-ui/react-checkbox | 1.3.7 | runtime | MIT | allowed |
 | @radix-ui/react-collapsible | 1.1.16 | runtime | MIT | allowed |
-| @radix-ui/react-collection | 1.0.1 | runtime | MIT | review_required |
+| @radix-ui/react-collection | 1.0.1 | runtime | MIT | allowed |
 | @radix-ui/react-collection | 1.1.12 | runtime | MIT | allowed |
-| @radix-ui/react-compose-refs | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-compose-refs | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-compose-refs | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-compose-refs | 1.1.1 | runtime | MIT | review_required |
+| @radix-ui/react-compose-refs | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-compose-refs | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-compose-refs | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-compose-refs | 1.1.1 | runtime | MIT | allowed |
 | @radix-ui/react-compose-refs | 1.1.3 | runtime | MIT | allowed |
 | @radix-ui/react-context-menu | 2.3.3 | runtime | MIT | allowed |
-| @radix-ui/react-context | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-context | 1.1.1 | runtime | MIT | review_required |
+| @radix-ui/react-context | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-context | 1.1.1 | runtime | MIT | allowed |
 | @radix-ui/react-context | 1.2.0 | runtime | MIT | allowed |
 | @radix-ui/react-dialog | 1.1.19 | runtime | MIT | allowed |
-| @radix-ui/react-direction | 1.0.0 | runtime | MIT | review_required |
+| @radix-ui/react-direction | 1.0.0 | runtime | MIT | allowed |
 | @radix-ui/react-direction | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/react-dismissable-layer | 1.1.15 | runtime | MIT | allowed |
-| @radix-ui/react-dismissable-layer | 1.1.5 | runtime | MIT | review_required |
+| @radix-ui/react-dismissable-layer | 1.1.5 | runtime | MIT | allowed |
 | @radix-ui/react-dropdown-menu | 2.1.20 | runtime | MIT | allowed |
-| @radix-ui/react-focus-guards | 1.1.1 | runtime | MIT | review_required |
+| @radix-ui/react-focus-guards | 1.1.1 | runtime | MIT | allowed |
 | @radix-ui/react-focus-guards | 1.1.4 | runtime | MIT | allowed |
 | @radix-ui/react-focus-scope | 1.1.12 | runtime | MIT | allowed |
-| @radix-ui/react-focus-scope | 1.1.2 | runtime | MIT | review_required |
+| @radix-ui/react-focus-scope | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/react-form | 0.1.12 | runtime | MIT | allowed |
 | @radix-ui/react-hover-card | 1.1.19 | runtime | MIT | allowed |
-| @radix-ui/react-id | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-id | 1.1.0 | runtime | MIT | review_required |
+| @radix-ui/react-id | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-id | 1.1.0 | runtime | MIT | allowed |
 | @radix-ui/react-id | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/react-label | 2.1.11 | runtime | MIT | allowed |
 | @radix-ui/react-menu | 2.1.20 | runtime | MIT | allowed |
@@ -395,89 +395,89 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @radix-ui/react-one-time-password-field | 0.1.12 | runtime | MIT | allowed |
 | @radix-ui/react-password-toggle-field | 0.1.7 | runtime | MIT | allowed |
 | @radix-ui/react-popover | 1.1.19 | runtime | MIT | allowed |
-| @radix-ui/react-popover | 1.1.6 | runtime | MIT | review_required |
-| @radix-ui/react-popper | 1.2.2 | runtime | MIT | review_required |
+| @radix-ui/react-popover | 1.1.6 | runtime | MIT | allowed |
+| @radix-ui/react-popper | 1.2.2 | runtime | MIT | allowed |
 | @radix-ui/react-popper | 1.3.3 | runtime | MIT | allowed |
 | @radix-ui/react-portal | 1.1.13 | runtime | MIT | allowed |
-| @radix-ui/react-portal | 1.1.4 | runtime | MIT | review_required |
-| @radix-ui/react-presence | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-presence | 1.1.2 | runtime | MIT | review_required |
+| @radix-ui/react-portal | 1.1.4 | runtime | MIT | allowed |
+| @radix-ui/react-presence | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-presence | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/react-presence | 1.1.7 | runtime | MIT | allowed |
-| @radix-ui/react-primitive | 1.0.1 | runtime | MIT | review_required |
-| @radix-ui/react-primitive | 2.0.2 | runtime | MIT | review_required |
+| @radix-ui/react-primitive | 1.0.1 | runtime | MIT | allowed |
+| @radix-ui/react-primitive | 2.0.2 | runtime | MIT | allowed |
 | @radix-ui/react-primitive | 2.1.7 | runtime | MIT | allowed |
 | @radix-ui/react-progress | 1.1.12 | runtime | MIT | allowed |
 | @radix-ui/react-radio-group | 1.4.3 | runtime | MIT | allowed |
-| @radix-ui/react-roving-focus | 1.0.2 | runtime | MIT | review_required |
+| @radix-ui/react-roving-focus | 1.0.2 | runtime | MIT | allowed |
 | @radix-ui/react-roving-focus | 1.1.15 | runtime | MIT | allowed |
 | @radix-ui/react-scroll-area | 1.2.14 | runtime | MIT | allowed |
 | @radix-ui/react-select | 2.3.3 | runtime | MIT | allowed |
 | @radix-ui/react-separator | 1.1.11 | runtime | MIT | allowed |
 | @radix-ui/react-slider | 1.4.3 | runtime | MIT | allowed |
-| @radix-ui/react-slot | 1.0.1 | runtime | MIT | review_required |
-| @radix-ui/react-slot | 1.0.1 | runtime | MIT | review_required |
-| @radix-ui/react-slot | 1.1.2 | runtime | MIT | review_required |
+| @radix-ui/react-slot | 1.0.1 | runtime | MIT | allowed |
+| @radix-ui/react-slot | 1.0.1 | runtime | MIT | allowed |
+| @radix-ui/react-slot | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/react-slot | 1.3.0 | runtime | MIT | allowed |
 | @radix-ui/react-switch | 1.3.3 | runtime | MIT | allowed |
-| @radix-ui/react-tabs | 1.0.2 | runtime | MIT | review_required |
+| @radix-ui/react-tabs | 1.0.2 | runtime | MIT | allowed |
 | @radix-ui/react-tabs | 1.1.17 | runtime | MIT | allowed |
 | @radix-ui/react-toast | 1.2.19 | runtime | MIT | allowed |
 | @radix-ui/react-toggle-group | 1.1.15 | runtime | MIT | allowed |
 | @radix-ui/react-toggle | 1.1.14 | runtime | MIT | allowed |
 | @radix-ui/react-toolbar | 1.1.15 | runtime | MIT | allowed |
 | @radix-ui/react-tooltip | 1.2.12 | runtime | MIT | allowed |
-| @radix-ui/react-use-callback-ref | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-use-callback-ref | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-use-callback-ref | 1.1.0 | runtime | MIT | review_required |
+| @radix-ui/react-use-callback-ref | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-use-callback-ref | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-use-callback-ref | 1.1.0 | runtime | MIT | allowed |
 | @radix-ui/react-use-callback-ref | 1.1.2 | runtime | MIT | allowed |
-| @radix-ui/react-use-controllable-state | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-use-controllable-state | 1.1.0 | runtime | MIT | review_required |
+| @radix-ui/react-use-controllable-state | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-use-controllable-state | 1.1.0 | runtime | MIT | allowed |
 | @radix-ui/react-use-controllable-state | 1.2.3 | runtime | MIT | allowed |
 | @radix-ui/react-use-effect-event | 0.0.3 | runtime | MIT | allowed |
-| @radix-ui/react-use-escape-keydown | 1.1.0 | runtime | MIT | review_required |
+| @radix-ui/react-use-escape-keydown | 1.1.0 | runtime | MIT | allowed |
 | @radix-ui/react-use-escape-keydown | 1.1.3 | runtime | MIT | allowed |
 | @radix-ui/react-use-is-hydrated | 0.1.1 | runtime | MIT | allowed |
-| @radix-ui/react-use-layout-effect | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-use-layout-effect | 1.0.0 | runtime | MIT | review_required |
-| @radix-ui/react-use-layout-effect | 1.1.0 | runtime | MIT | review_required |
+| @radix-ui/react-use-layout-effect | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-use-layout-effect | 1.0.0 | runtime | MIT | allowed |
+| @radix-ui/react-use-layout-effect | 1.1.0 | runtime | MIT | allowed |
 | @radix-ui/react-use-layout-effect | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/react-use-previous | 1.1.2 | runtime | MIT | allowed |
-| @radix-ui/react-use-rect | 1.1.0 | runtime | MIT | review_required |
+| @radix-ui/react-use-rect | 1.1.0 | runtime | MIT | allowed |
 | @radix-ui/react-use-rect | 1.1.2 | runtime | MIT | allowed |
-| @radix-ui/react-use-size | 1.1.0 | runtime | MIT | review_required |
+| @radix-ui/react-use-size | 1.1.0 | runtime | MIT | allowed |
 | @radix-ui/react-use-size | 1.1.2 | runtime | MIT | allowed |
 | @radix-ui/react-visually-hidden | 1.2.7 | runtime | MIT | allowed |
-| @radix-ui/rect | 1.1.0 | runtime | MIT | review_required |
+| @radix-ui/rect | 1.1.0 | runtime | MIT | allowed |
 | @radix-ui/rect | 1.1.2 | runtime | MIT | allowed |
 | @reduxjs/toolkit | 2.12.0 | runtime | MIT | allowed |
 | @rollup/plugin-commonjs | 28.0.1 | runtime | MIT | allowed |
 | @rollup/pluginutils | 5.4.0 | runtime | MIT | allowed |
-| @rollup/rollup-android-arm-eabi | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-android-arm64 | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-darwin-arm64 | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-darwin-x64 | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-freebsd-arm64 | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-freebsd-x64 | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-arm-gnueabihf | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-arm-musleabihf | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-arm64-gnu | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-arm64-musl | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-loong64-gnu | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-loong64-musl | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-ppc64-gnu | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-ppc64-musl | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-riscv64-gnu | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-riscv64-musl | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-s390x-gnu | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-x64-gnu | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-linux-x64-musl | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-openbsd-x64 | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-openharmony-arm64 | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-win32-arm64-msvc | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-win32-ia32-msvc | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-win32-x64-gnu | 4.62.2 | runtime | MIT | review_required |
-| @rollup/rollup-win32-x64-msvc | 4.62.2 | runtime | MIT | review_required |
-| @schummar/icu-type-parser | 1.21.5 | runtime | MIT | review_required |
+| @rollup/rollup-android-arm-eabi | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-android-arm64 | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-darwin-arm64 | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-darwin-x64 | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-freebsd-arm64 | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-freebsd-x64 | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-arm-gnueabihf | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-arm-musleabihf | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-arm64-gnu | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-arm64-musl | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-loong64-gnu | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-loong64-musl | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-ppc64-gnu | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-ppc64-musl | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-riscv64-gnu | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-riscv64-musl | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-s390x-gnu | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-x64-gnu | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-linux-x64-musl | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-openbsd-x64 | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-openharmony-arm64 | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-win32-arm64-msvc | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-win32-ia32-msvc | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-win32-x64-gnu | 4.62.2 | runtime | MIT | allowed |
+| @rollup/rollup-win32-x64-msvc | 4.62.2 | runtime | MIT | allowed |
+| @schummar/icu-type-parser | 1.21.5 | runtime | MIT | allowed |
 | @selderee/plugin-htmlparser2 | 0.12.0 | runtime | MIT | allowed |
 | @sentry/babel-plugin-component-annotate | 5.3.0 | runtime | MIT | allowed |
 | @sentry/browser-utils | 10.65.0 | runtime | MIT | allowed |
@@ -494,7 +494,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @sentry/react | 10.65.0 | runtime | MIT | allowed |
 | @sentry/replay-canvas | 10.65.0 | runtime | MIT | allowed |
 | @sentry/replay | 10.65.0 | runtime | MIT | allowed |
-| @sentry/server-utils | 10.65.0 | runtime | MIT | review_required |
+| @sentry/server-utils | 10.65.0 | runtime | MIT | allowed |
 | @sentry/vercel-edge | 10.65.0 | runtime | MIT | allowed |
 | @sentry/webpack-plugin | 5.4.0 | runtime | MIT | allowed |
 | @smithy/core | 3.29.3 | runtime | Apache-2.0 | allowed |
@@ -523,7 +523,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @swc/core-win32-ia32-msvc | 1.15.43 | runtime | Apache-2.0 AND MIT | allowed |
 | @swc/core-win32-x64-msvc | 1.15.43 | runtime | Apache-2.0 AND MIT | allowed |
 | @swc/core | 1.15.43 | runtime | Apache-2.0 | allowed |
-| @swc/counter | 0.1.3 | runtime | Apache-2.0 | review_required |
+| @swc/counter | 0.1.3 | runtime | Apache-2.0 | allowed |
 | @swc/helpers | 0.5.15 | runtime | Apache-2.0 | allowed |
 | @swc/types | 0.1.27 | runtime | Apache-2.0 | allowed |
 | @testing-library/react | 16.3.2 | runtime | MIT | allowed |
@@ -571,7 +571,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @tiptap/suggestion | 3.27.3 | runtime | MIT | allowed |
 | @tiptap/y-tiptap | 3.0.7 | runtime | MIT | allowed |
 | @tokenizer/inflate | 0.4.1 | runtime | MIT | allowed |
-| @tokenizer/token | 0.3.0 | runtime | MIT | review_required |
+| @tokenizer/token | 0.3.0 | runtime | MIT | allowed |
 | @tootallnate/quickjs-emscripten | 0.23.0 | runtime | MIT | allowed |
 | @types/archiver | 8.0.0 | runtime | MIT | allowed |
 | @types/d3-array | 3.2.2 | runtime | MIT | allowed |
@@ -629,8 +629,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @types/unist | 3.0.3 | runtime | MIT | allowed |
 | @types/use-sync-external-store | 0.0.6 | runtime | MIT | allowed |
 | @types/yauzl | 2.10.3 | runtime | MIT | allowed |
-| @uiw/codemirror-extensions-basic-setup | 4.25.11 | runtime | MIT | review_required |
-| @uiw/react-codemirror | 4.25.11 | runtime | MIT | review_required |
+| @uiw/codemirror-extensions-basic-setup | 4.25.11 | runtime | MIT | allowed |
+| @uiw/react-codemirror | 4.25.11 | runtime | MIT | allowed |
 | @ungap/structured-clone | 1.3.3 | runtime | ISC | allowed |
 | @upsetjs/venn.js | 2.0.0 | runtime | MIT | allowed |
 | @xmldom/xmldom | 0.8.13 | runtime | MIT | allowed |
@@ -643,7 +643,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | abort-controller | 3.0.0 | runtime | MIT | allowed |
 | accepts | 1.3.8 | runtime | MIT | allowed |
 | accepts | 2.0.0 | runtime | MIT | allowed |
-| agent-base | 6.0.2 | runtime | MIT | review_required |
 | agent-base | 7.1.4 | runtime | MIT | allowed |
 | ajv-formats | 3.0.1 | runtime | MIT | allowed |
 | ajv | 8.20.0 | runtime | MIT | allowed |
@@ -797,7 +796,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | d3-zoom | 3.0.0 | runtime | ISC | allowed |
 | d3 | 7.9.0 | runtime | ISC | allowed |
 | dagre-d3-es | 7.0.14 | runtime | MIT | allowed |
-| data-uri-to-buffer | 4.0.1 | runtime | MIT | review_required |
+| data-uri-to-buffer | 4.0.1 | runtime | MIT | allowed |
 | data-uri-to-buffer | 6.0.2 | runtime | MIT | allowed |
 | data-urls | 7.0.0 | runtime | MIT | allowed |
 | dayjs | 1.11.21 | runtime | MIT | allowed |
@@ -810,7 +809,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | deep-extend | 0.6.0 | runtime | MIT | allowed |
 | deepmerge-ts | 7.1.5 | runtime | BSD-3-Clause | allowed |
 | defu | 6.1.7 | runtime | MIT | allowed |
-| degenerator | 5.0.1 | runtime | MIT | review_required |
+| degenerator | 5.0.1 | runtime | MIT | allowed |
 | delaunator | 5.1.0 | runtime | ISC | allowed |
 | depd | 1.1.2 | runtime | MIT | allowed |
 | depd | 2.0.0 | runtime | MIT | allowed |
@@ -828,7 +827,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | domutils | 3.2.2 | runtime | BSD-2-Clause | allowed |
 | dotenv | 16.6.1 | runtime | BSD-2-Clause | allowed |
 | dotenv | 17.4.2 | runtime | BSD-2-Clause | allowed |
-| drizzle-orm | 0.45.2 | runtime | Apache-2.0 | review_required |
+| drizzle-orm | 0.45.2 | runtime | Apache-2.0 | allowed |
 | duck | 0.1.12 | runtime | BSD | allowed |
 | dunder-proto | 1.0.1 | runtime | MIT | allowed |
 | ecdsa-sig-formatter | 1.0.11 | runtime | Apache-2.0 | allowed |
@@ -871,7 +870,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | events | 3.3.0 | runtime | MIT | allowed |
 | eventsource-parser | 3.1.0 | runtime | MIT | allowed |
 | eventsource | 3.0.7 | runtime | MIT | allowed |
-| expand-template | 2.0.3 | runtime | (MIT OR WTFPL) | review_required |
+| expand-template | 2.0.3 | runtime | (MIT OR WTFPL) | allowed |
 | express-rate-limit | 8.5.2 | runtime | MIT | allowed |
 | express | 5.2.1 | runtime | MIT | allowed |
 | extend | 3.0.2 | runtime | MIT | allowed |
@@ -910,7 +909,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | get-proto | 1.0.1 | runtime | MIT | allowed |
 | get-stream | 5.2.0 | runtime | MIT | allowed |
 | get-uri | 6.0.5 | runtime | MIT | allowed |
-| github-from-package | 0.0.0 | runtime | MIT | allowed |
+| github-from-package | 0.0.0 | runtime | MIT | review_required |
 | glob-parent | 5.1.2 | runtime | ISC | allowed |
 | glob | 13.0.6 | runtime | BlueOak-1.0.0 | allowed |
 | glur | 1.1.2 | runtime | MIT | allowed |
@@ -947,7 +946,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | http-errors | 1.8.1 | runtime | MIT | allowed |
 | http-errors | 2.0.1 | runtime | MIT | allowed |
 | http-proxy-agent | 7.0.2 | runtime | MIT | allowed |
-| https-proxy-agent | 5.0.1 | runtime | MIT | review_required |
 | https-proxy-agent | 7.0.6 | runtime | MIT | allowed |
 | https | 1.0.0 | runtime | ISC | review_required |
 | iconv-lite | 0.6.3 | runtime | MIT | allowed |
@@ -993,8 +991,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | is-promise | 4.0.0 | runtime | MIT | allowed |
 | is-reference | 1.2.1 | runtime | MIT | review_required |
 | is-stream | 4.0.1 | runtime | MIT | allowed |
-| isarray | 1.0.0 | runtime | MIT | review_required |
-| isarray | 1.0.0 | runtime | MIT | review_required |
+| isarray | 1.0.0 | runtime | MIT | allowed |
+| isarray | 1.0.0 | runtime | MIT | allowed |
 | isexe | 2.0.0 | runtime | ISC | allowed |
 | isomorphic.js | 0.2.5 | runtime | MIT | allowed |
 | jose | 6.2.3 | runtime | MIT | allowed |
@@ -1125,10 +1123,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | mime-types | 3.0.2 | runtime | MIT | allowed |
 | mimic-response | 3.1.0 | runtime | MIT | allowed |
 | minimatch | 10.2.5 | runtime | BlueOak-1.0.0 | allowed |
-| minimist | 1.2.8 | runtime | MIT | allowed |
+| minimist | 1.2.8 | runtime | MIT | review_required |
 | minipass | 7.1.3 | runtime | BlueOak-1.0.0 | allowed |
 | mitt | 3.0.1 | runtime | MIT | allowed |
-| mj-context-menu | 0.6.1 | runtime | Apache-2.0 | review_required |
+| mj-context-menu | 0.6.1 | runtime | Apache-2.0 | allowed |
 | mkdirp-classic | 0.5.3 | runtime | MIT | allowed |
 | modern-tar | 0.7.6 | runtime | MIT | allowed |
 | module-details-from-path | 1.0.4 | runtime | MIT | allowed |
@@ -1163,7 +1161,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | open-color | 1.9.1 | runtime | MIT | allowed |
 | openai | 6.26.0 | runtime | Apache-2.0 | allowed |
 | openai | 6.46.0 | runtime | Apache-2.0 | allowed |
-| opensrc | 0.7.3 | runtime | Apache-2.0 | review_required |
+| opensrc | 0.7.3 | runtime | Apache-2.0 | allowed |
 | option | 0.2.4 | runtime | BSD-2-Clause | allowed |
 | orderedmap | 2.1.1 | runtime | MIT | allowed |
 | p-limit | 3.1.0 | runtime | MIT | allowed |
@@ -1172,8 +1170,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | pac-proxy-agent | 7.2.0 | runtime | MIT | allowed |
 | pac-resolver | 7.0.1 | runtime | MIT | allowed |
 | package-manager-detector | 1.7.0 | runtime | MIT | allowed |
-| pako | 1.0.11 | runtime | (MIT AND Zlib) | review_required |
-| pako | 2.0.3 | runtime | (MIT AND Zlib) | review_required |
+| pako | 1.0.11 | runtime | (MIT AND Zlib) | allowed |
+| pako | 2.0.3 | runtime | (MIT AND Zlib) | allowed |
 | parent-module | 1.0.1 | runtime | MIT | allowed |
 | parse-entities | 4.0.2 | runtime | MIT | allowed |
 | parse-json | 5.2.0 | runtime | MIT | allowed |
@@ -1199,9 +1197,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | pg-int8 | 1.0.1 | runtime | ISC | allowed |
 | pg-pool | 3.14.0 | runtime | MIT | allowed |
 | pg-protocol | 1.15.0 | runtime | MIT | allowed |
-| pg-types | 2.2.0 | runtime | MIT | review_required |
+| pg-types | 2.2.0 | runtime | MIT | allowed |
 | pg | 8.22.0 | runtime | MIT | allowed |
-| pgpass | 1.0.5 | runtime | MIT | review_required |
+| pgpass | 1.0.5 | runtime | MIT | allowed |
 | pica | 7.1.1 | runtime | MIT | allowed |
 | picocolors | 1.1.1 | runtime | ISC | allowed |
 | picomatch | 2.3.2 | runtime | MIT | allowed |
@@ -1256,8 +1254,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | pump | 3.0.4 | runtime | MIT | allowed |
 | punycode.js | 2.3.1 | runtime | MIT | allowed |
 | punycode | 2.3.1 | runtime | MIT | allowed |
-| puppeteer-core | 24.43.1 | runtime | Apache-2.0 | review_required |
-| puppeteer-core | 25.3.0 | runtime | Apache-2.0 | review_required |
+| puppeteer-core | 24.43.1 | runtime | Apache-2.0 | allowed |
+| puppeteer-core | 25.3.0 | runtime | Apache-2.0 | allowed |
 | pusher-js | 8.5.0 | runtime | MIT | allowed |
 | pwacompat | 2.0.17 | runtime | Apache-2.0 | allowed |
 | qs | 6.15.3 | runtime | BSD-3-Clause | allowed |
@@ -1266,7 +1264,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | radix-ui | 1.6.2 | runtime | MIT | allowed |
 | range-parser | 1.3.0 | runtime | MIT | allowed |
 | raw-body | 3.0.2 | runtime | MIT | allowed |
-| rc | 1.2.8 | runtime | (BSD-2-Clause OR MIT OR Apache-2.0) | review_required |
+| rc | 1.2.8 | runtime | (BSD-2-Clause OR MIT OR Apache-2.0) | allowed |
 | react-dom | 19.2.7 | runtime | MIT | allowed |
 | react-is | 19.2.7 | runtime | MIT | allowed |
 | react-markdown | 10.1.0 | runtime | MIT | allowed |
@@ -1291,10 +1289,10 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | redux | 5.0.1 | runtime | MIT | allowed |
 | refractor | 5.0.0 | runtime | MIT | allowed |
 | rehype-highlight | 7.0.2 | runtime | MIT | allowed |
-| rehype-katex | 7.0.1 | runtime | MIT | review_required |
+| rehype-katex | 7.0.1 | runtime | MIT | allowed |
 | remark-frontmatter | 5.0.0 | runtime | MIT | allowed |
 | remark-gfm | 4.0.1 | runtime | MIT | allowed |
-| remark-math | 6.0.0 | runtime | MIT | review_required |
+| remark-math | 6.0.0 | runtime | MIT | allowed |
 | remark-parse | 11.0.0 | runtime | MIT | allowed |
 | remark-rehype | 11.1.2 | runtime | MIT | allowed |
 | remark-stringify | 11.0.0 | runtime | MIT | allowed |
@@ -1318,7 +1316,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | safe-stable-stringify | 2.5.0 | runtime | MIT | allowed |
 | safer-buffer | 2.1.2 | runtime | MIT | allowed |
 | sass | 1.51.0 | runtime | MIT | allowed |
-| saxes | 6.0.0 | runtime | ISC | review_required |
+| saxes | 6.0.0 | runtime | ISC | allowed |
 | scheduler | 0.27.0 | runtime | MIT | allowed |
 | selderee | 0.12.0 | runtime | MIT | allowed |
 | semifies | 1.0.0 | runtime | Apache-2.0 | allowed |
@@ -1406,7 +1404,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | turndown-plugin-gfm | 1.0.2 | runtime | MIT | allowed |
 | turndown | 7.2.4 | runtime | MIT | allowed |
 | tweetnacl | 1.0.3 | runtime | Unlicense | allowed |
-| type-fest | 0.7.1 | runtime | (MIT OR CC0-1.0) | review_required |
+| type-fest | 0.7.1 | runtime | (MIT OR CC0-1.0) | allowed |
 | type-is | 2.1.0 | runtime | MIT | allowed |
 | typebox | 1.1.38 | runtime | MIT | allowed |
 | typed-query-selector | 2.12.2 | runtime | MIT | allowed |
@@ -1437,7 +1435,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | vfile-location | 5.0.3 | runtime | MIT | allowed |
 | vfile-message | 4.0.3 | runtime | MIT | allowed |
 | vfile | 6.0.3 | runtime | MIT | allowed |
-| victory-vendor | 37.3.6 | runtime | MIT AND ISC | review_required |
+| victory-vendor | 37.3.6 | runtime | MIT AND ISC | allowed |
 | vscode-jsonrpc | 8.2.0 | runtime | MIT | allowed |
 | vscode-languageserver-protocol | 3.17.5 | runtime | MIT | allowed |
 | vscode-languageserver-textdocument | 1.0.12 | runtime | MIT | allowed |
@@ -1452,7 +1450,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | webdriver-bidi-protocol | 0.4.2 | runtime | Apache-2.0 | allowed |
 | webidl-conversions | 3.0.1 | runtime | BSD-2-Clause | allowed |
 | webidl-conversions | 8.0.1 | runtime | BSD-2-Clause | allowed |
-| webworkify | 1.5.0 | runtime | MIT | allowed |
+| webworkify | 1.5.0 | runtime | MIT | review_required |
 | whatwg-mimetype | 5.0.0 | runtime | MIT | allowed |
 | whatwg-url | 16.0.1 | runtime | MIT | allowed |
 | whatwg-url | 5.0.0 | runtime | MIT | allowed |
@@ -1498,203 +1496,50 @@ The following entries require a documented responsible/legal decision before a c
 - **first-commercial-release-approval 2026.7.16.2:** The deterministic engineering inventory is implemented. A responsible owner or legal reviewer must approve the first commercial-release inventory.
 - **node-docker-base node:24-bookworm-slim:** The image build captures exact dpkg and Python versions. A release reviewer must verify the resolved image digest and Debian notices.
 - **@apm-js-collab/code-transformer-bundler-plugins 0.5.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@aws-sdk/credential-provider-http 3.972.59:** No verified license text was found in the installed package or a versioned override. Package author metadata: AWS SDK for JavaScript Team
-- **@aws-sdk/credential-provider-login 3.972.63:** No verified license text was found in the installed package or a versioned override. Package author metadata: AWS SDK for JavaScript Team
-- **@aws-sdk/nested-clients 3.997.31:** No verified license text was found in the installed package or a versioned override. Package author metadata: AWS SDK for JavaScript Team
 - **@better-auth/utils 0.4.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Bereket Engida
-- **@earendil-works/pi-agent-core 0.80.6:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Mario Zechner
-- **@earendil-works/pi-ai 0.80.6:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Mario Zechner
 - **@eigenpal/docx-js-editor 0.5.3:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: EigenPal
-- **@esbuild/aix-ppc64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/android-arm 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/android-arm64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/android-x64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/darwin-arm64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/darwin-x64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/freebsd-arm64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/freebsd-x64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-arm 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-arm64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-ia32 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-loong64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-mips64el 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-ppc64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-riscv64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-s390x 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/linux-x64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/netbsd-arm64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/netbsd-x64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/openbsd-arm64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/openbsd-x64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/openharmony-arm64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/sunos-x64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/win32-arm64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/win32-ia32 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@esbuild/win32-x64 0.28.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@img/sharp-libvips-darwin-arm64 1.2.4:** No verified license text was found in the installed package or a versioned override. Package author metadata: Lovell Fuller <npm@lovell.info>
-- **@img/sharp-libvips-darwin-arm64 1.3.2:** No verified license text was found in the installed package or a versioned override. Package author metadata: Lovell Fuller <npm@lovell.info>
-- **@img/sharp-libvips-darwin-x64 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-darwin-x64 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-arm 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-arm 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-arm64 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-arm64 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-ppc64 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-ppc64 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-riscv64 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-riscv64 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-s390x 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-s390x 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-x64 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linux-x64 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linuxmusl-arm64 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linuxmusl-arm64 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linuxmusl-x64 1.2.4:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-libvips-linuxmusl-x64 1.3.2:** No verified license text was found in the installed package or a versioned override.
-- **@img/sharp-wasm32 0.34.5:** Policy decision is review_required for Apache-2.0 AND LGPL-3.0-or-later AND MIT.
-- **@img/sharp-wasm32 0.35.3:** Policy decision is review_required for Apache-2.0 AND LGPL-3.0-or-later AND MIT.
-- **@img/sharp-win32-arm64 0.34.5:** Policy decision is review_required for Apache-2.0 AND LGPL-3.0-or-later.
-- **@img/sharp-win32-arm64 0.35.3:** Policy decision is review_required for Apache-2.0 AND LGPL-3.0-or-later.
-- **@img/sharp-win32-ia32 0.34.5:** Policy decision is review_required for Apache-2.0 AND LGPL-3.0-or-later.
-- **@img/sharp-win32-ia32 0.35.3:** Policy decision is review_required for Apache-2.0 AND LGPL-3.0-or-later.
-- **@img/sharp-win32-x64 0.34.5:** Policy decision is review_required for Apache-2.0 AND LGPL-3.0-or-later.
-- **@img/sharp-win32-x64 0.35.3:** Policy decision is review_required for Apache-2.0 AND LGPL-3.0-or-later.
-- **@napi-rs/canvas-android-arm64 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-android-arm64 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-darwin-arm64 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-darwin-arm64 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-darwin-x64 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-darwin-x64 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-arm-gnueabihf 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-arm-gnueabihf 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-arm64-gnu 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-arm64-gnu 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-arm64-musl 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-arm64-musl 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-riscv64-gnu 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-riscv64-gnu 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-x64-gnu 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-x64-gnu 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-x64-musl 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-linux-x64-musl 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-win32-arm64-msvc 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-win32-x64-msvc 0.1.80:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@napi-rs/canvas-win32-x64-msvc 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@next/env 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Next.js Team <support@vercel.com>
-- **@next/swc-darwin-arm64 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@next/swc-darwin-x64 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@next/swc-linux-arm64-gnu 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@next/swc-linux-arm64-musl 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@next/swc-linux-x64-gnu 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@next/swc-linux-x64-musl 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@next/swc-win32-arm64-msvc 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@next/swc-win32-x64-msvc 16.2.10:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@puppeteer/browsers 2.13.2:** No verified license text was found in the installed package or a versioned override. Package author metadata: The Chromium Authors
-- **@puppeteer/browsers 3.0.6:** No verified license text was found in the installed package or a versioned override. Package author metadata: The Chromium Authors
-- **@radix-ui/primitive 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/primitive 1.1.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-arrow 1.1.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-collection 1.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-compose-refs 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-compose-refs 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-compose-refs 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-compose-refs 1.1.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-context 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-context 1.1.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-direction 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-dismissable-layer 1.1.5:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-focus-guards 1.1.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-focus-scope 1.1.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-id 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-id 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-popover 1.1.6:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-popper 1.2.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-portal 1.1.4:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-presence 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-presence 1.1.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-primitive 1.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-primitive 2.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-roving-focus 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-slot 1.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-slot 1.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-slot 1.1.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-tabs 1.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-callback-ref 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-callback-ref 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-callback-ref 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-controllable-state 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-controllable-state 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-escape-keydown 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-layout-effect 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-layout-effect 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-layout-effect 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-rect 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/react-use-size 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@radix-ui/rect 1.1.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-android-arm-eabi 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-android-arm64 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-darwin-arm64 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Lukas Taegert-Atkinson
-- **@rollup/rollup-darwin-x64 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-freebsd-arm64 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-freebsd-x64 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-arm-gnueabihf 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-arm-musleabihf 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-arm64-gnu 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-arm64-musl 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-loong64-gnu 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-loong64-musl 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-ppc64-gnu 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-ppc64-musl 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-riscv64-gnu 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-riscv64-musl 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-s390x-gnu 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-x64-gnu 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-linux-x64-musl 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-openbsd-x64 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-openharmony-arm64 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-win32-arm64-msvc 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-win32-ia32-msvc 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-win32-x64-gnu 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@rollup/rollup-win32-x64-msvc 4.62.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@schummar/icu-type-parser 1.21.5:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Marco Schumacher <marco@schumacher.dev>
-- **@sentry/server-utils 10.65.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Sentry
-- **@swc/counter 0.1.3:** No verified license text was found in the installed package or a versioned override. Package author metadata: 강동윤 <kdy1997.dev@gmail.com>
-- **@tokenizer/token 0.3.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Borewit
-- **@uiw/codemirror-extensions-basic-setup 4.25.11:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: kenny wong <wowohoo@qq.com>
-- **@uiw/react-codemirror 4.25.11:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: kenny wong <wowohoo@qq.com>
+- **@img/sharp-libvips-darwin-arm64 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-darwin-arm64 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-darwin-x64 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-darwin-x64 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-linux-arm 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-linux-arm 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-linux-arm64 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-linux-arm64 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-linux-ppc64 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-linux-ppc64 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-linux-riscv64 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-linux-riscv64 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-linux-s390x 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-linux-s390x 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-linux-x64 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-linux-x64 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-linuxmusl-arm64 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-linuxmusl-arm64 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-libvips-linuxmusl-x64 1.2.4:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c
+- **@img/sharp-libvips-linuxmusl-x64 1.3.2:** License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6
+- **@img/sharp-wasm32 0.34.5:** License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.34.5.tgz#LICENSE
+- **@img/sharp-wasm32 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.35.3.tgz#LICENSE
+- **@img/sharp-win32-arm64 0.34.5:** License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.34.5.tgz#LICENSE
+- **@img/sharp-win32-arm64 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.35.3.tgz#LICENSE
+- **@img/sharp-win32-ia32 0.34.5:** License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.34.5.tgz#LICENSE
+- **@img/sharp-win32-ia32 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.3.tgz#LICENSE
+- **@img/sharp-win32-x64 0.34.5:** License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#LICENSE
+- **@img/sharp-win32-x64 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE
 - **@zone-eu/mailsplit 5.4.14:** Policy decision is review_required for (MIT OR EUPL-1.1+).
-- **agent-base 6.0.2:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)
 - **client-only 0.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **data-uri-to-buffer 4.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)
-- **degenerator 5.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)
 - **dingbat-to-unicode 1.0.1:** No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>
 - **dompurify 3.4.12:** Policy decision is review_required for (MPL-2.0 OR Apache-2.0).
-- **drizzle-orm 0.45.2:** No verified license text was found in the installed package or a versioned override. Package author metadata: Drizzle Team
-- **expand-template 2.0.3:** Policy decision is review_required for (MIT OR WTFPL).
+- **github-from-package 0.0.0:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
 - **highlightjs-vue 1.0.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: Sara Lissette <lissette.ibnz@gmail.com> (https://github.com/LissetteIbnz)
-- **https-proxy-agent 5.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Nathan Rajlich <nathan@tootallnate.net> (http://n8.io/)
 - **https 1.0.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: hardus van der berg <hardus@sunfork.com> (http://www.sunfork.com)
 - **is-reference 1.2.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Rich Harris
-- **isarray 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Julian Gruber <mail@juliangruber.com>
-- **isarray 1.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Julian Gruber <mail@juliangruber.com>
 - **jszip 3.10.1:** Policy decision is review_required for (MIT OR GPL-3.0-or-later).
-- **mj-context-menu 0.6.1:** No verified license text was found in the installed package or a versioned override.
-- **opensrc 0.7.3:** No verified license text was found in the installed package or a versioned override.
-- **pako 1.0.11:** Policy decision is review_required for (MIT AND Zlib).
-- **pako 2.0.3:** Policy decision is review_required for (MIT AND Zlib).
-- **pg-types 2.2.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Brian M. Carlson
-- **pgpass 1.0.5:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Hannes Hörl <hannes.hoerl+pgpass@snowreporter.com>
-- **puppeteer-core 24.43.1:** No verified license text was found in the installed package or a versioned override. Package author metadata: The Chromium Authors
-- **puppeteer-core 25.3.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: The Chromium Authors
-- **rc 1.2.8:** Policy decision is review_required for (BSD-2-Clause OR MIT OR Apache-2.0).
+- **minimist 1.2.8:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
 - **react-remove-scroll-bar 2.3.8:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Anton Korzunov <thekashey@gmail.com>
-- **rehype-katex 7.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Junyoung Choi <fluke8259@gmail.com> (https://rokt33r.github.io)
-- **remark-math 6.0.0:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Junyoung Choi <fluke8259@gmail.com> (https://rokt33r.github.io)
-- **saxes 6.0.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: Louis-Dominique Dubeau <ldd@lddubeau.com>
 - **server-only 0.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
 - **tr46 0.0.3:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Sebastian Mayr <npm@smayr.name>
-- **type-fest 0.7.1:** Policy decision is review_required for (MIT OR CC0-1.0).
-- **victory-vendor 37.3.6:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Formidable
+- **webworkify 1.5.0:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
 
 ## License texts and copyright notices
 
@@ -1704,9 +1549,7 @@ Applies to y-codemirror.next@0.3.5.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -1733,6 +1576,220 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text 014bb31e83d5
+
+Applies to opensrc@0.7.3.
+
+Copyright notices:
+
+- (c) You must retain, in the Source form of any Derivative Works
+- Copyright 2025 Vercel Inc.
+- that You distribute, all copyright, patent, trademark, and
+
+```text
+                                 Apache License
+                           Version 2.0, January 2004
+                        http://www.apache.org/licenses/
+
+TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+1.  Definitions.
+
+    "License" shall mean the terms and conditions for use, reproduction,
+    and distribution as defined by Sections 1 through 9 of this document.
+
+    "Licensor" shall mean the copyright owner or entity authorized by
+    the copyright owner that is granting the License.
+
+    "Legal Entity" shall mean the union of the acting entity and all
+    other entities that control, are controlled by, or are under common
+    control with that entity. For the purposes of this definition,
+    "control" means (i) the power, direct or indirect, to cause the
+    direction or management of such entity, whether by contract or
+    otherwise, or (ii) ownership of fifty percent (50%) or more of the
+    outstanding shares, or (iii) beneficial ownership of such entity.
+
+    "You" (or "Your") shall mean an individual or Legal Entity
+    exercising permissions granted by this License.
+
+    "Source" form shall mean the preferred form for making modifications,
+    including but not limited to software source code, documentation
+    source, and configuration files.
+
+    "Object" form shall mean any form resulting from mechanical
+    transformation or translation of a Source form, including but
+    not limited to compiled object code, generated documentation,
+    and conversions to other media types.
+
+    "Work" shall mean the work of authorship, whether in Source or
+    Object form, made available under the License, as indicated by a
+    copyright notice that is included in or attached to the work
+    (an example is provided in the Appendix below).
+
+    "Derivative Works" shall mean any work, whether in Source or Object
+    form, that is based on (or derived from) the Work and for which the
+    editorial revisions, annotations, elaborations, or other modifications
+    represent, as a whole, an original work of authorship. For the purposes
+    of this License, Derivative Works shall not include works that remain
+    separable from, or merely link (or bind by name) to the interfaces of,
+    the Work and Derivative Works thereof.
+
+    "Contribution" shall mean any work of authorship, including
+    the original version of the Work and any modifications or additions
+    to that Work or Derivative Works thereof, that is intentionally
+    submitted to Licensor for inclusion in the Work by the copyright owner
+    or by an individual or Legal Entity authorized to submit on behalf of
+    the copyright owner. For the purposes of this definition, "submitted"
+    means any form of electronic, verbal, or written communication sent
+    to the Licensor or its representatives, including but not limited to
+    communication on electronic mailing lists, source code control systems,
+    and issue tracking systems that are managed by, or on behalf of, the
+    Licensor for the purpose of discussing and improving the Work, but
+    excluding communication that is conspicuously marked or otherwise
+    designated in writing by the copyright owner as "Not a Contribution."
+
+    "Contributor" shall mean Licensor and any individual or Legal Entity
+    on behalf of whom a Contribution has been received by Licensor and
+    subsequently incorporated within the Work.
+
+2.  Grant of Copyright License. Subject to the terms and conditions of
+    this License, each Contributor hereby grants to You a perpetual,
+    worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+    copyright license to reproduce, prepare Derivative Works of,
+    publicly display, publicly perform, sublicense, and distribute the
+    Work and such Derivative Works in Source or Object form.
+
+3.  Grant of Patent License. Subject to the terms and conditions of
+    this License, each Contributor hereby grants to You a perpetual,
+    worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+    (except as stated in this section) patent license to make, have made,
+    use, offer to sell, sell, import, and otherwise transfer the Work,
+    where such license applies only to those patent claims licensable
+    by such Contributor that are necessarily infringed by their
+    Contribution(s) alone or by combination of their Contribution(s)
+    with the Work to which such Contribution(s) was submitted. If You
+    institute patent litigation against any entity (including a
+    cross-claim or counterclaim in a lawsuit) alleging that the Work
+    or a Contribution incorporated within the Work constitutes direct
+    or contributory patent infringement, then any patent licenses
+    granted to You under this License for that Work shall terminate
+    as of the date such litigation is filed.
+
+4.  Redistribution. You may reproduce and distribute copies of the
+    Work or Derivative Works thereof in any medium, with or without
+    modifications, and in Source or Object form, provided that You
+    meet the following conditions:
+
+    (a) You must give any other recipients of the Work or
+    Derivative Works a copy of this License; and
+
+    (b) You must cause any modified files to carry prominent notices
+    stating that You changed the files; and
+
+    (c) You must retain, in the Source form of any Derivative Works
+    that You distribute, all copyright, patent, trademark, and
+    attribution notices from the Source form of the Work,
+    excluding those notices that do not pertain to any part of
+    the Derivative Works; and
+
+    (d) If the Work includes a "NOTICE" text file as part of its
+    distribution, then any Derivative Works that You distribute must
+    include a readable copy of the attribution notices contained
+    within such NOTICE file, excluding those notices that do not
+    pertain to any part of the Derivative Works, in at least one
+    of the following places: within a NOTICE text file distributed
+    as part of the Derivative Works; within the Source form or
+    documentation, if provided along with the Derivative Works; or,
+    within a display generated by the Derivative Works, if and
+    wherever such third-party notices normally appear. The contents
+    of the NOTICE file are for informational purposes only and
+    do not modify the License. You may add Your own attribution
+    notices within Derivative Works that You distribute, alongside
+    or as an addendum to the NOTICE text from the Work, provided
+    that such additional attribution notices cannot be construed
+    as modifying the License.
+
+    You may add Your own copyright statement to Your modifications and
+    may provide additional or different license terms and conditions
+    for use, reproduction, or distribution of Your modifications, or
+    for any such Derivative Works as a whole, provided Your use,
+    reproduction, and distribution of the Work otherwise complies with
+    the conditions stated in this License.
+
+5.  Submission of Contributions. Unless You explicitly state otherwise,
+    any Contribution intentionally submitted for inclusion in the Work
+    by You to the Licensor shall be under the terms and conditions of
+    this License, without any additional terms or conditions.
+    Notwithstanding the above, nothing herein shall supersede or modify
+    the terms of any separate license agreement you may have executed
+    with Licensor regarding such Contributions.
+
+6.  Trademarks. This License does not grant permission to use the trade
+    names, trademarks, service marks, or product names of the Licensor,
+    except as required for reasonable and customary use in describing the
+    origin of the Work and reproducing the content of the NOTICE file.
+
+7.  Disclaimer of Warranty. Unless required by applicable law or
+    agreed to in writing, Licensor provides the Work (and each
+    Contributor provides its Contributions) on an "AS IS" BASIS,
+    WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+    implied, including, without limitation, any warranties or conditions
+    of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+    PARTICULAR PURPOSE. You are solely responsible for determining the
+    appropriateness of using or redistributing the Work and assume any
+    risks associated with Your exercise of permissions under this License.
+
+8.  Limitation of Liability. In no event and under no legal theory,
+    whether in tort (including negligence), contract, or otherwise,
+    unless required by applicable law (such as deliberate and grossly
+    negligent acts) or agreed to in writing, shall any Contributor be
+    liable to You for damages, including any direct, indirect, special,
+    incidental, or consequential damages of any character arising as a
+    result of this License or out of the use or inability to use the
+    Work (including but not limited to damages for loss of goodwill,
+    work stoppage, computer failure or malfunction, or any and all
+    other commercial damages or losses), even if such Contributor
+    has been advised of the possibility of such damages.
+
+9.  Accepting Warranty or Additional Liability. While redistributing
+    the Work or Derivative Works thereof, You may choose to offer,
+    and charge a fee for, acceptance of support, warranty, indemnity,
+    or other liability obligations and/or rights consistent with this
+    License. However, in accepting such obligations, You may act only
+    on Your own behalf and on Your sole responsibility, not on behalf
+    of any other Contributor, and only if You agree to indemnify,
+    defend, and hold each Contributor harmless for any liability
+    incurred by, or claims asserted against, such Contributor by reason
+    of your accepting any such warranty or additional liability.
+
+END OF TERMS AND CONDITIONS
+
+APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+Copyright 2025 Vercel Inc.
+
+Licensed under the Apache License, Version 2.0 (the "License");
+you may not use this file except in compliance with the License.
+You may obtain a copy of the License at
+
+       http://www.apache.org/licenses/LICENSE-2.0
+
+Unless required by applicable law or agreed to in writing, software
+distributed under the License is distributed on an "AS IS" BASIS,
+WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+See the License for the specific language governing permissions and
+limitations under the License.
+```
+
 ### License text 014e6ca48061
 
 Applies to @tokenizer/inflate@0.4.1.
@@ -1740,8 +1797,6 @@ Applies to @tokenizer/inflate@0.4.1.
 Copyright notices:
 
 - Copyright (c) 2024, Borewit
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the
 
 ```text
 Copyright (c) 2024, Borewit
@@ -1768,8 +1823,6 @@ Applies to util-deprecate@1.0.2.
 Copyright notices:
 
 - Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -1804,9 +1857,7 @@ Applies to retry@0.13.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2011:
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2011:
@@ -1838,9 +1889,7 @@ Applies to @grammyjs/types@3.28.0, grammy@1.44.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021-2024 KnorpelSenf
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -1872,9 +1921,7 @@ Applies to y-indexeddb@9.0.12.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -1909,8 +1956,6 @@ Applies to commander@13.1.0, commander@2.20.3, commander@7.2.0, commander@8.3.0,
 Copyright notices:
 
 - Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -1943,9 +1988,7 @@ Applies to unified@11.0.5, vfile@6.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -1977,9 +2020,7 @@ Applies to package-manager-detector@1.7.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020-PRESENT Anthony Fu <https://github.com/antfu>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -2011,9 +2052,7 @@ Applies to @codemirror/autocomplete@6.20.3, @codemirror/commands@6.10.4, @codemi
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2018-2021 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 MIT License
@@ -2045,9 +2084,7 @@ Applies to buffer@5.7.1, buffer@6.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Feross Aboukhadijeh, and other contributors.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -2079,19 +2116,9 @@ Applies to @aws-sdk/eventstream-handler-node@3.972.26, @aws-sdk/middleware-webso
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                 Apache License
@@ -2304,10 +2331,6 @@ Applies to d3-array@2.12.1.
 Copyright notices:
 
 - Copyright 2010-2020 Mike Bostock
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright 2010-2020 Mike Bostock
@@ -2345,9 +2368,7 @@ Applies to cssfilter@0.0.10.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 老雷
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -2379,8 +2400,6 @@ Applies to bcryptjs@3.0.3.
 
 Copyright notices:
 
-- 1. Redistributions of source code must retain the above copyright
-- 2. Redistributions in binary form must reproduce the above copyright
 - Copyright (c) 2012 Nevins Bartolomeo <nevins.bartolomeo@gmail.com>
 - Copyright (c) 2012 Shane Girish <shaneGirish@gmail.com>
 - Copyright (c) 2025 Daniel Wirtz <dcode@dcode.io>
@@ -2421,9 +2440,7 @@ Applies to @braintree/sanitize-url@6.0.2, @braintree/sanitize-url@7.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Braintree
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -2455,9 +2472,7 @@ Applies to better-sqlite3@12.11.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Joshua Wise
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -2491,7 +2506,6 @@ Copyright notices:
 
 - Copyright 2002 Cynthia Brewer, Mark Harrower, and The Pennsylvania State University
 - Copyright 2010-2024 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2010-2024 Mike Bostock
@@ -2530,17 +2544,8 @@ Applies to @aws/lambda-invoke-store@0.3.0.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 
@@ -2726,9 +2731,7 @@ Applies to prebuild-install@7.1.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 Mathias Buus
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -2761,7 +2764,6 @@ Applies to delaunator@5.1.0.
 Copyright notices:
 
 - Copyright (c) 2026, Mapbox
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 ISC License
@@ -2787,18 +2789,9 @@ Applies to class-variance-authority@0.7.1.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2022 Joe Bell
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -3000,8 +2993,6 @@ Applies to convert-source-map@2.0.0.
 Copyright notices:
 
 - Copyright 2013 Thorsten Lorenz.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright 2013 Thorsten Lorenz.
@@ -3035,17 +3026,8 @@ Applies to seed-skill:frontend-design@repository-version, pdfjs-dist@5.4.296, pd
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 
@@ -3234,8 +3216,6 @@ Applies to cookie-signature@1.2.2.
 Copyright notices:
 
 - Copyright (c) 2012–2024 LearnBoost <tj@learnboost.com> and other contributors;
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -3269,8 +3249,6 @@ Applies to @floating-ui/core@1.8.0, @floating-ui/dom@1.8.0, @floating-ui/react-d
 Copyright notices:
 
 - Copyright (c) 2021-present Floating UI contributors
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -3299,13 +3277,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Applies to estraverse@5.3.0, esutils@2.0.3.
 
-Copyright notices:
-
-- ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
-
 ```text
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -3330,13 +3301,11 @@ THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text 0e80a2d229d2
 
-Applies to @radix-ui/number@1.1.2, @radix-ui/primitive@1.1.5, @radix-ui/react-accessible-icon@1.1.11, @radix-ui/react-accordion@1.2.16, @radix-ui/react-alert-dialog@1.1.19, @radix-ui/react-arrow@1.1.11, @radix-ui/react-aspect-ratio@1.1.11, @radix-ui/react-avatar@1.2.2, @radix-ui/react-checkbox@1.3.7, @radix-ui/react-collapsible@1.1.16, @radix-ui/react-collection@1.1.12, @radix-ui/react-compose-refs@1.1.3, @radix-ui/react-context-menu@2.3.3, @radix-ui/react-context@1.2.0, @radix-ui/react-dialog@1.1.19, @radix-ui/react-direction@1.1.2, @radix-ui/react-dismissable-layer@1.1.15, @radix-ui/react-dropdown-menu@2.1.20, @radix-ui/react-focus-guards@1.1.4, @radix-ui/react-focus-scope@1.1.12, @radix-ui/react-form@0.1.12, @radix-ui/react-hover-card@1.1.19, @radix-ui/react-id@1.1.2, @radix-ui/react-label@2.1.11, @radix-ui/react-menu@2.1.20, @radix-ui/react-menubar@1.1.20, @radix-ui/react-navigation-menu@1.2.18, @radix-ui/react-one-time-password-field@0.1.12, @radix-ui/react-password-toggle-field@0.1.7, @radix-ui/react-popover@1.1.19, @radix-ui/react-popper@1.3.3, @radix-ui/react-portal@1.1.13, @radix-ui/react-presence@1.1.7, @radix-ui/react-primitive@2.1.7, @radix-ui/react-progress@1.1.12, @radix-ui/react-radio-group@1.4.3, @radix-ui/react-roving-focus@1.1.15, @radix-ui/react-scroll-area@1.2.14, @radix-ui/react-select@2.3.3, @radix-ui/react-separator@1.1.11, @radix-ui/react-slider@1.4.3, @radix-ui/react-slot@1.3.0, @radix-ui/react-switch@1.3.3, @radix-ui/react-tabs@1.1.17, @radix-ui/react-toast@1.2.19, @radix-ui/react-toggle-group@1.1.15, @radix-ui/react-toggle@1.1.14, @radix-ui/react-toolbar@1.1.15, @radix-ui/react-tooltip@1.2.12, @radix-ui/react-use-callback-ref@1.1.2, @radix-ui/react-use-controllable-state@1.2.3, @radix-ui/react-use-effect-event@0.0.3, @radix-ui/react-use-escape-keydown@1.1.3, @radix-ui/react-use-is-hydrated@0.1.1, @radix-ui/react-use-layout-effect@1.1.2, @radix-ui/react-use-previous@1.1.2, @radix-ui/react-use-rect@1.1.2, @radix-ui/react-use-size@1.1.2, @radix-ui/react-visually-hidden@1.2.7, @radix-ui/rect@1.1.2, radix-ui@1.6.2.
+Applies to @radix-ui/number@1.1.2, @radix-ui/primitive@1.0.0, @radix-ui/primitive@1.1.1, @radix-ui/primitive@1.1.5, @radix-ui/react-accessible-icon@1.1.11, @radix-ui/react-accordion@1.2.16, @radix-ui/react-alert-dialog@1.1.19, @radix-ui/react-arrow@1.1.11, @radix-ui/react-arrow@1.1.2, @radix-ui/react-aspect-ratio@1.1.11, @radix-ui/react-avatar@1.2.2, @radix-ui/react-checkbox@1.3.7, @radix-ui/react-collapsible@1.1.16, @radix-ui/react-collection@1.0.1, @radix-ui/react-collection@1.1.12, @radix-ui/react-compose-refs@1.0.0, @radix-ui/react-compose-refs@1.0.0, @radix-ui/react-compose-refs@1.0.0, @radix-ui/react-compose-refs@1.1.1, @radix-ui/react-compose-refs@1.1.3, @radix-ui/react-context-menu@2.3.3, @radix-ui/react-context@1.0.0, @radix-ui/react-context@1.1.1, @radix-ui/react-context@1.2.0, @radix-ui/react-dialog@1.1.19, @radix-ui/react-direction@1.0.0, @radix-ui/react-direction@1.1.2, @radix-ui/react-dismissable-layer@1.1.15, @radix-ui/react-dismissable-layer@1.1.5, @radix-ui/react-dropdown-menu@2.1.20, @radix-ui/react-focus-guards@1.1.1, @radix-ui/react-focus-guards@1.1.4, @radix-ui/react-focus-scope@1.1.12, @radix-ui/react-focus-scope@1.1.2, @radix-ui/react-form@0.1.12, @radix-ui/react-hover-card@1.1.19, @radix-ui/react-id@1.0.0, @radix-ui/react-id@1.1.0, @radix-ui/react-id@1.1.2, @radix-ui/react-label@2.1.11, @radix-ui/react-menu@2.1.20, @radix-ui/react-menubar@1.1.20, @radix-ui/react-navigation-menu@1.2.18, @radix-ui/react-one-time-password-field@0.1.12, @radix-ui/react-password-toggle-field@0.1.7, @radix-ui/react-popover@1.1.19, @radix-ui/react-popover@1.1.6, @radix-ui/react-popper@1.2.2, @radix-ui/react-popper@1.3.3, @radix-ui/react-portal@1.1.13, @radix-ui/react-portal@1.1.4, @radix-ui/react-presence@1.0.0, @radix-ui/react-presence@1.1.2, @radix-ui/react-presence@1.1.7, @radix-ui/react-primitive@1.0.1, @radix-ui/react-primitive@2.0.2, @radix-ui/react-primitive@2.1.7, @radix-ui/react-progress@1.1.12, @radix-ui/react-radio-group@1.4.3, @radix-ui/react-roving-focus@1.0.2, @radix-ui/react-roving-focus@1.1.15, @radix-ui/react-scroll-area@1.2.14, @radix-ui/react-select@2.3.3, @radix-ui/react-separator@1.1.11, @radix-ui/react-slider@1.4.3, @radix-ui/react-slot@1.0.1, @radix-ui/react-slot@1.0.1, @radix-ui/react-slot@1.1.2, @radix-ui/react-slot@1.3.0, @radix-ui/react-switch@1.3.3, @radix-ui/react-tabs@1.0.2, @radix-ui/react-tabs@1.1.17, @radix-ui/react-toast@1.2.19, @radix-ui/react-toggle-group@1.1.15, @radix-ui/react-toggle@1.1.14, @radix-ui/react-toolbar@1.1.15, @radix-ui/react-tooltip@1.2.12, @radix-ui/react-use-callback-ref@1.0.0, @radix-ui/react-use-callback-ref@1.0.0, @radix-ui/react-use-callback-ref@1.1.0, @radix-ui/react-use-callback-ref@1.1.2, @radix-ui/react-use-controllable-state@1.0.0, @radix-ui/react-use-controllable-state@1.1.0, @radix-ui/react-use-controllable-state@1.2.3, @radix-ui/react-use-effect-event@0.0.3, @radix-ui/react-use-escape-keydown@1.1.0, @radix-ui/react-use-escape-keydown@1.1.3, @radix-ui/react-use-is-hydrated@0.1.1, @radix-ui/react-use-layout-effect@1.0.0, @radix-ui/react-use-layout-effect@1.0.0, @radix-ui/react-use-layout-effect@1.1.0, @radix-ui/react-use-layout-effect@1.1.2, @radix-ui/react-use-previous@1.1.2, @radix-ui/react-use-rect@1.1.0, @radix-ui/react-use-rect@1.1.2, @radix-ui/react-use-size@1.1.0, @radix-ui/react-use-size@1.1.2, @radix-ui/react-visually-hidden@1.2.7, @radix-ui/rect@1.1.0, @radix-ui/rect@1.1.2, radix-ui@1.6.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 WorkOS
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -3368,9 +3337,7 @@ Applies to libmime@5.4.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-2016 Andris Reinman
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2014-2016 Andris Reinman
@@ -3394,6 +3361,83 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
+### License text 0fac23743806
+
+Applies to saxes@6.0.0.
+
+Copyright notices:
+
+- Copyright (c) Contributors
+- Copyright (c) Isaac Z. Schlueter and Contributors
+- Copyright Mathias Bynens <https://mathiasbynens.be/>
+
+```text
+The ISC License
+
+Copyright (c) Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
+IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+====
+
+The following license is the one that governed sax, from which saxes
+was forked. Isaac Schlueter is not *directly* involved with saxes so
+don't go bugging him for saxes issues.
+
+The ISC License
+
+Copyright (c) Isaac Z. Schlueter and Contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR
+ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN
+ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR
+IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+
+====
+
+`String.fromCodePoint` by Mathias Bynens is no longer used, but it can
+still be found in old commits. It was once used according to terms of
+MIT License, as follows:
+
+    Copyright Mathias Bynens <https://mathiasbynens.be/>
+
+    Permission is hereby granted, free of charge, to any person obtaining
+    a copy of this software and associated documentation files (the
+    "Software"), to deal in the Software without restriction, including
+    without limitation the rights to use, copy, modify, merge, publish,
+    distribute, sublicense, and/or sell copies of the Software, and to
+    permit persons to whom the Software is furnished to do so, subject to
+    the following conditions:
+
+    The above copyright notice and this permission notice shall be
+    included in all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+    EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+    MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+    NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+    LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+    OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+    WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ### License text 1033ec013241
 
 Applies to @protobufjs/aspromise@1.1.2, @protobufjs/base64@1.1.2, @protobufjs/codegen@2.0.5, @protobufjs/eventemitter@1.1.1, @protobufjs/fetch@1.1.1, @protobufjs/float@1.0.2, @protobufjs/path@1.1.2, @protobufjs/pool@1.1.0, @protobufjs/utf8@1.1.2.
@@ -3402,9 +3446,6 @@ Copyright notices:
 
 - A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
 - Copyright (c) 2016, Daniel Wirtz  All rights reserved.
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 
 ```text
 Copyright (c) 2016, Daniel Wirtz  All rights reserved.
@@ -3441,9 +3482,7 @@ Applies to tsx@4.23.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Hiroki Osame <hiroki.osame@gmail.com>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -3476,8 +3515,6 @@ Applies to @babel/code-frame@7.29.7, @babel/compat-data@7.29.7, @babel/core@7.29
 Copyright notices:
 
 - Copyright (c) 2014-present Sebastian McKenzie and other contributors
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 MIT License
@@ -3511,8 +3548,6 @@ Applies to color-convert@2.0.1.
 Copyright notices:
 
 - Copyright (c) 2011-2016 Heather Arthur <fayearthur@gmail.com>
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2011-2016 Heather Arthur <fayearthur@gmail.com>
@@ -3545,8 +3580,6 @@ Copyright notices:
 
 - Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2014-2017 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 
@@ -3581,9 +3614,7 @@ Applies to csstype@3.2.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017-2018 Fredrik Nicol
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2017-2018 Fredrik Nicol
@@ -3613,9 +3644,7 @@ Applies to @standard-schema/utils@0.3.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Fabian Hiller
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -3647,19 +3676,9 @@ Applies to seed-skill:algorithmic-art@repository-version, seed-skill:brand-guide
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2026 Anthropic, PBC.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 
@@ -3872,9 +3891,7 @@ Applies to tmp@0.2.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 KARASZI István
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -3907,8 +3924,6 @@ Applies to buffer-crc32@0.2.13.
 Copyright notices:
 
 - Copyright (c) 2013 Brian J. Brennan
-- PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License
@@ -3938,9 +3953,7 @@ Applies to ms@2.1.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Vercel, Inc.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -3972,10 +3985,8 @@ Applies to wicked-good-xpath@1.3.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2007 Cybozu Labs, Inc.
 - Copyright (c) 2012 Google Inc.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 
@@ -4010,8 +4021,6 @@ Applies to fd-slicer@1.1.0.
 Copyright notices:
 
 - Copyright (c) 2014 Andrew Kelley
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2014 Andrew Kelley
@@ -4044,8 +4053,6 @@ Applies to nanostores@1.4.0.
 Copyright notices:
 
 - Copyright 2020 Andrey Sitnik <andrey@sitnik.es>
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -4076,9 +4083,7 @@ Applies to node-fetch@3.3.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 - 2020 Node Fetch Team
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -4110,9 +4115,7 @@ Applies to json-schema-to-ts@3.1.1, ts-algebra@2.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Thomas Aribart
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -4144,19 +4147,9 @@ Applies to @aws-sdk/client-bedrock-runtime@3.1048.0.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2018-2023 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                 Apache License
@@ -4368,9 +4361,6 @@ Applies to ieee754@1.2.1.
 
 Copyright notices:
 
-- 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-- 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-- 3. Neither the name of the copyright holder nor the names of its contributors may be used to endorse or promote products derived from this software without specific prior written permission.
 - Copyright 2008 Fair Oaks Labs, Inc.
 
 ```text
@@ -4393,9 +4383,7 @@ Applies to pg-cloudflare@1.4.0, pg-protocol@1.15.0, pg@8.22.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2010 - 2021 Brian Carlson
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -4428,8 +4416,6 @@ Applies to unpipe@1.0.0.
 Copyright notices:
 
 - Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -4463,8 +4449,6 @@ Applies to cors@2.8.6.
 Copyright notices:
 
 - Copyright (c) 2013 Troy Goode <troygoode@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -4497,9 +4481,7 @@ Applies to @jridgewell/resolve-uri@3.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright 2019 Justin Ridgewell <jridgewell@google.com>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright 2019 Justin Ridgewell <jridgewell@google.com>
@@ -4530,8 +4512,6 @@ Applies to iron-webcrypto@1.2.1.
 Copyright notices:
 
 - Copyright (c) 2021 Divyansh Singh
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -4562,9 +4542,7 @@ Applies to mitt@3.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Jason Miller
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -4597,8 +4575,6 @@ Applies to magic-string@0.30.21.
 Copyright notices:
 
 - Copyright 2018 Rich Harris
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright 2018 Rich Harris
@@ -4617,7 +4593,6 @@ Applies to y18n@5.0.8.
 Copyright notices:
 
 - Copyright (c) 2015, Contributors
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright (c) 2015, Contributors
@@ -4641,9 +4616,7 @@ Applies to has-symbols@1.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Jordan Harband
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -4675,9 +4648,7 @@ Applies to @emnapi/runtime@1.11.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021-present Toyobayashi
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -4710,8 +4681,6 @@ Applies to browserslist@4.28.6.
 Copyright notices:
 
 - Copyright 2014 Andrey Sitnik <andrey@sitnik.es> and other contributors
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -4738,23 +4707,13 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 21da174fa230
 
-Applies to @swc/core-darwin-arm64@1.15.43, @swc/core-darwin-x64@1.15.43, @swc/core-linux-arm-gnueabihf@1.15.43, @swc/core-linux-arm64-gnu@1.15.43, @swc/core-linux-arm64-musl@1.15.43, @swc/core-linux-ppc64-gnu@1.15.43, @swc/core-linux-s390x-gnu@1.15.43, @swc/core-linux-x64-gnu@1.15.43, @swc/core-linux-x64-musl@1.15.43, @swc/core-win32-arm64-msvc@1.15.43, @swc/core-win32-ia32-msvc@1.15.43, @swc/core-win32-x64-msvc@1.15.43, @swc/core@1.15.43, @swc/helpers@0.5.15, @swc/types@0.1.27.
+Applies to @swc/core-darwin-arm64@1.15.43, @swc/core-darwin-x64@1.15.43, @swc/core-linux-arm-gnueabihf@1.15.43, @swc/core-linux-arm64-gnu@1.15.43, @swc/core-linux-arm64-musl@1.15.43, @swc/core-linux-ppc64-gnu@1.15.43, @swc/core-linux-s390x-gnu@1.15.43, @swc/core-linux-x64-gnu@1.15.43, @swc/core-linux-x64-musl@1.15.43, @swc/core-win32-arm64-msvc@1.15.43, @swc/core-win32-ia32-msvc@1.15.43, @swc/core-win32-x64-msvc@1.15.43, @swc/core@1.15.43, @swc/counter@0.1.3, @swc/helpers@0.5.15, @swc/types@0.1.27.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2024 SWC contributors.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                               Apache License
@@ -4966,9 +4925,7 @@ Applies to js-tokens@4.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014, 2015, 2016, 2017, 2018 Simon Lydell
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -5000,9 +4957,7 @@ Applies to fs-constants@1.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 Mathias Buus
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -5034,8 +4989,6 @@ Applies to tough-cookie@6.0.2.
 
 Copyright notices:
 
-- 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-- 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
 - Copyright (c) 2015, Salesforce.com, Inc.
 
 ```text
@@ -5059,9 +5012,7 @@ Applies to image-blob-reduce@3.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2020 by authors
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -5093,9 +5044,7 @@ Applies to crelt@1.0.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2020 by Marijn Haverbeke <marijn@haverbeke.berlin>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2020 by Marijn Haverbeke <marijn@haverbeke.berlin>
@@ -5127,8 +5076,6 @@ Copyright notices:
 
 - Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -5164,8 +5111,6 @@ Copyright notices:
 
 - Copyright (c) 2014-2017 TJ Holowaychuk <tj@vision-media.ca>
 - Copyright (c) 2018-2021 Josh Junon
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-- The above copyright notice and this permission notice shall be included in all copies or substantial
 
 ```text
 (The MIT License)
@@ -5196,8 +5141,6 @@ Applies to jsdom@29.1.1.
 Copyright notices:
 
 - Copyright (c) 2010 Elijah Insua
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2010 Elijah Insua
@@ -5230,10 +5173,8 @@ Applies to @noble/ciphers@2.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Thomas Pornin <pornin@bolet.org>
 - Copyright (c) 2022 Paul Miller (https://paulmillr.com)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -5266,9 +5207,7 @@ Applies to styled-jsx@5.1.6.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-present Vercel, Inc.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -5303,8 +5242,6 @@ Copyright notices:
 - Copyright (c) 2012-2013 TJ Holowaychuk
 - Copyright (c) 2015 Andreas Lubbe
 - Copyright (c) 2015 Tiancheng "Timothy" Gu
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -5340,8 +5277,6 @@ Applies to content-type@1.0.5, content-type@2.0.0, content-type@2.0.0.
 Copyright notices:
 
 - Copyright (c) 2015 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -5376,8 +5311,6 @@ Copyright notices:
 
 - Copyright (c) 2012 TJ Holowaychuk
 - Copyright (c) 2014-2022 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -5412,7 +5345,6 @@ Applies to electron-to-chromium@1.5.389.
 Copyright notices:
 
 - Copyright 2018 Kilian Valkhof
-- Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
 
 ```text
 Copyright 2018 Kilian Valkhof
@@ -5428,12 +5360,8 @@ Applies to json-schema-typed@8.0.2.
 
 Copyright notices:
 
-- 1. Redistributions of source code must retain the above copyright notice, this
-- 2. Redistributions in binary form must reproduce the above copyright notice,
 - All JSON Schema documentation and descriptions are copyright (c):
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
 - Original source code is copyright (c) 2019-2025 Remy Rylan
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 BSD 2-Clause License
@@ -5501,9 +5429,7 @@ Applies to libbase64@1.3.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-2017 Andris Reinman
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2014-2017 Andris Reinman
@@ -5533,9 +5459,7 @@ Applies to @types/retry@0.12.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Microsoft Corporation. All rights reserved.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
     MIT License
@@ -5567,9 +5491,7 @@ Applies to cytoscape-fcose@2.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 - present, iVis-at-Bilkent.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2018 - present, iVis-at-Bilkent.
@@ -5600,8 +5522,6 @@ Applies to postcss-selector-parser@7.1.4.
 Copyright notices:
 
 - Copyright (c) Ben Briggs <beneb.info@gmail.com> (http://beneb.info)
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) Ben Briggs <beneb.info@gmail.com> (http://beneb.info)
@@ -5659,7 +5579,6 @@ Applies to d3-format@3.1.2.
 Copyright notices:
 
 - Copyright 2010-2026 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2010-2026 Mike Bostock
@@ -5683,11 +5602,9 @@ Applies to require-in-the-middle@8.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-2019, Thomas Watson Steen
 - Copyright (c) 2019-2025, Elasticsearch B.V.
 - Copyright (c) 2025+, require-in-the-middle contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -5721,9 +5638,7 @@ Applies to fsevents@2.3.2, fsevents@2.3.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 MIT License
@@ -5756,9 +5671,7 @@ Applies to cosmiconfig@9.0.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 David Clark
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -5793,8 +5706,6 @@ Copyright notices:
 - Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
 - Copyright (c) 2013 Arnout Kazemier and contributors
 - Copyright (c) 2016 Luigi Pinca and contributors
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
@@ -5825,9 +5736,7 @@ Applies to @marp-team/marpit@3.2.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018- Marp team (marp-team@marp.app)
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -5859,9 +5768,7 @@ Applies to dunder-proto@1.0.1, math-intrinsics@1.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 ECMAScript Shims
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -5893,9 +5800,7 @@ Applies to prismjs@1.30.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012 Lea Verou
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 MIT LICENSE
@@ -5928,10 +5833,6 @@ Applies to d3-sankey@0.12.3.
 Copyright notices:
 
 - Copyright 2015, Mike Bostock
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright 2015, Mike Bostock
@@ -5969,9 +5870,7 @@ Applies to @lifeomic/attempt@3.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright 2018 LifeOmic
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -6004,7 +5903,6 @@ Applies to glob-parent@5.1.2.
 Copyright notices:
 
 - Copyright (c) 2015, 2019 Elan Shanker
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 The ISC License
@@ -6098,8 +5996,6 @@ Applies to sigma@3.0.3.
 Copyright notices:
 
 - Copyright (C) 2013-2025, Alexis Jacomy, Guillaume Plique, Benoît Simard https://www.sigmajs.org
-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 ```text
 Copyright (C) 2013-2025, Alexis Jacomy, Guillaume Plique, Benoît Simard https://www.sigmajs.org
@@ -6123,7 +6019,6 @@ Applies to cliui@8.0.1, cliui@9.0.1.
 Copyright notices:
 
 - Copyright (c) 2015, Contributors
-- that the above copyright notice and this permission notice
 
 ```text
 Copyright (c) 2015, Contributors
@@ -6148,9 +6043,7 @@ Applies to libqp@2.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-2022 Andris Reinman
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2014-2022 Andris Reinman
@@ -6180,9 +6073,7 @@ Applies to @babel/parser@7.29.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2012-2014 by various contributors (see AUTHORS)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2012-2014 by various contributors (see AUTHORS)
@@ -6212,9 +6103,7 @@ Applies to @asamuzakjp/css-color@5.1.11.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 asamuzaK (Kazz)
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -6246,9 +6135,7 @@ Applies to yargs@17.7.3, yargs@18.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright 2010 James Halliday (mail@substack.net); Modified work Copyright 2014 Contributors (ben@npmjs.com)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 MIT License
@@ -6280,7 +6167,6 @@ Applies to mailparser@3.9.14.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 - 2025 Andris Reinman
 
 ```text
@@ -6302,15 +6188,46 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text 2fddaa39f078
+
+Applies to isarray@1.0.0, isarray@1.0.0.
+
+Copyright notices:
+
+- Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>
+
+```text
+
+(MIT)
+
+Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License text 306fa513e39b
 
 Applies to dequal@2.0.3, kleur@4.1.5.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -6342,9 +6259,7 @@ Applies to aria-hidden@1.2.6, react-remove-scroll@2.7.2, react-style-singleton@2
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Anton Korzunov
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -6377,8 +6292,6 @@ Applies to image-size@1.2.1.
 Copyright notices:
 
 - Copyright © 2013-Present Aditya Yadav, http://netroy.in
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED “AS IS”, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -6398,9 +6311,7 @@ Applies to pino-abstract-transport@3.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 pino
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -6432,9 +6343,7 @@ Applies to @noble/hashes@2.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 Paul Miller (https://paulmillr.com)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -6466,9 +6375,7 @@ Applies to core-util-is@1.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright Node.js contributors. All rights reserved.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright Node.js contributors. All rights reserved.
@@ -6498,9 +6405,7 @@ Applies to yjs@13.6.31.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -6534,9 +6439,7 @@ Applies to braces@3.0.3, fill-range@7.1.1, is-number@7.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-present, Jon Schlinkert.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -6569,7 +6472,6 @@ Applies to yargs-parser@21.1.1, yargs-parser@22.0.0.
 Copyright notices:
 
 - Copyright (c) 2016, Contributors
-- that the above copyright notice and this permission notice
 
 ```text
 Copyright (c) 2016, Contributors
@@ -6594,14 +6496,7 @@ Applies to mdn-data@2.27.1.
 
 Copyright notices:
 
-- 1. Copyright and Related Rights. A Work made available under CC0 may be
-- any person's Copyright and Related Rights in the Work. Further, Affirmer
-- Copyright and Related Rights in the Work and the meaning and intended legal
-- Copyright and Related Rights in the Work or (ii) assert any associated claims
-- exclusive Copyright and Related Rights (defined below) upon the creator and
 - protected by copyright and related or neighboring rights ("Copyright and
-- Related Rights"). Copyright and Related Rights include, but are not limited
-- unconditional license to exercise Affirmer's Copyright and Related Rights in
 - unconditionally waives, abandons, and surrenders all of Affirmer's Copyright
 - Work (the "Affirmer"), to the extent that he or she is an owner of Copyright
 
@@ -6730,9 +6625,7 @@ Applies to node-releases@2.0.51.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Sergey Rubanov (https://github.com/chicoxyzzy)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License
@@ -6764,10 +6657,8 @@ Applies to raw-body@3.0.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013-2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2014-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -6801,8 +6692,6 @@ Applies to queue@6.0.2.
 Copyright notices:
 
 - Copyright (c) 2014 Jesse Tane <jesse.tane@gmail.com>
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -6822,8 +6711,6 @@ Applies to inline-style-parser@0.2.7.
 Copyright notices:
 
 - Copyright (c) 2012 TJ Holowaychuk <tj@vision-media.ca>
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 (The MIT License)
@@ -6843,9 +6730,7 @@ Applies to get-intrinsic@1.3.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Jordan Harband
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -6877,9 +6762,7 @@ Applies to safe-stable-stringify@2.5.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Ruben Bridgewater
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -6911,9 +6794,7 @@ Applies to @excalidraw/markdown-to-text@0.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Daniel Esteves
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -6945,9 +6826,7 @@ Applies to eventemitter3@5.0.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Arnout Kazemier
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -6979,9 +6858,7 @@ Applies to jotai-scope@0.7.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023 Daishi Kato
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -7015,9 +6892,6 @@ Copyright notices:
 
 - Copyright 2008-2012 Charles Karney
 - Copyright 2010-2024 Mike Bostock
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2010-2024 Mike Bostock
@@ -7063,7 +6937,6 @@ Applies to d3-array@3.2.4, d3@7.9.0.
 Copyright notices:
 
 - Copyright 2010-2023 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2010-2023 Mike Bostock
@@ -7087,9 +6960,7 @@ Applies to zod@3.25.76, zod@3.25.76, zod@4.4.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Colin McDonnell
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -7122,8 +6993,6 @@ Applies to decimal.js-light@2.5.1.
 Copyright notices:
 
 - Copyright (c) 2020 Michael Mclaughlin
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT Expat Licence.
@@ -7156,9 +7025,7 @@ Applies to remark-parse@11.0.0, remark-stringify@11.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Titus Wormer <tituswormer@gmail.com>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -7190,19 +7057,9 @@ Applies to seed-skill:skill-creator@repository-version.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2026 Anthropic, PBC.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 
@@ -7411,23 +7268,13 @@ Copyright notices:
 
 ### License text 4186c3f89c23
 
-Applies to @aws-sdk/core@3.975.1.
+Applies to @aws-sdk/core@3.975.1, @aws-sdk/credential-provider-http@3.972.59, @aws-sdk/credential-provider-login@3.972.63, @aws-sdk/nested-clients@3.997.31.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2018 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 Apache License
@@ -7639,9 +7486,7 @@ Applies to fast-fifo@1.3.2, streamx@2.28.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Mathias Buus
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -7674,8 +7519,6 @@ Applies to chart.js@4.5.1.
 Copyright notices:
 
 - Copyright (c) 2014-2024 Chart.js Contributors
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -7695,9 +7538,7 @@ Applies to formdata-polyfill@4.0.10.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Jimmy Karl Roland Wärting
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -7727,11 +7568,6 @@ SOFTWARE.
 
 Applies to github-from-package@0.0.0, minimist@1.2.8, webworkify@1.5.0.
 
-Copyright notices:
-
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
-
 ```text
 This software is released under the MIT license:
 
@@ -7759,10 +7595,8 @@ Applies to html-to-text@10.0.0.
 
 Copyright notices:
 
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
 - Portions Copyright (c) 2012-2019 werk85 <malte@werk85.de>
 - Portions Copyright (c) 2020-2026 KillyMXI <killy@mxii.eu.org>
-- The above copyright notice and this permission notice shall be
 
 ```text
 MIT License
@@ -7799,8 +7633,6 @@ Applies to nanoid@5.1.16.
 Copyright notices:
 
 - Copyright 2017 Andrey Sitnik <andrey@sitnik.es>
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -7832,7 +7664,6 @@ Applies to lru-cache@7.18.3.
 Copyright notices:
 
 - Copyright (c) 2010-2023 Isaac Z. Schlueter and Contributors
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 The ISC License
@@ -7858,9 +7689,7 @@ Applies to lines-and-columns@1.2.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 Brian Donovan
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -7892,9 +7721,7 @@ Applies to xmlchars@2.2.0.
 
 Copyright notices:
 
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
 - Copyright Louis-Dominique Dubeau and contributors to xmlchars
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright Louis-Dominique Dubeau and contributors to xmlchars
@@ -7923,9 +7750,7 @@ Applies to defu@6.1.7, rou3@0.7.12, uncrypto@0.1.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Pooya Parsa <pooya@pi0.io>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -7957,7 +7782,6 @@ Applies to imapflow@1.4.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020-2024 Postal Systems OÜ
 
 ```text
@@ -7985,9 +7809,7 @@ Applies to on-exit-leak-free@2.1.2, thread-stream@4.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Matteo Collina
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -8020,8 +7842,6 @@ Applies to finalhandler@2.1.1.
 Copyright notices:
 
 - Copyright (c) 2014-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -8055,8 +7875,6 @@ Applies to cssesc@3.0.0, emoji-regex@10.6.0, emoji-regex@8.0.0, he@1.2.0, is-pot
 Copyright notices:
 
 - Copyright Mathias Bynens <https://mathiasbynens.be/>
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright Mathias Bynens <https://mathiasbynens.be/>
@@ -8088,8 +7906,6 @@ Applies to ansi-regex@5.0.1, ansi-styles@4.3.0, callsites@3.1.0, env-paths@2.2.1
 Copyright notices:
 
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -8110,8 +7926,6 @@ Applies to png-chunk-text@1.0.0, png-chunks-encode@1.0.0, png-chunks-extract@1.0
 Copyright notices:
 
 - Copyright (c) 2015 Hugh Kennedy
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -8142,9 +7956,7 @@ Applies to @reduxjs/toolkit@2.12.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 Mark Erikson
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -8170,15 +7982,45 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text 497d5a703622
+
+Applies to @sentry/server-utils@10.65.0.
+
+Copyright notices:
+
+- Copyright (c) 2012 Functional Software, Inc. dba Sentry
+
+```text
+MIT License
+
+Copyright (c) 2012 Functional Software, Inc. dba Sentry
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the "Software"), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
+of the Software, and to permit persons to whom the Software is furnished to do
+so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License text 499d6d466d06
 
 Applies to tr46@6.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Sebastian Mayr
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -8211,8 +8053,6 @@ Applies to bidi-js@1.0.3.
 Copyright notices:
 
 - Copyright (c) 2021 Jason Johnston
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2021 Jason Johnston
@@ -8247,9 +8087,6 @@ Copyright notices:
 
 - A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
 - Copyright (c) 2016, Daniel Wirtz  All rights reserved.
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 
 ```text
 This license applies to all parts of protobuf.js except those files
@@ -8299,9 +8136,7 @@ Applies to htmlparser2@10.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright 2010, 2011, Chris Winberry <chris@winberry.net>. All rights reserved.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright 2010, 2011, Chris Winberry <chris@winberry.net>. All rights reserved.
@@ -8332,8 +8167,6 @@ Copyright notices:
 
 - Copyright (c) Lea Verou
 - Copyright (c) Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -8367,9 +8200,7 @@ Applies to safer-buffer@2.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 Nikita Skovoroda <chalkerx@gmail.com>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -8403,8 +8234,6 @@ Copyright notices:
 
 - Copyright (c) 2014-present Sebastian McKenzie and other contributors
 - Copyright (c) 2014-present, Facebook, Inc. (ONLY ./src/helpers/regenerator* files)
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 MIT License
@@ -8438,9 +8267,7 @@ Applies to is-glob@4.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-2017, Jon Schlinkert.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -8472,19 +8299,9 @@ Applies to xlsx@0.20.3.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright (C) 2012-present   SheetJS LLC
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -8698,8 +8515,6 @@ Copyright notices:
 
 - Copyright 2012 - 2017 @jindw <jindw@xidea.org> and other contributors, as listed in: https://github.com/jindw/xmldom/graphs/contributors
 - Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright 2019 - present Christopher J. Brody and other contributors, as listed in: https://github.com/xmldom/xmldom/graphs/contributors
@@ -8719,7 +8534,6 @@ Applies to pg-int8@1.0.1.
 Copyright notices:
 
 - Copyright © 2017, Charmander <~@charmander.me>
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 Copyright © 2017, Charmander <~@charmander.me>
@@ -8744,7 +8558,6 @@ Applies to chownr@1.1.4, ini@1.3.8, isexe@2.0.0, lru-cache@5.1.1, once@1.4.0, se
 Copyright notices:
 
 - Copyright (c) Isaac Z. Schlueter and Contributors
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 The ISC License
@@ -8770,9 +8583,7 @@ Applies to path-to-regexp@8.4.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Blake Embrey (hello@blakeembrey.com)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -8804,9 +8615,7 @@ Applies to pg-pool@3.14.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Brian M. Carlson
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -8839,8 +8648,6 @@ Applies to socks@2.8.9.
 Copyright notices:
 
 - Copyright (c) 2013 Josh Glazebrook
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -8865,13 +8672,44 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### License text 4f6a1985796d
+
+Applies to @earendil-works/pi-agent-core@0.80.6, @earendil-works/pi-ai@0.80.6.
+
+Copyright notices:
+
+- Copyright (c) 2025 Mario Zechner
+
+```text
+MIT License
+
+Copyright (c) 2025 Mario Zechner
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License text 4f814dcacd2d
 
 Applies to nodemailer@9.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2011-2023 Andris Reinman
 
 ```text
@@ -8899,10 +8737,8 @@ Applies to json-parse-even-better-errors@2.3.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright 2017 Kat Marchán
 - Copyright npm, Inc.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright 2017 Kat Marchán
@@ -8938,19 +8774,9 @@ Applies to ecdsa-sig-formatter@1.0.11.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2015 D2L Corporation
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 Apache License
@@ -9162,10 +8988,8 @@ Applies to statuses@1.5.0, statuses@2.0.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2016 Douglas Christopher Wilson <doug@somethingdoug.com>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 
@@ -9232,9 +9056,7 @@ Applies to es-toolkit@1.49.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Viva Republica, Inc.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -9263,13 +9085,6 @@ SOFTWARE.
 ### License text 527adf9d4c76
 
 Applies to tunnel-agent@0.6.0.
-
-Copyright notices:
-
-- "Licensor" shall mean the copyright owner or entity authorized by the copyright owner that is granting the License.
-- "Work" shall mean the work of authorship, whether in Source or Object form, made available under the License, as indicated by a copyright notice that is included in or attached to the work (an example is provided in the Appendix below).
-- 2. Grant of Copyright License. Subject to the terms and conditions of this License, each Contributor hereby grants to You a perpetual, worldwide, non-exclusive, no-charge, royalty-free, irrevocable copyright license to reproduce, prepare Derivative Works of, publicly display, publicly perform, sublicense, and distribute the Work and such Derivative Works in Source or Object form.
-- You must retain, in the Source form of any Derivative Works that You distribute, all copyright, patent, trademark, and attribution notices from the Source form of the Work, excluding those notices that do not pertain to any part of the Derivative Works; and
 
 ```text
 Apache License
@@ -9336,8 +9151,6 @@ Applies to decimal.js@10.6.0.
 Copyright notices:
 
 - Copyright (c) 2025 Michael Mclaughlin
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT Licence.
@@ -9371,8 +9184,6 @@ Applies to data-urls@7.0.0, html-encoding-sniffer@6.0.0, whatwg-mimetype@5.0.0.
 Copyright notices:
 
 - Copyright © Domenic Denicola <d@domenic.me>
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright © Domenic Denicola <d@domenic.me>
@@ -9390,9 +9201,7 @@ Applies to rope-sequence@1.3.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin>
@@ -9423,8 +9232,6 @@ Applies to estree-util-is-identifier-name@3.0.0, mdast-util-frontmatter@2.0.1, m
 Copyright notices:
 
 - Copyright (c) 2020 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -9457,9 +9264,7 @@ Applies to json5@2.2.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012-2018 Aseem Kishore, and [others].
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -9494,8 +9299,6 @@ Applies to ignore@7.0.5.
 Copyright notices:
 
 - Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2013 Kael Zhang <i@kael.me>, contributors
@@ -9527,9 +9330,7 @@ Applies to lib0@0.2.117, y-prosemirror@1.3.7, y-protocols@1.0.6.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Kevin Jahns <kevin.jahns@protonmail.com>.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -9561,9 +9362,7 @@ Applies to detect-node-es@1.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Ilya Kantor
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -9595,9 +9394,7 @@ Applies to @lezer/cpp@1.1.6, @lezer/java@1.1.3, @lezer/markdown@1.7.1, @lezer/py
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2020 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 MIT License
@@ -9629,9 +9426,7 @@ Applies to @better-fetch/fetch@1.3.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Bereket Engida
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -9664,8 +9459,6 @@ Applies to compress-commons@7.0.1, crc32-stream@7.0.1, zip-stream@7.0.5.
 Copyright notices:
 
 - Copyright (c) 2014 Chris Talkington, contributors.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2014 Chris Talkington, contributors.
@@ -9701,8 +9494,6 @@ Copyright notices:
 - Copyright (c) 2012-2014 Federico Romero
 - Copyright (c) 2012-2014 Isaac Z. Schlueter
 - Copyright (c) 2014-2015 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -9737,9 +9528,7 @@ Applies to pica@7.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2014-2017 by Vitaly Puzrin
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -9771,9 +9560,7 @@ Applies to @iconify/types@2.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 - 2022 Vjacheslav Trushkin / Iconify OÜ
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -9808,31 +9595,13 @@ Copyright notices:
 - "aggregate" if the compilation and its resulting copyright are not
 - "Copyright" also means copyright-like laws that apply to other kinds of
 - (1) assert copyright on the software, and (2) offer you this License
-- 11 of the WIPO copyright treaty adopted on 20 December 1996, or
-- A "contributor" is a copyright holder who authorizes use under this
-- add to a covered work, you may (if authorized by the copyright holders of
 - APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT
-- appropriately publish on each copy an appropriate copyright notice;
-- author or copyright holder as a result of your choosing to follow a
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2007 Free Software Foundation, Inc. <http://fsf.org/>
 - Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso
-- copyright holder, and you cure the violation prior to 30 days after
 - copyright on the Program, and are irrevocable provided the stated
-- feature that (1) displays an appropriate copyright notice, and (2)
 - finally terminates your license, and (b) permanently, if the copyright
-- for which you have or can give appropriate copyright permission.
-- in a fashion requiring copyright permission, other than the making of an
-- infringement under applicable copyright law, except executing it on a
-- license from a particular copyright holder is reinstated (a)
 - modify any covered work.  These actions infringe copyright if you do
-- Moreover, your license from a particular copyright holder is
 - not control copyright.  Those thus making or running the covered works
-- provisionally, unless and until the copyright holder explicitly and
-- reinstated permanently if the copyright holder notifies you of the
-- rights of fair use or other equivalent, as provided by copyright law.
-- The above copyright notice and this permission notice shall be included in
-- WILL ANY COPYRIGHT HOLDER, OR ANY OTHER PARTY WHO MODIFIES AND/OR CONVEYS
 
 ```text
 JSZip is dual licensed. At your choice you may use it under the MIT license *or* the GPLv3
@@ -10494,9 +10263,7 @@ Applies to @lezer/common@1.5.2, @lezer/css@1.3.4, @lezer/highlight@1.2.3, @lezer
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 MIT License
@@ -10528,9 +10295,7 @@ Applies to @iconify/utils@3.1.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021-PRESENT Vjacheslav Trushkin
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -10564,7 +10329,6 @@ Copyright notices:
 
 - Copyright 2018-2021 Observable, Inc.
 - Copyright 2021 Mapbox
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2018-2021 Observable, Inc.
@@ -10589,9 +10353,7 @@ Applies to @pinojs/redact@0.4.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 pinojs contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -10623,9 +10385,7 @@ Applies to linkifyjs@4.3.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Nick Frasser
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2024 Nick Frasser
@@ -10655,9 +10415,7 @@ Applies to graphology-utils@2.5.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017-2021 Guillaume Plique (Yomguithereal)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -10713,8 +10471,6 @@ Applies to langium@3.3.1.
 Copyright notices:
 
 - Copyright 2021 TypeFox GmbH
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-- The above copyright notice and this permission notice shall be included in all copies or
 
 ```text
 Copyright 2021 TypeFox GmbH
@@ -10742,8 +10498,6 @@ Applies to process@0.11.10.
 Copyright notices:
 
 - Copyright (c) 2013 Roman Shtylman <shtylman@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -10776,11 +10530,7 @@ Applies to duck@0.1.12, lop@0.4.2, mammoth@1.12.0, option@0.2.4.
 
 Copyright notices:
 
-- 1. Redistributions of source code must retain the above copyright notice, this
-- 2. Redistributions in binary form must reproduce the above copyright notice,
 - Copyright (c) 2013, Michael Williamson
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright (c) 2013, Michael Williamson
@@ -10814,7 +10564,6 @@ Applies to anymatch@3.1.3.
 Copyright notices:
 
 - Copyright (c) 2019 Elan Shanker, Paul Miller (https://paulmillr.com)
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 The ISC License
@@ -10840,9 +10589,7 @@ Applies to basic-ftp@5.3.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Patrick Juchli
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2019 Patrick Juchli
@@ -10872,9 +10619,7 @@ Applies to quick-format-unescaped@4.0.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-2019 David Mark Clements
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -10906,9 +10651,7 @@ Applies to base64-js@1.5.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Jameson Little
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -10941,7 +10684,6 @@ Applies to yaml@2.9.0.
 Copyright notices:
 
 - Copyright Eemeli Aro <eemeli@gmail.com>
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright Eemeli Aro <eemeli@gmail.com>
@@ -10966,8 +10708,6 @@ Applies to postcss@8.5.15.
 Copyright notices:
 
 - Copyright 2013 Andrey Sitnik <andrey@sitnik.es>
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -10999,8 +10739,6 @@ Applies to vscode-uri@3.0.8.
 Copyright notices:
 
 - Copyright (c) Microsoft
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -11014,6 +10752,42 @@ The above copyright notice and this permission notice shall be included in all c
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### License text 5c16f15a2127
+
+Applies to data-uri-to-buffer@4.0.1.
+
+Copyright notices:
+
+- Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
+
+```text
+
+(The MIT License)
+
+Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+'Software'), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+[rfc]: http://tools.ietf.org/html/rfc2397
+```
+
 ### License text 5c81b0caa985
 
 Applies to lie@3.3.0.
@@ -11021,8 +10795,6 @@ Applies to lie@3.3.0.
 Copyright notices:
 
 - Copyright (c) 2014-2018 Calvin Metcalf, Jordan Harband
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.**
 
 ```text
 #Copyright (c) 2014-2018 Calvin Metcalf, Jordan Harband
@@ -11041,8 +10813,6 @@ Applies to ansi-regex@6.2.2, ansi-styles@6.2.3, decompress-response@6.0.0, escap
 Copyright notices:
 
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -11062,9 +10832,7 @@ Applies to @parcel/watcher-android-arm64@2.5.6, @parcel/watcher-darwin-arm64@2.5
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017-present Devon Govett
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -11097,8 +10865,6 @@ Applies to parse-entities@4.0.2, property-information@7.2.0.
 Copyright notices:
 
 - Copyright (c) Titus Wormer <mailto:tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -11131,9 +10897,7 @@ Applies to @modelcontextprotocol/sdk@1.29.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Anthropic, PBC
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -11165,9 +10929,7 @@ Applies to call-bind-apply-helpers@1.0.2, call-bound@1.0.4, es-define-property@1
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Jordan Harband
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -11199,9 +10961,7 @@ Applies to is-promise@4.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Forbes Lindesay
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2014 Forbes Lindesay
@@ -11231,9 +10991,7 @@ Applies to hachure-fill@0.5.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023 Preet Shihn
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -11265,9 +11023,7 @@ Applies to dayjs@1.11.21.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018-present, iamkun
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -11299,9 +11055,7 @@ Applies to cose-base@1.0.3, cose-base@2.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 - present, iVis@Bilkent.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -11334,8 +11088,6 @@ Applies to sliced@1.0.1.
 Copyright notices:
 
 - Copyright (c) 2012 [Aaron Heckmann](aaron.heckmann+github@gmail.com)
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -11369,8 +11121,6 @@ Applies to debug@2.6.9.
 Copyright notices:
 
 - Copyright (c) 2014 TJ Holowaychuk <tj@vision-media.ca>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-- The above copyright notice and this permission notice shall be included in all copies or substantial
 
 ```text
 (The MIT License)
@@ -11400,8 +11150,6 @@ Applies to chevrotain-allstar@0.3.1.
 Copyright notices:
 
 - Copyright 2022 TypeFox GmbH
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-- The above copyright notice and this permission notice shall be included in all copies or
 
 ```text
 Copyright 2022 TypeFox GmbH
@@ -11429,8 +11177,6 @@ Applies to pino-std-serializers@7.1.0.
 Copyright notices:
 
 - Copyright Mateo Collina, David Mark Clements, James Sumners
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright Mateo Collina, David Mark Clements, James Sumners
@@ -11448,9 +11194,7 @@ Applies to ipaddr.js@1.9.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2011-2017 whitequark <whitequark@whitequark.org>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2011-2017 whitequark <whitequark@whitequark.org>
@@ -11480,9 +11224,7 @@ Applies to seed-skill:frontend-slides@repository-version.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Zara Zhang
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -11515,11 +11257,6 @@ Applies to @sentry/bundler-plugins@10.65.0.
 Copyright notices:
 
 - Copyright (c) 2022-2026, Sentry
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- Neither the name of the copyright holder nor the names of its
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 # MIT License
@@ -11560,8 +11297,6 @@ Applies to jwa@2.0.1, jws@4.0.1.
 Copyright notices:
 
 - Copyright (c) 2013 Brian J. Brennan
-- PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2013 Brian J. Brennan
@@ -11589,9 +11324,7 @@ Applies to open-color@1.9.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 heeyeun
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -11623,9 +11356,7 @@ Applies to event-target-shim@5.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 Toru Nagashima
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -11658,8 +11389,6 @@ Applies to events@3.3.0.
 Copyright notices:
 
 - Copyright Joyent, Inc. and other Node contributors.
-- NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-- The above copyright notice and this permission notice shall be included
 
 ```text
 MIT
@@ -11692,19 +11421,9 @@ Applies to openai@6.26.0, openai@6.46.0.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2026 OpenAI
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -11920,8 +11639,6 @@ Copyright notices:
 - Copyright (c) 2011 LearnBoost
 - Copyright (c) 2011 TJ Holowaychuk
 - Copyright (c) 2014-2016 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -11958,8 +11675,6 @@ Applies to bail@2.0.2, ccount@2.0.1, character-entities-html4@2.1.0, character-e
 Copyright notices:
 
 - Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -11992,9 +11707,7 @@ Applies to canvas-roundrect-polyfill@0.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Tristan Fraipont
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12027,7 +11740,6 @@ Applies to picocolors@1.1.1.
 Copyright notices:
 
 - Copyright (c) 2021-2024 Oleksii Raspopov, Kostiantyn Denysov, Anton Verinov
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 ISC License
@@ -12053,9 +11765,7 @@ Applies to tlds@1.261.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013 Stephen Mathieson and 2020 Richie Bendall
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12087,9 +11797,7 @@ Applies to @composio/core@0.13.1, @composio/json-schema-to-zod@0.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Sampark Inc.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12121,9 +11829,7 @@ Applies to ms@2.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Zeit, Inc.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -12181,15 +11887,34 @@ FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
 DEALINGS IN THE SOFTWARE.
 ```
 
+### License text 66b4b9f0c8f9
+
+Applies to @tokenizer/token@0.3.0.
+
+Copyright notices:
+
+- Copyright (c) 2020 Borewit
+
+```text
+
+(The MIT License)
+
+Copyright (c) 2020 Borewit
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ### License text 67cd5e903c1f
 
 Applies to @antfu/install-pkg@1.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Anthony Fu <https://github.com/antfu>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12221,9 +11946,7 @@ Applies to @hono/node-server@1.19.14.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 - present, Yusuke Wada and Hono contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12255,9 +11978,7 @@ Applies to @xterm/addon-web-links@0.12.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017, The xterm.js authors (https://github.com/xtermjs/xterm.js)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2017, The xterm.js authors (https://github.com/xtermjs/xterm.js)
@@ -12288,8 +12009,6 @@ Applies to hast-util-to-text@4.0.2.
 Copyright notices:
 
 - Copyright (c) 2019 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -12322,9 +12041,7 @@ Applies to teex@1.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Mathias Buus
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -12357,7 +12074,6 @@ Applies to inherits@2.0.4.
 Copyright notices:
 
 - Copyright (c) Isaac Z. Schlueter
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 The ISC License
@@ -12384,8 +12100,6 @@ Applies to shebang-command@2.0.0.
 Copyright notices:
 
 - Copyright (c) Kevin Mårtensson <kevinmartensson@gmail.com> (github.com/kevva)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -12405,10 +12119,8 @@ Applies to @upsetjs/venn.js@2.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013 Ben Frederickson
 - Copyright (c) 2021 Samuel Gratzl
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12441,9 +12153,7 @@ Applies to perfect-freehand@1.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Stephen Ruiz Ltd
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12476,8 +12186,6 @@ Applies to cjs-module-lexer@2.2.0.
 Copyright notices:
 
 - Copyright (C) 2018-2020 Guy Bedford
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -12498,12 +12206,8 @@ Applies to mdurl@2.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin.
 - Copyright Joyent, Inc. and other Node contributors. All rights reserved.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2015 Vitaly Puzrin, Alex Kocharin.
@@ -12559,9 +12263,7 @@ Applies to whatwg-url@5.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015–2016 Sebastian Mayr
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -12593,9 +12295,7 @@ Applies to trough@2.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -12628,11 +12328,6 @@ Applies to highlight.js@10.7.3, highlight.js@10.7.3, highlight.js@11.11.1.
 Copyright notices:
 
 - Copyright (c) 2006, Ivan Sagalaev.
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- Neither the name of the copyright holder nor the names of its
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 BSD 3-Clause License
@@ -12672,9 +12367,7 @@ Applies to @standard-schema/spec@1.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Colin McDonnell
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12706,9 +12399,7 @@ Applies to @sentry/conventions@0.15.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023-2025 Functional Software, Inc. dba Sentry
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -12741,10 +12432,6 @@ Applies to source-map-js@1.2.1, source-map@0.6.1.
 Copyright notices:
 
 - Copyright (c) 2009-2011, Mozilla Foundation and contributors
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 
@@ -12783,9 +12470,7 @@ Applies to require-from-string@2.0.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Vsevolod Strukchinsky <floatdrop@gmail.com> (github.com/floatdrop)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -12818,8 +12503,6 @@ Applies to devlop@1.1.0.
 Copyright notices:
 
 - Copyright (c) 2023 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -12852,9 +12535,7 @@ Applies to object-assign@4.1.1, path-is-absolute@1.0.1, strip-json-comments@2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -12889,8 +12570,6 @@ Copyright notices:
 - Copyright (c) Douglas Christopher Wilson <doug@somethingdoug.com>
 - Copyright (c) Jonathan Ong <me@jongleberry.com>
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -12913,8 +12592,6 @@ Applies to commondir@1.0.1.
 Copyright notices:
 
 - Copyright (c) 2013 James Halliday (mail@substack.net)
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
-- The above copyright notice and this permission notice
 
 ```text
 The MIT License
@@ -12950,8 +12627,6 @@ Applies to agent-base@7.1.4, http-proxy-agent@7.0.2, https-proxy-agent@7.0.6, pa
 Copyright notices:
 
 - Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -12984,9 +12659,7 @@ Applies to css-tree@3.2.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2016-2026 by Roman Dvornov
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2016-2026 by Roman Dvornov
@@ -13017,8 +12690,6 @@ Applies to atomic-sleep@1.0.0.
 Copyright notices:
 
 - Copyright (c) 2020 David Mark Clements
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -13052,8 +12723,6 @@ Copyright notices:
 
 - Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -13087,12 +12756,7 @@ Applies to deepmerge-ts@7.1.5.
 
 Copyright notices:
 
-- 1. Redistributions of source code must retain the above copyright notice, this
-- 2. Redistributions in binary form must reproduce the above copyright notice,
-- 3. Neither the name of the copyright holder nor the names of its
 - Copyright (c) 2021, Rebecca Stevens
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 BSD 3-Clause License
@@ -13132,9 +12796,7 @@ Applies to is-extglob@2.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-2016, Jon Schlinkert
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -13166,17 +12828,7 @@ Applies to @img/sharp-darwin-arm64@0.34.5, @img/sharp-darwin-arm64@0.35.3, @img/
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by the copyright
-- 2. Grant of Copyright License.
-- all copyright, patent, trademark, and attribution notices from the Source form
-- available under the License, as indicated by a copyright notice that is included
-- by the copyright owner or by an individual or Legal Entity authorized to submit
-- Copyright [yyyy] [name of copyright owner]
-- irrevocable copyright license to reproduce, prepare Derivative Works of,
-- on behalf of the copyright owner. For the purposes of this definition,
 - that is conspicuously marked or otherwise designated in writing by the copyright
-- the same "printed page" as the copyright notice for easier identification within
-- You may add Your own copyright statement to Your modifications and may provide
 
 ```text
 Apache License
@@ -13378,9 +13030,7 @@ Applies to @sentry/node-core@10.65.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Functional Software, Inc. dba Sentry
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -13413,10 +13063,6 @@ Applies to dotenv@16.6.1, dotenv@17.4.2.
 Copyright notices:
 
 - Copyright (c) 2015, Scott Motte
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 Copyright (c) 2015, Scott Motte
@@ -13451,8 +13097,6 @@ Applies to file-uri-to-path@1.0.0.
 Copyright notices:
 
 - Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
@@ -13484,8 +13128,6 @@ Applies to buffer-equal-constant-time@1.0.1.
 Copyright notices:
 
 - Copyright (c) 2013, GoInstant Inc., a salesforce.com company
-- Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-- Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
 
 ```text
 Copyright (c) 2013, GoInstant Inc., a salesforce.com company
@@ -13508,9 +13150,7 @@ Applies to prosemirror-changeset@2.4.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
@@ -13541,8 +13181,6 @@ Applies to encodeurl@2.0.0.
 Copyright notices:
 
 - Copyright (c) 2016 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -13575,9 +13213,7 @@ Applies to katex@0.16.47, katex@0.16.47, katex@0.16.47, katex@0.17.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013-2020 Khan Academy and other contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -13609,9 +13245,7 @@ Applies to @jridgewell/gen-mapping@0.3.13, @jridgewell/remapping@2.3.5, @jridgew
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright 2024 Justin Ridgewell <justin@ridgewell.name>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright 2024 Justin Ridgewell <justin@ridgewell.name>
@@ -13642,7 +13276,6 @@ Applies to setprototypeof@1.2.0.
 Copyright notices:
 
 - Copyright (c) 2015, Wes Todd
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 Copyright (c) 2015, Wes Todd
@@ -13667,10 +13300,6 @@ Applies to extract-zip@2.0.1.
 Copyright notices:
 
 - Copyright (c) 2014 Max Ogden and other contributors
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 Copyright (c) 2014 Max Ogden and other contributors
@@ -13704,9 +13333,7 @@ Applies to expand-template@2.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 Lars-Magnus Skog
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -13739,7 +13366,6 @@ Applies to d3-dsv@3.0.1.
 Copyright notices:
 
 - Copyright 2013-2021 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2013-2021 Mike Bostock
@@ -13763,9 +13389,7 @@ Applies to immutable@4.3.9.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-present, Lee Byron and other contributors.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -13798,8 +13422,6 @@ Applies to markdown-it@14.3.0.
 Copyright notices:
 
 - Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2014 Vitaly Puzrin, Alex Kocharin.
@@ -13833,8 +13455,6 @@ Applies to @better-auth/core@1.6.23, @better-auth/drizzle-adapter@1.6.23, @bette
 Copyright notices:
 
 - Copyright (c) 2024 - present, Bereket Engida
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM,
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -13867,9 +13487,6 @@ Copyright notices:
 
 - A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
 - Copyright 2014 The Chromium Authors. All rights reserved.
-- copyright notice, this list of conditions and the following disclaimer
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
 
 ```text
 // Copyright 2014 The Chromium Authors. All rights reserved.
@@ -13907,9 +13524,7 @@ Applies to pptxgenjs@4.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015-2022 Brent Ely
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -13941,13 +13556,10 @@ Applies to crossws@0.4.10.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2011 Einar Otto Stangvik <einaros@gmail.com>
 - Copyright (c) 2013 Arnout Kazemier and contributors
 - Copyright (c) 2016 Luigi Pinca and contributors
 - Copyright (c) Pooya Parsa <pooya@pi0.io>
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -14004,9 +13616,7 @@ Applies to @rollup/plugin-commonjs@28.0.1, @rollup/pluginutils@5.4.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 RollupJS Plugin Contributors (https://github.com/rollup/plugins/graphs/contributors)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -14039,7 +13649,6 @@ Applies to zod-to-json-schema@3.25.2.
 Copyright notices:
 
 - Copyright (c) 2020, Stefan Terdell
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 ISC License
@@ -14065,9 +13674,7 @@ Applies to fast-deep-equal@3.1.3, json-schema-traverse@1.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Evgeny Poberezkin
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -14099,9 +13706,7 @@ Applies to @sentry/replay-canvas@10.65.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Functional Software, Inc. dba Sentry
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -14134,8 +13739,6 @@ Applies to pend@1.2.0.
 Copyright notices:
 
 - Copyright (c) 2014 Andrew Kelley
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT License (Expat)
@@ -14171,22 +13774,16 @@ Copyright notices:
 
 - a. Adapted Material means material subject to Copyright and Similar
 - a. This Public License applies for the term of the Copyright and
-- all Copyright and Similar Rights that apply to Your use of the
-- any other exception or limitation to Copyright and Similar Rights
 - b. Adapter's License means the license You apply to Your Copyright
-- c. Copyright and Similar Rights means copyright and/or similar rights
 - closely related to copyright including, without limitation,
 - copyright and certain other rights. Our licenses are
 - copyright--then that use is not regulated by the license. Our
 - fulfilling obligations under Article 11 of the WIPO Copyright
-- ii. a copyright notice;
 - j. Sui Generis Database Rights means rights other than copyright
 - licenses grant only permissions under copyright and certain
 - limitation to copyright. More considerations for licensors:
 - original works of authorship and other material subject to copyright
-- permission under the Copyright and Similar Rights held by the
 - reasons, including because others have copyright or other
-- Rights include other Copyright and Similar Rights.
 - specified in Section 2(b)(1)-(2) are not Copyright and Similar
 
 ```text
@@ -14594,10 +14191,6 @@ Applies to d3-shape@1.3.7.
 Copyright notices:
 
 - Copyright 2010-2015 Mike Bostock
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright 2010-2015 Mike Bostock
@@ -14635,9 +14228,7 @@ Applies to jose@6.2.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 Filip Skokan
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -14670,8 +14261,6 @@ Applies to micromark-extension-gfm-footnote@2.1.0.
 Copyright notices:
 
 - Copyright (c) 2021 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -14706,8 +14295,6 @@ Copyright notices:
 
 - Copyright (c) 2013 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2014 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -14742,8 +14329,6 @@ Applies to immediate@3.0.6.
 Copyright notices:
 
 - Copyright (c) 2012 Barnesandnoble.com, llc, Donavon West, Domenic Denicola, Brian Cavalier
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2012 Barnesandnoble.com, llc, Donavon West, Domenic Denicola, Brian Cavalier
@@ -14774,10 +14359,8 @@ Applies to web-streams-polyfill@3.3.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Diwank Singh Tomer
 - Copyright (c) 2024 Mattias Buelens
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -14811,8 +14394,6 @@ Applies to data-uri-to-buffer@6.0.2, get-uri@6.0.5, pac-proxy-agent@7.2.0.
 Copyright notices:
 
 - Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -14846,8 +14427,6 @@ Applies to unist-util-is@6.0.1.
 Copyright notices:
 
 - Copyright (c) 2015 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT license)
@@ -14880,9 +14459,7 @@ Applies to xtend@4.0.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012-2014 Raynos.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -14913,9 +14490,7 @@ Applies to eventsource-parser@3.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2026 Espen Hovlandsdal <espen@hovlandsdal.com>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -14948,8 +14523,6 @@ Applies to iron-session@8.0.4.
 Copyright notices:
 
 - Copyright (c) 2021 Vincent Voyer
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -14980,19 +14553,9 @@ Applies to @aws-sdk/credential-provider-process@3.972.57, @aws-sdk/credential-pr
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2019 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 Apache License
@@ -15198,15 +14761,47 @@ Apache License
    limitations under the License.
 ```
 
+### License text 856b7c5bc8da
+
+Applies to degenerator@5.0.1.
+
+Copyright notices:
+
+- Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
+
+```text
+
+(The MIT License)
+
+Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+'Software'), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT.
+IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
+CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT,
+TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
+SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ### License text 85747ad4bba3
 
 Applies to pg-connection-string@2.14.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Iced Development
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -15239,8 +14834,6 @@ Applies to bindings@1.5.0.
 Copyright notices:
 
 - Copyright (c) 2012 Nathan Rajlich &lt;nathan@tootallnate.net&gt;
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -15274,8 +14867,6 @@ Applies to is-binary-path@2.1.0.
 Copyright notices:
 
 - Copyright (c) 2019 Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com), Paul Miller (https://paulmillr.com)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -15295,9 +14886,7 @@ Applies to orderedmap@2.1.1, w3c-keyname@2.2.8.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2016 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
@@ -15327,14 +14916,44 @@ Applies to node-fetch@2.7.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 David Frank
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
 
 Copyright (c) 2016 David Frank
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### License text 872f31f366ab
+
+Applies to @schummar/icu-type-parser@1.21.5.
+
+Copyright notices:
+
+- Copyright (c) 2021 Marco Schumacher
+
+```text
+MIT License
+
+Copyright (c) 2021 Marco Schumacher
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal
@@ -15361,13 +14980,9 @@ Applies to import-meta-resolve@4.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Titus Wormer <mailto:tituswormer@gmail.com>
 - Copyright Joyent, Inc. and other Node contributors. All rights reserved.
 - Copyright Node.js contributors. All rights reserved.
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -15452,9 +15067,7 @@ Applies to @sentry/nextjs@10.65.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Functional Software, Inc. dba Sentry
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -15486,9 +15099,7 @@ Applies to multimath@2.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2017 by Vitaly Puzrin
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -15516,13 +15127,11 @@ THE SOFTWARE.
 
 ### License text 8802fecf9da4
 
-Applies to @napi-rs/canvas@0.1.80, @napi-rs/canvas@1.0.2.
+Applies to @napi-rs/canvas-android-arm64@0.1.80, @napi-rs/canvas-android-arm64@1.0.2, @napi-rs/canvas-darwin-arm64@0.1.80, @napi-rs/canvas-darwin-arm64@1.0.2, @napi-rs/canvas-darwin-x64@0.1.80, @napi-rs/canvas-darwin-x64@1.0.2, @napi-rs/canvas-linux-arm-gnueabihf@0.1.80, @napi-rs/canvas-linux-arm-gnueabihf@1.0.2, @napi-rs/canvas-linux-arm64-gnu@0.1.80, @napi-rs/canvas-linux-arm64-gnu@1.0.2, @napi-rs/canvas-linux-arm64-musl@0.1.80, @napi-rs/canvas-linux-arm64-musl@1.0.2, @napi-rs/canvas-linux-riscv64-gnu@0.1.80, @napi-rs/canvas-linux-riscv64-gnu@1.0.2, @napi-rs/canvas-linux-x64-gnu@0.1.80, @napi-rs/canvas-linux-x64-gnu@1.0.2, @napi-rs/canvas-linux-x64-musl@0.1.80, @napi-rs/canvas-linux-x64-musl@1.0.2, @napi-rs/canvas-win32-arm64-msvc@1.0.2, @napi-rs/canvas-win32-x64-msvc@0.1.80, @napi-rs/canvas-win32-x64-msvc@1.0.2, @napi-rs/canvas@0.1.80, @napi-rs/canvas@1.0.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 lynweklm@gmail.com
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -15554,9 +15163,7 @@ Applies to leac@0.7.0, parseley@0.13.1, peberminta@0.10.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021-2025 KillyMXI <killy@mxii.eu.org>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -15588,9 +15195,7 @@ Applies to stylis@4.4.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-present Sultan Tarimo
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -15619,12 +15224,6 @@ SOFTWARE.
 ### License text 88d9b4eb6057
 
 Applies to robust-predicates@3.0.3, tweetnacl@1.0.3.
-
-Copyright notices:
-
-- In jurisdictions that recognize copyright laws, the author or authors
-- of this software dedicate any and all copyright interest in the
-- software under copyright law.
 
 ```text
 This is free and unencumbered software released into the public domain.
@@ -15660,8 +15259,6 @@ Applies to node-addon-api@7.1.1.
 Copyright notices:
 
 - Copyright (c) 2017 [Node.js API collaborators](https://github.com/nodejs/node-addon-api#collaborators)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -15682,8 +15279,6 @@ Applies to style-to-object@1.0.14.
 Copyright notices:
 
 - Copyright (c) 2017 Menglin "Mark" Xu <mark@remarkablemark.org>
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT License (MIT)
@@ -15717,8 +15312,6 @@ Applies to @kurkle/color@0.3.4.
 Copyright notices:
 
 - Copyright (c) 2018-2024 Jukka Kurkela
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -15806,8 +15399,6 @@ Applies to es-module-lexer@2.3.1.
 Copyright notices:
 
 - Copyright (C) 2018-2022 Guy Bedford
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -15828,9 +15419,7 @@ Applies to es6-promise-pool@2.5.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Tim De Pauw <https://tmdpw.eu/>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2017 Tim De Pauw <https://tmdpw.eu/>
@@ -15860,9 +15449,7 @@ Applies to xmlbuilder@10.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013 Ozgur Ozcitak
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -15894,9 +15481,7 @@ Applies to parse5@7.3.0, parse5@8.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013-2019 Ivan Nikulin (ifaaan@gmail.com, https://github.com/inikulin)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2013-2019 Ivan Nikulin (ifaaan@gmail.com, https://github.com/inikulin)
@@ -15927,8 +15512,6 @@ Applies to lazystream@1.0.1.
 Copyright notices:
 
 - Copyright (c) 2013 J. Pommerening, contributors.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2013 J. Pommerening, contributors.
@@ -15961,13 +15544,9 @@ Applies to marked@16.4.2, marked@17.0.6, marked@18.0.6.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2011-2018, Christopher Jeffrey (https://github.com/chjj/)
 - Copyright (c) 2018+, MarkedJS (https://github.com/markedjs/)
 - Copyright © 2004, John Gruber
-- Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-- Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 # License information
@@ -16022,19 +15601,9 @@ Applies to readdir-glob@3.0.0.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2020 Yann Armelin
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -16246,9 +15815,7 @@ Applies to node-domexception@1.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Jimmy Wärting
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -16281,8 +15848,6 @@ Applies to express-rate-limit@8.5.2.
 Copyright notices:
 
 - Copyright 2023 Nathan Friedly, Vedant K
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 ﻿# MIT License
@@ -16314,7 +15879,6 @@ Applies to get-caller-file@2.0.5.
 Copyright notices:
 
 - Copyright 2018 Stefan Penner
-- Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
 
 ```text
 ISC License (ISC)
@@ -16332,8 +15896,6 @@ Applies to color-name@1.1.4.
 Copyright notices:
 
 - Copyright (c) 2015 Dmitry Ivanov
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -16384,9 +15946,7 @@ Applies to function-bind@1.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013 Raynos.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2013 Raynos.
@@ -16417,8 +15977,6 @@ Applies to underscore@1.13.8.
 Copyright notices:
 
 - Copyright (c) 2009-2022 Jeremy Ashkenas, Julian Gonggrijp, and DocumentCloud and Investigative Reporters & Editors
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2009-2022 Jeremy Ashkenas, Julian Gonggrijp, and DocumentCloud and Investigative Reporters & Editors
@@ -16451,9 +16009,7 @@ Applies to error-ex@1.3.4, is-arrayish@0.2.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 JD Ballard
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -16485,9 +16041,7 @@ Applies to @marijn/find-cluster-break@1.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2024 by Marijn Haverbeke <marijn@haverbeke.berlin>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 MIT License
@@ -16520,8 +16074,6 @@ Applies to bl@4.1.0.
 Copyright notices:
 
 - Copyright (c) 2013-2019 bl contributors
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -16577,7 +16129,6 @@ Applies to @csstools/color-helpers@6.1.0, @csstools/css-syntax-patches-for-csstr
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright © CSSTools Contributors
 
 ```text
@@ -16607,11 +16158,7 @@ Applies to esprima@4.0.1.
 
 Copyright notices:
 
-- ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
 - Copyright JS Foundation and other contributors, https://js.foundation/
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 Copyright JS Foundation and other contributors, https://js.foundation/
@@ -16644,8 +16191,6 @@ Applies to dom-serializer@2.0.0.
 Copyright notices:
 
 - Copyright (c) 2014 The cheeriojs contributors
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 License
@@ -16670,8 +16215,6 @@ Copyright notices:
 - Copyright (c) 2009-2014 TJ Holowaychuk <tj@vision-media.ca>
 - Copyright (c) 2013-2014 Roman Shtylman <shtylman+expressjs@gmail.com>
 - Copyright (c) 2014-2015 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -16707,8 +16250,6 @@ Applies to linkify-it@5.0.2.
 Copyright notices:
 
 - Copyright (c) 2015 Vitaly Puzrin.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2015 Vitaly Puzrin.
@@ -16741,9 +16282,7 @@ Applies to ee-first@1.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Jonathan Ong me@jongleberry.com
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 
@@ -16776,9 +16315,7 @@ Applies to @excalidraw/laser-pointer@1.3.1, @excalidraw/mermaid-to-excalidraw@2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023 Excalidraw
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -16810,9 +16347,7 @@ Applies to @testing-library/react@16.3.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017-Present Kent C. Dodds
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -16845,8 +16380,6 @@ Copyright notices:
 
 - Copyright (c) Paul Miller (https://paulmillr.com)
 - Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -16867,11 +16400,8 @@ Applies to sass@1.51.0.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2006-2022 Lukas Renggli.
 - Copyright (c) 2013-2021 Brendan Duncan.
 - Copyright (c) 2014, the tuple project authors.
@@ -16882,7 +16412,6 @@ Copyright notices:
 - Copyright (c) 2018, Jennifer Thakar.
 - Copyright (c) 2020 Leo Farias
 - Copyright (c) 2020 Remi Rousselet
-- Copyright [yyyy] [name of copyright owner]
 - Copyright 2012, the Dart project authors.
 - Copyright 2012, the Dart project authors. All rights reserved.
 - Copyright 2013, Google Inc.
@@ -16901,27 +16430,7 @@ Copyright notices:
 - Copyright 2019, the Dart project authors. All rights reserved.
 - Copyright 2020, the Dart project authors.
 - Copyright 2021, the Dart project authors.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- copyright notice, this list of conditions and the following
-- copyright notice, this list of conditions and the following disclaimer
-- designated in writing by the copyright owner as "Not a Contribution."
-- DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE FOR
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- The above copyright notice and this permission notice shall be
-- The above copyright notice and this permission notice shall be included in
-- The above copyright notice and this permission notice shall be included in all
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 Dart Sass license:
@@ -18464,9 +17973,7 @@ Applies to encoding-japanese@2.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012 polygonplanet
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -18498,9 +18005,7 @@ Applies to immer@11.1.11.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Michel Weststrate
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -18533,8 +18038,6 @@ Applies to fdir@6.5.0.
 Copyright notices:
 
 - Copyright 2023 Abdullah Atta
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright 2023 Abdullah Atta
@@ -18552,9 +18055,7 @@ Applies to node-abi@3.94.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Lukas Geiger
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -18587,8 +18088,6 @@ Applies to clsx@1.1.1, clsx@2.1.1, escalade@3.2.0.
 Copyright notices:
 
 - Copyright (c) Luke Edwards <luke.edwards05@gmail.com> (lukeed.com)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -18608,9 +18107,7 @@ Applies to module-details-from-path@1.0.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-2025 Thomas Watson Steen
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -18643,8 +18140,6 @@ Applies to @asamuzakjp/nwsapi@2.3.9.
 Copyright notices:
 
 - Copyright (c) 2007-2019 Diego Perini (http://www.iport.it/)
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2007-2019 Diego Perini (http://www.iport.it/)
@@ -18677,9 +18172,7 @@ Applies to ajv@8.20.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015-2021 Evgeny Poberezkin
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -18711,9 +18204,7 @@ Applies to brace-expansion@5.0.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright Julian Gruber <julian@juliangruber.com>
-- The above copyright notice and this permission notice shall be included in all
 - TypeScript port Copyright Isaac Z. Schlueter <i@izs.me>
 
 ```text
@@ -18748,9 +18239,7 @@ Applies to napi-build-utils@2.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 inspiredware
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -18782,9 +18271,7 @@ Applies to graphology-layout-forceatlas2@0.10.1, graphology@0.26.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-2021 Guillaume Plique (Yomguithereal)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -18816,9 +18303,7 @@ Applies to @sentry/browser-utils@10.65.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Functional Software, Inc. dba Sentry
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -18850,9 +18335,7 @@ Applies to ajv-formats@3.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Evgeny Poberezkin
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -18885,8 +18368,6 @@ Applies to markdown-it-front-matter@0.2.4.
 Copyright notices:
 
 - Copyright (c) 2016-2020 ParkSB.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2016-2020 ParkSB.
@@ -18919,9 +18400,7 @@ Applies to symbol-tree@3.2.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 Joris van der Wel
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -18953,20 +18432,10 @@ Applies to @apm-js-collab/code-transformer@0.15.0, @apm-js-collab/tracing-hooks@
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2025-present Datadog, Inc.
 - Copyright 2025-Present Datadog, Inc.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 
@@ -19180,7 +18649,6 @@ Applies to internmap@1.0.1, internmap@2.0.3.
 Copyright notices:
 
 - Copyright 2021 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2021 Mike Bostock
@@ -19205,8 +18673,6 @@ Applies to longest-streak@3.1.0, stringify-entities@4.0.4, trim-lines@3.0.1.
 Copyright notices:
 
 - Copyright (c) 2015 Titus Wormer <mailto:tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -19239,9 +18705,7 @@ Applies to pako@1.0.11, pako@2.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2014-2017 by Vitaly Puzrin and Andrei Tuputcyn
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -19273,9 +18737,7 @@ Applies to turndown-plugin-gfm@1.0.2, turndown@7.2.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Dom Christie
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -19307,9 +18769,7 @@ Applies to js-yaml@4.3.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2011-2015 by Vitaly Puzrin
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -19342,7 +18802,6 @@ Applies to d3-path@3.1.0.
 Copyright notices:
 
 - Copyright 2015-2022 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2015-2022 Mike Bostock
@@ -19368,8 +18827,6 @@ Copyright notices:
 
 - Copyright (c) 2012 TJ Holowaychuk <tj@vision-media.ca>
 - Copyright (c) 2016-2017 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -19403,15 +18860,8 @@ Applies to fractional-indexing@3.2.0.
 
 Copyright notices:
 
-- 1. Copyright and Related Rights. A Work made available under CC0 may be
-- Affirmer's Copyright and Related Rights and associated claims and causes
-- exclusive Copyright and Related Rights (defined below) upon the creator
 - irrevocable and unconditional license to exercise Affirmer's Copyright and
-- is an owner of Copyright and Related Rights in the Work, voluntarily
-- limitation any person's Copyright and Related Rights in the Work.
 - protected by copyright and related or neighboring rights ("Copyright and
-- Related Rights"). Copyright and Related Rights include, but are not
-- terms, with knowledge of his or her Copyright and Related Rights in the
 - will not (i) exercise any of his or her remaining Copyright and Related
 
 ```text
@@ -19544,9 +18994,7 @@ Applies to glur@1.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Andrei Tupitcyn
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -19578,9 +19026,7 @@ Applies to mkdirp-classic@0.5.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 James Halliday (mail@substack.net) and Mathias Buus
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -19612,9 +19058,7 @@ Applies to @xterm/addon-clipboard@0.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023, The xterm.js authors (https://github.com/xtermjs/xterm.js)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2023, The xterm.js authors (https://github.com/xtermjs/xterm.js)
@@ -19638,6 +19082,221 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
+### License text a27ca07269b3
+
+Applies to @puppeteer/browsers@2.13.2, @puppeteer/browsers@3.0.6, puppeteer-core@24.43.1, puppeteer-core@25.3.0.
+
+Copyright notices:
+
+- (c) You must retain, in the Source form of any Derivative Works
+- Copyright 2017 Google Inc.
+- that You distribute, all copyright, patent, trademark, and
+
+```text
+
+                                 Apache License
+                           Version 2.0, January 2004
+                        https://www.apache.org/licenses/
+
+   TERMS AND CONDITIONS FOR USE, REPRODUCTION, AND DISTRIBUTION
+
+   1. Definitions.
+
+      "License" shall mean the terms and conditions for use, reproduction,
+      and distribution as defined by Sections 1 through 9 of this document.
+
+      "Licensor" shall mean the copyright owner or entity authorized by
+      the copyright owner that is granting the License.
+
+      "Legal Entity" shall mean the union of the acting entity and all
+      other entities that control, are controlled by, or are under common
+      control with that entity. For the purposes of this definition,
+      "control" means (i) the power, direct or indirect, to cause the
+      direction or management of such entity, whether by contract or
+      otherwise, or (ii) ownership of fifty percent (50%) or more of the
+      outstanding shares, or (iii) beneficial ownership of such entity.
+
+      "You" (or "Your") shall mean an individual or Legal Entity
+      exercising permissions granted by this License.
+
+      "Source" form shall mean the preferred form for making modifications,
+      including but not limited to software source code, documentation
+      source, and configuration files.
+
+      "Object" form shall mean any form resulting from mechanical
+      transformation or translation of a Source form, including but
+      not limited to compiled object code, generated documentation,
+      and conversions to other media types.
+
+      "Work" shall mean the work of authorship, whether in Source or
+      Object form, made available under the License, as indicated by a
+      copyright notice that is included in or attached to the work
+      (an example is provided in the Appendix below).
+
+      "Derivative Works" shall mean any work, whether in Source or Object
+      form, that is based on (or derived from) the Work and for which the
+      editorial revisions, annotations, elaborations, or other modifications
+      represent, as a whole, an original work of authorship. For the purposes
+      of this License, Derivative Works shall not include works that remain
+      separable from, or merely link (or bind by name) to the interfaces of,
+      the Work and Derivative Works thereof.
+
+      "Contribution" shall mean any work of authorship, including
+      the original version of the Work and any modifications or additions
+      to that Work or Derivative Works thereof, that is intentionally
+      submitted to Licensor for inclusion in the Work by the copyright owner
+      or by an individual or Legal Entity authorized to submit on behalf of
+      the copyright owner. For the purposes of this definition, "submitted"
+      means any form of electronic, verbal, or written communication sent
+      to the Licensor or its representatives, including but not limited to
+      communication on electronic mailing lists, source code control systems,
+      and issue tracking systems that are managed by, or on behalf of, the
+      Licensor for the purpose of discussing and improving the Work, but
+      excluding communication that is conspicuously marked or otherwise
+      designated in writing by the copyright owner as "Not a Contribution."
+
+      "Contributor" shall mean Licensor and any individual or Legal Entity
+      on behalf of whom a Contribution has been received by Licensor and
+      subsequently incorporated within the Work.
+
+   2. Grant of Copyright License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      copyright license to reproduce, prepare Derivative Works of,
+      publicly display, publicly perform, sublicense, and distribute the
+      Work and such Derivative Works in Source or Object form.
+
+   3. Grant of Patent License. Subject to the terms and conditions of
+      this License, each Contributor hereby grants to You a perpetual,
+      worldwide, non-exclusive, no-charge, royalty-free, irrevocable
+      (except as stated in this section) patent license to make, have made,
+      use, offer to sell, sell, import, and otherwise transfer the Work,
+      where such license applies only to those patent claims licensable
+      by such Contributor that are necessarily infringed by their
+      Contribution(s) alone or by combination of their Contribution(s)
+      with the Work to which such Contribution(s) was submitted. If You
+      institute patent litigation against any entity (including a
+      cross-claim or counterclaim in a lawsuit) alleging that the Work
+      or a Contribution incorporated within the Work constitutes direct
+      or contributory patent infringement, then any patent licenses
+      granted to You under this License for that Work shall terminate
+      as of the date such litigation is filed.
+
+   4. Redistribution. You may reproduce and distribute copies of the
+      Work or Derivative Works thereof in any medium, with or without
+      modifications, and in Source or Object form, provided that You
+      meet the following conditions:
+
+      (a) You must give any other recipients of the Work or
+          Derivative Works a copy of this License; and
+
+      (b) You must cause any modified files to carry prominent notices
+          stating that You changed the files; and
+
+      (c) You must retain, in the Source form of any Derivative Works
+          that You distribute, all copyright, patent, trademark, and
+          attribution notices from the Source form of the Work,
+          excluding those notices that do not pertain to any part of
+          the Derivative Works; and
+
+      (d) If the Work includes a "NOTICE" text file as part of its
+          distribution, then any Derivative Works that You distribute must
+          include a readable copy of the attribution notices contained
+          within such NOTICE file, excluding those notices that do not
+          pertain to any part of the Derivative Works, in at least one
+          of the following places: within a NOTICE text file distributed
+          as part of the Derivative Works; within the Source form or
+          documentation, if provided along with the Derivative Works; or,
+          within a display generated by the Derivative Works, if and
+          wherever such third-party notices normally appear. The contents
+          of the NOTICE file are for informational purposes only and
+          do not modify the License. You may add Your own attribution
+          notices within Derivative Works that You distribute, alongside
+          or as an addendum to the NOTICE text from the Work, provided
+          that such additional attribution notices cannot be construed
+          as modifying the License.
+
+      You may add Your own copyright statement to Your modifications and
+      may provide additional or different license terms and conditions
+      for use, reproduction, or distribution of Your modifications, or
+      for any such Derivative Works as a whole, provided Your use,
+      reproduction, and distribution of the Work otherwise complies with
+      the conditions stated in this License.
+
+   5. Submission of Contributions. Unless You explicitly state otherwise,
+      any Contribution intentionally submitted for inclusion in the Work
+      by You to the Licensor shall be under the terms and conditions of
+      this License, without any additional terms or conditions.
+      Notwithstanding the above, nothing herein shall supersede or modify
+      the terms of any separate license agreement you may have executed
+      with Licensor regarding such Contributions.
+
+   6. Trademarks. This License does not grant permission to use the trade
+      names, trademarks, service marks, or product names of the Licensor,
+      except as required for reasonable and customary use in describing the
+      origin of the Work and reproducing the content of the NOTICE file.
+
+   7. Disclaimer of Warranty. Unless required by applicable law or
+      agreed to in writing, Licensor provides the Work (and each
+      Contributor provides its Contributions) on an "AS IS" BASIS,
+      WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or
+      implied, including, without limitation, any warranties or conditions
+      of TITLE, NON-INFRINGEMENT, MERCHANTABILITY, or FITNESS FOR A
+      PARTICULAR PURPOSE. You are solely responsible for determining the
+      appropriateness of using or redistributing the Work and assume any
+      risks associated with Your exercise of permissions under this License.
+
+   8. Limitation of Liability. In no event and under no legal theory,
+      whether in tort (including negligence), contract, or otherwise,
+      unless required by applicable law (such as deliberate and grossly
+      negligent acts) or agreed to in writing, shall any Contributor be
+      liable to You for damages, including any direct, indirect, special,
+      incidental, or consequential damages of any character arising as a
+      result of this License or out of the use or inability to use the
+      Work (including but not limited to damages for loss of goodwill,
+      work stoppage, computer failure or malfunction, or any and all
+      other commercial damages or losses), even if such Contributor
+      has been advised of the possibility of such damages.
+
+   9. Accepting Warranty or Additional Liability. While redistributing
+      the Work or Derivative Works thereof, You may choose to offer,
+      and charge a fee for, acceptance of support, warranty, indemnity,
+      or other liability obligations and/or rights consistent with this
+      License. However, in accepting such obligations, You may act only
+      on Your own behalf and on Your sole responsibility, not on behalf
+      of any other Contributor, and only if You agree to indemnify,
+      defend, and hold each Contributor harmless for any liability
+      incurred by, or claims asserted against, such Contributor by reason
+      of your accepting any such warranty or additional liability.
+
+   END OF TERMS AND CONDITIONS
+
+   APPENDIX: How to apply the Apache License to your work.
+
+      To apply the Apache License to your work, attach the following
+      boilerplate notice, with the fields enclosed by brackets "[]"
+      replaced with your own identifying information. (Don't include
+      the brackets!)  The text should be enclosed in the appropriate
+      comment syntax for the file format. We also recommend that a
+      file or class name and description of purpose be included on the
+      same "printed page" as the copyright notice for easier
+      identification within third-party archives.
+
+   Copyright 2017 Google Inc.
+
+   Licensed under the Apache License, Version 2.0 (the "License");
+   you may not use this file except in compliance with the License.
+   You may obtain a copy of the License at
+
+       https://www.apache.org/licenses/LICENSE-2.0
+
+   Unless required by applicable law or agreed to in writing, software
+   distributed under the License is distributed on an "AS IS" BASIS,
+   WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+   See the License for the specific language governing permissions and
+   limitations under the License.
+```
+
 ### License text a374b737c41b
 
 Applies to ast-types@0.13.4.
@@ -19645,8 +19304,6 @@ Applies to ast-types@0.13.4.
 Copyright notices:
 
 - Copyright (c) 2013 Ben Newman <bn@cs.stanford.edu>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2013 Ben Newman <bn@cs.stanford.edu>
@@ -19677,12 +19334,9 @@ Applies to node-pty@1.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012-2015, Christopher Jeffrey (https://github.com/chjj/)
 - Copyright (c) 2016, Daniel Imms (http://www.growingwiththeweb.com)
 - Copyright (c) 2018 - present Microsoft Corporation
-- The above copyright notice and this permission notice shall be included in
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2012-2015, Christopher Jeffrey (https://github.com/chjj/)
@@ -19871,10 +19525,6 @@ Applies to sprintf-js@1.0.3.
 Copyright notices:
 
 - Copyright (c) 2007-2014, Alexandru Marasteanu <hello [at) alexei (dot] ro>
-- DISCLAIMED. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright (c) 2007-2014, Alexandru Marasteanu <hello [at) alexei (dot] ro>
@@ -19933,9 +19583,7 @@ Applies to fetch-blob@3.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 David Frank
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -19967,9 +19615,7 @@ Applies to hono@4.12.30.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 - present, Yusuke Wada and Hono contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20001,17 +19647,8 @@ Applies to xml-name-validator@5.0.0.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -20198,9 +19835,7 @@ Applies to undici-types@6.21.0, undici-types@8.3.0, undici@7.28.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Matteo Collina and Undici contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20232,9 +19867,7 @@ Applies to react-syntax-highlighter@16.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Conor Hastings
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20267,8 +19900,6 @@ Applies to etag@1.8.1, proxy-addr@2.0.7.
 Copyright notices:
 
 - Copyright (c) 2014-2016 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -20301,9 +19932,7 @@ Applies to @sentry/replay@10.65.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 Functional Software, Inc. dba Sentry
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20335,9 +19964,7 @@ Applies to toidentifier@1.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Douglas Christopher Wilson <doug@somethingdoug.com>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20369,9 +19996,7 @@ Applies to marked-katex-extension@5.1.10.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 @markedjs
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20403,8 +20028,6 @@ Applies to webidl-conversions@3.0.1, webidl-conversions@8.0.1.
 
 Copyright notices:
 
-- 1. Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
-- 2. Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
 - Copyright (c) 2014, Domenic Denicola
 
 ```text
@@ -20428,19 +20051,8 @@ Applies to @aws-crypto/sha256-js@5.2.0.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
-- Copyright {yyyy} {name of copyright owner}
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 Apache License
@@ -20653,8 +20265,6 @@ Applies to require-directory@2.1.1.
 Copyright notices:
 
 - Copyright (c) 2011 Troy Goode <troygoode@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be included
 
 ```text
 The MIT License (MIT)
@@ -20687,9 +20297,7 @@ Applies to cross-spawn@7.0.6.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 Made With MOXY Lda <hello@moxy.studio>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -20722,8 +20330,6 @@ Applies to token-types@6.1.2.
 Copyright notices:
 
 - Copyright © 2026 Borewit
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -20744,8 +20350,6 @@ Applies to w3c-xmlserializer@5.0.0.
 Copyright notices:
 
 - Copyright © Sebastian Mayr
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT License (MIT)
@@ -20781,9 +20385,7 @@ Applies to icu-minify@4.13.2, next-intl-swc-plugin-extractor@4.13.2, next-intl@4
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Jan Amann
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20815,9 +20417,7 @@ Applies to astring@1.9.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015, David Bonnet <david@bonnet.cc>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2015, David Bonnet <david@bonnet.cc>
@@ -20847,9 +20447,7 @@ Applies to pptxviewjs@1.1.9.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 gptsci.com
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20882,9 +20480,6 @@ Applies to esquery@1.7.0.
 Copyright notices:
 
 - Copyright (c) 2013, Joel Feenstra
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright (c) 2013, Joel Feenstra
@@ -20919,9 +20514,7 @@ Applies to @selderee/plugin-htmlparser2@0.12.0, selderee@0.12.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021-2026 KillyMXI <killy@mxii.eu.org>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20953,9 +20546,7 @@ Applies to get-nonce@1.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Anton Korzunov
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -20983,11 +20574,10 @@ SOFTWARE.
 
 ### License text ad457a661901
 
-Applies to rollup@4.62.2.
+Applies to @rollup/rollup-android-arm-eabi@4.62.2, @rollup/rollup-android-arm64@4.62.2, @rollup/rollup-darwin-arm64@4.62.2, @rollup/rollup-darwin-x64@4.62.2, @rollup/rollup-freebsd-arm64@4.62.2, @rollup/rollup-freebsd-x64@4.62.2, @rollup/rollup-linux-arm-gnueabihf@4.62.2, @rollup/rollup-linux-arm-musleabihf@4.62.2, @rollup/rollup-linux-arm64-gnu@4.62.2, @rollup/rollup-linux-arm64-musl@4.62.2, @rollup/rollup-linux-loong64-gnu@4.62.2, @rollup/rollup-linux-loong64-musl@4.62.2, @rollup/rollup-linux-ppc64-gnu@4.62.2, @rollup/rollup-linux-ppc64-musl@4.62.2, @rollup/rollup-linux-riscv64-gnu@4.62.2, @rollup/rollup-linux-riscv64-musl@4.62.2, @rollup/rollup-linux-s390x-gnu@4.62.2, @rollup/rollup-linux-x64-gnu@4.62.2, @rollup/rollup-linux-x64-musl@4.62.2, @rollup/rollup-openbsd-x64@4.62.2, @rollup/rollup-openharmony-arm64@4.62.2, @rollup/rollup-win32-arm64-msvc@4.62.2, @rollup/rollup-win32-ia32-msvc@4.62.2, @rollup/rollup-win32-x64-gnu@4.62.2, @rollup/rollup-win32-x64-msvc@4.62.2, rollup@4.62.2.
 
 Copyright notices:
 
-- > AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - > Copyright (c) 2012-2019 Paul Miller (https://paulmillr.com), Elan Shanker
 - > Copyright (c) 2012-2019 Thorsten Lorenz, Paul Miller (https://paulmillr.com)
 - > Copyright (c) 2014-2016, Jon Schlinkert
@@ -21009,15 +20599,7 @@ Copyright notices:
 - > Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)
 - > Copyright 2018 Rich Harris
 - > Copyright 2024 Justin Ridgewell <justin@ridgewell.name>
-- > copyright notice and this permission notice appear in all copies.
-- > that the above copyright notice and this permission notice
-- > The above copyright notice and this permission notice shall be included in
-- > The above copyright notice and this permission notice shall be included in all
-- > The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- > THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 - Copyright (c) 2017 [these people](https://github.com/rollup/rollup/graphs/contributors)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 # Rollup core license
@@ -21707,19 +21289,9 @@ Applies to @mistralai/mistralai@2.2.6.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2024 Mistral AI
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -21931,9 +21503,7 @@ Applies to better-call@1.3.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Bereket Engida
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -21959,15 +21529,55 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text ada0c4e0c2ad
+
+Applies to victory-vendor@37.3.6.
+
+Copyright notices:
+
+- Copyright (c) 2015-2020 Formidable Labs.
+- Copyright (c) 2016-2020 Alexey Svetliakov <https://github.com/asvetliakov>,
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2015-2020 Formidable Labs.
+
+Copyright (c) 2016-2020 Alexey Svetliakov <https://github.com/asvetliakov>,
+snerks <https://github.com/snerks>, Krzysztof Cebula <https://github.com
+Havret>, Vitaliy Polyanskiy <https://github.com/alreadyExisted>, James Lismore
+<https://github.com/jlismore>, Stack Builders <https://github.com
+stackbuilders>, Esteban Ibarra <https://github.com/ibarrae>, Dominic Lee
+<https://github.com/dominictwlee>, Dave Vedder <https://github.com
+veddermatic>, Alec Flett <https://github.com/alecf> and potentially other
+DefinitelyTyped contributors.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+```
+
 ### License text ae842a63dd9b
 
 Applies to @bramus/specificity@2.4.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 Bramus Van Damme - https://www.bram.us/
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2022 Bramus Van Damme - https://www.bram.us/
@@ -21997,9 +21607,7 @@ Applies to async-mutex@0.5.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016 Christian Speckner <cnspeckn@googlemail.com>
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -22031,19 +21639,9 @@ Applies to webdriver-bidi-protocol@0.4.1, webdriver-bidi-protocol@0.4.2.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2024 Google Inc.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 
@@ -22257,8 +21855,6 @@ Applies to @formatjs/fast-memoize@3.1.7, @formatjs/icu-messageformat-parser@3.5.
 Copyright notices:
 
 - Copyright (c) 2023 FormatJS
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 MIT License
@@ -22278,9 +21874,7 @@ Applies to yauzl@2.10.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Josh Wolfe
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -22308,23 +21902,12 @@ SOFTWARE.
 
 ### License text b40930bbcf80
 
-Applies to detect-libc@2.1.2, mhchemparser@4.2.1, pwacompat@2.0.17.
+Applies to @img/sharp-libvips-darwin-arm64@1.2.4, @img/sharp-libvips-darwin-arm64@1.3.2, @img/sharp-libvips-darwin-x64@1.2.4, @img/sharp-libvips-darwin-x64@1.3.2, @img/sharp-libvips-linux-arm@1.2.4, @img/sharp-libvips-linux-arm@1.3.2, @img/sharp-libvips-linux-arm64@1.2.4, @img/sharp-libvips-linux-arm64@1.3.2, @img/sharp-libvips-linux-ppc64@1.2.4, @img/sharp-libvips-linux-ppc64@1.3.2, @img/sharp-libvips-linux-riscv64@1.2.4, @img/sharp-libvips-linux-riscv64@1.3.2, @img/sharp-libvips-linux-s390x@1.2.4, @img/sharp-libvips-linux-s390x@1.3.2, @img/sharp-libvips-linux-x64@1.2.4, @img/sharp-libvips-linux-x64@1.3.2, @img/sharp-libvips-linuxmusl-arm64@1.2.4, @img/sharp-libvips-linuxmusl-arm64@1.3.2, @img/sharp-libvips-linuxmusl-x64@1.2.4, @img/sharp-libvips-linuxmusl-x64@1.3.2, detect-libc@2.1.2, mhchemparser@4.2.1, pwacompat@2.0.17.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
-- Copyright {yyyy} {name of copyright owner}
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -22532,13 +22115,11 @@ Copyright notices:
 
 ### License text b40ec5baec7b
 
-Applies to esbuild@0.28.1.
+Applies to @esbuild/aix-ppc64@0.28.1, @esbuild/android-arm@0.28.1, @esbuild/android-arm64@0.28.1, @esbuild/android-x64@0.28.1, @esbuild/darwin-arm64@0.28.1, @esbuild/darwin-x64@0.28.1, @esbuild/freebsd-arm64@0.28.1, @esbuild/freebsd-x64@0.28.1, @esbuild/linux-arm@0.28.1, @esbuild/linux-arm64@0.28.1, @esbuild/linux-ia32@0.28.1, @esbuild/linux-loong64@0.28.1, @esbuild/linux-mips64el@0.28.1, @esbuild/linux-ppc64@0.28.1, @esbuild/linux-riscv64@0.28.1, @esbuild/linux-s390x@0.28.1, @esbuild/linux-x64@0.28.1, @esbuild/netbsd-arm64@0.28.1, @esbuild/netbsd-x64@0.28.1, @esbuild/openbsd-arm64@0.28.1, @esbuild/openbsd-x64@0.28.1, @esbuild/openharmony-arm64@0.28.1, @esbuild/sunos-x64@0.28.1, @esbuild/win32-arm64@0.28.1, @esbuild/win32-ia32@0.28.1, @esbuild/win32-x64@0.28.1, esbuild@0.28.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Evan Wallace
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -22570,9 +22151,7 @@ Applies to @asamuzakjp/generational-cache@1.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2026 asamuzaK (Kazz)
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -22604,11 +22183,8 @@ Applies to lucide-react@1.24.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013-present Cole Bemis
 - Copyright (c) 2026 Lucide Icons and Contributors
-- copyright notice and this permission notice appear in all copies.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 ISC License
@@ -22662,11 +22238,9 @@ Applies to @xterm/xterm@6.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012-2013, Christopher Jeffrey (https://github.com/chjj/)
 - Copyright (c) 2014-2016, SourceLair Private Company (https://www.sourcelair.com)
 - Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2017-2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
@@ -22698,9 +22272,7 @@ Applies to cmdk@1.1.1, next-themes@0.4.6.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 Paco Coursey
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -22732,19 +22304,9 @@ Applies to @aws-sdk/credential-provider-env@3.972.57, @aws-sdk/credential-provid
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 Apache License
@@ -22958,8 +22520,6 @@ Copyright notices:
 
 - Copyright (c) 2017 Titus Wormer <tituswormer@gmail.com>
 - Copyright (c) 2017 Victor Felder <victor@draft.li>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -22993,9 +22553,7 @@ Applies to points-on-path@0.2.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Preet
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23028,10 +22586,6 @@ Applies to d3-path@1.0.9.
 Copyright notices:
 
 - Copyright 2015-2016 Mike Bostock
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright 2015-2016 Mike Bostock
@@ -23069,9 +22623,7 @@ Applies to @excalidraw/random-username@1.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 dwelle
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23105,10 +22657,6 @@ Copyright notices:
 
 - Copyright 2001 Robert Penner
 - Copyright 2010-2021 Mike Bostock
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT OWNER OR CONTRIBUTORS BE LIABLE FOR
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright 2010-2021 Mike Bostock
@@ -23147,9 +22695,7 @@ Applies to typebox@1.1.38.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017-2026 Haydn Paterson
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 TypeBox
@@ -23184,8 +22730,6 @@ Applies to style-to-js@1.1.21.
 Copyright notices:
 
 - Copyright (c) 2020 Menglin "Mark" Xu <mark@remarkablemark.org>
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT License (MIT)
@@ -23219,8 +22763,6 @@ Applies to depd@2.0.0.
 Copyright notices:
 
 - Copyright (c) 2014-2018 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -23253,9 +22795,7 @@ Applies to object-inspect@1.13.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013 James Halliday
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23288,8 +22828,6 @@ Applies to content-disposition@1.1.0, depd@1.1.2, forwarded@0.2.0, media-typer@1
 Copyright notices:
 
 - Copyright (c) 2014-2017 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -23322,9 +22860,7 @@ Applies to bluebird@3.4.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2013-2015 Petka Antonov
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -23356,9 +22892,7 @@ Applies to chokidar@4.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012 Paul Miller (https://paulmillr.com), Elan Shanker
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -23390,9 +22924,7 @@ Applies to get-proto@1.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Jordan Harband
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23425,8 +22957,6 @@ Applies to uuid@14.0.1.
 Copyright notices:
 
 - Copyright (c) 2010-2020 Robert Kieffer and other contributors
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -23447,11 +22977,6 @@ Applies to @sentry/bundler-plugin-core@5.3.0, @sentry/webpack-plugin@5.4.0.
 Copyright notices:
 
 - Copyright (c) 2022, Sentry
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- Neither the name of the copyright holder nor the names of its
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 # MIT License
@@ -23491,9 +23016,7 @@ Applies to cross-env@7.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Kent C. Dodds
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -23524,9 +23047,7 @@ Applies to hasown@2.0.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Jordan Harband and contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23559,7 +23080,6 @@ Applies to hast-util-from-dom@5.0.1.
 Copyright notices:
 
 - Copyright (c) Keith McKnight <keith@mcknig.ht>
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 (ISC License)
@@ -23585,9 +23105,7 @@ Applies to end-of-stream@1.4.5, pump@3.0.4, tar-fs@2.1.5, tar-fs@3.1.3, tar-stre
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Mathias Buus
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -23619,9 +23137,7 @@ Applies to fast-equals@5.4.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Tony Quetano
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23653,9 +23169,7 @@ Applies to zustand@4.5.7, zustand@5.0.14.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Paul Henschel
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23851,9 +23365,7 @@ Applies to @types/archiver@8.0.0, @types/d3-array@3.2.2, @types/d3-axis@3.0.6, @
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Microsoft Corporation.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
     MIT License
@@ -23885,9 +23397,7 @@ Applies to @asamuzakjp/dom-selector@7.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023 asamuzaK (Kazz)
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23919,9 +23429,7 @@ Applies to strtok3@10.3.5.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright © 2026 Borewit
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -23954,8 +23462,6 @@ Applies to extend@3.0.2.
 Copyright notices:
 
 - Copyright (c) 2014 Stefan Thomas
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT License (MIT)
@@ -23989,7 +23495,6 @@ Applies to split2@4.2.0.
 Copyright notices:
 
 - Copyright (c) 2014-2018, Matteo Collina <hello@matteocollina.com>
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 Copyright (c) 2014-2018, Matteo Collina <hello@matteocollina.com>
@@ -24014,8 +23519,6 @@ Applies to update-browserslist-db@1.2.3.
 Copyright notices:
 
 - Copyright 2022 Andrey Sitnik <andrey@sitnik.ru> and other contributors
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -24040,6 +23543,25 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### License text c41bc4474f02
+
+Applies to pgpass@1.0.5.
+
+Copyright notices:
+
+- Copyright (c) 2013-2016 Hannes Hörl
+
+```text
+
+Copyright (c) 2013-2016 Hannes Hörl
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ### License text c46e2c333e1c
 
 Applies to smart-buffer@4.2.0.
@@ -24047,8 +23569,6 @@ Applies to smart-buffer@4.2.0.
 Copyright notices:
 
 - Copyright (c) 2013-2017 Josh Glazebrook
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -24079,9 +23599,7 @@ Applies to netmask@2.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2011 Olivier Poitrey rs@rhapsodyk.net
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -24114,8 +23632,6 @@ Applies to setimmediate@1.0.5.
 Copyright notices:
 
 - Copyright (c) 2012 Barnesandnoble.com, llc, Donavon West, and Domenic Denicola
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2012 Barnesandnoble.com, llc, Donavon West, and Domenic Denicola
@@ -24146,19 +23662,9 @@ Applies to crc-32@1.2.2, crc-32@1.2.2.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright (C) 2014-present   SheetJS LLC
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -24370,9 +23876,7 @@ Applies to set-cookie-parser@3.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 Nathan Friedly <nathan@nfriedly.com> (http://nfriedly.com/)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -24405,8 +23909,6 @@ Applies to tldts-core@7.4.8, tldts@7.4.8.
 Copyright notices:
 
 - Copyright (c) 2017 Thomas Parisot, 2018 Rémi Berson
-- FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY,
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 ```text
 Copyright (c) 2017 Thomas Parisot, 2018 Rémi Berson
@@ -24426,28 +23928,16 @@ FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTH
 
 ### License text c71d239df917
 
-Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.10.43, browser-fs-access@0.29.1, chromium-bidi@14.0.0, chromium-bidi@16.0.1, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, text-decoder@1.2.7.
+Applies to @opentelemetry/api-logs@0.220.0, @opentelemetry/api@1.9.0, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/api@1.9.1, @opentelemetry/core@2.9.0, @opentelemetry/instrumentation@0.220.0, @opentelemetry/resources@2.9.0, @opentelemetry/sdk-trace-base@2.9.0, @opentelemetry/sdk-trace@2.9.0, @opentelemetry/semantic-conventions@1.43.0, b4a@1.8.1, bare-events@2.9.1, bare-fs@4.7.4, bare-path@3.1.1, bare-stream@2.13.3, bare-url@2.4.5, baseline-browser-mapping@2.10.43, browser-fs-access@0.29.1, chromium-bidi@14.0.0, chromium-bidi@16.0.1, drizzle-orm@0.45.2, events-universal@1.0.1, import-in-the-middle@3.3.1, pdf-parse@2.4.5, semifies@1.0.0, text-decoder@1.2.7.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
-- Copyright [yyyy] [name of copyright owner]
 - Copyright 2021 Datadog, Inc.
 - Copyright 2023 Holepunch Inc
 - Copyright 2024 Node.js contributors. All rights reserved.
 - Copyright Joyent, Inc. and other Node contributors.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- The above copyright notice and this permission notice shall be included
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -24660,8 +24150,6 @@ Applies to xss@1.0.15.
 Copyright notices:
 
 - Copyright (c) 2012-2018 Zongmin Lei(雷宗民) <leizongmin@gmail.com>
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2012-2018 Zongmin Lei(雷宗民) <leizongmin@gmail.com>
@@ -24695,9 +24183,7 @@ Applies to safe-buffer@5.1.2, safe-buffer@5.1.2, safe-buffer@5.2.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Feross Aboukhadijeh
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -24729,9 +24215,7 @@ Applies to argparse@1.0.10.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2012 by Vitaly Puzrin
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -24763,9 +24247,7 @@ Applies to @tiptap/core@3.27.3, @tiptap/extension-blockquote@3.27.3, @tiptap/ext
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025, Tiptap GmbH
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -24798,8 +24280,6 @@ Applies to comma-separated-tokens@2.0.3, hast-util-is-element@3.0.0, hast-util-p
 Copyright notices:
 
 - Copyright (c) 2016 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -24832,9 +24312,7 @@ Applies to style-mod@4.1.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2018 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
@@ -24858,6 +24336,38 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
+### License text cb992262f361
+
+Applies to rehype-katex@7.0.1, remark-math@6.0.0.
+
+Copyright notices:
+
+- Copyright (c) 2017 Junyoung Choi <fluke8259@gmail.com>
+
+```text
+(The MIT License)
+
+Copyright (c) 2017 Junyoung Choi <fluke8259@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License text cb992345949c
 
 Applies to domelementtype@2.3.0, domhandler@5.0.3, domutils@3.2.2, entities@4.5.0, entities@6.0.1, entities@7.0.1, entities@8.0.0.
@@ -24865,8 +24375,6 @@ Applies to domelementtype@2.3.0, domhandler@5.0.3, domutils@3.2.2, entities@4.5.
 Copyright notices:
 
 - Copyright (c) Felix Böhm
-- Redistributions in binary form must reproduce the above copyright notice, this list of conditions and the following disclaimer in the documentation and/or other materials provided with the distribution.
-- Redistributions of source code must retain the above copyright notice, this list of conditions and the following disclaimer.
 
 ```text
 Copyright (c) Felix Böhm
@@ -24888,9 +24396,7 @@ Applies to real-require@0.2.0, real-require@1.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Paolo Insogna and the real-require contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -24922,9 +24428,7 @@ Applies to cytoscape-cose-bilkent@4.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-2018, The Cytoscape Consortium.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 
@@ -24958,8 +24462,6 @@ Copyright notices:
 
 - Copyright (c) 2014 Jonathan Ong <me@jongleberry.com>
 - Copyright (c) 2015-2022 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -24994,9 +24496,7 @@ Applies to intl-messageformat@11.2.11.
 Copyright notices:
 
 - Copyright (c) 2023, Oath Inc.
-- copyright notice, this list of conditions and the
 - PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
 
 ```text
 Copyright (c) 2023, Oath Inc.
@@ -25041,8 +24541,6 @@ Applies to bignumber.js@9.3.1.
 Copyright notices:
 
 - Copyright © `<2025>` `Michael Mclaughlin`
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT License (MIT)
@@ -25078,9 +24576,7 @@ Applies to @tootallnate/quickjs-emscripten@0.23.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - quickjs-emscripten copyright (c) 2019 Jake Teton-Landis
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -25112,9 +24608,7 @@ Applies to tunnel-rat@0.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 Poimandres
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -25146,9 +24640,7 @@ Applies to partial-json@0.1.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023 Promplate Dev Team
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -25180,9 +24672,7 @@ Applies to jotai@2.11.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020-2023 Poimandres
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -25214,9 +24704,7 @@ Applies to side-channel-weakmap@1.0.2, side-channel@1.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Jordan Harband
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -25244,23 +24732,12 @@ SOFTWARE.
 
 ### License text cfc7749b96f6
 
-Applies to @aws-crypto/sha256-browser@5.2.0, @aws-crypto/supports-web-crypto@5.2.0, @chevrotain/cst-dts-gen@11.0.3, @chevrotain/gast@11.0.3, @chevrotain/regexp-to-ast@11.0.3, @chevrotain/types@11.0.3, @chevrotain/types@11.1.2, @chevrotain/utils@11.0.3, @google/genai@1.52.0, @google/genai@2.11.0, chevrotain@11.0.3, dompurify@3.4.12, gaxios@7.2.0, gcp-metadata@8.1.2, google-auth-library@10.9.0, google-logging-utils@1.1.3, long@5.3.2, mathjax-full@3.2.2.
+Applies to @aws-crypto/sha256-browser@5.2.0, @aws-crypto/supports-web-crypto@5.2.0, @chevrotain/cst-dts-gen@11.0.3, @chevrotain/gast@11.0.3, @chevrotain/regexp-to-ast@11.0.3, @chevrotain/types@11.0.3, @chevrotain/types@11.1.2, @chevrotain/utils@11.0.3, @google/genai@1.52.0, @google/genai@2.11.0, chevrotain@11.0.3, dompurify@3.4.12, gaxios@7.2.0, gcp-metadata@8.1.2, google-auth-library@10.9.0, google-logging-utils@1.1.3, long@5.3.2, mathjax-full@3.2.2, mj-context-menu@0.6.1.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
-- Copyright [yyyy] [name of copyright owner]
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
 
@@ -25474,8 +24951,6 @@ Applies to @csstools/css-calc@3.2.1, @csstools/css-color-parser@4.1.9, @csstools
 Copyright notices:
 
 - Copyright 2022 Romain Menke, Antonio Laguna <antonio@laguna.es>
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -25506,12 +24981,10 @@ Applies to dagre-d3-es@7.0.14.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022-2024 Thibaut Lassalle, David Newell, Alois Klink, Sidharth Vinod and dagre-es contributors
 - Original dagre copyright: Copyright (c) 2012-2014 Chris Pettitt
 - Original dagre-d3 copyright: Copyright (c) 2013 Chris Pettitt
 - Original graphlib copyright: Copyright (c) 2012-2014 Chris Pettitt
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Original dagre-d3 copyright: Copyright (c) 2013 Chris Pettitt
@@ -25547,8 +25020,6 @@ Copyright notices:
 
 - Copyright (c) 2013 Roman Shtylman
 - Copyright (c) 2014-2022 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -25582,9 +25053,7 @@ Applies to picomatch@2.3.2, picomatch@2.3.2, picomatch@4.0.5.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017-present, Jon Schlinkert.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -25616,9 +25085,7 @@ Applies to prosemirror-tables@1.8.5.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2015-2016 by Marijn Haverbeke <marijnh@gmail.com> and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2015-2016 by Marijn Haverbeke <marijnh@gmail.com> and others
@@ -25648,9 +25115,7 @@ Applies to @mermaid-js/parser@0.6.3, @mermaid-js/parser@1.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023 Yokozuna59
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -25682,10 +25147,8 @@ Applies to balanced-match@4.0.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Original code Copyright Julian Gruber <julian@juliangruber.com>
 - Port to TypeScript Copyright Isaac Z. Schlueter <i@izs.me>
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 (MIT)
@@ -25720,8 +25183,6 @@ Applies to simple-concat@1.0.1, simple-get@4.0.1.
 Copyright notices:
 
 - Copyright (c) Feross Aboukhadijeh
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -25752,9 +25213,7 @@ Applies to tailwind-merge@3.6.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2021 Dany Castillo
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -25786,9 +25245,7 @@ Applies to pino@10.3.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-2025 Matteo Collina, David Mark Clements and the Pino contributors listed at <https://github.com/pinojs/pino#the-team> and in the README file.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -25821,8 +25278,6 @@ Applies to @borewit/text-codec@0.2.2.
 Copyright notices:
 
 - Copyright © 2025 Borewit
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 The MIT License (MIT)
@@ -25842,9 +25297,7 @@ Applies to @lezer/json@1.0.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2020 by Marijn Haverbeke <marijn@haverbeke.berlin>, Arun Srinivasan <rulfzid@gmail.com>, and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 MIT License
@@ -25876,11 +25329,7 @@ Applies to escodegen@2.1.0.
 
 Copyright notices:
 
-- ARE DISCLAIMED. IN NO EVENT SHALL <COPYRIGHT HOLDER> BE LIABLE FOR ANY
 - Copyright (C) 2012 Yusuke Suzuki (twitter: @Constellation) and other contributors.
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 Copyright (C) 2012 Yusuke Suzuki (twitter: @Constellation) and other contributors.
@@ -25913,8 +25362,6 @@ Applies to progress@2.0.3.
 Copyright notices:
 
 - Copyright (c) 2017 TJ Holowaychuk <tj@vision-media.ca>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -25948,8 +25395,6 @@ Applies to remark-frontmatter@5.0.0.
 Copyright notices:
 
 - Copyright (c) 2017 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -25982,9 +25427,7 @@ Applies to gopd@1.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 Jordan Harband
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26016,9 +25459,7 @@ Applies to process-warning@5.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Fastify
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26050,9 +25491,7 @@ Applies to async@3.2.6.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2010-2018 Caolan McMahon
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2010-2018 Caolan McMahon
@@ -26082,9 +25521,7 @@ Applies to pkce-challenge@5.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26117,8 +25554,6 @@ Applies to nanoid@3.3.12.
 Copyright notices:
 
 - Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -26149,9 +25584,7 @@ Applies to react-dom@19.2.7, react-is@19.2.7, react@19.2.7, scheduler@0.27.0, us
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Meta Platforms, Inc. and affiliates.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26183,9 +25616,7 @@ Applies to sonner@2.0.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023 Emil Kowalski
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26217,19 +25648,8 @@ Applies to @aws-crypto/util@5.2.0.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
-- Copyright {yyyy} {name of copyright owner}
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                 Apache License
@@ -26441,9 +25861,7 @@ Applies to whatwg-url@16.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Sebastian Mayr
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -26475,9 +25893,7 @@ Applies to sonic-boom@4.2.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Matteo Collina
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26509,9 +25925,7 @@ Applies to chokidar@3.6.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012-2019 Paul Miller (https://paulmillr.com), Elan Shanker
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -26543,9 +25957,7 @@ Applies to abort-controller@3.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2017 Toru Nagashima
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26577,9 +25989,7 @@ Applies to modern-tar@0.7.6.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Ayuhito
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26611,9 +26021,7 @@ Applies to @exodus/bytes@1.15.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024-2025 Exodus Movement
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26646,8 +26054,6 @@ Applies to estree-walker@2.0.2.
 Copyright notices:
 
 - Copyright (c) 2015-20 [these people](https://github.com/Rich-Harris/estree-walker/graphs/contributors)
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright (c) 2015-20 [these people](https://github.com/Rich-Harris/estree-walker/graphs/contributors)
@@ -26666,7 +26072,6 @@ Applies to @ungap/structured-clone@1.3.3.
 Copyright notices:
 
 - Copyright (c) 2021, Andrea Giammarchi, @WebReflection
-- copyright notice and this permission notice appear in all copies.
 
 ```text
 ISC License
@@ -26692,9 +26097,7 @@ Applies to roughjs@4.6.4, roughjs@4.6.6.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Preet Shihn
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26726,10 +26129,8 @@ Applies to http-errors@1.8.1, http-errors@2.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 Jonathan Ong me@jongleberry.com
 - Copyright (c) 2016 Douglas Christopher Wilson doug@somethingdoug.com
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 
@@ -26763,9 +26164,7 @@ Applies to @hocuspocus/common@4.4.0, @hocuspocus/provider@4.4.0, @hocuspocus/ser
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023, Tiptap GmbH
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -26798,8 +26197,6 @@ Applies to decode-named-character-reference@1.3.0, hast-util-from-parse5@8.0.3, 
 Copyright notices:
 
 - Copyright (c) Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -26832,19 +26229,9 @@ Applies to @composio/client@0.1.0-alpha.74.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2026 Composio
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                  Apache License
@@ -27056,9 +26443,7 @@ Applies to isomorphic.js@0.2.5.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Kevin Jahns <kevin.jahns@protonmail.com>.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -27091,8 +26476,6 @@ Applies to buffer-crc32@1.0.0.
 Copyright notices:
 
 - Copyright (c) 2013-2024 Brian J. Brennan
-- PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License
@@ -27122,12 +26505,9 @@ Applies to argparse@2.0.1.
 
 Copyright notices:
 
-- both that copyright notice and this permission notice appear in
 - Copyright (c) 1991 - 1995, Stichting Mathematisch Centrum Amsterdam,
 - i.e., "Copyright (c) 2001, 2002, 2003, 2004, 2005, 2006, 2007, 2008, 2009, 2010,
 - License Agreement and CNRI's notice of copyright, i.e., "Copyright (c)
-- limitation the federal copyright law, and, to the extent such
-- provided that the above copyright notice appear in all copies and that
 - provided, however, that PSF's License Agreement and PSF's notice of copyright,
 
 ```text
@@ -27393,9 +26773,7 @@ Applies to po-parser@2.1.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Jan Amann
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -27428,8 +26806,6 @@ Applies to json-bigint@1.0.0.
 Copyright notices:
 
 - Copyright (c) 2013 Andrey Sidorov
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -27462,10 +26838,6 @@ Copyright notices:
 
 - Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
 - Copyright (c) 2021-present The Fastify team <https://github.com/fastify/fastify#team>
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDERS AND CONTRIBUTORS BE LIABLE FOR ANY
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS" AND
 
 ```text
 Copyright (c) 2011-2021, Gary Court until https://github.com/garycourt/uri-js/commit/a1acf730b4bba3f1097c9f52e7d9d3aba8cdcaae
@@ -27507,8 +26879,6 @@ Applies to bowser@2.14.1.
 Copyright notices:
 
 - Copyright 2015, Dustin Diaz (the "Original Author")
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright 2015, Dustin Diaz (the "Original Author")
@@ -27558,9 +26928,7 @@ Applies to readdirp@3.6.0, readdirp@4.1.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2012-2019 Thorsten Lorenz, Paul Miller (https://paulmillr.com)
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -27593,7 +26961,6 @@ Applies to d3-axis@3.0.0, d3-brush@3.0.0, d3-chord@3.0.1, d3-dispatch@3.0.1, d3-
 Copyright notices:
 
 - Copyright 2010-2021 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2010-2021 Mike Bostock
@@ -27618,8 +26985,6 @@ Applies to deep-extend@0.6.0.
 Copyright notices:
 
 - Copyright (c) 2013-2018, Viacheslav Lotsmanov
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -27650,9 +27015,7 @@ Applies to stacktrace-parser@0.1.11.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-2019 Georg Tavonius
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -27684,9 +27047,7 @@ Applies to html-url-attributes@3.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Titus Wormer
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 (The MIT License)
@@ -27718,9 +27079,7 @@ Applies to @xterm/addon-fit@0.11.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2019, The xterm.js authors (https://github.com/xtermjs/xterm.js)
@@ -27751,9 +27110,6 @@ Applies to rw@1.3.3.
 Copyright notices:
 
 - Copyright (c) 2014-2016, Michael Bostock
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 Copyright (c) 2014-2016, Michael Bostock
@@ -27795,10 +27151,6 @@ Copyright notices:
 - Copyright (c) 2012 Heather Arthur
 - Copyright (c) 2015 Dmitry Ivanov
 - Copyright (c) 2016-2021 Josh Junon <josh@junon.me>.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 # Licensing
@@ -27891,19 +27243,9 @@ Applies to @aws-sdk/middleware-eventstream@3.972.22.
 
 Copyright notices:
 
-- "Licensor" shall mean the copyright owner or entity authorized by
 - (c) You must retain, in the Source form of any Derivative Works
-- 2. Grant of Copyright License. Subject to the terms and conditions of
 - Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.
-- copyright license to reproduce, prepare Derivative Works of,
-- copyright notice that is included in or attached to the work
-- designated in writing by the copyright owner as "Not a Contribution."
-- same "printed page" as the copyright notice for easier
-- submitted to Licensor for inclusion in the Work by the copyright owner
 - that You distribute, all copyright, patent, trademark, and
-- the copyright owner that is granting the License.
-- the copyright owner. For the purposes of this definition, "submitted"
-- You may add Your own copyright statement to Your modifications and
 
 ```text
                                 Apache License
@@ -28116,8 +27458,6 @@ Applies to gensync@1.0.0-beta.2.
 Copyright notices:
 
 - Copyright 2018 Logan Smyth <loganfsmyth@gmail.com>
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright 2018 Logan Smyth <loganfsmyth@gmail.com>
@@ -28137,8 +27477,6 @@ Copyright notices:
 
 - Copyright (c) 2012-2014 TJ Holowaychuk <tj@vision-media.ca>
 - Copyright (c) 2015 Jed Watson <jed.watson@me.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -28173,7 +27511,6 @@ Applies to d3-contour@4.0.2.
 Copyright notices:
 
 - Copyright 2012-2023 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2012-2023 Mike Bostock
@@ -28197,9 +27534,7 @@ Applies to @sentry/feedback@10.65.0, @sentry/node@10.65.0, @sentry/opentelemetry
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2023 Functional Software, Inc. dba Sentry
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -28231,9 +27566,7 @@ Applies to typed-query-selector@2.12.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020-present Pig Fang
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -28267,9 +27600,6 @@ Copyright notices:
 
 - Copyright (c) 2011 The Mozilla Foundation.
 - PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT
-- Redistributions in binary form must reproduce the above copyright
-- Redistributions of source code must retain the above copyright
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS
 
 ```text
 Copyright (c) 2011 The Mozilla Foundation.
@@ -28306,8 +27636,6 @@ Applies to hast-util-from-html@2.0.3.
 Copyright notices:
 
 - Copyright (c) 2022 Titus Wormer <tituswormer@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -28340,9 +27668,7 @@ Applies to recharts@3.9.2.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015-present recharts
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -28374,9 +27700,7 @@ Applies to normalize-path@3.0.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014-2018, Jon Schlinkert.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -28408,9 +27732,7 @@ Applies to pusher-js@8.5.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Pusher, Ltd (https://pusher.com)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (c) 2020 Pusher, Ltd (https://pusher.com)
@@ -28440,9 +27762,7 @@ Applies to to-regex-range@5.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015-present, Jon Schlinkert.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -28474,12 +27794,7 @@ Applies to qs@6.15.3.
 
 Copyright notices:
 
-- 1. Redistributions of source code must retain the above copyright notice, this
-- 2. Redistributions in binary form must reproduce the above copyright notice,
-- 3. Neither the name of the copyright holder nor the names of its
 - Copyright (c) 2014, Nathan LaFreniere and other [contributors](https://github.com/ljharb/qs/graphs/contributors)
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 BSD 3-Clause License
@@ -28545,9 +27860,7 @@ Applies to path-data-parser@0.1.0, points-on-curve@0.2.0, points-on-curve@0.2.0,
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2020 Preet Shihn
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -28579,9 +27892,7 @@ Applies to reselect@5.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015-2018 Reselect Contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -28614,7 +27925,6 @@ Applies to meriyah@6.1.4.
 Copyright notices:
 
 - Copyright (c) 2019 and later, KFlash and others.
-- Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
 
 ```text
 ISC License
@@ -28624,6 +27934,39 @@ Copyright (c) 2019 and later, KFlash and others.
 Permission to use, copy, modify, and/or distribute this software for any purpose with or without fee is hereby granted, provided that the above copyright notice and this permission notice appear in all copies.
 
 THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
+### License text e9d17962dac7
+
+Applies to pg-types@2.2.0.
+
+Copyright notices:
+
+- Copyright (c) 2014 Brian M. Carlson
+
+```text
+
+The MIT License (MIT)
+
+Copyright (c) 2014 Brian M. Carlson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
+THE SOFTWARE.
 ```
 
 ### License text ea26b04c550f
@@ -28636,8 +27979,6 @@ Copyright notices:
 - Copyright (c) 2011 LearnBoost
 - Copyright (c) 2011 TJ Holowaychuk
 - Copyright (c) 2014-2015 Douglas Christopher Wilson
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -28673,9 +28014,7 @@ Applies to layout-base@1.0.2, layout-base@2.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 iVis@Bilkent
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -28707,10 +28046,8 @@ Applies to readable-stream@2.3.8, readable-stream@2.3.8, readable-stream@3.6.2, 
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright Joyent, Inc. and other Node contributors. All rights reserved.
 - Copyright Node.js contributors. All rights reserved.
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Node.js is licensed for use as follows:
@@ -28769,8 +28106,6 @@ Applies to vscode-jsonrpc@8.2.0, vscode-languageserver-protocol@3.17.5, vscode-l
 Copyright notices:
 
 - Copyright (c) Microsoft Corporation
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED *AS IS*, WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright (c) Microsoft Corporation
@@ -28792,9 +28127,7 @@ Applies to mermaid@11.16.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2014 - 2022 Knut Sveidqvist
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -28826,9 +28159,7 @@ Applies to process-nextick-args@2.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015 Calvin Metcalf
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 # Copyright (c) 2015 Calvin Metcalf
@@ -28854,13 +28185,11 @@ SOFTWARE.**
 
 ### License text ee765244e2d5
 
-Applies to next@16.2.10.
+Applies to @next/env@16.2.10, @next/swc-darwin-arm64@16.2.10, @next/swc-darwin-x64@16.2.10, @next/swc-linux-arm64-gnu@16.2.10, @next/swc-linux-arm64-musl@16.2.10, @next/swc-linux-x64-gnu@16.2.10, @next/swc-linux-x64-musl@16.2.10, @next/swc-win32-arm64-msvc@16.2.10, @next/swc-win32-x64-msvc@16.2.10, next@16.2.10.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2025 Vercel, Inc.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -28892,9 +28221,7 @@ Applies to prosemirror-commands@1.7.1, prosemirror-dropcursor@1.8.3, prosemirror
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2015-2017 by Marijn Haverbeke <marijn@haverbeke.berlin> and others
@@ -28924,9 +28251,7 @@ Applies to ts-dedent@2.3.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 Tamino Martinius
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -28989,9 +28314,7 @@ Applies to postgres-array@2.0.0, postgres-bytea@1.0.1, postgres-date@1.0.7, post
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Ben Drucker <bvdrucker@gmail.com> (bendrucker.me)
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 The MIT License (MIT)
@@ -29024,11 +28347,6 @@ Applies to @sentry/babel-plugin-component-annotate@5.3.0.
 Copyright notices:
 
 - Copyright (c) 2024, Sentry
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- Neither the name of the copyright holder nor the names of its
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 # MIT License
@@ -29068,9 +28386,7 @@ Applies to @marp-team/marp-cli@4.4.1, @marp-team/marp-core@4.3.1, @marp-team/mar
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2018 Marp team (marp-team@marp.app)
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -29102,9 +28418,7 @@ Applies to react-redux@9.3.0, redux-thunk@3.1.0, redux@5.0.1.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2015-present Dan Abramov
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -29136,9 +28450,7 @@ Applies to @sentry/browser@10.65.0, @sentry/core@10.65.0, @sentry/react@10.65.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Functional Software, Inc. dba Sentry
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -29170,9 +28482,7 @@ Applies to tiny-invariant@1.3.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Alexander Reardon
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -29205,8 +28515,6 @@ Applies to proxy-from-env@1.1.0.
 Copyright notices:
 
 - Copyright (C) 2016-2018 Rob Wu <rob@robwu.nl>
-- COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License
@@ -29238,8 +28546,6 @@ Applies to batch@0.6.1.
 Copyright notices:
 
 - Copyright (c) 2013 TJ Holowaychuk <tj@vision-media.ca>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -29272,9 +28578,7 @@ Applies to react-markdown@10.1.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) Espen Hovlandsdal
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -29308,8 +28612,6 @@ Copyright notices:
 
 - Copyright (c) 2012-2014 TJ Holowaychuk <tj@vision-media.ca>
 - Copyright (c) 2015-2016 Douglas Christopher Wilson <doug@somethingdoug.com
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -29344,8 +28646,6 @@ Applies to eventsource@3.0.7.
 Copyright notices:
 
 - Copyright (c) EventSource GitHub organisation
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 The MIT License
@@ -29378,9 +28678,7 @@ Applies to kysely@0.29.3.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2022 Sami Koskimäki
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -29413,10 +28711,7 @@ Applies to lodash-es@4.18.1.
 Copyright notices:
 
 - Based on Underscore.js, copyright Jeremy Ashkenas,
-- Copyright and related rights for sample code are waived via CC0. Sample
 - Copyright OpenJS Foundation and other contributors <https://openjsf.org/>
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright OpenJS Foundation and other contributors <https://openjsf.org/>
@@ -29474,9 +28769,7 @@ Applies to cytoscape@3.34.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2016-2026, The Cytoscape Consortium.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 Copyright (c) 2016-2026, The Cytoscape Consortium.
@@ -29507,8 +28800,6 @@ Applies to @anthropic-ai/sdk@0.91.1.
 Copyright notices:
 
 - Copyright 2023 Anthropic, PBC.
-- The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
-- THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ```text
 Copyright 2023 Anthropic, PBC.
@@ -29558,9 +28849,7 @@ Applies to ip-address@10.2.0.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (C) 2011 by Beau Gunderson
-- The above copyright notice and this permission notice shall be included in
 
 ```text
 Copyright (C) 2011 by Beau Gunderson
@@ -29590,9 +28879,7 @@ Applies to tinyexec@1.2.4.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2024 Tinylibs
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 MIT License
@@ -29625,8 +28912,6 @@ Applies to iconv-lite@0.6.3, iconv-lite@0.7.3, iconv-lite@0.7.3, iconv-lite@0.7.
 Copyright notices:
 
 - Copyright (c) 2011 Alexander Shtuchkin
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2011 Alexander Shtuchkin
@@ -29658,7 +28943,6 @@ Applies to d3-color@3.1.0, d3-shape@3.2.0, d3-time@3.1.0.
 Copyright notices:
 
 - Copyright 2010-2022 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2010-2022 Mike Bostock
@@ -29683,8 +28967,6 @@ Applies to hast-util-from-html-isomorphic@2.0.0.
 Copyright notices:
 
 - Copyright (c) 2023 Remco Haszing <remcohaszing@gmail.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -29718,10 +29000,6 @@ Applies to js-base64@3.8.1.
 Copyright notices:
 
 - Copyright (c) 2014, Dan Kogai
-- DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
-- Redistributions in binary form must reproduce the above copyright notice,
-- Redistributions of source code must retain the above copyright notice, this
-- THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
 
 ```text
 Copyright (c) 2014, Dan Kogai
@@ -29753,16 +29031,46 @@ OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
+### License text fd1f049b3bb5
+
+Applies to @uiw/codemirror-extensions-basic-setup@4.25.11, @uiw/react-codemirror@4.25.11.
+
+Copyright notices:
+
+- Copyright (c) 2021 uiw
+
+```text
+MIT License
+
+Copyright (c) 2021 uiw
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
 ### License text fd69bd7c93b6
 
 Applies to @tiptap/y-tiptap@3.0.7.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Copyright (c) 2019 Kevin Jahns <kevin.jahns@protonmail.com>.
 - Copyright (c) 2025 Tiptap GmbH.
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -29796,8 +29104,6 @@ Applies to archiver@8.0.0.
 Copyright notices:
 
 - Copyright (c) 2012-2014 Chris Talkington, contributors.
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright (c) 2012-2014 Chris Talkington, contributors.
@@ -29830,10 +29136,8 @@ Applies to esm@3.2.25.
 
 Copyright notices:
 
-- AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 - Based on reify, copyright Ben Newman <https://github.com/benjamn/reify>
 - Copyright esm contributors
-- The above copyright notice and this permission notice shall be included in all
 
 ```text
 The MIT License (MIT)
@@ -29869,8 +29173,6 @@ Copyright notices:
 
 - Copyright (c) 2012-2014 Roman Shtylman <shtylman@gmail.com>
 - Copyright (c) 2015 Douglas Christopher Wilson <doug@somethingdoug.com>
-- IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY
-- The above copyright notice and this permission notice shall be
 
 ```text
 (The MIT License)
@@ -29905,10 +29207,7 @@ Applies to lodash.debounce@4.0.8, lodash.kebabcase@4.1.1, lodash.throttle@4.1.1.
 Copyright notices:
 
 - Based on Underscore.js, copyright Jeremy Ashkenas,
-- Copyright and related rights for sample code are waived via CC0. Sample
 - Copyright jQuery Foundation and other contributors <https://jquery.org/>
-- NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
-- The above copyright notice and this permission notice shall be
 
 ```text
 Copyright jQuery Foundation and other contributors <https://jquery.org/>
@@ -29967,7 +29266,6 @@ Applies to d3-fetch@3.0.1.
 Copyright notices:
 
 - Copyright 2016-2021 Mike Bostock
-- with or without fee is hereby granted, provided that the above copyright notice
 
 ```text
 Copyright 2016-2021 Mike Bostock

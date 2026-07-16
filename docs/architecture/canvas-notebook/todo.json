@@ -1391,16 +1391,20 @@
         "commercialReleaseGate": "blocked_pending_review",
         "inventory": {
           "totalComponents": 1981,
-          "runtimeComponents": 1475,
-          "developmentOnlyComponents": 506,
-          "allowed": 1758,
-          "reviewRequired": 223,
+          "runtimeComponents": 1473,
+          "developmentOnlyComponents": 508,
+          "allowed": 1913,
+          "reviewRequired": 68,
           "blocked": 0,
-          "releaseBlockers": 200
+          "releaseBlockers": 47
         },
         "completed": [
           "Deterministischer npm- und Non-npm-Inventargenerator",
           "Lockfile-gebundener Lizenztext-Cache aus exakten npm-Tarballs",
+          "Exakte Upstream-Aufloesung ueber veroeffentlichten gitHead, auf Commit aufgeloeste Tags und dokumentierte Source-Revision-Overrides",
+          "Vollstaendige Lizenztexte aus Markdown-README-Abschnitten inklusive ATX- und Setext-Ueberschriften",
+          "Korrekte Vererbung von development-only auf verschachtelte Build-Abhaengigkeiten",
+          "Copyright-Attributionen von Lizenzboilerplate getrennt und bestehende Cache-Eintraege deterministisch migriert",
           "Menschenlesbare Third-Party Notices und maschinenlesbares Komponentenmanifest",
           "Versionierte Lizenzpolicy und Overrides fuer fehlende npm-Metadaten",
           "Excalidraw-Paket und selbst gehostete Excalidraw-Font-Assets inventarisiert",
@@ -1420,7 +1424,9 @@
         "remainingExternalReview": [
           "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
           "Aufgeloesten Docker-Basisimage-Digest und Image-Paketnotices pruefen",
-          "Noch reviewpflichtige Runtime-Komponenten einzeln freigeben, ersetzen oder entfernen"
+          "28 sharp-/libvips-Lieferpositionen mit LGPL- oder zusammengesetzter Lizenz fuer die konkreten Plattformartefakte pruefen",
+          "Lizenzwahl fuer mailsplit, dompurify und jszip dokumentieren",
+          "14 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
         ]
       }
     },

@@ -5,6 +5,10 @@ import path from 'node:path';
 import * as tar from 'tar';
 
 import { thirdPartyCompliancePaths } from './third-party-license-inventory';
+import {
+  decodeBasicHtmlEntities,
+  extractCopyrightNotices,
+} from './third-party-license-text';
 
 type LockPackage = {
   version?: string;
@@ -16,6 +20,9 @@ type CacheEntry = {
   name: string;
   version: string;
   sourceUrl: string | null;
+  sourceRevision: string | null;
+  verificationSource: string | null;
+  verificationNote: string | null;
   licenseFileName: string | null;
   licenseText: string | null;
   noticeTexts: string[];
@@ -26,10 +33,36 @@ type LicensePolicy = {
   packageOverrides?: Record<string, {
     licenseTextPath?: string | null;
   }>;
+  sourceRevisionOverrides?: Record<string, SourceRevisionOverride>;
+};
+
+type SourceRevisionOverride = {
+  repositoryUrl: string;
+  revision: string;
+  licensePath?: string;
+  reason: string;
 };
 
 const LICENSE_PATTERN = /^(?:licen[cs]e|copying|copyright)(?:[._-].*)?$/iu;
 const NOTICE_PATTERN = /^notice(?:[._-].*)?$/iu;
+const README_PATTERN = /^readme(?:[._-].*)?$/iu;
+const UPSTREAM_LICENSE_CANDIDATES = [
+  'LICENSE',
+  'LICENSE.md',
+  'LICENSE.txt',
+  'LICENCE',
+  'LICENCE.md',
+  'LICENCE.txt',
+  'COPYING',
+  'COPYING.md',
+  'COPYING.txt',
+  'license',
+  'license.md',
+  'license.txt',
+  'licence',
+  'licence.md',
+  'licence.txt',
+] as const;
 
 function normalizeText(value: string): string {
   return value
@@ -61,17 +94,181 @@ function repositoryUrl(value: unknown): string | null {
   return raw.replace(/^git\+/u, '').replace(/^git:\/\//u, 'https://').replace(/\.git$/u, '');
 }
 
-function extractCopyrightNotices(...texts: string[]): string[] {
-  const values = new Set<string>();
-  for (const text of texts) {
-    for (const line of text.split('\n')) {
-      const normalized = line.trim().replace(/^[*#/\s-]+/u, '').trim();
-      if (/\bcopyright\b|\(c\)|©/iu.test(normalized) && normalized.length <= 500) {
-        values.add(normalized);
+function githubRepository(value: unknown): {
+  baseUrl: string;
+  owner: string;
+  repository: string;
+} | null {
+  const normalized = repositoryUrl(value)
+    ?.replace(/^git@github\.com:/u, 'https://github.com/')
+    .replace(/#.*$/u, '')
+    .replace(/\.git$/u, '')
+    .replace(/\/tree\/.*$/u, '')
+    .replace(/\/$/u, '');
+  const match = normalized?.match(/^https:\/\/github\.com\/([^/]+)\/([^/]+)$/u);
+  if (!match) return null;
+  return {
+    baseUrl: match[0],
+    owner: match[1],
+    repository: match[2],
+  };
+}
+
+function encodePath(value: string): string {
+  return value.split('/').filter(Boolean).map(encodeURIComponent).join('/');
+}
+
+async function fetchRegistryMetadata(name: string, version: string): Promise<{
+  gitHead?: string;
+  repository?: unknown;
+  homepage?: string;
+} | null> {
+  const response = await fetch(
+    `https://registry.npmjs.org/${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
+  );
+  if (!response.ok) return null;
+  return response.json() as Promise<{
+    gitHead?: string;
+    repository?: unknown;
+    homepage?: string;
+  }>;
+}
+
+async function fetchExactUpstreamLicense(
+  name: string,
+  version: string,
+  packageJson: {
+    gitHead?: string;
+    repository?: unknown;
+    homepage?: string;
+  } | null,
+  sourceRevisionOverride?: SourceRevisionOverride,
+): Promise<{
+  sourceUrl: string;
+  sourceRevision: string;
+  verificationSource: string;
+  licenseFileName: string;
+  licenseText: string;
+  verificationNote: string | null;
+} | null> {
+  const registryMetadata = sourceRevisionOverride
+    ? null
+    : await fetchRegistryMetadata(name, version);
+  const repositoryValue = sourceRevisionOverride?.repositoryUrl
+    || registryMetadata?.repository
+    || packageJson?.repository;
+  const github = githubRepository(repositoryValue);
+  const publishedGitHead = sourceRevisionOverride?.revision
+    || registryMetadata?.gitHead
+    || packageJson?.gitHead;
+  if (!github) return null;
+
+  const repositoryDirectory = (
+    repositoryValue
+    && typeof repositoryValue === 'object'
+    && 'directory' in repositoryValue
+    && typeof (repositoryValue as { directory?: unknown }).directory === 'string'
+  )
+    ? String((repositoryValue as { directory: string }).directory)
+    : '';
+  const candidatePaths = [
+    ...(sourceRevisionOverride?.licensePath ? [sourceRevisionOverride.licensePath] : []),
+    ...UPSTREAM_LICENSE_CANDIDATES.map((candidate) => (
+      repositoryDirectory ? `${repositoryDirectory}/${candidate}` : candidate
+    )),
+    ...UPSTREAM_LICENSE_CANDIDATES,
+  ];
+
+  const unscopedName = name.includes('/') ? name.split('/').at(-1) || name : name;
+  const revisionCandidates = publishedGitHead
+    ? [publishedGitHead]
+    : [
+      `v${version}`,
+      `${name}@${version}`,
+      `${unscopedName}@${version}`,
+      version,
+    ];
+
+  for (const revisionCandidate of [...new Set(revisionCandidates)]) {
+    for (const candidatePath of [...new Set(candidatePaths)]) {
+      const candidateRawUrl = `https://raw.githubusercontent.com/${encodeURIComponent(github.owner)}/${encodeURIComponent(github.repository)}/${encodeURIComponent(revisionCandidate)}/${encodePath(candidatePath)}`;
+      const candidateResponse = await fetch(candidateRawUrl);
+      if (!candidateResponse.ok) continue;
+      const candidateLicenseText = normalizeText(await candidateResponse.text());
+      if (!candidateLicenseText.trim()) continue;
+
+      let sourceRevision = revisionCandidate;
+      if (!publishedGitHead) {
+        const commitResponse = await fetch(
+          `https://api.github.com/repos/${encodeURIComponent(github.owner)}/${encodeURIComponent(github.repository)}/commits/${encodeURIComponent(revisionCandidate)}`,
+          { headers: { Accept: 'application/vnd.github+json' } },
+        );
+        if (!commitResponse.ok) continue;
+        const commit = await commitResponse.json() as { sha?: string };
+        if (!commit.sha) continue;
+        sourceRevision = commit.sha;
       }
+
+      const verificationSource = `https://raw.githubusercontent.com/${encodeURIComponent(github.owner)}/${encodeURIComponent(github.repository)}/${encodeURIComponent(sourceRevision)}/${encodePath(candidatePath)}`;
+      const exactResponse = sourceRevision === revisionCandidate
+        ? candidateResponse
+        : await fetch(verificationSource);
+      if (!exactResponse.ok) continue;
+      const licenseText = sourceRevision === revisionCandidate
+        ? candidateLicenseText
+        : normalizeText(await exactResponse.text());
+      if (!licenseText.trim()) continue;
+      return {
+        sourceUrl: `${github.baseUrl}/tree/${sourceRevision}`,
+        sourceRevision,
+        verificationSource,
+        licenseFileName: `UPSTREAM:${candidatePath}`,
+        licenseText,
+        verificationNote: sourceRevisionOverride?.reason || null,
+      };
     }
   }
-  return [...values].sort((left, right) => left.localeCompare(right));
+  return null;
+}
+
+function extractLicenseFromReadme(value: string): string | null {
+  const lines = value.replace(/\r\n?/gu, '\n').split('\n');
+  const headingIndex = lines.findIndex((line, index) => (
+    /^#{1,6}\s*licen[cs]e\s*#*\s*$/iu.test(line.trim())
+    || (
+      /^licen[cs]e\s*$/iu.test(line.trim())
+      && /^[-=]{3,}\s*$/u.test(lines[index + 1] || '')
+    )
+  ));
+  if (headingIndex < 0) return null;
+  const setextHeading = !lines[headingIndex].trim().startsWith('#');
+  const headingLevel = setextHeading
+    ? 2
+    : lines[headingIndex].match(/^#+/u)?.[0].length || 6;
+  const sectionStart = headingIndex + (setextHeading ? 2 : 1);
+  let endIndex = lines.length;
+  for (let index = sectionStart; index < lines.length; index += 1) {
+    const heading = lines[index].match(/^(#+)\s+/u);
+    const isSetextHeading = index + 1 < lines.length && /^[-=]{3,}\s*$/u.test(lines[index + 1]);
+    if ((heading && heading[1].length <= headingLevel) || isSetextHeading) {
+      endIndex = index;
+      break;
+    }
+  }
+  const section = normalizeText(decodeBasicHtmlEntities(
+    lines.slice(sectionStart, endIndex).join('\n'),
+  ));
+  const containsFullLicense = (
+    section.includes('Permission is hereby granted')
+    && /THE SOFTWARE IS PROVIDED/iu.test(section)
+  ) || (
+    /Apache License\s*,?\s*Version 2\.0/iu.test(section)
+    && /TERMS AND CONDITIONS/iu.test(section)
+  ) || (
+    /Redistribution and use in source and binary forms/iu.test(section)
+    && /THIS SOFTWARE IS PROVIDED/iu.test(section)
+  );
+  return containsFullLicense ? section : null;
 }
 
 async function readOptionalJson<T>(filePath: string): Promise<T | null> {
@@ -94,6 +291,7 @@ async function hasLocalLicenseFile(packagePath: string): Promise<boolean> {
 async function extractPackageLicense(
   packagePath: string,
   lockPackage: LockPackage,
+  sourceRevisionOverride?: SourceRevisionOverride,
 ): Promise<CacheEntry> {
   const version = String(lockPackage.version || '');
   const name = packageNameFromLockPath(packagePath);
@@ -103,6 +301,9 @@ async function extractPackageLicense(
       name,
       version,
       sourceUrl: null,
+      sourceRevision: null,
+      verificationSource: null,
+      verificationNote: sourceRevisionOverride?.reason || null,
       licenseFileName: null,
       licenseText: null,
       noticeTexts: [],
@@ -129,32 +330,54 @@ async function extractPackageLicense(
         const normalized = entryPath.replace(/^package\//u, '');
         if (normalized === 'package.json') return true;
         if (normalized.includes('/')) return false;
-        return LICENSE_PATTERN.test(normalized) || NOTICE_PATTERN.test(normalized);
+        return LICENSE_PATTERN.test(normalized)
+          || NOTICE_PATTERN.test(normalized)
+          || README_PATTERN.test(normalized);
       },
     });
     const entries = await fs.readdir(extractRoot);
     const licenseFileName = entries.filter((entry) => LICENSE_PATTERN.test(entry)).sort()[0] || null;
     const noticeFileNames = entries.filter((entry) => NOTICE_PATTERN.test(entry)).sort();
-    const licenseText = licenseFileName
+    const readmeFileName = entries.filter((entry) => README_PATTERN.test(entry)).sort()[0] || null;
+    const directLicenseText = licenseFileName
       ? normalizeText(await fs.readFile(path.join(extractRoot, licenseFileName), 'utf8'))
       : null;
+    const readmeLicenseText = !directLicenseText && readmeFileName
+      ? extractLicenseFromReadme(await fs.readFile(path.join(extractRoot, readmeFileName), 'utf8'))
+      : null;
+    const licenseText = directLicenseText || readmeLicenseText;
     const noticeTexts = await Promise.all(
       noticeFileNames.map(async (entry) => normalizeText(await fs.readFile(path.join(extractRoot, entry), 'utf8'))),
     );
     const packageJson = await readOptionalJson<{
+      gitHead?: string;
       repository?: unknown;
       homepage?: string;
     }>(path.join(extractRoot, 'package.json'));
+    const upstreamLicense = licenseText
+      ? null
+      : await fetchExactUpstreamLicense(name, version, packageJson, sourceRevisionOverride);
+    const resolvedLicenseText = licenseText || upstreamLicense?.licenseText || null;
     return {
       packagePath,
       name,
       version,
-      sourceUrl: repositoryUrl(packageJson?.repository) || packageJson?.homepage || lockPackage.resolved,
-      licenseFileName,
-      licenseText,
+      sourceUrl: upstreamLicense?.sourceUrl
+        || repositoryUrl(packageJson?.repository)
+        || packageJson?.homepage
+        || lockPackage.resolved,
+      sourceRevision: upstreamLicense?.sourceRevision || packageJson?.gitHead || null,
+      verificationSource: upstreamLicense?.verificationSource
+        || (licenseText ? `${lockPackage.resolved}#${licenseFileName || `${readmeFileName}#License`}` : null),
+      verificationNote: upstreamLicense?.verificationNote
+        || (readmeLicenseText ? 'The complete license text is embedded in the exact npm tarball README license section.' : null),
+      licenseFileName: upstreamLicense?.licenseFileName
+        || licenseFileName
+        || (readmeLicenseText ? `${readmeFileName}#License` : null),
+      licenseText: resolvedLicenseText,
       noticeTexts,
       copyrightNotices: extractCopyrightNotices(
-        ...(licenseText ? [licenseText] : []),
+        ...(resolvedLicenseText ? [resolvedLicenseText] : []),
         ...noticeTexts,
       ),
     };
@@ -183,10 +406,18 @@ async function mapConcurrent<T, R>(
 
 async function main() {
   const lockfileRaw = await fs.readFile(path.join(thirdPartyCompliancePaths.root, 'package-lock.json'));
+  const lockfileSha256 = sha256(lockfileRaw);
   const lockfile = JSON.parse(lockfileRaw.toString('utf8')) as {
     packages: Record<string, LockPackage>;
   };
   const policy = JSON.parse(await fs.readFile(thirdPartyCompliancePaths.policy, 'utf8')) as LicensePolicy;
+  const previousCache = await readOptionalJson<{
+    lockfileSha256?: string;
+    entries?: Record<string, CacheEntry>;
+  }>(thirdPartyCompliancePaths.licenseCache);
+  const previousEntries = previousCache?.lockfileSha256 === lockfileSha256
+    ? previousCache.entries || {}
+    : {};
   const candidates = await Promise.all(
     Object.entries(lockfile.packages)
       .filter(([packagePath, lockPackage]) => (
@@ -204,10 +435,19 @@ async function main() {
             .then(() => true)
             .catch(() => false),
         );
+        const cacheKey = `${packagePath}@${version}`;
+        const sourceRevisionOverride = policy.sourceRevisionOverrides?.[`${name}@${version}`];
+        const existing = previousEntries[cacheKey];
+        const cacheRelevant = !overrideHasLicense && !await hasLocalLicenseFile(packagePath);
+        const needsRefresh = !existing?.licenseText
+          || Boolean(sourceRevisionOverride && existing.sourceRevision !== sourceRevisionOverride.revision);
         return {
           packagePath,
           lockPackage,
-          needsCache: !overrideHasLicense && !await hasLocalLicenseFile(packagePath),
+          cacheKey,
+          cacheRelevant,
+          sourceRevisionOverride,
+          needsCache: cacheRelevant && needsRefresh,
         };
       }),
   );
@@ -220,7 +460,11 @@ async function main() {
   const entries = await mapConcurrent(missing, 8, async (entry, index) => {
     let result: CacheEntry;
     try {
-      result = await extractPackageLicense(entry.packagePath, entry.lockPackage);
+      result = await extractPackageLicense(
+        entry.packagePath,
+        entry.lockPackage,
+        entry.sourceRevisionOverride,
+      );
     } catch (error) {
       const name = packageNameFromLockPath(entry.packagePath);
       const version = String(entry.lockPackage.version || '');
@@ -231,6 +475,9 @@ async function main() {
         name,
         version,
         sourceUrl: entry.lockPackage.resolved || null,
+        sourceRevision: null,
+        verificationSource: null,
+        verificationNote: entry.sourceRevisionOverride?.reason || null,
         licenseFileName: null,
         licenseText: null,
         noticeTexts: [],
@@ -241,9 +488,35 @@ async function main() {
     return result;
   });
   const cache = {
-    schemaVersion: 1,
-    lockfileSha256: sha256(lockfileRaw),
-    entries: Object.fromEntries(entries.map((entry) => [`${entry.packagePath}@${entry.version}`, entry])),
+    schemaVersion: 3,
+    lockfileSha256,
+    entries: {
+      ...Object.fromEntries(
+        candidates
+          .filter((entry) => entry.cacheRelevant && previousEntries[entry.cacheKey])
+          .map((entry) => {
+            const previous = previousEntries[entry.cacheKey];
+            const migratedLicenseText = (
+              previous.licenseText
+              && previous.licenseFileName?.startsWith('README')
+            )
+              ? normalizeText(decodeBasicHtmlEntities(previous.licenseText))
+              : previous.licenseText;
+            return [
+              entry.cacheKey,
+              {
+                ...previous,
+                licenseText: migratedLicenseText,
+                copyrightNotices: extractCopyrightNotices(
+                  migratedLicenseText || '',
+                  ...(previous.noticeTexts || []),
+                ),
+              },
+            ];
+          }),
+      ),
+      ...Object.fromEntries(entries.map((entry) => [`${entry.packagePath}@${entry.version}`, entry])),
+    },
   };
   await fs.mkdir(path.dirname(thirdPartyCompliancePaths.licenseCache), { recursive: true });
   await fs.writeFile(

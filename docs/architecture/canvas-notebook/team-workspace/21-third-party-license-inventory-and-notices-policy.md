@@ -11,9 +11,17 @@ angelaufen und liegt reproduzierbar im Repository:
   Inventar und `THIRD_PARTY_NOTICES.md` deterministisch aus Lockfile,
   installierten Lizenzdateien, versionierten Overrides und Non-npm-Komponenten.
 - `scripts/refresh-third-party-license-cache.ts` liest fehlende Lizenzdateien
-  aus den exakt im Lockfile gepinnten npm-Tarballs und legt den Beleg mit
-  Lockfile-Hash reproduzierbar unter `docs/compliance/` ab. Pakete ohne eigenen
-  Lizenztext bleiben sichtbar reviewpflichtig.
+  aus den exakt im Lockfile gepinnten npm-Tarballs. Fehlt der Text dort, wird
+  zunaechst der veroeffentlichte `gitHead`, danach ein auf einen unveraenderlichen
+  Commit aufgeloester Release-Tag und zuletzt ein dokumentierter
+  versionsspezifischer Source-Override geprueft. Vollstaendige Lizenzabschnitte
+  in Markdown-READMEs werden inklusive ATX- und Setext-Ueberschriften erkannt.
+  Quelle, Commit, Begruendung und Lockfile-Hash liegen reproduzierbar unter
+  `docs/compliance/`; Pakete ohne belastbaren Text bleiben reviewpflichtig.
+- Die Copyright-Extraktion trennt echte Attributionen von Lizenzboilerplate.
+  Saetze ueber `copyright holder`, Haftungsausschluesse oder abstrakte
+  Copyright-Pflichten werden nicht mehr faelschlich als Rechteinhaber in den
+  Notices ausgegeben.
 - `scripts/third-party-license-compliance-test.ts` prueft Drift, MIT-Text und
   Copyright-Zuordnung, Excalidraw inklusive der selbst gehosteten Fonts sowie
   das Entfernen ungenutzter lizenzpflichtiger Pakete.
@@ -29,15 +37,25 @@ angelaufen und liegt reproduzierbar im Repository:
 - Die Release-Workflows rufen das strikte kommerzielle Lizenz-Gate vor dem
   Paketieren auf.
 
-Der aktuelle technische Scan umfasst 1.981 Komponenten. Das kommerzielle
-Release-Gate bleibt mit 200 Eintraegen absichtlich gesperrt. Darin enthalten
-sind die erste verantwortliche oder rechtliche Freigabe, das gegen seinen
-aufgeloesten Digest zu pruefende Docker-Basisimage sowie Runtime-Pakete ohne
-vollstaendig zugeordneten Lizenztext beziehungsweise Copyright-Hinweis oder
-mit reviewpflichtiger Mehrfach-/Copyleft-Lizenz. Im Gesamtinventar sind 1.758
-Komponenten `allowed`, 223 `review_required` und keine pauschal `blocked`;
-Development-only-Eintraege zaehlen nicht als Release-Blocker. Alle offenen
-Punkte stehen einzeln in
+Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
+ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 47 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.913 Komponenten `allowed`, 68
+`review_required` und keine pauschal `blocked`; Development-only-Eintraege
+zaehlen nicht als Release-Blocker.
+
+Die 47 Release-Pruefpositionen gliedern sich in:
+
+- eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
+- einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
+- 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
+  LGPL- beziehungsweise zusammengesetzter Lizenz,
+- drei noch zu entscheidende Mehrfachlizenz-Faelle (`mailsplit`, `dompurify`,
+  `jszip`),
+- 14 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
+  keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
+
+Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.
 
@@ -72,14 +90,23 @@ Diese technische Policy ersetzt keine anwaltliche Einzelfallpruefung. Unklare, p
 
 ## Aktueller Befund
 
-Der aktuelle Repository-Stand besitzt:
+Der Repository-Stand besitzt jetzt:
 
 - eine eigene Produktlizenz in `LICENSE`,
-- einzelne Lizenzdateien in gebuendelten Seed-Skills,
-- Lizenzmetadaten in `package-lock.json`,
-- aber keine zentrale, aus dem ausgelieferten Produkt erreichbare Drittanbieter-Lizenzliste und keinen CI-Drift-Check fuer neue Komponenten.
+- eine zentrale, aus der App und aus Release-Artefakten erreichbare
+  `THIRD_PARTY_NOTICES.md`,
+- ein maschinenlesbares Komponentenmanifest mit Lieferumfang,
+  Lizenzentscheidung, Text-Hash und exakter Quelle,
+- einen Lockfile-gebundenen Belegcache fuer fehlende Paket-Lizenzdateien,
+- einen CI-/Release-Drift-Check und ein striktes kommerzielles Release-Gate,
+- gesonderte Eintraege fuer Seed-Skills, Fonts, Assets, Binaries, CLI,
+  Electron und Docker-Lieferumfang.
 
-Eine vorlaeufige Auswertung der Lockfile-Metadaten ergibt 2.017 Paket-Eintraege. Davon deklarieren 1.533 `MIT`; 21 Eintraege besitzen kein `license`-Metadatum. Zusaetzlich kommen unter anderem Apache-, ISC-, BSD-, LGPL-, MPL-, FSL- und Mehrfachlizenz-Angaben vor. Diese Zahlen enthalten direkte, transitive, Entwicklungs-, optionale und plattformspezifische Pakete und sind deshalb nur ein Inventar-Startpunkt, keine Aussage ueber den tatsaechlichen Lieferumfang oder die Zulassung.
+Der Generator inventarisiert derzeit 1.968 npm- und 13 Non-npm-Komponenten.
+Lockfile-Eintraege allein gelten weiterhin nicht als Freigabe: optionale,
+plattformspezifische und verschachtelte Abhaengigkeiten bleiben sichtbar,
+waehrend bekannte Build-Werkzeuge und deren Unterabhaengigkeiten korrekt als
+`development-only` vererbt werden.
 
 `@excalidraw/excalidraw` ist aktuell als npm-Abhaengigkeit eingebunden und unter MIT lizenziert. Excalidraw und jeder spaeter wiederverwendete Teil aus `excalidraw-room` oder der offiziellen Collaboration-Implementierung muessen mit exakter Version beziehungsweise Commit, Upstream-Quelle, Lizenztext und Copyright-Hinweis in dieses Inventar aufgenommen werden.
 

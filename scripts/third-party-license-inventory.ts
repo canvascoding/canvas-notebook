@@ -2,6 +2,8 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
+import { extractCopyrightNotices } from './third-party-license-text';
+
 export type ThirdPartyUsage = 'runtime' | 'build-bundled' | 'asset' | 'native' | 'development-only';
 export type ThirdPartyPolicyDecision = 'allowed' | 'review_required' | 'blocked';
 
@@ -66,6 +68,9 @@ type LicenseCacheEntry = {
   name: string;
   version: string;
   sourceUrl: string | null;
+  sourceRevision?: string | null;
+  verificationSource?: string | null;
+  verificationNote?: string | null;
   licenseFileName: string | null;
   licenseText: string | null;
   noticeTexts: string[];
@@ -220,24 +225,49 @@ function findPackageNoticeFiles(packageDirectory: string): {
   };
 }
 
-function extractCopyrightNotices(...texts: Array<string | null>): string[] {
-  const notices = new Set<string>();
-  for (const text of texts) {
-    if (!text) continue;
-    for (const line of text.split('\n')) {
-      const normalized = line.trim().replace(/^[*#/\s-]+/u, '').trim();
-      if (/\bcopyright\b|\(c\)|©/iu.test(normalized) && normalized.length <= 500) {
-        notices.add(normalized);
-      }
-    }
-  }
-  return [...notices].sort((left, right) => left.localeCompare(right));
-}
-
-function declaredPackageUsage(lockPackage: LockPackage): {
+function declaredPackageUsage(
+  policy: LicensePolicy,
+  packagePath: string,
+  lockPackage: LockPackage,
+  lockPackages: Record<string, LockPackage>,
+): {
   usage: ThirdPartyUsage;
   distributedIn: string[];
+  reason?: string;
 } {
+  const name = packageNameFromLockPath(packagePath);
+  const directOverride = policy.packageUsageOverrides.find((entry) => name.startsWith(entry.namePrefix));
+  if (directOverride) {
+    return {
+      usage: directOverride.usage,
+      distributedIn: directOverride.distributedIn,
+      reason: directOverride.reason,
+    };
+  }
+
+  let parentPath = packagePath;
+  while (parentPath.includes('/node_modules/')) {
+    parentPath = parentPath.slice(0, parentPath.lastIndexOf('/node_modules/'));
+    const parentName = packageNameFromLockPath(parentPath);
+    const parentOverride = policy.packageUsageOverrides.find((entry) => (
+      parentName.startsWith(entry.namePrefix)
+    ));
+    if (parentOverride) {
+      return {
+        usage: parentOverride.usage,
+        distributedIn: parentOverride.distributedIn,
+        reason: `Inherited from ${parentName}: ${parentOverride.reason}`,
+      };
+    }
+    if (lockPackages[parentPath]?.dev) {
+      return {
+        usage: 'development-only',
+        distributedIn: ['source-development-install'],
+        reason: `Inherited development-only classification from ${parentName}.`,
+      };
+    }
+  }
+
   if (lockPackage.dev) {
     return {
       usage: 'development-only',
@@ -256,10 +286,13 @@ function policyDecision(
   override?: PackageOverride,
 ): ThirdPartyPolicyDecision {
   if (override?.policyDecision) return override.policyDecision;
-  if (policy.blockedLicensePatterns.some((pattern) => verifiedLicense.includes(pattern))) {
+  const policyLicense = verifiedLicense.startsWith('(') && verifiedLicense.endsWith(')')
+    ? verifiedLicense.slice(1, -1).trim()
+    : verifiedLicense;
+  if (policy.blockedLicensePatterns.some((pattern) => policyLicense.includes(pattern))) {
     return 'blocked';
   }
-  return policy.licenseDecisions[verifiedLicense] ?? 'review_required';
+  return policy.licenseDecisions[policyLicense] ?? 'review_required';
 }
 
 function overrideForPackage(
@@ -280,6 +313,7 @@ function packageNameFromLockPath(packagePath: string): string {
 function createNpmComponent(
   policy: LicensePolicy,
   licenseCache: LicenseCache | null,
+  lockPackages: Record<string, LockPackage>,
   packagePath: string,
   lockPackage: LockPackage,
 ): InternalComponent | null {
@@ -309,18 +343,9 @@ function createNpmComponent(
   ];
   const copyrightNotices = override?.copyrightNotices?.length
     ? [...override.copyrightNotices].sort((left, right) => left.localeCompare(right))
-    : cached?.copyrightNotices?.length
-      ? [...cached.copyrightNotices].sort((left, right) => left.localeCompare(right))
-      : extractCopyrightNotices(licenseText, ...additionalNoticeTexts);
+    : extractCopyrightNotices(licenseText, ...additionalNoticeTexts);
 
-  let usage = declaredPackageUsage(lockPackage);
-  const usageOverride = policy.packageUsageOverrides.find((entry) => name.startsWith(entry.namePrefix));
-  if (usageOverride) {
-    usage = {
-      usage: usageOverride.usage,
-      distributedIn: usageOverride.distributedIn,
-    };
-  }
+  const usage = declaredPackageUsage(policy, packagePath, lockPackage, lockPackages);
 
   let decision = policyDecision(policy, verifiedLicense, override);
   const reviewReasons: string[] = [];
@@ -328,7 +353,16 @@ function createNpmComponent(
   if (override?.verificationSource) {
     reviewReasons.push(`Verification source: ${override.verificationSource}`);
   }
-  if (usageOverride?.reason) reviewReasons.push(usageOverride.reason);
+  if (usage.reason) reviewReasons.push(usage.reason);
+  if (cached?.verificationSource) {
+    reviewReasons.push(`License text source: ${cached.verificationSource}`);
+  }
+  if (cached?.sourceRevision) {
+    reviewReasons.push(`Published source revision: ${cached.sourceRevision}`);
+  }
+  if (cached?.verificationNote) {
+    reviewReasons.push(cached.verificationNote);
+  }
   if (!licenseText) {
     reviewReasons.push('No verified license text was found in the installed package or a versioned override.');
     if (usage.usage !== 'development-only') decision = 'review_required';
@@ -339,9 +373,9 @@ function createNpmComponent(
   }
 
   const sourceUrl = override?.sourceUrl
+    || cached?.sourceUrl
     || repositoryUrl(installedPackage.repository)
     || installedPackage.homepage
-    || cached?.sourceUrl
     || lockPackage.resolved
     || `https://www.npmjs.com/package/${encodeURIComponent(name)}/v/${encodeURIComponent(version)}`;
   const author = authorLabel(installedPackage.author);
@@ -551,7 +585,13 @@ export function generateThirdPartyComplianceArtifacts(): GeneratedComplianceArti
   }
   const npmComponents = Object.entries(lockfile.packages || {})
     .filter(([packagePath, value]) => packagePath.startsWith('node_modules/') && Boolean(value.version))
-    .map(([packagePath, value]) => createNpmComponent(policy, licenseCache, packagePath, value))
+    .map(([packagePath, value]) => createNpmComponent(
+      policy,
+      licenseCache,
+      lockfile.packages || {},
+      packagePath,
+      value,
+    ))
     .filter((value): value is InternalComponent => Boolean(value));
   const additionalComponents = policy.additionalComponents.map(createAdditionalComponent);
   const internals = [...npmComponents, ...additionalComponents, ...createSeedSkillComponents()]
