@@ -268,6 +268,7 @@ export async function prepareRuntimePrompt(
   if (!status.canAbort && !runtimeCreated) {
     await runtimeInstance.reloadTools();
   }
+  await runtimeInstance.refreshWorkspaceFileTreePrompt();
   timing.mark('applyContextAndReloadTools');
 
   console.log('[RuntimeService] Runtime status:', {
@@ -404,16 +405,19 @@ export async function control(
         if (!isValidUserMessage(message)) {
           throw new RuntimeServiceError('User message required for follow_up.', 400);
         }
+        await runtimeInstance.refreshWorkspaceFileTreePrompt();
         return runtimeInstance.queueFollowUp(message);
       case 'steer':
         if (!isValidUserMessage(message)) {
           throw new RuntimeServiceError('User message required for steer.', 400);
         }
+        await runtimeInstance.refreshWorkspaceFileTreePrompt();
         return runtimeInstance.queueSteering(message);
       case 'promote_queued_to_steer':
         if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
           throw new RuntimeServiceError('Queue item id required for promote_queued_to_steer.', 400);
         }
+        await runtimeInstance.refreshWorkspaceFileTreePrompt();
         return runtimeInstance.promoteQueuedMessageToSteering(queueItemId.trim());
       case 'remove_queued_item':
         if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
@@ -424,6 +428,7 @@ export async function control(
         if (!isValidUserMessage(message)) {
           throw new RuntimeServiceError('User message required for replace.', 400);
         }
+        await runtimeInstance.refreshWorkspaceFileTreePrompt();
         return runtimeInstance.replace(message);
       case 'abort':
         return runtimeInstance.abort();

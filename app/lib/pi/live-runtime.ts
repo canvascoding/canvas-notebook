@@ -1,7 +1,16 @@
 import 'server-only';
 
 import path from 'node:path';
-import { Agent, type AgentEvent, type AgentMessage, type AgentTool, type StreamFn, type ThinkingLevel } from '@earendil-works/pi-agent-core';
+import {
+  Agent,
+  type AgentEvent,
+  type AgentLoopTurnUpdate,
+  type AgentMessage,
+  type AgentTool,
+  type PrepareNextTurnContext,
+  type StreamFn,
+  type ThinkingLevel,
+} from '@earendil-works/pi-agent-core';
 import type { Api, AssistantMessage, Model } from '@earendil-works/pi-ai';
 
 import { db } from '@/app/lib/db';
@@ -49,6 +58,7 @@ import {
   STUDIO_OUTPUTS_ROOT_DIR,
 } from '@/app/lib/integrations/studio-workspace';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
+import { buildWorkspaceFileTreePrompt } from '@/app/lib/agents/workspace-file-tree-context';
 import { buildReferencedPluginRuntimeContext } from '@/app/lib/plugins/plugin-reference-context';
 import { createToolLoopGuard } from '@/app/lib/pi/tool-loop-guard';
 import {
@@ -75,6 +85,7 @@ import {
   type RuntimeQueuePreview,
 } from '@/app/lib/pi/runtime-queue';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
+import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming, type OperationTiming } from '@/app/lib/observability/operation-timing';
 import { findUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
@@ -223,6 +234,8 @@ type RuntimeInit = {
   tools: AgentTool[];
   summary: PiSessionSummaryState;
   initialMessages: AgentMessage[];
+  executionContext: AgentExecutionContext;
+  workspaceFileTreePromptBlock: string;
 };
 
 type RuntimeOptions = {
@@ -373,6 +386,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
 
 type PiRuntimePromptDispatchTarget = RuntimePromptContextTarget & {
   reloadTools: () => Promise<void>;
+  refreshWorkspaceFileTreePrompt: () => Promise<void>;
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
@@ -384,6 +398,8 @@ class LivePiRuntime {
   readonly model: Model<Api>;
   private systemPrompt: string;
   private tools: AgentTool[];
+  private readonly executionContext: AgentExecutionContext;
+  private workspaceFileTreePromptBlock: string;
   readonly agent: Agent;
 
   private readonly subscribers = new Set<RuntimeSubscriber>();
@@ -431,6 +447,8 @@ class LivePiRuntime {
     this.model = init.model;
     this.systemPrompt = init.systemPrompt;
     this.tools = init.tools;
+    this.executionContext = init.executionContext;
+    this.workspaceFileTreePromptBlock = init.workspaceFileTreePromptBlock;
     this.summary = init.summary;
     this.lastPersistedLength = init.initialMessages.length;
     this.agent = agent;
@@ -720,6 +738,33 @@ class LivePiRuntime {
     this.workspaceContext = context ?? null;
   }
 
+  async refreshWorkspaceFileTreePrompt(): Promise<void> {
+    const result = await buildWorkspaceFileTreePrompt({
+      workspaceId: this.executionContext.workspaceId,
+      rootPath: this.executionContext.workspaceRoot,
+    });
+    this.workspaceFileTreePromptBlock = result.promptBlock;
+    this.lastComposition = null;
+    if (!this.isRunning && !this.agent.state.isStreaming) {
+      this.agent.state.systemPrompt = this.getEffectiveSystemPrompt();
+    }
+  }
+
+  async prepareNextTurnContext(
+    context: PrepareNextTurnContext,
+    signal?: AbortSignal,
+  ): Promise<AgentLoopTurnUpdate | undefined> {
+    if (signal?.aborted) return undefined;
+    await this.refreshWorkspaceFileTreePrompt();
+    if (signal?.aborted) return undefined;
+    return {
+      context: {
+        ...context.context,
+        systemPrompt: this.getEffectiveSystemPrompt(),
+      },
+    };
+  }
+
   async reloadTools() {
     if (this.systemPromptRefreshRequested && !this.isRunning && !this.agent.state.isStreaming) {
       await this.refreshSystemPrompt();
@@ -773,6 +818,10 @@ class LivePiRuntime {
     const workspaceBlock = this.getWorkspaceContextBlock();
     if (workspaceBlock) {
       blocks.push(workspaceBlock);
+    }
+
+    if (this.workspaceFileTreePromptBlock) {
+      blocks.push(this.workspaceFileTreePromptBlock);
     }
 
     const runtimeTempBlock = this.getAgentRuntimeTempContextBlock();
@@ -1393,6 +1442,7 @@ class LivePiRuntime {
     if (this.pendingReplace) {
       const replacement = this.pendingReplace.message;
       this.pendingReplace = null;
+      await this.refreshWorkspaceFileTreePrompt();
       this.startPrompt(replacement);
     }
   }
@@ -1601,6 +1651,11 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     : await createPiSystemPromptSnapshot(agentId, { userId });
   timing.mark('systemPrompt');
   const systemPrompt = promptSnapshot.systemPrompt;
+  const workspaceFileTreePrompt = await buildWorkspaceFileTreePrompt({
+    workspaceId: executionContext.workspaceId,
+    rootPath: executionContext.workspaceRoot,
+  });
+  timing.mark('workspaceFileTree');
   const tools = await getPiTools(userId, agentId, sessionId);
   timing.mark('tools');
   const toolLoopGuard = createToolLoopGuard();
@@ -1640,6 +1695,10 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     },
     streamFn: executableRuntime.streamFn,
     afterToolCall: async (context) => toolLoopGuard.afterToolCall(context),
+    prepareNextTurnWithContext: async (context, signal) => {
+      if (!runtimeRef.current) return undefined;
+      return runtimeRef.current.prepareNextTurnContext(context, signal);
+    },
     sessionId,
   });
   timing.mark('agentConstruction');
@@ -1655,6 +1714,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       tools,
       summary,
       initialMessages,
+      executionContext,
+      workspaceFileTreePromptBlock: workspaceFileTreePrompt.promptBlock,
     },
     agent,
     {
@@ -1821,6 +1882,7 @@ export async function dispatchPiRuntimeUserMessage(
     if (!runtimeHandle.created) {
       await runtime.reloadTools();
     }
+    await runtime.refreshWorkspaceFileTreePrompt();
     runtime.startPrompt(message);
     return runtime;
   });
