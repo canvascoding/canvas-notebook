@@ -378,6 +378,16 @@ test.describe('Markdown live collaboration', () => {
       const workspace = await organizationWorkspaceDetails(page.request);
       workspaceId = workspace.id;
       await useWorkspace(context, workspaceId);
+      const emptyRejectResponse = await page.request.post(
+        '/api/files/collaboration/operations/missing-operation/reject',
+        { headers: { [WORKSPACE_ID_HEADER]: workspaceId } },
+      );
+      expect(emptyRejectResponse.status()).toBe(400);
+      await expect(emptyRejectResponse.json()).resolves.toMatchObject({
+        success: false,
+        error: expect.stringMatching(/valid JSON body/i),
+      });
+
       const initialContent = '# Agent review\n\nRemove this paragraph\n\nKeep this paragraph\n\nFinal paragraph';
       expect(workspace.rootRelativePath).toBeTruthy();
       const workspaceRoot = path.resolve(process.env.DATA || 'data', workspace.rootRelativePath!);
@@ -492,6 +502,8 @@ test.describe('Markdown live collaboration', () => {
       await reviewRegion.getByRole('button', { name: /Reject|Ablehnen/i }).click();
       await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
       await expect.poll(() => collaborativeEditorText(editor)).not.toContain('Combined paragraph');
+      await expect(reviewRegion.getByRole('button', { name: /Reject|Ablehnen/i }))
+        .toHaveCount(0, { timeout: 20_000 });
       expect(browserErrors, 'Agent review UI must not emit browser errors.').toEqual([]);
     } finally {
       await page.close().catch(() => undefined);

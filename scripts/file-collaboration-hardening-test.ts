@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { NextRequest } from 'next/server';
 import * as Y from 'yjs';
 import { issueCollaborationTicket, verifyCollaborationTicket } from '../app/lib/collaboration/ticket';
 import {
@@ -12,6 +13,7 @@ import {
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from '../app/lib/collaboration/markdown-state';
+import { readCollaborationOperationIdempotencyKey } from '../app/lib/collaboration/operation-route';
 import { isCollaborationWebSocketRequest } from '../server/collaboration-server';
 
 process.env.CANVAS_COLLABORATION_TICKET_SECRET = 'test-only-collaboration-ticket-secret-0002';
@@ -113,4 +115,45 @@ assert.throws(
 );
 
 unicodeDoc.destroy(); duplicateDoc.destroy(); richDoc.destroy(); invalidRichDoc.destroy();
-console.log('file-collaboration-hardening-test: ok');
+
+async function assertOperationBodyHardening(): Promise<void> {
+  const empty = await readCollaborationOperationIdempotencyKey(
+    new NextRequest('http://localhost/api/files/collaboration/operations/test/reject', { method: 'POST' }),
+  );
+  assert.equal(empty.response?.status, 400, 'an empty collaboration action body must return HTTP 400');
+
+  const malformed = await readCollaborationOperationIdempotencyKey(
+    new NextRequest('http://localhost/api/files/collaboration/operations/test/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"idempotencyKey":',
+    }),
+  );
+  assert.equal(malformed.response?.status, 400, 'truncated JSON must return HTTP 400 instead of throwing');
+
+  const missing = await readCollaborationOperationIdempotencyKey(
+    new NextRequest('http://localhost/api/files/collaboration/operations/test/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{}',
+    }),
+  );
+  assert.equal(missing.response?.status, 400, 'a missing idempotency key must return HTTP 400');
+
+  const valid = await readCollaborationOperationIdempotencyKey(
+    new NextRequest('http://localhost/api/files/collaboration/operations/test/reject', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: '{"idempotencyKey":"  operation-key  "}',
+    }),
+  );
+  assert.equal(valid.response, null);
+  assert.equal(valid.idempotencyKey, 'operation-key');
+}
+
+void assertOperationBodyHardening()
+  .then(() => console.log('file-collaboration-hardening-test: ok'))
+  .catch((error) => {
+    console.error(error);
+    process.exitCode = 1;
+  });
