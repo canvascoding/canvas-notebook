@@ -166,6 +166,7 @@ export interface MarkdownEditorProps {
   filePath?: string;
   externalValueSync?: 'always' | 'when-blurred';
   collaborationEnabled?: boolean;
+  showNotebookMetadata?: boolean;
 }
 
 type EditorMode = 'rich' | 'source';
@@ -3757,6 +3758,7 @@ function RichMarkdownEditor({
   onSourceMode,
   markdownNavigationTarget,
   collaborationEnabled = false,
+  showNotebookMetadata = false,
 }: MarkdownEditorProps & {
   isMobileKeyboardActive: boolean;
   markdownNavigationTarget?: WorkspaceMarkdownLocation | null;
@@ -4190,12 +4192,14 @@ function RichMarkdownEditor({
             </TooltipProvider>
           </div>
         ) : null}
-        <MarkdownPropertiesPanel
-          filePath={filePath}
-          onChange={handlePropertiesChange}
-          readOnly={effectiveReadOnly}
-          value={value}
-        />
+        {showNotebookMetadata ? (
+          <MarkdownPropertiesPanel
+            filePath={filePath}
+            onChange={handlePropertiesChange}
+            readOnly={effectiveReadOnly}
+            value={value}
+          />
+        ) : null}
         <EditorContent editor={editor} className="tiptap-editor-shell" />
         <MarkdownBacklinksPanel filePath={filePath} />
         {!effectiveReadOnly && editor && blockCommandMenu ? (
@@ -4311,6 +4315,7 @@ export function MarkdownEditor({
   filePath,
   externalValueSync = 'always',
   collaborationEnabled = false,
+  showNotebookMetadata = false,
 }: MarkdownEditorProps) {
   useVisualViewportBottomOffset();
 
@@ -4366,7 +4371,7 @@ export function MarkdownEditor({
   if (readOnly && effectiveMode === 'source') {
     return (
       <div className="h-full min-h-0 overflow-auto bg-background">
-        {!parsedDocument.error ? (
+        {showNotebookMetadata && !parsedDocument.error ? (
           <MarkdownPropertiesPanel
             filePath={filePath}
             readOnly
@@ -4411,6 +4416,7 @@ export function MarkdownEditor({
       onSourceMode={switchToSourceMode}
       markdownNavigationTarget={markdownNavigationTarget}
       collaborationEnabled={collaborationEnabled}
+      showNotebookMetadata={showNotebookMetadata}
     />
   );
 }

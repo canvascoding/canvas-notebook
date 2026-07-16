@@ -1394,6 +1394,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                 onChange={updateCollaborativeDraft}
                 filePath={currentFile.path}
                 collaborationEnabled={Boolean(collaboration?.crdtCapable)}
+                showNotebookMetadata
               />
             )
           ) : (
