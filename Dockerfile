@@ -1,9 +1,11 @@
 # syntax=docker/dockerfile:1.7
 
 ARG NPM_VERSION=11.11.0
+ARG NODE_BASE_IMAGE=node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d
 
-FROM node:24-bookworm-slim AS deps
+FROM ${NODE_BASE_IMAGE} AS deps
 WORKDIR /app
+ARG NPM_VERSION
 
 # Required for native modules (node-pty, better-sqlite3)
 RUN apt-get update \
@@ -14,23 +16,26 @@ RUN npm install -g npm@${NPM_VERSION}
 COPY package.json package-lock.json .npmrc* ./
 RUN npm ci --legacy-peer-deps --loglevel=warn
 
-FROM node:24-bookworm-slim AS builder
+FROM ${NODE_BASE_IMAGE} AS builder
 WORKDIR /app
+ARG NPM_VERSION
 ENV NODE_ENV=production
 RUN npm install -g npm@${NPM_VERSION}
 
 COPY --from=deps /app/node_modules ./node_modules
 COPY . .
-  ENV NODE_OPTIONS=--max-old-space-size=6144
-  RUN npm run build
+ENV NODE_OPTIONS=--max-old-space-size=6144
+RUN npm run build
 
 # Remove devDependencies after build to reduce size
 # BUT keep tsx for running TypeScript server files at runtime
 RUN npm prune --production && npm install tsx
 
-FROM node:24-bookworm-slim AS runner
+FROM ${NODE_BASE_IMAGE} AS runner
 WORKDIR /app
 ARG APP_USER=node
+ARG NODE_BASE_IMAGE
+ARG NPM_VERSION
 ARG POSTGRES_CLIENT_MAJOR=18
 
 RUN set -eux; \
@@ -96,7 +101,10 @@ COPY --from=builder /app/scripts ./scripts
 # Capture the exact OS and Python package versions in the final image. Debian
 # package copyright files remain available under /usr/share/doc/*/copyright.
 RUN node ./scripts/capture-runtime-component-inventory.mjs \
+  --base-image "${NODE_BASE_IMAGE}" \
   --output /app/docs/compliance/runtime-components.json
+RUN node ./scripts/runtime-component-inventory-test.mjs \
+  /app/docs/compliance/runtime-components.json
 
 # Copy seed assets (preset preview images, sys prompts, etc.)
 COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts

@@ -5,7 +5,7 @@ Stand: 2026-07-16
 ## Umsetzungsstand
 
 Die technische Inventar- und Release-Gate-Implementierung ist am 16. Juli 2026
-angelaufen und liegt reproduzierbar im Repository:
+umgesetzt und liegt reproduzierbar im Repository:
 
 - `scripts/generate-third-party-notices.ts` erzeugt das maschinenlesbare
   Inventar und `THIRD_PARTY_NOTICES.md` deterministisch aus Lockfile,
@@ -31,20 +31,28 @@ angelaufen und liegt reproduzierbar im Repository:
   lizenzpflichtige `@remotion/google-fonts` samt `remotion` wurde entfernt.
 - Settings -> Rechtliches zeigt Inventarstatus und Release-Blocker; Notices
   und JSON-Inventar sind offline ueber dieselbe ausgelieferte Quelle abrufbar.
+  Die authentifizierten Legal-Endpunkte bleiben auch ohne aktivierte
+  kommerzielle Canvas-Lizenz erreichbar; unangemeldete Zugriffe bleiben
+  gesperrt.
 - Docker-, Portable-CLI-, Host-CLI- und Electron-Artefakte nehmen Lizenz,
   Notices und Inventar auf. Das Docker-Image erfasst zusaetzlich die exakt
-  installierten Debian- und Python-Versionen zur Build-Zeit.
-- Die Release-Workflows rufen das strikte kommerzielle Lizenz-Gate vor dem
-  Paketieren auf.
+  installierten Debian- und Python-Versionen sowie die Hashes ihrer
+  Lizenz-/Copyright-Belege zur Build-Zeit.
+- `npm run build` startet ueber `prebuild` immer den nicht-strikten
+  Drift-/Notice-Check. `npm run verify:release` fuehrt vor einem Release
+  zusaetzlich das strikte kommerzielle Gate, ESLint und den vollstaendigen
+  Produktions-Build aus.
+- Der GitHub-Release-Workflow und der lokale Release-Publisher-Ablauf verwenden
+  `npm run verify:release` vor Paketierung, Tag und Veroeffentlichung.
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 47 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.913 Komponenten `allowed`, 68
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 49 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.911 Komponenten `allowed`, 70
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 47 Release-Pruefpositionen gliedern sich in:
+Die 49 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
@@ -52,7 +60,7 @@ Die 47 Release-Pruefpositionen gliedern sich in:
   LGPL- beziehungsweise zusammengesetzter Lizenz,
 - drei noch zu entscheidende Mehrfachlizenz-Faelle (`mailsplit`, `dompurify`,
   `jszip`),
-- 14 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
+- 16 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
 
 Alle offenen Punkte stehen einzeln in
@@ -66,13 +74,51 @@ Die technische Verifikation am 16. Juli 2026 umfasst:
   Release-Gate-Test,
 - erzeugte Host- und Portable-CLI-Archive inklusive lesbarer Lizenz,
   Notices, JSON-Inventar und gueltiger SHA-256-Pruefsummen,
-- Playwright-E2E fuer die Legal-Ansicht auf Desktop und Mobile sowie die
-  Notice-/Inventar-Endpunkte und horizontale Viewport-Passung.
+- einen vollstaendigen `npm run setup`-Neuaufbau mit der lokalen
+  Docker-Environment-Datei, Managed-Team-Modus und Postgres,
+- das Test-Image
+  `sha256:34801b0e58fd994fe45d37f8e811e002e3d713583f1cec395c89b408748d261a`
+  auf Basis des gepinnten Node-Image-Digests
+  `sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d`,
+- 408 Debian-Pakete und 48 Python-Distributionen im finalen Image; fuer alle
+  Debian-Pakete und alle 45 nicht durch Debian verwalteten Python-Pakete ist
+  ein lesbarer, gehashter Lizenz-/Copyright-Beleg vorhanden,
+- byte-identische Host- und Image-Ausgaben fuer
+  `THIRD_PARTY_NOTICES.md` und das Komponentenmanifest,
+- Playwright-E2E gegen den neu gebauten Container fuer die Legal-Ansicht auf
+  Desktop und Mobile, alle drei authentifizierten Notice-/Inventar-Endpunkte,
+  horizontale Viewport-Passung und den weiterhin gesperrten anonymen Zugriff.
 
-Ein Container wurde dabei nicht gebaut, weil dies fuer diesen Arbeitslauf
-nicht beauftragt war. Die Docker-Inventurerfassung ist implementiert, muss
-aber zusammen mit Digest und finalem Image-Lieferumfang im spaeteren
-verantwortlichen Release-Review ausgefuehrt werden.
+Die App- und Postgres-Healthchecks waren bereit. Die Collaboration-Capability
+blieb in dieser lokalen Testumgebung erwartbar deaktiviert, weil keine
+kommerzielle Canvas-Lizenz aktiviert war; WebSocket und Persistenz waren
+technisch bereit. Das Legal-Inventar ist davon absichtlich unabhaengig.
+
+## Einmalige und wiederkehrende Release-Pruefung
+
+Die technische Erfassung ist nicht "fuer immer erledigt". Zwei Ebenen sind zu
+unterscheiden:
+
+1. Die erste kommerzielle Bestandsaufnahme braucht einmalig eine dokumentierte
+   verantwortliche oder rechtliche Freigabe aller derzeit offenen Positionen.
+2. Danach muss jedes Release `npm run verify:release` bestehen. Der Befehl
+   blockiert geaenderte Lockfiles, neue oder aktualisierte Komponenten,
+   fehlende Lizenzbelege, gedriftete Notices und neue reviewpflichtige
+   Entscheidungen.
+
+Ein normaler `npm run build` prueft bei jedem Build bereits die reproduzierbare
+Inventar-/Notice-Basis. Ein Release darf sich darauf allein nicht verlassen,
+weil der normale Build die bewusst noch offenen menschlichen Entscheidungen
+nicht als Fehler behandelt. Deshalb muessen Release Publisher und CI immer den
+strengeren Befehl `npm run verify:release` ausfuehren.
+
+Bei jeder Aenderung von `package-lock.json`, Docker-Basisimage, apt-/pip-Paketen,
+mitgelieferten Fonts, Assets, Skills, Plugins, Binaries oder kopiertem
+Upstream-Code wird das Inventar aktualisiert. Entsteht dabei eine neue
+`review_required`-Position, ist nur diese Drift samt Auswirkung und
+Auslieferungsform erneut menschlich zu bewerten. Unveraenderte, bereits
+dokumentiert freigegebene Komponenten brauchen nicht bei jedem Release erneut
+von Grund auf geprueft zu werden.
 
 ## Zweck
 

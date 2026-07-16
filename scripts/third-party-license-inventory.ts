@@ -331,16 +331,22 @@ function createNpmComponent(
   const configuredLicensePath = override?.licenseTextPath
     ? path.resolve(ROOT, override.licenseTextPath)
     : null;
-  const resolvedLicensePath = configuredLicensePath || noticeFiles.licensePath;
+  // A cache entry comes from the exact lockfile tarball and is therefore the
+  // canonical evidence across host platforms. Optional native packages differ
+  // between macOS/Linux and arm64/amd64; preferring an installed LICENSE file
+  // would make the generated manifest depend on the machine running the build.
+  const resolvedLicensePath = configuredLicensePath
+    || (cached ? null : noticeFiles.licensePath);
   const licenseText = resolvedLicensePath
     ? readOptionalText(resolvedLicensePath)
-    : cached?.licenseText
-      ? normalizeText(cached.licenseText)
+    : cached
+      ? cached.licenseText
+        ? normalizeText(cached.licenseText)
+        : null
       : null;
-  const additionalNoticeTexts = [
-    ...noticeFiles.noticePaths.map(readOptionalText),
-    ...(cached?.noticeTexts || []).map(normalizeText),
-  ];
+  const additionalNoticeTexts = cached
+    ? (cached.noticeTexts || []).map(normalizeText)
+    : noticeFiles.noticePaths.map(readOptionalText);
   const copyrightNotices = override?.copyrightNotices?.length
     ? [...override.copyrightNotices].sort((left, right) => left.localeCompare(right))
     : extractCopyrightNotices(licenseText, ...additionalNoticeTexts);

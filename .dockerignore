@@ -29,5 +29,8 @@ data
 # OS/editor noise
 .DS_Store
 
-# Documentation (not needed in production image)
-docs/
+# Documentation is excluded from the image except for the compliance artifacts
+# required by the build-time license gate and the runtime legal-notice API.
+docs/**
+!docs/compliance/
+!docs/compliance/**

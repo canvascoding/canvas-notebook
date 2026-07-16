@@ -410,8 +410,8 @@
     },
     {
       "name": "node-docker-base",
-      "versionOrCommit": "node:24-bookworm-slim",
-      "sourceUrl": "https://github.com/nodejs/docker-node",
+      "versionOrCommit": "node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
+      "sourceUrl": "https://github.com/nodejs/docker-node/tree/303e6c3be0be8010403376712d3018fb99809f86/24/bookworm-slim",
       "packagePathOrArtifact": "Dockerfile base image",
       "usage": "native",
       "distributedIn": [
@@ -423,7 +423,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "The image build captures exact dpkg and Python versions. A release reviewer must verify the resolved image digest and Debian notices."
+      "reviewNotes": "The Dockerfile pins the resolved multi-architecture image index digest. The image build captures exact Debian and Python versions plus hashes of packaged license/copyright files. A release reviewer must still assess the concrete Debian/Python license mix before commercial approval."
     }
   ]
 }

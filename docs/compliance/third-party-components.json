@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1913,
-    "reviewRequired": 68,
+    "allowed": 1911,
+    "reviewRequired": 70,
     "blocked": 0
   },
   "releaseGate": {
@@ -26,8 +26,8 @@
       },
       {
         "name": "node-docker-base",
-        "versionOrCommit": "node:24-bookworm-slim",
-        "reason": "The image build captures exact dpkg and Python versions. A release reviewer must verify the resolved image digest and Debian notices."
+        "versionOrCommit": "node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
+        "reason": "The Dockerfile pins the resolved multi-architecture image index digest. The image build captures exact Debian and Python versions plus hashes of packaged license/copyright files. A release reviewer must still assess the concrete Debian/Python license mix before commercial approval."
       },
       {
         "name": "@apm-js-collab/code-transformer-bundler-plugins",
@@ -183,6 +183,16 @@
         "name": "@img/sharp-win32-x64",
         "versionOrCommit": "0.35.3",
         "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE"
+      },
+      {
+        "name": "@types/trusted-types",
+        "versionOrCommit": "2.0.7",
+        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      },
+      {
+        "name": "@types/yauzl",
+        "versionOrCommit": "2.10.3",
+        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
       },
       {
         "name": "@zone-eu/mailsplit",
@@ -1675,13 +1685,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@tailwindcss/oxide-darwin-arm64/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tailwindcss/oxide-darwin-arm64@4.3.2",
       "licenseTextSha256": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985",
       "copyrightNotices": [
         "Copyright (c) Tailwind Labs, Inc."
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@tailwindcss/oxide-darwin-arm64/-/oxide-darwin-arm64-4.3.2.tgz#LICENSE"
     },
     {
       "name": "@tailwindcss/oxide-darwin-x64",
@@ -3666,13 +3677,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/boolean/LICENSE.txt",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/boolean@3.2.0",
       "licenseTextSha256": "8e4aa1aef825c37d6f74d4b867dccb7b059b66c75ecdedc74834e2f403568a27",
       "copyrightNotices": [
         "Copyright (c) 2014-2022 the native web."
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/boolean/-/boolean-3.2.0.tgz#LICENSE.txt"
     },
     {
       "name": "brace-expansion",
@@ -4460,13 +4472,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/detect-node/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/detect-node@2.1.0",
       "licenseTextSha256": "54b32293ea560d22cd9b62af9b2cda1a030d910a48c6601d227c5ff2338d95f8",
       "copyrightNotices": [
         "Copyright (c) 2017 Ilya Kantor"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/detect-node/-/detect-node-2.1.0.tgz#LICENSE"
     },
     {
       "name": "dir-compare",
@@ -4882,13 +4895,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/es6-error/LICENSE.md",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/es6-error@4.1.1",
       "licenseTextSha256": "9f655c5baa5a6f254d1e87f27e14d04acaff4bd0b489ea3c2f33723919da2f44",
       "copyrightNotices": [
         "Copyright (c) 2015 Ben Youngblood"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/es6-error/-/es6-error-4.1.1.tgz#LICENSE.md"
     },
     {
       "name": "escape-string-regexp",
@@ -5764,13 +5778,14 @@
       ],
       "declaredLicense": "BSD-3-Clause",
       "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "node_modules/global-agent/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/global-agent@3.0.0",
       "licenseTextSha256": "ba98e94118579117505f6f11fd9a4354c5e65ece03b4898d8b8f7785efcd25c1",
       "copyrightNotices": [
         "Copyright (c) 2019, Gajus Kuizinas (http://gajus.com/)"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/global-agent/-/global-agent-3.0.0.tgz#LICENSE"
     },
     {
       "name": "globals",
@@ -6956,13 +6971,14 @@
       ],
       "declaredLicense": "ISC",
       "verifiedLicense": "ISC",
-      "licenseTextRef": "node_modules/json-stringify-safe/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/json-stringify-safe@5.0.1",
       "licenseTextSha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b",
       "copyrightNotices": [
         "Copyright (c) Isaac Z. Schlueter and Contributors"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/json-stringify-safe/-/json-stringify-safe-5.0.1.tgz#LICENSE"
     },
     {
       "name": "json5",
@@ -7201,13 +7217,14 @@
       ],
       "declaredLicense": "MPL-2.0",
       "verifiedLicense": "MPL-2.0",
-      "licenseTextRef": "node_modules/lightningcss-darwin-arm64/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/lightningcss-darwin-arm64@1.32.0",
       "licenseTextSha256": "5eba353fe5076ac3432177f8ab1cf75e3afcd0584251e37c3bfead5f447d040e",
       "copyrightNotices": [
         "(c) under Patent Claims infringed by Covered Software in the absence of"
       ],
       "modified": false,
-      "policyDecision": "review_required"
+      "policyDecision": "review_required",
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-darwin-arm64/-/lightningcss-darwin-arm64-1.32.0.tgz#LICENSE"
     },
     {
       "name": "lightningcss-darwin-x64",
@@ -7517,13 +7534,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/matcher/license",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/matcher@3.0.0",
       "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
       "copyrightNotices": [
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/matcher/-/matcher-3.0.0.tgz#license"
     },
     {
       "name": "merge2",
@@ -8838,13 +8856,14 @@
       ],
       "declaredLicense": "BSD-3-Clause",
       "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "node_modules/roarr/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/roarr@2.15.4",
       "licenseTextSha256": "ba98e94118579117505f6f11fd9a4354c5e65ece03b4898d8b8f7785efcd25c1",
       "copyrightNotices": [
         "Copyright (c) 2019, Gajus Kuizinas (http://gajus.com/)"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/roarr/-/roarr-2.15.4.tgz#LICENSE"
     },
     {
       "name": "run-parallel",
@@ -8992,12 +9011,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/semver-compare/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/semver-compare@1.0.0",
       "licenseTextSha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b",
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
+      "reviewNotes": "License text source: https://registry.npmjs.org/semver-compare/-/semver-compare-1.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
     },
     {
       "name": "semver",
@@ -9130,13 +9149,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/serialize-error/license",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/serialize-error@7.0.1",
       "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
       "copyrightNotices": [
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/serialize-error/-/serialize-error-7.0.1.tgz#license"
     },
     {
       "name": "set-function-length",
@@ -9282,13 +9302,14 @@
       ],
       "declaredLicense": "BSD-3-Clause",
       "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "node_modules/sprintf-js/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/sprintf-js@1.1.3",
       "licenseTextSha256": "f8287e4dd9480be58c56aca4a55c23b782c43a86e69aabad78fff4df0d29edef",
       "copyrightNotices": [
         "Copyright (c) 2007-present, Alexandru Mărășteanu <hello@alexei.ro>"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/sprintf-js/-/sprintf-js-1.1.3.tgz#LICENSE"
     },
     {
       "name": "stable-hash",
@@ -9831,14 +9852,14 @@
       ],
       "declaredLicense": "(MIT OR CC0-1.0)",
       "verifiedLicense": "(MIT OR CC0-1.0)",
-      "licenseTextRef": "node_modules/serialize-error/node_modules/type-fest/license",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/serialize-error/node_modules/type-fest@0.13.1",
       "licenseTextSha256": "64a93ffc0a06a2266dbb57ed7ebe3b56ba66ab337b6347fabdbf86c76819fbae",
       "copyrightNotices": [
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https:/sindresorhus.com)"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from serialize-error."
+      "reviewNotes": "Inherited development-only classification from serialize-error. License text source: https://registry.npmjs.org/type-fest/-/type-fest-0.13.1.tgz#license"
     },
     {
       "name": "typed-array-buffer",
@@ -10407,8 +10428,8 @@
     },
     {
       "name": "node-docker-base",
-      "versionOrCommit": "node:24-bookworm-slim",
-      "sourceUrl": "https://github.com/nodejs/docker-node",
+      "versionOrCommit": "node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
+      "sourceUrl": "https://github.com/nodejs/docker-node/tree/303e6c3be0be8010403376712d3018fb99809f86/24/bookworm-slim",
       "packagePathOrArtifact": "Dockerfile base image",
       "usage": "native",
       "distributedIn": [
@@ -10421,7 +10442,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "The image build captures exact dpkg and Python versions. A release reviewer must verify the resolved image digest and Debian notices."
+      "reviewNotes": "The Dockerfile pins the resolved multi-architecture image index digest. The image build captures exact Debian and Python versions plus hashes of packaged license/copyright files. A release reviewer must still assess the concrete Debian/Python license mix before commercial approval."
     },
     {
       "name": "@antfu/install-pkg",
@@ -13986,13 +14007,14 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/next/node_modules/@img/sharp-darwin-arm64/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-darwin-arm64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "that is conspicuously marked or otherwise designated in writing by the copyright"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.34.5.tgz#LICENSE"
     },
     {
       "name": "@img/sharp-darwin-arm64",
@@ -14008,13 +14030,14 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@img/sharp-darwin-arm64/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-darwin-arm64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "that is conspicuously marked or otherwise designated in writing by the copyright"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.35.3.tgz#LICENSE"
     },
     {
       "name": "@img/sharp-darwin-x64",
@@ -16619,13 +16642,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/pdfjs-dist/node_modules/@napi-rs/canvas/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/pdfjs-dist/node_modules/@napi-rs/canvas@1.0.2",
       "licenseTextSha256": "8802fecf9da4367bc23bcf20b21cc143785fc6c92b152f3fa7fbe6ce08d344d6",
       "copyrightNotices": [
         "Copyright (c) 2020 lynweklm@gmail.com"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@napi-rs/canvas/-/canvas-1.0.2.tgz#LICENSE"
     },
     {
       "name": "@next/env",
@@ -17169,13 +17193,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@parcel/watcher-darwin-arm64/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@parcel/watcher-darwin-arm64@2.5.6",
       "licenseTextSha256": "5cfba9d5711264d45a2431a53c79f597cef12720cc7c764db2602daa92d0bd2a",
       "copyrightNotices": [
         "Copyright (c) 2017-present Devon Govett"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-darwin-arm64/-/watcher-darwin-arm64-2.5.6.tgz#LICENSE"
     },
     {
       "name": "@parcel/watcher-darwin-x64",
@@ -21901,7 +21926,7 @@
       ],
       "declaredLicense": "Apache-2.0 AND MIT",
       "verifiedLicense": "Apache-2.0 AND MIT",
-      "licenseTextRef": "node_modules/@swc/core-darwin-arm64/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@swc/core-darwin-arm64@1.15.43",
       "licenseTextSha256": "21da174fa23042e1b27dce5a4f691c0340f8df53dbc3e435f2646a9d0ea8c3ec",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -21909,7 +21934,8 @@
         "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@swc/core-darwin-arm64/-/core-darwin-arm64-1.15.43.tgz#LICENSE"
     },
     {
       "name": "@swc/core-darwin-x64",
@@ -22385,13 +22411,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@tiptap/extension-bubble-menu/LICENSE.md",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tiptap/extension-bubble-menu@3.27.3",
       "licenseTextSha256": "c96e5ecb55ac593157ad1d21d1f44a611187f494a0f04c235a1ae692c88d6ba9",
       "copyrightNotices": [
         "Copyright (c) 2025, Tiptap GmbH"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@tiptap/extension-bubble-menu/-/extension-bubble-menu-3.27.3.tgz#LICENSE.md"
     },
     {
       "name": "@tiptap/extension-bullet-list",
@@ -22561,13 +22588,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@tiptap/extension-floating-menu/LICENSE.md",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tiptap/extension-floating-menu@3.27.3",
       "licenseTextSha256": "c96e5ecb55ac593157ad1d21d1f44a611187f494a0f04c235a1ae692c88d6ba9",
       "copyrightNotices": [
         "Copyright (c) 2025, Tiptap GmbH"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@tiptap/extension-floating-menu/-/extension-floating-menu-3.27.3.tgz#LICENSE.md"
     },
     {
       "name": "@tiptap/extension-gapcursor",
@@ -24444,7 +24472,7 @@
     {
       "name": "@types/trusted-types",
       "versionOrCommit": "2.0.7",
-      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
+      "sourceUrl": "https://registry.npmjs.org/@types/trusted-types/-/trusted-types-2.0.7.tgz",
       "packagePathOrArtifact": "node_modules/@types/trusted-types",
       "usage": "runtime",
       "distributedIn": [
@@ -24455,13 +24483,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@types/trusted-types/LICENSE",
-      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
-      "copyrightNotices": [
-        "Copyright (c) Microsoft Corporation."
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "review_required",
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@types/unist",
@@ -24532,7 +24559,7 @@
     {
       "name": "@types/yauzl",
       "versionOrCommit": "2.10.3",
-      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
+      "sourceUrl": "https://registry.npmjs.org/@types/yauzl/-/yauzl-2.10.3.tgz",
       "packagePathOrArtifact": "node_modules/@types/yauzl",
       "usage": "runtime",
       "distributedIn": [
@@ -24543,13 +24570,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/@types/yauzl/LICENSE",
-      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
-      "copyrightNotices": [
-        "Copyright (c) Microsoft Corporation."
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "review_required",
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@uiw/codemirror-extensions-basic-setup",
@@ -30494,13 +30520,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/fsevents/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/fsevents@2.3.2",
       "licenseTextSha256": "2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1",
       "copyrightNotices": [
         "Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/fsevents/-/fsevents-2.3.2.tgz#LICENSE"
     },
     {
       "name": "fsevents",
@@ -30516,13 +30543,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/tsx/node_modules/fsevents/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/tsx/node_modules/fsevents@2.3.3",
       "licenseTextSha256": "2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1",
       "copyrightNotices": [
         "Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz#LICENSE"
     },
     {
       "name": "function-bind",
@@ -37105,13 +37133,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/pg-cloudflare/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/pg-cloudflare@1.4.0",
       "licenseTextSha256": "192b8f5c96900f04a1271dec39688655d7416c1c6ea84a508e18b50d2b6751f3",
       "copyrightNotices": [
         "Copyright (c) 2010 - 2021 Brian Carlson"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/pg-cloudflare/-/pg-cloudflare-1.4.0.tgz#LICENSE Published source revision: 544b1ce8152bc280e398dc1e8a66920abe6a640e"
     },
     {
       "name": "pg-connection-string",
@@ -40225,13 +40254,14 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/next/node_modules/sharp/LICENSE",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/sharp@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
         "that is conspicuously marked or otherwise designated in writing by the copyright"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/sharp/-/sharp-0.34.5.tgz#LICENSE"
     },
     {
       "name": "sharp",

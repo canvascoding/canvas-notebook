@@ -68,10 +68,7 @@ jobs:
         run: npm ci
 
       - name: Verify application production build
-        run: |
-          npm run test:licenses:release
-          npm run lint
-          npm run build
+        run: npm run verify:release
 
       - name: Build portable CLI
         run: npm run cli:build

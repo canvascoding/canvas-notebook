@@ -11,6 +11,25 @@ const { inventory } = artifacts;
 const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8')) as {
   dependencies?: Record<string, string>;
 };
+const lockfile = JSON.parse(fs.readFileSync('package-lock.json', 'utf8')) as {
+  packages: Record<string, {
+    version?: string;
+    resolved?: string;
+    optional?: boolean;
+  }>;
+};
+const licenseCache = JSON.parse(fs.readFileSync(
+  thirdPartyCompliancePaths.licenseCache,
+  'utf8',
+)) as {
+  entries?: Record<string, unknown>;
+};
+const licensePolicy = JSON.parse(fs.readFileSync(
+  thirdPartyCompliancePaths.policy,
+  'utf8',
+)) as {
+  packageOverrides?: Record<string, { licenseTextPath?: string | null }>;
+};
 
 assert.equal(
   packageJson.dependencies?.['@jspreadsheet/react'],
@@ -34,10 +53,32 @@ assert.equal(
 );
 assert.equal(
   inventory.summary.npmComponents,
-  Object.entries((JSON.parse(fs.readFileSync('package-lock.json', 'utf8')) as {
-    packages: Record<string, { version?: string }>;
-  }).packages).filter(([packagePath, value]) => packagePath.startsWith('node_modules/') && value.version).length,
+  Object.entries(lockfile.packages)
+    .filter(([packagePath, value]) => packagePath.startsWith('node_modules/') && value.version)
+    .length,
 );
+
+for (const [packagePath, lockPackage] of Object.entries(lockfile.packages)) {
+  if (
+    !packagePath.startsWith('node_modules/')
+    || !lockPackage.version
+    || !lockPackage.optional
+    || !lockPackage.resolved?.startsWith('http')
+  ) {
+    continue;
+  }
+  const withoutRoot = packagePath.replace(/^node_modules\//u, '');
+  const nestedPath = withoutRoot.split('/node_modules/').at(-1) || withoutRoot;
+  const segments = nestedPath.split('/');
+  const name = nestedPath.startsWith('@') ? segments.slice(0, 2).join('/') : segments[0];
+  const override = licensePolicy.packageOverrides?.[`${name}@${lockPackage.version}`]
+    || licensePolicy.packageOverrides?.[name];
+  if (override?.licenseTextPath) continue;
+  assert(
+    licenseCache.entries?.[`${packagePath}@${lockPackage.version}`],
+    `optional package ${name}@${lockPackage.version} needs lockfile-tarball evidence for platform-independent notices`,
+  );
+}
 
 const excalidraw = inventory.components.find((component) => (
   component.name === '@excalidraw/excalidraw' && component.versionOrCommit === '0.18.1'

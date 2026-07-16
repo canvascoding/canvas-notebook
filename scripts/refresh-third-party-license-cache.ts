@@ -13,6 +13,7 @@ import {
 type LockPackage = {
   version?: string;
   resolved?: string;
+  optional?: boolean;
 };
 
 type CacheEntry = {
@@ -438,7 +439,10 @@ async function main() {
         const cacheKey = `${packagePath}@${version}`;
         const sourceRevisionOverride = policy.sourceRevisionOverrides?.[`${name}@${version}`];
         const existing = previousEntries[cacheKey];
-        const cacheRelevant = !overrideHasLicense && !await hasLocalLicenseFile(packagePath);
+        const cacheRelevant = !overrideHasLicense && (
+          Boolean(lockPackage.optional)
+          || !await hasLocalLicenseFile(packagePath)
+        );
         const needsRefresh = !existing?.licenseText
           || Boolean(sourceRevisionOverride && existing.sourceRevision !== sourceRevisionOverride.revision);
         return {

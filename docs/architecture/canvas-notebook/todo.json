@@ -1393,14 +1393,15 @@
           "totalComponents": 1981,
           "runtimeComponents": 1473,
           "developmentOnlyComponents": 508,
-          "allowed": 1913,
-          "reviewRequired": 68,
+          "allowed": 1911,
+          "reviewRequired": 70,
           "blocked": 0,
-          "releaseBlockers": 47
+          "releaseBlockers": 49
         },
         "completed": [
           "Deterministischer npm- und Non-npm-Inventargenerator",
           "Lockfile-gebundener Lizenztext-Cache aus exakten npm-Tarballs",
+          "Plattformunabhaengige kanonische Lizenzbelege fuer optionale npm-Pakete aus den exakt gepinnten Lockfile-Tarballs",
           "Exakte Upstream-Aufloesung ueber veroeffentlichten gitHead, auf Commit aufgeloeste Tags und dokumentierte Source-Revision-Overrides",
           "Vollstaendige Lizenztexte aus Markdown-README-Abschnitten inklusive ATX- und Setext-Ueberschriften",
           "Korrekte Vererbung von development-only auf verschachtelte Build-Abhaengigkeiten",
@@ -1409,24 +1410,31 @@
           "Versionierte Lizenzpolicy und Overrides fuer fehlende npm-Metadaten",
           "Excalidraw-Paket und selbst gehostete Excalidraw-Font-Assets inventarisiert",
           "Ungenutzte @jspreadsheet/react/formula-pro- und Remotion-Abhaengigkeiten entfernt",
-          "Legal-/About-Ansicht mit Notice- und Inventarzugriff",
-          "Docker-, CLI-, Electron- und Release-Workflow-Integration"
+          "Legal-/About-Ansicht mit authentifiziertem Notice- und Inventarzugriff auch ohne aktivierte kommerzielle Produktlizenz",
+          "Docker-Base-Image auf exakten Digest gepinnt und finalen Debian-/Python-Lieferumfang mit gehashten Lizenzbelegen inventarisiert",
+          "Docker-, CLI-, Electron- und Release-Workflow-Integration",
+          "Nicht-striktes Lizenz- und Notice-Gate in jeden npm run build integriert",
+          "Striktes npm run verify:release in CI und lokalen Release-Publisher-Ablauf integriert"
         ],
         "verified": [
           "npm run test:licenses",
-          "Negativtest: npm run test:licenses:release blockiert mit den dokumentierten Pruefpositionen",
+          "Negativtest: npm run test:licenses:release blockiert mit 49 dokumentierten Pruefpositionen",
           "npx tsc --noEmit --pretty false",
           "npm run lint",
           "npm run build",
           "Host- und Portable-CLI-Archive inklusive Notices, Inventar und SHA-256 geprueft",
-          "Playwright-E2E Desktop und Mobile fuer Settings -> Rechtliches und alle drei Legal-API-Endpunkte"
+          "Vollstaendiger npm run setup-Neuaufbau mit lokaler Environment-Datei, Managed-Team-Modus und Postgres",
+          "Finales Docker-Image mit 408 Debian- und 48 Python-Komponenten sowie ohne fehlende Runtime-Lizenzbelege geprueft",
+          "Host und Docker-Image enthalten byte-identische Third-Party Notices und Komponentenmanifest",
+          "Playwright-E2E Desktop und Mobile gegen den neu gebauten Container fuer Settings -> Rechtliches und alle drei Legal-API-Endpunkte",
+          "Anonymer Zugriff auf /api/legal/third-party bleibt mit HTTP 401 gesperrt"
         ],
         "remainingExternalReview": [
           "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
-          "Aufgeloesten Docker-Basisimage-Digest und Image-Paketnotices pruefen",
+          "Gepinnten Docker-Basisimage-Digest und den erfassten finalen Debian-/Python-Lizenzmix pruefen",
           "28 sharp-/libvips-Lieferpositionen mit LGPL- oder zusammengesetzter Lizenz fuer die konkreten Plattformartefakte pruefen",
           "Lizenzwahl fuer mailsplit, dompurify und jszip dokumentieren",
-          "14 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
+          "16 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
         ]
       }
     },
