@@ -6,10 +6,19 @@ import type * as YTypes from 'yjs';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
+import {
+  applyExactTextEdits,
+  countExactTextOccurrences,
+  type ExactTextEdit,
+} from '@/app/lib/files/exact-text-patch';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 import { runCollaborationDirectConnection } from './direct-connection';
 import { loadCollaborationState } from './persistence';
-import { validateRichMarkdownYDoc } from './markdown-state';
+import {
+  createRichMarkdownYDoc,
+  richMarkdownFromYDoc,
+  validateRichMarkdownYDoc,
+} from './markdown-state';
 import { Y } from './server-runtime';
 import {
   getWorkspacePresenceSnapshot,
@@ -49,6 +58,7 @@ export type AgentOperationStatus =
   | 'reverted';
 
 export interface AgentTextTarget {
+  kind?: 'text_replace' | 'rich_markdown_patch';
   targetId: string;
   groupId: string;
   startAnchor: string;
@@ -56,6 +66,7 @@ export interface AgentTextTarget {
   baseTargetHash: string;
   replacement: string;
   replacementAttributes?: Record<string, unknown>;
+  patchEdits?: ExactTextEdit[];
   boundaryPolicy: AgentBoundaryPolicy;
 }
 
@@ -311,6 +322,7 @@ export function createAgentTextTarget(input: {
   if (hasUnpairedSurrogate(input.replacement)) throw new Error('Agent replacement contains an invalid Unicode surrogate.');
   const empty = input.from === input.to;
   return {
+    kind: 'text_replace',
     targetId: input.targetId || randomUUID(),
     groupId: input.groupId || 'default',
     // Start follows the first target item, while end follows the last target
@@ -381,6 +393,165 @@ export function createRichAgentTextTargets(input: {
     throw new Error('Rich collaboration edit requires review because the exact text does not resolve inside stable Tiptap nodes.');
   }
   return targets;
+}
+
+export function createRichMarkdownReviewTarget(input: {
+  currentMarkdown: string;
+  proposedMarkdown: string;
+  edits: ExactTextEdit[];
+  targetId?: string;
+  groupId?: string;
+}): AgentTextTarget {
+  const proposed = createRichMarkdownYDoc(input.proposedMarkdown);
+  try {
+    const validation = validateRichMarkdownYDoc(proposed);
+    if (!validation.valid || validation.markdown !== input.proposedMarkdown) {
+      throw new Error(`Rich collaboration review patch failed ${validation.code || 'roundtrip'} validation.`);
+    }
+  } finally {
+    proposed.destroy();
+  }
+  return {
+    kind: 'rich_markdown_patch',
+    targetId: input.targetId || randomUUID(),
+    groupId: input.groupId || 'markdown_patch',
+    startAnchor: '',
+    endAnchor: '',
+    baseTargetHash: hash(input.currentMarkdown),
+    // Structural reviews persist the bounded exact patch, not a second full
+    // document snapshot. `proposedMarkdown` is used only for schema/roundtrip
+    // validation before the operation is stored.
+    replacement: '',
+    patchEdits: input.edits.map((edit) => ({
+      oldText: edit.oldText,
+      newText: edit.newText,
+      expectedOccurrences: edit.expectedOccurrences ?? 1,
+    })),
+    boundaryPolicy: 'exclude_external',
+  };
+}
+
+function isRichMarkdownPatchTarget(target: AgentTextTarget): boolean {
+  return target.kind === 'rich_markdown_patch';
+}
+
+function richPatchConflict(
+  target: AgentTextTarget,
+  code: AgentApplyConflict['code'],
+): AgentApplyExecutionResult {
+  return {
+    status: 'needs_review',
+    appliedTargetIds: [],
+    conflicts: [{ targetId: target.targetId, groupId: target.groupId, code }],
+    stateVector: '',
+    reverseTargets: [],
+  };
+}
+
+function replaceRichMarkdownDocument(
+  doc: YTypes.Doc,
+  markdown: string,
+  origin: { actorType: 'agent'; actorId: string; initiatedByUserId: string; operationId: string },
+): AgentApplyConflict['code'] | null {
+  const fresh = createRichMarkdownYDoc(markdown);
+  try {
+    const validation = validateRichMarkdownYDoc(fresh);
+    if (!validation.valid || validation.markdown !== markdown) {
+      return validation.code || 'roundtrip_unstable';
+    }
+    const nextFrontmatter = fresh.getText('frontmatter').toString();
+    const nextBody = fresh.getXmlFragment('body').toArray()
+      .filter((node): node is YTypes.XmlElement | YTypes.XmlText => (
+        node instanceof Y.XmlElement || node instanceof Y.XmlText
+      ))
+      .map((node) => node.clone());
+    doc.transact(() => {
+      const frontmatter = doc.getText('frontmatter');
+      if (frontmatter.length > 0) frontmatter.delete(0, frontmatter.length);
+      if (nextFrontmatter) frontmatter.insert(0, nextFrontmatter);
+      const body = doc.getXmlFragment('body');
+      if (body.length > 0) body.delete(0, body.length);
+      if (nextBody.length > 0) body.insert(0, nextBody);
+    }, origin);
+    return null;
+  } finally {
+    fresh.destroy();
+  }
+}
+
+function applyRichMarkdownPatchTargets(input: {
+  doc: YTypes.Doc;
+  targets: AgentTextTarget[];
+  origin: { actorType: 'agent'; actorId: string; initiatedByUserId: string; operationId: string };
+}): AgentApplyExecutionResult {
+  const target = input.targets.length === 1 ? input.targets[0] : null;
+  if (!target || !isRichMarkdownPatchTarget(target)) {
+    const fallback = input.targets[0];
+    return fallback
+      ? richPatchConflict(fallback, 'schema_invalid')
+      : {
+          status: 'needs_review',
+          appliedTargetIds: [],
+          conflicts: [],
+          stateVector: Buffer.from(Y.encodeStateVector(input.doc)).toString('base64'),
+          reverseTargets: [],
+        };
+  }
+
+  const currentMarkdown = richMarkdownFromYDoc(input.doc);
+  let nextMarkdown: string;
+  try {
+    nextMarkdown = target.patchEdits?.length
+      ? applyExactTextEdits(currentMarkdown, target.patchEdits, 'collaborative Markdown review')
+      : hash(currentMarkdown) === target.baseTargetHash
+        ? target.replacement
+        : (() => { throw new Error('The reviewed Markdown changed after the proposal was created.'); })();
+  } catch {
+    const result = richPatchConflict(target, 'target_changed');
+    return {
+      ...result,
+      stateVector: Buffer.from(Y.encodeStateVector(input.doc)).toString('base64'),
+    };
+  }
+
+  const validationDoc = createRichMarkdownYDoc(nextMarkdown);
+  try {
+    const validation = validateRichMarkdownYDoc(validationDoc);
+    if (!validation.valid || validation.markdown !== nextMarkdown) {
+      const result = richPatchConflict(target, validation.code || 'roundtrip_unstable');
+      return {
+        ...result,
+        stateVector: Buffer.from(Y.encodeStateVector(input.doc)).toString('base64'),
+      };
+    }
+  } finally {
+    validationDoc.destroy();
+  }
+
+  const replaceConflict = replaceRichMarkdownDocument(input.doc, nextMarkdown, input.origin);
+  if (replaceConflict) {
+    const result = richPatchConflict(target, replaceConflict);
+    return {
+      ...result,
+      stateVector: Buffer.from(Y.encodeStateVector(input.doc)).toString('base64'),
+    };
+  }
+  return {
+    status: 'applied_to_ydoc',
+    appliedTargetIds: [target.targetId],
+    conflicts: [],
+    stateVector: Buffer.from(Y.encodeStateVector(input.doc)).toString('base64'),
+    reverseTargets: [{
+      kind: 'rich_markdown_patch',
+      targetId: `revert:${target.targetId}`,
+      groupId: target.groupId,
+      startAnchor: '',
+      endAnchor: '',
+      baseTargetHash: hash(nextMarkdown),
+      replacement: currentMarkdown,
+      boundaryPolicy: target.boundaryPolicy,
+    }],
+  };
 }
 
 function targetOverlapsComposition(target: ResolvedTarget, ranges: ActiveCompositionRange[]): boolean {
@@ -504,6 +675,9 @@ export function applyAgentTextTargets(input: {
   const groupCount = new Set(input.targets.map((target) => target.groupId)).size;
   if (input.targets.length === 0 || input.targets.length > MAX_AGENT_TARGETS) throw new Error(`Agent operation requires 1-${MAX_AGENT_TARGETS} targets.`);
   if (groupCount > MAX_AGENT_GROUPS) throw new Error(`Agent operation supports at most ${MAX_AGENT_GROUPS} groups.`);
+  if (input.targets.some(isRichMarkdownPatchTarget)) {
+    throw new Error('Structural Markdown review patches must use the rich collaboration review path.');
+  }
   const independentGroups = Boolean(input.independentGroups);
   const clone = new Y.Doc({ gc: true });
   Y.applyUpdate(clone, Y.encodeStateAsUpdate(input.doc));
@@ -980,22 +1154,38 @@ async function applyStoredOperation(input: {
       operationId: row.operation_id,
     }, (doc) => {
       if (cancelRequests.has(row.operation_id)) throw new AgentOperationCancelledError('Agent operation was cancelled before apply.');
-      const result = applyAgentTextTargets({
-        doc,
-        targets,
-        independentGroups: row.atomicity === 'independent',
-        validateClone: (clone) => validateOperationClone(
-          state.representation,
-          row.expected_canonical_hash,
-          clone,
-        ),
-        origin: {
-          actorType: 'agent',
-          actorId: row.actor_id,
-          initiatedByUserId: row.initiated_by_user_id,
-          operationId: row.operation_id,
-        },
-      });
+      const origin = {
+        actorType: 'agent' as const,
+        actorId: row.actor_id,
+        initiatedByUserId: row.initiated_by_user_id,
+        operationId: row.operation_id,
+      };
+      const structuralPatch = targets.some(isRichMarkdownPatchTarget);
+      const result = structuralPatch
+        ? state.representation === 'tiptap_xml' && targets.every(isRichMarkdownPatchTarget)
+          ? applyRichMarkdownPatchTargets({ doc, targets, origin })
+          : {
+              status: 'needs_review' as const,
+              appliedTargetIds: [],
+              conflicts: targets.map((target) => ({
+                targetId: target.targetId,
+                groupId: target.groupId,
+                code: 'schema_invalid' as const,
+              })),
+              stateVector: Buffer.from(Y.encodeStateVector(doc)).toString('base64'),
+              reverseTargets: [],
+            }
+        : applyAgentTextTargets({
+            doc,
+            targets,
+            independentGroups: row.atomicity === 'independent',
+            validateClone: (clone) => validateOperationClone(
+              state.representation,
+              row.expected_canonical_hash,
+              clone,
+            ),
+            origin,
+          });
       if (result.reverseTargets.length > 0) {
         registerAgentChangeWindow(row.document_id, row.operation_id, result.reverseTargets);
       }
@@ -1282,18 +1472,54 @@ async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView
   if (!['needs_review', 'partially_applied', 'semantic_conflict'].includes(row.status)) return undefined;
   const targets = openPayload<AgentTextTarget[]>(row.operation_payload) || [];
   const state = await loadCollaborationState(row.document_id);
-  if (!state) return targets.map((target) => ({
-    targetId: target.targetId,
-    groupId: target.groupId,
-    proposedReplacement: target.replacement,
-    currentText: null,
-    currentTargetHash: null,
-  }));
+  if (!state) return targets.flatMap((target) => (
+    isRichMarkdownPatchTarget(target) && target.patchEdits?.length
+      ? target.patchEdits.map((edit, index) => ({
+          targetId: `${target.targetId}:${index}`,
+          groupId: target.groupId,
+          proposedReplacement: edit.newText,
+          currentText: null,
+          currentTargetHash: null,
+        }))
+      : [{
+          targetId: target.targetId,
+          groupId: target.groupId,
+          proposedReplacement: target.replacement,
+          currentText: null,
+          currentTargetHash: null,
+        }]
+  ));
   const doc = new Y.Doc({ gc: true });
   try {
     Y.applyUpdate(doc, state.yjsState);
     materializeCollaborationTypes(doc);
-    return targets.map((target) => {
+    const currentMarkdown = state.representation === 'tiptap_xml'
+      ? richMarkdownFromYDoc(doc)
+      : null;
+    return targets.flatMap((target) => {
+      if (isRichMarkdownPatchTarget(target)) {
+        if (target.patchEdits?.length) {
+          return target.patchEdits.map((edit, index) => {
+            const expectedOccurrences = edit.expectedOccurrences ?? 1;
+            const exactStillResolves = currentMarkdown !== null
+              && countExactTextOccurrences(currentMarkdown, edit.oldText) === expectedOccurrences;
+            return {
+              targetId: `${target.targetId}:${index}`,
+              groupId: target.groupId,
+              proposedReplacement: edit.newText,
+              currentText: exactStillResolves ? edit.oldText : null,
+              currentTargetHash: exactStillResolves ? hash(edit.oldText) : null,
+            };
+          });
+        }
+        return [{
+          targetId: target.targetId,
+          groupId: target.groupId,
+          proposedReplacement: target.replacement,
+          currentText: currentMarkdown,
+          currentTargetHash: currentMarkdown === null ? null : hash(currentMarkdown),
+        }];
+      }
       const start = decodePosition(target.startAnchor);
       const end = decodePosition(target.endAnchor);
       const absoluteStart = start ? Y.createAbsolutePositionFromRelativePosition(start, doc) : null;
@@ -1305,13 +1531,13 @@ async function reviewTargets(row: AgentOperationRow): Promise<AgentOperationView
         && absoluteEnd.index >= absoluteStart.index
         ? textValue(absoluteStart.type as YTypes.Text).slice(absoluteStart.index, absoluteEnd.index)
         : null;
-      return {
+      return [{
         targetId: target.targetId,
         groupId: target.groupId,
         proposedReplacement: target.replacement,
         currentText,
         currentTargetHash: currentText === null ? null : hash(currentText),
-      };
+      }];
     });
   } finally {
     doc.destroy();
@@ -1587,10 +1813,21 @@ export async function detectLateAgentSemanticConflicts(input: {
       memoryWindows.delete(operationId);
       continue;
     }
-    const inspection = preflight(input.doc, window.targets, true);
-    window.conflicts = inspection.conflicts.filter((conflict) => (
-      conflict.code === 'target_changed' || conflict.code === 'anchor_invalid' || conflict.code === 'unicode_boundary'
-    ));
+    const structuralTargets = window.targets.filter(isRichMarkdownPatchTarget);
+    if (structuralTargets.length > 0) {
+      let currentMarkdown: string | null = null;
+      try {
+        currentMarkdown = richMarkdownFromYDoc(input.doc);
+      } catch {}
+      window.conflicts = structuralTargets
+        .filter((target) => currentMarkdown === null || hash(currentMarkdown) !== target.baseTargetHash)
+        .map((target) => ({ targetId: target.targetId, groupId: target.groupId, code: 'target_changed' as const }));
+    } else {
+      const inspection = preflight(input.doc, window.targets, true);
+      window.conflicts = inspection.conflicts.filter((conflict) => (
+        conflict.code === 'target_changed' || conflict.code === 'anchor_invalid' || conflict.code === 'unicode_boundary'
+      ));
+    }
     if (window.conflicts.length > 0) conflictedOperationIds.push(operationId);
   }
   if (memoryWindows.size === 0) recentAgentChangeWindows.delete(input.documentId);

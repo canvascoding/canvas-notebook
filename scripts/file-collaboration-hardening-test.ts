@@ -5,6 +5,7 @@ import {
   applyAgentTextTargets,
   createAgentTextTarget,
   createRichAgentTextTargets,
+  createRichMarkdownReviewTarget,
 } from '../app/lib/collaboration/agent-operations';
 import {
   createRichMarkdownYDoc,
@@ -88,10 +89,27 @@ assert.equal(invalidResult.status, 'needs_review');
 assert.equal(invalidResult.conflicts[0]?.code, 'stable_id_duplicate');
 assert.deepEqual(Y.encodeStateAsUpdate(invalidRichDoc), invalidBefore, 'invalid clone preflight must not mutate the authoritative Y.Doc');
 
+const structuralSource = '# Heading\n\nAlpha **strong** beta';
 assert.throws(
-  () => createRichAgentTextTargets({ doc: richDoc, search: 'paragraph\nmissing-boundary', replacement: 'x' }),
+  () => createRichAgentTextTargets({ doc: richDoc, search: 'beta\n\nSecond', replacement: 'x' }),
   /requires review/u,
-  'rich targets may not cross structural node boundaries',
+  'rich direct targets may not cross structural node boundaries',
+);
+const structuralReview = createRichMarkdownReviewTarget({
+  currentMarkdown: structuralSource,
+  proposedMarkdown: 'Alpha **strong** beta',
+  edits: [{ oldText: '# Heading\n\n', newText: '' }],
+});
+assert.equal(structuralReview.kind, 'rich_markdown_patch');
+assert.equal(structuralReview.patchEdits?.[0]?.oldText, '# Heading\n\n');
+assert.throws(
+  () => applyAgentTextTargets({
+    doc: richDoc,
+    targets: [structuralReview],
+    origin: { actorType: 'agent', actorId: 'rich-agent', initiatedByUserId: 'user', operationId: 'structural-review' },
+  }),
+  /review path/u,
+  'structural review patches must never enter the direct text-target path',
 );
 
 unicodeDoc.destroy(); duplicateDoc.destroy(); richDoc.destroy(); invalidRichDoc.destroy();

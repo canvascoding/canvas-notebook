@@ -37,6 +37,7 @@ import {
   isPdfPath,
   listAgentFileSnapshots,
   moveAgentPaths,
+  readAgentCollaborativeTextFile,
   resolveAgentPath,
   resolveReadToolPath,
   restoreAgentFileSnapshot,
@@ -114,7 +115,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
+    description: 'Reads the content of a file. For active Markdown/text live-collaboration documents, returns the current authoritative Yjs content and SHA-256 instead of a potentially older file checkpoint. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}.` })),
@@ -205,11 +206,31 @@ export const piTools: AgentTool[] = [
             details: { filePath, size: buffer.length, type: 'binary' },
           };
         }
-        const text = buffer.toString('utf8');
+        const collaborative = await readAgentCollaborativeTextFile(fullPath);
+        const text = collaborative?.content ?? buffer.toString('utf8');
+        const textSha256 = collaborative?.sha256 ?? sha256;
         const truncated = truncateReadText(text, readTextLimit);
         return {
-          content: [{ type: 'text', text: `SHA-256: ${sha256}\n\n${truncated.text}` }],
-          details: { filePath, size: buffer.length, sha256, type: 'text', textLength: text.length, truncated: truncated.truncated },
+          content: [{
+            type: 'text',
+            text: `SHA-256: ${textSha256}${collaborative ? '\nSource: live Yjs collaboration state' : ''}\n\n${truncated.text}`,
+          }],
+          details: {
+            filePath,
+            size: Buffer.byteLength(text, 'utf8'),
+            sha256: textSha256,
+            type: 'text',
+            textLength: text.length,
+            truncated: truncated.truncated,
+            collaboration: collaborative
+              ? {
+                  documentId: collaborative.documentId,
+                  representation: collaborative.representation,
+                  stateVector: collaborative.stateVector,
+                  source: 'live_yjs',
+                }
+              : undefined,
+          },
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);
@@ -254,7 +275,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'edit_file',
     label: 'Editing file safely',
-    description: 'Safely edits an existing text file by exact oldText -> newText replacement. Refuses ambiguous matches, creates an undo snapshot, returns a diff, validates supported file types, and verifies the file after writing. Existing shared workspace files require expectedSha256 from the read tool output. Use this instead of sed, perl -pi, tee, or shell redirects.',
+    description: 'Safely edits an existing text file by exact oldText -> newText replacement. Active live-collaboration documents use the current Yjs state: stable paragraph edits apply live, while structural or ambiguous Markdown edits create a persisted review with Accept/Reject actions in the editor. Existing shared workspace files require expectedSha256 from the read tool output. Use this instead of sed, perl -pi, tee, or shell redirects.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       oldText: Type.String({ description: 'Exact text to replace. Must match expectedOccurrences.' }),
@@ -295,7 +316,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'apply_patch',
     label: 'Applying safe patch',
-    description: 'Safely applies multiple exact text replacements across one or more existing files. All replacements are preflighted before any write. Creates undo snapshots, returns diffs, validates supported file types, and verifies files after writing. Existing shared workspace files require expectedSha256 from the read tool output.',
+    description: 'Safely applies multiple exact text replacements across one or more existing files using files[].edits[]. All replacements are preflighted before any write. Active live-collaboration documents use live Yjs transactions or persisted structural review operations instead of whole-file writes. Existing shared workspace files require expectedSha256 from the read tool output.',
     parameters: Type.Object({
       files: Type.Array(Type.Object({
         path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
@@ -307,9 +328,12 @@ export const piTools: AgentTool[] = [
         })),
       })),
     }),
-    execute: async (_toolCallId, params) => {
+    execute: async (toolCallId, params) => {
       try {
-        const results = await applyAgentFilePatch(params as { files: Parameters<typeof applyAgentFilePatch>[0]['files'] });
+        const results = await applyAgentFilePatch({
+          ...(params as { files: Parameters<typeof applyAgentFilePatch>[0]['files'] }),
+          idempotencyKeyPrefix: toolCallId,
+        });
         return {
           content: [{ type: 'text', text: formatFileChangeResults(results) }],
           details: { results },

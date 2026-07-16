@@ -14,10 +14,18 @@ export function formatFileChangeResult(result: AgentFileChangeResult): string {
   let action = 'Checked';
   if (result.changed) {
     action = result.snapshot?.existed === false ? 'Created' : 'Updated';
+  } else if (result.collaboration?.reviewRequired) {
+    action = 'Prepared review for';
   }
 
   return [
     `${action} file: ${result.path}`,
+    result.collaboration
+      ? `Live collaboration operation: ${result.collaboration.operationId} (${result.collaboration.operationStatus}, ${result.collaboration.durability})`
+      : null,
+    result.collaboration?.reviewRequired
+      ? 'Review ready: the proposed change is available in the editor with Accept and Reject actions. The user does not need to edit the text manually.'
+      : null,
     `Snapshot: ${result.snapshot?.id || 'none'}`,
     `Before SHA-256: ${result.beforeSha256 || 'new file'}`,
     `After SHA-256: ${result.afterSha256}`,
@@ -29,7 +37,7 @@ export function formatFileChangeResult(result: AgentFileChangeResult): string {
     '```diff',
     result.diff,
     '```',
-  ].join('\n');
+  ].filter((line): line is string => line !== null).join('\n');
 }
 
 export function formatFileChangeResults(results: AgentFileChangeResult[]): string {

@@ -7,6 +7,7 @@ import { WebSocketServer } from 'ws';
 import { auth } from '@/app/lib/auth';
 import { materializeCollaborationCheckpoint } from '@/app/lib/collaboration/checkpoint';
 import { installCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
+import { installCollaborationDocumentReader } from '@/app/lib/collaboration/document-access';
 import { setCollaborationRuntimeHealth } from '@/app/lib/collaboration/health';
 import { collaborationUserColors } from '@/app/lib/collaboration/identity';
 import {
@@ -23,6 +24,7 @@ import {
 import { replaceDocumentPresence } from '@/app/lib/collaboration/presence';
 import { verifyCollaborationTicket } from '@/app/lib/collaboration/ticket';
 import { installCollaborationRoomInspector } from '@/app/lib/collaboration/runtime-state';
+import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/collaboration/types';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
@@ -280,6 +282,22 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
   installCollaborationRoomInspector((documentId) => (
     hocuspocus.documents.get(documentId)?.getConnectionsCount() || 0
   ));
+  installCollaborationDocumentReader(async (documentId, workspaceId, read) => {
+    const state = await loadCollaborationState(documentId);
+    if (!state || state.status !== 'active' || state.workspaceId !== workspaceId) {
+      throw new Error('Collaboration document is unavailable or stale.');
+    }
+    const activeDocument = hocuspocus.documents.get(documentId);
+    if (activeDocument) return read(activeDocument);
+
+    const doc = new Y.Doc({ gc: true });
+    try {
+      Y.applyUpdate(doc, state.yjsState);
+      return read(doc);
+    } finally {
+      doc.destroy();
+    }
+  });
   void recoverCollaborationAgentOperations().catch((error) => {
     console.error('[Collaboration] Agent operation recovery failed:', error);
   });

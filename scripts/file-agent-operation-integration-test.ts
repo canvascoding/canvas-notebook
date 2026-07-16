@@ -1,8 +1,14 @@
 import assert from 'node:assert/strict';
 import path from 'node:path';
 import { createHash, randomUUID } from 'node:crypto';
+import fs from 'node:fs/promises';
 import * as Y from 'yjs';
 
+import {
+  executePreparedCollaborationTextEdit,
+  prepareCollaborationTextEdit,
+  readCurrentCollaborationTextSnapshot,
+} from '../app/lib/collaboration/agent-file-edits';
 import {
   acceptAgentOperation,
   applyPersistedAgentTextOperation,
@@ -20,6 +26,7 @@ import {
   compensateAgentTextSaga,
 } from '../app/lib/collaboration/agent-sagas';
 import { installCollaborationDirectConnection } from '../app/lib/collaboration/direct-connection';
+import { installCollaborationDocumentReader } from '../app/lib/collaboration/document-access';
 import {
   CollaborationStateInactiveError,
   archivePersistedCollaborationPaths,
@@ -31,9 +38,15 @@ import {
   persistCollaborationYDoc,
   serializeCanonicalText,
 } from '../app/lib/collaboration/persistence';
-import { richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
+import { createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
 import { removeDocumentPresenceEntry, upsertDocumentPresenceEntry } from '../app/lib/collaboration/presence';
 import { openDb } from '../app/lib/db';
+import {
+  ensureFileRevisionForCurrentContent,
+  getFileCollaborationState,
+} from '../app/lib/files/collaboration-policy';
+import { runWithAgentExecutionContext, type AgentExecutionContext } from '../app/lib/pi/agent-execution-context';
+import { piTools } from '../app/lib/pi/core-tools';
 import type { WorkspaceContext } from '../app/lib/workspaces/types';
 
 if (process.env.CANVAS_DATABASE_PROVIDER !== 'postgres' || !process.env.DATABASE_URL) {
@@ -50,6 +63,7 @@ const sagaSecondDocumentId = `agent-operation-saga-second-${suffix}`;
 const archivedDocumentId = `agent-operation-archived-${suffix}`;
 const workspaceId = `agent-operation-workspace-${suffix}`;
 const userId = `agent-operation-user-${suffix}`;
+let toolDocumentId: string | null = null;
 const workspace: WorkspaceContext = {
   workspaceId,
   workspaceType: 'organization',
@@ -65,6 +79,36 @@ const workspace: WorkspaceContext = {
   },
   legacy: false,
 };
+const agentExecutionContext: AgentExecutionContext = {
+  userId,
+  sessionId: `agent-tool-session-${suffix}`,
+  agentId: 'canvas-agent',
+  workspaceId,
+  workspaceType: workspace.workspaceType,
+  workspaceName: 'Agent operation integration workspace',
+  organizationId: workspace.organizationId || null,
+  customerId: null,
+  projectId: null,
+  workspaceRoot: workspace.rootPath,
+  workspaceRootRelativePath: null,
+  canWrite: true,
+  canDelete: true,
+  canShare: true,
+  legacy: false,
+};
+
+async function runPiTool(
+  name: 'read' | 'edit_file' | 'apply_patch',
+  toolCallId: string,
+  params: Record<string, unknown>,
+) {
+  const tool = piTools.find((candidate) => candidate.name === name);
+  assert(tool, `PI tool ${name} must exist`);
+  return runWithAgentExecutionContext(
+    agentExecutionContext,
+    () => tool.execute(toolCallId, params),
+  );
+}
 
 function targetFor(state: Awaited<ReturnType<typeof loadCollaborationState>>, search: string, replacement: string, groupId = 'default') {
   assert(state, 'collaboration state must exist');
@@ -124,12 +168,30 @@ await ensureCollaborationState({
   initialContent: 'Alpha\nBeta\nGamma',
 });
 
-const uninstallDirectConnection = installCollaborationDirectConnection(async (input, apply, onApplied) => {
-  const state = await loadCollaborationState(input.documentId);
+const activeDocuments = new Map<string, Y.Doc>();
+const uninstallDocumentReader = installCollaborationDocumentReader(async (targetDocumentId, targetWorkspaceId, read) => {
+  const state = await loadCollaborationState(targetDocumentId);
   assert(state);
+  assert.equal(state.workspaceId, targetWorkspaceId);
+  const activeDocument = activeDocuments.get(targetDocumentId);
+  if (activeDocument) return read(activeDocument);
+
   const doc = new Y.Doc({ gc: true });
   try {
     Y.applyUpdate(doc, state.yjsState);
+    return read(doc);
+  } finally {
+    doc.destroy();
+  }
+});
+
+const uninstallDirectConnection = installCollaborationDirectConnection(async (input, apply, onApplied) => {
+  const state = await loadCollaborationState(input.documentId);
+  assert(state);
+  const activeDocument = activeDocuments.get(input.documentId);
+  const doc = activeDocument || new Y.Doc({ gc: true });
+  try {
+    if (!activeDocument) Y.applyUpdate(doc, state.yjsState);
     const result = apply(doc);
     if (onApplied) await onApplied(result);
     const persisted = await persistCollaborationYDoc(input.documentId, doc);
@@ -144,7 +206,7 @@ const uninstallDirectConnection = installCollaborationDirectConnection(async (in
     });
     return result;
   } finally {
-    doc.destroy();
+    if (!activeDocument) doc.destroy();
   }
 });
 
@@ -572,6 +634,131 @@ try {
   assert.equal(richOperation.operationStatus, 'checkpointed_file');
   assert.match(await persistedText(richDocumentId), /Rich \*\*strong\*\* paragraph/u);
 
+  // The real PI tools read and validate against the current in-memory Y.Doc,
+  // not the older materialized file checkpoint. A stale checkpoint hash is
+  // rejected with the new live hash; the retried stable edit applies directly.
+  const toolPath = `agent-tool-live-${suffix}.md`;
+  const checkpointContent = 'Tool **checkpoint** paragraph\n\nLive paragraph';
+  const liveContent = 'Tool **checkpoint** paragraph\n\nLive paragraph edited by user';
+  await fs.mkdir(workspace.rootPath, { recursive: true });
+  await fs.writeFile(path.join(workspace.rootPath, toolPath), checkpointContent, 'utf8');
+  ensureFileRevisionForCurrentContent({
+    workspace,
+    path: toolPath,
+    contentHash: createHash('sha256').update(checkpointContent, 'utf8').digest('hex'),
+    sizeBytes: Buffer.byteLength(checkpointContent, 'utf8'),
+    actorUserId: userId,
+    actorType: 'user',
+  });
+  const toolCollaboration = getFileCollaborationState({
+    workspace,
+    path: toolPath,
+    ensureDocument: false,
+  });
+  assert(toolCollaboration.document);
+  toolDocumentId = toolCollaboration.document.id;
+  await ensureCollaborationState({
+    documentId: toolDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: toolPath,
+    representation: 'tiptap_xml',
+    initialContent: checkpointContent,
+  });
+  const activeToolDocument = createRichMarkdownYDoc(liveContent);
+  activeDocuments.set(toolDocumentId, activeToolDocument);
+
+  const toolRead = await runPiTool('read', `tool-read-${suffix}`, { path: toolPath });
+  const toolReadDetails = toolRead.details as { sha256?: string; collaboration?: { source?: string } };
+  const liveHash = createHash('sha256').update(liveContent, 'utf8').digest('hex');
+  assert.equal(toolReadDetails.sha256, liveHash);
+  assert.equal(toolReadDetails.collaboration?.source, 'live_yjs');
+  assert.match(
+    String((toolRead.content[0] as { text?: string } | undefined)?.text || ''),
+    /Source: live Yjs collaboration state/u,
+  );
+
+  const staleToolEdit = await runPiTool('edit_file', `tool-stale-${suffix}`, {
+    path: toolPath,
+    expectedSha256: createHash('sha256').update(checkpointContent, 'utf8').digest('hex'),
+    oldText: 'Live paragraph edited by user',
+    newText: 'Stale edit must not apply',
+  });
+  const staleToolError = String((staleToolEdit.details as { error?: string }).error || '');
+  assert.match(staleToolError, /current live collaboration state/u);
+  assert.match(staleToolError, new RegExp(liveHash, 'u'));
+  assert.equal(richMarkdownFromYDoc(activeToolDocument), liveContent);
+
+  const directToolEdit = await runPiTool('edit_file', `tool-direct-${suffix}`, {
+    path: toolPath,
+    expectedSha256: liveHash,
+    oldText: 'Live paragraph edited by user',
+    newText: 'Live paragraph updated by agent',
+  });
+  const directToolDetails = directToolEdit.details as {
+    collaboration?: { reviewRequired?: boolean; operationStatus?: string; durability?: string };
+  };
+  assert.equal(directToolDetails.collaboration?.reviewRequired, false);
+  assert.equal(directToolDetails.collaboration?.operationStatus, 'checkpointed_file');
+  assert.equal(directToolDetails.collaboration?.durability, 'checkpointed_file');
+  assert.equal(
+    richMarkdownFromYDoc(activeToolDocument),
+    'Tool **checkpoint** paragraph\n\nLive paragraph updated by agent',
+  );
+
+  // Cross-node Markdown edits are persisted as real review operations. Accept
+  // reapplies the exact patch to the then-current Yjs document, preserving an
+  // unrelated human edit outside the reviewed target.
+  const richSnapshot = await readCurrentCollaborationTextSnapshot({
+    documentId: richDocumentId,
+    workspace,
+  });
+  const structuralPrepared = await prepareCollaborationTextEdit({
+    documentId: richDocumentId,
+    workspace,
+    path: `agent-operation-rich-${suffix}.md`,
+    edits: [{ oldText: 'Rich **strong** paragraph\n\n', newText: '' }],
+    expectedSha256: richSnapshot.sha256,
+    groupId: 'structural-review',
+  });
+  assert.equal(structuralPrepared.requestedMode, 'review');
+  const structuralReview = await executePreparedCollaborationTextEdit({
+    prepared: structuralPrepared,
+    workspace,
+    identity: {
+      initiatedByUserId: userId,
+      actorId: 'agent-b',
+      actorDisplayName: 'Agent B',
+      actorSessionId: `structural-session-${suffix}`,
+    },
+    idempotencyKey: `structural-review-${suffix}`,
+  });
+  assert.equal(structuralReview.operationStatus, 'needs_review');
+  assert.match(await persistedText(richDocumentId), /Rich \*\*strong\*\* paragraph/u);
+
+  const concurrentRichContent = (await persistedText(richDocumentId)).replace(
+    'Other paragraph',
+    'Other paragraph updated by user',
+  );
+  const concurrentRichDoc = createRichMarkdownYDoc(concurrentRichContent);
+  const concurrentPersisted = await persistCollaborationYDoc(richDocumentId, concurrentRichDoc);
+  await markCollaborationCheckpoint({
+    documentId: richDocumentId,
+    sequence: concurrentPersisted.documentSequence,
+    canonicalContent: concurrentRichContent,
+    serializedContent: serializeCanonicalText(concurrentRichContent, concurrentPersisted),
+  });
+  concurrentRichDoc.destroy();
+
+  const acceptedStructural = await acceptAgentOperation({
+    operationId: structuralReview.operationId,
+    workspace,
+    userId,
+    idempotencyKey: `accept-structural-${suffix}`,
+  });
+  assert.equal(acceptedStructural.operationStatus, 'checkpointed_file');
+  assert.equal(await persistedText(richDocumentId), 'Other paragraph updated by user');
+
   // Compaction and representation migration require an empty room, a healthy
   // checkpoint, and no pending review. Both create a rollback marker and a new
   // lifecycle generation so stale clients/runs cannot re-enter silently.
@@ -786,6 +973,9 @@ try {
   assert.equal(await persistedText(), 'User alpha\nBeta human after seeing agent\nGamma reviewed');
 } finally {
   uninstallDirectConnection();
+  uninstallDocumentReader();
+  for (const doc of activeDocuments.values()) doc.destroy();
+  activeDocuments.clear();
   removeDocumentPresenceEntry({ workspaceId, documentId, userId: 'active-human', actorType: 'user' });
   const database = await openDb();
   try {
@@ -801,6 +991,7 @@ try {
       sagaFirstDocumentId,
       sagaSecondDocumentId,
       archivedDocumentId,
+      ...(toolDocumentId ? [toolDocumentId] : []),
     ]) {
       await database.run('DELETE FROM collaboration_agent_operations WHERE document_id = ?', [cleanupDocumentId]);
       await database.run('DELETE FROM collaboration_yjs_state_backups WHERE document_id = ?', [cleanupDocumentId]);

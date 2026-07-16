@@ -1,4 +1,8 @@
 import { expect, test, type APIRequestContext, type BrowserContext, type Locator, type Page } from '@playwright/test';
+import { execFile } from 'node:child_process';
+import { writeFile as writeTestFile } from 'node:fs/promises';
+import path from 'node:path';
+import { promisify } from 'node:util';
 
 const BASE_URL = process.env.BASE_URL || 'http://localhost:3000';
 const ADMIN_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
@@ -6,9 +10,32 @@ const ADMIN_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_
 const WORKSPACE_ID_HEADER = 'x-canvas-workspace-id';
 
 type WorkspacePayload = {
-  workspaces?: Array<{ id: string; type: string; permissions: { canWrite: boolean } }>;
+  workspaces?: WorkspaceSummary[];
   error?: string;
 };
+
+type WorkspaceSummary = {
+  id: string;
+  type: 'personal' | 'organization' | 'team' | 'project';
+  name: string;
+  rootRelativePath?: string;
+  organizationId?: string | null;
+  customerId?: string | null;
+  projectId?: string | null;
+  legacy?: boolean;
+  permissions: {
+    canWrite: boolean;
+    canDelete?: boolean;
+    canCreatePublicLinks?: boolean;
+  };
+};
+
+type AgentToolResult = {
+  content?: Array<{ type: string; text?: string }>;
+  details?: Record<string, unknown>;
+};
+
+const execFileAsync = promisify(execFile);
 
 async function login(page: Page, email: string, password: string): Promise<void> {
   const response = await page.request.post('/api/auth/sign-in/email', {
@@ -19,6 +46,10 @@ async function login(page: Page, email: string, password: string): Promise<void>
 }
 
 async function organizationWorkspace(request: APIRequestContext): Promise<string> {
+  return (await organizationWorkspaceDetails(request)).id;
+}
+
+async function organizationWorkspaceDetails(request: APIRequestContext): Promise<WorkspaceSummary> {
   const response = await request.get('/api/workspaces');
   const payload = await response.json() as WorkspacePayload;
   expect(response.ok(), payload.error || 'Could not list team workspaces').toBeTruthy();
@@ -26,7 +57,7 @@ async function organizationWorkspace(request: APIRequestContext): Promise<string
     candidate.type === 'organization' && candidate.permissions.canWrite
   ));
   expect(workspace, 'A writable organization workspace is required').toBeTruthy();
-  return workspace!.id;
+  return workspace!;
 }
 
 async function useWorkspace(context: BrowserContext, workspaceId: string): Promise<void> {
@@ -69,6 +100,26 @@ async function collaborativeEditorText(editor: Locator): Promise<string> {
     clone.querySelectorAll('.collaboration-carets__label').forEach((label) => label.remove());
     return clone.textContent || '';
   });
+}
+
+async function runAgentTool(input: {
+  toolName: 'read' | 'edit_file' | 'apply_patch';
+  toolCallId: string;
+  params: Record<string, unknown>;
+  context: Record<string, unknown>;
+}): Promise<AgentToolResult> {
+  const encoded = Buffer.from(JSON.stringify(input)).toString('base64url');
+  const executable = path.join(process.cwd(), 'node_modules', '.bin', 'tsx');
+  const { stdout } = await execFileAsync(
+    executable,
+    ['--conditions', 'react-server', 'scripts/collaboration-agent-tool-driver.ts', encoded],
+    {
+      cwd: process.cwd(),
+      env: process.env,
+      maxBuffer: 2 * 1024 * 1024,
+    },
+  );
+  return JSON.parse(stdout) as AgentToolResult;
 }
 
 test.describe('Markdown live collaboration', () => {
@@ -314,75 +365,138 @@ test.describe('Markdown live collaboration', () => {
     }
   });
 
-  test('shows an accessible agent review and submits the explicit accept action', async ({ browser }, testInfo) => {
+  test('creates structural reviews through real agent tools and applies or rejects them in the editor', async ({ browser }, testInfo) => {
     const suffix = `${Date.now()}-${Math.random().toString(16).slice(2)}`;
     const filePath = `collaboration-agent-review-${suffix}.md`;
     const context = await browser.newContext();
     const page = await context.newPage();
     const browserErrors = logBrowserDiagnostics(page, 'agent-review');
     let workspaceId: string | null = null;
-    let accepted = false;
 
     try {
       await login(page, ADMIN_EMAIL, ADMIN_PASSWORD);
-      workspaceId = await organizationWorkspace(page.request);
+      const workspace = await organizationWorkspaceDetails(page.request);
+      workspaceId = workspace.id;
       await useWorkspace(context, workspaceId);
-      const createFileResponse = await page.request.post('/api/files/create', {
-        headers: { [WORKSPACE_ID_HEADER]: workspaceId },
-        data: { path: filePath, type: 'file' },
-      });
-      expect(createFileResponse.ok(), await createFileResponse.text()).toBeTruthy();
-
-      await page.route(/\/api\/files\/collaboration\/operations\?.+/, async (route) => {
-        await route.fulfill({
-          status: 200,
-          contentType: 'application/json',
-          body: JSON.stringify({
-            operations: accepted ? [] : [{
-              operationId: 'operation-review-e2e',
-              operationStatus: 'needs_review',
-              status: 'needs_review',
-              durability: 'needs_review',
-              actorId: 'canvas-agent',
-              appliedTargetIds: [],
-              conflicts: [],
-              reviewTargets: [{
-                targetId: 'target-review-e2e',
-                groupId: 'paragraph',
-                currentText: 'User-authored paragraph',
-                proposedReplacement: 'Agent-proposed paragraph',
-              }],
-            }],
-          }),
-        });
-      });
-      await page.route(/\/api\/files\/collaboration\/operations\/operation-review-e2e\/accept$/, async (route) => {
-        expect(route.request().method()).toBe('POST');
-        const body = route.request().postDataJSON() as { idempotencyKey?: string };
-        expect(body.idempotencyKey).toBeTruthy();
-        accepted = true;
-        await route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ success: true }) });
-      });
+      const initialContent = '# Agent review\n\nRemove this paragraph\n\nKeep this paragraph\n\nFinal paragraph';
+      expect(workspace.rootRelativePath).toBeTruthy();
+      const workspaceRoot = path.resolve(process.env.DATA || 'data', workspace.rootRelativePath!);
+      await writeTestFile(path.join(workspaceRoot, filePath), initialContent, 'utf8');
 
       await openCollaborativeMarkdown(page, filePath);
+      const sessionResponse = await page.request.get('/api/auth/get-session');
+      const sessionPayload = await sessionResponse.json() as { user?: { id?: string } };
+      expect(sessionPayload.user?.id).toBeTruthy();
+      const agentContext = {
+        userId: sessionPayload.user!.id!,
+        sessionId: `collaboration-agent-review-${suffix}`,
+        agentId: 'canvas-agent',
+        workspaceId,
+        workspaceType: workspace.type,
+        workspaceName: workspace.name,
+        organizationId: workspace.organizationId || null,
+        customerId: workspace.customerId || null,
+        projectId: workspace.projectId || null,
+        workspaceRoot,
+        workspaceRootRelativePath: workspace.rootRelativePath || null,
+        canWrite: true,
+        canDelete: workspace.permissions.canDelete !== false,
+        canShare: workspace.permissions.canCreatePublicLinks !== false,
+        legacy: Boolean(workspace.legacy),
+      };
+
+      const readResult = await runAgentTool({
+        toolName: 'read',
+        toolCallId: `read-live-${suffix}`,
+        params: { path: filePath },
+        context: agentContext,
+      });
+      const liveSha256 = String((readResult.details as { sha256?: string } | undefined)?.sha256 || '');
+      expect(liveSha256).toMatch(/^[a-f0-9]{64}$/);
+      expect(readResult.content?.[0]?.text).toContain('Source: live Yjs collaboration state');
+
+      const editResult = await runAgentTool({
+        toolName: 'edit_file',
+        toolCallId: `edit-structural-${suffix}`,
+        params: {
+          path: filePath,
+          expectedSha256: liveSha256,
+          oldText: '# Agent review\n\nRemove this paragraph\n\n',
+          newText: '',
+        },
+        context: agentContext,
+      });
+      const editDetails = editResult.details as {
+        collaboration?: { operationId?: string; reviewRequired?: boolean; operationStatus?: string };
+      };
+      expect(editDetails.collaboration?.reviewRequired).toBe(true);
+      expect(editDetails.collaboration?.operationStatus).toBe('needs_review');
+      expect(readResult.content?.[0]?.text).toContain(initialContent);
+      expect(editResult.content?.[0]?.text).toContain('Review ready');
+
       const reviewRegion = page.getByRole('region', { name: /Agent changes|Agentenänderungen/i });
-      await expect(reviewRegion).toBeVisible({ timeout: 15_000 });
+      await expect(reviewRegion).toBeVisible({ timeout: 20_000 });
       await expect(reviewRegion).toContainText(/Review required|Prüfung erforderlich/i);
       await reviewRegion.getByText(/Compare current and proposed text|Aktuellen und vorgeschlagenen Text vergleichen/i).click();
-      await expect(reviewRegion).toContainText('User-authored paragraph');
-      await expect(reviewRegion).toContainText('Agent-proposed paragraph');
+      await expect(reviewRegion).toContainText('Remove this paragraph');
+
+      const editor = page.locator('.tiptap-editor-shell .ProseMirror');
+      const unaffectedParagraph = editor.locator('p').filter({ hasText: 'Keep this paragraph' }).first();
+      await unaffectedParagraph.click();
+      await page.keyboard.press('End');
+      await page.keyboard.type(' edited by user');
+      await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
+
+      await reviewRegion.getByRole('button', { name: /Accept|Annehmen/i }).click();
+      await expect.poll(() => collaborativeEditorText(editor), { timeout: 20_000 }).not.toContain('Remove this paragraph');
+      await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
+      await expect(reviewRegion.getByRole('button', { name: /Accept|Annehmen/i })).toHaveCount(0, { timeout: 20_000 });
+
+      const acceptedRead = await runAgentTool({
+        toolName: 'read',
+        toolCallId: `read-after-accept-${suffix}`,
+        params: { path: filePath },
+        context: agentContext,
+      });
+      const acceptedSha256 = String((acceptedRead.details as { sha256?: string } | undefined)?.sha256 || '');
+      const patchResult = await runAgentTool({
+        toolName: 'apply_patch',
+        toolCallId: `patch-structural-${suffix}`,
+        params: {
+          files: [{
+            path: filePath,
+            expectedSha256: acceptedSha256,
+            edits: [{
+              oldText: 'Keep this paragraph edited by user\n\nFinal paragraph',
+              newText: 'Combined paragraph',
+            }],
+          }],
+        },
+        context: agentContext,
+      });
+      const patchDetails = patchResult.details as {
+        results?: Array<{ collaboration?: { reviewRequired?: boolean; operationStatus?: string } }>;
+      };
+      expect(patchDetails.results?.[0]?.collaboration?.reviewRequired).toBe(true);
+      expect(patchDetails.results?.[0]?.collaboration?.operationStatus).toBe('needs_review');
+      expect(patchResult.content?.[0]?.text).toContain('Review ready');
+      await reviewRegion.getByText(
+        /Compare current and proposed text|Aktuellen und vorgeschlagenen Text vergleichen/i,
+      ).click();
+      await expect(reviewRegion).toContainText('Combined paragraph', { timeout: 20_000 });
 
       const screenshotPath = testInfo.outputPath('agent-review.png');
       await page.screenshot({ path: screenshotPath, type: 'png' });
       await testInfo.attach('agent review UI', { path: screenshotPath, contentType: 'image/png' });
 
-      await reviewRegion.getByRole('button', { name: /Accept|Annehmen/i }).click();
-      await expect.poll(() => accepted).toBe(true);
-      await expect(reviewRegion).toBeHidden();
+      await reviewRegion.getByRole('button', { name: /Reject|Ablehnen/i }).click();
+      await expect.poll(() => collaborativeEditorText(editor)).toContain('Keep this paragraph edited by user');
+      await expect.poll(() => collaborativeEditorText(editor)).not.toContain('Combined paragraph');
       expect(browserErrors, 'Agent review UI must not emit browser errors.').toEqual([]);
     } finally {
-      if (workspaceId && !page.isClosed()) {
-        await page.request.delete('/api/files/delete', {
+      await page.close().catch(() => undefined);
+      if (workspaceId) {
+        await context.request.delete('/api/files/delete', {
           headers: { [WORKSPACE_ID_HEADER]: workspaceId },
           data: { path: filePath },
         }).catch(() => undefined);
