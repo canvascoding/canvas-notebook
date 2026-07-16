@@ -3,8 +3,8 @@ import 'server-only';
 import { createHash } from 'node:crypto';
 
 import {
+  createReadStream,
   getFileStats,
-  readFile,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
 import type { FileStats } from '@/app/lib/files/types';
@@ -67,11 +67,17 @@ export async function getWorkspaceFileRevision(
   options?: WorkspaceFileOperationOptions,
 ): Promise<WorkspaceFileRevision | null> {
   try {
-    const [stats, content] = await Promise.all([
-      getFileStats(filePath, options),
-      readFile(filePath, options),
-    ]);
-    const sha256 = sha256Buffer(content);
+    const stats = await getFileStats(filePath, options);
+    const { stream, close } = await createReadStream(filePath, undefined, options);
+    const hash = createHash('sha256');
+    try {
+      for await (const chunk of stream) {
+        hash.update(chunk as Buffer);
+      }
+    } finally {
+      await close();
+    }
+    const sha256 = hash.digest('hex');
     return {
       path: filePath,
       sha256,

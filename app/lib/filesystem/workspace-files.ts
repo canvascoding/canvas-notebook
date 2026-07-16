@@ -1,6 +1,13 @@
-import {createReadStream as createLocalReadStream, promises as fs, accessSync} from 'fs';
+import {
+  createReadStream as createLocalReadStream,
+  createWriteStream as createLocalWriteStream,
+  promises as fs,
+  accessSync,
+} from 'fs';
+import { randomUUID } from 'crypto';
 import path from 'path';
 import {Readable} from 'stream';
+import { pipeline } from 'stream/promises';
 import type { FileNode } from '@/app/lib/files/types';
 import { createLegacyPersonalWorkspaceContext, resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 import {
@@ -179,6 +186,44 @@ export async function writeFile(
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   await fs.writeFile(fullPath, buffer);
+}
+
+export async function replaceWorkspaceFileFromPath(
+  sourcePath: string,
+  filePath: string,
+  options?: WorkspaceFileOperationOptions,
+): Promise<void> {
+  const sourceStats = await fs.stat(sourcePath);
+  if (!sourceStats.isFile()) {
+    throw new Error('Upload source must be a file.');
+  }
+
+  const parentDir = path.posix.dirname(filePath);
+  if (parentDir !== '.' && parentDir !== '/') {
+    await createDirectory(parentDir, options);
+  }
+  const fullPath = await resolveWritableWorkspacePath(filePath, options);
+
+  try {
+    await fs.rename(sourcePath, fullPath);
+    return;
+  } catch (error) {
+    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
+      throw error;
+    }
+  }
+
+  const stagingPath = `${fullPath}.canvas-upload-${randomUUID()}.tmp`;
+  try {
+    await pipeline(
+      createLocalReadStream(sourcePath),
+      createLocalWriteStream(stagingPath, { flags: 'wx', mode: 0o644 }),
+    );
+    await fs.rename(stagingPath, fullPath);
+    await fs.rm(sourcePath, { force: true });
+  } finally {
+    await fs.rm(stagingPath, { force: true }).catch(() => undefined);
+  }
 }
 
 /**

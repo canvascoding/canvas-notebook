@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import path from 'path';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { writeFile, createDirectory } from '@/app/lib/filesystem/workspace-files';
+import { writeFile } from '@/app/lib/filesystem/workspace-files';
 import { clearFileTreeCache } from '@/app/lib/utils/file-tree-cache';
 import { invalidateFileReferenceCache } from '@/app/lib/filesystem/file-reference-cache';
 import { publishWorkspaceFileMutation } from '@/app/lib/filesystem/file-watcher';
@@ -11,35 +11,13 @@ import { getImageConversionErrorMessage } from '@/app/lib/images/convert';
 import { normalizeUploadImageBuffer, parseUploadConvertParams } from '@/app/lib/images/upload-conversion';
 import { syncPublicSharesAfterWrite } from '@/app/lib/public-sharing/public-file-shares';
 import { requireRequestWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
-import { getWorkspaceFileRevision } from '@/app/lib/files/revision-guard';
-import {
-  FileCollaborationPolicyError,
-  acquireFileLock,
-  assertFileCollaborationWriteAllowed,
-  detectFileCollaborationStrategy,
-  ensureFileRevisionForCurrentContent,
-  getFileCollaborationState,
-  releaseFileLock,
-  workspaceRequiresCollaborationPolicy,
-} from '@/app/lib/files/collaboration-policy';
+import { FileCollaborationPolicyError } from '@/app/lib/files/collaboration-policy';
+import { WORKSPACE_UPLOAD_MAX_FILES } from '@/app/lib/files/upload-limits';
+import { sanitizeWorkspaceUploadPath } from '@/app/lib/files/upload-paths';
+import { runWorkspaceUploadWrite } from '@/app/lib/files/workspace-upload-flow';
 
 const MAX_FILE_SIZE = 100 * 1024 * 1024;
 const MAX_TOTAL_SIZE = 500 * 1024 * 1024;
-const MAX_FILES_PER_REQUEST = 100;
-
-function sanitizeName(name: string): string {
-  return name.replace(/[^a-zA-Z0-9._\-\s()]/g, '_');
-}
-
-function sanitizeFilePath(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, '/');
-  const segments = normalized.split('/');
-  const sanitized = segments
-    .map(segment => path.posix.basename(segment))
-    .filter(segment => segment.length > 0 && segment !== '.' && segment !== '..')
-    .map(segment => sanitizeName(segment));
-  return sanitized.join('/');
-}
 
 export async function POST(request: NextRequest) {
   const workspaceResult = await requireRequestWorkspace(request, { permissions: 'canWrite' });
@@ -72,9 +50,15 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    if (files.length > MAX_FILES_PER_REQUEST) {
+    if (files.length > WORKSPACE_UPLOAD_MAX_FILES) {
       return NextResponse.json(
-        { success: false, error: `Maximum ${MAX_FILES_PER_REQUEST} files per upload` },
+        {
+          success: false,
+          error: `Maximum ${WORKSPACE_UPLOAD_MAX_FILES} files per upload`,
+          code: 'UPLOAD_TOO_MANY_FILES',
+          maxFiles: WORKSPACE_UPLOAD_MAX_FILES,
+          actualFiles: files.length,
+        },
         { status: 400 }
       );
     }
@@ -84,7 +68,14 @@ export async function POST(request: NextRequest) {
       totalSize += file.size;
       if (file.size > MAX_FILE_SIZE) {
         return NextResponse.json(
-          { success: false, error: `File "${file.name}" exceeds maximum size of 100MB` },
+          {
+            success: false,
+            error: `File "${file.name}" exceeds the 100 MB compatibility-route limit. Use the chunked uploader for files up to 5 GB.`,
+            code: 'UPLOAD_FILE_TOO_LARGE',
+            path: file.name,
+            maxBytes: MAX_FILE_SIZE,
+            actualBytes: file.size,
+          },
           { status: 413 }
         );
       }
@@ -92,7 +83,13 @@ export async function POST(request: NextRequest) {
 
     if (totalSize > MAX_TOTAL_SIZE) {
       return NextResponse.json(
-        { success: false, error: `Total upload size exceeds maximum of 500MB` },
+        {
+          success: false,
+          error: 'This compatibility request exceeds 500 MB. Use the chunked uploader for larger batches.',
+          code: 'UPLOAD_TOTAL_TOO_LARGE',
+          maxBytes: MAX_TOTAL_SIZE,
+          actualBytes: totalSize,
+        },
         { status: 413 }
       );
     }
@@ -103,16 +100,12 @@ export async function POST(request: NextRequest) {
     }
     const convertParamsList = parsedConvertParams.params;
 
-    if (targetDir && targetDir !== '.') {
-      await createDirectory(targetDir, fileOptions);
-    }
-
     const uploadedFiles: string[] = [];
     const uploadedPaths: string[] = [];
 
     for (let i = 0; i < files.length; i++) {
       const file = files[i];
-      const sanitizedPath = sanitizeFilePath(file.name);
+      const sanitizedPath = sanitizeWorkspaceUploadPath(file.name);
 
       if (!sanitizedPath) {
         return NextResponse.json(
@@ -145,83 +138,13 @@ export async function POST(request: NextRequest) {
       filename = normalized.filename;
 
       const targetPath = path.posix.join(targetDir, filename);
-
-      const parentDir = path.posix.dirname(targetPath);
-      if (parentDir !== '.' && parentDir !== targetDir && parentDir !== '/') {
-        await createDirectory(parentDir, fileOptions);
-      }
-
-      const beforeRevision = await getWorkspaceFileRevision(targetPath, fileOptions);
-      const storedBaseRevision = beforeRevision
-        ? ensureFileRevisionForCurrentContent({
-            workspace: workspaceResult.workspace,
-            path: targetPath,
-            contentHash: beforeRevision.sha256,
-            sizeBytes: beforeRevision.stats.size,
-            actorType: 'system',
-          })
-        : null;
-      let transientUploadLockId: string | null = null;
-      try {
-        const shouldAutoLockUpload =
-          Boolean(beforeRevision)
-          && workspaceRequiresCollaborationPolicy(workspaceResult.workspace)
-          && detectFileCollaborationStrategy(targetPath) === 'exclusive_lock';
-        if (shouldAutoLockUpload) {
-          const currentState = getFileCollaborationState({
-            workspace: workspaceResult.workspace,
-            path: targetPath,
-          });
-          if (!currentState.activeLock) {
-            // acquireFileLock re-checks in its own write transaction; a raced lock becomes FILE_LOCKED.
-            const acquired = acquireFileLock({
-              workspace: workspaceResult.workspace,
-              path: targetPath,
-              lockedByUserId: workspaceResult.session.user.id,
-              lockedBySessionId: null,
-              lockType: 'upload',
-              ttlMs: 5 * 60 * 1000,
-              baseRevisionId: storedBaseRevision?.id ?? null,
-            });
-            transientUploadLockId = acquired.lock.id;
-          }
-        }
-
-        assertFileCollaborationWriteAllowed({
-          workspace: workspaceResult.workspace,
-          path: targetPath,
-          actorUserId: workspaceResult.session.user.id,
-          actorType: 'user',
-          baseRevisionId: storedBaseRevision?.id ?? null,
-        });
-
-        await writeFile(targetPath, normalized.buffer, fileOptions);
-        const afterRevision = await getWorkspaceFileRevision(targetPath, fileOptions);
-        if (afterRevision) {
-          ensureFileRevisionForCurrentContent({
-            workspace: workspaceResult.workspace,
-            path: targetPath,
-            contentHash: afterRevision.sha256,
-            sizeBytes: afterRevision.stats.size,
-            actorUserId: workspaceResult.session.user.id,
-            actorType: 'user',
-            sourceSessionId: null,
-            baseRevisionId: storedBaseRevision?.id ?? null,
-          });
-        }
-      } finally {
-        if (transientUploadLockId) {
-          try {
-            releaseFileLock({
-              workspace: workspaceResult.workspace,
-              lockId: transientUploadLockId,
-              actorUserId: workspaceResult.session.user.id,
-            });
-          } catch (releaseError) {
-            console.warn('[API] Failed to release transient upload lock:', releaseError);
-          }
-        }
-      }
+      await runWorkspaceUploadWrite({
+        workspace: workspaceResult.workspace,
+        fileOptions,
+        actorUserId: workspaceResult.session.user.id,
+        targetPath,
+        write: () => writeFile(targetPath, normalized.buffer, fileOptions),
+      });
       uploadedFiles.push(filename);
       uploadedPaths.push(targetPath);
     }
