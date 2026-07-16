@@ -13,6 +13,10 @@ import {
   type ObsidianWikiCompletionContext,
 } from './obsidian-link-resolver';
 import type { WorkspaceLinkDocument, WorkspaceLinkIndex } from './workspace-link-index-core';
+import {
+  workspaceDocumentTitleFromPath,
+  type WorkspaceDocumentReference,
+} from './workspace-document-preview';
 
 const LINK_INDEX_CACHE_TTL_MS = 30_000;
 
@@ -47,6 +51,12 @@ export type WorkspaceWikiCompletionItem = {
 export type WorkspaceMarkdownEmbedDocument = {
   content: string;
   path: string;
+};
+
+export type WorkspaceDocumentReferenceLookup = {
+  document: WorkspaceLinkDocument | null;
+  reference: WorkspaceDocumentReference | null;
+  resolution: ObsidianLinkResolution | null;
 };
 
 const linkIndexCache = new Map<string, LinkIndexCacheEntry>();
@@ -185,6 +195,35 @@ export function resolveWorkspaceLinkFromIndex(
     })),
     sourcePath,
   );
+}
+
+export function resolveWorkspaceDocumentReferenceFromIndex(
+  rawTarget: string,
+  index: WorkspaceLinkIndex,
+  sourcePath?: string | null,
+): WorkspaceDocumentReferenceLookup {
+  const resolution = resolveWorkspaceLinkFromIndex(rawTarget, index, sourcePath);
+  const document = resolution?.status === 'resolved' && resolution.path
+    ? index.documents.find((candidate) => candidate.path === resolution.path) ?? null
+    : null;
+  const reference = resolution?.status === 'resolved' && resolution.path
+    ? {
+        blockId: resolution.blockId,
+        heading: resolution.heading,
+        path: resolution.path,
+        title: document?.title || workspaceDocumentTitleFromPath(resolution.path),
+      }
+    : null;
+  return { document, reference, resolution };
+}
+
+export async function loadWorkspaceDocumentReference(
+  workspaceId: string,
+  rawTarget: string,
+  sourcePath?: string | null,
+): Promise<WorkspaceDocumentReferenceLookup> {
+  const index = await loadWorkspaceLinkIndex(workspaceId);
+  return resolveWorkspaceDocumentReferenceFromIndex(rawTarget, index, sourcePath);
 }
 
 function normalizedSearchValue(value: string): string {
