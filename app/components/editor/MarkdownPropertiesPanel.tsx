@@ -120,7 +120,11 @@ export function MarkdownPropertiesPanel({
 
   if (!frontmatter) {
     return (
-      <div className={cn('px-4 pt-4 md:px-5 md:pl-[4.75rem]', className)}>
+      <div
+        className={cn('px-4 pb-5 pt-4 md:px-5 md:pl-[4.75rem]', className)}
+        data-markdown-properties-panel
+        data-testid="markdown-properties-panel"
+      >
         <Button
           type="button"
           variant="ghost"
@@ -146,10 +150,12 @@ export function MarkdownPropertiesPanel({
   return (
     <section
       className={cn(
-        'mx-3 mt-3 overflow-hidden rounded-2xl border border-border/70 bg-muted/20 shadow-sm md:ml-[4.75rem] md:mr-5 md:mt-4',
+        'mx-3 mb-5 mt-3 overflow-hidden rounded-2xl border border-border/70 bg-muted/20 shadow-sm md:ml-[4.75rem] md:mr-5 md:mt-4',
         className,
       )}
       aria-label={t('markdownEditorProperties')}
+      data-markdown-properties-panel
+      data-testid="markdown-properties-panel"
     >
       <button
         type="button"

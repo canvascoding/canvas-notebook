@@ -1344,6 +1344,7 @@ function MarkdownBlockControls({
   const [dropIndicatorTop, setDropIndicatorTop] = useState<number | null>(null);
   const [dragSourceOverlay, setDragSourceOverlay] = useState<BlockOverlayRect | null>(null);
   const [dropTargetOverlay, setDropTargetOverlay] = useState<BlockOverlayRect | null>(null);
+  const [propertiesInteractionActive, setPropertiesInteractionActive] = useState(false);
   const dragStateRef = useRef<ReorderableBlockRange | null>(null);
 
   const clearDragState = useCallback(() => {
@@ -1428,6 +1429,48 @@ function MarkdownBlockControls({
   }, [scrollContainerRef, updateDragSourceOverlay, updatePosition]);
 
   useEffect(() => {
+    const container = scrollContainerRef.current;
+    if (!container) return;
+
+    let pointerInsideProperties = false;
+    let focusInsideProperties = false;
+    const isPropertiesTarget = (target: EventTarget | null) => (
+      target instanceof Element && Boolean(target.closest('[data-markdown-properties-panel]'))
+    );
+    const updateInteractionState = () => {
+      setPropertiesInteractionActive(pointerInsideProperties || focusInsideProperties);
+    };
+    const handlePointerOver = (event: PointerEvent) => {
+      pointerInsideProperties = isPropertiesTarget(event.target);
+      updateInteractionState();
+    };
+    const handlePointerLeave = () => {
+      pointerInsideProperties = false;
+      updateInteractionState();
+    };
+    const handleFocusIn = (event: FocusEvent) => {
+      focusInsideProperties = isPropertiesTarget(event.target);
+      updateInteractionState();
+    };
+    const handleFocusOut = (event: FocusEvent) => {
+      focusInsideProperties = isPropertiesTarget(event.relatedTarget);
+      updateInteractionState();
+    };
+
+    container.addEventListener('pointerover', handlePointerOver);
+    container.addEventListener('pointerleave', handlePointerLeave);
+    container.addEventListener('focusin', handleFocusIn);
+    container.addEventListener('focusout', handleFocusOut);
+
+    return () => {
+      container.removeEventListener('pointerover', handlePointerOver);
+      container.removeEventListener('pointerleave', handlePointerLeave);
+      container.removeEventListener('focusin', handleFocusIn);
+      container.removeEventListener('focusout', handleFocusOut);
+    };
+  }, [scrollContainerRef]);
+
+  useEffect(() => {
     if (!editor) return;
 
     const editorElement = editor.options.element;
@@ -1504,7 +1547,7 @@ function MarkdownBlockControls({
       {dropIndicatorTop !== null ? (
         <div className="tiptap-block-drop-indicator absolute z-10" style={{ top: dropIndicatorTop }} />
       ) : null}
-      {position ? (
+      {position && !propertiesInteractionActive ? (
         <div
           className="tiptap-block-controls absolute z-10 flex items-center gap-1 opacity-70 hover:opacity-100 focus-within:opacity-100"
           style={{ top: position.top }}

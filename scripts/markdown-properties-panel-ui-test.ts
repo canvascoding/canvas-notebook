@@ -22,6 +22,21 @@ assert.match(
   /data-testid="markdown-properties-tags"/u,
   'the responsive tag region must remain identifiable for browser coverage',
 );
+assert.equal(
+  (source.match(/data-markdown-properties-panel/g) || []).length,
+  2,
+  'collapsed and expanded property surfaces must identify themselves as outside the Tiptap document',
+);
+assert.match(
+  source,
+  /px-4 pb-5 pt-4/u,
+  'the collapsed add-properties action must leave a quiet gap before the document begins',
+);
+assert.match(
+  source,
+  /mx-3 mb-5 mt-3/u,
+  'the expanded properties card must leave a quiet gap before the document begins',
+);
 assert.match(
   source,
   /max-h-28 overflow-y-auto overscroll-contain/u,
@@ -36,6 +51,22 @@ assert.match(
   source,
   /className="ml-0\.5 flex h-6 w-6 shrink-0/u,
   'tag removal must retain a stable touch target when labels wrap',
+);
+
+const editorSource = fs.readFileSync(
+  path.join(process.cwd(), 'app', 'components', 'editor', 'MarkdownEditor.tsx'),
+  'utf8',
+);
+
+assert.match(
+  editorSource,
+  /closest\('\[data-markdown-properties-panel\]'\)/u,
+  'desktop block controls must recognize property-panel interactions',
+);
+assert.match(
+  editorSource,
+  /\{position && !propertiesInteractionActive \? \(/u,
+  'desktop block controls must stay hidden while properties are hovered or focused',
 );
 
 console.log('markdown properties panel UI tests passed');
