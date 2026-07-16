@@ -143,7 +143,6 @@ export function AgentSelectorCard({
                               : t('agentPanel.createDialog.scope.personal')}
                           </Badge>
                         ) : null}
-                        <Badge variant="outline" className="font-mono text-[10px]">r{agent.revision}</Badge>
                         {!agent.removable && (
                           <Badge variant="outline" className="max-w-full gap-1 whitespace-normal text-left">
                             <Lock className="h-3 w-3 shrink-0" />
