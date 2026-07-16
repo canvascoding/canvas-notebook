@@ -181,6 +181,19 @@ zusammengesetzte MIT-/Unicode-Lizenztexte, beide Copyright-Hinweise und klare
 Upstream-Transformationshinweise aus; fuer `0.0.3` gilt
 `Unicode-DFS-2015`, fuer `6.0.0` `Unicode-3.0`.
 
+`webworkify@1.5.0` ist technisch geprueft und bleibt blockierend. Exakter
+npm-`gitHead`, annotierter Tag und vollstaendiger MIT-Wortlaut sind belegt,
+die Copyright-Zeile fehlt jedoch seit dem initialen Upstream-Commit bis heute.
+Autor- und Contributor-Metadaten werden nicht als Rechteinhabernachweis
+umgedeutet. Eine Entfernung muesste neben dem npm-Knoten auch die in
+`pica@7.1.1` gebuendelte und ueber Excalidraw ausgelieferte Kopie erfassen.
+
+Damit sind alle zehn verbleibenden Runtime-Pakete ohne vollstaendigen exakten
+Lizenz-/Copyright-Beleg technisch einzeln untersucht. Sie bleiben nicht wegen
+fehlender Recherche offen, sondern benoetigen jeweils Upstream-Korrektur,
+getesteten Ersatz/Entfernung oder eine dokumentierte verantwortliche
+Einzelfallentscheidung.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.

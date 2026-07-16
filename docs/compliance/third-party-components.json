@@ -217,7 +217,7 @@
       {
         "name": "webworkify",
         "versionOrCommit": "1.5.0",
-        "reason": "The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
+        "reason": "The exact npm release publishes gitHead baf2884256768aea6c36be1ea6e1efb2144fcfbc, and annotated tag v1.5.0 dereferences to that commit. The npm tarball and exact source contain the complete MIT permission and warranty text, but the LICENSE has omitted its copyright-holder line since the initial 2013 commit and remains unchanged upstream. Package metadata names James Halliday as author, while the release history includes multiple contributors; authorship and commit history are not treated as copyright ownership evidence. The package is both installed transitively through pica@7.1.1 and embedded in pica's distributed browser bundles used by Excalidraw. Canvas retains the exact MIT text but keeps the package review_required pending corrected upstream attribution, replacement/removal including the bundled copy, or a responsible legal decision. Verification source: https://github.com/substack/webworkify/blob/v1.5.0/LICENSE The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
       }
     ]
   },
@@ -42857,7 +42857,7 @@
     {
       "name": "webworkify",
       "versionOrCommit": "1.5.0",
-      "sourceUrl": "https://github.com/substack/webworkify",
+      "sourceUrl": "https://github.com/substack/webworkify/tree/baf2884256768aea6c36be1ea6e1efb2144fcfbc",
       "packagePathOrArtifact": "node_modules/webworkify",
       "usage": "runtime",
       "distributedIn": [
@@ -42873,7 +42873,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
+      "reviewNotes": "The exact npm release publishes gitHead baf2884256768aea6c36be1ea6e1efb2144fcfbc, and annotated tag v1.5.0 dereferences to that commit. The npm tarball and exact source contain the complete MIT permission and warranty text, but the LICENSE has omitted its copyright-holder line since the initial 2013 commit and remains unchanged upstream. Package metadata names James Halliday as author, while the release history includes multiple contributors; authorship and commit history are not treated as copyright ownership evidence. The package is both installed transitively through pica@7.1.1 and embedded in pica's distributed browser bundles used by Excalidraw. Canvas retains the exact MIT text but keeps the package review_required pending corrected upstream attribution, replacement/removal including the bundled copy, or a responsible legal decision. Verification source: https://github.com/substack/webworkify/blob/v1.5.0/LICENSE The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
     },
     {
       "name": "whatwg-mimetype",

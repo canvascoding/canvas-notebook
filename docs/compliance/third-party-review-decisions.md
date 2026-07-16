@@ -693,3 +693,51 @@ Technische Entscheidung:
 - Regressionstests sichern beide kombinierten Lizenztexte und Tabellen-
   Zuordnungen.
 - Beide unveraenderten Komponenten sind damit technisch `allowed`.
+
+## 18. `webworkify@1.5.0`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `webworkify@1.5.0` |
+| npm-Tarball | `https://registry.npmjs.org/webworkify/-/webworkify-1.5.0.tgz` |
+| npm-Integrity | `sha512-AMcUeyXAhbACL8S2hqqdqOLqvJ8ylmIbNwUIqQujRSouf4+eUFaXbG6F1Rbu+srlJMmxQWsiU7mOJi0nMBfM1g==` |
+| npm-`gitHead` | `baf2884256768aea6c36be1ea6e1efb2144fcfbc` |
+| Upstream-Tag | annotierter Tag `v1.5.0`; dereferenziert auf denselben Commit |
+| deklarierte Lizenz | `MIT` |
+| Lizenzdatei | vollstaendiger MIT-Nutzungs- und Haftungswortlaut ohne Copyright-Zeile |
+| Lizenztext-SHA-256 | `435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b` |
+| Paketautor | `James Halliday <mail@substack.net>` |
+| Upstream-Historie | Lizenzdatei seit dem initialen Commit 2013 ohne Copyright-Zeile; bis heute unveraendert |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `pica@7.1.1` ueber Excalidraw; zusaetzlich in Picas Browser-Bundles eingebettet |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der exakte Release ist durch npm-`gitHead` und annotierten Tag eindeutig
+zugeordnet. Seine Lizenzdatei enthaelt den vollstaendigen MIT-Wortlaut, aber
+keine Copyright-Zeile. Dieser Zustand ist keine Publish-Auslassung: Die Datei
+wurde im initialen Repository-Commit angelegt und seither nicht um eine
+Attribution ergaenzt.
+
+James Halliday wird als Paketautor genannt und hat den groessten Anteil an
+den sichtbaren Commits. Der Release enthaelt jedoch auch Beitraege mehrerer
+weiterer Personen. Weder die Autor-Metadaten noch das Commit-Ranking belegen,
+welche Copyright-Zeile der Lizenztext rechtlich erhalten muss.
+
+Der Code wird nicht nur als eigenes npm-Paket installiert. `pica@7.1.1`
+bindet `webworkify` zudem in `dist/pica.js` und `dist/pica.min.js` ein; diese
+Bundles werden ueber Excalidraw ausgeliefert. Eine spaetere Entfernung muss
+deshalb sowohl den Dependency-Knoten als auch die bereits gebuendelte Kopie
+beruecksichtigen.
+
+Technische Entscheidung:
+
+- Tarball, Integrity, `gitHead`, Tag, exakter Lizenztext und dessen Hash sind
+  dokumentiert.
+- Canvas liefert den exakten MIT-Text aus, erfindet aber keinen
+  Copyright-Inhaber.
+- Der Blocker bleibt bis zu einem korrigierten Upstream-Beleg, einem
+  getesteten Ersatz beziehungsweise einer Entfernung einschliesslich der
+  Bundle-Kopie oder einer dokumentierten menschlich-rechtlichen
+  Einzelfallentscheidung bestehen.

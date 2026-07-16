@@ -249,6 +249,17 @@ assert(tr46Current.copyrightNotices.includes('Copyright (c) Sebastian Mayr'));
 assert(tr46Current.copyrightNotices.includes('Copyright © 2025 Unicode, Inc.'));
 assert.match(tr46Current.reviewNotes || '', /c45bd284e01f0845bc3c3b1d7594cd7b9ee8b955ddc850882b8e1dc5d0cba95d/u);
 
+const webworkify = inventory.components.find((component) => (
+  component.name === 'webworkify' && component.versionOrCommit === '1.5.0'
+));
+assert(webworkify, 'webworkify@1.5.0 must be inventoried');
+assert.equal(webworkify.verifiedLicense, 'MIT');
+assert.equal(webworkify.policyDecision, 'review_required');
+assert.equal(webworkify.licenseTextSha256, '435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b');
+assert.deepEqual(webworkify.copyrightNotices, []);
+assert.match(webworkify.sourceUrl, /baf2884256768aea6c36be1ea6e1efb2144fcfbc/u);
+assert.match(webworkify.reviewNotes || '', /embedded in pica's distributed browser bundles/u);
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

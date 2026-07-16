@@ -307,6 +307,13 @@
       "verificationSource": "https://unicode.org/Public/17.0.0/idna/IdnaMappingTable.txt",
       "reason": "The exact npm release, gitHead 7f1eb920768c794be40962a4f0cbad670a398d04, and v6.0.0 tag contain the complete MIT license for the software. Its upstream generation script downloads Unicode 17.0.0 IdnaMappingTable.txt and strips the source comments when creating lib/mappingTable.json. Re-running that exact transformation produces SHA-256 c45bd284e01f0845bc3c3b1d7594cd7b9ee8b955ddc850882b8e1dc5d0cba95d, byte-identical to the installed table. Canvas retains the MIT terms together with the Unicode-3.0 data license, the exact 2025 Unicode notice, and a clear transformation notice. Canvas does not modify the package."
     },
+    "webworkify@1.5.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/webworkify/LICENSE",
+      "sourceUrl": "https://github.com/substack/webworkify/tree/baf2884256768aea6c36be1ea6e1efb2144fcfbc",
+      "verificationSource": "https://github.com/substack/webworkify/blob/v1.5.0/LICENSE",
+      "reason": "The exact npm release publishes gitHead baf2884256768aea6c36be1ea6e1efb2144fcfbc, and annotated tag v1.5.0 dereferences to that commit. The npm tarball and exact source contain the complete MIT permission and warranty text, but the LICENSE has omitted its copyright-holder line since the initial 2013 commit and remains unchanged upstream. Package metadata names James Halliday as author, while the release history includes multiple contributors; authorship and commit history are not treated as copyright ownership evidence. The package is both installed transitively through pica@7.1.1 and embedded in pica's distributed browser bundles used by Excalidraw. Canvas retains the exact MIT text but keeps the package review_required pending corrected upstream attribution, replacement/removal including the bundled copy, or a responsible legal decision."
+    },
     "@jspreadsheet/formula@2.0.2": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",
