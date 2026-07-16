@@ -195,6 +195,28 @@ export type PersistedToolCallPart = {
 export type UserPiMessage = Extract<AgentMessage, { role: 'user' }>;
 export type UserPiContent = UserPiMessage['content'];
 
+export type ToolBatchCall = {
+  id: string;
+  toolCallId?: string;
+  toolName?: string;
+  toolArgs?: string;
+  message?: ChatMessage;
+};
+
+export type ToolBatch = {
+  key: string;
+  anchorMessageId: string;
+  sourceAssistantMessageId?: string;
+  calls: ToolBatchCall[];
+  startedAt: number | null;
+  endedAt: number | null;
+};
+
+export type ToolBatchProjection = {
+  batchesByAnchorId: Map<string, ToolBatch>;
+  hiddenToolMessageIds: Set<string>;
+};
+
 export type CollapsedRun = {
   key: string;
   finalAssistantId: string;
