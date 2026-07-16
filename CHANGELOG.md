@@ -11,6 +11,24 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.16.2] - 2026-07-16
+
+### Added
+
+- Completed the agent live-collaboration review flow with exact text patches, operation tracking, and focused integration coverage.
+
+### Changed
+
+- Improved live-collaboration cursors, Markdown properties spacing, and desktop chat-header layout.
+
+### Fixed
+
+- Handled aborted collaboration action requests consistently across accept, cancel, reject, and revert operations.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.16.1] - 2026-07-16
 
 ### Added
