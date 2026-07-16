@@ -151,6 +151,15 @@ async function main() {
     knowledgeGraphShellSource,
     /headerActions=\{<WorkspaceSwitcher source="navbar" variant="compact" \/>\}/,
   );
+  const chatHeaderSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'components', 'canvas-agent-chat', 'ChatHeader.tsx'),
+    'utf8',
+  );
+  assert.match(chatHeaderSource, /cn\('@container relative z-10/u);
+  assert.match(chatHeaderSource, /\{sessionId \? \(/u);
+  assert.match(chatHeaderSource, /hidden @\[44rem\]:inline-flex/u);
+  assert.match(chatHeaderSource, /@\[44rem\]:hidden/u);
+  assert.match(chatHeaderSource, /\{!isMobile && runtimeStatus \? \(/u);
 
   const {
     WORKSPACE_CHANGED_EVENT,

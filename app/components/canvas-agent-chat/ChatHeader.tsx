@@ -108,7 +108,7 @@ export function ChatHeader({
         </header>
       )}
 
-      <div className={cn('relative z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
+      <div className={cn('@container relative z-10 border-b border-border bg-background/95', isHistoryOverlayOpen ? 'hidden' : null)}>
         <div className="flex min-w-0 items-center gap-2 px-3 py-2 md:flex-wrap">
           <div className="flex min-w-0 flex-1 items-center gap-1.5">
             {showHistory ? (
@@ -139,27 +139,29 @@ export function ChatHeader({
               </button>
             )}
             <div className="@container flex min-w-0 flex-1 items-center gap-1.5 overflow-hidden">
-              <div
-                data-testid="chat-session-id"
-                title={sessionId || t('newChatTitle')}
-                className="inline-flex h-7 min-w-0 max-w-[min(12rem,100%)] flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground sm:max-w-[min(16rem,45vw)] lg:max-w-[min(18rem,100%)]"
-              >
-                <span className="hidden text-[9px] uppercase tracking-[0.15em] text-muted-foreground sm:inline">{t('sessionLabel')}</span>
-                {isSessionTitleGenerating && (
-                  <Sparkles
-                    aria-hidden="true"
-                    className="h-3 w-3 shrink-0 animate-pulse text-primary/75 motion-reduce:animate-none"
-                  />
-                )}
-                <span
-                  key={sessionDisplayLabel}
-                  aria-live="polite"
-                  className="min-w-0 truncate animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+              {sessionId ? (
+                <div
+                  data-testid="chat-session-id"
+                  title={sessionId}
+                  className="inline-flex h-7 min-w-0 max-w-[min(12rem,100%)] flex-1 items-center gap-1.5 rounded-md border border-border/60 bg-muted/50 px-2 text-[11px] font-medium text-foreground sm:max-w-[min(16rem,45vw)] lg:max-w-[min(18rem,100%)]"
                 >
-                  {sessionDisplayLabel}
-                </span>
-                {isSessionTitleGenerating && <span className="sr-only">{t('sessionTitleGenerating')}</span>}
-              </div>
+                  <span className="hidden text-[9px] uppercase tracking-[0.15em] text-muted-foreground sm:inline">{t('sessionLabel')}</span>
+                  {isSessionTitleGenerating && (
+                    <Sparkles
+                      aria-hidden="true"
+                      className="h-3 w-3 shrink-0 animate-pulse text-primary/75 motion-reduce:animate-none"
+                    />
+                  )}
+                  <span
+                    key={sessionDisplayLabel}
+                    aria-live="polite"
+                    className="min-w-0 truncate animate-in fade-in slide-in-from-bottom-1 duration-200 motion-reduce:animate-none"
+                  >
+                    {sessionDisplayLabel}
+                  </span>
+                  {isSessionTitleGenerating && <span className="sr-only">{t('sessionTitleGenerating')}</span>}
+                </div>
+              ) : null}
               <ChatAgentSelector
                 variant={isMobile ? 'mobile' : compactSelectors ? 'compact' : 'desktop'}
                 activeAgentId={activeSessionAgentId}
@@ -176,7 +178,7 @@ export function ChatHeader({
             <WorkspaceSwitcher
               source="chat"
               variant={compactSelectors ? 'chat-compact' : 'compact'}
-              className="hidden lg:inline-flex"
+              className="hidden @[44rem]:inline-flex"
             />
             <button
               type="button"
@@ -203,7 +205,7 @@ export function ChatHeader({
         </div>
 
         {showWorkspaceSwitcher ? (
-          <div className="border-t border-border/50 px-3 py-2 lg:hidden">
+          <div className="border-t border-border/50 px-3 py-2 @[44rem]:hidden">
             <WorkspaceSwitcher source="chat" variant="mobile-sheet" />
           </div>
         ) : null}
@@ -235,7 +237,7 @@ export function ChatHeader({
             </div>
 
             <div className="flex min-w-0 flex-1 flex-wrap items-center justify-end gap-1.5 sm:flex-initial">
-              {!isMobile ? (
+              {!isMobile && runtimeStatus ? (
                 <span
                   data-testid="chat-context-meter"
                   title={contextTooltip}

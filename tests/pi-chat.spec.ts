@@ -139,7 +139,8 @@ async function login(page: Page) {
 
 async function startFreshChat(page: Page) {
   await page.getByRole('button', { name: /new chat/i }).click();
-  await expect(page.getByTestId('chat-session-id')).toContainText(/new chat/i);
+  await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
+  await expect(page.getByTestId('chat-input')).toBeVisible();
 }
 
 async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string; title?: string } = {}) {
