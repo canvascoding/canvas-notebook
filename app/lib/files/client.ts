@@ -2,6 +2,14 @@ import type { ConvertParams } from '@/app/components/shared/ImagePreprocessDialo
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { CurrentFile, FileCollaborationState, FileNode, FileRevisionRecord, FileStats } from './types';
+import {
+  type WorkspaceBatchUploadResult,
+  type WorkspaceUploadFileProgress,
+  uploadWorkspaceFilesInChunks,
+} from './workspace-upload-client';
+
+export { WorkspaceBatchUploadError } from './workspace-upload-client';
+export type { WorkspaceBatchUploadResult, WorkspaceUploadFileProgress } from './workspace-upload-client';
 
 interface ApiErrorPayload {
   error?: unknown;
@@ -90,6 +98,7 @@ interface UploadWorkspaceFilesParams {
   pathMap?: Map<File, string>;
   convertParams?: (ConvertParams | null)[];
   onProgress?: (progress: number) => void;
+  onFileProgress?: (progress: WorkspaceUploadFileProgress) => void;
 }
 
 interface LoadWorkspaceTreeOptions {
@@ -506,7 +515,22 @@ export async function uploadWorkspaceFiles({
   pathMap,
   convertParams,
   onProgress,
-}: UploadWorkspaceFilesParams): Promise<void> {
+  onFileProgress,
+}: UploadWorkspaceFilesParams): Promise<WorkspaceBatchUploadResult> {
+  if (!convertParams?.some(Boolean)) {
+    const workspaceId = getActiveWorkspaceId();
+    return uploadWorkspaceFilesInChunks({
+      files: files.map((file) => ({
+        file,
+        path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+      })),
+      targetDir,
+      workspaceId,
+      onProgress,
+      onFileProgress,
+    });
+  }
+
   const totalUploadBytes = files.reduce((total, currentFile) => total + currentFile.size, 0);
   const formData = new FormData();
   formData.append('path', targetDir);
@@ -535,11 +559,27 @@ export async function uploadWorkspaceFiles({
     xhr.upload.onprogress = (event) => {
       if (event.lengthComputable) {
         onProgress?.(Math.round((event.loaded / event.total) * 100));
+        files.forEach((file, index) => onFileProgress?.({
+          index,
+          path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+          size: file.size,
+          uploadedBytes: Math.min(file.size, event.loaded),
+          status: 'uploading',
+          attempt: 1,
+        }));
       }
     };
 
     xhr.onload = () => {
       if (xhr.status >= 200 && xhr.status < 300) {
+        files.forEach((file, index) => onFileProgress?.({
+          index,
+          path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+          size: file.size,
+          uploadedBytes: file.size,
+          status: 'completed',
+          attempt: 1,
+        }));
         resolve();
         return;
       }
@@ -565,6 +605,16 @@ export async function uploadWorkspaceFiles({
     xhr.onerror = () => reject(new Error('Network error during upload'));
     xhr.send(formData);
   });
+
+  return {
+    totalFiles: files.length,
+    totalBytes: totalUploadBytes,
+    completed: files.map((file) => ({
+      path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+      size: file.size,
+    })),
+    failed: [],
+  };
 }
 
 export function triggerWorkspaceDownload(path: string): void {

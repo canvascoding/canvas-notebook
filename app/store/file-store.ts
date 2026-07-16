@@ -44,6 +44,8 @@ import {
   renameWorkspacePath,
   triggerWorkspaceDownload,
   uploadWorkspaceFiles,
+  WorkspaceBatchUploadError,
+  type WorkspaceUploadFileProgress,
   writeWorkspaceFile,
 } from '@/app/lib/files/client';
 import { compactWorkspaceSelection } from '@/app/lib/files/operation-flows';
@@ -277,6 +279,7 @@ interface FileStoreState {
   currentDirectory: string;
   setExpandedDirs: (dirs: Set<string>) => void;
   uploadProgress: number | null;
+  uploadItems: WorkspaceUploadFileProgress[];
   searchQuery: string;
   loadingDirs: Set<string>;
 
@@ -441,6 +444,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     });
   },
   uploadProgress: null,
+  uploadItems: [],
   searchQuery: '',
   loadingDirs: new Set<string>(),
 
@@ -1350,26 +1354,49 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     convertParams?: (import('@/app/components/shared/ImagePreprocessDialog').ConvertParams | null)[],
     options = {},
   ) => {
-    set({ uploadProgress: 0 });
     const files = Array.isArray(file) ? file : [file];
+    set({
+      uploadProgress: 0,
+      uploadItems: files.map((uploadFile, index) => ({
+        index,
+        path: pathMap?.get(uploadFile)
+          || (uploadFile as { webkitRelativePath?: string }).webkitRelativePath
+          || uploadFile.name,
+        size: uploadFile.size,
+        uploadedBytes: 0,
+        status: 'pending',
+        attempt: 0,
+      })),
+    });
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
 
-    try {
-      await uploadWorkspaceFiles({
-        files,
-        targetDir,
-        pathMap,
-        convertParams,
-        onProgress: (progress) => set({ uploadProgress: progress }),
-      });
-
+    const refreshUploadedDirectory = async () => {
       if (
         options.refreshTree !== false
         && useWorkspaceStore.getState().activeWorkspaceId === workspaceId
       ) {
         await get().refreshDirectory(targetDir, true, workspaceId);
       }
+    };
+
+    try {
+      const result = await uploadWorkspaceFiles({
+        files,
+        targetDir,
+        pathMap,
+        convertParams,
+        onProgress: (progress) => set({ uploadProgress: progress }),
+        onFileProgress: (progress) => set((state) => ({
+          uploadItems: state.uploadItems.map((item) => (
+            item.index === progress.index ? progress : item
+          )),
+        })),
+      });
+      if (result.completed.length > 0) await refreshUploadedDirectory();
     } catch (error) {
+      if (error instanceof WorkspaceBatchUploadError && error.result.completed.length > 0) {
+        await refreshUploadedDirectory();
+      }
       throw error;
     } finally {
       set({ uploadProgress: null });
@@ -1451,6 +1478,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       expandedDirs: nextExpandedDirs,
       currentDirectory: '.',
       uploadProgress: null,
+      uploadItems: [],
       searchQuery: '',
       loadingDirs: new Set<string>(),
       isMultiSelectMode: false,
