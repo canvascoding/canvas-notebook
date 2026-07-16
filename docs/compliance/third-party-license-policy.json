@@ -228,6 +228,13 @@
       "verificationSource": "https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json",
       "reason": "The exact npm release and upstream tag js-1.0.1 declare BSD-2-Clause; the annotated tag resolves to commit b27f259b49907f99b1b9097abba5a9668106b779. Neither the npm tarball nor that source tree contains a LICENSE, NOTICE, copyright file, or source header. Package author metadata and all commits up to the release name Michael Williamson, but authorship is not treated as a substitute for an explicit copyright notice. The package remains review_required pending corrected upstream evidence, replacement/removal, or responsible legal decision."
     },
+    "github-from-package@0.0.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/github-from-package/LICENSE",
+      "sourceUrl": "https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz",
+      "verificationSource": "https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE",
+      "reason": "The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required."
+    },
     "@jspreadsheet/formula@2.0.2": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",

@@ -351,3 +351,42 @@ Technische Entscheidung:
 - Der Blocker bleibt bis zu einem korrigierten Upstream-Beleg,
   Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
   Einzelfallentscheidung bestehen.
+
+## 10. `github-from-package@0.0.0`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `github-from-package@0.0.0` |
+| npm-Tarball | `https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz` |
+| npm-Integrity | `sha512-SyHy3T1v2NUXn29OsWdxmK6RwHD+vkj3v8en8AOBZ1wBQ/hCAQ5bAQTD02kW4W9tUp/3Qh6J8r9EvntiyCmOOw==` |
+| veroeffentlicht | 29. Dezember 2012 |
+| deklarierte Lizenz | `MIT` |
+| Lizenzdatei | vollstaendiger MIT-Wortlaut ohne Copyright-Zeile |
+| Paketautor | `James Halliday <mail@substack.net>` |
+| ehemaliges Repository | `substack/github-from-package`, aktuell nicht oeffentlich erreichbar |
+| fehlender Beleg | belastbarer primaerer Copyright-Hinweis |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `prebuild-install@7.1.3` und `better-sqlite3@12.11.1` |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Die im exakten Tarball enthaltene Datei `LICENSE` umfasst die MIT-
+Nutzungsrechte, Bedingungen und Haftungsregelung, laesst aber den eigentlichen
+Copyright-Hinweis aus. Damit ist der Lizenzwortlaut belegbar, die verlangte
+Attribution jedoch nicht.
+
+Mehrere kommerzielle Drittanbieter-Notice-Listen ordnen das Paket James
+Halliday zu. Diese Listen sind voneinander abgeleitete Sekundaerquellen und
+ersetzen keinen Upstream-Beleg. Das in den Paketmetadaten referenzierte
+Repository ist aktuell nicht mehr oeffentlich erreichbar.
+
+Technische Entscheidung:
+
+- Exakter Tarball, Integritaet, MIT-Datei und deren Text-Hash werden
+  ausgeliefert und inventarisiert.
+- Der Paketautor wird ohne primaere Copyright-Zeile nicht automatisch als
+  Rechteinhaber eingetragen.
+- Der Blocker bleibt bis zu einem historischen primaeren Upstream-Beleg,
+  Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
+  Einzelfallentscheidung bestehen.

@@ -1449,7 +1449,8 @@
           "@better-auth/utils@0.4.2: signierte npm-Provenance bindet den Release an Tag und Commit; MIT ist deklariert, aber Lizenzdatei und belastbarer Copyright-Hinweis fehlen, daher bleibt der Blocker trotz ausgeliefertem kanonischem MIT-Text bestehen",
           "@eigenpal/docx-js-editor@0.5.3: MIT-Deklaration und Commit sind durch npm-Metadaten, README und signierte Provenance belegt; Tarball ohne Lizenz-/Copyright-Datei und inzwischen nicht oeffentlich erreichbarer Upstream verhindern die Freigabe, waehrend die Apache-2.0-Nachfolge als separate getestete Migrationsoption dokumentiert ist",
           "client-only@0.0.1: einziger npm-Release deklariert MIT und verweist auf React, liefert aber weder Repository/Commit oder Provenance noch Lizenzdatei oder Copyright-Hinweis; kanonischer MIT-Text wird ausgeliefert, der Rechteinhaber bleibt bewusst unbestimmt",
-          "dingbat-to-unicode@1.0.1: exakter Tag und Commit deklarieren BSD-2-Clause, enthalten aber keinen Lizenztext oder Copyright-Hinweis; Paketautor und alleinige Commit-Autorenschaft werden nicht als Rechteinhabernachweis umgedeutet"
+          "dingbat-to-unicode@1.0.1: exakter Tag und Commit deklarieren BSD-2-Clause, enthalten aber keinen Lizenztext oder Copyright-Hinweis; Paketautor und alleinige Commit-Autorenschaft werden nicht als Rechteinhabernachweis umgedeutet",
+          "github-from-package@0.0.0: exakter Tarball enthaelt den MIT-Wortlaut ohne Copyright-Zeile; Paketautor und fremde kommerzielle Notice-Listen werden ohne primaeren Upstream-Beleg nicht als Rechteinhabernachweis uebernommen"
         ]
       }
     },

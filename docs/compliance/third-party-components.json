@@ -197,7 +197,7 @@
       {
         "name": "github-from-package",
         "versionOrCommit": "0.0.0",
-        "reason": "The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
+        "reason": "The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
       },
       {
         "name": "highlightjs-vue",
@@ -30802,7 +30802,7 @@
     {
       "name": "github-from-package",
       "versionOrCommit": "0.0.0",
-      "sourceUrl": "https://github.com/substack/github-from-package",
+      "sourceUrl": "https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz",
       "packagePathOrArtifact": "node_modules/github-from-package",
       "usage": "runtime",
       "distributedIn": [
@@ -30818,7 +30818,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
+      "reviewNotes": "The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
     },
     {
       "name": "glob-parent",

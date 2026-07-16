@@ -126,6 +126,11 @@ exakte Release-Tag und Commit deklarieren BSD-2-Clause, enthalten aber weder
 Lizenztext noch Copyright-Hinweis. Der Paketautor und alle Commit-Autoren
 werden ohne expliziten Notice-Beleg nicht als Rechteinhaber eingetragen.
 
+`github-from-package@0.0.0` ist technisch geprueft und bleibt blockierend. Der
+exakte Tarball liefert den vollstaendigen MIT-Wortlaut, laesst aber die
+Copyright-Zeile aus. Paketautor und fremde kommerzielle Notice-Listen werden
+ohne primaeren Upstream-Beleg nicht als Rechteinhabernachweis uebernommen.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.
