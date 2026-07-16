@@ -1,6 +1,7 @@
 import { readFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { isBrowserExportError, runBrowserExportJob } from '@/app/lib/exports/browser-export-service';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
+import { stripCanvasMarkdownFrontmatterForPresentation } from '@/app/lib/markdown/obsidian-metadata';
 import { getEmbeddedKatexCss, renderMarkdownForPdf } from '@/app/lib/pdf/markdown-renderer';
 import { formatWideTablesForPagedExport } from '@/app/lib/pdf/markdown-wide-tables';
 import {
@@ -243,7 +244,9 @@ export async function markdownFileToHtmlDocument(
     throw err;
   }
 
-  const markdownContent = contentBuffer.toString('utf-8');
+  const markdownContent = stripCanvasMarkdownFrontmatterForPresentation(
+    contentBuffer.toString('utf-8'),
+  );
 
   const processedMarkdown = await processMermaidBlocks(markdownContent);
 

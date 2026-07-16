@@ -9,6 +9,13 @@ import {
 
 async function main() {
   const markdown = [
+    '---',
+    'title: Hidden export metadata',
+    'tags: [type/report, status/final]',
+    'aliases:',
+    '  - Confidential draft',
+    '---',
+    '',
     '# Mathematical formulas',
     '',
     '$$',
@@ -28,6 +35,11 @@ async function main() {
 
   assert.equal(document.querySelectorAll('.katex-display').length, 1);
   assert.equal(document.querySelectorAll('.katex').length, 4);
+  assert.doesNotMatch(
+    document.body.textContent || '',
+    /Hidden export metadata|type\/report|status\/final|Confidential draft/,
+  );
+  assert.equal(document.querySelector('hr'), null);
   assert.equal(document.querySelector('code')?.textContent, '$notMath$');
   assert.equal(document.querySelector('code .katex'), null);
   assert.match(document.body.textContent || '', /costs \$5/);

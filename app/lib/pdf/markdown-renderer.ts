@@ -2,6 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/katex-options';
+import { stripCanvasMarkdownFrontmatterForPresentation } from '@/app/lib/markdown/obsidian-metadata';
 import { Marked } from 'marked';
 import markedKatex from 'marked-katex-extension';
 
@@ -16,7 +17,10 @@ const markdownRenderer = new Marked(
 let embeddedKatexCssPromise: Promise<string> | null = null;
 
 export async function renderMarkdownForPdf(markdown: string): Promise<string> {
-  return markdownRenderer.parse(markdown, { async: true });
+  return markdownRenderer.parse(
+    stripCanvasMarkdownFrontmatterForPresentation(markdown),
+    { async: true },
+  );
 }
 
 async function loadEmbeddedKatexCss(): Promise<string> {

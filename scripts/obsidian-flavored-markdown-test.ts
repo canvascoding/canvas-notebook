@@ -15,6 +15,7 @@ import {
   parseCanvasMarkdownDocument,
   parseObsidianFrontmatter,
   splitCanvasMarkdownForRichEditor,
+  stripCanvasMarkdownFrontmatterForPresentation,
   updateCanvasMarkdownProperties,
 } from '../app/lib/markdown/obsidian-metadata';
 import {
@@ -97,6 +98,18 @@ assert.equal(
 const richDocument = splitCanvasMarkdownForRichEditor(markdown);
 assert.equal(richDocument.body.startsWith('# Intro'), true);
 assert.equal(composeCanvasMarkdownDocument(richDocument.prefix, richDocument.body), markdown);
+assert.equal(
+  stripCanvasMarkdownFrontmatterForPresentation(markdown).trimStart().startsWith('# Intro'),
+  true,
+);
+assert.equal(
+  stripCanvasMarkdownFrontmatterForPresentation('---\n: invalid: yaml\n---\nVisible body'),
+  'Visible body',
+);
+assert.equal(
+  stripCanvasMarkdownFrontmatterForPresentation('---\ntitle: Not closed\nVisible body'),
+  '---\ntitle: Not closed\nVisible body',
+);
 
 const updatedProperties = updateCanvasMarkdownProperties(`---
 # This comment must survive

@@ -202,6 +202,16 @@ export function splitCanvasMarkdownForRichEditor(markdown: string): {
   };
 }
 
+/**
+ * Returns only the user-facing document body for previews and exports.
+ * A structurally closed frontmatter block is metadata even when its YAML values
+ * contain an error, so it must never leak into presentation output.
+ */
+export function stripCanvasMarkdownFrontmatterForPresentation(markdown: string): string {
+  const parsed = parseCanvasMarkdownDocument(markdown);
+  return parsed.frontmatter ? parsed.body : markdown;
+}
+
 function setDocumentValue(
   document: Document.Parsed,
   key: string,
