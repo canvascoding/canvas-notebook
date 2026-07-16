@@ -1269,7 +1269,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | react-is | 19.2.7 | runtime | MIT | allowed |
 | react-markdown | 10.1.0 | runtime | MIT | allowed |
 | react-redux | 9.3.0 | runtime | MIT | allowed |
-| react-remove-scroll-bar | 2.3.8 | runtime | MIT | review_required |
+| react-remove-scroll-bar | 2.3.8 | runtime | MIT | allowed |
 | react-remove-scroll | 2.7.2 | runtime | MIT | allowed |
 | react-style-singleton | 2.2.3 | runtime | MIT | allowed |
 | react-syntax-highlighter | 16.1.1 | runtime | MIT | allowed |
@@ -1531,7 +1531,6 @@ The following entries require a documented responsible/legal decision before a c
 - **github-from-package 0.0.0:** The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
 - **https 1.0.0:** The signed exact npm tarball declares ISC but contains only package.json; even its declared index.js entry point is absent. It provides no LICENSE, NOTICE, copyright statement, repository, gitHead, or signed provenance. Author metadata names hardus van der berg, but authorship is not treated as proof of copyright ownership. The package is pulled in by pptxgenjs@4.0.1 even though that exact release imports Node's built-in node:https module and maps both https and node:https to false for browser bundles. Canvas does not silently remove or replace a transitive package solely during the license audit. The package remains review_required pending corrected upstream metadata, removal/replacement, or a responsible legal decision. Verification source: https://registry.npmjs.org/https/1.0.0 No verified license text was found in the installed package or a versioned override. Package author metadata: hardus van der berg <hardus@sunfork.com> (http://www.sunfork.com)
 - **is-reference 1.2.1:** The exact npm release publishes gitHead 9d2719fbcc2059567203063f1e7b65d7831bfd64, and annotated tag v1.2.1 dereferences to that commit. package.json declares MIT and the exact README has a one-line MIT license section, but neither the npm tarball nor the exact source commit contains the full MIT terms, a LICENSE/NOTICE file, a source copyright header, or an attributable copyright statement. Repository and package author metadata name Rich Harris, but authorship and commit history are not treated as proof of copyright ownership. Canvas retains the canonical MIT terms while the package remains review_required pending corrected upstream evidence, replacement/removal, or a responsible legal decision. Verification source: https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license The MIT copyright notice could not be attributed automatically. Package author metadata: Rich Harris
-- **react-remove-scroll-bar 2.3.8:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Anton Korzunov <thekashey@gmail.com>
 - **server-only 0.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
 - **tr46 0.0.3:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Sebastian Mayr <npm@smayr.name>
 - **webworkify 1.5.0:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
@@ -27476,12 +27475,13 @@ SOFTWARE.
 
 ### License text f0112ade926a
 
-Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1.
+Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, react-remove-scroll-bar@2.3.8.
 
 Copyright notices:
 
 - Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso
 - Copyright (c) 2020 Excalidraw
+- Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>
 - Copyright (c) Sami Samhuri
 
 ```text

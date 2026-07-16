@@ -186,6 +186,25 @@ assert(minimist.copyrightNotices.includes(
 assert.match(minimist.sourceUrl, /6901ee286bc4c16da6830b48b46ce1574703cea1/u);
 assert.match(minimist.reviewNotes || '', /b7ce0ded1e840ccef6f59b1866694e93f6f582e8/u);
 
+const reactRemoveScrollBar = inventory.components.find((component) => (
+  component.name === 'react-remove-scroll-bar' && component.versionOrCommit === '2.3.8'
+));
+assert(reactRemoveScrollBar, 'react-remove-scroll-bar@2.3.8 must be inventoried');
+assert.equal(reactRemoveScrollBar.verifiedLicense, 'MIT');
+assert.equal(reactRemoveScrollBar.policyDecision, 'allowed');
+assert(reactRemoveScrollBar.licenseTextSha256);
+assert(reactRemoveScrollBar.copyrightNotices.includes(
+  'Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>',
+));
+assert.equal(
+  reactRemoveScrollBar.sourceUrl,
+  'https://registry.npmjs.org/react-remove-scroll-bar/-/react-remove-scroll-bar-2.3.8.tgz',
+);
+assert.match(
+  reactRemoveScrollBar.reviewNotes || '',
+  /7301c160fda44cb8cf2b9fdfde61efad35736196/u,
+);
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

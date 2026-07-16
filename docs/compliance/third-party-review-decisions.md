@@ -553,3 +553,48 @@ Technische Entscheidung:
 - Ein Regressionstest sichert Release-Commit, Lizenztext-Hash,
   Klarstellungs-Commit und Attribution.
 - Die unveraenderte Komponente ist damit technisch `allowed`.
+
+## 15. `react-remove-scroll-bar@2.3.8`
+
+Status: technischer Lizenzbeleg abgeschlossen; Komponente `allowed`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `react-remove-scroll-bar@2.3.8` |
+| npm-Tarball | `https://registry.npmjs.org/react-remove-scroll-bar/-/react-remove-scroll-bar-2.3.8.tgz` |
+| npm-Integrity | `sha512-9r+yi9+mgU33AKcj6IbT9oRCO78WriSj6t/cF8DWBZJ9aOGPOTEDvdUDz1FwKim7QXWwmHqtdHnRJfhAxEG46Q==` |
+| npm-`gitHead` | `b3b1287aad81def2e2ae707274b74531b61ddbaf`; heute im oeffentlichen Repository nicht erreichbar |
+| deklarierte Lizenz | `MIT` |
+| exakter Release-Hinweis | `package.json` und README deklarieren MIT; keine Lizenzdatei im Tarball |
+| Vergleichsrelease | `2.3.7`, erreichbarer Tag-Commit `29e9fcd1eecf7d3b77a767941c4a57fe461fc1e4` |
+| Codevergleich | alle ausgelieferten Code-Dateien byte-identisch; nur `package.json`-Version und `react-style-singleton`-Range unterscheiden sich |
+| spaetere primaere Lizenzdatei | Upstream-Commit `7301c160fda44cb8cf2b9fdfde61efad35736196` |
+| Upstream-Lizenz-SHA-256 | `a79aae0c0f21990d9d963bb3c5a79cdcea9a46f8523ba55c58d7fe776b6ebc84` |
+| Copyright | `Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>` |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `react-remove-scroll@2.7.2` ueber Radix-UI-/Dialog-Komponenten |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der npm-Release ist ueber den signierten Tarball eindeutig identifizierbar.
+Sein veroeffentlichter `gitHead` und ein Tag `v2.3.8` sind im heutigen
+oeffentlichen Repository nicht erreichbar. Ein reproduzierbarer Vergleich
+der npm-Tarballs `2.3.7` und `2.3.8` zeigt aber, dass der ausgelieferte
+Programmcode unveraendert ist. Geaendert wurden nur die Paketversion und die
+Range der Unterabhaengigkeit `react-style-singleton`.
+
+Der offizielle Upstream nahm am 21. Mai 2025 eine vollstaendige MIT-Datei in
+dasselbe Repository auf. Sie nennt Anton Korzunov ausdruecklich als
+Copyright-Inhaber. Das ist ein primaerer Upstream-Lizenzbeleg fuer den
+unveraenderten Projektcode und keine aus fremden Notice-Listen abgeleitete
+Zuordnung.
+
+Technische Entscheidung:
+
+- Exakter Tarball, Integrity, nicht mehr erreichbarer npm-`gitHead`,
+  Vergleichsrelease und Bytevergleich sind dokumentiert.
+- Canvas liefert den kanonischen MIT-Text und die spaetere offizielle
+  Upstream-Attribution aus.
+- Ein Regressionstest sichert Attribution, Lizenzentscheidung und exakten
+  Lizenz-Commit.
+- Die unveraenderte Komponente ist damit technisch `allowed`; ein Upgrade
+  muss erneut gegen das dann veroeffentlichte Paket geprueft werden.

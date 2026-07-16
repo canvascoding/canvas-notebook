@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1918,
-    "reviewRequired": 63,
+    "allowed": 1919,
+    "reviewRequired": 62,
     "blocked": 0
   },
   "releaseGate": {
@@ -208,11 +208,6 @@
         "name": "is-reference",
         "versionOrCommit": "1.2.1",
         "reason": "The exact npm release publishes gitHead 9d2719fbcc2059567203063f1e7b65d7831bfd64, and annotated tag v1.2.1 dereferences to that commit. package.json declares MIT and the exact README has a one-line MIT license section, but neither the npm tarball nor the exact source commit contains the full MIT terms, a LICENSE/NOTICE file, a source copyright header, or an attributable copyright statement. Repository and package author metadata name Rich Harris, but authorship and commit history are not treated as proof of copyright ownership. Canvas retains the canonical MIT terms while the package remains review_required pending corrected upstream evidence, replacement/removal, or a responsible legal decision. Verification source: https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license The MIT copyright notice could not be attributed automatically. Package author metadata: Rich Harris"
-      },
-      {
-        "name": "react-remove-scroll-bar",
-        "versionOrCommit": "2.3.8",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Anton Korzunov <thekashey@gmail.com>"
       },
       {
         "name": "server-only",
@@ -38793,7 +38788,7 @@
     {
       "name": "react-remove-scroll-bar",
       "versionOrCommit": "2.3.8",
-      "sourceUrl": "https://github.com/theKashey/react-remove-scroll-bar",
+      "sourceUrl": "https://registry.npmjs.org/react-remove-scroll-bar/-/react-remove-scroll-bar-2.3.8.tgz",
       "packagePathOrArtifact": "node_modules/react-remove-scroll-bar",
       "usage": "runtime",
       "distributedIn": [
@@ -38804,12 +38799,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
+      "copyrightNotices": [
+        "Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Anton Korzunov <thekashey@gmail.com>"
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm tarball declares MIT and publishes gitHead b3b1287aad81def2e2ae707274b74531b61ddbaf, but that commit and a v2.3.8 tag are no longer reachable from the public repository. A byte-level comparison with the reachable v2.3.7 tarball shows identical distributed code; only package.json version and the react-style-singleton dependency range changed. The official upstream repository subsequently added a complete MIT LICENSE in commit 7301c160fda44cb8cf2b9fdfde61efad35736196 with the primary-source notice Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>. Canvas retains the canonical MIT terms and this documented upstream attribution and does not modify the package. Verification source: https://github.com/theKashey/react-remove-scroll-bar/blob/7301c160fda44cb8cf2b9fdfde61efad35736196/LICENSE"
     },
     {
       "name": "react-remove-scroll",

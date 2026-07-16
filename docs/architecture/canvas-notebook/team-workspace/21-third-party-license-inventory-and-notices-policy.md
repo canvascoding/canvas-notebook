@@ -47,18 +47,18 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 42 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.918 Komponenten `allowed`, 63
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 41 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.919 Komponenten `allowed`, 62
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 42 Release-Pruefpositionen gliedern sich in:
+Die 41 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
-- 12 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
+- 11 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
 
 `jszip@3.10.1` ist als erster Mehrfachlizenz-Fall technisch abgeschlossen:
@@ -158,6 +158,13 @@ Repository hat die Projektlizenz spaeter primaer und versioniert um
 `Copyright (c) 2013 James Halliday and contributors` ergaenzt; `1.2.8` ist
 weiterhin der neueste npm-Release. Canvas liefert den exakten Release-Text
 zusammen mit dieser Upstream-Klarstellung aus.
+
+`react-remove-scroll-bar@2.3.8` ist abgeschlossen. Der veroeffentlichte npm-
+`gitHead` ist heute nicht mehr erreichbar; der signierte Tarball ist aber
+eindeutig und sein Programmcode byte-identisch mit dem erreichbaren Release
+`2.3.7`. Der offizielle Upstream ergaenzte anschliessend eine vollstaendige
+MIT-Datei mit `Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>`.
+Canvas dokumentiert den Vergleich und liefert diese primaere Attribution aus.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
