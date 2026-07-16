@@ -100,6 +100,14 @@ Lizenzdatei noch belastbaren Copyright-Hinweis. Der kanonische MIT-Text wird
 ausgeliefert, waehrend Autor- und Commit-Metadaten nicht als
 Rechteinhabernachweis umgedeutet werden.
 
+`@eigenpal/docx-js-editor@0.5.3` ist technisch geprueft und bleibt
+blockierend. npm-Metadaten, README und signierte Provenance belegen die
+MIT-Deklaration und den damaligen Commit, der Tarball enthaelt jedoch keinen
+Lizenztext oder Copyright-Hinweis und das referenzierte Repository ist
+inzwischen nicht mehr oeffentlich erreichbar. Die aktuelle Apache-2.0-
+Nachfolge ist als getestete Migrationsoption dokumentiert, gilt aber nicht
+rueckwirkend fuer Version `0.5.3`.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.

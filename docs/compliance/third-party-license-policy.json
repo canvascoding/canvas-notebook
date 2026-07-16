@@ -188,6 +188,13 @@
       "verificationSource": "https://github.com/better-auth/utils/blob/v0.4.2/package.json",
       "reason": "The exact npm release declares MIT. Its signed npm provenance maps tag v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, which matches the dereferenced upstream tag. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. Package author metadata names Bereket Engida, but authorship alone is not treated as proof of copyright ownership. The package remains review_required."
     },
+    "@eigenpal/docx-js-editor@0.5.3": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "sourceUrl": "https://github.com/eigenpal/docx-editor/tree/e06dfceae557f8c1607a28618a99a34be8fed1fb/packages/react",
+      "verificationSource": "https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3",
+      "reason": "The exact npm release declares MIT and its README displays an MIT badge. Signed npm provenance binds the tarball to branch 0.x commit e06dfceae557f8c1607a28618a99a34be8fed1fb. The npm tarball contains no LICENSE, NOTICE, copyright file, or attributable package copyright statement, and the referenced upstream repository is no longer publicly accessible for exact-commit verification. The current 1.x successor is Apache-2.0, which is not treated as retroactive evidence for 0.5.3. Canvas retains the canonical MIT terms but keeps this package review_required pending an upstream archive/license record, migration to the licensed successor, removal, or responsible legal decision."
+    },
     "@excalidraw/excalidraw@0.18.1": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "docs/compliance/license-texts/MIT.txt",

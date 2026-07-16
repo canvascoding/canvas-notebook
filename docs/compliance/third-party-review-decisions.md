@@ -202,3 +202,48 @@ Technische Entscheidung:
 - Der Release-Blocker bleibt bis zu einem korrigierten Upstream-Release,
   Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
   Einzelfallentscheidung bestehen.
+
+## 6. `@eigenpal/docx-js-editor@0.5.3`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `@eigenpal/docx-js-editor@0.5.3` |
+| npm-Tarball | `https://registry.npmjs.org/@eigenpal/docx-js-editor/-/docx-js-editor-0.5.3.tgz` |
+| npm-Integrity | `sha512-48AKhvzbzs3KViajI3ecRU80kqPLn2cFfCAD3QepLNhL5PkB6lJTk5FEFQLw8FUS5RhhjpdDNyMuK3n4Fleo0Q==` |
+| npm-`gitHead` | `e06dfceae557f8c1607a28618a99a34be8fed1fb` |
+| npm-Provenance | signierte SLSA-Provenance fuer Branch `0.x` und denselben Commit |
+| deklarierte Lizenz | `MIT` |
+| zusaetzlicher Hinweis | Das mitgelieferte README zeigt einen MIT-Badge und verlinkt eine nicht mehr erreichbare Upstream-Lizenzdatei. |
+| fehlender Beleg | Lizenzdatei und belastbarer Copyright-Hinweis fuer Version `0.5.3` |
+| npm-Autor | `EigenPal` |
+| Canvas-Modifikation | keine |
+| Herkunft | direkte Runtime-Abhaengigkeit fuer den DOCX-Editor |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Die signierte npm-Provenance bindet den veroeffentlichten Tarball an den
+damaligen GitHub-Workflow und Commit. Der Tarball enthaelt jedoch keine
+`LICENSE`-, `NOTICE`- oder Copyright-Datei. Das in den Paketmetadaten
+referenzierte Repository ist aktuell nicht mehr oeffentlich erreichbar, sodass
+der exakte Commit nicht gegen eine ehemalige Root-Lizenz geprueft werden kann.
+
+Die aktuelle Nachfolge `@eigenpal/docx-editor-react@1.9.0` deklariert
+`Apache-2.0`, und die aktuelle offizielle Produktseite bezeichnet die
+1.x-Generation ebenfalls als Apache-2.0. Das ist eine belastbare
+Migrationsoption, aber kein rueckwirkender Lizenz- oder Copyright-Beleg fuer
+den ausgelieferten 0.5.3-Tarball. Die Migration besitzt laut Upstream
+API-Aenderungen und wird deshalb nicht als blinder Dependency-Tausch im
+Lizenzaudit ausgefuehrt.
+
+Technische Entscheidung:
+
+- npm-Integritaet, `gitHead`, signierte Provenance, MIT-Deklaration und
+  README-Hinweis sind dokumentiert.
+- Canvas nimmt den kanonischen MIT-Text in die Notices auf.
+- `EigenPal` wird nicht ohne exakten Notice-Beleg als Copyright-Inhaber
+  eingetragen.
+- Der Blocker kann durch einen belastbaren historischen Upstream-Beleg, eine
+  getestete Migration zur Apache-2.0-Nachfolge, Entfernung oder eine
+  dokumentierte menschlich-rechtliche Einzelfallentscheidung aufgeloest
+  werden.

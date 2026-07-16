@@ -42,7 +42,7 @@
       {
         "name": "@eigenpal/docx-js-editor",
         "versionOrCommit": "0.5.3",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: EigenPal"
+        "reason": "The exact npm release declares MIT and its README displays an MIT badge. Signed npm provenance binds the tarball to branch 0.x commit e06dfceae557f8c1607a28618a99a34be8fed1fb. The npm tarball contains no LICENSE, NOTICE, copyright file, or attributable package copyright statement, and the referenced upstream repository is no longer publicly accessible for exact-commit verification. The current 1.x successor is Apache-2.0, which is not treated as retroactive evidence for 0.5.3. Canvas retains the canonical MIT terms but keeps this package review_required pending an upstream archive/license record, migration to the licensed successor, removal, or responsible legal decision. Verification source: https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3 The MIT copyright notice could not be attributed automatically. Package author metadata: EigenPal"
       },
       {
         "name": "@img/sharp-libvips-darwin-arm64",
@@ -12782,7 +12782,7 @@
     {
       "name": "@eigenpal/docx-js-editor",
       "versionOrCommit": "0.5.3",
-      "sourceUrl": "https://github.com/eigenpal/docx-editor",
+      "sourceUrl": "https://github.com/eigenpal/docx-editor/tree/e06dfceae557f8c1607a28618a99a34be8fed1fb/packages/react",
       "packagePathOrArtifact": "node_modules/@eigenpal/docx-js-editor",
       "usage": "runtime",
       "distributedIn": [
@@ -12793,12 +12793,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: EigenPal"
+      "reviewNotes": "The exact npm release declares MIT and its README displays an MIT badge. Signed npm provenance binds the tarball to branch 0.x commit e06dfceae557f8c1607a28618a99a34be8fed1fb. The npm tarball contains no LICENSE, NOTICE, copyright file, or attributable package copyright statement, and the referenced upstream repository is no longer publicly accessible for exact-commit verification. The current 1.x successor is Apache-2.0, which is not treated as retroactive evidence for 0.5.3. Canvas retains the canonical MIT terms but keeps this package review_required pending an upstream archive/license record, migration to the licensed successor, removal, or responsible legal decision. Verification source: https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3 The MIT copyright notice could not be attributed automatically. Package author metadata: EigenPal"
     },
     {
       "name": "@emnapi/runtime",
