@@ -243,6 +243,12 @@
       "verificationSource": "https://github.com/highlightjs/highlightjs-vue/blob/2a0d197ec24ba70e019e12a13bd42f006124506a/README.md",
       "reason": "The exact npm release declares CC0-1.0, publishes gitHead 2a0d197ec24ba70e019e12a13bd42f006124506a, and the matching source README links directly to the Creative Commons CC0 1.0 deed. CC0 does not require an MIT-style copyright attribution. Canvas retains the complete official CC0 1.0 legal code from https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt and does not modify the package."
     },
+    "https@1.0.0": {
+      "verifiedLicense": "ISC",
+      "sourceUrl": "https://registry.npmjs.org/https/-/https-1.0.0.tgz",
+      "verificationSource": "https://registry.npmjs.org/https/1.0.0",
+      "reason": "The signed exact npm tarball declares ISC but contains only package.json; even its declared index.js entry point is absent. It provides no LICENSE, NOTICE, copyright statement, repository, gitHead, or signed provenance. Author metadata names hardus van der berg, but authorship is not treated as proof of copyright ownership. The package is pulled in by pptxgenjs@4.0.1 even though that exact release imports Node's built-in node:https module and maps both https and node:https to false for browser bundles. Canvas does not silently remove or replace a transitive package solely during the license audit. The package remains review_required pending corrected upstream metadata, removal/replacement, or a responsible legal decision."
+    },
     "@jspreadsheet/formula@2.0.2": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",

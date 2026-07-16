@@ -425,3 +425,47 @@ Technische Entscheidung:
 - Ein Regressionstest sichert Lizenz, Commit und exakten Legal-Code-Hash.
 - Die Komponente ist damit technisch `allowed`; bei einem Upgrade wird die
   CC0-Zuordnung erneut gegen die neue Version geprueft.
+
+## 12. `https@1.0.0`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `https@1.0.0` |
+| npm-Tarball | `https://registry.npmjs.org/https/-/https-1.0.0.tgz` |
+| npm-Integrity | `sha512-4EC57ddXrkaF0x83Oj8sM6SLQHAWXw90Skqu2M4AEWENZ3F02dFJE/GARA8igO79tcgYqGrD7ae4f5L3um2lgg==` |
+| Tarball-SHA-512 | `e040b9edd757ae4685d31f373a3f2c33a48b4070165f0f744a4aaed8ce0011610d677174d9d14913f180440f2280eefdb5c818a86ac3eda7b87f92f7ba6da582` |
+| veroeffentlicht | 20. Maerz 2015 |
+| deklarierte Lizenz | `ISC` |
+| Paketautor | `hardus van der berg <hardus@sunfork.com>` |
+| Tarball-Inhalt | ausschliesslich `package.json`; die deklarierte `index.js` fehlt |
+| fehlender Beleg | ISC-Lizenztext, Copyright-Hinweis, Repository, Commit und Provenance |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `pptxgenjs@4.0.1` |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der exakte npm-Tarball ist durch npm-Integrity und Registry-Signatur
+identifizierbar. Er enthaelt jedoch keinen ausfuehrbaren Paketinhalt und keinen
+Lizenz- oder Copyright-Beleg. Der einzige Lizenzhinweis ist das Feld
+`"license": "ISC"` in `package.json`. Die Autor-Metadaten werden nicht als
+Nachweis eines Copyright-Inhabers umgedeutet.
+
+`pptxgenjs@4.0.1` deklariert dieses Paket als Abhaengigkeit. Der ausgelieferte
+Code des exakt gepinnten PptxGenJS-Releases importiert fuer Node-Laufzeiten
+aber ausdruecklich das eingebaute Modul `node:https`; fuer Browser-Bundles
+werden sowohl `https` als auch `node:https` auf `false` gemappt. Das npm-Paket
+wirkt deshalb technisch ueberfluessig, bleibt bis zu einer Upstream-Korrektur
+aber Bestandteil des reproduzierbaren Dependency-Graphen.
+
+Technische Entscheidung:
+
+- Tarball, Integrity, Registry-Signatur, ISC-Deklaration, Inhalt und transitive
+  Herkunft sind dokumentiert.
+- Canvas erfindet weder einen ISC-Text mit eingesetzten Platzhaltern noch
+  einen Copyright-Inhaber.
+- Der Audit entfernt oder ersetzt die transitive Abhaengigkeit nicht still im
+  Lockfile; das waere eine eigene getestete Dependency-Aenderung.
+- Der Blocker kann durch eine korrigierte PptxGenJS-Version, einen belastbaren
+  Lizenzbeleg des Paket-Publishers, Entfernung/Ersatz oder eine dokumentierte
+  menschlich-rechtliche Einzelfallentscheidung aufgeloest werden.

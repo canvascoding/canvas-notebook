@@ -147,6 +147,21 @@ assert.deepEqual(
 );
 assert.match(highlightjsVue.sourceUrl, /2a0d197ec24ba70e019e12a13bd42f006124506a/u);
 
+const httpsPlaceholder = inventory.components.find((component) => (
+  component.name === 'https' && component.versionOrCommit === '1.0.0'
+));
+assert(httpsPlaceholder, 'https@1.0.0 must be inventoried');
+assert.equal(httpsPlaceholder.verifiedLicense, 'ISC');
+assert.equal(httpsPlaceholder.policyDecision, 'review_required');
+assert.equal(httpsPlaceholder.licenseTextRef, null);
+assert.equal(httpsPlaceholder.licenseTextSha256, null);
+assert.deepEqual(httpsPlaceholder.copyrightNotices, []);
+assert.equal(
+  httpsPlaceholder.sourceUrl,
+  'https://registry.npmjs.org/https/-/https-1.0.0.tgz',
+);
+assert.match(httpsPlaceholder.reviewNotes || '', /node:https/u);
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

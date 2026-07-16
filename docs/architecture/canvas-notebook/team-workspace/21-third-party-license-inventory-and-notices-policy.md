@@ -136,6 +136,15 @@ deklarieren CC0-1.0; das README verlinkt direkt den Creative-Commons-Deed.
 Canvas liefert den vollstaendigen offiziellen CC0-1.0-Legal-Code aus. Ein
 MIT-artiger Copyright-Hinweis ist unter CC0 nicht erforderlich.
 
+`https@1.0.0` ist technisch geprueft und bleibt blockierend. Der signierte
+exakte npm-Tarball enthaelt nur `package.json`, deklariert ISC und liefert
+weder ISC-Text noch Copyright, Repository, Commit oder Provenance. Das Paket
+kommt transitiv ueber `pptxgenjs@4.0.1`, obwohl dessen exakter Runtime-Code das
+eingebaute `node:https` importiert und die Browser-Mappings beide Varianten
+deaktivieren. Eine Entfernung ist deshalb ein sinnvoller Upstream- oder
+Dependency-Fix, wird aber nicht als ungepruefte Lockfile-Manipulation im
+Lizenzaudit vorgenommen.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.
