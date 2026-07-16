@@ -14,6 +14,7 @@ const moduleInternals = Module as typeof Module & {
 };
 const originalLoad = moduleInternals._load;
 moduleInternals._load = (request, parent, isMain) => {
+  if (request === 'server-only') return {};
   if (request === '@earendil-works/pi-agent-core') return {};
   if (request === '@earendil-works/pi-ai/compat') {
     return {
@@ -50,6 +51,7 @@ async function main() {
     listManagedAgents,
     previewManagedAgentDeletion,
     setManagedAgentGrant,
+    updateManagedAgentCapabilities,
     updateManagedAgentFile,
     updateManagedAgentProfile,
   } = await import('../app/lib/agents/management-actions');
@@ -148,6 +150,43 @@ async function main() {
     existsSync(path.join(dataDir, 'users', 'marketing-user', 'agents', personal.agent.agentId, 'AGENTS.md')),
     true,
   );
+
+  const skillsOverride = await updateManagedAgentCapabilities({
+    actor: memberActor,
+    agentId: personal.agent.agentId,
+    expectedRevision: personal.agent.revision,
+    relevantSkills: [],
+  });
+  assert.deepEqual(skillsOverride.agent.relevantSkills, []);
+  assert.equal(skillsOverride.agent.relevantConnections, null);
+
+  const connectionsOverride = await updateManagedAgentCapabilities({
+    actor: memberActor,
+    agentId: personal.agent.agentId,
+    expectedRevision: skillsOverride.agent.revision,
+    relevantConnections: [],
+  });
+  assert.deepEqual(connectionsOverride.agent.relevantSkills, []);
+  assert.deepEqual(connectionsOverride.agent.relevantConnections, []);
+
+  const inheritedSkills = await updateManagedAgentCapabilities({
+    actor: memberActor,
+    agentId: personal.agent.agentId,
+    expectedRevision: connectionsOverride.agent.revision,
+    relevantSkills: null,
+  });
+  assert.equal(inheritedSkills.agent.relevantSkills, null);
+  assert.deepEqual(inheritedSkills.agent.relevantConnections, []);
+
+  const inheritedConnections = await updateManagedAgentCapabilities({
+    actor: memberActor,
+    agentId: personal.agent.agentId,
+    expectedRevision: inheritedSkills.agent.revision,
+    relevantConnections: null,
+  });
+  assert.equal(inheritedConnections.agent.relevantSkills, null);
+  assert.equal(inheritedConnections.agent.relevantConnections, null);
+
   await assert.rejects(
     () => createManagedAgent(memberActor, {
       name: 'Recursive Agent Factory',
@@ -298,7 +337,7 @@ async function main() {
   await deleteManagedAgent({
     actor: memberActor,
     agentId: personal.agent.agentId,
-    expectedRevision: personal.agent.revision,
+    expectedRevision: personalPreview.agent.revision,
     confirmationToken: personalPreview.confirmationToken,
   });
   assert.equal((await listManagedAgents(memberActor)).some((agent) => agent.agentId === personal.agent.agentId), false);

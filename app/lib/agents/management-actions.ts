@@ -470,10 +470,8 @@ export async function createManagedAgent(actor: AgentManagementActor, input: Cre
       agentId: input.agentId,
       iconId: normalizeAgentIconId(input.iconId),
       enabledTools,
-      relevantSkills: resolvedCapabilities.bindings
-        .filter((binding) => binding.resourceType === 'skill')
-        .map((binding) => binding.name),
-      relevantConnections: input.relevantConnections || null,
+      relevantSkills: input.relevantSkills ?? null,
+      relevantConnections: input.relevantConnections ?? null,
       accessPolicy: 'restricted',
       scopeType,
       organizationId,
@@ -627,20 +625,36 @@ export async function updateManagedAgentCapabilities(input: {
   if (existing.type === 'main') throw new AgentManagementError('AGENT_MAIN_PROTECTED', 'Canvas Agent capabilities are managed by organization policy.', 403);
   ensureExpectedRevision(existing, input.expectedRevision);
   const previous = await listAgentCapabilityBindings(existing.agentId);
+  const relevantSkills = input.relevantSkills === undefined
+    ? existing.relevantSkills
+    : input.relevantSkills;
+  const relevantConnections = input.relevantConnections === undefined
+    ? existing.relevantConnections
+    : input.relevantConnections;
+  const capabilities = input.capabilities === undefined
+    ? previous
+      .filter((binding) => binding.resourceType === 'plugin')
+      .map((binding) => ({
+        resourceType: 'plugin' as const,
+        resourceId: binding.resourceId,
+        name: binding.name,
+        requirement: binding.requirement,
+      }))
+    : input.capabilities;
   const resolved = await resolveCapabilityBindings({
     actor: input.actor,
     scopeType: existing.scopeType === 'organization' ? 'organization' : 'user',
-    capabilities: input.capabilities,
-    relevantSkills: input.relevantSkills,
-    relevantConnections: input.relevantConnections,
+    capabilities,
+    relevantSkills,
+    relevantConnections,
   });
   await replaceAgentCapabilityBindings(existing.agentId, resolved.bindings);
   try {
     const agent = await updateAgentProfile({
       agentId: existing.agentId,
       expectedRevision: input.expectedRevision,
-      relevantSkills: resolved.bindings.filter((binding) => binding.resourceType === 'skill').map((binding) => binding.name),
-      relevantConnections: input.relevantConnections || [],
+      relevantSkills,
+      relevantConnections,
     });
     const bindings = await listAgentCapabilityBindings(existing.agentId);
     await auditAgentAction({
