@@ -38,6 +38,9 @@ async function withBrowserExportTestEnv(run: () => Promise<void>) {
     'CANVAS_BROWSER_EXPORT_QUEUE_WAIT_TIMEOUT_MS',
     'CANVAS_BROWSER_EXPORT_MIN_FREE_MEMORY_MB',
     'CANVAS_BROWSER_EXPORT_MAX_LOAD_PER_CPU',
+    'CANVAS_BROWSER_EXPORT_CHILD_MEMORY_MB',
+    'CANVAS_BROWSER_EXPORT_CHILD_CPU_SECONDS',
+    'CANVAS_BROWSER_EXPORT_CHILD_NICE',
   ] as const;
   const original = new Map<string, string | undefined>();
   for (const key of keys) {
@@ -142,10 +145,37 @@ async function testTimeoutCleanup(service: BrowserExportService) {
   });
 }
 
+async function testChildMemoryLimitUsesNodeHeap(service: BrowserExportService) {
+  await withBrowserExportTestEnv(async () => {
+    process.env.CANVAS_BROWSER_EXPORT_CHILD_MEMORY_MB = '384';
+    process.env.CANVAS_BROWSER_EXPORT_CHILD_CPU_SECONDS = '0';
+    process.env.CANVAS_BROWSER_EXPORT_CHILD_NICE = '0';
+
+    const command = service.buildLimitedBrowserExportCommand(
+      '/app/node_modules/.bin/marp',
+      ['--pdf'],
+      {
+        platform: 'linux',
+        env: { NODE_OPTIONS: '--trace-warnings' },
+      },
+    );
+
+    assert.equal(command.command, '/app/node_modules/.bin/marp');
+    assert.deepEqual(command.args, ['--pdf']);
+    assert.equal(
+      command.env.NODE_OPTIONS,
+      '--trace-warnings --max-old-space-size=384',
+    );
+    assert.equal(command.appliedLimits.includes('node-heap=384MB'), true);
+    assert.equal(command.args.some((arg) => arg.startsWith('--as=')), false);
+  });
+}
+
 async function main() {
   const service = await importBrowserExportService();
   await testQueueBackpressure(service);
   await testTimeoutCleanup(service);
+  await testChildMemoryLimitUsesNodeHeap(service);
   console.log('browser-export-service-test: ok');
 }
 

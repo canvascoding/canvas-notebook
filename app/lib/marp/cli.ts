@@ -33,7 +33,7 @@ export function runMarpCli(args: string[], cwd: string, timeoutMs = MARP_EXPORT_
       const commandSpec = buildLimitedBrowserExportCommand(getMarpCliPath(), args, { timeoutMs });
       child = spawn(commandSpec.command, commandSpec.args, {
         cwd,
-        env: process.env,
+        env: commandSpec.env,
         stdio: ['ignore', 'pipe', 'pipe'],
       });
 

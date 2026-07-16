@@ -96,6 +96,7 @@ type BrowserExportChildProcessLimits = {
 type LimitedCommandSpec = {
   command: string;
   args: string[];
+  env: NodeJS.ProcessEnv;
   appliedLimits: string[];
 };
 
@@ -407,20 +408,32 @@ function commandExists(command: string): boolean {
 export function buildLimitedBrowserExportCommand(
   command: string,
   args: string[],
-  options: { timeoutMs?: number; platform?: NodeJS.Platform } = {},
+  options: {
+    timeoutMs?: number;
+    platform?: NodeJS.Platform;
+    env?: NodeJS.ProcessEnv;
+  } = {},
 ): LimitedCommandSpec {
   const platform = options.platform ?? process.platform;
   const limits = getBrowserExportChildProcessLimits(options.timeoutMs);
   const appliedLimits: string[] = [];
+  const limitedEnv = { ...(options.env ?? process.env) };
   let limitedCommand = command;
   let limitedArgs = [...args];
 
+  if (limits.memoryMb > 0) {
+    // Do not use RLIMIT_AS for Node/Chromium processes. V8 reserves large virtual
+    // address ranges during startup, so an address-space cap can crash the Marp
+    // CLI before it renders anything even when physical memory is still free.
+    limitedEnv.NODE_OPTIONS = [
+      limitedEnv.NODE_OPTIONS?.trim(),
+      `--max-old-space-size=${limits.memoryMb}`,
+    ].filter(Boolean).join(' ');
+    appliedLimits.push(`node-heap=${limits.memoryMb}MB`);
+  }
+
   if (platform === 'linux' && commandExists('prlimit')) {
     const prlimitArgs: string[] = [];
-    if (limits.memoryMb > 0) {
-      prlimitArgs.push(`--as=${limits.memoryMb * 1024 * 1024}`);
-      appliedLimits.push(`memory=${limits.memoryMb}MB`);
-    }
     if (limits.cpuSeconds > 0) {
       prlimitArgs.push(`--cpu=${limits.cpuSeconds}`);
       appliedLimits.push(`cpu=${limits.cpuSeconds}s`);
@@ -441,6 +454,7 @@ export function buildLimitedBrowserExportCommand(
   return {
     command: limitedCommand,
     args: limitedArgs,
+    env: limitedEnv,
     appliedLimits,
   };
 }
