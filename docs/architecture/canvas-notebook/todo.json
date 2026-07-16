@@ -1467,8 +1467,10 @@
         "app/lib/excalidraw-scene.ts",
         "app/lib/files/collaboration-policy.ts",
         "app/lib/collaboration/*",
+        "app/lib/collaboration/types.ts",
         "server/collaboration-server.ts",
         "server/excalidraw-collaboration/*",
+        "server.js",
         "app/api/files/collaboration/session/route.ts",
         "app/api/files/excalidraw-assets/*",
         "app/lib/db/schema.ts",
@@ -1487,7 +1489,7 @@
         "Excalidraw bleibt ausserhalb von Aufgabe 48 und wird weder als kompletter JSON-String in Y.Text noch als Hocuspocus-Y.Doc behandelt",
         "Der bevorzugte Canvas-native Provider behaelt @excalidraw/excalidraw als upgradefaehige npm-Abhaengigkeit und verwendet die offizielle beziehungsweise kompatibilitaetsgetestete reconcileElements-Semantik",
         "Kurzlebige Tickets binden User, Organization, Workspace, stabile Collaboration-Dokument-ID, Permission, Session, Provider, Schema und Ablaufzeit",
-        "excalidraw-v1 nutzt den bestehenden App-Port und gemeinsamen Upgrade-Router, bleibt aber protokollseitig von Yjs/Hocuspocus und /ws/chat getrennt",
+        "excalidraw-v1 nutzt /ws/collaboration/excalidraw auf dem bestehenden App-Port und wird im gemeinsamen Server-Start neben Yjs/Hocuspocus auf /ws/collaboration und Chat auf /ws/chat registriert",
         "Szenenaenderungen werden pro Dokument serialisiert, validiert und nach Element-ID, version, versionNonce, Tombstones und Fractional Indices deterministisch reconciled",
         "Monotone Scene Sequence, Message-ID, ACK, Idempotenz und Resync reparieren verlorene, doppelte und spaet eintreffende Updates ohne stillen Whole-File-Overwrite",
         "Remote-Szeneaenderungen werden mit CaptureUpdateAction.NEVER angewendet und landen nicht in fremden lokalen Undo-Stacks",
@@ -1500,10 +1502,46 @@
         "Rename/Move behaelt Dokument-ID, Copy forkt den Zustand, Delete flusht/archiviert und Restore verwendet eine neue Lifecycle-Generation",
         "Membership-/Permission-Entzug, Workspace-Isolation, Trusted Origin, Schema-, Element-, Asset- und Payload-Limits werden serverseitig revalidiert",
         "File-Tools, Shells, Automations und Integrationen koennen aktive Excalidraw-Rooms nicht per Whole-File-Write umgehen; Agent-Writes bleiben bis zu einem validierten Scene-Patch-/Review-Modell blockiert",
+        "Agent-Patches binden observedSceneSequence, Element-IDs und erwartete Versionen; Aenderungen am selben Zielelement durch einen User fuehren zu Review statt blindem Overwrite",
         "Canvas behauptet keine Excalidraw-E2EE, solange serverseitige Szenenverarbeitung aktiv und kein explizites Key-/Recovery-Modell umgesetzt ist",
         "Alle uebernommenen Excalidraw-/excalidraw-room-Codeanteile sind mit exaktem Commit, MIT-Text und Copyright-Hinweis in Aufgabe 51 erfasst",
-        "Produktstatus enabled setzt Team-Capability, Postgres, aktuelle Migrationen, WebSocket-, Scene-Persistence- und Asset-Health sowie erfolgreiches Architektur-Gate voraus"
+        "Produktstatus enabled setzt Team-Capability, Postgres, aktuelle Migrationen, WebSocket-, Scene-Persistence- und Asset-Health sowie erfolgreiches Architektur-Gate voraus",
+        "Initial Load, Realtime-Latenz, Speicher, Delta-/Full-Sync-Groesse und Reconnect werden gegen die dokumentierten Performancebudgets gemessen"
       ],
+      "progress": {
+        "updatedAt": "2026-07-16",
+        "architectureResearch": "completed",
+        "selectedApproach": "canvas_native_excalidraw_scene_provider",
+        "implementation": "not_started",
+        "blockedBy": "Task 51 bleibt bis zur dokumentierten verantwortlichen oder rechtlichen Lizenzfreigabe in_progress",
+        "verifiedFacts": [
+          "@excalidraw/excalidraw 0.18.1 ist installiert und exportiert reconcileElements, CaptureUpdateAction.NEVER, updateScene, onPointerUpdate, collaborators, getSceneElementsIncludingDeleted, getFiles und addFiles",
+          "isCollaborating aktiviert nur den Collaboration-Modus der UI und startet keinen Room, Transport oder Persistenz",
+          "Die offizielle 0.18.1-App sendet elementweise SCENE_INIT/SCENE_UPDATE, volatile Cursor-/Presence-Nachrichten und periodische Full-Scene-Abgleiche",
+          "Die offizielle Reconciliation bevorzugt hoehere version und bei Gleichstand die niedrigere versionNonce und schuetzt lokal gerade bearbeitete Elemente",
+          "excalidraw-room am Commit 03ff435860b508d7cd9e005cfc90f7977ae2a593 ist ein Socket.IO-Relay ohne Canvas-Auth, Workspace-Permissions, dauerhafte Szenenpersistenz oder serverseitige Reconciliation",
+          "Die Excalidraw+-API ist Public Beta und ihr Scene-PATCH ist kein Realtime-Transport fuer verbundene eingebettete Editoren",
+          "Excalidraw+-Self-Hosting mit Real-Time-Services und SSO ist weiterhin in Entwicklung"
+        ],
+        "architectureDecisions": [
+          "Excalidraw bleibt ausserhalb von Yjs/Hocuspocus und Aufgabe 48",
+          "Canvas behaelt das upgradefaehige npm-Paket und implementiert einen eigenen Scene Provider",
+          "Der neue Transport verwendet /ws/collaboration/excalidraw auf dem bestehenden App-Port",
+          "Postgres-Szenenstate ist im aktiven Room die schreibbare Wahrheit; .excalidraw bleibt portabler Checkpoint",
+          "Clientseitig wird die offizielle reconcileElements-Semantik verwendet; serverseitig erfolgt eine deterministische version/versionNonce/Tombstone/Fractional-Index-Apply-Section",
+          "Binary Files werden separat workspace-scoped gespeichert und nicht mit jedem Scene-Patch als Data-URL uebertragen",
+          "Agenten verwenden elementbasierte validierte Patches und einen Review-Flow bei Same-Element-Userintervention",
+          "Ein Package-Fork ist nur bei einem im Zwei-Client-Spike reproduzierten oeffentlichen API-Blocker zulaessig"
+        ],
+        "remaining": [
+          "Task 51 rechtlich/verantwortlich abschliessen",
+          "Zwei-Client-Architecture-Spike gegen die exakte npm-Version ausfuehren",
+          "Postgres-Szenen-, Operations- und Asset-Schema implementieren",
+          "Excalidraw-WebSocket-Provider, Tickets, ACK/Resync und Presence implementieren",
+          "Editor, Whole-File-Write-Guards, Checkpoints, Lifecycle und Agent-Review integrieren",
+          "Integration-, Security-, Last-, UI- und E2E-Multi-User-Tests ausfuehren"
+        ]
+      },
       "verification": [
         "tsx --conditions react-server scripts/excalidraw-collaboration-spike.ts",
         "tsx --conditions react-server scripts/excalidraw-live-collaboration-test.ts",
@@ -1515,6 +1553,8 @@
         "Asset-Test fuer Upload, Deduplizierung, permission-geprueften Download, Reconnect und portablen Datei-Roundtrip",
         "Lifecycle-Test fuer Rename, Move, Copy, Delete, Restore, Public Preview und Backup/Restore",
         "Bypass-Test fuer Autosave, File Tool, Shell, Automation, Integration und externen File-Watcher-Write",
+        "Agent-Test fuer konfliktfreien Rebase, Same-Element-Review, Accept, Reject, Cancel, Disconnect und Recovery",
+        "Performance-Test fuer Initial Load, p95-Realtime-Latenz, Speicher, Delta-/Full-Sync und Reconnect mit grosser Szene",
         "Upstream-Kompatibilitaetstest gegen die gepinnte @excalidraw/excalidraw-Version",
         "npm run test:files:collaboration",
         "npm run test:websocket:origin",
