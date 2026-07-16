@@ -232,7 +232,7 @@ test.describe('Task 50 agent provisioning and management', () => {
     const personalCard = agentCard(page, personalName);
     await expect(personalCard).toBeVisible();
     await expect(personalCard.getByText('Only me', { exact: true })).toBeVisible();
-    await expect(personalCard.getByText(/^r\d+$/)).toBeVisible();
+    await expect(personalCard.getByText(/^r\d+$/)).toHaveCount(0);
 
     await openCreateAgentDialog(page);
     await createDialog.getByLabel('Name').fill(organizationName);
