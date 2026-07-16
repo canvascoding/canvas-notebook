@@ -1843,6 +1843,7 @@ function createEditorExtensions(
 
 function MarkdownSourceToolbar({
   richModeAvailable,
+  showRichModeSwitch,
   mobileVisible,
   onMobilePointerCancel,
   onMobilePointerDown,
@@ -1850,6 +1851,7 @@ function MarkdownSourceToolbar({
   onRichMode,
 }: {
   richModeAvailable: boolean;
+  showRichModeSwitch: boolean;
   mobileVisible: boolean;
   onMobilePointerCancel: () => void;
   onMobilePointerDown: () => void;
@@ -1874,9 +1876,11 @@ function MarkdownSourceToolbar({
       onPointerUpCapture={onMobilePointerUp}
       onPointerCancelCapture={onMobilePointerCancel}
     >
-      <MobileToolbarButton label={t('markdownEditorEditVisually')} disabled={!richModeAvailable} onClick={onRichMode}>
-        <Eye className="h-5 w-5" />
-      </MobileToolbarButton>
+      {showRichModeSwitch ? (
+        <MobileToolbarButton label={t('markdownEditorEditVisually')} disabled={!richModeAvailable} onClick={onRichMode}>
+          <Eye className="h-5 w-5" />
+        </MobileToolbarButton>
+      ) : null}
       <MobileToolbarButton label={t('markdownEditorMobileHideKeyboard')} onClick={hideKeyboard}>
         <Keyboard className="h-5 w-5" />
       </MobileToolbarButton>
@@ -1885,13 +1889,15 @@ function MarkdownSourceToolbar({
 
   return (
     <>
-      <TooltipProvider>
-        <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2 md:flex">
-          <TooltipIconButton label={t('markdownEditorEditVisually')} disabled={!richModeAvailable} onClick={onRichMode}>
-            <Eye />
-          </TooltipIconButton>
-        </div>
-      </TooltipProvider>
+      {showRichModeSwitch ? (
+        <TooltipProvider>
+          <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center justify-end gap-1 border-b border-border bg-background px-2 md:flex">
+            <TooltipIconButton label={t('markdownEditorEditVisually')} disabled={!richModeAvailable} onClick={onRichMode}>
+              <Eye />
+            </TooltipIconButton>
+          </div>
+        </TooltipProvider>
+      ) : null}
       {portalElement ? createPortal(mobileToolbar, portalElement) : null}
     </>
   );
@@ -2901,6 +2907,7 @@ function MarkdownToolbar({
   imageDialogOpen,
   labels,
   onSourceMode,
+  showSourceModeSwitch,
   onImageDialogOpenChange,
   onOpenTableDialog,
 }: {
@@ -2910,6 +2917,7 @@ function MarkdownToolbar({
   imageDialogOpen: boolean;
   labels: SlashCommandLabels;
   onSourceMode: () => void;
+  showSourceModeSwitch: boolean;
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
 }) {
@@ -3203,11 +3211,13 @@ function MarkdownToolbar({
           <Minus />
         </TooltipIconButton>
 
-        <div className="ml-auto shrink-0">
-          <TooltipIconButton label={t('markdownEditorEditAsText')} onClick={onSourceMode}>
-            <Code2 />
-          </TooltipIconButton>
-        </div>
+        {showSourceModeSwitch ? (
+          <div className="ml-auto shrink-0">
+            <TooltipIconButton label={t('markdownEditorEditAsText')} onClick={onSourceMode}>
+              <Code2 />
+            </TooltipIconButton>
+          </div>
+        ) : null}
       </div>
       {toolbarState.isTable ? (
         <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2 md:flex">
@@ -3530,6 +3540,7 @@ function MobileMarkdownToolbar({
   onImageDialogOpenChange,
   onOpenTableDialog,
   onSourceMode,
+  showSourceModeSwitch,
   visible,
 }: {
   actions?: SlashCommandActions;
@@ -3540,6 +3551,7 @@ function MobileMarkdownToolbar({
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
   onSourceMode: () => void;
+  showSourceModeSwitch: boolean;
   visible: boolean;
 }) {
   const t = useTranslations('notebook');
@@ -3809,9 +3821,11 @@ function MobileMarkdownToolbar({
         >
           <Table2 className="h-5 w-5" />
         </MobileToolbarButton>
-        <MobileToolbarButton label={t('markdownEditorEditAsText')} disabled={!canUseCommands} onClick={onSourceMode}>
-          <Type className="h-5 w-5" />
-        </MobileToolbarButton>
+        {showSourceModeSwitch ? (
+          <MobileToolbarButton label={t('markdownEditorEditAsText')} disabled={!canUseCommands} onClick={onSourceMode}>
+            <Type className="h-5 w-5" />
+          </MobileToolbarButton>
+        ) : null}
         <MobileToolbarButton
           label={t('markdownEditorMobileHideKeyboard')}
           disabled={!canUseCommands}
@@ -4246,6 +4260,7 @@ function RichMarkdownEditor({
           imageDialogSeed={imageDialogSeed}
           labels={labels}
           onSourceMode={onSourceMode}
+          showSourceModeSwitch={!collaborationEnabled}
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
         />
@@ -4263,6 +4278,7 @@ function RichMarkdownEditor({
           onImageDialogOpenChange={openImageDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
           onSourceMode={onSourceMode}
+          showSourceModeSwitch={!collaborationEnabled}
           visible={isMobileToolbarVisible}
         />
       ) : null}
@@ -4388,6 +4404,7 @@ function SourceMarkdownEditor({
       {!readOnly ? (
         <MarkdownSourceToolbar
           richModeAvailable={richModeAvailable}
+          showRichModeSwitch={!collaborationEnabled}
           mobileVisible={mobileToolbarVisible}
           onMobilePointerCancel={releaseToolbarVisibility}
           onMobilePointerDown={holdToolbarVisibility}
