@@ -156,7 +156,7 @@ async function testChildMemoryLimitUsesNodeHeap(service: BrowserExportService) {
       ['--pdf'],
       {
         platform: 'linux',
-        env: { NODE_OPTIONS: '--trace-warnings' },
+        env: { ...process.env, NODE_OPTIONS: '--trace-warnings' },
       },
     );
 
