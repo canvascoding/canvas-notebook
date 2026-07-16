@@ -780,6 +780,7 @@ export function BrandSettingsPanel({
         throw new Error(payload.error || t('identity.logo.errors.upload'));
       }
       applyResponseState(payload, scope, scopeEntityKey);
+      window.dispatchEvent(new Event(WORKSPACE_APPEARANCE_UPDATED_EVENT));
       setSuccess(t('identity.logo.uploaded'));
     } catch (uploadError) {
       setError(uploadError instanceof Error ? uploadError.message : t('identity.logo.errors.upload'));
@@ -803,6 +804,7 @@ export function BrandSettingsPanel({
         throw new Error(payload.error || t('identity.logo.errors.remove'));
       }
       applyResponseState(payload, scope, scopeEntityKey);
+      window.dispatchEvent(new Event(WORKSPACE_APPEARANCE_UPDATED_EVENT));
       setSuccess(t('identity.logo.removed'));
     } catch (removeError) {
       setError(removeError instanceof Error ? removeError.message : t('identity.logo.errors.remove'));

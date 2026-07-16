@@ -1405,7 +1405,7 @@
   },
   "home": {
     "header": {
-      "logoAlt": "Canvas Notebook Logo",
+      "logoAlt": "Logo des aktiven Workspace",
       "productName": "Canvas Notebook",
       "productLabel": "Marketing Workspace"
     },
@@ -2920,12 +2920,12 @@
       },
       "identity": {
         "title": "Markenidentität",
-        "description": "Der Markenname eröffnet das Dokument, das Logo sitzt kompakt auf jeder exportierten PDF-Seite.",
+        "description": "Das Logo wird für Canvas und PDF gemeinsam gepflegt. In Canvas ersetzt es bei aktivierter Oberfläche das Canvas Notebook-Logo; der Markenname bleibt für Dokumente und Agenten-Kontext erhalten.",
         "brandName": "Markenname",
         "brandNamePlaceholder": "z. B. Canvas Studios",
         "logo": {
           "uploadTitle": "Logo hochladen",
-          "uploadHint": "Logo hier hineinziehen oder per Dateiauswahl hochladen. PNG, JPG oder WebP bis 1 MB; im PDF maximal 28 × 9 mm.",
+          "uploadHint": "Logo hier hineinziehen oder per Dateiauswahl hochladen. PNG, JPG oder WebP bis 1 MB; in Canvas proportional skaliert und im PDF maximal 28 × 9 mm.",
           "dropNow": "Logo zum Hochladen ablegen",
           "empty": "Kein Logo",
           "ready": "Logo bereit",
@@ -2938,7 +2938,7 @@
           "positionHint": "Die Position gilt für Hoch- und Querformat sowie für die erste Seite.",
           "left": "Links",
           "right": "Rechts",
-          "uploaded": "Logo hochgeladen. Neue PDF-Exporte verwenden es sofort.",
+          "uploaded": "Logo hochgeladen. Canvas und neue PDF-Exporte verwenden es entsprechend ihrer Aktivierung sofort.",
           "removed": "Logo entfernt.",
           "errors": {
             "type": "Bitte eine PNG-, JPG- oder WebP-Datei auswählen.",

@@ -1,4 +1,3 @@
-import Image from 'next/image';
 import { Heart } from 'lucide-react';
 import { getTranslations } from 'next-intl/server';
 import packageJson from '../../../package.json';
@@ -17,6 +16,7 @@ import { LogoutButton } from '@/app/components/LogoutButton';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
+import { WorkspaceBrandLogo } from '@/app/components/workspaces/WorkspaceBrandLogo';
 
 const repositoryUrl = 'https://github.com/canvascoding/canvas-notebook';
 const releaseVersion = packageJson.version;
@@ -39,7 +39,15 @@ export default async function Home() {
           <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
             <div className="mx-auto flex min-h-14 max-w-7xl flex-nowrap items-center justify-between gap-2 px-4 py-2 md:px-6">
               <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
-                <Image src="/logo.jpg" alt={tHome('header.logoAlt')} width={28} height={28} className="shrink-0 border border-border" />
+                <WorkspaceBrandLogo
+                  alt={tHome('header.logoAlt')}
+                  width={144}
+                  height={32}
+                  priority
+                  className="h-8 max-w-[5.5rem] shrink-0 object-contain sm:max-w-36"
+                  fallbackClassName="w-8 border border-border object-cover"
+                  workspaceClassName="w-auto"
+                />
                 <div className="min-w-0 flex flex-col">
                   <span className="hidden text-[10px] font-bold tracking-widest text-muted-foreground uppercase sm:block">{tHome('header.productName')}</span>
                   <span className="truncate text-sm font-semibold">{tHome('header.productLabel')}</span>
