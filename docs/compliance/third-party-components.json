@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1911,
-    "reviewRequired": 70,
+    "allowed": 1912,
+    "reviewRequired": 69,
     "blocked": 0
   },
   "releaseGate": {
@@ -233,11 +233,6 @@
         "name": "is-reference",
         "versionOrCommit": "1.2.1",
         "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Rich Harris"
-      },
-      {
-        "name": "jszip",
-        "versionOrCommit": "3.10.1",
-        "reason": "Policy decision is review_required for (MIT OR GPL-3.0-or-later)."
       },
       {
         "name": "minimist",
@@ -33103,7 +33098,7 @@
     {
       "name": "jszip",
       "versionOrCommit": "3.10.1",
-      "sourceUrl": "https://github.com/Stuk/jszip",
+      "sourceUrl": "https://github.com/Stuk/jszip/tree/0f2f1e4d0509514417db83fe5b86bde90e0ffe8d",
       "packagePathOrArtifact": "node_modules/jszip",
       "usage": "runtime",
       "distributedIn": [
@@ -33113,23 +33108,15 @@
         "electron-web-app"
       ],
       "declaredLicense": "(MIT OR GPL-3.0-or-later)",
-      "verifiedLicense": "(MIT OR GPL-3.0-or-later)",
-      "licenseTextRef": "node_modules/jszip/LICENSE.markdown",
-      "licenseTextSha256": "566c953c6090b1218ca6217dd7359d45dde46581968586dc607d59a78af6a9c4",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
       "copyrightNotices": [
-        "\"aggregate\" if the compilation and its resulting copyright are not",
-        "\"Copyright\" also means copyright-like laws that apply to other kinds of",
-        "(1) assert copyright on the software, and (2) offer you this License",
-        "APPLICABLE LAW.  EXCEPT WHEN OTHERWISE STATED IN WRITING THE COPYRIGHT",
-        "Copyright (C) 2007 Free Software Foundation, Inc. <http://fsf.org/>",
-        "Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso",
-        "copyright on the Program, and are irrevocable provided the stated",
-        "finally terminates your license, and (b) permanently, if the copyright",
-        "modify any covered work.  These actions infringe copyright if you do",
-        "not control copyright.  Those thus making or running the covered works"
+        "Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso"
       ],
       "modified": false,
-      "policyDecision": "review_required"
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares (MIT OR GPL-3.0-or-later), publishes gitHead 0f2f1e4d0509514417db83fe5b86bde90e0ffe8d, and the matching v3.10.1 license explicitly permits the licensee to choose MIT. Canvas elects MIT for all distributed jszip 3.10.1 copies and retains the complete MIT text and upstream copyright notice. Verification source: https://github.com/Stuk/jszip/blob/v3.10.1/LICENSE.markdown"
     },
     {
       "name": "jwa",

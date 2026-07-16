@@ -47,21 +47,27 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 49 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.911 Komponenten `allowed`, 70
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 48 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.912 Komponenten `allowed`, 69
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 49 Release-Pruefpositionen gliedern sich in:
+Die 48 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
-- drei noch zu entscheidende Mehrfachlizenz-Faelle (`mailsplit`, `dompurify`,
-  `jszip`),
+- zwei noch zu entscheidende Mehrfachlizenz-Faelle (`mailsplit`, `dompurify`),
 - 16 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
+
+`jszip@3.10.1` ist als erster Mehrfachlizenz-Fall technisch abgeschlossen:
+Der exakte npm-Release und der auf denselben Commit aufgeloeste Upstream-Tag
+bieten ausdruecklich MIT oder GPLv3 an. Canvas waehlt MIT und liefert den
+vollstaendigen MIT-Text sowie den Upstream-Copyright-Hinweis aus. Die
+versionsgenaue Entscheidung steht in
+`docs/compliance/third-party-review-decisions.md`.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
@@ -102,6 +108,9 @@ Die Architekturpolicy wird durch zwei operative Dokumente ergaenzt:
   Drittanbieterrechten, Notices, Marken und SaaS-Bedingungen, die Bedeutung
   der Lizenzklassen, den Aenderungsablauf und die verpflichtenden Build- und
   Release-Gates.
+- `docs/compliance/third-party-review-decisions.md` protokolliert
+  versionsgenaue technische Einzelentscheidungen mit unveraenderlicher Quelle,
+  Lizenzwahl, Auslieferungsform und erfuellten Pflichten.
 - `docs/compliance/third-party-release-approval-template.md` ist die
   ausfuellbare Vorlage fuer die erste kommerzielle Bestandsfreigabe und fuer
   spaetere neue oder geaenderte Reviewpositionen.

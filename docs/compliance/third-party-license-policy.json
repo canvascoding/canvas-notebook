@@ -344,6 +344,16 @@
       "verificationSource": "node_modules/jsuites/LICENSE",
       "reason": "The package includes an MIT license but omits the lockfile license field."
     },
+    "jszip@3.10.1": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "copyrightNotices": [
+        "Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso"
+      ],
+      "sourceUrl": "https://github.com/Stuk/jszip/tree/0f2f1e4d0509514417db83fe5b86bde90e0ffe8d",
+      "verificationSource": "https://github.com/Stuk/jszip/blob/v3.10.1/LICENSE.markdown",
+      "reason": "The exact npm release declares (MIT OR GPL-3.0-or-later), publishes gitHead 0f2f1e4d0509514417db83fe5b86bde90e0ffe8d, and the matching v3.10.1 license explicitly permits the licensee to choose MIT. Canvas elects MIT for all distributed jszip 3.10.1 copies and retains the complete MIT text and upstream copyright notice."
+    },
     "khroma@2.1.0": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/khroma/license",

@@ -73,6 +73,7 @@ werden muss.
 | `docs/compliance/third-party-components.json` | generiertes Komponenten-, Quellen-, Entscheidungs- und Release-Gate-Manifest | nicht direkt bearbeiten |
 | `THIRD_PARTY_NOTICES.md` | generierte menschenlesbare Notices | nicht direkt bearbeiten |
 | `docs/compliance/runtime-components.json` | im finalen Docker-Image erfasste Debian-/Python-Versionen und Beleg-Hashes | waehrend Image-Build erzeugt |
+| `docs/compliance/third-party-review-decisions.md` | versionsgenaue technische Entscheidungen fuer einzelne Review-Blocker | nach abgeschlossener Einzelpruefung manuell |
 | `docs/compliance/third-party-release-approval-template.md` | Vorlage fuer menschliche Freigabe und Lizenzentscheidungen | pro Review kopieren/ausfuellen |
 
 Manuelle Korrekturen gehoeren in die Policy oder in einen dort referenzierten,
@@ -118,8 +119,9 @@ erfolgen.
 
 Beispiele im aktuellen Bestand:
 
-- `jszip`: konkrete Lizenzwahl dokumentieren, voraussichtlich MIT, sofern die
-  exakte Version diese Wahl mit vollstaendigem Text anbietet.
+- `jszip@3.10.1`: die exakte Version bietet ausdruecklich MIT oder GPLv3 an.
+  Canvas hat die MIT-Alternative versionsgenau gewaehlt und in
+  `third-party-review-decisions.md` dokumentiert.
 - `dompurify`: Auswahl zwischen der angebotenen MPL-2.0- und
   Apache-2.0-Alternative dokumentieren und die Pflichten der gewaehlten
   Alternative erfuellen.
@@ -225,7 +227,10 @@ oder kopierter Upstream-Code geaendert werden:
    entscheiden, ersetzen oder entfernen.
 6. Bei Docker-Aenderungen das Image neu bauen und
    `docs/compliance/runtime-components.json` aus dem finalen Image pruefen.
-7. Die Entscheidung mit der Freigabevorlage dokumentieren.
+7. Technische Einzelentscheidungen versionsgenau in
+   `third-party-review-decisions.md` dokumentieren.
+8. Die verantwortliche beziehungsweise rechtliche Gesamtentscheidung mit der
+   Freigabevorlage dokumentieren.
 
 `npm run licenses:refresh-cache` ist kein Freigabebefehl. Das Skript sammelt
 lediglich reproduzierbare Belege. Fehlende oder widerspruechliche Belege bleiben
