@@ -883,6 +883,7 @@
       "degraded": "Collaboration persistence degraded",
       "persisting": "Saving collaboration…",
       "offline": "Collaboration offline · reconnecting",
+      "remoteCaretLabel": "{name} is editing here",
       "agentOperations": "Agent changes",
       "agentAttribution": "AI agent {agent} on behalf of you",
       "agentAttributionOther": "AI agent {agent} on behalf of {user}",

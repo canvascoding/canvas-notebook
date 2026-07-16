@@ -608,6 +608,167 @@ li.task-list-item > p {
   pointer-events: none;
 }
 
+.tiptap-editor-shell .collaboration-carets__selection {
+  background:
+    linear-gradient(
+      to bottom,
+      transparent 12%,
+      color-mix(in oklab, var(--collaboration-user-color) 14%, transparent) 12%,
+      color-mix(in oklab, var(--collaboration-user-color) 14%, transparent) 88%,
+      transparent 88%
+    );
+  border-bottom: 1px solid color-mix(in oklab, var(--collaboration-user-color) 62%, transparent);
+  border-radius: 0.18em;
+  box-decoration-break: clone;
+  -webkit-box-decoration-break: clone;
+}
+
+.tiptap-editor-shell .collaboration-carets__caret {
+  --collaboration-user-color: #2563eb;
+  --collaboration-user-color-light: #dbeafe;
+  border: 0;
+  cursor: help;
+  display: inline-block;
+  height: 1.42em;
+  margin: 0 -0.375rem;
+  padding: 0;
+  pointer-events: auto;
+  position: relative;
+  vertical-align: -0.31em;
+  width: 0.75rem;
+  word-break: normal;
+  z-index: 12;
+}
+
+.tiptap-editor-shell .collaboration-carets__needle {
+  animation: collaboration-caret-blink 1.08s steps(2, start) infinite;
+  background: var(--collaboration-user-color);
+  border-radius: 999px;
+  bottom: -0.12em;
+  box-shadow:
+    0 0 0 1px color-mix(in oklab, var(--background) 78%, transparent),
+    0 0 0.55rem color-mix(in oklab, var(--collaboration-user-color) 42%, transparent);
+  display: block;
+  height: 1.28em;
+  left: calc(50% - 1px);
+  pointer-events: none;
+  position: absolute;
+  width: 2px;
+}
+
+.tiptap-editor-shell .collaboration-carets__label {
+  align-items: center;
+  animation: collaboration-caret-label-arrival 2.6s cubic-bezier(0.16, 1, 0.3, 1) both;
+  background: var(--collaboration-user-color);
+  border: 1px solid color-mix(in oklab, white 30%, transparent);
+  border-radius: 0.55rem 0.55rem 0.55rem 0.16rem;
+  bottom: calc(100% + 0.62rem);
+  box-shadow:
+    0 0.5rem 1.25rem color-mix(in oklab, black 22%, transparent),
+    inset 0 1px 0 color-mix(in oklab, white 24%, transparent);
+  color: white;
+  display: inline-flex;
+  font-family: var(--font-sans), ui-sans-serif, sans-serif;
+  font-size: 0.6875rem;
+  font-style: normal;
+  font-weight: 650;
+  gap: 0.35rem;
+  left: calc(50% - 0.05rem);
+  letter-spacing: 0.01em;
+  line-height: 1;
+  max-width: 12rem;
+  opacity: 0;
+  overflow: hidden;
+  padding: 0.38rem 0.52rem 0.4rem;
+  pointer-events: none;
+  position: absolute;
+  text-overflow: ellipsis;
+  transform: translateY(0.22rem) scale(0.96);
+  transform-origin: left bottom;
+  user-select: none;
+  white-space: nowrap;
+  z-index: 20;
+}
+
+.tiptap-editor-shell .collaboration-carets__label::after {
+  background: var(--collaboration-user-color);
+  bottom: -0.2rem;
+  clip-path: polygon(0 0, 100% 0, 0 100%);
+  content: '';
+  height: 0.28rem;
+  left: -1px;
+  position: absolute;
+  width: 0.34rem;
+}
+
+.tiptap-editor-shell .collaboration-carets__caret--label-left .collaboration-carets__label {
+  border-radius: 0.55rem 0.55rem 0.16rem 0.55rem;
+  left: auto;
+  right: calc(50% - 0.05rem);
+  transform-origin: right bottom;
+}
+
+.tiptap-editor-shell .collaboration-carets__caret--label-left .collaboration-carets__label::after {
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+  left: auto;
+  right: -1px;
+}
+
+.tiptap-editor-shell .collaboration-carets__activity {
+  background: white;
+  border-radius: 999px;
+  box-shadow: 0 0 0 2px color-mix(in oklab, white 22%, transparent);
+  flex: 0 0 auto;
+  height: 0.3rem;
+  width: 0.3rem;
+}
+
+.tiptap-editor-shell .collaboration-carets__caret:hover .collaboration-carets__label {
+  animation: none;
+  opacity: 1;
+  transform: translateY(0) scale(1);
+}
+
+@keyframes collaboration-caret-blink {
+  0%,
+  46% {
+    opacity: 1;
+  }
+
+  47%,
+  100% {
+    opacity: 0.22;
+  }
+}
+
+@keyframes collaboration-caret-label-arrival {
+  0% {
+    opacity: 0;
+    transform: translateY(0.32rem) scale(0.92);
+  }
+
+  10%,
+  72% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+
+  100% {
+    opacity: 0;
+    transform: translateY(0.12rem) scale(0.98);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tiptap-editor-shell .collaboration-carets__needle {
+    animation: none;
+  }
+
+  .tiptap-editor-shell .collaboration-carets__label {
+    animation: none;
+  }
+}
+
 .tiptap-editor-shell h1 {
   font-size: 2rem;
   font-weight: 700;

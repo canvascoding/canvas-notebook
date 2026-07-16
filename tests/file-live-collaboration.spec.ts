@@ -135,8 +135,44 @@ test.describe('Markdown live collaboration', () => {
       await expect.poll(() => collaborativeEditorText(memberEditor), { timeout: 15_000 })
         .toBe('Alice writes live');
 
+      const adminCaretOnMember = memberEditor.locator('.collaboration-carets__caret').first();
+      await expect(adminCaretOnMember).toBeVisible({ timeout: 15_000 });
+      await expect(adminCaretOnMember).toHaveAttribute(
+        'aria-label',
+        /is editing here|bearbeitet hier/i,
+      );
+      await adminCaretOnMember.hover();
+      await expect.poll(
+        () => adminCaretOnMember.locator('.collaboration-carets__label').evaluate(
+          (element) => getComputedStyle(element).opacity,
+        ),
+        { timeout: 5_000 },
+      ).toBe('1');
+      const caretVisual = await adminCaretOnMember.locator('.collaboration-carets__needle').evaluate((element) => {
+        const caret = getComputedStyle(element);
+        return {
+          animationName: caret.animationName,
+          reducedMotion: window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+          width: caret.width,
+        };
+      });
+      if (caretVisual.reducedMotion) {
+        expect(caretVisual.animationName).toBe('none');
+      } else {
+        expect(caretVisual.animationName).toContain('collaboration-caret-blink');
+      }
+      expect(caretVisual.width).toBe('2px');
+
       await memberEditor.click();
       await memberPage.keyboard.press('ControlOrMeta+A');
+      const memberSelectionOnAdmin = adminEditor.locator('.collaboration-carets__selection').first();
+      await expect(memberSelectionOnAdmin).toBeVisible({ timeout: 15_000 });
+      const selectionVisual = await memberSelectionOnAdmin.evaluate((element) => ({
+        background: getComputedStyle(element).backgroundImage,
+        borderBottomWidth: getComputedStyle(element).borderBottomWidth,
+      }));
+      expect(selectionVisual.background).toContain('linear-gradient');
+      expect(selectionVisual.borderBottomWidth).toBe('1px');
       await memberPage.keyboard.insertText('Alice writes live and Bob replies');
       await expect.poll(() => collaborativeEditorText(adminEditor), { timeout: 15_000 })
         .toBe('Alice writes live and Bob replies');
@@ -197,6 +233,28 @@ test.describe('Markdown live collaboration', () => {
           )),
         };
       });
+      const memberCaretOnAdmin = adminEditor.locator('.collaboration-carets__caret').first();
+      await expect(memberCaretOnAdmin).toBeVisible({ timeout: 15_000 });
+      await memberCaretOnAdmin.hover();
+      await expect(memberCaretOnAdmin).toHaveAttribute('data-label-side', 'left');
+      const labelBounds = await memberCaretOnAdmin.locator('.collaboration-carets__label').evaluate((element) => {
+        const labelRect = element.getBoundingClientRect();
+        const editorRect = element.closest('.tiptap-editor-shell')?.getBoundingClientRect();
+        return {
+          labelLeft: labelRect.left,
+          labelRight: labelRect.right,
+          editorLeft: editorRect?.left ?? 0,
+          editorRight: editorRect?.right ?? window.innerWidth,
+        };
+      });
+      expect(labelBounds.labelLeft).toBeGreaterThanOrEqual(labelBounds.editorLeft);
+      expect(labelBounds.labelRight).toBeLessThanOrEqual(labelBounds.editorRight);
+      await expect.poll(
+        () => memberCaretOnAdmin.locator('.collaboration-carets__label').evaluate(
+          (element) => getComputedStyle(element).opacity,
+        ),
+        { timeout: 5_000 },
+      ).toBe('1');
       const liveStateScreenshot = testInfo.outputPath('live-collaboration.png');
       await adminPage.screenshot({ path: liveStateScreenshot, type: 'png' });
       await testInfo.attach('live collaboration UI', { path: liveStateScreenshot, contentType: 'image/png' });

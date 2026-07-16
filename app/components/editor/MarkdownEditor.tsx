@@ -1668,6 +1668,7 @@ function createEditorExtensions(
   workspaceId: string | null = null,
   wikiLabels: { empty: string; group: string } = { empty: '', group: '' },
   collaboration: CollaborationDocument | null = null,
+  remoteCaretLabel?: (name: string) => string,
 ) {
   const extensions = [
     StarterKit.configure({
@@ -1736,7 +1737,61 @@ function createEditorExtensions(
         user: {
           name: collaboration.session.user.name,
           color: collaboration.session.user.color,
+          colorLight: collaboration.session.user.colorLight,
         },
+        render: (user) => {
+          const name = typeof user.name === 'string' && user.name.trim()
+            ? user.name.trim().slice(0, 120)
+            : 'Collaborator';
+          const color = typeof user.color === 'string' ? user.color : '#2563eb';
+          const colorLight = typeof user.colorLight === 'string' ? user.colorLight : '#dbeafe';
+          const cursor = document.createElement('span');
+          cursor.classList.add('collaboration-carets__caret');
+          cursor.dataset.collaborationUser = name;
+          cursor.setAttribute('aria-label', remoteCaretLabel?.(name) || `${name} is editing here`);
+          cursor.setAttribute('contenteditable', 'false');
+          cursor.style.setProperty('--collaboration-user-color', color);
+          cursor.style.setProperty('--collaboration-user-color-light', colorLight);
+
+          const needle = document.createElement('span');
+          needle.classList.add('collaboration-carets__needle');
+          needle.setAttribute('aria-hidden', 'true');
+
+          const label = document.createElement('span');
+          label.classList.add('collaboration-carets__label');
+          label.setAttribute('aria-hidden', 'true');
+
+          const activity = document.createElement('span');
+          activity.classList.add('collaboration-carets__activity');
+          activity.setAttribute('aria-hidden', 'true');
+          label.append(activity, document.createTextNode(name));
+          cursor.append(needle, label);
+
+          const updateLabelPlacement = () => {
+            const boundary = cursor.closest<HTMLElement>('.tiptap-editor-shell')
+              || cursor.closest<HTMLElement>('[data-testid="markdown-scroll-container"]');
+            if (!boundary) return;
+            const cursorRect = cursor.getBoundingClientRect();
+            const boundaryRect = boundary.getBoundingClientRect();
+            const labelWidth = label.getBoundingClientRect().width;
+            const spaceLeft = cursorRect.left - boundaryRect.left;
+            const spaceRight = boundaryRect.right - cursorRect.right;
+            const labelSide = spaceRight >= labelWidth + 12 || spaceRight >= spaceLeft
+              ? 'right'
+              : 'left';
+            cursor.dataset.labelSide = labelSide;
+            cursor.classList.toggle('collaboration-carets__caret--label-left', labelSide === 'left');
+          };
+          cursor.addEventListener('pointerenter', updateLabelPlacement);
+          window.requestAnimationFrame(updateLabelPlacement);
+          return cursor;
+        },
+        selectionRender: (user) => ({
+          nodeName: 'span',
+          class: 'collaboration-carets__selection',
+          'data-collaboration-user': typeof user.name === 'string' ? user.name.slice(0, 120) : '',
+          style: `--collaboration-user-color: ${typeof user.color === 'string' ? user.color : '#2563eb'};`,
+        }),
       }),
     );
   }
@@ -3846,6 +3901,10 @@ function RichMarkdownEditor({
     }),
     [editMath, openImageDialogFromSlash, openTableDialogFromSlash],
   );
+  const remoteCaretLabel = useCallback(
+    (name: string) => t('collaboration.remoteCaretLabel', { name }),
+    [t],
+  );
   const extensions = useMemo(
     () => createEditorExtensions(
       filePath,
@@ -3854,8 +3913,9 @@ function RichMarkdownEditor({
       activeWorkspaceId,
       wikiLabels,
       collaboration,
+      remoteCaretLabel,
     ),
-    [activeWorkspaceId, collaboration, filePath, labels, slashCommandActions, wikiLabels],
+    [activeWorkspaceId, collaboration, filePath, labels, remoteCaretLabel, slashCommandActions, wikiLabels],
   );
 
   const editor = useEditor({

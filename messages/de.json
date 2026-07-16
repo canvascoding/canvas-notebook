@@ -882,6 +882,7 @@
       "degraded": "Persistenz der Live-Bearbeitung gestört",
       "persisting": "Live-Bearbeitung wird gespeichert…",
       "offline": "Live-Bearbeitung offline · Neuverbindung läuft",
+      "remoteCaretLabel": "{name} bearbeitet hier",
       "agentOperations": "Agentenänderungen",
       "agentAttribution": "KI-Agent {agent} in deinem Auftrag",
       "agentAttributionOther": "KI-Agent {agent} im Auftrag von {user}",
