@@ -145,6 +145,13 @@ deaktivieren. Eine Entfernung ist deshalb ein sinnvoller Upstream- oder
 Dependency-Fix, wird aber nicht als ungepruefte Lockfile-Manipulation im
 Lizenzaudit vorgenommen.
 
+`is-reference@1.2.1` ist technisch geprueft und bleibt blockierend. npm-
+`gitHead` und der auf denselben Commit dereferenzierte annotierte Tag
+`v1.2.1` belegen den exakten Upstream-Stand. Dort deklarieren `package.json`
+und README MIT, ein vollstaendiger MIT-Text und Copyright-Hinweis fehlen
+jedoch. Canvas liefert den kanonischen Text aus, deutet Paketautor und
+Commit-Historie aber nicht als Rechteinhabernachweis um.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.

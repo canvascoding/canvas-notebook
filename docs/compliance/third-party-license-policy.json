@@ -249,6 +249,13 @@
       "verificationSource": "https://registry.npmjs.org/https/1.0.0",
       "reason": "The signed exact npm tarball declares ISC but contains only package.json; even its declared index.js entry point is absent. It provides no LICENSE, NOTICE, copyright statement, repository, gitHead, or signed provenance. Author metadata names hardus van der berg, but authorship is not treated as proof of copyright ownership. The package is pulled in by pptxgenjs@4.0.1 even though that exact release imports Node's built-in node:https module and maps both https and node:https to false for browser bundles. Canvas does not silently remove or replace a transitive package solely during the license audit. The package remains review_required pending corrected upstream metadata, removal/replacement, or a responsible legal decision."
     },
+    "is-reference@1.2.1": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "sourceUrl": "https://github.com/Rich-Harris/is-reference/tree/9d2719fbcc2059567203063f1e7b65d7831bfd64",
+      "verificationSource": "https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license",
+      "reason": "The exact npm release publishes gitHead 9d2719fbcc2059567203063f1e7b65d7831bfd64, and annotated tag v1.2.1 dereferences to that commit. package.json declares MIT and the exact README has a one-line MIT license section, but neither the npm tarball nor the exact source commit contains the full MIT terms, a LICENSE/NOTICE file, a source copyright header, or an attributable copyright statement. Repository and package author metadata name Rich Harris, but authorship and commit history are not treated as proof of copyright ownership. Canvas retains the canonical MIT terms while the package remains review_required pending corrected upstream evidence, replacement/removal, or a responsible legal decision."
+    },
     "@jspreadsheet/formula@2.0.2": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",

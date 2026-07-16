@@ -1452,7 +1452,8 @@
           "client-only@0.0.1: einziger npm-Release deklariert MIT und verweist auf React, liefert aber weder Repository/Commit oder Provenance noch Lizenzdatei oder Copyright-Hinweis; kanonischer MIT-Text wird ausgeliefert, der Rechteinhaber bleibt bewusst unbestimmt",
           "dingbat-to-unicode@1.0.1: exakter Tag und Commit deklarieren BSD-2-Clause, enthalten aber keinen Lizenztext oder Copyright-Hinweis; Paketautor und alleinige Commit-Autorenschaft werden nicht als Rechteinhabernachweis umgedeutet",
           "github-from-package@0.0.0: exakter Tarball enthaelt den MIT-Wortlaut ohne Copyright-Zeile; Paketautor und fremde kommerzielle Notice-Listen werden ohne primaeren Upstream-Beleg nicht als Rechteinhabernachweis uebernommen",
-          "https@1.0.0: signierter exakter Tarball enthaelt nur package.json mit ISC-Deklaration, aber keinen Lizenztext, Copyright- oder Source-Beleg; die ueber pptxgenjs eingezogene Abhaengigkeit wirkt wegen des tatsaechlichen node:https-Imports technisch ueberfluessig, bleibt bis zu einem getesteten Dependency-Fix oder menschlich-rechtlicher Entscheidung blockierend"
+          "https@1.0.0: signierter exakter Tarball enthaelt nur package.json mit ISC-Deklaration, aber keinen Lizenztext, Copyright- oder Source-Beleg; die ueber pptxgenjs eingezogene Abhaengigkeit wirkt wegen des tatsaechlichen node:https-Imports technisch ueberfluessig, bleibt bis zu einem getesteten Dependency-Fix oder menschlich-rechtlicher Entscheidung blockierend",
+          "is-reference@1.2.1: npm-gitHead und annotierter Upstream-Tag belegen den exakten Release mit MIT-Deklaration in package.json und README, aber vollstaendiger MIT-Text und Copyright-Hinweis fehlen; Canvas liefert den kanonischen Text aus und laesst die Rechteinhaberzuordnung offen"
         ]
       }
     },

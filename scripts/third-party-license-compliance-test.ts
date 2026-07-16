@@ -162,6 +162,17 @@ assert.equal(
 );
 assert.match(httpsPlaceholder.reviewNotes || '', /node:https/u);
 
+const isReference = inventory.components.find((component) => (
+  component.name === 'is-reference' && component.versionOrCommit === '1.2.1'
+));
+assert(isReference, 'is-reference@1.2.1 must be inventoried');
+assert.equal(isReference.verifiedLicense, 'MIT');
+assert.equal(isReference.policyDecision, 'review_required');
+assert(isReference.licenseTextSha256, 'is-reference must retain the canonical MIT terms');
+assert.deepEqual(isReference.copyrightNotices, []);
+assert.match(isReference.sourceUrl, /9d2719fbcc2059567203063f1e7b65d7831bfd64/u);
+assert.match(isReference.reviewNotes || '', /annotated tag v1\.2\.1/u);
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

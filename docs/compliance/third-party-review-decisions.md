@@ -469,3 +469,44 @@ Technische Entscheidung:
 - Der Blocker kann durch eine korrigierte PptxGenJS-Version, einen belastbaren
   Lizenzbeleg des Paket-Publishers, Entfernung/Ersatz oder eine dokumentierte
   menschlich-rechtliche Einzelfallentscheidung aufgeloest werden.
+
+## 13. `is-reference@1.2.1`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `is-reference@1.2.1` |
+| npm-Tarball | `https://registry.npmjs.org/is-reference/-/is-reference-1.2.1.tgz` |
+| npm-Integrity | `sha512-U82MsXXiFIrjCK4otLT+o2NA2Cd2g5MLoOVXUZjIOhLurrRxpEXzI8O0KZHr3IjLvlAH1kTPYSuqer5T9ZVBKQ==` |
+| npm-`gitHead` | `9d2719fbcc2059567203063f1e7b65d7831bfd64` |
+| Upstream-Tag | annotierter Tag `v1.2.1`; dereferenziert auf denselben Commit |
+| deklarierte Lizenz | `MIT` |
+| Upstream-Hinweis | `package.json` und einzeiliger README-Abschnitt `License: MIT` |
+| fehlender Beleg | vollstaendiger MIT-Text und belastbarer Copyright-Hinweis |
+| Paket-/Repository-Autor | `Rich Harris` |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `@rollup/plugin-commonjs@28.0.1` ueber `@sentry/nextjs@10.65.0` |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der npm-Release ist ueber `gitHead` und den auf denselben Commit
+dereferenzierten Upstream-Tag exakt zugeordnet. Im exakten Source-Tree und
+npm-Tarball fehlen jedoch `LICENSE`, `NOTICE`, ein vollstaendiger
+Lizenzwortlaut und Copyright-Header. Auch die spaetere sichtbare
+Repository-Historie enthaelt keine solche Datei; das README nennt lediglich
+`MIT`.
+
+Rich Harris ist Paketautor, Tagger und wesentlicher Commit-Autor. Diese
+Autorenlage stuetzt die Herkunft, ersetzt aber keinen ausdruecklichen
+Copyright-Hinweis. Weitere Upstream-Beitragende machen eine automatisch
+erfundene Alleinzuordnung zusaetzlich unvertretbar.
+
+Technische Entscheidung:
+
+- npm-Integrity, `gitHead`, annotierter Tag, exakter Commit und beide
+  MIT-Deklarationen sind reproduzierbar dokumentiert.
+- Canvas liefert den kanonischen MIT-Text aus, erfindet aber keinen
+  Copyright-Inhaber.
+- Der Blocker bleibt bis zu einem korrigierten Upstream-Beleg,
+  Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
+  Einzelfallentscheidung bestehen.
