@@ -2075,7 +2075,7 @@
       "descriptions": {
         "general": "Manage your account, language, and basic instance options.",
         "workspace": "Select a workspace, manage exports, and review workspace access.",
-        "brandDesign": "Define the brand experience for PDF exports and the active agent context.",
+        "brandDesign": "Define the brand experience for Canvas, PDF exports, and the active agent context.",
         "knowledge": "Configure knowledge processing, resources, and feature gates.",
         "agentSettings": "Control agent identity, capabilities, tools, and runtime behavior.",
         "browser": "Configure the browser runtime and browser access for agents.",
@@ -2842,10 +2842,27 @@
         "description": "Once you can access a workspace, you can configure its brand profile here."
       },
       "activation": {
-        "title": "Brand profile",
-        "description": "Applies the design to Markdown PDFs and adds the brand guidelines to the agent's workspace context.",
+        "title": "Choose a brand profile",
+        "description": "Start with a ready-made style. Colors, font, and corner style are shared by Canvas and your documents.",
         "on": "Active",
-        "off": "Inactive"
+        "off": "Inactive",
+        "custom": "Custom",
+        "presetTitle": "Start with a preset",
+        "presetDescription": "Choose the direction closest to your brand, then refine individual details if needed.",
+        "usageTitle": "Where should this profile be used?",
+        "usageDescription": "Both areas use the same design values and can be enabled independently.",
+        "canvasTitle": "Canvas interface",
+        "canvasDescription": "Colors, font, and corners in the workspace",
+        "documentsTitle": "PDFs and agent",
+        "documentsDescription": "Document design and brand guidelines",
+        "sharedSettings": "Changes to the preset or custom settings flow through to both areas."
+      },
+      "customization": {
+        "title": "Customize the design",
+        "description": "Optional: refine colors, font, corners, logo, PDF details, and brand language.",
+        "colorSummary": "Primary: {color}",
+        "fontSummary": "Font: {font}",
+        "radiusSummary": "Corners: {value} px"
       },
       "appearance": {
         "title": "Canvas interface",
@@ -2874,7 +2891,7 @@
         "radiusValue": "{value} px",
         "modeHint": "Your personal light or dark mode stays in place. Canvas adapts surfaces and contrast automatically.",
         "unsaved": "The preview contains changes that have not been saved yet.",
-        "savedState": "The saved settings are active.",
+        "savedState": "All changes are saved and applied.",
         "preview": {
           "label": "Live interface preview",
           "active": "In use",

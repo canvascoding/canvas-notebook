@@ -181,7 +181,7 @@
   display: flex !important;
   align-items: center !important;
   justify-content: center !important;
-  border-radius: 50% !important;
+  border-radius: var(--radius) !important;
   transition: all 0.2s ease !important;
 }
 
@@ -879,7 +879,7 @@ li.task-list-item > p {
 
 .tiptap-block-drop-indicator {
   background: var(--primary);
-  border-radius: 999px;
+  border-radius: var(--radius);
   height: 2px;
   left: 4.75rem;
   pointer-events: none;

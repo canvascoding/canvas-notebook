@@ -30,6 +30,8 @@ assert.match(css, /size: Letter;/u);
 assert.match(css, /margin: 28mm 18mm;/u);
 assert.match(css, /background: #fefcf7;/u);
 assert.match(css, /border-left: 4px solid #0f6cbd;/u);
+assert.match(css, /--brand-radius: 4px;/u);
+assert.match(css, /pre \{[\s\S]*?border-radius: var\(--brand-radius\);/u);
 assert.match(css, /Avenir Next/u);
 assert.match(workspaceBrandFontStack('arial-sans'), /Liberation Sans/u);
 assert.match(workspaceBrandFontStack('georgia-serif'), /Liberation Serif/u);

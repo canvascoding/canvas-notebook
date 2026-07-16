@@ -86,6 +86,7 @@ export function createWorkspaceBrandCss(profile: WorkspaceBrandProfile): string 
       --brand-code-background: ${effective.colors.codeBackground};
       --brand-table-header: ${effective.colors.tableHeaderBackground};
       --brand-table-stripe: ${effective.colors.tableStripeBackground};
+      --brand-radius: ${effective.appearance.radiusPx}px;
     }
 
     @page {
@@ -124,14 +125,25 @@ export function createWorkspaceBrandCss(profile: WorkspaceBrandProfile): string 
     ${headingDecorationCss('h2', effective.typography.h2Style, effective)}
 
     a { color: var(--brand-link); }
-    pre { background: var(--brand-code-background); border-color: var(--brand-border); }
-    :not(pre) > code { background: var(--brand-code-background); }
+    pre {
+      background: var(--brand-code-background);
+      border-color: var(--brand-border);
+      border-radius: var(--brand-radius);
+    }
+    :not(pre) > code {
+      background: var(--brand-code-background);
+      border-radius: var(--brand-radius);
+    }
     th, td { border-color: var(--brand-border); }
     th { background: var(--brand-table-header); }
     tr:nth-child(even) { background: var(--brand-table-stripe); }
     blockquote { border-left-color: var(--brand-accent); color: var(--brand-muted-text); }
     hr { border-top-color: var(--brand-border); }
-    .mermaid-diagram-fallback { border-color: var(--brand-border); background: var(--brand-surface); }
+    .mermaid-diagram-fallback {
+      background: var(--brand-surface);
+      border-color: var(--brand-border);
+      border-radius: var(--brand-radius);
+    }
 
     .canvas-brand-header {
       align-items: center;

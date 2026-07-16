@@ -52,6 +52,7 @@ async function main() {
 
     const {
       DEFAULT_WORKSPACE_BRAND_PROFILE,
+      WORKSPACE_BRAND_PRESETS,
       WorkspaceBrandProfileValidationError,
       normalizeWorkspaceBrandProfile,
       validateWorkspaceBrandProfile,
@@ -92,6 +93,9 @@ async function main() {
       appearance: { enabled: true, radiusPx: 40 },
     });
     assert.deepEqual(appearance.appearance, { enabled: true, radiusPx: 16 });
+    assert.equal(WORKSPACE_BRAND_PRESETS.editorial.appearance.radiusPx, 8);
+    assert.equal(WORKSPACE_BRAND_PRESETS.corporate.appearance.radiusPx, 4);
+    assert.equal(WORKSPACE_BRAND_PRESETS.minimal.appearance.radiusPx, 0);
     assert.equal(
       normalizeWorkspaceBrandProfile({ appearance: { radiusPx: Number.NaN } }).appearance.radiusPx,
       0,

@@ -59,6 +59,15 @@ type BrandScope = 'workspace' | 'organization';
 
 const PRESET_IDS = Object.keys(WORKSPACE_BRAND_PRESETS) as PresetId[];
 
+function brandPresetSignature(profile: WorkspaceBrandProfile): string {
+  return JSON.stringify({
+    radiusPx: profile.appearance.radiusPx,
+    page: profile.page,
+    typography: profile.typography,
+    colors: profile.colors,
+  });
+}
+
 function FieldGroup({
   label,
   hint,
@@ -593,6 +602,7 @@ export function BrandSettingsPanel({
   const [isLoading, setIsLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
   const [isUploadingLogo, setIsUploadingLogo] = useState(false);
+  const [isCustomizationOpen, setIsCustomizationOpen] = useState(false);
   const [isDocumentDetailsOpen, setIsDocumentDetailsOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
@@ -695,8 +705,11 @@ export function BrandSettingsPanel({
     const preset = cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS[presetId]);
     updateProfile((current) => ({
       ...preset,
-      enabled: current.enabled || preset.enabled,
-      appearance: current.appearance,
+      enabled: current.enabled,
+      appearance: {
+        ...preset.appearance,
+        enabled: current.appearance.enabled,
+      },
       brandName: current.brandName,
       logoPath: current.logoPath,
       logoPosition: current.logoPosition,
@@ -823,6 +836,12 @@ export function BrandSettingsPanel({
   };
 
   const isInheritedWorkspace = scope === 'workspace' && !configured;
+  const activePresetId = useMemo(
+    () => PRESET_IDS.find((presetId) => (
+      brandPresetSignature(profile) === brandPresetSignature(WORKSPACE_BRAND_PRESETS[presetId])
+    )) || null,
+    [profile],
+  );
   const hasUnsavedChanges = useMemo(
     () => JSON.stringify(profile) !== JSON.stringify(savedProfile),
     [profile, savedProfile],
@@ -994,120 +1013,112 @@ export function BrandSettingsPanel({
 
       <Card className="overflow-hidden border-border/80">
         <CardHeader className="border-b border-border/70 bg-muted/20">
-          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+          <div className="flex min-w-0 flex-col items-start gap-3 sm:flex-row sm:justify-between sm:gap-4">
             <div className="flex min-w-0 items-start gap-3">
               <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary">
-                <Monitor className="h-5 w-5" />
+                <Sparkles className="h-5 w-5" />
               </span>
-              <div>
-                <CardTitle>{t('appearance.title')}</CardTitle>
-                <CardDescription className="mt-1 max-w-2xl leading-6">{t('appearance.description')}</CardDescription>
+              <div className="min-w-0">
+                <CardTitle>{t('activation.title')}</CardTitle>
+                <CardDescription className="mt-1 max-w-2xl leading-6">{t('activation.description')}</CardDescription>
               </div>
             </div>
-            <div className="flex shrink-0 items-center justify-between gap-3 rounded-lg border border-border bg-background px-3 py-2 sm:justify-start">
-              <div>
-                <Label htmlFor="brand-appearance-enabled" className="text-sm font-semibold">{t('appearance.apply')}</Label>
-                <p className="text-xs text-muted-foreground">
-                  {profile.appearance.enabled ? t('appearance.on') : t('appearance.off')}
-                </p>
-              </div>
-              <Switch
-                id="brand-appearance-enabled"
-                checked={profile.appearance.enabled}
-                disabled={controlsDisabled}
-                onCheckedChange={(enabled) => updateProfile((current) => ({
-                  ...current,
-                  appearance: { ...current.appearance, enabled },
-                }))}
-              />
-            </div>
+            <Badge variant={activePresetId ? 'secondary' : 'outline'} className="shrink-0 sm:mt-0.5">
+              {activePresetId ? t(`presets.${activePresetId}`) : t('activation.custom')}
+            </Badge>
           </div>
         </CardHeader>
         <CardContent className="grid gap-6 p-4 sm:p-6 lg:grid-cols-[minmax(0,1fr)_minmax(320px,0.88fr)] lg:items-start">
           <div className="space-y-5">
             <div>
-              <p className="text-sm font-semibold">{t('appearance.base.title')}</p>
-              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('appearance.base.description')}</p>
+              <p className="text-sm font-semibold">{t('activation.presetTitle')}</p>
+              <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('activation.presetDescription')}</p>
             </div>
-            <div className="grid gap-3 sm:grid-cols-3">
-              <SimpleColorField
-                id="brand-base-accent"
-                label={t('appearance.colors.accent')}
-                hint={t('appearance.colors.accentHint')}
-                value={profile.colors.accent}
-                disabled={controlsDisabled}
-                onChange={(accent) => updateProfile((current) => ({
-                  ...current,
-                  colors: { ...current.colors, accent },
-                }))}
-              />
-              <SimpleColorField
-                id="brand-base-background"
-                label={t('appearance.colors.background')}
-                hint={t('appearance.colors.backgroundHint')}
-                value={profile.page.backgroundColor}
-                disabled={controlsDisabled}
-                onChange={(backgroundColor) => updateProfile((current) => ({
-                  ...current,
-                  page: { ...current.page, backgroundColor },
-                }))}
-              />
-              <SimpleColorField
-                id="brand-base-text"
-                label={t('appearance.colors.text')}
-                hint={t('appearance.colors.textHint')}
-                value={profile.colors.text}
-                disabled={controlsDisabled}
-                onChange={(text) => updateProfile((current) => ({
-                  ...current,
-                  colors: { ...current.colors, text },
-                }))}
-              />
-            </div>
-            <div className="grid gap-4 sm:grid-cols-2">
-              <FieldGroup label={t('appearance.font')} hint={t('appearance.fontHint')}>
-                <NativeSelect
-                  value={profile.typography.bodyFont}
-                  disabled={controlsDisabled}
-                  ariaLabel={t('appearance.font')}
-                  onChange={(value) => updateProfile((current) => ({
-                    ...current,
-                    typography: { ...current.typography, bodyFont: value as WorkspaceBrandFontId },
-                  }))}
-                >
-                  <BrandFontOptions />
-                </NativeSelect>
-              </FieldGroup>
-              <FieldGroup label={t('appearance.radius')} hint={t('appearance.radiusHint')}>
-                <div className="rounded-lg border border-border/80 bg-background/70 px-3 py-2.5">
-                  <div className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
-                    <span>{t('appearance.radiusSquare')}</span>
-                    <output htmlFor="brand-appearance-radius" className="text-foreground">
-                      {t('appearance.radiusValue', { value: profile.appearance.radiusPx })}
-                    </output>
-                    <span>{t('appearance.radiusSoft')}</span>
-                  </div>
-                  <input
-                    id="brand-appearance-radius"
-                    type="range"
-                    min={0}
-                    max={16}
-                    step={2}
-                    value={profile.appearance.radiusPx}
+            <div className="grid gap-3 sm:grid-cols-2">
+              {PRESET_IDS.map((presetId) => {
+                const preset = WORKSPACE_BRAND_PRESETS[presetId];
+                const selected = activePresetId === presetId;
+                return (
+                  <button
+                    key={presetId}
+                    type="button"
+                    aria-pressed={selected}
                     disabled={controlsDisabled}
-                    aria-valuetext={t('appearance.radiusValue', { value: profile.appearance.radiusPx })}
-                    onChange={(event) => updateProfile((current) => ({
-                      ...current,
-                      appearance: { ...current.appearance, radiusPx: Number(event.target.value) },
-                    }))}
-                    className="mt-2 h-7 w-full cursor-pointer accent-primary disabled:cursor-not-allowed"
-                  />
-                </div>
-              </FieldGroup>
+                    className={cn(
+                      'group min-w-0 rounded-lg border bg-background p-3 text-left transition-colors disabled:cursor-not-allowed disabled:opacity-50',
+                      selected
+                        ? 'border-primary ring-2 ring-primary/15'
+                        : 'border-border/80 hover:border-primary/35 hover:bg-muted/20',
+                    )}
+                    onClick={() => applyPreset(presetId)}
+                  >
+                    <span
+                      className="flex h-10 overflow-hidden rounded-md border border-black/10"
+                      style={{ backgroundColor: preset.page.backgroundColor }}
+                    >
+                      <span className="h-full w-3" style={{ backgroundColor: preset.colors.accent }} />
+                      <span className="flex flex-1 flex-col justify-center gap-1.5 px-2">
+                        <span className="h-1 w-3/4" style={{ backgroundColor: preset.colors.heading }} />
+                        <span className="h-1 w-1/2 opacity-45" style={{ backgroundColor: preset.colors.text }} />
+                      </span>
+                    </span>
+                    <span className="mt-2 flex items-center justify-between gap-2">
+                      <span className="truncate text-sm font-semibold">{t(`presets.${presetId}`)}</span>
+                      {selected ? <CheckCircle2 className="h-4 w-4 shrink-0 text-primary" /> : null}
+                    </span>
+                  </button>
+                );
+              })}
             </div>
-            <p className="rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2 text-xs leading-5 text-muted-foreground">
-              {t('appearance.modeHint')}
-            </p>
+
+            <div className="space-y-3 border-t border-border/70 pt-5">
+              <div>
+                <p className="text-sm font-semibold">{t('activation.usageTitle')}</p>
+                <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('activation.usageDescription')}</p>
+              </div>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <label
+                  htmlFor="brand-appearance-enabled"
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border/80 bg-background p-3"
+                >
+                  <span className="flex min-w-0 items-start gap-2.5">
+                    <Monitor className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{t('activation.canvasTitle')}</span>
+                      <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{t('activation.canvasDescription')}</span>
+                    </span>
+                  </span>
+                  <Switch
+                    id="brand-appearance-enabled"
+                    checked={profile.appearance.enabled}
+                    disabled={controlsDisabled}
+                    onCheckedChange={(enabled) => updateProfile((current) => ({
+                      ...current,
+                      appearance: { ...current.appearance, enabled },
+                    }))}
+                  />
+                </label>
+                <label
+                  htmlFor="brand-enabled"
+                  className="flex cursor-pointer items-center justify-between gap-3 rounded-lg border border-border/80 bg-background p-3"
+                >
+                  <span className="flex min-w-0 items-start gap-2.5">
+                    <FileText className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold">{t('activation.documentsTitle')}</span>
+                      <span className="mt-0.5 block text-xs leading-5 text-muted-foreground">{t('activation.documentsDescription')}</span>
+                    </span>
+                  </span>
+                  <Switch
+                    id="brand-enabled"
+                    checked={profile.enabled}
+                    disabled={controlsDisabled}
+                    onCheckedChange={(enabled) => updateProfile((current) => ({ ...current, enabled }))}
+                  />
+                </label>
+              </div>
+              <p className="text-xs leading-5 text-muted-foreground">{t('activation.sharedSettings')}</p>
+            </div>
           </div>
           <div className="space-y-3">
             <BrandInterfacePreview profile={profile} />
@@ -1122,6 +1133,18 @@ export function BrandSettingsPanel({
                 ? t('saving')
                 : scope === 'organization' ? t('saveOrganization') : t('saveWorkspace')}
             </Button>
+            {scope === 'organization' && configured ? (
+              <Button
+                type="button"
+                variant="ghost"
+                className="w-full"
+                disabled={isLoading || isSaving || isUploadingLogo}
+                onClick={() => void resetProfile()}
+              >
+                <RotateCcw className="h-4 w-4" />
+                {t('reset')}
+              </Button>
+            ) : null}
             <p className="text-center text-xs leading-5 text-muted-foreground">
               {hasUnsavedChanges ? t('appearance.unsaved') : t('appearance.savedState')}
             </p>
@@ -1129,44 +1152,107 @@ export function BrandSettingsPanel({
         </CardContent>
       </Card>
 
-      <div className="grid items-start gap-4 xl:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.92fr)]">
-        <div className="space-y-4">
-          <Card>
-            <CardHeader className="space-y-4">
-              <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                <div>
-                  <CardTitle className="flex items-center gap-2">
-                    <Sparkles className="h-4 w-4 text-primary" />
-                    {t('activation.title')}
-                  </CardTitle>
-                  <CardDescription>{t('activation.description')}</CardDescription>
+      <SettingsAccordionCard
+        title={t('customization.title')}
+        description={t('customization.description')}
+        icon={SlidersHorizontal}
+        isOpen={isCustomizationOpen}
+        onOpenChange={setIsCustomizationOpen}
+        summaryItems={[
+          t('customization.colorSummary', { color: profile.colors.accent.toUpperCase() }),
+          t('customization.fontSummary', { font: t(`fonts.${profile.typography.bodyFont}`) }),
+          t('customization.radiusSummary', { value: profile.appearance.radiusPx }),
+        ]}
+        contentClassName="space-y-6"
+      >
+        <section className="space-y-5 border-t border-border/70 pt-5">
+          <div>
+            <p className="text-sm font-semibold">{t('appearance.base.title')}</p>
+            <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('appearance.base.description')}</p>
+          </div>
+          <div className="grid gap-3 sm:grid-cols-3">
+            <SimpleColorField
+              id="brand-base-accent"
+              label={t('appearance.colors.accent')}
+              hint={t('appearance.colors.accentHint')}
+              value={profile.colors.accent}
+              disabled={controlsDisabled}
+              onChange={(accent) => updateProfile((current) => ({
+                ...current,
+                colors: { ...current.colors, accent },
+              }))}
+            />
+            <SimpleColorField
+              id="brand-base-background"
+              label={t('appearance.colors.background')}
+              hint={t('appearance.colors.backgroundHint')}
+              value={profile.page.backgroundColor}
+              disabled={controlsDisabled}
+              onChange={(backgroundColor) => updateProfile((current) => ({
+                ...current,
+                page: { ...current.page, backgroundColor },
+              }))}
+            />
+            <SimpleColorField
+              id="brand-base-text"
+              label={t('appearance.colors.text')}
+              hint={t('appearance.colors.textHint')}
+              value={profile.colors.text}
+              disabled={controlsDisabled}
+              onChange={(text) => updateProfile((current) => ({
+                ...current,
+                colors: { ...current.colors, text },
+              }))}
+            />
+          </div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <FieldGroup label={t('appearance.font')} hint={t('appearance.fontHint')}>
+              <NativeSelect
+                value={profile.typography.bodyFont}
+                disabled={controlsDisabled}
+                ariaLabel={t('appearance.font')}
+                onChange={(value) => updateProfile((current) => ({
+                  ...current,
+                  typography: { ...current.typography, bodyFont: value as WorkspaceBrandFontId },
+                }))}
+              >
+                <BrandFontOptions />
+              </NativeSelect>
+            </FieldGroup>
+            <FieldGroup label={t('appearance.radius')} hint={t('appearance.radiusHint')}>
+              <div className="rounded-lg border border-border/80 bg-background/70 px-3 py-2.5">
+                <div className="flex items-center justify-between gap-3 text-xs font-medium text-muted-foreground">
+                  <span>{t('appearance.radiusSquare')}</span>
+                  <output htmlFor="brand-appearance-radius" className="text-foreground">
+                    {t('appearance.radiusValue', { value: profile.appearance.radiusPx })}
+                  </output>
+                  <span>{t('appearance.radiusSoft')}</span>
                 </div>
-                <div className="flex items-center gap-2">
-                  <Label htmlFor="brand-enabled" className="text-sm">{profile.enabled ? t('activation.on') : t('activation.off')}</Label>
-                  <Switch
-                    id="brand-enabled"
-                    checked={profile.enabled}
-                    disabled={controlsDisabled}
-                    onCheckedChange={(enabled) => updateProfile((current) => ({ ...current, enabled }))}
-                  />
-                </div>
+                <input
+                  id="brand-appearance-radius"
+                  type="range"
+                  min={0}
+                  max={16}
+                  step={2}
+                  value={profile.appearance.radiusPx}
+                  disabled={controlsDisabled}
+                  aria-valuetext={t('appearance.radiusValue', { value: profile.appearance.radiusPx })}
+                  onChange={(event) => updateProfile((current) => ({
+                    ...current,
+                    appearance: { ...current.appearance, radiusPx: Number(event.target.value) },
+                  }))}
+                  className="mt-2 h-7 w-full cursor-pointer accent-primary disabled:cursor-not-allowed"
+                />
               </div>
-              <div className="flex flex-wrap gap-2">
-                {PRESET_IDS.map((presetId) => (
-                  <Button
-                    key={presetId}
-                    type="button"
-                    variant="outline"
-                    size="sm"
-                    disabled={controlsDisabled}
-                    onClick={() => applyPreset(presetId)}
-                  >
-                    {t(`presets.${presetId}`)}
-                  </Button>
-                ))}
-              </div>
-            </CardHeader>
-          </Card>
+            </FieldGroup>
+          </div>
+          <p className="rounded-lg border border-primary/15 bg-primary/[0.04] px-3 py-2 text-xs leading-5 text-muted-foreground">
+            {t('appearance.modeHint')}
+          </p>
+        </section>
+
+        <div className="grid items-start gap-4 border-t border-border/70 pt-6 xl:grid-cols-[minmax(0,1.08fr)_minmax(340px,0.92fr)]">
+          <div className="space-y-4">
 
           <Card>
             <CardHeader>
@@ -1383,23 +1469,13 @@ export function BrandSettingsPanel({
             </CardContent>
           </Card>
 
-          <div className="flex rounded-xl border border-border bg-card p-3">
-            <Button
-              type="button"
-              variant="ghost"
-              disabled={controlsDisabled || !configured}
-              onClick={() => void resetProfile()}
-            >
-              <RotateCcw className="h-4 w-4" />
-              {scope === 'workspace' ? t('inheritance.useOrganization') : t('reset')}
-            </Button>
-          </div>
         </div>
 
         <div className="xl:sticky xl:top-6">
           <BrandDocumentPreview profile={profile} logoUrl={logoUrl} />
         </div>
       </div>
+      </SettingsAccordionCard>
     </div>
   );
 }

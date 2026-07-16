@@ -2074,7 +2074,7 @@
       "descriptions": {
         "general": "Konto, Sprache und grundlegende Instanzoptionen verwalten.",
         "workspace": "Workspace auswählen, Exporte verwalten und Workspace-Zugriffe prüfen.",
-        "brandDesign": "Markenauftritt für PDF-Exporte und den aktiven Agent-Kontext festlegen.",
+        "brandDesign": "Markenauftritt für Canvas, PDF-Exporte und den aktiven Agent-Kontext festlegen.",
         "knowledge": "Knowledge-Verarbeitung, Ressourcen und Feature-Gates konfigurieren.",
         "agentSettings": "Identität, Fähigkeiten, Tools und Laufzeitverhalten der Agents steuern.",
         "browser": "Browser-Laufzeit und Browser-Zugriff für Agents konfigurieren.",
@@ -2841,10 +2841,27 @@
         "description": "Sobald du Zugriff auf einen Workspace hast, kannst du hier sein Brand-Profil konfigurieren."
       },
       "activation": {
-        "title": "Brand-Profil",
-        "description": "Aktiviert das Design für Markdown-PDFs und gibt die Markenrichtlinien dem Agenten im Workspace-Kontext mit.",
+        "title": "Brand-Profil auswählen",
+        "description": "Starte mit einem fertigen Stil. Farben, Schrift und Eckenstil werden gemeinsam für Canvas und deine Dokumente verwendet.",
         "on": "Aktiv",
-        "off": "Inaktiv"
+        "off": "Inaktiv",
+        "custom": "Individuell",
+        "presetTitle": "Mit einem Preset starten",
+        "presetDescription": "Wähle die Richtung, die deiner Marke am nächsten kommt. Einzelheiten kannst du anschließend anpassen.",
+        "usageTitle": "Wo soll das Profil verwendet werden?",
+        "usageDescription": "Beide Bereiche verwenden dieselben Designwerte und können unabhängig aktiviert werden.",
+        "canvasTitle": "Canvas-Oberfläche",
+        "canvasDescription": "Farben, Schrift und Ecken im Workspace",
+        "documentsTitle": "PDFs und Agent",
+        "documentsDescription": "Dokumentdesign und Markenrichtlinien",
+        "sharedSettings": "Änderungen am Preset oder an den individuellen Einstellungen wirken in beiden Bereichen."
+      },
+      "customization": {
+        "title": "Design individuell anpassen",
+        "description": "Optional: Farben, Schrift, Ecken, Logo sowie PDF- und Sprachdetails verfeinern.",
+        "colorSummary": "Hauptfarbe: {color}",
+        "fontSummary": "Schrift: {font}",
+        "radiusSummary": "Ecken: {value} px"
       },
       "appearance": {
         "title": "Canvas-Oberfläche",
@@ -2873,7 +2890,7 @@
         "radiusValue": "{value} px",
         "modeHint": "Der persönliche Hell- oder Dunkelmodus bleibt erhalten. Canvas passt Flächen und Kontraste automatisch an.",
         "unsaved": "Die Vorschau enthält noch nicht gespeicherte Änderungen.",
-        "savedState": "Die gespeicherten Einstellungen sind aktiv.",
+        "savedState": "Alle Änderungen sind gespeichert und übernommen.",
         "preview": {
           "label": "Live-Oberflächenvorschau",
           "active": "Wird verwendet",

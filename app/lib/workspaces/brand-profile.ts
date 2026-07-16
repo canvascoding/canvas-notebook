@@ -141,6 +141,10 @@ export const WORKSPACE_BRAND_PRESETS = {
   editorial: {
     ...DEFAULT_WORKSPACE_BRAND_PROFILE,
     enabled: true,
+    appearance: {
+      ...DEFAULT_WORKSPACE_BRAND_PROFILE.appearance,
+      radiusPx: 8,
+    },
     page: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.page,
       backgroundColor: '#fbf8f1',
@@ -175,6 +179,10 @@ export const WORKSPACE_BRAND_PRESETS = {
   corporate: {
     ...DEFAULT_WORKSPACE_BRAND_PROFILE,
     enabled: true,
+    appearance: {
+      ...DEFAULT_WORKSPACE_BRAND_PROFILE.appearance,
+      radiusPx: 4,
+    },
     typography: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.typography,
       bodyFont: 'humanist-sans',
@@ -199,6 +207,10 @@ export const WORKSPACE_BRAND_PRESETS = {
   minimal: {
     ...DEFAULT_WORKSPACE_BRAND_PROFILE,
     enabled: true,
+    appearance: {
+      ...DEFAULT_WORKSPACE_BRAND_PROFILE.appearance,
+      radiusPx: 0,
+    },
     page: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.page,
       verticalMarginMm: 26,
