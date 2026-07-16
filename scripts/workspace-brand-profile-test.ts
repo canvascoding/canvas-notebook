@@ -119,13 +119,23 @@ async function main() {
     const organizationProfile = await updateOrganizationBrandProfile({
       organizationId: 'brand-org',
       userId: 'brand-user',
-      profile: { ...normalized, brandName: 'Organization Brand' },
+      profile: {
+        ...normalized,
+        appearance: { enabled: true, radiusPx: 8 },
+        brandName: 'Organization Brand',
+      },
     });
     assert.equal(organizationProfile.configured, true);
     assert.equal(organizationProfile.revision, 1);
+    assert.deepEqual(organizationProfile.profile.appearance, { enabled: true, radiusPx: 8 });
+    assert.deepEqual(
+      (await readOrganizationBrandProfile('brand-org')).profile.appearance,
+      { enabled: true, radiusPx: 8 },
+    );
     const resolvedOrganization = await resolveWorkspaceBrandProfile('brand-workspace');
     assert.equal(resolvedOrganization.source, 'organization');
     assert.equal(resolvedOrganization.profile.brandName, 'Organization Brand');
+    assert.deepEqual(resolvedOrganization.profile.appearance, { enabled: true, radiusPx: 8 });
     assert.match(workspaceBrandProfileCacheKey(resolvedOrganization), /^brand:organization:workspace:default:organization:1:/u);
 
     const first = await updateWorkspaceBrandProfile({
