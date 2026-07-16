@@ -1,7 +1,6 @@
 'use client';
 
 import { Suspense, useState } from 'react';
-import Image from 'next/image';
 import { useLocale, useTranslations } from 'next-intl';
 import { Eye, EyeOff } from 'lucide-react';
 import { toast } from 'sonner';
@@ -10,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { LanguageSwitcher } from '@/app/components/language-switcher';
+import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import { authClient } from '@/app/lib/auth-client';
 import { routing } from '@/i18n/routing';
 
@@ -92,17 +92,18 @@ function SetupForm() {
         <LanguageSwitcher />
       </div>
       <div className="w-full max-w-md border border-border bg-card p-8 shadow-sm">
-        <div className="mb-8 flex items-center justify-center">
-          <Image
-            src="/logo-login.webp"
+        <div className="mb-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <PublicBrandLogo
             alt={t('logoAlt')}
-            width={40}
+            width={144}
             height={40}
-            sizes="40px"
-            unoptimized
-            className="mr-3 h-10 w-10 border border-border"
+            sizes="(min-width: 640px) 144px, 128px"
+            fallbackSrc="/logo-login.webp"
+            className="h-10 max-w-36 shrink-0 object-contain"
+            fallbackClassName="w-10 border border-border object-cover"
+            brandClassName="w-auto"
           />
-          <div>
+          <div className="text-center sm:text-left">
             <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">{t('eyebrow')}</p>
             <h1 className="text-2xl font-bold text-foreground">{t('title')}</h1>
           </div>

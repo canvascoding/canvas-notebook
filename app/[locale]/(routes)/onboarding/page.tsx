@@ -6,6 +6,7 @@ import { getInstanceOnboardingStep, getServerPreferredTimeZone } from '@/app/lib
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { resolveOnboardingPhase } from '@/app/lib/onboarding/flow';
+import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import OnboardingWizard from './onboarding-wizard';
 
 export const dynamic = 'force-dynamic';
@@ -50,7 +51,15 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
     return (
       <main className="mx-auto flex min-h-screen max-w-lg items-center px-6 py-12">
         <section className="w-full border border-border bg-card p-6 shadow-sm">
-          <p className="text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">Canvas Notebook</p>
+          <PublicBrandLogo
+            alt="Canvas Notebook"
+            width={160}
+            height={48}
+            className="h-12 max-w-40 object-contain"
+            fallbackClassName="w-12 border border-border object-cover"
+            brandClassName="w-auto"
+          />
+          <p className="mt-4 text-xs font-bold uppercase tracking-[0.16em] text-muted-foreground">Canvas Notebook</p>
           <h1 className="mt-3 text-2xl font-semibold">{t('instanceSetupWaitingTitle')}</h1>
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t('instanceSetupWaitingDescription')}

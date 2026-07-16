@@ -17,6 +17,17 @@ type WorkspaceBrandProfileRow = {
   updated_at: number;
 };
 
+type PrimaryOrganizationBrandProfileRow = {
+  organization_id: string;
+  settings_json: string | null;
+  revision: number | null;
+  updated_at: number | null;
+};
+
+export type PrimaryOrganizationBrandProfileState = WorkspaceBrandProfileState & {
+  organizationId: string;
+};
+
 function defaultState(): WorkspaceBrandProfileState {
   return {
     profile: cloneWorkspaceBrandProfile(DEFAULT_WORKSPACE_BRAND_PROFILE),
@@ -122,6 +133,39 @@ export async function readOrganizationBrandProfile(organizationId: string): Prom
       [organizationId],
     ) as WorkspaceBrandProfileRow | undefined;
     return stateFromRow(row, 'organization');
+  } finally {
+    await database.close();
+  }
+}
+
+export async function readPrimaryOrganizationBrandProfile(): Promise<PrimaryOrganizationBrandProfileState | null> {
+  const database = await openDb();
+  try {
+    const row = await database.get(
+      `SELECT
+         organization.organization_id,
+         profile.settings_json,
+         profile.revision,
+         profile.updated_at
+       FROM canvas_organization_settings organization
+       LEFT JOIN organization_brand_profiles profile
+         ON profile.organization_id = organization.organization_id
+       ORDER BY organization.created_at ASC
+       LIMIT 1`,
+    ) as PrimaryOrganizationBrandProfileRow | undefined;
+    if (!row) return null;
+
+    const state = row.settings_json
+      ? stateFromRow({
+        settings_json: row.settings_json,
+        revision: Number(row.revision) || 1,
+        updated_at: Number(row.updated_at) || 0,
+      }, 'organization')
+      : defaultState();
+    return {
+      organizationId: row.organization_id,
+      ...state,
+    };
   } finally {
     await database.close();
   }

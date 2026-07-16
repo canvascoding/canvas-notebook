@@ -8,8 +8,8 @@ import { Input } from '@/components/ui/input';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { authClient } from '@/app/lib/auth-client';
 import { LanguageSwitcher } from '@/app/components/language-switcher';
+import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import { toast } from 'sonner';
-import Image from 'next/image';
 import { routing } from '@/i18n/routing';
 import { Eye, EyeOff } from 'lucide-react';
 
@@ -90,17 +90,18 @@ function LoginForm() {
         <LanguageSwitcher />
       </div>
       <div className="w-full max-w-md border border-border bg-card p-8 shadow-sm">
-        <div className="flex items-center justify-center mb-8">
-          <Image
-            src="/logo-login.webp"
+        <div className="mb-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <PublicBrandLogo
             alt={t('logoAlt')}
-            width={40}
+            width={144}
             height={40}
-            sizes="40px"
-            unoptimized
-            className="mr-3 h-10 w-10 border border-border"
+            sizes="(min-width: 640px) 144px, 128px"
+            fallbackSrc="/logo-login.webp"
+            className="h-10 max-w-36 shrink-0 object-contain"
+            fallbackClassName="w-10 border border-border object-cover"
+            brandClassName="w-auto"
           />
-          <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
+          <h1 className="text-center text-3xl font-bold text-foreground">{t('title')}</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6" suppressHydrationWarning>

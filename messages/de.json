@@ -2920,7 +2920,7 @@
       },
       "identity": {
         "title": "Markenidentität",
-        "description": "Das Logo wird für Canvas und PDF gemeinsam gepflegt. In Canvas ersetzt es bei aktivierter Oberfläche das Canvas Notebook-Logo; der Markenname bleibt für Dokumente und Agenten-Kontext erhalten.",
+        "description": "Das Logo wird für Canvas und PDF gemeinsam gepflegt. Bei aktivierter Oberfläche ersetzt es das Canvas Notebook-Logo. Auf Anmeldung, Registrierung und Onboarding erscheint dafür der Organisationsstandard; Workspace-Logos gelten nach der Anmeldung.",
         "brandName": "Markenname",
         "brandNamePlaceholder": "z. B. Canvas Studios",
         "logo": {

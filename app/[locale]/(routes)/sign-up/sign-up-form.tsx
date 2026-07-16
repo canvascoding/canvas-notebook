@@ -7,8 +7,8 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { authClient } from '@/app/lib/auth-client';
 import { LanguageSwitcher } from '@/app/components/language-switcher';
+import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import { toast } from 'sonner';
-import Image from 'next/image';
 import { routing } from '@/i18n/routing';
 
 function buildLocalePath(locale: string, pathname: string) {
@@ -82,9 +82,17 @@ function SignUpFormInner() {
         <LanguageSwitcher />
       </div>
       <div className="w-full max-w-md border border-border bg-card p-8 shadow-sm">
-        <div className="flex items-center justify-center mb-8">
-          <Image src="/logo.jpg" alt={t('logoAlt')} width={48} height={48} className="mr-3 border border-border" />
-          <h1 className="text-3xl font-bold text-foreground">{t('title')}</h1>
+        <div className="mb-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
+          <PublicBrandLogo
+            alt={t('logoAlt')}
+            width={144}
+            height={48}
+            sizes="(min-width: 640px) 144px, 128px"
+            className="h-12 max-w-36 shrink-0 object-contain"
+            fallbackClassName="w-12 border border-border object-cover"
+            brandClassName="w-auto"
+          />
+          <h1 className="text-center text-3xl font-bold text-foreground">{t('title')}</h1>
         </div>
 
         <form onSubmit={handleSubmit} className="space-y-6" suppressHydrationWarning>

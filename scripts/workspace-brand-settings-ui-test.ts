@@ -5,7 +5,8 @@ import path from 'node:path';
 const root = process.cwd();
 const panelSource = readFileSync(path.join(root, 'app/components/settings/BrandSettingsPanel.tsx'), 'utf8');
 const appearanceProviderSource = readFileSync(path.join(root, 'app/components/WorkspaceAppearanceProvider.tsx'), 'utf8');
-const brandLogoSource = readFileSync(path.join(root, 'app/components/workspaces/WorkspaceBrandLogo.tsx'), 'utf8');
+const brandLogoSource = readFileSync(path.join(root, 'app/components/branding/BrandLogoImage.tsx'), 'utf8');
+const workspaceBrandLogoSource = readFileSync(path.join(root, 'app/components/workspaces/WorkspaceBrandLogo.tsx'), 'utf8');
 const homeSource = readFileSync(path.join(root, 'app/[locale]/(routes)/page.tsx'), 'utf8');
 const globalStyles = readFileSync(path.join(root, 'app/globals.css'), 'utf8');
 const german = JSON.parse(readFileSync(path.join(root, 'messages/de.json'), 'utf8')) as Record<string, unknown>;
@@ -63,8 +64,9 @@ assert.match(
 assert.match(appearanceProviderSource, /WorkspaceBrandingContext\.Provider/u);
 assert.match(homeSource, /<WorkspaceBrandLogo/u);
 assert.doesNotMatch(homeSource, /src="\/logo\.jpg"/u);
+assert.match(workspaceBrandLogoSource, /<BrandLogoImage/u);
 assert.match(brandLogoSource, /fallbackSrc = '\/logo\.jpg'/u);
-assert.match(brandLogoSource, /unoptimized=\{usesWorkspaceLogo \|\| imageProps\.unoptimized\}/u);
+assert.match(brandLogoSource, /unoptimized=\{usesBrandLogo \|\| imageProps\.unoptimized\}/u);
 assert.match(brandLogoSource, /onError=\{\(event\) => \{[\s\S]*?setFailedLogoUrl\(logoUrl\)/u);
 
 for (const messages of [german, english]) {

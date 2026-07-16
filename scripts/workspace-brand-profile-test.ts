@@ -59,6 +59,7 @@ async function main() {
     } = await import('../app/lib/workspaces/brand-profile');
     const {
       readOrganizationBrandProfile,
+      readPrimaryOrganizationBrandProfile,
       readWorkspaceBrandProfile,
       resetOrganizationBrandProfile,
       resetWorkspaceBrandProfile,
@@ -123,6 +124,7 @@ async function main() {
         ...normalized,
         appearance: { enabled: true, radiusPx: 8 },
         brandName: 'Organization Brand',
+        logoPath: '@organization/brand/logo.webp',
       },
     });
     assert.equal(organizationProfile.configured, true);
@@ -132,6 +134,10 @@ async function main() {
       (await readOrganizationBrandProfile('brand-org')).profile.appearance,
       { enabled: true, radiusPx: 8 },
     );
+    const primaryOrganization = await readPrimaryOrganizationBrandProfile();
+    assert.equal(primaryOrganization?.organizationId, 'brand-org');
+    assert.equal(primaryOrganization?.profile.brandName, 'Organization Brand');
+    assert.equal(primaryOrganization?.profile.logoPath, '@organization/brand/logo.webp');
     const resolvedOrganization = await resolveWorkspaceBrandProfile('brand-workspace');
     assert.equal(resolvedOrganization.source, 'organization');
     assert.equal(resolvedOrganization.profile.brandName, 'Organization Brand');
@@ -169,6 +175,7 @@ async function main() {
     const organizationReset = await resetOrganizationBrandProfile('brand-org');
     assert.equal(organizationReset.configured, false);
     assert.equal((await readOrganizationBrandProfile('brand-org')).configured, false);
+    assert.equal((await readPrimaryOrganizationBrandProfile())?.configured, false);
     assert.equal((await resolveWorkspaceBrandProfile('brand-workspace')).source, 'default');
 
     sqlite.prepare('DELETE FROM canvas_workspaces WHERE id = ?').run('brand-workspace');

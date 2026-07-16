@@ -2921,7 +2921,7 @@
       },
       "identity": {
         "title": "Brand identity",
-        "description": "The logo is shared by Canvas and PDF. In Canvas, it replaces the Canvas Notebook logo when the interface is enabled; the brand name remains available to documents and the agent context.",
+        "description": "The logo is shared by Canvas and PDF. When the interface is enabled, it replaces the Canvas Notebook logo. Login, registration, and onboarding use the organization default; workspace logos apply after login.",
         "brandName": "Brand name",
         "brandNamePlaceholder": "e.g. Canvas Studios",
         "logo": {

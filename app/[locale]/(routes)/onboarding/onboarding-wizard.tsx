@@ -1,7 +1,6 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from 'react';
-import Image from 'next/image';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { routing } from '@/i18n/routing';
@@ -11,6 +10,7 @@ import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat'
 import { AiProviderCredentialsPanel } from '@/app/components/settings/AiProviderCredentialsPanel';
 import { AiProvidersModelsPanel } from '@/app/components/settings/AiProvidersModelsPanel';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import { DEFAULT_USER_TIME_ZONE, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
@@ -328,15 +328,17 @@ export default function OnboardingWizard({
         <div className="flex flex-1 items-start justify-center py-4">
           <div className={`w-full ${step === 'provider' || step === 'profile' || step === 'workspace' ? 'max-w-5xl' : 'max-w-lg'}`}>
             <div className="rounded-xl border border-border bg-card p-6 shadow-sm sm:p-8">
-              <div className="mb-2 flex items-center justify-center">
-                <Image
-                  src="/logo.jpg"
+              <div className="mb-3 flex flex-col items-center justify-center gap-3 sm:flex-row">
+                <PublicBrandLogo
                   alt={t('logoAlt')}
-                  width={48}
+                  width={160}
                   height={48}
-                  className="mr-3 border border-border"
+                  sizes="(min-width: 640px) 160px, 128px"
+                  className="h-12 max-w-40 shrink-0 object-contain"
+                  fallbackClassName="w-12 border border-border object-cover"
+                  brandClassName="w-auto"
                 />
-                <h1 className="text-3xl font-bold">Canvas Notebook</h1>
+                <h1 className="text-center text-3xl font-bold">Canvas Notebook</h1>
               </div>
 
               <div className="mb-8 flex justify-center gap-2">
