@@ -146,36 +146,61 @@ export function MarkdownPropertiesPanel({
   return (
     <section
       className={cn(
-        'mx-4 mt-4 overflow-hidden rounded-xl border border-border/70 bg-muted/25 md:ml-[4.75rem] md:mr-5',
+        'mx-3 mt-3 overflow-hidden rounded-2xl border border-border/70 bg-muted/20 shadow-sm md:ml-[4.75rem] md:mr-5 md:mt-4',
         className,
       )}
       aria-label={t('markdownEditorProperties')}
     >
       <button
         type="button"
-        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        className="grid min-h-16 w-full grid-cols-[2.25rem_minmax(0,1fr)_auto] items-center gap-2.5 px-3 py-2.5 text-left transition-colors hover:bg-muted/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:grid-cols-[2.5rem_minmax(0,1fr)_auto] sm:px-4"
         aria-expanded={expanded}
         onClick={() => setExpanded((current) => !current)}
       >
-        {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-        <Tags className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span className="min-w-0 flex-1 truncate text-sm font-medium">
-          {frontmatter.title || t('markdownEditorProperties')}
+        <span className="flex h-9 w-9 items-center justify-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground shadow-sm">
+          <Tags className="h-4 w-4" />
         </span>
-        <span className="rounded-full bg-background/80 px-2 py-0.5 text-[11px] tabular-nums text-muted-foreground">
-          {propertyCount}
+        <span className="min-w-0">
+          <span className="block text-[10px] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+            {t('markdownEditorProperties')}
+          </span>
+          <span className="mt-0.5 line-clamp-2 block break-words text-sm font-semibold leading-5 text-foreground">
+            {frontmatter.title || t('markdownEditorPropertiesUntitled')}
+          </span>
+        </span>
+        <span className="flex shrink-0 items-center gap-1.5 pl-1 text-muted-foreground">
+          <span
+            className="flex h-7 min-w-7 items-center justify-center rounded-full border border-border/60 bg-background/80 px-1.5 text-[11px] font-medium tabular-nums"
+            aria-label={`${propertyCount} ${t('markdownEditorProperties')}`}
+            title={t('markdownEditorProperties')}
+          >
+            {propertyCount}
+          </span>
+          {expanded
+            ? <ChevronDown className="h-4 w-4" aria-hidden="true" />
+            : <ChevronRight className="h-4 w-4" aria-hidden="true" />}
         </span>
       </button>
 
       {frontmatter.tags.length > 0 ? (
-        <div className="flex flex-wrap gap-1.5 border-t border-border/50 px-3 py-2">
+        <div
+          className={cn(
+            'flex flex-wrap items-start gap-2 border-t border-border/50 px-3 py-3 sm:px-4',
+            !expanded && 'max-h-28 overflow-y-auto overscroll-contain',
+          )}
+          data-testid="markdown-properties-tags"
+        >
           {frontmatter.tags.map((tag) => (
-            <span key={tag} className="inline-flex min-h-6 items-center gap-1 rounded-full bg-primary/10 px-2 py-0.5 text-xs font-medium text-primary">
-              <span aria-hidden="true">#</span>{tag}
+            <span
+              key={tag}
+              className="inline-flex min-h-8 max-w-full items-center gap-1 rounded-lg border border-primary/15 bg-primary/[0.08] py-1 pl-2.5 pr-1.5 text-xs font-medium text-primary"
+            >
+              <span className="shrink-0 opacity-70" aria-hidden="true">#</span>
+              <span className="min-w-0 break-words leading-4 [overflow-wrap:anywhere]">{tag}</span>
               {!readOnly ? (
                 <button
                   type="button"
-                  className="-mr-0.5 rounded-full p-0.5 hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                  className="ml-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md hover:bg-primary/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
                   aria-label={t('markdownEditorPropertiesRemoveTag', { tag })}
                   onClick={() => applyPatch({ tags: frontmatter.tags.filter((candidate) => candidate !== tag) })}
                 >
@@ -188,17 +213,18 @@ export function MarkdownPropertiesPanel({
       ) : null}
 
       {expanded ? (
-        <div className="grid gap-4 border-t border-border/50 bg-background/55 p-3 sm:grid-cols-2">
-          <div className="grid gap-1.5 sm:col-span-2">
+        <div className="grid gap-3 border-t border-border/50 bg-background/60 p-3 sm:grid-cols-2 sm:gap-4 sm:p-4">
+          <div className="grid gap-2 rounded-xl border border-border/60 bg-background/75 p-3 sm:col-span-2">
             <Label htmlFor={`${tagListId}-title`} className="text-xs text-muted-foreground">
               {t('markdownEditorPropertiesTitle')}
             </Label>
             {readOnly ? (
-              <p className="min-h-9 rounded-md border bg-muted/20 px-3 py-2 text-sm">{frontmatter.title || '—'}</p>
+              <p className="min-h-10 break-words rounded-lg border bg-muted/20 px-3 py-2 text-sm">{frontmatter.title || '—'}</p>
             ) : (
               <Input
                 key={frontmatter.title ?? ''}
                 id={`${tagListId}-title`}
+                className="min-h-10"
                 defaultValue={frontmatter.title ?? ''}
                 placeholder={t('markdownEditorPropertiesTitlePlaceholder')}
                 onBlur={(event) => applyPatch({ title: event.currentTarget.value })}
@@ -209,17 +235,18 @@ export function MarkdownPropertiesPanel({
             )}
           </div>
 
-          <div className="grid content-start gap-1.5">
+          <div className="grid content-start gap-2 rounded-xl border border-border/60 bg-background/75 p-3">
             <Label htmlFor={`${tagListId}-tag`} className="text-xs text-muted-foreground">
               {t('markdownEditorPropertiesTags')}
             </Label>
             {readOnly ? (
-              <p className="min-h-9 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+              <p className="min-h-10 break-words rounded-lg border bg-muted/20 px-3 py-2 text-sm [overflow-wrap:anywhere]">
                 {frontmatter.tags.length > 0 ? frontmatter.tags.map((tag) => `#${tag}`).join(', ') : '—'}
               </p>
             ) : (
               <Input
                 id={`${tagListId}-tag`}
+                className="min-h-10"
                 list={tagListId}
                 value={tagDraft}
                 placeholder={t('markdownEditorPropertiesTagPlaceholder')}
@@ -244,18 +271,19 @@ export function MarkdownPropertiesPanel({
             ) : null}
           </div>
 
-          <div className="grid content-start gap-1.5">
+          <div className="grid content-start gap-2 rounded-xl border border-border/60 bg-background/75 p-3">
             <Label htmlFor={`${tagListId}-aliases`} className="text-xs text-muted-foreground">
               {t('markdownEditorPropertiesAliases')}
             </Label>
             {readOnly ? (
-              <p className="min-h-9 rounded-md border bg-muted/20 px-3 py-2 text-sm">
+              <p className="min-h-10 break-words rounded-lg border bg-muted/20 px-3 py-2 text-sm [overflow-wrap:anywhere]">
                 {frontmatter.aliases.join(', ') || '—'}
               </p>
             ) : (
               <Input
                 key={frontmatter.aliases.join('\0')}
                 id={`${tagListId}-aliases`}
+                className="min-h-10"
                 defaultValue={frontmatter.aliases.join(', ')}
                 placeholder={t('markdownEditorPropertiesAliasesPlaceholder')}
                 onBlur={(event) => applyPatch({ aliases: event.currentTarget.value.split(',') })}
@@ -272,11 +300,13 @@ export function MarkdownPropertiesPanel({
                 <p className="text-xs font-medium text-muted-foreground">{t('markdownEditorPropertiesAdditional')}</p>
                 {!readOnly ? <p className="text-[11px] text-muted-foreground">{t('markdownEditorPropertiesSourceHint')}</p> : null}
               </div>
-              <dl className="grid gap-x-4 gap-y-2 rounded-lg border bg-muted/15 p-3 text-xs sm:grid-cols-[minmax(8rem,0.35fr)_1fr]">
+              <dl className="grid gap-2 text-xs sm:grid-cols-2">
                 {extraProperties.map(([key, propertyValue]) => (
-                  <div key={key} className="contents">
-                    <dt className="font-medium text-foreground">{key}</dt>
-                    <dd className="min-w-0 break-words font-mono text-muted-foreground">{formatPropertyValue(propertyValue)}</dd>
+                  <div key={key} className="min-w-0 rounded-xl border border-border/60 bg-background/75 p-3">
+                    <dt className="break-words font-medium text-foreground [overflow-wrap:anywhere]">{key}</dt>
+                    <dd className="mt-1 min-w-0 break-words font-mono leading-5 text-muted-foreground [overflow-wrap:anywhere]">
+                      {formatPropertyValue(propertyValue)}
+                    </dd>
                   </div>
                 ))}
               </dl>
