@@ -321,9 +321,9 @@ Pre-built images are published automatically to `ghcr.io/canvascoding/canvas-not
 
 <a href="https://www.star-history.com/?repos=canvascoding%2Fcanvas-notebook&type=date&legend=top-left">
  <picture>
-   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=canvascoding/canvas-notebook&type=date&theme=dark&legend=top-left" />
-   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=canvascoding/canvas-notebook&type=date&legend=top-left" />
-   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=canvascoding/canvas-notebook&type=date&legend=top-left" />
+   <source media="(prefers-color-scheme: dark)" srcset="https://api.star-history.com/chart?repos=canvascoding/canvas-notebook&type=date&theme=dark&legend=top-left&sealed_token=N0siG4iSXu12BxpnCDXbwTuh8sde0BH0BJD24jRgmymdzvWdLMWoI2VOAhKBRlqn8a_Ja6XHAfiz3Z3HSy7FEZw0RTysbpWIMzGS62P4jO2EQSayOlipSXJYD2hZAxEAnnMOEn_Ih2rGKRhxBAx-OG94H23iGmgktL-8io4xv7i5GsKs5uxAN3sTCzkF" />
+   <source media="(prefers-color-scheme: light)" srcset="https://api.star-history.com/chart?repos=canvascoding/canvas-notebook&type=date&legend=top-left&sealed_token=N0siG4iSXu12BxpnCDXbwTuh8sde0BH0BJD24jRgmymdzvWdLMWoI2VOAhKBRlqn8a_Ja6XHAfiz3Z3HSy7FEZw0RTysbpWIMzGS62P4jO2EQSayOlipSXJYD2hZAxEAnnMOEn_Ih2rGKRhxBAx-OG94H23iGmgktL-8io4xv7i5GsKs5uxAN3sTCzkF" />
+   <img alt="Star History Chart" src="https://api.star-history.com/chart?repos=canvascoding/canvas-notebook&type=date&legend=top-left&sealed_token=N0siG4iSXu12BxpnCDXbwTuh8sde0BH0BJD24jRgmymdzvWdLMWoI2VOAhKBRlqn8a_Ja6XHAfiz3Z3HSy7FEZw0RTysbpWIMzGS62P4jO2EQSayOlipSXJYD2hZAxEAnnMOEn_Ih2rGKRhxBAx-OG94H23iGmgktL-8io4xv7i5GsKs5uxAN3sTCzkF" />
  </picture>
 </a>
 
