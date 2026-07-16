@@ -28,6 +28,24 @@ async function main() {
     'The Marp export dialog must be available from the open-file view.',
   );
 
+  const editorSyncGuardIndex = source.indexOf('if (activePath !== currentFile.path)');
+  const markdownEditorIndex = source.indexOf('<MarkdownEditor', editorSyncGuardIndex);
+  assert.notEqual(
+    editorSyncGuardIndex,
+    -1,
+    'The file editor must wait until the editor draft belongs to the current file.',
+  );
+  assert.equal(
+    markdownEditorIndex > editorSyncGuardIndex,
+    true,
+    'The synchronized-file guard must run before the Markdown editor mounts.',
+  );
+  assert.match(
+    source.slice(editorSyncGuardIndex, markdownEditorIndex),
+    /return <FileLoadingSkeleton path=\{currentFile\.path\} \/>;/u,
+    'A file transition must keep showing a loading state instead of mounting with the previous draft.',
+  );
+
   console.log('marp-editor-actions-test: ok');
 }
 

@@ -1106,6 +1106,10 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     );
   }
 
+  if (activePath !== currentFile.path) {
+    return <FileLoadingSkeleton path={currentFile.path} />;
+  }
+
   return (
     <>
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden">
