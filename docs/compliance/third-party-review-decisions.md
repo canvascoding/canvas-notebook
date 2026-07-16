@@ -128,3 +128,40 @@ Erfuellte Pflichten:
   Produktbestandteilen behauptet,
 - bei einem MailSplit-Upgrade werden die angebotenen Alternativen,
   Copyright-/Notice-Dateien und der Modifikationsstatus erneut verifiziert.
+
+## 4. `@apm-js-collab/code-transformer-bundler-plugins@0.5.0`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `@apm-js-collab/code-transformer-bundler-plugins@0.5.0` |
+| npm-Tarball | `https://registry.npmjs.org/@apm-js-collab/code-transformer-bundler-plugins/-/code-transformer-bundler-plugins-0.5.0.tgz` |
+| npm-Integrity | `sha512-YxLBY5nGlurL7QeJLq6e5g0ouBpAp0pwgyA/5rHXEXwhiPLn9ZHbT+Y2LlP90GT872cSocfjWRYu/fnpuBudNQ==` |
+| npm-`gitHead` | `9443e2a3d03b36eeaea5717b31f9c1ffa7255dce` |
+| Upstream-Tag | fuer `0.5.0` ist kein Release-Tag vorhanden; npm-`gitHead` ist der unveraenderliche Beleg |
+| deklarierte Lizenz | `MIT` |
+| verifizierter Lizenzbeleg | `license: MIT` in `package.json` des npm-Releases und exakten Commits |
+| fehlender Beleg | Lizenzdatei und belastbarer Copyright-Hinweis |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `@sentry/server-utils@10.65.0` |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der npm-Tarball enthaelt nur `README.md`, `package.json` und Build-Ausgaben.
+Der exakte Source-Commit enthaelt ebenfalls keine `LICENSE`-, `NOTICE`- oder
+Copyright-Datei und keinen entsprechenden Source-Header. Das Repository bietet
+auch fuer neuere Releases bis `0.7.1` aktuell keinen solchen Beleg.
+
+Technische Entscheidung:
+
+- Paket, Version, npm-Integritaet, Source-Commit und MIT-SPDX-Deklaration sind
+  jetzt reproduzierbar dokumentiert.
+- Canvas nimmt den kanonischen MIT-Text in die Notices auf, damit die
+  erklaerten Lizenzbedingungen nicht fehlen.
+- Es wird kein Copyright-Inhaber aus Commit-Autoren, GitHub-Contributors oder
+  Organisationsnamen abgeleitet, weil Autorenschaft nicht automatisch die
+  Rechteinhaberschaft beweist.
+- Der Release-Blocker bleibt bestehen. Er kann belastbar durch einen
+  korrigierten Upstream-Release mit Lizenz-/Copyright-Hinweis, Entfernung oder
+  Ersatz der Abhaengigkeit oder eine dokumentierte menschlich-rechtliche
+  Einzelfallentscheidung aufgeloest werden.

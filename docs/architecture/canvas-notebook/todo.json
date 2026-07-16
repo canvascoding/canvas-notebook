@@ -1442,6 +1442,9 @@
           "Gepinnten Docker-Basisimage-Digest und den erfassten finalen Debian-/Python-Lizenzmix pruefen",
           "28 sharp-/libvips-Lieferpositionen mit LGPL- oder zusammengesetzter Lizenz fuer die konkreten Plattformartefakte pruefen",
           "16 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
+        ],
+        "reviewedButStillBlocked": [
+          "@apm-js-collab/code-transformer-bundler-plugins@0.5.0: MIT ist in npm-Paket und exaktem Commit deklariert, aber Lizenzdatei und belastbarer Copyright-Hinweis fehlen; kanonischer MIT-Text wird ausgeliefert, der Blocker bleibt bis Upstream-Fix, Ersatz/Entfernung oder menschlich-rechtlicher Einzelfallentscheidung bestehen"
         ]
       }
     },

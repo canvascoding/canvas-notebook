@@ -32,7 +32,7 @@
       {
         "name": "@apm-js-collab/code-transformer-bundler-plugins",
         "versionOrCommit": "0.5.0",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+        "reason": "The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. The package remains review_required until upstream supplies the missing notice or a responsible reviewer documents a legally supportable attribution. Verification source: https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json The MIT copyright notice could not be attributed automatically."
       },
       {
         "name": "@better-auth/utils",
@@ -10476,7 +10476,7 @@
     {
       "name": "@apm-js-collab/code-transformer-bundler-plugins",
       "versionOrCommit": "0.5.0",
-      "sourceUrl": "https://github.com/apm-js-collab/code-transformer-bundler-plugins",
+      "sourceUrl": "https://github.com/apm-js-collab/code-transformer-bundler-plugins/tree/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce",
       "packagePathOrArtifact": "node_modules/@apm-js-collab/code-transformer-bundler-plugins",
       "usage": "runtime",
       "distributedIn": [
@@ -10487,12 +10487,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. The package remains review_required until upstream supplies the missing notice or a responsible reviewer documents a legally supportable attribution. Verification source: https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@apm-js-collab/code-transformer",

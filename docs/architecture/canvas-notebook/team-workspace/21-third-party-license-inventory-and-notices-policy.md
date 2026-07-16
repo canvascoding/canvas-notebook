@@ -84,6 +84,15 @@ Damit sind alle drei zuvor offenen alternativen Lizenzwahlen versionsgenau
 entschieden. Neue oder aktualisierte Mehrfachlizenzen werden weiterhin durch
 das Release-Gate blockiert, bis eine eigene Entscheidung dokumentiert ist.
 
+Von den 16 Runtime-Paketen mit fehlendem exaktem Lizenz- oder
+Copyright-Beleg ist
+`@apm-js-collab/code-transformer-bundler-plugins@0.5.0` technisch geprueft,
+bleibt aber blockierend: npm-Paket und exakter Commit deklarieren MIT, liefern
+jedoch weder eine Lizenzdatei noch einen belastbaren Copyright-Hinweis. Canvas
+nimmt den kanonischen MIT-Text auf, erfindet aber keinen Rechteinhaber. Die
+zulassigen Aufloesungswege sind in
+`docs/compliance/third-party-review-decisions.md` dokumentiert.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.
