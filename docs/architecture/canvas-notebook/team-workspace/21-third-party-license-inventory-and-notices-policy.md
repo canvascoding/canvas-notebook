@@ -47,18 +47,18 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 48 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.912 Komponenten `allowed`, 69
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 47 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.913 Komponenten `allowed`, 68
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 48 Release-Pruefpositionen gliedern sich in:
+Die 47 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
-- zwei noch zu entscheidende Mehrfachlizenz-Faelle (`mailsplit`, `dompurify`),
+- einen noch zu entscheidenden Mehrfachlizenz-Fall (`mailsplit`),
 - 16 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
 
@@ -68,6 +68,12 @@ bieten ausdruecklich MIT oder GPLv3 an. Canvas waehlt MIT und liefert den
 vollstaendigen MIT-Text sowie den Upstream-Copyright-Hinweis aus. Die
 versionsgenaue Entscheidung steht in
 `docs/compliance/third-party-review-decisions.md`.
+
+`dompurify@3.4.12` ist ebenfalls technisch abgeschlossen. Canvas waehlt aus
+MPL-2.0 oder Apache-2.0 die Apache-2.0-Alternative. Der exakte npm-Tarball und
+Upstream-Commit enthalten keine separate `NOTICE`-Datei; der vollstaendige
+Apache-Text und der bestehende DOMPurify-Copyright-/Lizenzheader werden
+erhalten. Modifikationen am Paket liegen nicht vor.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine

@@ -294,6 +294,16 @@
       "verificationSource": "node_modules/lemonadejs/LICENSE.md",
       "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
     },
+    "dompurify@3.4.12": {
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextPath": "node_modules/dompurify/LICENSE",
+      "copyrightNotices": [
+        "(c) Cure53 and other contributors"
+      ],
+      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/a9ca1e537422319a557a9a2aa61f003b23b4a197",
+      "verificationSource": "https://github.com/cure53/DOMPurify/blob/3.4.12/LICENSE",
+      "reason": "The exact npm release declares (MPL-2.0 OR Apache-2.0), publishes gitHead a9ca1e537422319a557a9a2aa61f003b23b4a197, and the matching 3.4.12 tag resolves to that commit. Canvas elects Apache-2.0, retains the complete Apache-2.0 text and DOMPurify license header, and does not modify the package. The exact npm tarball and source tree contain no separate NOTICE file."
+    },
     "format@0.2.2": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "docs/compliance/license-texts/MIT.txt",

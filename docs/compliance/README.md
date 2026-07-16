@@ -122,9 +122,9 @@ Beispiele im aktuellen Bestand:
 - `jszip@3.10.1`: die exakte Version bietet ausdruecklich MIT oder GPLv3 an.
   Canvas hat die MIT-Alternative versionsgenau gewaehlt und in
   `third-party-review-decisions.md` dokumentiert.
-- `dompurify`: Auswahl zwischen der angebotenen MPL-2.0- und
-  Apache-2.0-Alternative dokumentieren und die Pflichten der gewaehlten
-  Alternative erfuellen.
+- `dompurify@3.4.12`: Canvas hat die angebotene Apache-2.0-Alternative
+  versionsgenau gewaehlt. Lizenztext, Copyright-/Lizenzheader, fehlende
+  Upstream-`NOTICE`-Datei und Modifikationsstatus sind dokumentiert.
 - `@zone-eu/mailsplit`: angebotene MIT-/EUPL-Alternative und exakte
   Release-Belege pruefen und eine Auswahl dokumentieren.
 

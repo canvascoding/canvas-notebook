@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1912,
-    "reviewRequired": 69,
+    "allowed": 1913,
+    "reviewRequired": 68,
     "blocked": 0
   },
   "releaseGate": {
@@ -208,11 +208,6 @@
         "name": "dingbat-to-unicode",
         "versionOrCommit": "1.0.1",
         "reason": "No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>"
-      },
-      {
-        "name": "dompurify",
-        "versionOrCommit": "3.4.12",
-        "reason": "Policy decision is review_required for (MPL-2.0 OR Apache-2.0)."
       },
       {
         "name": "github-from-package",
@@ -28908,7 +28903,7 @@
     {
       "name": "dompurify",
       "versionOrCommit": "3.4.12",
-      "sourceUrl": "https://github.com/cure53/DOMPurify",
+      "sourceUrl": "https://github.com/cure53/DOMPurify/tree/a9ca1e537422319a557a9a2aa61f003b23b4a197",
       "packagePathOrArtifact": "node_modules/dompurify",
       "usage": "runtime",
       "distributedIn": [
@@ -28918,15 +28913,15 @@
         "electron-web-app"
       ],
       "declaredLicense": "(MPL-2.0 OR Apache-2.0)",
-      "verifiedLicense": "(MPL-2.0 OR Apache-2.0)",
+      "verifiedLicense": "Apache-2.0",
       "licenseTextRef": "node_modules/dompurify/LICENSE",
       "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
+        "(c) Cure53 and other contributors"
       ],
       "modified": false,
-      "policyDecision": "review_required"
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares (MPL-2.0 OR Apache-2.0), publishes gitHead a9ca1e537422319a557a9a2aa61f003b23b4a197, and the matching 3.4.12 tag resolves to that commit. Canvas elects Apache-2.0, retains the complete Apache-2.0 text and DOMPurify license header, and does not modify the package. The exact npm tarball and source tree contain no separate NOTICE file. Verification source: https://github.com/cure53/DOMPurify/blob/3.4.12/LICENSE"
     },
     {
       "name": "domutils",

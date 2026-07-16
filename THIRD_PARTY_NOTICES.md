@@ -823,7 +823,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | dom-serializer | 2.0.0 | runtime | MIT | allowed |
 | domelementtype | 2.3.0 | runtime | BSD-2-Clause | allowed |
 | domhandler | 5.0.3 | runtime | BSD-2-Clause | allowed |
-| dompurify | 3.4.12 | runtime | (MPL-2.0 OR Apache-2.0) | review_required |
+| dompurify | 3.4.12 | runtime | Apache-2.0 | allowed |
 | domutils | 3.2.2 | runtime | BSD-2-Clause | allowed |
 | dotenv | 16.6.1 | runtime | BSD-2-Clause | allowed |
 | dotenv | 17.4.2 | runtime | BSD-2-Clause | allowed |
@@ -1531,7 +1531,6 @@ The following entries require a documented responsible/legal decision before a c
 - **@zone-eu/mailsplit 5.4.14:** Policy decision is review_required for (MIT OR EUPL-1.1+).
 - **client-only 0.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
 - **dingbat-to-unicode 1.0.1:** No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>
-- **dompurify 3.4.12:** Policy decision is review_required for (MPL-2.0 OR Apache-2.0).
 - **github-from-package 0.0.0:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
 - **highlightjs-vue 1.0.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: Sara Lissette <lissette.ibnz@gmail.com> (https://github.com/LissetteIbnz)
 - **https 1.0.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: hardus van der berg <hardus@sunfork.com> (http://www.sunfork.com)
@@ -24066,6 +24065,7 @@ Applies to @aws-crypto/sha256-browser@5.2.0, @aws-crypto/supports-web-crypto@5.2
 
 Copyright notices:
 
+- (c) Cure53 and other contributors
 - (c) You must retain, in the Source form of any Derivative Works
 - that You distribute, all copyright, patent, trademark, and
 

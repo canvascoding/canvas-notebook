@@ -1396,10 +1396,10 @@
           "totalComponents": 1981,
           "runtimeComponents": 1473,
           "developmentOnlyComponents": 508,
-          "allowed": 1912,
-          "reviewRequired": 69,
+          "allowed": 1913,
+          "reviewRequired": 68,
           "blocked": 0,
-          "releaseBlockers": 48
+          "releaseBlockers": 47
         },
         "completed": [
           "Deterministischer npm- und Non-npm-Inventargenerator",
@@ -1420,11 +1420,12 @@
           "Striktes npm run verify:release in CI und lokalen Release-Publisher-Ablauf integriert",
           "Operatives Compliance-Runbook mit Lizenzklassen, Aenderungsablauf, Artefaktmatrix und wiederkehrender Release-Pruefung dokumentiert",
           "Versionierbare Freigabevorlage fuer Erstbestand, Mehrfachlizenzen, Docker-/Native-Lieferumfang und kopierten Upstream-Code dokumentiert",
-          "Lizenzwahl fuer jszip@3.10.1 anhand des exakten npm-Releases und Upstream-Tags auf MIT festgelegt; MIT-Text, Copyright, Quelle und Lieferartefakte dokumentiert"
+          "Lizenzwahl fuer jszip@3.10.1 anhand des exakten npm-Releases und Upstream-Tags auf MIT festgelegt; MIT-Text, Copyright, Quelle und Lieferartefakte dokumentiert",
+          "Lizenzwahl fuer dompurify@3.4.12 anhand des exakten npm-Releases und Upstream-Tags auf Apache-2.0 festgelegt; Lizenztext, Copyright-/Lizenzheader, fehlende NOTICE-Datei, Modifikationsstatus und Lieferartefakte dokumentiert"
         ],
         "verified": [
           "npm run test:licenses",
-          "Negativtest: npm run test:licenses:release blockiert mit 48 dokumentierten Pruefpositionen",
+          "Negativtest: npm run test:licenses:release blockiert mit 47 dokumentierten Pruefpositionen",
           "npx tsc --noEmit --pretty false",
           "npm run lint",
           "npm run build",
@@ -1439,7 +1440,7 @@
           "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
           "Gepinnten Docker-Basisimage-Digest und den erfassten finalen Debian-/Python-Lizenzmix pruefen",
           "28 sharp-/libvips-Lieferpositionen mit LGPL- oder zusammengesetzter Lizenz fuer die konkreten Plattformartefakte pruefen",
-          "Lizenzwahl fuer mailsplit und dompurify dokumentieren",
+          "Lizenzwahl fuer mailsplit dokumentieren",
           "16 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
         ]
       }
