@@ -4,6 +4,7 @@ import { openDb, type SqlConnection } from '@/app/lib/db';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { listAgentProfiles, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export type AgentAccess = {
   canUse: boolean;
@@ -16,6 +17,11 @@ export type AgentAccessContext = {
   workspaceId?: string | null;
   projectId?: string | null;
 };
+
+export type AgentAccessWorkspace = Pick<
+  WorkspaceContext,
+  'organizationId' | 'workspaceId' | 'projectId'
+>;
 
 export type AgentMemberRecord = AgentAccess & {
   agentId: string;
@@ -86,6 +92,16 @@ function mergeAgentAccess(...entries: AgentAccess[]): AgentAccess {
     canUse: entries.some((entry) => entry.canUse),
     canEdit: entries.some((entry) => entry.canEdit),
     canManage: entries.some((entry) => entry.canManage),
+  };
+}
+
+export function agentAccessContextForWorkspace(
+  workspace: AgentAccessWorkspace,
+): AgentAccessContext {
+  return {
+    organizationId: workspace.organizationId,
+    workspaceId: workspace.workspaceId,
+    projectId: workspace.projectId,
   };
 }
 
@@ -193,8 +209,9 @@ export async function getAgentAccess(
       can_edit: unknown;
       can_manage: unknown;
     }>;
+    const isWorkspaceScoped = Boolean(context.workspaceId);
     const [workspaceRows, projectRows] = await Promise.all([
-      context.workspaceId ? Promise.resolve([]) : database.all(
+      isWorkspaceScoped ? Promise.resolve([]) : database.all(
         `SELECT DISTINCT w.id
          FROM canvas_workspaces w
          LEFT JOIN canvas_workspace_members wm
@@ -205,7 +222,7 @@ export async function getAgentAccess(
            AND (w.type = 'organization' OR w.owner_user_id = ? OR wm.user_id IS NOT NULL OR pm.user_id IS NOT NULL)`,
         [userId, userId, row.organization_id, userId],
       ),
-      context.projectId ? Promise.resolve([]) : database.all(
+      isWorkspaceScoped ? Promise.resolve([]) : database.all(
         `SELECT DISTINCT p.id
          FROM canvas_projects p
          LEFT JOIN canvas_project_members pm
@@ -223,10 +240,17 @@ export async function getAgentAccess(
         if (grant.target_type === 'role') return grant.target_id === permission.role;
         if (grant.target_type === 'user') return grant.target_id === userId;
         if (grant.target_type === 'workspace') {
-          return context.workspaceId ? grant.target_id === context.workspaceId : accessibleWorkspaceIds.has(grant.target_id);
+          return isWorkspaceScoped
+            ? grant.target_id === context.workspaceId
+            : accessibleWorkspaceIds.has(grant.target_id);
         }
         if (grant.target_type === 'project') {
-          return context.projectId ? grant.target_id === context.projectId : accessibleProjectIds.has(grant.target_id);
+          if (isWorkspaceScoped) {
+            return Boolean(context.projectId && grant.target_id === context.projectId);
+          }
+          return context.projectId
+            ? grant.target_id === context.projectId && accessibleProjectIds.has(grant.target_id)
+            : accessibleProjectIds.has(grant.target_id);
         }
         return false;
       })
@@ -252,6 +276,20 @@ export async function requireAgentAccess(
     throw new AgentAccessError('AGENT_ACCESS_DENIED', 'Agent access denied.', 403);
   }
   return access;
+}
+
+export async function requireAgentAccessForWorkspace(
+  userId: string,
+  agentId: string,
+  permission: keyof AgentAccess,
+  workspace: AgentAccessWorkspace,
+): Promise<AgentAccess> {
+  return requireAgentAccess(
+    userId,
+    agentId,
+    permission,
+    agentAccessContextForWorkspace(workspace),
+  );
 }
 
 export async function listAgentAccessForUser(

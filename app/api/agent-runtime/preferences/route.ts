@@ -8,7 +8,7 @@ import {
   setUserRuntimePreference,
 } from '@/app/lib/agent-runtime-policy/runtime-service';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
-import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
+import { AgentAccessError, requireAgentAccessForWorkspace } from '@/app/lib/agents/access';
 import { auth } from '@/app/lib/auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -134,7 +134,7 @@ export async function GET(request: NextRequest) {
 
   try {
     const agentId = requestedAgentId(request.nextUrl.searchParams.get('agentId'));
-    await requireAgentAccess(access.session.user.id, agentId, 'canUse');
+    await requireAgentAccessForWorkspace(access.session.user.id, agentId, 'canUse', access.workspace);
     const resolution = await resolveEffectiveAgentRuntime(runtimeContext({
       organizationId: access.workspace.organizationId,
       userId: access.session.user.id,
@@ -169,7 +169,7 @@ export async function PATCH(request: NextRequest) {
 
   try {
     const agentId = requestedAgentId(payload?.agentId);
-    await requireAgentAccess(access.session.user.id, agentId, 'canUse');
+    await requireAgentAccessForWorkspace(access.session.user.id, agentId, 'canUse', access.workspace);
     const context = runtimeContext({
       organizationId: access.workspace.organizationId,
       userId: access.session.user.id,
@@ -224,7 +224,7 @@ export async function DELETE(request: NextRequest) {
 
   try {
     const agentId = requestedAgentId(request.nextUrl.searchParams.get('agentId'));
-    await requireAgentAccess(access.session.user.id, agentId, 'canUse');
+    await requireAgentAccessForWorkspace(access.session.user.id, agentId, 'canUse', access.workspace);
     const expectedRevision = parseOptionalExpectedRevision(request.nextUrl.searchParams.get('expectedRevision'));
     const context = runtimeContext({
       organizationId: access.workspace.organizationId,

@@ -2182,7 +2182,7 @@ contentKind: document
   test('should load the selected agent model before the first chat session starts', async ({ page }) => {
     let savedLastActiveAgentId: string | null = null;
 
-    await page.route('**/api/agents', async (route) => {
+    await page.route(/\/api\/agents(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -2246,7 +2246,7 @@ contentKind: document
   });
 
   test('should initialize a new chat from the last active agent preference', async ({ page }) => {
-    await page.route('**/api/agents', async (route) => {
+    await page.route(/\/api\/agents(?:\?.*)?$/, async (route) => {
       await route.fulfill({
         status: 200,
         contentType: 'application/json',

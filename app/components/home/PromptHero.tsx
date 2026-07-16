@@ -59,7 +59,10 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
-  const [availableAgents, setAvailableAgents] = useState<AgentProfile[]>([]);
+  const [agentListState, setAgentListState] = useState<{
+    workspaceId: string | null;
+    agents: AgentProfile[];
+  }>({ workspaceId: null, agents: [] });
   const [selectedAgentId, setSelectedAgentId] = useState(DEFAULT_AGENT_ID);
   const fileInputRef = useRef<HTMLInputElement>(null);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
@@ -79,11 +82,15 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const isUploading = pendingUploads > 0;
   const notebookHref = getPathname({ href: '/notebook', locale });
+  const availableAgents = useMemo(() => (
+    agentListState.workspaceId === activeWorkspaceId ? agentListState.agents : []
+  ), [activeWorkspaceId, agentListState]);
   const agentOptions = useMemo(() => (
     availableAgents.length > 0 ? availableAgents : [DEFAULT_AGENT_PROFILE]
   ), [availableAgents]);
   const selectedAgent = agentOptions.find((agent) => agent.agentId === selectedAgentId);
-  const selectedAgentName = selectedAgent?.name || getAgentDisplayName(selectedAgentId);
+  const effectiveSelectedAgentId = selectedAgent?.agentId || DEFAULT_AGENT_ID;
+  const selectedAgentName = selectedAgent?.name || getAgentDisplayName(effectiveSelectedAgentId);
   const promptSuggestions = useMemo(() => [
     tChat('promptSuggestions.campaign'),
     tChat('promptSuggestions.creative'),
@@ -94,20 +101,21 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     let isActive = true;
 
     const loadAgentState = async () => {
+      if (!activeWorkspaceId) return;
       try {
         const [agents, lastActiveAgentId] = await Promise.all([
-          fetchChatAgents(),
+          fetchChatAgents(activeWorkspaceId),
           fetchLastActiveAgentId(),
         ]);
         if (!isActive) return;
 
-        setAvailableAgents(agents);
+        setAgentListState({ workspaceId: activeWorkspaceId, agents });
         const hasStoredAgent = agents.length === 0 || agents.some((agent) => agent.agentId === lastActiveAgentId);
         setSelectedAgentId(hasStoredAgent ? lastActiveAgentId : DEFAULT_AGENT_ID);
       } catch (error) {
         console.error('Failed to load home agent selector state', error);
         if (isActive) {
-          setAvailableAgents([DEFAULT_AGENT_PROFILE]);
+          setAgentListState({ workspaceId: activeWorkspaceId, agents: [DEFAULT_AGENT_PROFILE] });
           setSelectedAgentId(DEFAULT_AGENT_ID);
         }
       }
@@ -118,7 +126,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     return () => {
       isActive = false;
     };
-  }, []);
+  }, [activeWorkspaceId]);
 
   const handleAgentSelect = useCallback((agentId: string) => {
     if (licenseLocked) return;
@@ -426,7 +434,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
       const data = {
         prompt: normalizedPrompt,
         attachments: attachments,
-        agentId: selectedAgentId,
+        agentId: effectiveSelectedAgentId,
       };
       window.sessionStorage.setItem(
         CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY,
@@ -564,7 +572,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
             />
             <ChatAgentSelector
               variant="desktop"
-              activeAgentId={selectedAgentId}
+              activeAgentId={effectiveSelectedAgentId}
               activeAgentName={selectedAgentName}
               activeAgentIconId={selectedAgent?.iconId}
               agents={agentOptions}
@@ -572,7 +580,11 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
               testId="home-agent-id"
               onSelectAgent={handleAgentSelect}
               onReloadAgents={async () => {
-                setAvailableAgents(await fetchChatAgents());
+                if (!activeWorkspaceId) return;
+                setAgentListState({
+                  workspaceId: activeWorkspaceId,
+                  agents: await fetchChatAgents(activeWorkspaceId),
+                });
               }}
             />
           </div>

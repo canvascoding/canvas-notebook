@@ -14,6 +14,7 @@ import {
   type CreateManagedAgentInput,
 } from '@/app/lib/agents/management-actions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { requireSessionWorkspace } from '@/app/lib/workspaces/request';
 
 type AuthSession = NonNullable<Awaited<ReturnType<typeof auth.api.getSession>>>;
 
@@ -22,9 +23,9 @@ function actorFromRequest(request: NextRequest, session: AuthSession): AgentMana
     userId: session.user.id,
     sessionId: session.session.id,
     source: 'api',
-    organizationId: request.nextUrl.searchParams.get('organizationId'),
-    workspaceId: request.nextUrl.searchParams.get('workspaceId'),
-    projectId: request.nextUrl.searchParams.get('projectId'),
+    organizationId: request.nextUrl.searchParams.get('organizationId')?.trim() || null,
+    workspaceId: request.nextUrl.searchParams.get('workspaceId')?.trim() || null,
+    projectId: request.nextUrl.searchParams.get('projectId')?.trim() || null,
   };
 }
 
@@ -61,7 +62,20 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const actor = actorFromRequest(request, session);
+    let actor = actorFromRequest(request, session);
+    if (actor.workspaceId) {
+      const workspaceAccess = await requireSessionWorkspace(session, {
+        workspaceId: actor.workspaceId,
+        permissions: ['canRead', 'canRunAgent'],
+      });
+      if (workspaceAccess.response) return workspaceAccess.response;
+      actor = {
+        ...actor,
+        organizationId: workspaceAccess.workspace.organizationId,
+        workspaceId: workspaceAccess.workspace.workspaceId,
+        projectId: workspaceAccess.workspace.projectId,
+      };
+    }
     const agentId = request.nextUrl.searchParams.get('agentId');
     if (agentId) {
       const inspected = await inspectManagedAgent(actor, agentId, {

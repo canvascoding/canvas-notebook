@@ -227,6 +227,7 @@ export default function CanvasAgentChat({
   } = useChatAgentConfig({
     initialAgentId: CHAT_AGENT_ID,
     sessionId,
+    workspaceId: activeWorkspaceId,
   });
   const {
     resolution: runtimeResolution,

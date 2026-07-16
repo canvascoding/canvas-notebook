@@ -6,7 +6,7 @@ import {
 } from '@/app/lib/agent-runtime-policy/runtime-resolver';
 import { runtimeErrorResponse } from '@/app/lib/agent-runtime-policy/runtime-service';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
-import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
+import { AgentAccessError, requireAgentAccessForWorkspace } from '@/app/lib/agents/access';
 import {
   findOwnedPiSessionForRuntime,
   isPiSessionInWorkspace,
@@ -103,7 +103,12 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    await requireAgentAccess(access.session.user.id, agentId, 'canUse');
+    await requireAgentAccessForWorkspace(
+      access.session.user.id,
+      agentId,
+      'canUse',
+      access.workspace,
+    );
     const context: AiRuntimeResolutionContext = {
       organizationId: access.workspace.organizationId,
       userId: access.session.user.id,
