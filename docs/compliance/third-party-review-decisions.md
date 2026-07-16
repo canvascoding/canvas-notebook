@@ -510,3 +510,46 @@ Technische Entscheidung:
 - Der Blocker bleibt bis zu einem korrigierten Upstream-Beleg,
   Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
   Einzelfallentscheidung bestehen.
+
+## 14. `minimist@1.2.8`
+
+Status: technischer Lizenzbeleg abgeschlossen; Komponente `allowed`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `minimist@1.2.8` |
+| npm-Tarball | `https://registry.npmjs.org/minimist/-/minimist-1.2.8.tgz` |
+| npm-Integrity | `sha512-2yyAR8qBkN3YuheJanUpWC5U3bb5osDywNB8RzDVlDwDHbocAJveqqj1u8+SVD7jkWT4yvsHCpWqqWqAxb0zCA==` |
+| npm-`gitHead` | `6901ee286bc4c16da6830b48b46ce1574703cea1` |
+| Upstream-Tag | annotierter Tag `v1.2.8`; dereferenziert auf denselben Commit |
+| deklarierte Lizenz | `MIT` |
+| exakter Release-Text | `node_modules/minimist/LICENSE` |
+| Text-SHA-256 | `435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b` |
+| spaetere primaere Klarstellung | offizieller Upstream-Commit `b7ce0ded1e840ccef6f59b1866694e93f6f582e8` |
+| Copyright | `Copyright (c) 2013 James Halliday and contributors` |
+| Canvas-Modifikation | keine |
+| Herkunft | Runtime ueber `better-sqlite3`/`prebuild-install`; zusaetzlich Development-/Electron-Buildpfade |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der exakte Release enthaelt bereits den vollstaendigen MIT-Nutzungs- und
+Haftungswortlaut, laesst aber die konkrete Copyright-Zeile aus. Das offizielle
+Upstream-Repository hat seine Projektlizenz am 6. November 2023 mit der
+ausdruecklichen Begruendung aktualisiert, GitHubs Lizenzerkennung zu
+ermoeglichen, und dabei den primaeren Copyright-Hinweis
+`Copyright (c) 2013 James Halliday and contributors` ergaenzt.
+
+Diese nachtraegliche Zeile ist keine fremde Sekundaerzuordnung, sondern eine
+versionierte Klarstellung durch den offiziellen Upstream-Maintainer im selben
+Repository. `1.2.8` ist weiterhin der neueste npm-Release; die Klarstellung
+bezieht sich auf das seit 2013 bestehende Projekt und nicht auf inkompatiblen
+Nachfolgecode.
+
+Technische Entscheidung:
+
+- npm-Integrity, `gitHead`, annotierter Tag, exakter Release-Text und dessen
+  Hash bleiben erhalten.
+- Canvas liefert zusaetzlich den spaeter offiziell klargestellten
+  Copyright-Hinweis aus und dokumentiert dessen exakten Commit.
+- Ein Regressionstest sichert Release-Commit, Lizenztext-Hash,
+  Klarstellungs-Commit und Attribution.
+- Die unveraenderte Komponente ist damit technisch `allowed`.

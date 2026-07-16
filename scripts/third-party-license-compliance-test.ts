@@ -173,6 +173,19 @@ assert.deepEqual(isReference.copyrightNotices, []);
 assert.match(isReference.sourceUrl, /9d2719fbcc2059567203063f1e7b65d7831bfd64/u);
 assert.match(isReference.reviewNotes || '', /annotated tag v1\.2\.1/u);
 
+const minimist = inventory.components.find((component) => (
+  component.name === 'minimist' && component.versionOrCommit === '1.2.8'
+));
+assert(minimist, 'minimist@1.2.8 must be inventoried');
+assert.equal(minimist.verifiedLicense, 'MIT');
+assert.equal(minimist.policyDecision, 'allowed');
+assert.equal(minimist.licenseTextSha256, '435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b');
+assert(minimist.copyrightNotices.includes(
+  'Copyright (c) 2013 James Halliday and contributors',
+));
+assert.match(minimist.sourceUrl, /6901ee286bc4c16da6830b48b46ce1574703cea1/u);
+assert.match(minimist.reviewNotes || '', /b7ce0ded1e840ccef6f59b1866694e93f6f582e8/u);
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
@@ -194,7 +207,7 @@ for (const [name, version, revision] of exactSourceComponents) {
   assert(component.licenseTextSha256);
 }
 
-for (const name of ['github-from-package', 'minimist', 'webworkify']) {
+for (const name of ['github-from-package', 'webworkify']) {
   const component = inventory.components.find((candidate) => candidate.name === name);
   assert(component, `${name} must be inventoried`);
   assert.equal(

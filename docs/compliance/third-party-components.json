@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1917,
-    "reviewRequired": 64,
+    "allowed": 1918,
+    "reviewRequired": 63,
     "blocked": 0
   },
   "releaseGate": {
@@ -208,11 +208,6 @@
         "name": "is-reference",
         "versionOrCommit": "1.2.1",
         "reason": "The exact npm release publishes gitHead 9d2719fbcc2059567203063f1e7b65d7831bfd64, and annotated tag v1.2.1 dereferences to that commit. package.json declares MIT and the exact README has a one-line MIT license section, but neither the npm tarball nor the exact source commit contains the full MIT terms, a LICENSE/NOTICE file, a source copyright header, or an attributable copyright statement. Repository and package author metadata name Rich Harris, but authorship and commit history are not treated as proof of copyright ownership. Canvas retains the canonical MIT terms while the package remains review_required pending corrected upstream evidence, replacement/removal, or a responsible legal decision. Verification source: https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license The MIT copyright notice could not be attributed automatically. Package author metadata: Rich Harris"
-      },
-      {
-        "name": "minimist",
-        "versionOrCommit": "1.2.8",
-        "reason": "The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
       },
       {
         "name": "react-remove-scroll-bar",
@@ -35550,7 +35545,7 @@
     {
       "name": "minimist",
       "versionOrCommit": "1.2.8",
-      "sourceUrl": "https://github.com/minimistjs/minimist",
+      "sourceUrl": "https://github.com/minimistjs/minimist/tree/6901ee286bc4c16da6830b48b46ce1574703cea1",
       "packagePathOrArtifact": "node_modules/minimist",
       "usage": "runtime",
       "distributedIn": [
@@ -35563,10 +35558,12 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/minimist/LICENSE",
       "licenseTextSha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) 2013 James Halliday and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release publishes gitHead 6901ee286bc4c16da6830b48b46ce1574703cea1, and annotated tag v1.2.8 dereferences to that commit. Its tarball contains the complete MIT permission and warranty text but omits the copyright-holder line. The official upstream repository later corrected the same project LICENSE in commit b7ce0ded1e840ccef6f59b1866694e93f6f582e8 by adding the explicit primary-source notice Copyright (c) 2013 James Halliday and contributors. Version 1.2.8 remains the latest npm release. Canvas retains the exact release terms together with this documented upstream attribution and does not modify the package. Verification source: https://github.com/minimistjs/minimist/blob/b7ce0ded1e840ccef6f59b1866694e93f6f582e8/LICENSE"
     },
     {
       "name": "minipass",

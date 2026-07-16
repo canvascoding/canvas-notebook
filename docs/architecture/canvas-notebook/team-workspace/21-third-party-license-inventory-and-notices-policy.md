@@ -47,18 +47,18 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 43 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.917 Komponenten `allowed`, 64
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 42 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.918 Komponenten `allowed`, 63
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 43 Release-Pruefpositionen gliedern sich in:
+Die 42 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
-- 13 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
+- 12 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
 
 `jszip@3.10.1` ist als erster Mehrfachlizenz-Fall technisch abgeschlossen:
@@ -151,6 +151,13 @@ Lizenzaudit vorgenommen.
 und README MIT, ein vollstaendiger MIT-Text und Copyright-Hinweis fehlen
 jedoch. Canvas liefert den kanonischen Text aus, deutet Paketautor und
 Commit-Historie aber nicht als Rechteinhabernachweis um.
+
+`minimist@1.2.8` ist abgeschlossen. Der exakte Release und Tag enthalten den
+vollstaendigen MIT-Wortlaut ohne Namenszeile. Das offizielle Upstream-
+Repository hat die Projektlizenz spaeter primaer und versioniert um
+`Copyright (c) 2013 James Halliday and contributors` ergaenzt; `1.2.8` ist
+weiterhin der neueste npm-Release. Canvas liefert den exakten Release-Text
+zusammen mit dieser Upstream-Klarstellung aus.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine

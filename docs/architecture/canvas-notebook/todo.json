@@ -1396,10 +1396,10 @@
           "totalComponents": 1981,
           "runtimeComponents": 1473,
           "developmentOnlyComponents": 508,
-          "allowed": 1917,
-          "reviewRequired": 64,
+          "allowed": 1918,
+          "reviewRequired": 63,
           "blocked": 0,
-          "releaseBlockers": 43
+          "releaseBlockers": 42
         },
         "completed": [
           "Deterministischer npm- und Non-npm-Inventargenerator",
@@ -1424,11 +1424,12 @@
           "Lizenzwahl fuer dompurify@3.4.12 anhand des exakten npm-Releases und Upstream-Tags auf Apache-2.0 festgelegt; Lizenztext, Copyright-/Lizenzheader, fehlende NOTICE-Datei, Modifikationsstatus und Lieferartefakte dokumentiert",
           "Lizenzwahl fuer @zone-eu/mailsplit@5.4.14 anhand des exakten npm-Releases und Upstream-Tags auf MIT festgelegt; Lizenztext, Copyright, fehlende NOTICE-Datei, transitive Runtime-Nutzung und Lieferartefakte dokumentiert",
           "Tarball-Extractor fuer beliebig benannte npm-Archivwurzeln korrigiert; @types/trusted-types@2.0.7 und @types/yauzl@2.10.3 anhand ihrer exakten MIT-Dateien und Microsoft-Copyright-Hinweise freigegeben",
-          "highlightjs-vue@1.0.0 anhand von npm-gitHead, exaktem Upstream-README und offiziellem CC0-1.0-Legal-Code freigegeben; Commit und Text-Hash per Regressionstest gesichert"
+          "highlightjs-vue@1.0.0 anhand von npm-gitHead, exaktem Upstream-README und offiziellem CC0-1.0-Legal-Code freigegeben; Commit und Text-Hash per Regressionstest gesichert",
+          "minimist@1.2.8 anhand von npm-gitHead, annotiertem Release-Tag, exaktem MIT-Text und der spaeteren primaeren Upstream-Klarstellung Copyright (c) 2013 James Halliday and contributors freigegeben"
         ],
         "verified": [
           "npm run test:licenses",
-          "Negativtest: npm run test:licenses:release blockiert mit 43 dokumentierten Pruefpositionen",
+          "Negativtest: npm run test:licenses:release blockiert mit 42 dokumentierten Pruefpositionen",
           "npx tsc --noEmit --pretty false",
           "npm run lint",
           "npm run build",
@@ -1443,7 +1444,7 @@
           "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
           "Gepinnten Docker-Basisimage-Digest und den erfassten finalen Debian-/Python-Lizenzmix pruefen",
           "28 sharp-/libvips-Lieferpositionen mit LGPL- oder zusammengesetzter Lizenz fuer die konkreten Plattformartefakte pruefen",
-          "13 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
+          "12 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
         ],
         "reviewedButStillBlocked": [
           "@apm-js-collab/code-transformer-bundler-plugins@0.5.0: MIT ist in npm-Paket und exaktem Commit deklariert, aber Lizenzdatei und belastbarer Copyright-Hinweis fehlen; kanonischer MIT-Text wird ausgeliefert, der Blocker bleibt bis Upstream-Fix, Ersatz/Entfernung oder menschlich-rechtlicher Einzelfallentscheidung bestehen",
