@@ -228,11 +228,16 @@ Die technische Verifikation am 16. Juli 2026 umfasst:
   `sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d`,
 - 408 Debian-Pakete aus 276 Source-Paket/Versionspaaren, 48
   Python-Distributionen, die Node-Runtime und 153 Pakete des global
-  installierten npm im Schema-3-Test gegen das finale arm64-Image,
+  installierten npm im Schema-3-Test gegen das isoliert neu gebaute finale
+  arm64-Image
+  `sha256:d8a3666463040b15e03688e32807fd4ff656a7430ee37532e98f3423b1081409`,
 - korrigierte PEP-639-Erkennung mit 94 Python-Lizenzdateien einschliesslich
   der zuvor uebersehenen plattformspezifischen PDFium-Build-Lizenzen,
 - sechs versionsgenaue Non-npm-Ergaenzungen fuer fehlende pip-/globale-
   npm-Lizenztexte und drei bewusst blockierende globale npm-Einzelfaelle,
+- plattformunabhaengige Notice-Generierung: optional installierte
+  Paketmetadaten koennen auf macOS und Linux keinen Manifest-Drift mehr
+  verursachen,
 - byte-identische Host- und Image-Ausgaben fuer
   `THIRD_PARTY_NOTICES.md` und das Komponentenmanifest,
 - Playwright-E2E gegen den neu gebauten Container fuer die Legal-Ansicht auf

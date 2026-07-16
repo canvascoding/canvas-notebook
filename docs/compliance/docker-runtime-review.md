@@ -18,10 +18,17 @@ Der aktuelle Scan erfasst jetzt vier statt bisher nur zwei Runtime-Klassen:
 | Python-Distributionen | 48, davon 45 durch pip und 3 durch Debian | Metadaten, Installer, RECORD-Hash und 94 erkannte Lizenzdateien |
 | globales npm | 153 Pakete | Version, Source-URL, deklarierte Lizenz und 147 Paket-Lizenzdateien |
 
-Die Zahlen stammen aus einem Schema-3-Lauf des aktualisierten Scanners gegen
-das am 16. Juli 2026 neu gebaute Test-Image. Der naechste Image-Neuaufbau muss
-dieselben Pruefungen innerhalb des Dockerfiles ausfuehren und das erzeugte
-`/app/docs/compliance/runtime-components.json` als Releaseartefakt behalten.
+Die Zahlen stammen aus dem innerhalb des Dockerfiles erzeugten Schema-3-
+Inventar des am 16. Juli 2026 isoliert neu gebauten Linux-arm64-Images
+`sha256:d8a3666463040b15e03688e32807fd4ff656a7430ee37532e98f3423b1081409`.
+Das erzeugte `/app/docs/compliance/runtime-components.json` wurde aus dem
+gestoppten Image gelesen und erneut geprueft; sein SHA-256 ist
+`80b985ec9a8e7c5d0a58923fbfbf481df465eddf7fbecf2e0203b2a5d242f078`.
+Host und Image enthalten ausserdem byte-identische Notices
+(`0ecd5fd6b596b508d69a7ccdb7d86f0c62de972648aa24d8fd5e88ef590fa1be`)
+und Hauptinventare
+(`4123331991546758187cf86451641fbd92c9f2642fe75b70d69750f5e19d292a`).
+Der bestehende App-Container wurde fuer diesen Audit nicht ersetzt.
 
 ## Basisimage und Plattformbindung
 
@@ -37,8 +44,10 @@ Der Index enthaelt fuer die von Canvas gebauten Hauptplattformen:
 | linux/arm64/v8 | `sha256:af01d58b748ec92b1d6e8e11429aad424fd1e68c848185399dca0596a1ab8f5c` |
 
 Das Runtime-Inventar speichert ab Schema 3 neben dem Index auch
-`TARGETPLATFORM`. Eine Freigabe gilt nur fuer ein tatsaechlich gebautes und
-geprueftes Plattformmanifest; sie darf nicht pauschal auf alle Eintraege des
+`TARGETPLATFORM`. `linux/arm64` ist durch den obigen Image-Build verifiziert;
+`linux/amd64` bleibt fuer eine spaetere plattformuebergreifende Freigabe
+offen. Eine Freigabe gilt nur fuer ein tatsaechlich gebautes und geprueftes
+Plattformmanifest; sie darf nicht pauschal auf alle Eintraege des
 Multi-Architecture-Index uebertragen werden.
 
 Der Node-Lieferumfang liegt ausserhalb von dpkg. Er wird deshalb als eigene

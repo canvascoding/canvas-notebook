@@ -1430,7 +1430,8 @@
           "tr46@0.0.3 und tr46@6.0.0 als kombinierte Software-/Datenfaelle geprueft; generierte Tabellen bytegenau Unicode 8.0.0 bzw. 17.0.0 zugeordnet und MIT plus Unicode-DFS-2015 bzw. Unicode-3.0 samt Transformationshinweis dokumentiert",
           "Alle 28 sharp-/libvips-Binaerpositionen versions- und plattformspezifisch untersucht; falschen Apache-2.0-als-LGPL-Cachebeleg korrigiert, exakte Source-Commits und Teilbelege gesichert sowie Corresponding-Source-, Linking-, WASM- und Release-Auflagen dokumentiert",
           "Docker-Runtime-Inventar auf Schema 3 erweitert: Node-Lizenz, 408 Debian-Binaries mit 276 Source-Paket/Versionspaaren, 48 Python-Distributionen mit PEP-639-Pfaden und RECORD-Hashes sowie 153 globale npm-Pakete mit 147 Paketlizenzdateien",
-          "Fehlende Runtime-Texte fuer flatbuffers@25.12.19, magika@0.6.3, markitdown@0.1.6, @sigstore/verify@3.1.0, imurmurhash@0.1.4 und spdx-license-ids@3.0.23 versionsgenau ergaenzt; drei globale npm-Einzelfaelle bewusst blockierend dokumentiert"
+          "Fehlende Runtime-Texte fuer flatbuffers@25.12.19, magika@0.6.3, markitdown@0.1.6, @sigstore/verify@3.1.0, imurmurhash@0.1.4 und spdx-license-ids@3.0.23 versionsgenau ergaenzt; drei globale npm-Einzelfaelle bewusst blockierend dokumentiert",
+          "Plattformabhaengige Notice-Drift durch optional installierte Paket-Autorenmetadaten beseitigt und per Regressionstest abgesichert"
         ],
         "verified": [
           "npm run test:licenses",
@@ -1441,14 +1442,14 @@
           "Host- und Portable-CLI-Archive inklusive Notices, Inventar und SHA-256 geprueft",
           "Vollstaendiger npm run setup-Neuaufbau mit lokaler Environment-Datei, Managed-Team-Modus und Postgres",
           "Finales Docker-Image mit 408 Debian- und 48 Python-Komponenten sowie ohne fehlende Runtime-Lizenzbelege geprueft",
-          "Aktualisierten Schema-3-Runtime-Scanner gegen das laufende neu gebaute arm64-Test-Image ausgefuehrt: Node, 408 Debian, 48 Python und 153 globale npm-Pakete; Dockerfile-Neuaufbau mit Schema 3 steht noch aus",
+          "Isoliertes finales Linux-arm64-Image sha256:d8a3666463040b15e03688e32807fd4ff656a7430ee37532e98f3423b1081409 mit Dockerfile-Schema 3 neu gebaut und das aus dem gestoppten Image gelesene Inventar mit Node, 408 Debian, 48 Python und 153 globalen npm-Paketen geprueft",
           "Host und Docker-Image enthalten byte-identische Third-Party Notices und Komponentenmanifest",
           "Playwright-E2E Desktop und Mobile gegen den neu gebauten Container fuer Settings -> Rechtliches und alle drei Legal-API-Endpunkte",
           "Anonymer Zugriff auf /api/legal/third-party bleibt mit HTTP 401 gesperrt"
         ],
         "remainingExternalReview": [
           "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
-          "Docker amd64/arm64 mit Runtime-Schema 3 neu bauen; dpkg-/native Corresponding-Source-Angebot, gepinnte Python-Wheels, drei globale npm-Einzelfaelle und eine benannte menschlich-rechtliche Plattformfreigabe abschliessen",
+          "Docker amd64 noch mit Runtime-Schema 3 bauen; dpkg-/native Corresponding-Source-Angebot, gepinnte Python-Wheels, drei globale npm-Einzelfaelle und eine benannte menschlich-rechtliche Plattformfreigabe abschliessen",
           "Fuer die 28 technisch geprueften sharp-/libvips-Lieferpositionen vollstaendige Source-/Notice-Bundles, Austausch-/Relinking-Tests und eine benannte menschlich-rechtliche Plattformfreigabe bereitstellen",
           "10 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
         ],
