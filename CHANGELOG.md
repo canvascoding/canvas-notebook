@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.16.1] - 2026-07-16
+
+### Added
+
+- Added workspace and organization brand-logo display across Canvas and its public entry pages.
+- Remembered the last open Notebook file separately for each workspace and added a clear unavailable-file notice.
+
+### Changed
+
+- Improved workspace branding controls, shared appearance presets, responsive Markdown properties, and semantic control radius support.
+- Scoped Markdown metadata controls to Notebook and omitted frontmatter from Markdown PDF exports.
+
+### Fixed
+
+- Hardened collaboration polling recovery and isolated agent and workspace chat sessions correctly.
+
+### Verification
+
+- `npm run test:file-watcher`
+- `npm run lint`
+- `npm run build`
+
 ## [2026.7.15.4] - 2026-07-15
 
 ### Added
