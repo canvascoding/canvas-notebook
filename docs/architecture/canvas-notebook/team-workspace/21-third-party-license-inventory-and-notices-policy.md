@@ -94,6 +94,23 @@ blieb in dieser lokalen Testumgebung erwartbar deaktiviert, weil keine
 kommerzielle Canvas-Lizenz aktiviert war; WebSocket und Persistenz waren
 technisch bereit. Das Legal-Inventar ist davon absichtlich unabhaengig.
 
+## Operatives Compliance-Runbook
+
+Die Architekturpolicy wird durch zwei operative Dokumente ergaenzt:
+
+- `docs/compliance/README.md` erklaert die Trennung zwischen Canvas-Lizenz,
+  Drittanbieterrechten, Notices, Marken und SaaS-Bedingungen, die Bedeutung
+  der Lizenzklassen, den Aenderungsablauf und die verpflichtenden Build- und
+  Release-Gates.
+- `docs/compliance/third-party-release-approval-template.md` ist die
+  ausfuellbare Vorlage fuer die erste kommerzielle Bestandsfreigabe und fuer
+  spaetere neue oder geaenderte Reviewpositionen.
+
+Die Vorlage selbst ist keine Freigabe. `releaseApproval` in
+`docs/compliance/third-party-license-policy.json` darf erst nach einer
+nachvollziehbar dokumentierten menschlichen Entscheidung von `pending`
+abweichen.
+
 ## Einmalige und wiederkehrende Release-Pruefung
 
 Die technische Erfassung ist nicht "fuer immer erledigt". Zwei Ebenen sind zu

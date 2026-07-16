@@ -1350,7 +1350,9 @@
         "LICENSE",
         "package.json",
         "package-lock.json",
-        "docs/architecture/canvas-notebook/team-workspace/21-third-party-license-inventory-and-notices-policy.md"
+        "docs/architecture/canvas-notebook/team-workspace/21-third-party-license-inventory-and-notices-policy.md",
+        "docs/compliance/README.md",
+        "docs/compliance/third-party-release-approval-template.md"
       ],
       "implementationTargets": [
         "THIRD_PARTY_NOTICES.md",
@@ -1414,7 +1416,9 @@
           "Docker-Base-Image auf exakten Digest gepinnt und finalen Debian-/Python-Lieferumfang mit gehashten Lizenzbelegen inventarisiert",
           "Docker-, CLI-, Electron- und Release-Workflow-Integration",
           "Nicht-striktes Lizenz- und Notice-Gate in jeden npm run build integriert",
-          "Striktes npm run verify:release in CI und lokalen Release-Publisher-Ablauf integriert"
+          "Striktes npm run verify:release in CI und lokalen Release-Publisher-Ablauf integriert",
+          "Operatives Compliance-Runbook mit Lizenzklassen, Aenderungsablauf, Artefaktmatrix und wiederkehrender Release-Pruefung dokumentiert",
+          "Versionierbare Freigabevorlage fuer Erstbestand, Mehrfachlizenzen, Docker-/Native-Lieferumfang und kopierten Upstream-Code dokumentiert"
         ],
         "verified": [
           "npm run test:licenses",
