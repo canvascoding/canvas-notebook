@@ -1,11 +1,10 @@
 'use client';
 
 import { useEffect, useMemo, useState } from 'react';
-import { AlertTriangle, ArrowUpRight, Link2, Loader2 } from 'lucide-react';
+import { AlertTriangle, ChevronDown, ChevronRight, FileText, Link2, Loader2 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
-import { toast } from 'sonner';
 
-import { openWorkspaceMarkdownPath } from '@/app/lib/markdown/workspace-markdown-navigation-client';
+import { WorkspaceDocumentPreviewDialog } from '@/app/components/shared/WorkspaceDocumentPreviewDialog';
 import {
   loadWorkspaceLinkIndex,
   subscribeWorkspaceLinkIndexInvalidation,
@@ -14,6 +13,12 @@ import type {
   WorkspaceLinkEdge,
   WorkspaceLinkIndex,
 } from '@/app/lib/markdown/workspace-link-index-core';
+import type { WorkspaceDocumentReference } from '@/app/lib/markdown/workspace-document-preview';
+import {
+  groupWorkspaceReferenceEdges,
+  workspaceReferenceDirectory,
+  type WorkspaceReferenceGroup,
+} from '@/app/lib/markdown/workspace-reference-groups';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
@@ -22,37 +27,76 @@ type MarkdownBacklinksPanelProps = {
   filePath?: string;
 };
 
-const MAX_VISIBLE_LINKS = 100;
+const MAX_VISIBLE_LINKS = 8;
 
 function normalizePath(value: string): string {
   return value.replace(/\\/g, '/').replace(/^\.\//, '').replace(/^\/+|\/+$/g, '');
 }
 
 function LinkRow({
-  detail,
-  edge,
-  label,
-  onOpen,
+  group,
+  onPreview,
 }: {
-  detail: string;
-  edge: WorkspaceLinkEdge;
-  label: string;
-  onOpen: () => void;
+  group: WorkspaceReferenceGroup;
+  onPreview: () => void;
 }) {
+  const t = useTranslations('notebook');
+  const directory = workspaceReferenceDirectory(group.reference.path);
+  const location = group.reference.heading
+    ? `# ${group.reference.heading}`
+    : group.reference.blockId
+      ? `^${group.reference.blockId}`
+      : null;
   return (
     <button
       type="button"
-      className="group flex min-h-11 w-full items-center gap-3 rounded-lg border border-border/60 bg-background/70 px-3 py-2 text-left transition-colors hover:border-primary/35 hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
-      onClick={onOpen}
+      className="group flex min-h-12 w-full items-center gap-3 rounded-xl border border-border/55 bg-background/75 px-3 py-2.5 text-left shadow-sm transition-[border-color,background-color,transform] hover:-translate-y-px hover:border-primary/30 hover:bg-primary/[0.045] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+      onClick={onPreview}
     >
-      <Link2 className="h-4 w-4 shrink-0 text-muted-foreground group-hover:text-primary" />
-      <span className="min-w-0 flex-1">
-        <span className="block truncate text-sm font-medium">{label}</span>
-        <span className="block truncate text-xs text-muted-foreground">{detail}</span>
-        <span className="mt-0.5 block truncate font-mono text-[11px] text-muted-foreground/80">{edge.raw}</span>
+      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-border/55 bg-muted/35 text-muted-foreground group-hover:text-primary">
+        <FileText className="h-4 w-4" aria-hidden="true" />
       </span>
-      <ArrowUpRight className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{group.reference.title}</span>
+        <span className="mt-0.5 flex min-w-0 items-center gap-1.5 text-[11px] text-muted-foreground">
+          <span className="truncate">{directory || t('markdownEditorBacklinksWorkspaceRoot')}</span>
+          {location ? <span className="shrink-0 text-primary/80">· {location}</span> : null}
+        </span>
+      </span>
+      {group.edges.length > 1 ? (
+        <span
+          className="rounded-full border border-border/60 bg-muted/40 px-2 py-0.5 text-[10px] font-medium tabular-nums text-muted-foreground"
+          title={t('markdownEditorBacklinksOccurrences', { count: group.edges.length })}
+        >
+          {group.edges.length}
+        </span>
+      ) : null}
+      <ChevronRight className="h-4 w-4 shrink-0 text-muted-foreground transition-transform group-hover:translate-x-0.5" aria-hidden="true" />
     </button>
+  );
+}
+
+type ActiveSection = 'incoming' | 'outgoing' | 'broken';
+
+function BrokenLinkRow({ edge, count }: { count: number; edge: WorkspaceLinkEdge }) {
+  const t = useTranslations('notebook');
+  return (
+    <div className="flex min-h-12 items-center gap-3 rounded-xl border border-destructive/20 bg-destructive/[0.035] px-3 py-2.5">
+      <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" aria-hidden="true" />
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-sm font-medium">{edge.alias || edge.targetText}</span>
+        <span className="block truncate text-[11px] text-muted-foreground">
+          {edge.status === 'ambiguous'
+            ? t('markdownEditorBacklinksAmbiguous')
+            : t('markdownEditorBacklinksMissing')}
+        </span>
+      </span>
+      {count > 1 ? (
+        <span className="rounded-full border border-destructive/20 px-2 py-0.5 text-[10px] tabular-nums text-destructive">
+          {count}
+        </span>
+      ) : null}
+    </div>
   );
 }
 
@@ -62,6 +106,9 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
   const normalizedPath = filePath ? normalizePath(filePath) : '';
   const indexKey = `${activeWorkspaceId ?? ''}\0${normalizedPath}`;
   const [reloadVersion, setReloadVersion] = useState(0);
+  const [activeSection, setActiveSection] = useState<ActiveSection>('incoming');
+  const [showAll, setShowAll] = useState(false);
+  const [previewReference, setPreviewReference] = useState<WorkspaceDocumentReference | null>(null);
   const [state, setState] = useState<{
     error: string | null;
     index: WorkspaceLinkIndex | null;
@@ -94,51 +141,69 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
   }, [activeWorkspaceId, indexKey, normalizedPath, reloadVersion, t]);
 
   const currentIndex = state?.key === indexKey ? state.index : null;
-  const documentByPath = useMemo(() => new Map(
-    currentIndex?.documents.map((document) => [document.path, document]) ?? [],
-  ), [currentIndex]);
-  const backlinks = currentIndex?.backlinks[normalizedPath] ?? [];
-  const outgoing = currentIndex?.edges.filter((edge) => (
+  const backlinks = useMemo(
+    () => currentIndex?.backlinks[normalizedPath] ?? [],
+    [currentIndex, normalizedPath],
+  );
+  const outgoing = useMemo(() => currentIndex?.edges.filter((edge) => (
     edge.sourcePath === normalizedPath && edge.status === 'resolved' && edge.targetPath
-  )) ?? [];
-  const broken = currentIndex?.edges.filter((edge) => (
+  )) ?? [], [currentIndex, normalizedPath]);
+  const broken = useMemo(() => currentIndex?.edges.filter((edge) => (
     edge.sourcePath === normalizedPath && edge.status !== 'resolved'
-  )) ?? [];
+  )) ?? [], [currentIndex, normalizedPath]);
+  const incomingGroups = useMemo(() => groupWorkspaceReferenceEdges(
+    backlinks,
+    currentIndex?.documents ?? [],
+    'incoming',
+  ), [backlinks, currentIndex?.documents]);
+  const outgoingGroups = useMemo(() => groupWorkspaceReferenceEdges(
+    outgoing,
+    currentIndex?.documents ?? [],
+    'outgoing',
+  ), [currentIndex?.documents, outgoing]);
+  const brokenGroups = useMemo(() => {
+    const groups = new Map<string, { count: number; edge: WorkspaceLinkEdge }>();
+    for (const edge of broken) {
+      const key = `${edge.status}\0${edge.targetText}`;
+      const existing = groups.get(key);
+      if (existing) existing.count += 1;
+      else groups.set(key, { count: 1, edge });
+    }
+    return Array.from(groups.values());
+  }, [broken]);
 
   if (!activeWorkspaceId || !normalizedPath) return null;
 
-  const openPath = async (path: string, edge?: WorkspaceLinkEdge) => {
-    const result = await openWorkspaceMarkdownPath({
-      blockId: edge?.blockId,
-      heading: edge?.heading,
-      path,
-      workspaceId: activeWorkspaceId,
-    });
-    if (!['opened', 'superseded'].includes(result.status)) {
-      toast.error(result.error ?? t('markdownEditorLinkOpenError'));
-    }
+  const activeReferenceGroups = activeSection === 'incoming' ? incomingGroups : outgoingGroups;
+  const visibleReferenceGroups = showAll
+    ? activeReferenceGroups
+    : activeReferenceGroups.slice(0, MAX_VISIBLE_LINKS);
+  const visibleBrokenGroups = showAll ? brokenGroups : brokenGroups.slice(0, MAX_VISIBLE_LINKS);
+  const sectionItemCount = activeSection === 'broken' ? brokenGroups.length : activeReferenceGroups.length;
+  const selectSection = (section: ActiveSection) => {
+    setActiveSection(section);
+    setShowAll(false);
   };
-
-  const renderOverflow = (count: number) => count > MAX_VISIBLE_LINKS ? (
-    <p className="px-1 text-xs text-muted-foreground">
-      {t('markdownEditorBacklinksMore', { count: count - MAX_VISIBLE_LINKS })}
-    </p>
-  ) : null;
 
   return (
     <details
       className={cn(
-        'group mx-4 mb-5 mt-8 overflow-hidden rounded-xl border border-border/70 bg-muted/20 md:ml-[4.75rem] md:mr-5',
+        'group mx-3 mb-5 mt-8 overflow-hidden rounded-2xl border border-border/70 bg-muted/20 shadow-sm md:ml-[4.75rem] md:mr-5',
         className,
       )}
     >
-      <summary className="flex min-h-12 cursor-pointer list-none items-center gap-3 px-3 py-2 marker:hidden hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset [&::-webkit-details-marker]:hidden">
-        <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" />
+      <summary className="flex min-h-14 cursor-pointer list-none items-center gap-3 px-3 py-2.5 marker:hidden hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:px-4 [&::-webkit-details-marker]:hidden">
+        <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border border-border/60 bg-background/80 text-muted-foreground shadow-sm">
+          <Link2 className="h-4 w-4" aria-hidden="true" />
+        </span>
         <span className="min-w-0 flex-1">
           <span className="block text-sm font-semibold">{t('markdownEditorBacklinks')}</span>
-          <span className="block text-xs text-muted-foreground">
+          <span className="mt-0.5 block truncate text-[11px] text-muted-foreground">
             {currentIndex
-              ? t('markdownEditorBacklinksCount', { count: backlinks.length })
+              ? t('markdownEditorBacklinksSummary', {
+                  documents: incomingGroups.length,
+                  references: backlinks.length,
+                })
               : state?.key === indexKey && state.error
                 ? t('markdownEditorBacklinksUnavailable')
                 : t('markdownEditorBacklinksLoading')}
@@ -147,13 +212,11 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
         {!currentIndex && !(state?.key === indexKey && state.error) ? (
           <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />
         ) : (
-          <span className="rounded-full bg-background px-2 py-0.5 text-xs tabular-nums text-muted-foreground">
-            {backlinks.length}
-          </span>
+          <ChevronDown className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-180" aria-hidden="true" />
         )}
       </summary>
 
-      <div className="grid gap-5 border-t border-border/60 bg-background/50 p-3">
+      <div className="grid gap-3 border-t border-border/60 bg-background/50 p-3 sm:p-4">
         {state?.key === indexKey && state.error ? (
           <p className="flex items-center gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-xs text-destructive">
             <AlertTriangle className="h-4 w-4 shrink-0" />
@@ -162,75 +225,74 @@ export function MarkdownBacklinksPanel({ className, filePath }: MarkdownBacklink
         ) : null}
 
         {currentIndex ? (
-          <>
-            <section className="grid gap-2">
-              <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                {t('markdownEditorBacklinksIncoming', { count: backlinks.length })}
-              </h3>
-              {backlinks.length > 0 ? backlinks.slice(0, MAX_VISIBLE_LINKS).map((edge) => {
-                const source = documentByPath.get(edge.sourcePath);
-                return (
-                  <LinkRow
-                    key={edge.id}
-                    edge={edge}
-                    label={source?.title || edge.sourcePath}
-                    detail={edge.sourcePath}
-                    onOpen={() => void openPath(edge.sourcePath)}
+          <section className="grid gap-3">
+            <div className="flex max-w-full gap-1 overflow-x-auto rounded-xl border border-border/55 bg-muted/35 p-1" role="tablist" aria-label={t('markdownEditorBacklinks')}>
+              {([
+                ['incoming', t('markdownEditorBacklinksIncoming', { count: incomingGroups.length })],
+                ['outgoing', t('markdownEditorBacklinksOutgoing', { count: outgoingGroups.length })],
+                ['broken', t('markdownEditorBacklinksBroken', { count: brokenGroups.length })],
+              ] as const).map(([section, label]) => (
+                <button
+                  key={section}
+                  type="button"
+                  role="tab"
+                  aria-selected={activeSection === section}
+                  className={cn(
+                    'shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium text-muted-foreground transition-colors hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring',
+                    activeSection === section && 'bg-background text-foreground shadow-sm',
+                    section === 'broken' && brokenGroups.length > 0 && activeSection !== section && 'text-destructive',
+                  )}
+                  onClick={() => selectSection(section)}
+                >
+                  {label}
+                </button>
+              ))}
+            </div>
+
+            <div className="grid gap-2" role="tabpanel">
+              {sectionItemCount > 0 ? activeSection === 'broken' ? visibleBrokenGroups.map((item) => (
+                  <BrokenLinkRow
+                    key={`${item.edge.status}:${item.edge.targetText}`}
+                    edge={item.edge}
+                    count={item.count}
                   />
-                );
-              }) : (
-                <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">
-                  {t('markdownEditorBacklinksEmpty')}
+                )) : visibleReferenceGroups.map((item) => (
+                  <LinkRow
+                    key={item.reference.path}
+                    group={item}
+                    onPreview={() => setPreviewReference(item.reference)}
+                  />
+                )) : (
+                <p className="rounded-xl border border-dashed border-border/70 px-3 py-5 text-center text-sm text-muted-foreground">
+                  {activeSection === 'incoming'
+                    ? t('markdownEditorBacklinksEmpty')
+                    : t('markdownEditorBacklinksSectionEmpty')}
                 </p>
               )}
-              {renderOverflow(backlinks.length)}
-            </section>
+            </div>
 
-            {outgoing.length > 0 ? (
-              <section className="grid gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-muted-foreground">
-                  {t('markdownEditorBacklinksOutgoing', { count: outgoing.length })}
-                </h3>
-                {outgoing.slice(0, MAX_VISIBLE_LINKS).map((edge) => {
-                  const targetPath = edge.targetPath!;
-                  const target = documentByPath.get(targetPath);
-                  return (
-                    <LinkRow
-                      key={edge.id}
-                      edge={edge}
-                      label={target?.title || targetPath}
-                      detail={targetPath}
-                      onOpen={() => void openPath(targetPath, edge)}
-                    />
-                  );
-                })}
-                {renderOverflow(outgoing.length)}
-              </section>
+            {sectionItemCount > MAX_VISIBLE_LINKS ? (
+              <button
+                type="button"
+                className="justify-self-center rounded-lg px-3 py-1.5 text-xs font-medium text-primary hover:bg-primary/5 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                onClick={() => setShowAll((current) => !current)}
+              >
+                {showAll
+                  ? t('markdownEditorBacklinksShowLess')
+                  : t('markdownEditorBacklinksShowAll', { count: sectionItemCount - MAX_VISIBLE_LINKS })}
+              </button>
             ) : null}
-
-            {broken.length > 0 ? (
-              <section className="grid gap-2">
-                <h3 className="text-xs font-semibold uppercase tracking-wide text-destructive">
-                  {t('markdownEditorBacklinksBroken', { count: broken.length })}
-                </h3>
-                {broken.slice(0, MAX_VISIBLE_LINKS).map((edge) => (
-                  <div key={edge.id} className="flex min-h-11 items-center gap-3 rounded-lg border border-destructive/25 bg-destructive/5 px-3 py-2">
-                    <AlertTriangle className="h-4 w-4 shrink-0 text-destructive" />
-                    <span className="min-w-0 flex-1">
-                      <span className="block truncate text-sm font-medium">{edge.targetText}</span>
-                      <span className="block truncate font-mono text-[11px] text-muted-foreground">{edge.raw}</span>
-                    </span>
-                    <span className="rounded-full border border-destructive/25 px-2 py-0.5 text-[10px] uppercase text-destructive">
-                      {edge.status}
-                    </span>
-                  </div>
-                ))}
-                {renderOverflow(broken.length)}
-              </section>
-            ) : null}
-          </>
+          </section>
         ) : null}
       </div>
+
+      <WorkspaceDocumentPreviewDialog
+        open={previewReference !== null}
+        reference={previewReference}
+        onOpenChange={(open) => {
+          if (!open) setPreviewReference(null);
+        }}
+      />
     </details>
   );
 }
