@@ -121,6 +121,11 @@ Repository/Commit beziehungsweise Provenance noch Lizenzdatei oder
 Copyright-Hinweis. Canvas liefert den kanonischen MIT-Text aus, ordnet
 npm-Maintainer und React-Branding jedoch keinem Rechteinhaber zu.
 
+`dingbat-to-unicode@1.0.1` ist technisch geprueft und bleibt blockierend. Der
+exakte Release-Tag und Commit deklarieren BSD-2-Clause, enthalten aber weder
+Lizenztext noch Copyright-Hinweis. Der Paketautor und alle Commit-Autoren
+werden ohne expliziten Notice-Beleg nicht als Rechteinhaber eingetragen.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.

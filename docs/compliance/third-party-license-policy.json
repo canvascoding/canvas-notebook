@@ -222,6 +222,12 @@
       "verificationSource": "https://registry.npmjs.org/client-only/0.0.1",
       "reason": "The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required."
     },
+    "dingbat-to-unicode@1.0.1": {
+      "verifiedLicense": "BSD-2-Clause",
+      "sourceUrl": "https://github.com/mwilliamson/dingbat-to-unicode/tree/b27f259b49907f99b1b9097abba5a9668106b779/js",
+      "verificationSource": "https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json",
+      "reason": "The exact npm release and upstream tag js-1.0.1 declare BSD-2-Clause; the annotated tag resolves to commit b27f259b49907f99b1b9097abba5a9668106b779. Neither the npm tarball nor that source tree contains a LICENSE, NOTICE, copyright file, or source header. Package author metadata and all commits up to the release name Michael Williamson, but authorship is not treated as a substitute for an explicit copyright notice. The package remains review_required pending corrected upstream evidence, replacement/removal, or responsible legal decision."
+    },
     "@jspreadsheet/formula@2.0.2": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",

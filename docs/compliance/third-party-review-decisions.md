@@ -313,3 +313,41 @@ Technische Entscheidung:
 - Der Blocker bleibt bis zu einem belastbaren Upstream-Nachweis,
   Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
   Einzelfallentscheidung bestehen.
+
+## 9. `dingbat-to-unicode@1.0.1`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `dingbat-to-unicode@1.0.1` |
+| npm-Tarball | `https://registry.npmjs.org/dingbat-to-unicode/-/dingbat-to-unicode-1.0.1.tgz` |
+| npm-Integrity | `sha512-98l0sW87ZT58pU4i61wa2OHwxbiYSbuxsCBozaVnYX2iCnr3bLM3fIes1/ej7h1YdOKuKt/MLs706TVnALA65w==` |
+| Upstream-Tag | `js-1.0.1`; annotierter Tag auf Commit `b27f259b49907f99b1b9097abba5a9668106b779` |
+| deklarierte Lizenz | `BSD-2-Clause` |
+| Paketautor | `Michael Williamson <mike@zwobble.org>` |
+| fehlender Beleg | BSD-2-Clause-Lizenztext und Copyright-Hinweis |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `mammoth@1.12.0` |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der exakte Tag enthaelt den JavaScript-Release unter `js/`; dessen
+`package.json` ist in Version, Inhalt, Autor und BSD-2-Clause-Deklaration
+identisch zum npm-Release. Weder der Source-Tree noch die npm-Tarballs der
+Versionen `1.0.0` und `1.0.1` enthalten eine Lizenz-, Notice- oder
+Copyright-Datei beziehungsweise entsprechende Source-Header.
+
+Alle bis zum Release sichtbaren Repository-Commits stammen von Michael
+Williamson. Diese Autorenlage ist ein nuetzlicher Recherchehinweis, aber kein
+ausdruecklicher Nachweis dafuer, welcher Rechtstraeger den Copyright-Hinweis
+tragen muss.
+
+Technische Entscheidung:
+
+- Tarball, Integritaet, Upstream-Tag, Commit und BSD-2-Clause-Deklaration sind
+  reproduzierbar dokumentiert.
+- Canvas erfindet weder Lizenzwortlaut mit eingesetztem Platzhalter noch einen
+  Copyright-Inhaber.
+- Der Blocker bleibt bis zu einem korrigierten Upstream-Beleg,
+  Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
+  Einzelfallentscheidung bestehen.

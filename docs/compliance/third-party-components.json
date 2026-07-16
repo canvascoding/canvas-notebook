@@ -192,7 +192,7 @@
       {
         "name": "dingbat-to-unicode",
         "versionOrCommit": "1.0.1",
-        "reason": "No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>"
+        "reason": "The exact npm release and upstream tag js-1.0.1 declare BSD-2-Clause; the annotated tag resolves to commit b27f259b49907f99b1b9097abba5a9668106b779. Neither the npm tarball nor that source tree contains a LICENSE, NOTICE, copyright file, or source header. Package author metadata and all commits up to the release name Michael Williamson, but authorship is not treated as a substitute for an explicit copyright notice. The package remains review_required pending corrected upstream evidence, replacement/removal, or responsible legal decision. Verification source: https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>"
       },
       {
         "name": "github-from-package",
@@ -28806,7 +28806,7 @@
     {
       "name": "dingbat-to-unicode",
       "versionOrCommit": "1.0.1",
-      "sourceUrl": "https://github.com/mwilliamson/dingbat-to-unicode",
+      "sourceUrl": "https://github.com/mwilliamson/dingbat-to-unicode/tree/b27f259b49907f99b1b9097abba5a9668106b779/js",
       "packagePathOrArtifact": "node_modules/dingbat-to-unicode",
       "usage": "runtime",
       "distributedIn": [
@@ -28822,7 +28822,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>"
+      "reviewNotes": "The exact npm release and upstream tag js-1.0.1 declare BSD-2-Clause; the annotated tag resolves to commit b27f259b49907f99b1b9097abba5a9668106b779. Neither the npm tarball nor that source tree contains a LICENSE, NOTICE, copyright file, or source header. Package author metadata and all commits up to the release name Michael Williamson, but authorship is not treated as a substitute for an explicit copyright notice. The package remains review_required pending corrected upstream evidence, replacement/removal, or responsible legal decision. Verification source: https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>"
     },
     {
       "name": "dom-serializer",
