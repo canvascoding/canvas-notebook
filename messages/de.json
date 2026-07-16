@@ -3506,6 +3506,66 @@
           "delete": "Agent konnte nicht gelöscht werden."
         }
       },
+      "grants": {
+        "title": "Organisationszugriff",
+        "description": "Weise diesen zentralen Agenten der gesamten Organisation, einer Rolle, einem Workspace, einem Projekt oder einem einzelnen Nutzer zu.",
+        "reload": "Zugriffszuweisungen neu laden",
+        "targetTypeLabel": "Zieltyp der Zuweisung",
+        "targetLabel": "Ziel",
+        "roleLabel": "Rolle",
+        "organizationLabel": "Organisation",
+        "accessLevelLabel": "Zugriffsstufe",
+        "targetTypes": {
+          "user": "Nutzer",
+          "role": "Rolle",
+          "workspace": "Workspace",
+          "project": "Projekt",
+          "organization": "Organisation"
+        },
+        "pickerLabels": {
+          "user": "Zielnutzer auswählen",
+          "workspace": "Ziel-Workspace auswählen",
+          "project": "Zielprojekt auswählen"
+        },
+        "select": {
+          "user": "Nutzer auswählen",
+          "role": "Rolle auswählen",
+          "workspace": "Workspace auswählen",
+          "project": "Projekt auswählen"
+        },
+        "search": {
+          "user": "Nutzer durchsuchen...",
+          "workspace": "Workspaces durchsuchen...",
+          "project": "Projekte durchsuchen..."
+        },
+        "empty": {
+          "user": "Keine passenden Nutzer gefunden.",
+          "workspace": "Keine passenden Workspaces gefunden.",
+          "project": "Keine passenden Projekte gefunden."
+        },
+        "roles": {
+          "member": "Mitglied",
+          "admin": "Administrator",
+          "owner": "Owner",
+          "external": "Extern"
+        },
+        "accessLevels": {
+          "user": "Nutzen",
+          "editor": "Bearbeiten",
+          "manager": "Verwalten"
+        },
+        "organizationHint": "Die Organisations-ID wird automatisch eingetragen.",
+        "organizationValue": "Gesamte Organisation",
+        "projectDescription": "Projekt",
+        "add": "Hinzufügen",
+        "remove": "Zugriffszuweisung entfernen",
+        "noGrants": "Noch keine kaskadierenden Zugriffszuweisungen. Der Ersteller bleibt Manager des Agenten.",
+        "errors": {
+          "load": "Agent-Zugriffszuweisungen konnten nicht geladen werden.",
+          "save": "Die Agent-Zugriffszuweisung konnte nicht gespeichert werden.",
+          "remove": "Die Agent-Zugriffszuweisung konnte nicht entfernt werden."
+        }
+      },
       "members": {
         "currentMembers": "Personen mit Zugriff",
         "currentMembersDescription": "Lege fest, wer diesen Agenten nutzen, bearbeiten oder dessen Zugriff verwalten darf.",

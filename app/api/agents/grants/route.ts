@@ -8,7 +8,10 @@ import {
   setManagedAgentGrant,
   type AgentManagementActor,
 } from '@/app/lib/agents/management-actions';
-import type { AgentGrantTargetType } from '@/app/lib/agents/grants';
+import {
+  listAgentGrantTargets,
+  type AgentGrantTargetType,
+} from '@/app/lib/agents/grants';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function actor(request: NextRequest, userId: string, sessionId: string): AgentManagementActor {
@@ -36,7 +39,17 @@ export async function GET(request: NextRequest) {
   try {
     const agentId = request.nextUrl.searchParams.get('agentId') || '';
     const data = await inspectManagedAgent(actor(request, session.user.id, session.session.id), agentId, { includeAccess: true });
-    return NextResponse.json({ success: true, data: { agent: data.agent, grants: data.grants || [] } });
+    const targets = data.access.canManage && data.agent.organizationId
+      ? await listAgentGrantTargets(data.agent.organizationId)
+      : undefined;
+    return NextResponse.json({
+      success: true,
+      data: {
+        agent: data.agent,
+        grants: data.grants || [],
+        targets,
+      },
+    });
   } catch (error) {
     return responseError(error);
   }

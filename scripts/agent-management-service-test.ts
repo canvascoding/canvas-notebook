@@ -53,6 +53,7 @@ async function main() {
     updateManagedAgentFile,
     updateManagedAgentProfile,
   } = await import('../app/lib/agents/management-actions');
+  const { listAgentGrantTargets } = await import('../app/lib/agents/grants');
   const { AgentRevisionConflictError } = await import('../app/lib/agents/registry');
   const { getAgentAccess } = await import('../app/lib/agents/access');
 
@@ -66,6 +67,69 @@ async function main() {
     SELECT organization_id AS organizationId FROM canvas_organization_settings LIMIT 1
   `).get() as { organizationId: string };
   insertMember(sqlite, organization.organizationId, 'marketing-user');
+  const now = Date.now();
+  sqlite.prepare(`
+    INSERT INTO canvas_projects (
+      id, organization_id, name, slug, status, created_by_user_id, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, 'active', ?, ?, ?)
+  `).run(
+    'project-agent-grant-target',
+    organization.organizationId,
+    'Agent Grant Project',
+    'agent-grant-project',
+    owner.id,
+    now,
+    now,
+  );
+  sqlite.prepare(`
+    INSERT INTO canvas_workspaces (
+      id, organization_id, type, root_relative_path, display_name, description,
+      workspace_icon, status, is_default, created_at, updated_at
+    ) VALUES (?, ?, 'team', ?, ?, '', 'users-round', 'active', 0, ?, ?)
+  `).run(
+    'workspace-agent-grant-target',
+    organization.organizationId,
+    `workspaces/team/${organization.organizationId}/agent-grant-target/files`,
+    'Agent Grant Workspace',
+    now,
+    now,
+  );
+  sqlite.prepare(`
+    INSERT INTO canvas_workspace_members (
+      organization_id, workspace_id, user_id, role, status,
+      can_read, can_write, can_manage, invited_by_user_id, created_at, updated_at
+    ) VALUES (?, ?, ?, 'member', 'active', 1, 1, 0, ?, ?, ?)
+  `).run(
+    organization.organizationId,
+    'workspace-agent-grant-target',
+    'marketing-user',
+    owner.id,
+    now,
+    now,
+  );
+  sqlite.prepare(`
+    INSERT INTO canvas_workspaces (
+      id, organization_id, type, root_relative_path, display_name, description,
+      workspace_icon, status, is_default, created_at, updated_at
+    ) VALUES (?, ?, 'team', ?, ?, '', 'users-round', 'disabled', 0, ?, ?)
+  `).run(
+    'workspace-agent-grant-disabled',
+    organization.organizationId,
+    `workspaces/team/${organization.organizationId}/agent-grant-disabled/files`,
+    'Disabled Agent Grant Workspace',
+    now,
+    now,
+  );
+  const otherWorkspace = sqlite.prepare(`
+    SELECT id
+    FROM canvas_workspaces
+    WHERE organization_id = ? AND id != ? AND status = 'active'
+    ORDER BY id ASC
+    LIMIT 1
+  `).get(
+    organization.organizationId,
+    'workspace-agent-grant-target',
+  ) as { id: string };
   sqlite.close();
 
   const memberActor = { userId: 'marketing-user', organizationId: organization.organizationId, source: 'api' as const };
@@ -113,6 +177,36 @@ async function main() {
   assert.equal(organizationAgent.agent.ownerUserId, null);
   assert.equal(organizationAgent.readiness[0]?.readiness, 'personal-connection-required');
 
+  const grantTargets = await listAgentGrantTargets(organization.organizationId);
+  assert.deepEqual(
+    grantTargets.users.find((candidate) => candidate.userId === 'marketing-user'),
+    {
+      userId: 'marketing-user',
+      name: 'marketing-user',
+      email: 'marketing-user@example.test',
+      role: 'member',
+    },
+  );
+  assert.deepEqual(
+    grantTargets.workspaces.find((candidate) => candidate.workspaceId === 'workspace-agent-grant-target'),
+    {
+      workspaceId: 'workspace-agent-grant-target',
+      name: 'Agent Grant Workspace',
+      type: 'team',
+    },
+  );
+  assert.equal(
+    grantTargets.workspaces.some((candidate) => candidate.workspaceId === 'workspace-agent-grant-disabled'),
+    false,
+  );
+  assert.deepEqual(
+    grantTargets.projects.find((candidate) => candidate.projectId === 'project-agent-grant-target'),
+    {
+      projectId: 'project-agent-grant-target',
+      name: 'Agent Grant Project',
+    },
+  );
+
   const definitionPath = path.join(
     dataDir,
     'organizations',
@@ -130,12 +224,28 @@ async function main() {
     actor: ownerActor,
     agentId: organizationAgent.agent.agentId,
     expectedRevision: organizationAgent.agent.revision,
-    targetType: 'role',
-    targetId: 'member',
+    targetType: 'workspace',
+    targetId: 'workspace-agent-grant-target',
     canUse: true,
   });
   assert.deepEqual(await getAgentAccess('marketing-user', organizationAgent.agent.agentId), {
     canUse: true,
+    canEdit: false,
+    canManage: false,
+  });
+  assert.deepEqual(await getAgentAccess('marketing-user', organizationAgent.agent.agentId, {
+    organizationId: organization.organizationId,
+    workspaceId: 'workspace-agent-grant-target',
+  }), {
+    canUse: true,
+    canEdit: false,
+    canManage: false,
+  });
+  assert.deepEqual(await getAgentAccess('marketing-user', organizationAgent.agent.agentId, {
+    organizationId: organization.organizationId,
+    workspaceId: otherWorkspace.id,
+  }), {
+    canUse: false,
     canEdit: false,
     canManage: false,
   });

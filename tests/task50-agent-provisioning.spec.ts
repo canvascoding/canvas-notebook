@@ -181,6 +181,13 @@ test.describe('Task 50 agent provisioning and management', () => {
     const unique = Date.now();
     const personalName = `${TEST_NAME_PREFIX} Personal ${unique}`;
     const organizationName = `${TEST_NAME_PREFIX} Organization ${unique}`;
+    const workspacesResponse = await page.request.get('/api/workspaces');
+    const workspacesPayload = await workspacesResponse.json() as {
+      workspaces?: Array<{ id: string; name: string; status: string }>;
+    };
+    expect(workspacesResponse.ok(), JSON.stringify(workspacesPayload)).toBeTruthy();
+    const grantWorkspace = workspacesPayload.workspaces?.find((workspace) => workspace.status === 'active');
+    expect(grantWorkspace).toBeDefined();
 
     await page.goto('/en/settings?tab=agent-settings');
     await expect(page.getByText('Agent Selection', { exact: true })).toBeVisible({ timeout: 30_000 });
@@ -249,17 +256,21 @@ test.describe('Task 50 agent provisioning and management', () => {
     await expect(grants).toBeVisible();
 
     await grants.getByLabel('Grant target type').selectOption('workspace');
-    await grants.getByLabel('Grant target ID').fill('workspace-that-does-not-exist');
+    const workspacePicker = grants.getByTestId('grant-target-workspace-picker');
+    await workspacePicker.click();
+    await page.getByPlaceholder('Search workspaces...').fill(grantWorkspace!.name);
+    await page.getByTestId(`grant-target-workspace-picker-option-${grantWorkspace!.id}`).click();
+    await expect(workspacePicker).toContainText(grantWorkspace!.name);
     await grants.getByRole('button', { name: 'Add' }).click();
-    await expect(grants.getByText(/not found|does not exist|outside.*organization|unavailable/i)).toBeVisible();
+    await expect(grants.getByText(grantWorkspace!.name, { exact: true })).toBeVisible();
 
     await grants.getByLabel('Grant target type').selectOption('role');
     await grants.getByLabel('Role').selectOption('member');
     await grants.getByLabel('Grant access level').selectOption('user');
     await grants.getByRole('button', { name: 'Add' }).click();
-    await expect(grants.getByText('member', { exact: true })).toBeVisible();
-    await expect(grants.getByText('user', { exact: true })).toBeVisible();
-    await grants.getByText('member', { exact: true }).scrollIntoViewIfNeeded();
+    await expect(grants.getByText('Member', { exact: true })).toBeVisible();
+    await expect(grants.getByText('Use', { exact: true })).toHaveCount(2);
+    await grants.getByText('Member', { exact: true }).scrollIntoViewIfNeeded();
     await page.screenshot({ path: 'test-results/task50-organization-grants.png', fullPage: false });
     if (await createDialog.isVisible()) {
       await createDialog.getByRole('button', { name: 'Done' }).click();
@@ -268,7 +279,7 @@ test.describe('Task 50 agent provisioning and management', () => {
     const organizationCard = agentCard(page, organizationName);
     await expect(organizationCard).toBeVisible();
     await expect(organizationCard.getByText('Organization', { exact: true })).toBeVisible();
-    await expect(page.getByTestId('agent-grants-editor').getByText('member', { exact: true })).toBeVisible();
+    await expect(page.getByTestId('agent-grants-editor').getByText('Member', { exact: true })).toBeVisible();
 
     const mainAgent = (await listAgents(page)).find((agent) => agent.type === 'main');
     expect(mainAgent).toBeDefined();
@@ -329,11 +340,15 @@ test.describe('Task 50 agent provisioning and management', () => {
     const grants = page.getByTestId('agent-grants-editor');
     await expect(grants).toBeVisible();
     await grants.getByLabel('Grant target type').selectOption('user');
-    await grants.getByLabel('Grant target ID').fill(member.id);
+    const userPicker = grants.getByTestId('grant-target-user-picker');
+    await userPicker.click();
+    await page.getByPlaceholder('Search users...').fill(member.email);
+    await page.getByTestId(`grant-target-user-picker-option-${member.id}`).click();
+    await expect(userPicker).not.toContainText('Select user');
     await grants.getByLabel('Grant access level').selectOption('user');
     await grants.getByRole('button', { name: 'Add' }).click();
     await expect(grants.getByText(member.id, { exact: true })).toBeVisible();
-    await expect(grants.getByText('user', { exact: true })).toHaveCount(2);
+    await expect(grants.getByText(member.email, { exact: true })).toBeVisible();
 
     const memberContext = await browser.newContext();
     const memberPage = await memberContext.newPage();

@@ -3507,6 +3507,66 @@
           "delete": "Failed to delete agent."
         }
       },
+      "grants": {
+        "title": "Organization access",
+        "description": "Assign this central agent to the whole organization, a role, workspace, project, or individual user.",
+        "reload": "Reload access assignments",
+        "targetTypeLabel": "Grant target type",
+        "targetLabel": "Target",
+        "roleLabel": "Role",
+        "organizationLabel": "Organization",
+        "accessLevelLabel": "Grant access level",
+        "targetTypes": {
+          "user": "User",
+          "role": "Role",
+          "workspace": "Workspace",
+          "project": "Project",
+          "organization": "Organization"
+        },
+        "pickerLabels": {
+          "user": "Grant target user",
+          "workspace": "Grant target workspace",
+          "project": "Grant target project"
+        },
+        "select": {
+          "user": "Select user",
+          "role": "Select role",
+          "workspace": "Select workspace",
+          "project": "Select project"
+        },
+        "search": {
+          "user": "Search users...",
+          "workspace": "Search workspaces...",
+          "project": "Search projects..."
+        },
+        "empty": {
+          "user": "No matching users.",
+          "workspace": "No matching workspaces.",
+          "project": "No matching projects."
+        },
+        "roles": {
+          "member": "Member",
+          "admin": "Administrator",
+          "owner": "Owner",
+          "external": "External"
+        },
+        "accessLevels": {
+          "user": "Use",
+          "editor": "Edit",
+          "manager": "Manage"
+        },
+        "organizationHint": "The organization ID is filled in automatically.",
+        "organizationValue": "Entire organization",
+        "projectDescription": "Project",
+        "add": "Add",
+        "remove": "Remove access assignment",
+        "noGrants": "No cascading access assignments yet. The creator remains the agent manager.",
+        "errors": {
+          "load": "Agent access assignments could not be loaded.",
+          "save": "The agent access assignment could not be saved.",
+          "remove": "The agent access assignment could not be removed."
+        }
+      },
       "members": {
         "currentMembers": "People with access",
         "currentMembersDescription": "Control who can use or edit this agent and who can manage its access.",
