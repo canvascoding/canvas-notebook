@@ -9,6 +9,7 @@ import {
   FolderCog,
   Globe,
   HardDrive,
+  Scale,
   Mail,
   Menu,
   PanelLeftClose,
@@ -55,7 +56,8 @@ export type SettingsTab =
   | 'channels'
   | 'usage'
   | 'skills'
-  | 'license';
+  | 'license'
+  | 'legal';
 
 export type SettingsGroup = 'account' | 'workspace' | 'agents' | 'connections' | 'system';
 
@@ -175,6 +177,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.license',
     group: 'system',
     icon: BadgeCheck,
+  },
+  {
+    value: 'legal',
+    labelKey: 'tabs.legal',
+    descriptionKey: 'navigation.descriptions.legal',
+    group: 'system',
+    icon: Scale,
   },
 ];
 

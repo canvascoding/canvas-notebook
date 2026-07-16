@@ -80,6 +80,9 @@ COPY --from=builder /app/lib ./lib
 COPY --from=builder /app/messages ./messages
 COPY --from=builder /app/package.json ./package.json
 COPY --from=builder /app/tsconfig.json ./tsconfig.json
+COPY --from=builder /app/LICENSE ./LICENSE
+COPY --from=builder /app/THIRD_PARTY_NOTICES.md ./THIRD_PARTY_NOTICES.md
+COPY --from=builder /app/docs/compliance ./docs/compliance
 
 # Copy the main server.js file that initializes WebSocket server
 COPY --from=builder /app/server.js ./server.js
@@ -89,6 +92,11 @@ COPY --from=builder /app/server ./server
 
 # Copy scripts from builder (needed for startup)
 COPY --from=builder /app/scripts ./scripts
+
+# Capture the exact OS and Python package versions in the final image. Debian
+# package copyright files remain available under /usr/share/doc/*/copyright.
+RUN node ./scripts/capture-runtime-component-inventory.mjs \
+  --output /app/docs/compliance/runtime-components.json
 
 # Copy seed assets (preset preview images, sys prompts, etc.)
 COPY --from=builder /app/seed_sys_prompts ./seed_sys_prompts

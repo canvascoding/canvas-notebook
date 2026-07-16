@@ -386,6 +386,11 @@ const LicenseActivationPanel = dynamic<LicenseActivationPanelProps>(
   { loading: SettingsTabLoader },
 );
 
+const LegalSettingsPanel = dynamic(
+  () => import('@/app/components/settings/LegalSettingsPanel').then((module) => module.LegalSettingsPanel),
+  { loading: SettingsTabLoader },
+);
+
 const CodeEditor = dynamic<CodeEditorProps>(
   () => import('@/app/components/editor/CodeEditor').then((module) => module.CodeEditor),
   { loading: SettingsTabLoader },
@@ -3131,6 +3136,8 @@ export function IntegrationsSettingsClient({
           {renderLazyTabContent('skills', <SkillsPanel />)}
 
           {renderLazyTabContent('license', <LicenseActivationPanel defaultEmail={userEmail} />)}
+
+          {renderLazyTabContent('legal', <LegalSettingsPanel />)}
         </div>
       </div>
     </div>

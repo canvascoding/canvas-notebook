@@ -69,6 +69,7 @@ jobs:
 
       - name: Verify application production build
         run: |
+          npm run test:licenses:release
           npm run lint
           npm run build
 

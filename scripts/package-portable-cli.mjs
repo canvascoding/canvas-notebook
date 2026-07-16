@@ -41,6 +41,12 @@ await mkdir(path.join(packageDir, 'install'), { recursive: true });
 await cp(path.join(rootDir, 'dist-cli'), path.join(packageDir, 'dist-cli'), { recursive: true });
 await cp(path.join(rootDir, 'install', 'macos.sh'), path.join(packageDir, 'install', 'macos.sh'));
 await cp(path.join(rootDir, 'install', 'windows.ps1'), path.join(packageDir, 'install', 'windows.ps1'));
+await cp(path.join(rootDir, 'LICENSE'), path.join(packageDir, 'LICENSE'));
+await cp(path.join(rootDir, 'THIRD_PARTY_NOTICES.md'), path.join(packageDir, 'THIRD_PARTY_NOTICES.md'));
+await cp(
+  path.join(rootDir, 'docs', 'compliance', 'third-party-components.json'),
+  path.join(packageDir, 'third-party-components.json'),
+);
 await writeFile(path.join(packageDir, 'VERSION'), `${packageVersion}\n`, 'utf8');
 await writeFile(
   path.join(packageDir, 'README.txt'),

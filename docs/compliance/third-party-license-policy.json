@@ -1,0 +1,313 @@
+{
+  "schemaVersion": 1,
+  "releaseApproval": {
+    "status": "pending",
+    "reviewedBy": null,
+    "reviewedAt": null,
+    "notes": "The deterministic engineering inventory is implemented. A responsible owner or legal reviewer must approve the first commercial-release inventory."
+  },
+  "licenseDecisions": {
+    "0BSD": "allowed",
+    "Apache-2.0": "allowed",
+    "Apache-2.0 AND MIT": "allowed",
+    "BSD": "allowed",
+    "BSD-2-Clause": "allowed",
+    "BSD-2-Clause OR MIT OR Apache-2.0": "allowed",
+    "BSD-3-Clause": "allowed",
+    "BlueOak-1.0.0": "allowed",
+    "CC-BY-4.0": "allowed",
+    "CC0-1.0": "allowed",
+    "ISC": "allowed",
+    "MIT": "allowed",
+    "MIT AND ISC": "allowed",
+    "MIT AND Zlib": "allowed",
+    "MIT OR CC0-1.0": "allowed",
+    "MIT OR WTFPL": "allowed",
+    "MIT-0": "allowed",
+    "Public Domain": "allowed",
+    "Python-2.0": "allowed",
+    "Unlicense": "allowed",
+    "WTFPL": "allowed",
+    "WTFPL OR ISC": "allowed",
+    "WTFPL OR MIT": "allowed",
+    "Apache-2.0 AND LGPL-3.0-or-later": "review_required",
+    "Apache-2.0 AND LGPL-3.0-or-later AND MIT": "review_required",
+    "FSL-1.1-MIT": "review_required",
+    "LGPL-3.0-or-later": "review_required",
+    "MIT OR EUPL-1.1+": "review_required",
+    "MIT OR GPL-3.0-or-later": "review_required",
+    "MPL-2.0": "review_required",
+    "MPL-2.0 OR Apache-2.0": "review_required",
+    "SEE LICENSE IN LICENSE.md": "review_required",
+    "UNKNOWN": "review_required"
+  },
+  "blockedLicensePatterns": [
+    "AGPL",
+    "BUSL",
+    "Commons Clause",
+    "SSPL"
+  ],
+  "packageUsageOverrides": [
+    {
+      "namePrefix": "@sentry/cli",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "reason": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload."
+    }
+  ],
+  "packageOverrides": {
+    "@excalidraw/excalidraw@0.18.1": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "copyrightNotices": [
+        "Copyright (c) 2020 Excalidraw"
+      ],
+      "sourceUrl": "https://github.com/excalidraw/excalidraw/tree/v0.18.1",
+      "verificationSource": "https://github.com/excalidraw/excalidraw/blob/v0.18.1/LICENSE",
+      "reason": "The npm package declares MIT but omits the repository root LICENSE file."
+    },
+    "@jspreadsheet/formula@2.0.2": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",
+      "copyrightNotices": [
+        "Copyright (c) 2024 Jspreadsheet Ltd"
+      ],
+      "sourceUrl": "https://github.com/jspreadsheet/ce/tree/v5.0.4",
+      "verificationSource": "The formula package is distributed as a dependency of the MIT-licensed jspreadsheet-ce 5.0.4 release.",
+      "reason": "The package metadata and tarball omit a license field; the exact parent CE distribution carries the MIT license."
+    },
+    "@jsuites/utils@6.0.6": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/jsuites/LICENSE",
+      "copyrightNotices": [
+        "Copyright (c) Jspreadsheet"
+      ],
+      "sourceUrl": "https://github.com/jsuites/jsuites",
+      "verificationSource": "node_modules/jsuites/LICENSE",
+      "reason": "The scoped utility package is released from the same jsuites source distribution."
+    },
+    "@lemonadejs/calendar@5.9.3": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "@lemonadejs/color@5.8.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "@lemonadejs/contextmenu@5.8.5": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "@lemonadejs/dropdown@5.8.4": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "@lemonadejs/modal@5.8.3": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "@lemonadejs/rating@5.8.1": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "@lemonadejs/switch@5.8.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "@lemonadejs/tabs@5.8.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "@lemonadejs/topmenu@5.8.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The component tarball omits license metadata and is part of the MIT-licensed LemonadeJS distribution."
+    },
+    "format@0.2.2": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "copyrightNotices": [
+        "Copyright (c) Sami Samhuri"
+      ],
+      "sourceUrl": "https://github.com/samsonjs/format/tree/0.2.2",
+      "verificationSource": "https://github.com/samsonjs/format",
+      "reason": "The legacy npm tarball omits license metadata; the upstream project is MIT licensed."
+    },
+    "fuzzy@0.1.3": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/fuzzy/LICENSE-MIT",
+      "copyrightNotices": [
+        "Copyright (c) Matt York"
+      ],
+      "sourceUrl": "https://github.com/mattyork/fuzzy/tree/v0.1.3",
+      "verificationSource": "node_modules/fuzzy/LICENSE-MIT",
+      "reason": "The lockfile omits the license field although the package includes LICENSE-MIT."
+    },
+    "jspreadsheet-ce@5.0.4": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",
+      "copyrightNotices": [
+        "Copyright (c) 2024 Jspreadsheet Ltd"
+      ],
+      "sourceUrl": "https://github.com/jspreadsheet/ce/tree/v5.0.4",
+      "verificationSource": "node_modules/jspreadsheet-ce/LICENSE",
+      "reason": "The package includes an MIT license but omits the lockfile license field."
+    },
+    "jsuites@5.13.5": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/jspreadsheet-ce/node_modules/jsuites/LICENSE",
+      "copyrightNotices": [
+        "Copyright (c) Jspreadsheet"
+      ],
+      "sourceUrl": "https://github.com/jsuites/jsuites",
+      "verificationSource": "node_modules/jspreadsheet-ce/node_modules/jsuites/LICENSE",
+      "reason": "The nested package includes an MIT license but omits the lockfile license field."
+    },
+    "jsuites@6.4.2": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/jsuites/LICENSE",
+      "copyrightNotices": [
+        "Copyright (c) Jspreadsheet"
+      ],
+      "sourceUrl": "https://github.com/jsuites/jsuites",
+      "verificationSource": "node_modules/jsuites/LICENSE",
+      "reason": "The package includes an MIT license but omits the lockfile license field."
+    },
+    "khroma@2.1.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/khroma/license",
+      "copyrightNotices": [
+        "Copyright (c) Fabio Spampinato"
+      ],
+      "sourceUrl": "https://github.com/fabiospampinato/khroma/tree/v2.1.0",
+      "verificationSource": "node_modules/khroma/license",
+      "reason": "The package includes a lowercase MIT license file but omits the lockfile license field."
+    },
+    "lemonadejs@5.3.6": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/lemonadejs/LICENSE.md",
+      "copyrightNotices": [
+        "Copyright (c) 2022 LemonadeJS"
+      ],
+      "sourceUrl": "https://github.com/lemonadejs/lemonadejs",
+      "verificationSource": "node_modules/lemonadejs/LICENSE.md",
+      "reason": "The package includes an MIT license but omits the lockfile license field."
+    }
+  },
+  "additionalComponents": [
+    {
+      "name": "@excalidraw/excalidraw-font-assets",
+      "versionOrCommit": "0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84",
+      "sourceUrl": "https://github.com/excalidraw/excalidraw/tree/v0.18.1/packages/excalidraw/fonts",
+      "packagePathOrArtifact": "public/excalidraw/fonts",
+      "usage": "asset",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "copyrightNotices": [
+        "Copyright (c) 2020 Excalidraw"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The self-hosted font payload is byte-identical to the pinned npm package font directory. Trademark rights are not granted by the MIT license."
+    },
+    {
+      "name": "electron-runtime",
+      "versionOrCommit": "42.6.1",
+      "sourceUrl": "https://github.com/electron/electron/tree/v42.6.1",
+      "packagePathOrArtifact": "Electron desktop runtime",
+      "usage": "native",
+      "distributedIn": [
+        "electron"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "node_modules/electron/LICENSE",
+      "copyrightNotices": [
+        "Copyright (c) Electron contributors",
+        "Copyright (c) 2013-2020 GitHub Inc."
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Electron packaging must also retain the Chromium and third-party notices shipped by electron-builder."
+    },
+    {
+      "name": "node-docker-base",
+      "versionOrCommit": "node:24-bookworm-slim",
+      "sourceUrl": "https://github.com/nodejs/docker-node",
+      "packagePathOrArtifact": "Dockerfile base image",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "Multiple",
+      "verifiedLicense": "Multiple",
+      "licenseTextPath": null,
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "review_required",
+      "reviewNotes": "The image build captures exact dpkg and Python versions. A release reviewer must verify the resolved image digest and Debian notices."
+    }
+  ]
+}

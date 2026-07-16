@@ -1343,7 +1343,7 @@
     {
       "id": 51,
       "title": "Alle integrierten Drittanbieter- und MIT-Lizenzen inventarisieren und vollstaendige Third-Party Notices als Release-Gate ausliefern",
-      "status": "planned",
+      "status": "in_progress",
       "repo": "canvasstudios-notebook",
       "dependsOn": [],
       "planningArtifacts": [
@@ -1384,7 +1384,45 @@
         "Artefakttest fuer lesbare Third-Party Notices in Source-Release, Docker, CLI/Installer und Electron",
         "npm run lint",
         "npm run build"
-      ]
+      ],
+      "progress": {
+        "updatedAt": "2026-07-16",
+        "engineeringImplementation": "implemented_release_blocked",
+        "commercialReleaseGate": "blocked_pending_review",
+        "inventory": {
+          "totalComponents": 1981,
+          "runtimeComponents": 1475,
+          "developmentOnlyComponents": 506,
+          "allowed": 1758,
+          "reviewRequired": 223,
+          "blocked": 0,
+          "releaseBlockers": 200
+        },
+        "completed": [
+          "Deterministischer npm- und Non-npm-Inventargenerator",
+          "Lockfile-gebundener Lizenztext-Cache aus exakten npm-Tarballs",
+          "Menschenlesbare Third-Party Notices und maschinenlesbares Komponentenmanifest",
+          "Versionierte Lizenzpolicy und Overrides fuer fehlende npm-Metadaten",
+          "Excalidraw-Paket und selbst gehostete Excalidraw-Font-Assets inventarisiert",
+          "Ungenutzte @jspreadsheet/react/formula-pro- und Remotion-Abhaengigkeiten entfernt",
+          "Legal-/About-Ansicht mit Notice- und Inventarzugriff",
+          "Docker-, CLI-, Electron- und Release-Workflow-Integration"
+        ],
+        "verified": [
+          "npm run test:licenses",
+          "Negativtest: npm run test:licenses:release blockiert mit den dokumentierten Pruefpositionen",
+          "npx tsc --noEmit --pretty false",
+          "npm run lint",
+          "npm run build",
+          "Host- und Portable-CLI-Archive inklusive Notices, Inventar und SHA-256 geprueft",
+          "Playwright-E2E Desktop und Mobile fuer Settings -> Rechtliches und alle drei Legal-API-Endpunkte"
+        ],
+        "remainingExternalReview": [
+          "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
+          "Aufgeloesten Docker-Basisimage-Digest und Image-Paketnotices pruefen",
+          "Noch reviewpflichtige Runtime-Komponenten einzeln freigeben, ersetzen oder entfernen"
+        ]
+      }
     },
     {
       "id": 52,

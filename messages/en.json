@@ -2059,7 +2059,8 @@
       "channels": "Channels",
       "usage": "Usage",
       "skills": "Plugins",
-      "license": "License"
+      "license": "License",
+      "legal": "Legal"
     },
     "navigation": {
       "ariaLabel": "Settings areas",
@@ -2090,8 +2091,30 @@
         "aiProviders": "Administer app-wide AI providers, models, and defaults.",
         "systemEmail": "Configure the instance-wide SMTP sender for app notifications.",
         "usage": "Analyze token usage, cost, and runtime events.",
-        "license": "Manage the license status and activation of this instance."
+        "license": "Manage the license status and activation of this instance.",
+        "legal": "Review third-party components, license notices, and commercial release readiness."
       }
+    },
+    "legal": {
+      "loading": "Loading the license inventory…",
+      "loadFailedTitle": "License inventory unavailable",
+      "loadFailed": "The third-party license inventory could not be loaded.",
+      "gateApproved": "Commercial release gate approved",
+      "gateApprovedDescription": "All distributed third-party components and the initial approval are documented.",
+      "gateBlocked": "Commercial release gate blocked",
+      "gateBlockedDescription": "{count, plural, one {One license item still needs a documented review.} other {# license items still need a documented review.}}",
+      "inventoryTitle": "Third-party licenses",
+      "inventoryDescription": "Deterministic inventory for Canvas Notebook {version}.",
+      "approvedBadge": "Approved",
+      "blockedBadge": "Review pending",
+      "totalComponents": "Total components",
+      "runtimeComponents": "Distributed",
+      "reviewRequired": "Review required",
+      "blockedComponents": "Blocked",
+      "openNotices": "Open third-party notices",
+      "openInventory": "Open JSON inventory",
+      "blockersTitle": "Pending release reviews",
+      "moreBlockers": "{count, plural, one {One more entry is listed in the full inventory.} other {# more entries are listed in the full inventory.}}"
     },
     "sections": {
       "expand": "Expand",

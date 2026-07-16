@@ -118,7 +118,9 @@ jobs:
         run: npm ci
 
       - name: Build Electron desktop artifacts
-        run: npm run electron:dist
+        run: |
+          npm run test:licenses:release
+          npm run electron:dist
 
       - name: Verify macOS signing and notarization
         if: matrix.platform == 'macos'

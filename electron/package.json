@@ -9,7 +9,7 @@
   "build": {
     "appId": "io.canvasstudios.notebook",
     "productName": "Canvas Notebook",
-    "electronVersion": "42.3.0",
+    "electronVersion": "42.6.1",
     "buildVersion": "2026.6.1.3",
     "icon": "assets/icon",
     "artifactName": "${productName}-${buildVersion}-${os}-${arch}.${ext}",
@@ -19,6 +19,20 @@
     "npmRebuild": false,
     "files": [
       "**/*"
+    ],
+    "extraResources": [
+      {
+        "from": "../LICENSE",
+        "to": "LICENSE"
+      },
+      {
+        "from": "../THIRD_PARTY_NOTICES.md",
+        "to": "THIRD_PARTY_NOTICES.md"
+      },
+      {
+        "from": "../docs/compliance/third-party-components.json",
+        "to": "third-party-components.json"
+      }
     ],
     "mac": {
       "category": "public.app-category.productivity",

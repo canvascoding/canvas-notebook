@@ -31,6 +31,12 @@ await rm(outputRoot, { recursive: true, force: true });
 await mkdir(packageDir, { recursive: true });
 await cp(path.join(rootDir, 'install.sh'), path.join(packageDir, 'install.sh'));
 await cp(path.join(rootDir, 'install'), path.join(packageDir, 'install'), { recursive: true });
+await cp(path.join(rootDir, 'LICENSE'), path.join(packageDir, 'LICENSE'));
+await cp(path.join(rootDir, 'THIRD_PARTY_NOTICES.md'), path.join(packageDir, 'THIRD_PARTY_NOTICES.md'));
+await cp(
+  path.join(rootDir, 'docs', 'compliance', 'third-party-components.json'),
+  path.join(packageDir, 'third-party-components.json'),
+);
 await writeFile(path.join(packageDir, 'VERSION'), `${packageVersion}\n`, { encoding: 'utf8', mode: 0o644 });
 await tar.c({
   cwd: outputRoot,

@@ -26,7 +26,9 @@ jobs:
         run: npm ci
 
       - name: Test portable CLI
-        run: npm run test:cli:portable
+        run: |
+          npm run test:licenses:release
+          npm run test:cli:portable
 
       - name: Package portable CLI
         run: npm run cli:package

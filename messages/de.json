@@ -2058,7 +2058,8 @@
       "channels": "Channels",
       "usage": "Nutzung",
       "skills": "Plugins",
-      "license": "Lizenz"
+      "license": "Lizenz",
+      "legal": "Rechtliches"
     },
     "navigation": {
       "ariaLabel": "Einstellungsbereiche",
@@ -2089,8 +2090,30 @@
         "aiProviders": "Appweit verfügbare KI-Provider, Modelle und Standards administrieren.",
         "systemEmail": "Den systemweiten SMTP-Absender für App-Benachrichtigungen konfigurieren.",
         "usage": "Tokenverbrauch, Kosten und Laufzeitereignisse analysieren.",
-        "license": "Lizenzstatus und Aktivierung dieser Instanz verwalten."
+        "license": "Lizenzstatus und Aktivierung dieser Instanz verwalten.",
+        "legal": "Drittanbieter-Komponenten, Lizenzhinweise und den kommerziellen Release-Status prüfen."
       }
+    },
+    "legal": {
+      "loading": "Lizenzinventar wird geladen …",
+      "loadFailedTitle": "Lizenzinventar nicht verfügbar",
+      "loadFailed": "Das Drittanbieter-Lizenzinventar konnte nicht geladen werden.",
+      "gateApproved": "Kommerzielles Release-Gate freigegeben",
+      "gateApprovedDescription": "Alle ausgelieferten Drittanbieter-Komponenten und die Erstfreigabe sind dokumentiert.",
+      "gateBlocked": "Kommerzielles Release-Gate gesperrt",
+      "gateBlockedDescription": "{count, plural, one {Ein Lizenzpunkt benötigt noch eine dokumentierte Prüfung.} other {# Lizenzpunkte benötigen noch eine dokumentierte Prüfung.}}",
+      "inventoryTitle": "Drittanbieter-Lizenzen",
+      "inventoryDescription": "Deterministisches Inventar für Canvas Notebook {version}.",
+      "approvedBadge": "Freigegeben",
+      "blockedBadge": "Prüfung offen",
+      "totalComponents": "Komponenten gesamt",
+      "runtimeComponents": "Ausgeliefert",
+      "reviewRequired": "Prüfung erforderlich",
+      "blockedComponents": "Blockiert",
+      "openNotices": "Third-Party Notices öffnen",
+      "openInventory": "JSON-Inventar öffnen",
+      "blockersTitle": "Offene Release-Prüfungen",
+      "moreBlockers": "{count, plural, one {Ein weiterer Eintrag steht im vollständigen Inventar.} other {# weitere Einträge stehen im vollständigen Inventar.}}"
     },
     "sections": {
       "expand": "Aufklappen",

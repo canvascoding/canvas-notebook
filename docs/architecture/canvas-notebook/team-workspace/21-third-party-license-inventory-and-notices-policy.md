@@ -1,6 +1,60 @@
 # Third-Party License Inventory and Notices Policy
 
-Stand: 2026-07-15
+Stand: 2026-07-16
+
+## Umsetzungsstand
+
+Die technische Inventar- und Release-Gate-Implementierung ist am 16. Juli 2026
+angelaufen und liegt reproduzierbar im Repository:
+
+- `scripts/generate-third-party-notices.ts` erzeugt das maschinenlesbare
+  Inventar und `THIRD_PARTY_NOTICES.md` deterministisch aus Lockfile,
+  installierten Lizenzdateien, versionierten Overrides und Non-npm-Komponenten.
+- `scripts/refresh-third-party-license-cache.ts` liest fehlende Lizenzdateien
+  aus den exakt im Lockfile gepinnten npm-Tarballs und legt den Beleg mit
+  Lockfile-Hash reproduzierbar unter `docs/compliance/` ab. Pakete ohne eigenen
+  Lizenztext bleiben sichtbar reviewpflichtig.
+- `scripts/third-party-license-compliance-test.ts` prueft Drift, MIT-Text und
+  Copyright-Zuordnung, Excalidraw inklusive der selbst gehosteten Fonts sowie
+  das Entfernen ungenutzter lizenzpflichtiger Pakete.
+- `@jspreadsheet/react` und damit das ungenutzte, ausdruecklich
+  lizenzpflichtige `@jspreadsheet/formula-pro` wurden aus dem Produkt entfernt.
+- Das ebenfalls ungenutzte, von der Unternehmensgroesse abhaengig
+  lizenzpflichtige `@remotion/google-fonts` samt `remotion` wurde entfernt.
+- Settings -> Rechtliches zeigt Inventarstatus und Release-Blocker; Notices
+  und JSON-Inventar sind offline ueber dieselbe ausgelieferte Quelle abrufbar.
+- Docker-, Portable-CLI-, Host-CLI- und Electron-Artefakte nehmen Lizenz,
+  Notices und Inventar auf. Das Docker-Image erfasst zusaetzlich die exakt
+  installierten Debian- und Python-Versionen zur Build-Zeit.
+- Die Release-Workflows rufen das strikte kommerzielle Lizenz-Gate vor dem
+  Paketieren auf.
+
+Der aktuelle technische Scan umfasst 1.981 Komponenten. Das kommerzielle
+Release-Gate bleibt mit 200 Eintraegen absichtlich gesperrt. Darin enthalten
+sind die erste verantwortliche oder rechtliche Freigabe, das gegen seinen
+aufgeloesten Digest zu pruefende Docker-Basisimage sowie Runtime-Pakete ohne
+vollstaendig zugeordneten Lizenztext beziehungsweise Copyright-Hinweis oder
+mit reviewpflichtiger Mehrfach-/Copyleft-Lizenz. Im Gesamtinventar sind 1.758
+Komponenten `allowed`, 223 `review_required` und keine pauschal `blocked`;
+Development-only-Eintraege zaehlen nicht als Release-Blocker. Alle offenen
+Punkte stehen einzeln in
+`docs/compliance/third-party-components.json`; sie werden nicht durch eine
+pauschale KI-Freigabe als erledigt markiert.
+
+Die technische Verifikation am 16. Juli 2026 umfasst:
+
+- TypeScript, ESLint und den Next.js-Produktions-Build,
+- deterministischen Generatorlauf und einen negativen kommerziellen
+  Release-Gate-Test,
+- erzeugte Host- und Portable-CLI-Archive inklusive lesbarer Lizenz,
+  Notices, JSON-Inventar und gueltiger SHA-256-Pruefsummen,
+- Playwright-E2E fuer die Legal-Ansicht auf Desktop und Mobile sowie die
+  Notice-/Inventar-Endpunkte und horizontale Viewport-Passung.
+
+Ein Container wurde dabei nicht gebaut, weil dies fuer diesen Arbeitslauf
+nicht beauftragt war. Die Docker-Inventurerfassung ist implementiert, muss
+aber zusammen mit Digest und finalem Image-Lieferumfang im spaeteren
+verantwortlichen Release-Review ausgefuehrt werden.
 
 ## Zweck
 
