@@ -1447,7 +1447,8 @@
         "reviewedButStillBlocked": [
           "@apm-js-collab/code-transformer-bundler-plugins@0.5.0: MIT ist in npm-Paket und exaktem Commit deklariert, aber Lizenzdatei und belastbarer Copyright-Hinweis fehlen; kanonischer MIT-Text wird ausgeliefert, der Blocker bleibt bis Upstream-Fix, Ersatz/Entfernung oder menschlich-rechtlicher Einzelfallentscheidung bestehen",
           "@better-auth/utils@0.4.2: signierte npm-Provenance bindet den Release an Tag und Commit; MIT ist deklariert, aber Lizenzdatei und belastbarer Copyright-Hinweis fehlen, daher bleibt der Blocker trotz ausgeliefertem kanonischem MIT-Text bestehen",
-          "@eigenpal/docx-js-editor@0.5.3: MIT-Deklaration und Commit sind durch npm-Metadaten, README und signierte Provenance belegt; Tarball ohne Lizenz-/Copyright-Datei und inzwischen nicht oeffentlich erreichbarer Upstream verhindern die Freigabe, waehrend die Apache-2.0-Nachfolge als separate getestete Migrationsoption dokumentiert ist"
+          "@eigenpal/docx-js-editor@0.5.3: MIT-Deklaration und Commit sind durch npm-Metadaten, README und signierte Provenance belegt; Tarball ohne Lizenz-/Copyright-Datei und inzwischen nicht oeffentlich erreichbarer Upstream verhindern die Freigabe, waehrend die Apache-2.0-Nachfolge als separate getestete Migrationsoption dokumentiert ist",
+          "client-only@0.0.1: einziger npm-Release deklariert MIT und verweist auf React, liefert aber weder Repository/Commit oder Provenance noch Lizenzdatei oder Copyright-Hinweis; kanonischer MIT-Text wird ausgeliefert, der Rechteinhaber bleibt bewusst unbestimmt"
         ]
       }
     },

@@ -215,6 +215,13 @@
       "verificationSource": "https://github.com/zone-eu/mailsplit/blob/v5.4.14/LICENSE.MIT",
       "reason": "The exact npm release declares (MIT OR EUPL-1.1+), publishes gitHead ce3e52530b56627c78c78f44fc42e61d71c4c6d0, and the matching lightweight v5.4.14 tag resolves to that commit. Canvas elects MIT, retains the complete MIT text and upstream copyright notice, and does not modify the package. The exact npm tarball contains no separate NOTICE file."
     },
+    "client-only@0.0.1": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "sourceUrl": "https://registry.npmjs.org/client-only/-/client-only-0.0.1.tgz",
+      "verificationSource": "https://registry.npmjs.org/client-only/0.0.1",
+      "reason": "The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required."
+    },
     "@jspreadsheet/formula@2.0.2": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",

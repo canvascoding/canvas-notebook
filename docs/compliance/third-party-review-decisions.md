@@ -278,3 +278,38 @@ Technische Korrektur:
   Copyright-Hinweis und sind `allowed`.
 - Ein Regressionstest sichert beide nicht standardmaessigen Tarball-Wurzeln
   und den exakten MIT-Beleg ab.
+
+## 8. `client-only@0.0.1`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `client-only@0.0.1` |
+| npm-Tarball | `https://registry.npmjs.org/client-only/-/client-only-0.0.1.tgz` |
+| npm-Integrity | `sha512-IV3Ou0jSMzZrd3pZ48nLkT9DA7Ag1pnPzaiQhpW7c3RbcqqzvzzVu+L8gfqMp/8IM2MQtSiqaCxrrcfu8I8rMA==` |
+| veroeffentlicht | 3. September 2022 |
+| deklarierte Lizenz | `MIT` |
+| Homepage/Issues | React-Homepage und `facebook/react`-Issue-Tracker |
+| npm-Maintainer | `sebmarkbage` |
+| fehlender Beleg | Repository, Commit/Provenance, Lizenzdatei und Copyright-Hinweis |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `styled-jsx@5.1.6` und `next@16.2.10` |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der exakte Tarball enthaelt ausschliesslich `package.json`, die leere
+`index.js` und `error.js`. Die Paketmetadaten deklarieren MIT und nennen React
+als Homepage beziehungsweise Issue-Tracker, enthalten aber keine
+Source-Repository-Angabe. npm veroeffentlicht weder `gitHead` noch signierte
+Provenance fuer diesen Release.
+
+Technische Entscheidung:
+
+- Version, Tarball-Integritaet, Inhalt, MIT-Deklaration und Herkunft sind
+  dokumentiert.
+- Canvas nimmt den kanonischen MIT-Text in die Notices auf.
+- Weder der npm-Maintainer noch React-/Meta-/Vercel-Branding werden ohne
+  expliziten Notice-Beleg als Copyright-Inhaber eingetragen.
+- Der Blocker bleibt bis zu einem belastbaren Upstream-Nachweis,
+  Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
+  Einzelfallentscheidung bestehen.

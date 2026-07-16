@@ -115,6 +115,12 @@ der DefinitelyTyped-spezifischen Archivwurzeln uebersehen. Der Extractor
 unterstuetzt nun beliebig benannte einzelne Tarball-Wurzeln; ein
 Regressionstest sichert beide Pakete.
 
+`client-only@0.0.1` ist technisch geprueft und bleibt blockierend. Der einzige
+npm-Release deklariert MIT und verweist auf React, liefert aber weder
+Repository/Commit beziehungsweise Provenance noch Lizenzdatei oder
+Copyright-Hinweis. Canvas liefert den kanonischen MIT-Text aus, ordnet
+npm-Maintainer und React-Branding jedoch keinem Rechteinhaber zu.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.

@@ -187,7 +187,7 @@
       {
         "name": "client-only",
         "versionOrCommit": "0.0.1",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+        "reason": "The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required. Verification source: https://registry.npmjs.org/client-only/0.0.1 The MIT copyright notice could not be attributed automatically."
       },
       {
         "name": "dingbat-to-unicode",
@@ -26476,7 +26476,7 @@
     {
       "name": "client-only",
       "versionOrCommit": "0.0.1",
-      "sourceUrl": "https://reactjs.org/",
+      "sourceUrl": "https://registry.npmjs.org/client-only/-/client-only-0.0.1.tgz",
       "packagePathOrArtifact": "node_modules/client-only",
       "usage": "runtime",
       "distributedIn": [
@@ -26487,12 +26487,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required. Verification source: https://registry.npmjs.org/client-only/0.0.1 The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "cliui",

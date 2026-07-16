@@ -1526,7 +1526,7 @@ The following entries require a documented responsible/legal decision before a c
 - **@img/sharp-win32-ia32 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.3.tgz#LICENSE
 - **@img/sharp-win32-x64 0.34.5:** License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#LICENSE
 - **@img/sharp-win32-x64 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE
-- **client-only 0.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
+- **client-only 0.0.1:** The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required. Verification source: https://registry.npmjs.org/client-only/0.0.1 The MIT copyright notice could not be attributed automatically.
 - **dingbat-to-unicode 1.0.1:** No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>
 - **github-from-package 0.0.0:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
 - **highlightjs-vue 1.0.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: Sara Lissette <lissette.ibnz@gmail.com> (https://github.com/LissetteIbnz)
@@ -27474,7 +27474,7 @@ SOFTWARE.
 
 ### License text f0112ade926a
 
-Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, format@0.2.2, jszip@3.10.1.
+Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, jszip@3.10.1.
 
 Copyright notices:
 
