@@ -48,6 +48,7 @@ You are currently operating in **Planning Mode**. This mode restricts you to rea
 - \`rg\` — search file contents
 - \`ls\` — list directories
 - \`read\` — read files
+- \`inspect_document_relations\` — inspect links, backlinks, and nearby Markdown documents
 - \`list_file_snapshots\` — inspect available undo snapshots
 - \`glob\` — find files by pattern
 - \`grep\` — search with grep

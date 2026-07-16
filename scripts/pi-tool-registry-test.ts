@@ -159,6 +159,7 @@ async function main() {
   });
   const rgTool = createRipgrepTool();
   const readTool = piTools.find((tool) => tool.name === 'read');
+  const documentRelationsTool = piTools.find((tool) => tool.name === 'inspect_document_relations');
   const writeTool = piTools.find((tool) => tool.name === 'write');
   const editFileTool = piTools.find((tool) => tool.name === 'edit_file');
   const applyPatchTool = piTools.find((tool) => tool.name === 'apply_patch');
@@ -178,6 +179,7 @@ async function main() {
   assert.equal(piTools.some((tool) => tool.name === 'qmd'), false);
   assert.equal(piTools.some((tool) => tool.name === 'qmd_search'), false);
   assert.ok(readTool);
+  assert.ok(documentRelationsTool);
   assert.ok(writeTool);
   assert.ok(editFileTool);
   assert.ok(applyPatchTool);
@@ -761,6 +763,8 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'session_search'), true);
   assert.equal(defaultEnabledTools.has('web_search'), true);
   assert.equal(allTools.some((tool) => tool.name === 'web_search'), true);
+  assert.equal(defaultEnabledTools.has('inspect_document_relations'), true);
+  assert.equal(allTools.some((tool) => tool.name === 'inspect_document_relations'), true);
   assert.equal(allTools.some((tool) => tool.name === 'studio'), true);
   assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), false);
   assert.equal(defaultEnabledTools.has('studio_bulk_generate'), false);
@@ -933,6 +937,12 @@ async function main() {
   assert.deepEqual(webSearchMetadata.toolsets, ['web']);
   assert.equal(webSearchMetadata.defaultEnabled, true);
   assert.equal(webSearchMetadata.planningModeAllowed, true);
+  const documentRelationsMetadata = metadata.find((tool) => tool.name === 'inspect_document_relations');
+  assert.ok(documentRelationsMetadata);
+  assert.equal(documentRelationsMetadata.group, 'Core');
+  assert.deepEqual(documentRelationsMetadata.toolsets, ['file']);
+  assert.equal(documentRelationsMetadata.defaultEnabled, true);
+  assert.equal(documentRelationsMetadata.planningModeAllowed, true);
   const skillMetadata = metadata.find((tool) => tool.name === 'inspect_canvas_skill');
   assert.ok(skillMetadata);
   assert.equal(skillMetadata.group, 'Skills');

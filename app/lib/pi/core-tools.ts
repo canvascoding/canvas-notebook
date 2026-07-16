@@ -10,6 +10,7 @@ import { createMcpProxyTool } from '@/app/lib/mcp/proxy-tool';
 import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
 import { createTranscribeAudioTool, createStudioListPresetsTool } from '@/app/lib/pi/studio-tools';
 import { createWebSearchTool, createWebFetchTool, createRipgrepTool } from '@/app/lib/pi/web-tools';
+import { createInspectDocumentRelationsTool } from '@/app/lib/pi/document-relations-tool';
 import {
   applyAgentFilePatch,
   asCommandExecutionError,
@@ -67,6 +68,7 @@ export const piTools: AgentTool[] = [
   createBrowserGatewayTool(),
   createRipgrepTool(),
   createTranscribeAudioTool(),
+  createInspectDocumentRelationsTool(),
   {
     name: 'ls',
     label: 'Listing directory',
@@ -115,7 +117,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. For active Markdown/text live-collaboration documents, returns the current authoritative Yjs content and SHA-256 instead of a potentially older file checkpoint. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
+    description: 'Reads the content of a file. For active Markdown/text live-collaboration documents, returns the current authoritative Yjs content and SHA-256 instead of a potentially older file checkpoint. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}.` })),

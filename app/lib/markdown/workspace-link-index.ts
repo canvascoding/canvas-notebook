@@ -22,6 +22,10 @@ export type WorkspaceLinkRenameResult = {
   warnings: string[];
 };
 
+export type WorkspaceLinkIndexBuildOptions = {
+  contentOverrides?: ReadonlyMap<string, string>;
+};
+
 function isMarkdownPath(filePath: string): boolean {
   return /\.(?:md|markdown)$/i.test(filePath);
 }
@@ -32,6 +36,7 @@ function isSameOrDescendant(path: string, parent: string): boolean {
 
 export async function buildWorkspaceLinkIndex(
   options?: WorkspaceFileOperationOptions,
+  buildOptions: WorkspaceLinkIndexBuildOptions = {},
 ): Promise<WorkspaceLinkIndex> {
   const entries = await getCachedFileReferenceEntries(false, options);
   const markdownEntries = entries.filter((entry) => entry.type === 'file' && isMarkdownPath(entry.path));
@@ -44,6 +49,14 @@ export async function buildWorkspaceLinkIndex(
   const semaphore = new AsyncSemaphore(LINK_INDEX_READ_CONCURRENCY);
   const sources = await Promise.all(markdownFiles.map((entry) => semaphore.run(async () => {
     try {
+      const contentOverride = buildOptions.contentOverrides?.get(entry.path);
+      if (contentOverride !== undefined) {
+        if (Buffer.byteLength(contentOverride, 'utf8') > MAX_INDEXED_MARKDOWN_BYTES) {
+          omittedDocuments.push({ path: entry.path, reason: 'too-large' });
+          return null;
+        }
+        return { content: contentOverride, path: entry.path };
+      }
       const content = await readFile(entry.path, options);
       if (content.byteLength > MAX_INDEXED_MARKDOWN_BYTES) {
         omittedDocuments.push({ path: entry.path, reason: 'too-large' });

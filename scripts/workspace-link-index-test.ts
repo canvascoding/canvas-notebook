@@ -11,6 +11,7 @@ import {
   loadWorkspaceLinkIndex,
   resolveWorkspaceLinkFromIndex,
 } from '../app/lib/markdown/workspace-link-index-client';
+import { getWorkspaceDocumentRelations } from '../app/lib/markdown/workspace-document-relations';
 import { selectObsidianEmbedContent } from '../app/lib/markdown/obsidian-embed';
 
 const overview = `---
@@ -87,6 +88,48 @@ const directoryRewrite = rewriteWorkspaceWikiLinksForRename(
 assert.equal(directoryRewrite.updatedLinks, 2);
 assert.match(directoryRewrite.content, /\[\[Archive\/Projects\/Plan#Outcome\|the plan\]\]/);
 assert.match(directoryRewrite.content, /\[\[Archive\/Projects\/Decision\]\]/);
+
+const relationIndex = buildWorkspaceLinkIndexFromDocuments([
+  {
+    path: 'Atlas/Home.md',
+    content: '---\ntitle: Home\ntags: [project/atlas]\n---\n\n# Home\n\n[[Plan#Outcome|Roadmap]]\n[[Missing Note]]',
+  },
+  {
+    path: 'Atlas/Plan.md',
+    content: '---\ntitle: Plan\ntags: [project/atlas]\n---\n\n# Plan\n\n## Outcome\n\n[[Home]]\n[[Research]]',
+  },
+  { path: 'Atlas/Research.md', content: '# Research' },
+  { path: 'Atlas/Brief.md', content: '---\ntitle: Brief\ntags: [project/atlas]\n---\n\n# Brief' },
+  { path: 'Inbox/Source.md', content: '# Source\n\n[[Atlas/Home]]' },
+]);
+const relations = getWorkspaceDocumentRelations(relationIndex, 'Atlas/Home.md', {
+  includeRelated: true,
+});
+assert.equal(relations.document?.title, 'Home');
+assert.deepEqual(relations.outgoing.map((relation) => relation.path), ['Atlas/Plan.md']);
+assert.equal(relations.outgoing[0]?.bidirectional, true);
+assert.deepEqual(relations.outgoing[0]?.headings, ['Outcome']);
+assert.deepEqual(relations.outgoing[0]?.linkAliases, ['Roadmap']);
+assert.deepEqual(
+  relations.incoming.map((relation) => ({ bidirectional: relation.bidirectional, path: relation.path })),
+  [
+    { bidirectional: true, path: 'Atlas/Plan.md' },
+    { bidirectional: false, path: 'Inbox/Source.md' },
+  ],
+);
+assert.deepEqual(relations.brokenLinks.map((relation) => relation.targetText), ['Missing Note']);
+assert.deepEqual(
+  relations.related.map((relation) => ({
+    path: relation.path,
+    sharedTags: relation.sharedTags,
+    viaDocuments: relation.viaDocuments,
+  })),
+  [
+    { path: 'Atlas/Research.md', sharedTags: [], viaDocuments: ['Atlas/Plan.md'] },
+    { path: 'Atlas/Brief.md', sharedTags: ['project/atlas'], viaDocuments: [] },
+  ],
+);
+assert.equal(getWorkspaceDocumentRelations(relationIndex, 'Unknown.md').document, null);
 
 assert.equal(getWorkspaceWikiCompletionItems(index, {
   fragmentQuery: null,

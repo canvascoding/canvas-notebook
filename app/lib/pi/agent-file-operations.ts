@@ -466,7 +466,7 @@ function activePathRequiresRevisionGuard(filePath: string): boolean {
   return isPathWithinRootVariants(resolvedPath, executionContext.workspaceRoot);
 }
 
-function getAgentWorkspaceContext(): WorkspaceContext | null {
+export function getAgentWorkspaceContext(): WorkspaceContext | null {
   const executionContext = getAgentExecutionContext();
   if (!executionContext) return null;
 
