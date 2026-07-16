@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactElement, type ReactNode } from 'react';
 import { useTranslations } from 'next-intl';
-import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, GitBranch, Info, Loader2, Lock, MoreVertical, Presentation, RefreshCw, Save, Share2, UsersRound, X } from 'lucide-react';
+import { AlertCircle, CheckCircle2, ChevronLeft, ChevronRight, Code2, Download, Eye, FileText, GitBranch, Info, Loader2, Lock, MoreVertical, Presentation, RefreshCw, Save, Share2, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Skeleton } from '@/components/ui/skeleton';
@@ -640,7 +640,6 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const collaborationLabel = useMemo(() => {
     if (!collaboration) return null;
     if (collaboration.activeLock) return t('collaboration.locked');
-    if (collaboration.strategy === 'crdt_text') return t('collaboration.crdtText');
     if (collaboration.strategy === 'exclusive_lock') return t('collaboration.lockRequired');
     return null;
   }, [collaboration, t]);
@@ -1217,11 +1216,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
                   className="flex h-6 w-6 shrink-0 items-center justify-center gap-1 rounded-sm border border-border bg-muted px-0 text-xs text-muted-foreground 2xl:w-auto 2xl:px-2"
                   aria-label={collaborationLabel}
                 >
-                  {collaboration?.activeLock || collaboration?.strategy === 'exclusive_lock' ? (
-                    <Lock className="h-3.5 w-3.5" />
-                  ) : collaboration?.strategy === 'crdt_text' ? (
-                    <UsersRound className="h-3.5 w-3.5" />
-                  ) : null}
+                  <Lock className="h-3.5 w-3.5" />
                   <span className="hidden max-w-36 truncate 2xl:inline">{collaborationLabel}</span>
                 </span>
               </FileHeaderTooltip>

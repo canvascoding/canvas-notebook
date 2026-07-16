@@ -895,7 +895,6 @@
     "saved": "Gespeichert",
     "savedAt": "Gespeichert {time}",
     "collaboration": {
-      "crdtText": "Live-Text vorbereitet",
       "revisionCheck": "Revision geprüft",
       "lockRequired": "Lock erforderlich",
       "locked": "Gesperrt",

@@ -89,7 +89,7 @@ async function openCollaborativeMarkdown(page: Page, filePath: string): Promise<
   await page.goto(`/notebook?path=${encodeURIComponent(filePath)}`, { waitUntil: 'domcontentloaded' });
   await expect(page.locator('.tiptap-editor-shell .ProseMirror')).toBeVisible({ timeout: 30_000 });
   await expect(page.getByRole('status').filter({ hasText: /Live collaboration|Live-Bearbeitung aktiv/i })).toBeVisible({ timeout: 30_000 });
-  await expect(page.getByLabel(/Live text-ready|Live-Text vorbereitet/i)).toBeVisible();
+  await expect(page.getByLabel(/Live text-ready|Live-Text vorbereitet/i)).toHaveCount(0);
 }
 
 function logBrowserDiagnostics(page: Page, label: string): string[] {
