@@ -19,6 +19,7 @@ export type { FileNode } from '@/app/lib/files/types';
 export interface WorkspaceFileOperationOptions {
   workspace?: WorkspaceContext;
   includeMetadata?: boolean;
+  includeSymlinks?: boolean;
 }
 
 function getDataDir(): string {
@@ -92,6 +93,9 @@ export async function listDirectory(
   const includeMetadata = options?.includeMetadata ?? true;
 
   const visibleEntries = entries.filter((entry) => {
+    if (options?.includeSymlinks === false && entry.isSymbolicLink()) {
+      return false;
+    }
     if (entry.isDirectory()) {
       return !IGNORED_WORKSPACE_DIRS.has(entry.name);
     }
