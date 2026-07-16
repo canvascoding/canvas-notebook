@@ -166,6 +166,13 @@ eindeutig und sein Programmcode byte-identisch mit dem erreichbaren Release
 MIT-Datei mit `Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>`.
 Canvas dokumentiert den Vergleich und liefert diese primaere Attribution aus.
 
+`server-only@0.0.1` ist technisch geprueft und bleibt blockierend. Der einzige
+signierte npm-Tarball deklariert MIT und verweist auf React, enthaelt aber
+weder Autor, Repository, Commit/Provenance, Lizenzdatei noch Copyright-
+Hinweis. Das Paket wird direkt an zahlreichen Canvas-Servergrenzen verwendet.
+Canvas liefert den kanonischen MIT-Text aus, weist den Code ohne primaeren
+Beleg aber weder Meta/React noch Vercel/Next.js oder dem npm-Maintainer zu.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.

@@ -212,7 +212,7 @@
       {
         "name": "server-only",
         "versionOrCommit": "0.0.1",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+        "reason": "The only published release declares MIT, links to the React homepage and facebook/react issue tracker, and was published by npm maintainer sebmarkbage. The signed exact tarball contains only package.json, index.js, and empty.js; it provides no author, repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. An official Next.js documentation issue independently records that the package source and ownership are unclear despite React and Next.js documentation recommending it. Canvas directly uses the marker across server-only modules, retains the canonical MIT terms, and does not infer Meta, React, Vercel, Next.js, or the npm maintainer as copyright owner. The package remains review_required. Verification source: https://registry.npmjs.org/server-only/0.0.1 The MIT copyright notice could not be attributed automatically."
       },
       {
         "name": "tr46",
@@ -40117,7 +40117,7 @@
     {
       "name": "server-only",
       "versionOrCommit": "0.0.1",
-      "sourceUrl": "https://reactjs.org/",
+      "sourceUrl": "https://registry.npmjs.org/server-only/-/server-only-0.0.1.tgz",
       "packagePathOrArtifact": "node_modules/server-only",
       "usage": "runtime",
       "distributedIn": [
@@ -40128,12 +40128,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "The only published release declares MIT, links to the React homepage and facebook/react issue tracker, and was published by npm maintainer sebmarkbage. The signed exact tarball contains only package.json, index.js, and empty.js; it provides no author, repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. An official Next.js documentation issue independently records that the package source and ownership are unclear despite React and Next.js documentation recommending it. Canvas directly uses the marker across server-only modules, retains the canonical MIT terms, and does not infer Meta, React, Vercel, Next.js, or the npm maintainer as copyright owner. The package remains review_required. Verification source: https://registry.npmjs.org/server-only/0.0.1 The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "set-cookie-parser",

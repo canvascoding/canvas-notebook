@@ -598,3 +598,45 @@ Technische Entscheidung:
   Lizenz-Commit.
 - Die unveraenderte Komponente ist damit technisch `allowed`; ein Upgrade
   muss erneut gegen das dann veroeffentlichte Paket geprueft werden.
+
+## 16. `server-only@0.0.1`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `server-only@0.0.1` |
+| npm-Tarball | `https://registry.npmjs.org/server-only/-/server-only-0.0.1.tgz` |
+| npm-Integrity | `sha512-qepMx2JxAa5jjfzxG79yPPq+8BuFToHd1hm7kI+Z4zAq1ftQiP7HcxMhDDItrbtwVeLg/cY2JnKnrcFkmiswNA==` |
+| veroeffentlicht | 3. September 2022 |
+| deklarierte Lizenz | `MIT` |
+| Homepage/Issues | React-Homepage und `facebook/react`-Issue-Tracker |
+| npm-Maintainer | `sebmarkbage` |
+| Tarball-Inhalt | `package.json`, `index.js`, `empty.js` |
+| fehlender Beleg | Autor, Repository, Commit/Provenance, Lizenzdatei und Copyright-Hinweis |
+| Canvas-Modifikation | keine |
+| Herkunft | direkte Runtime-Abhaengigkeit und Marker-Import in zahlreichen serverseitigen Canvas-Modulen |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der exakte Tarball ist durch npm-Integrity und Registry-Signatur
+identifizierbar. `index.js` wirft beim falschen Client-Import einen Fehler;
+`empty.js` ist der `react-server`-Export. Die Paketmetadaten deklarieren MIT
+und verweisen auf React, ordnen den Release aber keinem Source-Repository oder
+Copyright-Inhaber zu.
+
+Ein offizielles Next.js-Dokumentations-Issue dokumentiert ebenfalls, dass das
+Paket trotz Empfehlungen in Next.js- und React-Dokumentation keine klar
+auffindbare Quelle oder Ownership-Dokumentation besitzt. Dieser Befund
+bestaetigt die technische Recherche, ist aber selbst kein Lizenz- oder
+Copyright-Beleg.
+
+Technische Entscheidung:
+
+- Version, Tarball-Integritaet, Registry-Signatur, Inhalt, MIT-Deklaration und
+  umfangreiche direkte Nutzung sind dokumentiert.
+- Canvas liefert den kanonischen MIT-Text aus.
+- Meta, React, Vercel, Next.js und der npm-Maintainer werden ohne primaeren
+  Notice-Beleg nicht als Copyright-Inhaber eingetragen.
+- Der Blocker bleibt bis zu einem belastbaren Upstream-Nachweis,
+  Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
+  Einzelfallentscheidung bestehen.

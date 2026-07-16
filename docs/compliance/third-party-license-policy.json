@@ -276,6 +276,13 @@
       "verificationSource": "https://github.com/theKashey/react-remove-scroll-bar/blob/7301c160fda44cb8cf2b9fdfde61efad35736196/LICENSE",
       "reason": "The exact npm tarball declares MIT and publishes gitHead b3b1287aad81def2e2ae707274b74531b61ddbaf, but that commit and a v2.3.8 tag are no longer reachable from the public repository. A byte-level comparison with the reachable v2.3.7 tarball shows identical distributed code; only package.json version and the react-style-singleton dependency range changed. The official upstream repository subsequently added a complete MIT LICENSE in commit 7301c160fda44cb8cf2b9fdfde61efad35736196 with the primary-source notice Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>. Canvas retains the canonical MIT terms and this documented upstream attribution and does not modify the package."
     },
+    "server-only@0.0.1": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "sourceUrl": "https://registry.npmjs.org/server-only/-/server-only-0.0.1.tgz",
+      "verificationSource": "https://registry.npmjs.org/server-only/0.0.1",
+      "reason": "The only published release declares MIT, links to the React homepage and facebook/react issue tracker, and was published by npm maintainer sebmarkbage. The signed exact tarball contains only package.json, index.js, and empty.js; it provides no author, repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. An official Next.js documentation issue independently records that the package source and ownership are unclear despite React and Next.js documentation recommending it. Canvas directly uses the marker across server-only modules, retains the canonical MIT terms, and does not infer Meta, React, Vercel, Next.js, or the npm maintainer as copyright owner. The package remains review_required."
+    },
     "@jspreadsheet/formula@2.0.2": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/jspreadsheet-ce/LICENSE",

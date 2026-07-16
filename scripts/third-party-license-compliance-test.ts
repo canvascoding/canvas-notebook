@@ -205,6 +205,20 @@ assert.match(
   /7301c160fda44cb8cf2b9fdfde61efad35736196/u,
 );
 
+const serverOnly = inventory.components.find((component) => (
+  component.name === 'server-only' && component.versionOrCommit === '0.0.1'
+));
+assert(serverOnly, 'server-only@0.0.1 must be inventoried');
+assert.equal(serverOnly.verifiedLicense, 'MIT');
+assert.equal(serverOnly.policyDecision, 'review_required');
+assert(serverOnly.licenseTextSha256, 'server-only must retain the canonical MIT terms');
+assert.deepEqual(serverOnly.copyrightNotices, []);
+assert.equal(
+  serverOnly.sourceUrl,
+  'https://registry.npmjs.org/server-only/-/server-only-0.0.1.tgz',
+);
+assert.match(serverOnly.reviewNotes || '', /source and ownership are unclear/u);
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
