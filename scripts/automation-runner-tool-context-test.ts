@@ -30,6 +30,8 @@ let abortDuringSessionCreate = false;
 let activeExecutionAbortController: AbortController | null = null;
 const agentLoopStreamFns: unknown[] = [];
 const agentLoopThinkingLevels: unknown[] = [];
+const agentLoopSystemPrompts: string[] = [];
+const agentLoopNextTurnSystemPrompts: string[] = [];
 const runtimeResolutionCalls: Array<{
   kind: 'executable' | 'pinned';
   context: Record<string, unknown>;
@@ -99,14 +101,28 @@ moduleInternals._load = (request, parent, isMain) => {
     return {
       agentLoop: async function* agentLoopStub(
         messages: unknown[],
-        context: { tools?: Array<{ name: string }> },
-        config: { thinkingLevel?: unknown },
+        context: { systemPrompt?: string; tools?: Array<{ name: string }> },
+        config: {
+          thinkingLevel?: unknown;
+          prepareNextTurn?: (turnContext: {
+            context: { systemPrompt?: string; messages: unknown[]; tools: Array<{ name: string }> };
+          }) => Promise<{ context?: { systemPrompt?: string } } | undefined>;
+        },
         _signal: AbortSignal | undefined,
         streamFn: unknown,
       ) {
         agentLoopToolNames = context.tools?.map((tool) => tool.name) ?? [];
         agentLoopStreamFns.push(streamFn);
         agentLoopThinkingLevels.push(config.thinkingLevel);
+        agentLoopSystemPrompts.push(context.systemPrompt || '');
+        const turnUpdate = await config.prepareNextTurn?.({
+          context: {
+            systemPrompt: context.systemPrompt,
+            messages: [],
+            tools: context.tools || [],
+          },
+        });
+        agentLoopNextTurnSystemPrompts.push(turnUpdate?.context?.systemPrompt || '');
         if (agentLoopMode === 'empty-error') {
           yield {
             type: 'agent_end',
@@ -390,6 +406,12 @@ async function main() {
   assert.deepEqual(agentLoopToolNames, ['studio_generate_image']);
   assert.equal(agentLoopStreamFns[0], testStreamFn);
   assert.equal(agentLoopThinkingLevels[0], 'off');
+  assert.match(agentLoopSystemPrompts[0] || '', /## Current Workspace File Tree/);
+  assert.match(agentLoopNextTurnSystemPrompts[0] || '', /## Current Workspace File Tree/);
+  assert.equal(
+    (agentLoopNextTurnSystemPrompts[0] || '').split('<!-- canvas-workspace-file-tree:start -->').length - 1,
+    1,
+  );
   assert.deepEqual(runtimeResolutionCalls.slice(0, 2).map((call) => call.kind), ['executable', 'pinned']);
   assert.equal(runtimeResolutionCalls[0].context.userId, userId);
   assert.equal(runtimeResolutionCalls[0].context.agentId, agentId);
@@ -439,6 +461,7 @@ async function main() {
   assert.equal(session?.runtimePolicyRevision, 0);
   assert.equal(session?.runtimeSelectionSource, 'app_default');
   assert.equal(session?.thinkingLevel, 'off');
+  assert.doesNotMatch(session?.systemPromptSnapshot || '', /## Current Workspace File Tree/);
 
   const busyJob = await createAutomationJob(
     {

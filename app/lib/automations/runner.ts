@@ -26,6 +26,11 @@ import {
   getWorkspaceBrandPromptBlock,
 } from '@/app/lib/agents/workspace-brand-context';
 import {
+  buildWorkspaceFileTreePrompt,
+  replaceWorkspaceFileTreePromptBlock,
+  WORKSPACE_FILE_TREE_MAX_PROMPT_BYTES,
+} from '@/app/lib/agents/workspace-file-tree-context';
+import {
   workspaceToAgentExecutionContext,
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
@@ -425,10 +430,20 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       });
       assertAutomationExecutionActive(executionSignal);
       const automationBrandContext = await getWorkspaceBrandPromptBlock(automationWorkspace.workspaceId);
-      const systemPrompt = appendWorkspaceBrandPromptBlock(
+      const baseSystemPrompt = appendWorkspaceBrandPromptBlock(
         promptSnapshot.systemPrompt,
         automationBrandContext,
       );
+      const initialWorkspaceFileTree = await buildWorkspaceFileTreePrompt({
+        workspaceId: automationWorkspace.workspaceId,
+        rootPath: automationWorkspace.rootPath,
+      });
+      const systemPrompt = replaceWorkspaceFileTreePromptBlock(
+        baseSystemPrompt,
+        initialWorkspaceFileTree.promptBlock,
+      );
+      const systemPromptBudgetTokens = estimateTextTokens(baseSystemPrompt)
+        + estimateTextTokens('x'.repeat(WORKSPACE_FILE_TREE_MAX_PROMPT_BYTES));
       const promptMessage: AgentMessage = {
         role: 'user',
         content: promptText,
@@ -438,7 +453,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         const prepared = await preparePiHistoryContext({
           messages: [...existingMessages, promptMessage],
           summary: initialSessionSummary,
-          systemPromptTokens: estimateTextTokens(systemPrompt),
+          systemPromptTokens: systemPromptBudgetTokens,
           model: runtime.model,
           toolTokens: estimateAutomationToolSchemaTokens(tools),
           sessionId: piSessionId,
@@ -523,6 +538,21 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             workspaceImageRoot: automationWorkspace.rootPath,
             allowedImageFileRoots: [automationWorkspace.rootPath],
           }),
+          prepareNextTurn: async (turnContext: { context: AgentContext }) => {
+            const nextWorkspaceFileTree = await buildWorkspaceFileTreePrompt({
+              workspaceId: automationWorkspace.workspaceId,
+              rootPath: automationWorkspace.rootPath,
+            });
+            return {
+              context: {
+                ...turnContext.context,
+                systemPrompt: replaceWorkspaceFileTreePromptBlock(
+                  baseSystemPrompt,
+                  nextWorkspaceFileTree.promptBlock,
+                ),
+              },
+            };
+          },
           sessionId: piSessionId,
         };
         const context: AgentContext = {

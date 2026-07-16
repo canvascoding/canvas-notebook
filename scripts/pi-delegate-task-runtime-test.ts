@@ -131,10 +131,11 @@ const streamCalls: Array<{
   thinkingLevel?: string;
   signal?: AbortSignal;
   toolNames: string[];
+  systemPrompt: string;
 }> = [];
 const testStreamFn = async (
   _model: unknown,
-  context: { tools?: Array<{ name: string }> },
+  context: { systemPrompt?: string; tools?: Array<{ name: string }> },
   options?: { sessionId?: string; thinkingLevel?: string; signal?: AbortSignal },
 ) => {
   streamCalls.push({
@@ -142,6 +143,7 @@ const testStreamFn = async (
     thinkingLevel: options?.thinkingLevel,
     signal: options?.signal,
     toolNames: context.tools?.map((tool) => tool.name) ?? [],
+    systemPrompt: context.systemPrompt || '',
   });
   const assistant = {
     role: 'assistant',
@@ -534,6 +536,8 @@ async function main() {
     assert.equal(streamCalls[0]?.thinkingLevel, 'high');
     assert.equal(streamCalls[0]?.signal?.aborted, false);
     assert.deepEqual(streamCalls[0]?.toolNames, ['read']);
+    assert.match(streamCalls[0]?.systemPrompt || '', /## Current Workspace File Tree/);
+    assert.doesNotMatch(childSession.systemPromptSnapshot || '', /## Current Workspace File Tree/);
     assert.equal(legacyResolverLoads, 0);
 
     const childMessages = await db

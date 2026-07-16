@@ -27,6 +27,10 @@ import {
 import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { buildActiveWorkspacePromptBlock } from '@/app/lib/pi/runtime-prompt-context';
 import {
+  buildWorkspaceFileTreePrompt,
+  replaceWorkspaceFileTreePromptBlock,
+} from '@/app/lib/agents/workspace-file-tree-context';
+import {
   resolveAgentExecutionContextForSession,
   resolveAgentSessionWorkspaceForUser,
   workspaceToPiSessionFields,
@@ -406,6 +410,7 @@ async function runEphemeralWorker(params: {
   promptMessage: Extract<AgentMessage, { role: 'user' }>;
   runtime: ExecutableAgentRuntime;
   executionContext: AgentExecutionContext;
+  baseSystemPrompt: string;
   systemPrompt: string;
   tools: AgentTool[];
   signal: AbortSignal;
@@ -449,6 +454,21 @@ async function runEphemeralWorker(params: {
             allowedImageFileRoots: [params.executionContext.workspaceRoot],
           },
         );
+      },
+      prepareNextTurn: async (turnContext: { context: AgentContext }) => {
+        const nextWorkspaceFileTree = await buildWorkspaceFileTreePrompt({
+          workspaceId: params.executionContext.workspaceId,
+          rootPath: params.executionContext.workspaceRoot,
+        });
+        return {
+          context: {
+            ...turnContext.context,
+            systemPrompt: replaceWorkspaceFileTreePromptBlock(
+              params.baseSystemPrompt,
+              nextWorkspaceFileTree.promptBlock,
+            ),
+          },
+        };
       },
       sessionId: params.sessionId,
     };
@@ -604,7 +624,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
             agentId: request.sourceAgentId,
           };
         }
-        const { systemPrompt: baseSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
+        const { systemPrompt: managedSystemPrompt } = await loadManagedAgentSystemPrompt(request.sourceAgentId, {
           userId: request.userId,
         });
         const workspacePromptBlock = buildActiveWorkspacePromptBlock({
@@ -618,12 +638,20 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
           canShare: childExecutionContext.canShare,
           brandContext: childExecutionContext.brandContext,
         });
-        const systemPrompt = buildEphemeralSystemPrompt(
-          workspacePromptBlock ? `${baseSystemPrompt}\n\n${workspacePromptBlock}` : baseSystemPrompt,
+        const baseSystemPrompt = buildEphemeralSystemPrompt(
+          workspacePromptBlock ? `${managedSystemPrompt}\n\n${workspacePromptBlock}` : managedSystemPrompt,
           request,
           tools,
         );
-        const promptSnapshot = buildPiSystemPromptSnapshotFromText(systemPrompt);
+        const workspaceFileTree = await buildWorkspaceFileTreePrompt({
+          workspaceId: childExecutionContext.workspaceId,
+          rootPath: childExecutionContext.workspaceRoot,
+        });
+        const systemPrompt = replaceWorkspaceFileTreePromptBlock(
+          baseSystemPrompt,
+          workspaceFileTree.promptBlock,
+        );
+        const promptSnapshot = buildPiSystemPromptSnapshotFromText(baseSystemPrompt);
         throwIfDelegationAborted(execution.controller.signal);
 
         let preparedSnapshot: Awaited<ReturnType<typeof prepareSessionRuntimeSnapshot>>;
@@ -716,6 +744,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
           runtime,
           executionContext: childExecutionContext,
           sourceScope: finalScope,
+          baseSystemPrompt,
           systemPrompt,
           tools,
         };
@@ -750,6 +779,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
           promptMessage,
           runtime: prepared.runtime,
           executionContext: prepared.executionContext,
+          baseSystemPrompt: prepared.baseSystemPrompt,
           systemPrompt: prepared.systemPrompt,
           tools: prepared.tools,
           signal: execution.controller.signal,
