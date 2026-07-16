@@ -640,3 +640,56 @@ Technische Entscheidung:
 - Der Blocker bleibt bis zu einem belastbaren Upstream-Nachweis,
   Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
   Einzelfallentscheidung bestehen.
+
+## 17. `tr46@0.0.3` und `tr46@6.0.0`
+
+Status: Software- und Datenlizenzbelege abgeschlossen; beide Komponenten
+`allowed`.
+
+| Feld | `tr46@0.0.3` | `tr46@6.0.0` |
+| --- | --- | --- |
+| npm-Tarball | `https://registry.npmjs.org/tr46/-/tr46-0.0.3.tgz` | `https://registry.npmjs.org/tr46/-/tr46-6.0.0.tgz` |
+| npm-Integrity | `sha512-N3WMsuqV66lT30CrXNbEjx4GEwlow3v6rr4mCcv6prnfwhS01rkgyFdjPNBYd9br7LpXV1+Emh01fHnq2Gdgrw==` | `sha512-bLVMLPtstlZ4iMQHpFHTR7GAGj2jxi8Dg0s2h2MafAE4uSWF98FC/3MomU51iQAMf8/qDUbKWf5GxuvvVcXEhw==` |
+| npm-`gitHead` | `a8009f9ce80ff5dbe71dd71e203afe4e4c878d28` | `7f1eb920768c794be40962a4f0cbad670a398d04` |
+| Softwarelizenz | MIT | MIT |
+| Software-Copyright | `Copyright (c) 2016 Sebastian Mayr` aus dem spaeteren offiziellen Commit `3a6f29721e7063b9ffd421e461a54beae6170001` | `Copyright (c) Sebastian Mayr` im exakten Release |
+| generierte Daten | Unicode 8.0.0 `IdnaMappingTable.txt` | Unicode 17.0.0 `IdnaMappingTable.txt` |
+| Datenlizenz | `Unicode-DFS-2015` | `Unicode-3.0` |
+| Unicode-Copyright | `Copyright © 1991-2015 Unicode, Inc. All rights reserved.` | `Copyright © 2025 Unicode, Inc.` |
+| generierte Tabellen-SHA-256 | `b6b39724dca9011113a08d9d6910204062b58169e98952acdfbd19bf2c31bbff` | `c45bd284e01f0845bc3c3b1d7594cd7b9ee8b955ddc850882b8e1dc5d0cba95d` |
+| kombinierter Lizenztext-SHA-256 | `c27a1b74b10405fb6be679f0f663995b8b437fa71f4305feaac46daf0a91fc15` | `0db59b35b21da5e5a5d4da3b49bcffc4cc50796c509de0e090d804621142dee8` |
+| Canvas-Modifikation | keine | keine |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Die npm-Metadaten beider Versionen deklarieren nur MIT. Beide Pakete
+enthalten jedoch `lib/mappingTable.json`, die ihre jeweiligen Upstream-
+Generatoren direkt aus einer Unicode-Datei unter `unicode.org/Public/`
+erzeugen. Dabei werden die Kommentare des Quelldatensatzes und damit auch
+dessen Copyright-/Lizenzhinweis entfernt.
+
+Fuer `0.0.3` wurde der damalige Generator unveraendert gegen
+`IdnaMappingTable-8.0.0.txt` ausgefuehrt. Das Ergebnis ist byte-identisch zur
+installierten Tabelle. Fuer `6.0.0` wurde derselbe Nachweis mit der im
+`package.json` festgelegten Unicode-Version 17.0.0 und dem exakten aktuellen
+Generator erbracht. Damit sind Datenversion und Herkunft nicht nur aus
+Metadaten abgeleitet, sondern kryptografisch am ausgelieferten Ergebnis
+verifiziert.
+
+Die Unicode-DFS-2015-Lizenz verlangt bei modifizierten Daten einen klaren
+Modifikationshinweis. Die versionierten kombinierten Lizenztexte halten
+deshalb nicht nur MIT- und Unicode-Bedingungen fest, sondern beschreiben auch
+die Upstream-Transformation von Textdaten zu JSON. Bei Unicode-3.0 genuegt
+die Beigabe des Copyright- und Erlaubnishinweises; auch dort bleibt die
+Transformation transparent dokumentiert.
+
+Technische Entscheidung:
+
+- `tr46@0.0.3` verwendet `MIT AND Unicode-DFS-2015`;
+  `tr46@6.0.0` verwendet `MIT AND Unicode-3.0`.
+- Die spaetere MIT-Datei fuer `0.0.3` stammt vom Originalautor im offiziellen
+  Repository; fuer `6.0.0` ist die MIT-Datei Teil des exakten Releases.
+- Beide Unicode-Datenquellen, Transformationsschritte, Ausgabedatei-Hashes,
+  Copyright-Hinweise und vollstaendigen Bedingungen werden ausgeliefert.
+- Regressionstests sichern beide kombinierten Lizenztexte und Tabellen-
+  Zuordnungen.
+- Beide unveraenderten Komponenten sind damit technisch `allowed`.

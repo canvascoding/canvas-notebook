@@ -219,6 +219,36 @@ assert.equal(
 );
 assert.match(serverOnly.reviewNotes || '', /source and ownership are unclear/u);
 
+const tr46Legacy = inventory.components.find((component) => (
+  component.name === 'tr46' && component.versionOrCommit === '0.0.3'
+));
+assert(tr46Legacy, 'tr46@0.0.3 must be inventoried');
+assert.equal(tr46Legacy.verifiedLicense, 'MIT AND Unicode-DFS-2015');
+assert.equal(tr46Legacy.policyDecision, 'allowed');
+assert.equal(
+  tr46Legacy.licenseTextSha256,
+  'c27a1b74b10405fb6be679f0f663995b8b437fa71f4305feaac46daf0a91fc15',
+);
+assert(tr46Legacy.copyrightNotices.includes('Copyright (c) 2016 Sebastian Mayr'));
+assert(tr46Legacy.copyrightNotices.includes(
+  'Copyright © 1991-2015 Unicode, Inc. All rights reserved.',
+));
+assert.match(tr46Legacy.reviewNotes || '', /b6b39724dca9011113a08d9d6910204062b58169e98952acdfbd19bf2c31bbff/u);
+
+const tr46Current = inventory.components.find((component) => (
+  component.name === 'tr46' && component.versionOrCommit === '6.0.0'
+));
+assert(tr46Current, 'tr46@6.0.0 must be inventoried');
+assert.equal(tr46Current.verifiedLicense, 'MIT AND Unicode-3.0');
+assert.equal(tr46Current.policyDecision, 'allowed');
+assert.equal(
+  tr46Current.licenseTextSha256,
+  '0db59b35b21da5e5a5d4da3b49bcffc4cc50796c509de0e090d804621142dee8',
+);
+assert(tr46Current.copyrightNotices.includes('Copyright (c) Sebastian Mayr'));
+assert(tr46Current.copyrightNotices.includes('Copyright © 2025 Unicode, Inc.'));
+assert.match(tr46Current.reviewNotes || '', /c45bd284e01f0845bc3c3b1d7594cd7b9ee8b955ddc850882b8e1dc5d0cba95d/u);
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

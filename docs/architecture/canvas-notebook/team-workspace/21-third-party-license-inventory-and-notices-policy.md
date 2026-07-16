@@ -47,18 +47,18 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 41 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.919 Komponenten `allowed`, 62
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 40 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.920 Komponenten `allowed`, 61
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 41 Release-Pruefpositionen gliedern sich in:
+Die 40 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
-- 11 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
+- 10 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
 
 `jszip@3.10.1` ist als erster Mehrfachlizenz-Fall technisch abgeschlossen:
@@ -172,6 +172,14 @@ weder Autor, Repository, Commit/Provenance, Lizenzdatei noch Copyright-
 Hinweis. Das Paket wird direkt an zahlreichen Canvas-Servergrenzen verwendet.
 Canvas liefert den kanonischen MIT-Text aus, weist den Code ohne primaeren
 Beleg aber weder Meta/React noch Vercel/Next.js oder dem npm-Maintainer zu.
+
+`tr46@0.0.3` und `tr46@6.0.0` sind abgeschlossen. Neben dem MIT-Code enthalten
+beide Pakete generierte Unicode-IDNA-Tabellen, deren Source-Kommentare beim
+Build entfernt wurden. Reproduzierbare Generatorlaeufe ordnen die Tabellen
+bytegenau Unicode 8.0.0 beziehungsweise 17.0.0 zu. Canvas liefert deshalb
+zusammengesetzte MIT-/Unicode-Lizenztexte, beide Copyright-Hinweise und klare
+Upstream-Transformationshinweise aus; fuer `0.0.3` gilt
+`Unicode-DFS-2015`, fuer `6.0.0` `Unicode-3.0`.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine

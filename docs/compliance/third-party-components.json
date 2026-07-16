@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1919,
-    "reviewRequired": 62,
+    "allowed": 1920,
+    "reviewRequired": 61,
     "blocked": 0
   },
   "releaseGate": {
@@ -213,11 +213,6 @@
         "name": "server-only",
         "versionOrCommit": "0.0.1",
         "reason": "The only published release declares MIT, links to the React homepage and facebook/react issue tracker, and was published by npm maintainer sebmarkbage. The signed exact tarball contains only package.json, index.js, and empty.js; it provides no author, repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. An official Next.js documentation issue independently records that the package source and ownership are unclear despite React and Next.js documentation recommending it. Canvas directly uses the marker across server-only modules, retains the canonical MIT terms, and does not infer Meta, React, Vercel, Next.js, or the npm maintainer as copyright owner. The package remains review_required. Verification source: https://registry.npmjs.org/server-only/0.0.1 The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "tr46",
-        "versionOrCommit": "0.0.3",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Sebastian Mayr <npm@smayr.name>"
       },
       {
         "name": "webworkify",
@@ -41554,7 +41549,7 @@
     {
       "name": "tr46",
       "versionOrCommit": "0.0.3",
-      "sourceUrl": "https://github.com/Sebmaster/tr46.js",
+      "sourceUrl": "https://github.com/Sebmaster/tr46.js/tree/a8009f9ce80ff5dbe71dd71e203afe4e4c878d28",
       "packagePathOrArtifact": "node_modules/node-fetch/node_modules/tr46",
       "usage": "runtime",
       "distributedIn": [
@@ -41564,18 +41559,21 @@
         "electron-web-app"
       ],
       "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "verifiedLicense": "MIT AND Unicode-DFS-2015",
+      "licenseTextRef": "docs/compliance/license-texts/tr46-0.0.3-MIT-AND-Unicode-DFS-2015.txt",
+      "licenseTextSha256": "c27a1b74b10405fb6be679f0f663995b8b437fa71f4305feaac46daf0a91fc15",
+      "copyrightNotices": [
+        "Copyright (c) 2016 Sebastian Mayr",
+        "Copyright © 1991-2015 Unicode, Inc. All rights reserved."
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Sebastian Mayr <npm@smayr.name>"
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release publishes gitHead a8009f9ce80ff5dbe71dd71e203afe4e4c878d28, and tag 0.0.3 points to that commit. package.json declares MIT but the tarball and exact commit omit the license text. Original author Sebastian Mayr added the complete MIT license and explicit copyright notice in the same repository seven months later in commit 3a6f29721e7063b9ffd421e461a54beae6170001. The exact upstream generator fetched Unicode IdnaMappingTable.txt and stripped its comments when creating lib/mappingTable.json. Re-running that generator against Unicode 8.0.0 produces SHA-256 b6b39724dca9011113a08d9d6910204062b58169e98952acdfbd19bf2c31bbff, byte-identical to the installed table. Canvas therefore retains both the upstream MIT license and Unicode-DFS-2015 data terms, including a clear transformation notice, and does not modify the package. Verification source: https://github.com/Sebmaster/tr46.js/blob/3a6f29721e7063b9ffd421e461a54beae6170001/LICENSE.md"
     },
     {
       "name": "tr46",
       "versionOrCommit": "6.0.0",
-      "sourceUrl": "https://github.com/jsdom/tr46",
+      "sourceUrl": "https://github.com/jsdom/tr46/tree/7f1eb920768c794be40962a4f0cbad670a398d04",
       "packagePathOrArtifact": "node_modules/tr46",
       "usage": "runtime",
       "distributedIn": [
@@ -41585,14 +41583,16 @@
         "electron-web-app"
       ],
       "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/tr46/LICENSE.md",
-      "licenseTextSha256": "499d6d466d064e0460427967a344e2a32fcb86ea8c6cd1a285ec4f1fa03fba67",
+      "verifiedLicense": "MIT AND Unicode-3.0",
+      "licenseTextRef": "docs/compliance/license-texts/tr46-6.0.0-MIT-AND-Unicode-3.0.txt",
+      "licenseTextSha256": "0db59b35b21da5e5a5d4da3b49bcffc4cc50796c509de0e090d804621142dee8",
       "copyrightNotices": [
-        "Copyright (c) Sebastian Mayr"
+        "Copyright (c) Sebastian Mayr",
+        "Copyright © 2025 Unicode, Inc."
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release, gitHead 7f1eb920768c794be40962a4f0cbad670a398d04, and v6.0.0 tag contain the complete MIT license for the software. Its upstream generation script downloads Unicode 17.0.0 IdnaMappingTable.txt and strips the source comments when creating lib/mappingTable.json. Re-running that exact transformation produces SHA-256 c45bd284e01f0845bc3c3b1d7594cd7b9ee8b955ddc850882b8e1dc5d0cba95d, byte-identical to the installed table. Canvas retains the MIT terms together with the Unicode-3.0 data license, the exact 2025 Unicode notice, and a clear transformation notice. Canvas does not modify the package. Verification source: https://unicode.org/Public/17.0.0/idna/IdnaMappingTable.txt"
     },
     {
       "name": "trim-lines",

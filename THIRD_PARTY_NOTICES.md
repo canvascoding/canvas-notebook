@@ -1391,8 +1391,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | toidentifier | 1.0.1 | runtime | MIT | allowed |
 | token-types | 6.1.2 | runtime | MIT | allowed |
 | tough-cookie | 6.0.2 | runtime | BSD-3-Clause | allowed |
-| tr46 | 0.0.3 | runtime | MIT | review_required |
-| tr46 | 6.0.0 | runtime | MIT | allowed |
+| tr46 | 0.0.3 | runtime | MIT AND Unicode-DFS-2015 | allowed |
+| tr46 | 6.0.0 | runtime | MIT AND Unicode-3.0 | allowed |
 | trim-lines | 3.0.1 | runtime | MIT | allowed |
 | trough | 2.2.0 | runtime | MIT | allowed |
 | ts-algebra | 2.0.0 | runtime | MIT | allowed |
@@ -1532,7 +1532,6 @@ The following entries require a documented responsible/legal decision before a c
 - **https 1.0.0:** The signed exact npm tarball declares ISC but contains only package.json; even its declared index.js entry point is absent. It provides no LICENSE, NOTICE, copyright statement, repository, gitHead, or signed provenance. Author metadata names hardus van der berg, but authorship is not treated as proof of copyright ownership. The package is pulled in by pptxgenjs@4.0.1 even though that exact release imports Node's built-in node:https module and maps both https and node:https to false for browser bundles. Canvas does not silently remove or replace a transitive package solely during the license audit. The package remains review_required pending corrected upstream metadata, removal/replacement, or a responsible legal decision. Verification source: https://registry.npmjs.org/https/1.0.0 No verified license text was found in the installed package or a versioned override. Package author metadata: hardus van der berg <hardus@sunfork.com> (http://www.sunfork.com)
 - **is-reference 1.2.1:** The exact npm release publishes gitHead 9d2719fbcc2059567203063f1e7b65d7831bfd64, and annotated tag v1.2.1 dereferences to that commit. package.json declares MIT and the exact README has a one-line MIT license section, but neither the npm tarball nor the exact source commit contains the full MIT terms, a LICENSE/NOTICE file, a source copyright header, or an attributable copyright statement. Repository and package author metadata name Rich Harris, but authorship and commit history are not treated as proof of copyright ownership. Canvas retains the canonical MIT terms while the package remains review_required pending corrected upstream evidence, replacement/removal, or a responsible legal decision. Verification source: https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license The MIT copyright notice could not be attributed automatically. Package author metadata: Rich Harris
 - **server-only 0.0.1:** The only published release declares MIT, links to the React homepage and facebook/react issue tracker, and was published by npm maintainer sebmarkbage. The signed exact tarball contains only package.json, index.js, and empty.js; it provides no author, repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. An official Next.js documentation issue independently records that the package source and ownership are unclear despite React and Next.js documentation recommending it. Canvas directly uses the marker across server-only modules, retains the canonical MIT terms, and does not infer Meta, React, Vercel, Next.js, or the npm maintainer as copyright owner. The package remains review_required. Verification source: https://registry.npmjs.org/server-only/0.0.1 The MIT copyright notice could not be attributed automatically.
-- **tr46 0.0.3:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Sebastian Mayr <npm@smayr.name>
 - **webworkify 1.5.0:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
 
 ## License texts and copyright notices
@@ -3201,6 +3200,95 @@ Copyright notices:
       of your accepting any such warranty or additional liability.
 
    END OF TERMS AND CONDITIONS
+```
+
+### License text 0db59b35b21d
+
+Applies to tr46@6.0.0.
+
+Copyright notices:
+
+- Copyright (c) Sebastian Mayr
+- Copyright © 2025 Unicode, Inc.
+
+```text
+tr46 software license
+=====================
+
+The MIT License (MIT)
+
+Copyright (c) Sebastian Mayr
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Unicode 17.0.0 IDNA mapping data license
+========================================
+
+UNICODE LICENSE V3
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 2025 Unicode, Inc.
+
+NOTICE TO USER: Carefully read the following legal agreement. BY
+DOWNLOADING, INSTALLING, COPYING OR OTHERWISE USING DATA FILES, AND/OR
+SOFTWARE, YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO BE BOUND BY, ALL OF THE
+TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT AGREE, DO NOT
+DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR SOFTWARE.
+
+Permission is hereby granted, free of charge, to any person obtaining a
+copy of data files and any associated documentation (the "Data Files") or
+software and any associated documentation (the "Software") to deal in the
+Data Files or Software without restriction, including without limitation
+the rights to use, copy, modify, merge, publish, distribute, and/or sell
+copies of the Data Files or Software, and to permit persons to whom the
+Data Files or Software are furnished to do so, provided that either (a)
+this copyright and permission notice appear with all copies of the Data
+Files or Software, or (b) this copyright and permission notice appear in
+associated Documentation.
+
+THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED IN THIS NOTICE
+BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR CONSEQUENTIAL DAMAGES,
+OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS,
+WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION,
+ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF THE DATA
+FILES OR SOFTWARE.
+
+Except as contained in this notice, the name of a copyright holder shall
+not be used in advertising or otherwise to promote the sale, use or other
+dealings in these Data Files or Software without prior written
+authorization of the copyright holder.
+
+SPDX-License-Identifier: Unicode-3.0
+
+Upstream transformation notice
+==============================
+
+The tr46 6.0.0 upstream generation script downloaded Unicode 17.0.0
+IdnaMappingTable.txt, removed comments, converted code-point ranges, statuses,
+and mappings to JSON, and distributed the result as lib/mappingTable.json.
+Canvas did not modify the npm package or the generated table.
 ```
 
 ### License text 0dd4e4733348
@@ -7999,38 +8087,6 @@ the Software without restriction, including without limitation the rights to
 use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
 of the Software, and to permit persons to whom the Software is furnished to do
 so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
-### License text 499d6d466d06
-
-Applies to tr46@6.0.0.
-
-Copyright notices:
-
-- Copyright (c) Sebastian Mayr
-
-```text
-The MIT License (MIT)
-
-Copyright (c) Sebastian Mayr
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
 
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
@@ -22520,6 +22576,108 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### License text c27a1b74b104
+
+Applies to tr46@0.0.3.
+
+Copyright notices:
+
+- Copyright (c) 2016 Sebastian Mayr
+- Copyright © 1991-2015 Unicode, Inc. All rights reserved.
+
+```text
+tr46 software license
+=====================
+
+The MIT License (MIT)
+
+Copyright (c) 2016 Sebastian Mayr
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in
+all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+
+Unicode 8.0.0 IDNA mapping data license
+=======================================
+
+UNICODE, INC. LICENSE AGREEMENT - DATA FILES AND SOFTWARE
+
+Unicode Data Files include all data files under the directories
+http://www.unicode.org/Public/, http://www.unicode.org/reports/, and
+http://www.unicode.org/cldr/data/. Unicode Data Files do not include PDF
+online code charts under the directory http://www.unicode.org/Public/.
+Software includes any source code published in the Unicode Standard or under
+the directories http://www.unicode.org/Public/,
+http://www.unicode.org/reports/, and http://www.unicode.org/cldr/data/.
+
+NOTICE TO USER: Carefully read the following legal agreement. BY DOWNLOADING,
+INSTALLING, COPYING OR OTHERWISE USING UNICODE INC.'S DATA FILES ("DATA
+FILES"), AND/OR SOFTWARE ("SOFTWARE"), YOU UNEQUIVOCALLY ACCEPT, AND AGREE TO
+BE BOUND BY, ALL OF THE TERMS AND CONDITIONS OF THIS AGREEMENT. IF YOU DO NOT
+AGREE, DO NOT DOWNLOAD, INSTALL, COPY, DISTRIBUTE OR USE THE DATA FILES OR
+SOFTWARE.
+
+COPYRIGHT AND PERMISSION NOTICE
+
+Copyright © 1991-2015 Unicode, Inc. All rights reserved. Distributed under
+the Terms of Use in http://www.unicode.org/copyright.html.
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of the Unicode data files and any associated documentation (the "Data Files")
+or Unicode software and any associated documentation (the "Software") to deal
+in the Data Files or Software without restriction, including without
+limitation the rights to use, copy, modify, merge, publish, distribute, and/or
+sell copies of the Data Files or Software, and to permit persons to whom the
+Data Files or Software are furnished to do so, provided that
+
+     (a) this copyright and permission notice appear with all copies of the
+     Data Files or Software,
+     (b) this copyright and permission notice appear in associated
+     documentation, and
+     (c) there is clear notice in each modified Data File or in the Software
+     as well as in the documentation associated with the Data File(s) or
+     Software that the data or software has been modified.
+
+THE DATA FILES AND SOFTWARE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY
+KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT OF
+THIRD PARTY RIGHTS. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR HOLDERS INCLUDED
+IN THIS NOTICE BE LIABLE FOR ANY CLAIM, OR ANY SPECIAL INDIRECT OR
+CONSEQUENTIAL DAMAGES, OR ANY DAMAGES WHATSOEVER RESULTING FROM LOSS OF USE,
+DATA OR PROFITS, WHETHER IN AN ACTION OF CONTRACT, NEGLIGENCE OR OTHER
+TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE
+OF THE DATA FILES OR SOFTWARE.
+
+Except as contained in this notice, the name of a copyright holder shall not
+be used in advertising or otherwise to promote the sale, use or other
+dealings in these Data Files or Software without prior written authorization
+of the copyright holder.
+
+SPDX-License-Identifier: Unicode-DFS-2015
+
+Upstream transformation notice
+==============================
+
+The tr46 0.0.3 upstream generation script downloaded Unicode 8.0.0
+IdnaMappingTable.txt, removed comments, converted code-point ranges and
+mappings to JSON, and distributed the result as lib/mappingTable.json. Canvas
+did not modify the npm package or the generated table.
 ```
 
 ### License text c2cfccb812fe
