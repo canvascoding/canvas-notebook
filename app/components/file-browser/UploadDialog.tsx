@@ -28,6 +28,7 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
   const t = useTranslations('notebook');
   const fileTree = useFileStore((state) => state.fileTree);
   const uploadProgress = useFileStore((state) => state.uploadProgress);
+  const uploadItems = useFileStore((state) => state.uploadItems);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const folderInputRef = useRef<HTMLInputElement | null>(null);
   const [targetDir, setTargetDir] = useState(defaultPath);
@@ -86,6 +87,15 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
     folderInputRef.current?.click();
   };
 
+  const visibleProgress = uploadProgress ?? (() => {
+    if (uploadItems.length === 0) return 0;
+    const totalBytes = uploadItems.reduce((total, item) => total + item.size, 0);
+    const uploadedBytes = uploadItems.reduce((total, item) => total + item.uploadedBytes, 0);
+    return totalBytes > 0
+      ? Math.round((uploadedBytes / totalBytes) * 100)
+      : Math.round((uploadItems.filter((item) => item.status === 'completed').length / uploadItems.length) * 100);
+  })();
+
   return (
     <Dialog
       open={open}
@@ -118,8 +128,17 @@ export function UploadDialog({ open, onOpenChange, defaultPath, onUpload }: Uplo
               onToggleDir={toggleDir}
             />
           </div>
-          {isUploading && uploadProgress !== null && <UploadProgress value={uploadProgress} />}
-          {error && <p className="text-sm text-destructive" role="alert">{error}</p>}
+          {(isUploading || error) && uploadItems.length > 0 && (
+            <UploadProgress value={visibleProgress} items={uploadItems} />
+          )}
+          {error && (
+            <p
+              className="max-h-32 overflow-y-auto break-words rounded-md border border-destructive/30 bg-destructive/10 p-3 text-sm text-destructive"
+              role="alert"
+            >
+              {error}
+            </p>
+          )}
         </div>
         <input
           ref={fileInputRef}
