@@ -111,6 +111,28 @@ assert(
   'README license evidence must preserve and decode the attributable MIT copyright notice',
 );
 
+for (const [name, version] of [
+  ['@types/trusted-types', '2.0.7'],
+  ['@types/yauzl', '2.10.3'],
+] as const) {
+  const component = inventory.components.find((candidate) => (
+    candidate.name === name && candidate.versionOrCommit === version
+  ));
+  assert(component, `${name}@${version} must be inventoried`);
+  assert.equal(
+    component.policyDecision,
+    'allowed',
+    `${name}@${version} must retain the exact MIT evidence from its non-package/ npm tarball root`,
+  );
+  assert.equal(component.licenseTextSha256, 'c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383');
+  assert(component.copyrightNotices.includes('Copyright (c) Microsoft Corporation.'));
+  assert.match(
+    component.reviewNotes || '',
+    /registry\.npmjs\.org\/@types\/.+#LICENSE/u,
+    `${name}@${version} must cite the exact npm tarball LICENSE`,
+  );
+}
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

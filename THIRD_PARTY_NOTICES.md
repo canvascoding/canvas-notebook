@@ -624,11 +624,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @types/react | 19.2.17 | runtime | MIT | allowed |
 | @types/readdir-glob | 1.1.5 | runtime | MIT | allowed |
 | @types/retry | 0.12.0 | runtime | MIT | allowed |
-| @types/trusted-types | 2.0.7 | runtime | MIT | review_required |
+| @types/trusted-types | 2.0.7 | runtime | MIT | allowed |
 | @types/unist | 2.0.11 | runtime | MIT | allowed |
 | @types/unist | 3.0.3 | runtime | MIT | allowed |
 | @types/use-sync-external-store | 0.0.6 | runtime | MIT | allowed |
-| @types/yauzl | 2.10.3 | runtime | MIT | review_required |
+| @types/yauzl | 2.10.3 | runtime | MIT | allowed |
 | @uiw/codemirror-extensions-basic-setup | 4.25.11 | runtime | MIT | allowed |
 | @uiw/react-codemirror | 4.25.11 | runtime | MIT | allowed |
 | @ungap/structured-clone | 1.3.3 | runtime | ISC | allowed |
@@ -1526,8 +1526,6 @@ The following entries require a documented responsible/legal decision before a c
 - **@img/sharp-win32-ia32 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.3.tgz#LICENSE
 - **@img/sharp-win32-x64 0.34.5:** License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#LICENSE
 - **@img/sharp-win32-x64 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE
-- **@types/trusted-types 2.0.7:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
-- **@types/yauzl 2.10.3:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
 - **client-only 0.0.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically.
 - **dingbat-to-unicode 1.0.1:** No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>
 - **github-from-package 0.0.0:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
@@ -22525,7 +22523,7 @@ SOFTWARE.
 
 ### License text c2cfccb812fe
 
-Applies to @types/archiver@8.0.0, @types/d3-array@3.2.2, @types/d3-axis@3.0.6, @types/d3-brush@3.0.6, @types/d3-chord@3.0.6, @types/d3-color@3.1.3, @types/d3-contour@3.0.6, @types/d3-delaunay@6.0.4, @types/d3-dispatch@3.0.7, @types/d3-drag@3.0.7, @types/d3-dsv@3.0.7, @types/d3-ease@3.0.2, @types/d3-fetch@3.0.7, @types/d3-force@3.0.10, @types/d3-format@3.0.4, @types/d3-geo@3.1.0, @types/d3-hierarchy@3.1.7, @types/d3-interpolate@3.0.4, @types/d3-path@3.1.1, @types/d3-polygon@3.0.2, @types/d3-quadtree@3.0.6, @types/d3-random@3.0.4, @types/d3-scale-chromatic@3.1.0, @types/d3-scale@4.0.9, @types/d3-selection@3.0.11, @types/d3-shape@3.1.8, @types/d3-time-format@4.0.3, @types/d3-time@3.0.4, @types/d3-timer@3.0.2, @types/d3-transition@3.0.9, @types/d3-zoom@3.0.8, @types/d3@7.4.3, @types/debug@4.1.13, @types/estree-jsx@1.0.5, @types/estree@1.0.9, @types/geojson@7946.0.16, @types/hast@3.0.5, @types/json-schema@7.0.15, @types/katex@0.16.8, @types/mailparser@3.4.6, @types/mdast@4.0.4, @types/ms@2.1.0, @types/node@22.20.1, @types/node@26.1.1, @types/nodemailer@8.0.1, @types/pg@8.20.0, @types/prismjs@1.26.6, @types/react-syntax-highlighter@15.5.13, @types/react@19.2.17, @types/readdir-glob@1.1.5, @types/unist@2.0.11, @types/unist@3.0.3, @types/use-sync-external-store@0.0.6.
+Applies to @types/archiver@8.0.0, @types/d3-array@3.2.2, @types/d3-axis@3.0.6, @types/d3-brush@3.0.6, @types/d3-chord@3.0.6, @types/d3-color@3.1.3, @types/d3-contour@3.0.6, @types/d3-delaunay@6.0.4, @types/d3-dispatch@3.0.7, @types/d3-drag@3.0.7, @types/d3-dsv@3.0.7, @types/d3-ease@3.0.2, @types/d3-fetch@3.0.7, @types/d3-force@3.0.10, @types/d3-format@3.0.4, @types/d3-geo@3.1.0, @types/d3-hierarchy@3.1.7, @types/d3-interpolate@3.0.4, @types/d3-path@3.1.1, @types/d3-polygon@3.0.2, @types/d3-quadtree@3.0.6, @types/d3-random@3.0.4, @types/d3-scale-chromatic@3.1.0, @types/d3-scale@4.0.9, @types/d3-selection@3.0.11, @types/d3-shape@3.1.8, @types/d3-time-format@4.0.3, @types/d3-time@3.0.4, @types/d3-timer@3.0.2, @types/d3-transition@3.0.9, @types/d3-zoom@3.0.8, @types/d3@7.4.3, @types/debug@4.1.13, @types/estree-jsx@1.0.5, @types/estree@1.0.9, @types/geojson@7946.0.16, @types/hast@3.0.5, @types/json-schema@7.0.15, @types/katex@0.16.8, @types/mailparser@3.4.6, @types/mdast@4.0.4, @types/ms@2.1.0, @types/node@22.20.1, @types/node@26.1.1, @types/nodemailer@8.0.1, @types/pg@8.20.0, @types/prismjs@1.26.6, @types/react-syntax-highlighter@15.5.13, @types/react@19.2.17, @types/readdir-glob@1.1.5, @types/trusted-types@2.0.7, @types/unist@2.0.11, @types/unist@3.0.3, @types/use-sync-external-store@0.0.6, @types/yauzl@2.10.3.
 
 Copyright notices:
 

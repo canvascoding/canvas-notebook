@@ -247,3 +247,34 @@ Technische Entscheidung:
   getestete Migration zur Apache-2.0-Nachfolge, Entfernung oder eine
   dokumentierte menschlich-rechtliche Einzelfallentscheidung aufgeloest
   werden.
+
+## 7. `@types/trusted-types@2.0.7` und `@types/yauzl@2.10.3`
+
+Status: technische Lizenzbelege abgeschlossen; beide Komponenten `allowed`.
+
+| Feld | `@types/trusted-types` | `@types/yauzl` |
+| --- | --- | --- |
+| Version | `2.0.7` | `2.10.3` |
+| npm-Tarball | `https://registry.npmjs.org/@types/trusted-types/-/trusted-types-2.0.7.tgz` | `https://registry.npmjs.org/@types/yauzl/-/yauzl-2.10.3.tgz` |
+| Lizenz | `MIT` | `MIT` |
+| Lizenzdatei | `trusted-types/LICENSE` | `yauzl/LICENSE` |
+| Copyright | `Copyright (c) Microsoft Corporation.` | `Copyright (c) Microsoft Corporation.` |
+| Lizenztext-SHA-256 | `c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383` | `c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383` |
+| Canvas-Modifikation | keine | keine |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Beide exakten npm-Tarballs enthielten bereits den vollstaendigen MIT-Text und
+den Microsoft-Copyright-Hinweis. Der Audit-Cache hatte diese Dateien
+faelschlich uebersehen, weil der Extractor ausschliesslich `package/` als
+Tarball-Wurzel erwartete. DefinitelyTyped verwendet hier dagegen
+`trusted-types/` beziehungsweise `yauzl/`.
+
+Technische Korrektur:
+
+- Der Cache-Extractor entfernt nun generisch genau einen Archivwurzelordner,
+  unabhaengig von dessen Namen.
+- Der Cache wurde aus den exakt im Lockfile gepinnten Tarballs neu erzeugt.
+- Beide Komponenten referenzieren jetzt Tarball, Lizenztext-Hash und
+  Copyright-Hinweis und sind `allowed`.
+- Ein Regressionstest sichert beide nicht standardmaessigen Tarball-Wurzeln
+  und den exakten MIT-Beleg ab.

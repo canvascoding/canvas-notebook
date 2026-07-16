@@ -47,18 +47,18 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 46 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.914 Komponenten `allowed`, 67
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 44 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.916 Komponenten `allowed`, 65
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 46 Release-Pruefpositionen gliedern sich in:
+Die 44 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
-- 16 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
+- 14 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
 
 `jszip@3.10.1` ist als erster Mehrfachlizenz-Fall technisch abgeschlossen:
@@ -107,6 +107,13 @@ Lizenztext oder Copyright-Hinweis und das referenzierte Repository ist
 inzwischen nicht mehr oeffentlich erreichbar. Die aktuelle Apache-2.0-
 Nachfolge ist als getestete Migrationsoption dokumentiert, gilt aber nicht
 rueckwirkend fuer Version `0.5.3`.
+
+`@types/trusted-types@2.0.7` und `@types/yauzl@2.10.3` sind dagegen
+abgeschlossen. Ihre exakten npm-Tarballs enthalten vollstaendigen MIT-Text und
+`Copyright (c) Microsoft Corporation.`. Der Cache hatte die Dateien nur wegen
+der DefinitelyTyped-spezifischen Archivwurzeln uebersehen. Der Extractor
+unterstuetzt nun beliebig benannte einzelne Tarball-Wurzeln; ein
+Regressionstest sichert beide Pakete.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine

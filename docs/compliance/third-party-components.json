@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1914,
-    "reviewRequired": 67,
+    "allowed": 1916,
+    "reviewRequired": 65,
     "blocked": 0
   },
   "releaseGate": {
@@ -183,16 +183,6 @@
         "name": "@img/sharp-win32-x64",
         "versionOrCommit": "0.35.3",
         "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE"
-      },
-      {
-        "name": "@types/trusted-types",
-        "versionOrCommit": "2.0.7",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "@types/yauzl",
-        "versionOrCommit": "2.10.3",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
       },
       {
         "name": "client-only",
@@ -2070,7 +2060,7 @@
     {
       "name": "@types/json5",
       "versionOrCommit": "0.0.29",
-      "sourceUrl": "https://registry.npmjs.org/@types/json5/-/json5-0.0.29.tgz",
+      "sourceUrl": "https://www.github.com/DefinitelyTyped/DefinitelyTyped",
       "packagePathOrArtifact": "node_modules/@types/json5",
       "usage": "development-only",
       "distributedIn": [
@@ -24457,7 +24447,7 @@
     {
       "name": "@types/trusted-types",
       "versionOrCommit": "2.0.7",
-      "sourceUrl": "https://registry.npmjs.org/@types/trusted-types/-/trusted-types-2.0.7.tgz",
+      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
       "packagePathOrArtifact": "node_modules/@types/trusted-types",
       "usage": "runtime",
       "distributedIn": [
@@ -24468,12 +24458,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@types/trusted-types@2.0.7",
+      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "copyrightNotices": [
+        "Copyright (c) Microsoft Corporation."
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@types/trusted-types/-/trusted-types-2.0.7.tgz#LICENSE"
     },
     {
       "name": "@types/unist",
@@ -24544,7 +24536,7 @@
     {
       "name": "@types/yauzl",
       "versionOrCommit": "2.10.3",
-      "sourceUrl": "https://registry.npmjs.org/@types/yauzl/-/yauzl-2.10.3.tgz",
+      "sourceUrl": "https://github.com/DefinitelyTyped/DefinitelyTyped",
       "packagePathOrArtifact": "node_modules/@types/yauzl",
       "usage": "runtime",
       "distributedIn": [
@@ -24555,12 +24547,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@types/yauzl@2.10.3",
+      "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
+      "copyrightNotices": [
+        "Copyright (c) Microsoft Corporation."
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://registry.npmjs.org/@types/yauzl/-/yauzl-2.10.3.tgz#LICENSE"
     },
     {
       "name": "@uiw/codemirror-extensions-basic-setup",

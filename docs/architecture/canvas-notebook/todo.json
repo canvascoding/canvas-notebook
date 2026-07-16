@@ -1396,10 +1396,10 @@
           "totalComponents": 1981,
           "runtimeComponents": 1473,
           "developmentOnlyComponents": 508,
-          "allowed": 1914,
-          "reviewRequired": 67,
+          "allowed": 1916,
+          "reviewRequired": 65,
           "blocked": 0,
-          "releaseBlockers": 46
+          "releaseBlockers": 44
         },
         "completed": [
           "Deterministischer npm- und Non-npm-Inventargenerator",
@@ -1422,11 +1422,12 @@
           "Versionierbare Freigabevorlage fuer Erstbestand, Mehrfachlizenzen, Docker-/Native-Lieferumfang und kopierten Upstream-Code dokumentiert",
           "Lizenzwahl fuer jszip@3.10.1 anhand des exakten npm-Releases und Upstream-Tags auf MIT festgelegt; MIT-Text, Copyright, Quelle und Lieferartefakte dokumentiert",
           "Lizenzwahl fuer dompurify@3.4.12 anhand des exakten npm-Releases und Upstream-Tags auf Apache-2.0 festgelegt; Lizenztext, Copyright-/Lizenzheader, fehlende NOTICE-Datei, Modifikationsstatus und Lieferartefakte dokumentiert",
-          "Lizenzwahl fuer @zone-eu/mailsplit@5.4.14 anhand des exakten npm-Releases und Upstream-Tags auf MIT festgelegt; Lizenztext, Copyright, fehlende NOTICE-Datei, transitive Runtime-Nutzung und Lieferartefakte dokumentiert"
+          "Lizenzwahl fuer @zone-eu/mailsplit@5.4.14 anhand des exakten npm-Releases und Upstream-Tags auf MIT festgelegt; Lizenztext, Copyright, fehlende NOTICE-Datei, transitive Runtime-Nutzung und Lieferartefakte dokumentiert",
+          "Tarball-Extractor fuer beliebig benannte npm-Archivwurzeln korrigiert; @types/trusted-types@2.0.7 und @types/yauzl@2.10.3 anhand ihrer exakten MIT-Dateien und Microsoft-Copyright-Hinweise freigegeben"
         ],
         "verified": [
           "npm run test:licenses",
-          "Negativtest: npm run test:licenses:release blockiert mit 46 dokumentierten Pruefpositionen",
+          "Negativtest: npm run test:licenses:release blockiert mit 44 dokumentierten Pruefpositionen",
           "npx tsc --noEmit --pretty false",
           "npm run lint",
           "npm run build",
@@ -1441,7 +1442,7 @@
           "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
           "Gepinnten Docker-Basisimage-Digest und den erfassten finalen Debian-/Python-Lizenzmix pruefen",
           "28 sharp-/libvips-Lieferpositionen mit LGPL- oder zusammengesetzter Lizenz fuer die konkreten Plattformartefakte pruefen",
-          "16 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
+          "14 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
         ],
         "reviewedButStillBlocked": [
           "@apm-js-collab/code-transformer-bundler-plugins@0.5.0: MIT ist in npm-Paket und exaktem Commit deklariert, aber Lizenzdatei und belastbarer Copyright-Hinweis fehlen; kanonischer MIT-Text wird ausgeliefert, der Blocker bleibt bis Upstream-Fix, Ersatz/Entfernung oder menschlich-rechtlicher Einzelfallentscheidung bestehen",

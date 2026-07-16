@@ -328,7 +328,12 @@ async function extractPackageLicense(
       file: archivePath,
       strip: 1,
       filter: (entryPath) => {
-        const normalized = entryPath.replace(/^package\//u, '');
+        // Most npm tarballs use package/ as their archive root, while
+        // DefinitelyTyped packages use the unscoped package name (for example
+        // trusted-types/). Strip any single archive root instead of assuming
+        // package/, otherwise exact LICENSE files in valid npm tarballs are
+        // silently missed.
+        const normalized = entryPath.replace(/^(?:\.\/)?[^/]+\//u, '');
         if (normalized === 'package.json') return true;
         if (normalized.includes('/')) return false;
         return LICENSE_PATTERN.test(normalized)
