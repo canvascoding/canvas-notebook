@@ -30,6 +30,33 @@ for (const key of ['window', 'document', 'DOMParser', 'navigator', 'Node', 'HTML
   });
 }
 
+Object.defineProperty(globalThis, 'DataTransfer', {
+  configurable: true,
+  value: class MockDataTransfer {
+    private readonly values = new Map<string, string>();
+
+    getData(type: string) {
+      return this.values.get(type) ?? '';
+    }
+
+    setData(type: string, value: string) {
+      this.values.set(type, value);
+    }
+  },
+});
+
+Object.defineProperty(globalThis, 'ClipboardEvent', {
+  configurable: true,
+  value: class MockClipboardEvent extends dom.window.Event {
+    readonly clipboardData: DataTransfer | null;
+
+    constructor(type: string, init?: { clipboardData?: DataTransfer }) {
+      super(type);
+      this.clipboardData = init?.clipboardData ?? null;
+    }
+  },
+});
+
 type JsonNode = {
   type?: string;
   text?: string;
@@ -168,6 +195,7 @@ async function main() {
   const { TableKit } = await import('@tiptap/extension-table');
   const { createObsidianWikiLinkExtensions } = await import('../app/components/editor/ObsidianWikiLinkExtension');
   const { ObsidianInlineFootnoteExtension } = await import('../app/components/editor/ObsidianInlineFootnoteExtension');
+  const { getActiveWorkspaceWikiLink } = await import('../app/lib/markdown/tiptap-workspace-link');
 
   const editor = new Editor({
     content: sampleMarkdown,
@@ -259,6 +287,31 @@ $$`));
     editor.view.dom.querySelector('li[data-type="taskItem"]'),
     'editable task item node views should keep the data-type attribute used by editor CSS',
   );
+
+  const wikiLinkCountBeforePaste = nodeTypes.filter((type) => type === 'obsidianWikiLink').length;
+  editor.commands.insertContent(' [[Pasted/Document|Pasted title]]', { applyPasteRules: true });
+  const afterPasteNodeTypes = collectNodeTypes(editor.getJSON());
+  assert.equal(
+    afterPasteNodeTypes.filter((type) => type === 'obsidianWikiLink').length,
+    wikiLinkCountBeforePaste + 1,
+    'pasted wiki-link syntax should become a rich-editor node',
+  );
+  assert.match(editor.getMarkdown(), /\[\[Pasted\/Document\|Pasted title\]\]/u);
+
+  const editableWikiLinkPosition = findDocNodePosition(editor, 'obsidianWikiLink');
+  assert.notEqual(editableWikiLinkPosition, null);
+  editor.commands.setNodeSelection(editableWikiLinkPosition ?? 0);
+  const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
+  assert.equal(activeWorkspaceLink?.target, 'Pasted/Document');
+  assert.equal(activeWorkspaceLink?.text, 'Pasted title');
+  assert.equal(activeWorkspaceLink?.displayText, 'Pasted title');
+  assert.ok(editor.isActive('obsidianWikiLink'), 'the selected wiki link should be visible to toolbar state');
+
+  editor.commands.insertContentAt(activeWorkspaceLink?.range ?? { from: 0, to: 0 }, {
+    type: 'obsidianWikiLink',
+    attrs: { embed: false, target: 'Projects/Revised|Revised plan' },
+  });
+  assert.match(editor.getMarkdown(), /\[\[Projects\/Revised\|Revised plan\]\]/u);
 
   const imagePosition = findDocNodePosition(editor, 'image');
   const tablePosition = findDocNodePosition(editor, 'table');

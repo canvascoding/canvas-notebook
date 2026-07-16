@@ -103,6 +103,7 @@ export function MarkdownRenderer({
             target={wikiTarget}
             sourcePath={sourcePath}
             embed={props['data-canvas-wiki-embed'] === 'true'}
+            preferDocumentTitle
           >
             {children}
           </ObsidianWikiLink>

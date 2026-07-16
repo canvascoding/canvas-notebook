@@ -22,6 +22,7 @@ import {
 import type { Extension as CodeMirrorExtension } from '@codemirror/state';
 import { EditorView } from '@codemirror/view';
 import { toast } from 'sonner';
+import { WorkspaceDocumentPreviewDialog } from '@/app/components/shared/WorkspaceDocumentPreviewDialog';
 import { useFileStore } from '@/app/store/file-store';
 import { useTheme } from '@/app/components/ThemeProvider';
 import { getTextEditorPerformanceProfile } from '@/app/lib/editor/text-editor-guards';
@@ -32,11 +33,11 @@ import { parseObsidianWikiLinks } from '@/app/lib/markdown/obsidian-flavored-mar
 import {
   getWorkspaceWikiCompletionItems,
   loadWorkspaceLinkIndex,
-  resolveWorkspaceLinkFromIndex,
+  loadWorkspaceDocumentReference,
 } from '@/app/lib/markdown/workspace-link-index-client';
+import type { WorkspaceDocumentReference } from '@/app/lib/markdown/workspace-document-preview';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { WorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
-import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 import { useTranslations } from 'next-intl';
 import { yCollab } from 'y-codemirror.next';
 import { useCollaborationDocument } from '@/app/lib/collaboration/client';
@@ -197,37 +198,16 @@ function createObsidianWikiCompletionSource(workspaceId: string, sourcePath?: st
   };
 }
 
-async function openObsidianWikiLinkFromSource(
+function createObsidianWikiPreviewExtension(
   workspaceId: string,
   sourcePath: string,
-  rawTarget: string,
-): Promise<void> {
-  const parsedTarget = rawTarget.trim();
-  const pathQuery = parsedTarget.split('#', 1)[0].trim();
-  const index = await loadWorkspaceLinkIndex(workspaceId);
-  const resolution = resolveWorkspaceLinkFromIndex(parsedTarget, index, sourcePath);
-  if (resolution?.status !== 'resolved' || !resolution.path) {
-    toast.error(resolution?.status === 'ambiguous'
-      ? `Ambiguous document link: ${resolution.candidates.join(', ')}`
-      : `Document not found: ${pathQuery || sourcePath}`);
-    return;
-  }
-
-  const result = await useFileStore.getState().revealAndLoadFile(resolution.path, { workspaceId });
-  if (result.status === 'opened') {
-    if (resolution.blockId || resolution.heading) {
-      requestWorkspaceMarkdownLocation({
-        path: resolution.path,
-        blockId: resolution.blockId,
-        heading: resolution.heading,
-      });
-    }
-    return;
-  }
-  if (result.status !== 'superseded') toast.error(result.error);
-}
-
-function createObsidianWikiOpenExtension(workspaceId: string, sourcePath: string): CodeMirrorExtension {
+  onPreview: (reference: WorkspaceDocumentReference) => void,
+  labels: {
+    ambiguous: (candidates: string) => string;
+    failed: string;
+    missing: (target: string) => string;
+  },
+): CodeMirrorExtension {
   return EditorView.domEventHandlers({
     click(event, view) {
       if (!(event.metaKey || event.ctrlKey)) return false;
@@ -241,9 +221,19 @@ function createObsidianWikiOpenExtension(workspaceId: string, sourcePath: string
 
       event.preventDefault();
       event.stopPropagation();
-      void openObsidianWikiLinkFromSource(workspaceId, sourcePath, wikiLink.target).catch((error) => {
-        toast.error(error instanceof Error ? error.message : 'Document link could not be opened');
-      });
+      void loadWorkspaceDocumentReference(workspaceId, wikiLink.target, sourcePath)
+        .then((lookup) => {
+          if (lookup.reference) {
+            onPreview(lookup.reference);
+            return;
+          }
+          toast.error(lookup.resolution?.status === 'ambiguous'
+            ? labels.ambiguous(lookup.resolution.candidates.join(', '))
+            : labels.missing(lookup.resolution?.target.path || wikiLink.target));
+        })
+        .catch((error) => {
+          toast.error(error instanceof Error ? error.message : labels.failed);
+        });
       return true;
     },
   });
@@ -325,6 +315,7 @@ export function CodeEditor({
   const effectiveReadOnly = readOnly || collaborationReadOnly;
   const performanceProfile = useMemo(() => getTextEditorPerformanceProfile(value), [value]);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
+  const [documentPreview, setDocumentPreview] = useState<WorkspaceDocumentReference | null>(null);
 
   const extensions = useMemo(() => {
     const nextExtensions: CodeMirrorExtension[] = [];
@@ -335,16 +326,26 @@ export function CodeEditor({
       nextExtensions.push(EditorView.lineWrapping);
     }
     if (
-      !effectiveReadOnly
-      && activeWorkspaceId
+      activeWorkspaceId
       && isMarkdownPath(languagePath)
       && !performanceProfile.disableLanguageExtension
     ) {
-      nextExtensions.push(autocompletion({
-        override: [createObsidianWikiCompletionSource(activeWorkspaceId, languagePath)],
-      }));
+      if (!effectiveReadOnly) {
+        nextExtensions.push(autocompletion({
+          override: [createObsidianWikiCompletionSource(activeWorkspaceId, languagePath)],
+        }));
+      }
       if (languagePath) {
-        nextExtensions.push(createObsidianWikiOpenExtension(activeWorkspaceId, languagePath));
+        nextExtensions.push(createObsidianWikiPreviewExtension(
+          activeWorkspaceId,
+          languagePath,
+          setDocumentPreview,
+          {
+            ambiguous: (candidates) => t('markdownDocumentLinkAmbiguous', { candidates }),
+            failed: t('markdownEditorLinkOpenError'),
+            missing: (target) => t('markdownDocumentLinkMissing', { target }),
+          },
+        ));
       }
     }
     if (collaboration?.provider?.awareness) {
@@ -373,6 +374,7 @@ export function CodeEditor({
     performanceProfile.disableLineWrapping,
     effectiveReadOnly,
     collaboration,
+    t,
   ]);
 
   useEffect(() => {
@@ -414,6 +416,13 @@ export function CodeEditor({
         basicSetup={performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
         style={CODE_MIRROR_STYLE}
         className="codemirror-wrapper"
+      />
+      <WorkspaceDocumentPreviewDialog
+        open={documentPreview !== null}
+        reference={documentPreview}
+        onOpenChange={(open) => {
+          if (!open) setDocumentPreview(null);
+        }}
       />
       {shouldCollaborate && (
         <div className="pointer-events-none absolute right-3 top-2 z-10 rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">

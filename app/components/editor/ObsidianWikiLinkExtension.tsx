@@ -1,6 +1,6 @@
 'use client';
 
-import { mergeAttributes, Node, nodeInputRule, Extension } from '@tiptap/core';
+import { mergeAttributes, Node, nodeInputRule, nodePasteRule, Extension } from '@tiptap/core';
 import {
   NodeViewWrapper,
   ReactNodeViewRenderer,
@@ -52,6 +52,7 @@ type CreateObsidianWikiLinkExtensionsOptions = {
 
 const WIKI_SUGGESTION_PLUGIN_KEY = new PluginKey('markdownWikiLinkSuggestions');
 const WIKI_INPUT_REGEX = /(?:^|\s)((!)?\[\[([^\]\r\n]+)\]\])$/;
+const WIKI_PASTE_REGEX = /(!)?\[\[([^\]\r\n]+)\]\]/g;
 
 function isEscapedAt(value: string, start: number): boolean {
   let backslashes = 0;
@@ -74,6 +75,8 @@ function wikiLinkLabel(target: string): string {
 }
 
 function ObsidianWikiLinkNodeView({
+  editor,
+  getPos,
   node,
   selected,
   filePath,
@@ -86,8 +89,14 @@ function ObsidianWikiLinkNodeView({
       as="span"
       contentEditable={false}
       className={cn('tiptap-wiki-link-node', selected && 'tiptap-wiki-link-node-selected')}
+      onPointerDownCapture={() => {
+        const position = getPos();
+        if (typeof position === 'number' && editor.isEditable) {
+          editor.chain().focus().setNodeSelection(position).run();
+        }
+      }}
     >
-      <ObsidianWikiLink target={target} sourcePath={filePath} embed={embed}>
+      <ObsidianWikiLink target={target} sourcePath={filePath} embed={embed} preferDocumentTitle>
         {wikiLinkLabel(target)}
       </ObsidianWikiLink>
     </NodeViewWrapper>
@@ -167,6 +176,17 @@ function createObsidianWikiLinkNode(filePath?: string) {
         getAttributes: (match) => ({
           embed: Boolean(match[2]),
           target: match[3].trim(),
+        }),
+      })];
+    },
+
+    addPasteRules() {
+      return [nodePasteRule({
+        find: WIKI_PASTE_REGEX,
+        type: this.type,
+        getAttributes: (match) => ({
+          embed: Boolean(match[1]),
+          target: match[2].trim(),
         }),
       })];
     },

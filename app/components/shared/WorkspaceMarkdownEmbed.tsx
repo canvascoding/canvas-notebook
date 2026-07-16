@@ -78,7 +78,7 @@ export function WorkspaceMarkdownEmbed({
     >
       <div className="flex items-center gap-2 border-b border-border/60 bg-muted/25 px-3 py-2 text-xs">
         <FileText className="h-3.5 w-3.5 text-muted-foreground" aria-hidden="true" />
-        <ObsidianWikiLink target={target} sourcePath={sourcePath} className="min-w-0 truncate font-medium">
+        <ObsidianWikiLink target={target} sourcePath={sourcePath} className="min-w-0 truncate font-medium" preferDocumentTitle>
           {path ?? label}
         </ObsidianWikiLink>
       </div>

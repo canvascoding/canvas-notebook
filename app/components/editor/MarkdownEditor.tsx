@@ -142,6 +142,7 @@ import {
   type WorkspaceMarkdownLocation,
 } from '@/app/lib/markdown/workspace-markdown-navigation';
 import { makeLinkPreviewImageAlt, parseLinkPreviewImageAlt } from '@/app/lib/markdown/link-preview-markdown';
+import { getActiveWorkspaceWikiLink } from '@/app/lib/markdown/tiptap-workspace-link';
 import {
   getWorkspaceTargetDirForMarkdown,
   markdownImageSrcForWorkspacePath,
@@ -364,7 +365,7 @@ function getMarkdownToolbarState(editor: Editor | null): ToolbarState {
     isOrderedList: editor.isActive('orderedList'),
     isTaskList: editor.isActive('taskList'),
     isBlockquote: editor.isActive('blockquote'),
-    isLink: editor.isActive('link'),
+    isLink: editor.isActive('link') || editor.isActive('obsidianWikiLink'),
     isCodeBlock: editor.isActive('codeBlock'),
     isTable: editor.isActive('table'),
     cellAlign: getActiveTableCellAlign(editor),
@@ -2125,7 +2126,7 @@ function MarkdownLinkDialog({
   const [previewEnabled, setPreviewEnabled] = useState(true);
   const [previewState, setPreviewState] = useState<LinkPreviewState>({ status: 'idle' });
   const [workspaceIndexState, setWorkspaceIndexState] = useState<WorkspaceLinkIndexState>({ status: 'idle' });
-  const linkActive = Boolean(editor?.isActive('link'));
+  const linkActive = Boolean(editor?.isActive('link') || editor?.isActive('obsidianWikiLink'));
 
   useEffect(() => {
     if (!open || mode !== 'web' || !previewEnabled) return;
@@ -2224,7 +2225,8 @@ function MarkdownLinkDialog({
     if (!editor || !workspaceWikiTarget) return;
 
     const activeLink = getActiveLinkDetails(editor);
-    const replacementRange = activeLink?.range ?? {
+    const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
+    const replacementRange = activeWorkspaceLink?.range ?? activeLink?.range ?? {
       from: editor.state.selection.from,
       to: editor.state.selection.to,
     };
@@ -2245,8 +2247,13 @@ function MarkdownLinkDialog({
     if (!editor) return;
 
     const normalizedHref = normalizeLinkHref(href);
+    const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
     if (!normalizedHref) {
-      editor.chain().focus().unsetLink().run();
+      if (activeWorkspaceLink) {
+        editor.chain().focus().insertContentAt(activeWorkspaceLink.range, activeWorkspaceLink.displayText).run();
+      } else {
+        editor.chain().focus().unsetLink().run();
+      }
       onOpenChange(false);
       return;
     }
@@ -2254,6 +2261,17 @@ function MarkdownLinkDialog({
     const previewImage = previewEnabled && previewState.status === 'loaded' && previewState.imageUrl
       ? createLinkPreviewImageContent(previewState.imageUrl, previewState.host)
       : null;
+    if (activeWorkspaceLink) {
+      const content: JSONContent[] = [{
+        type: 'text',
+        text: text.trim() || activeWorkspaceLink.displayText || normalizedHref,
+        marks: [{ type: 'link', attrs: { href: normalizedHref } }],
+      }];
+      if (previewImage) content.push({ type: 'text', text: ' ' }, previewImage);
+      editor.chain().focus().insertContentAt(activeWorkspaceLink.range, content).run();
+      onOpenChange(false);
+      return;
+    }
 
     if (editor.isActive('link') || !editor.state.selection.empty) {
       const insertPosition = getLinkPreviewInsertPosition(editor);
@@ -2298,7 +2316,13 @@ function MarkdownLinkDialog({
   const applyLink = mode === 'workspace' ? applyWorkspaceLink : applyWebLink;
 
   const removeLink = useCallback(() => {
-    editor?.chain().focus().extendMarkRange('link').unsetLink().run();
+    if (!editor) return;
+    const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
+    if (activeWorkspaceLink) {
+      editor.chain().focus().insertContentAt(activeWorkspaceLink.range, activeWorkspaceLink.displayText).run();
+    } else {
+      editor.chain().focus().extendMarkRange('link').unsetLink().run();
+    }
     onOpenChange(false);
   }, [editor, onOpenChange]);
 
@@ -2953,11 +2977,12 @@ function MarkdownToolbar({
   const openToolbarLinkDialog = useCallback(() => {
     if (!editor) return;
     const activeLink = getActiveLinkDetails(editor);
+    const activeWorkspaceLink = getActiveWorkspaceWikiLink(editor);
     setLinkDialogSeed((current) => ({
       id: current.id + 1,
-      href: activeLink?.href || (editor.getAttributes('link').href as string | undefined) || '',
-      text: activeLink?.text || getSelectedText(editor),
-      canEditText: editor.state.selection.empty && !activeLink,
+      href: activeWorkspaceLink?.target || activeLink?.href || (editor.getAttributes('link').href as string | undefined) || '',
+      text: activeWorkspaceLink?.text || activeLink?.text || getSelectedText(editor),
+      canEditText: editor.state.selection.empty && !activeLink && !activeWorkspaceLink,
     }));
     handleLinkDialogOpenChange(true);
   }, [editor, handleLinkDialogOpenChange]);
@@ -3665,13 +3690,15 @@ function MobileMarkdownToolbar({
 
   const openLinkDialog = useCallback(() => {
     if (!editor) return;
-    restoreSavedRange();
+    const selectedWorkspaceLink = getActiveWorkspaceWikiLink(editor);
+    if (!selectedWorkspaceLink) restoreSavedRange();
     const activeLink = getActiveLinkDetails(editor);
+    const activeWorkspaceLink = selectedWorkspaceLink ?? getActiveWorkspaceWikiLink(editor);
     setLinkDialogSeed((current) => ({
       id: current.id + 1,
-      href: activeLink?.href || (editor.getAttributes('link').href as string | undefined) || '',
-      text: activeLink?.text || getSelectedText(editor),
-      canEditText: editor.state.selection.empty && !activeLink,
+      href: activeWorkspaceLink?.target || activeLink?.href || (editor.getAttributes('link').href as string | undefined) || '',
+      text: activeWorkspaceLink?.text || activeLink?.text || getSelectedText(editor),
+      canEditText: editor.state.selection.empty && !activeLink && !activeWorkspaceLink,
     }));
     setSheet(null);
     setLinkDialogOpen(true);
