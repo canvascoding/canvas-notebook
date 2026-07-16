@@ -581,9 +581,10 @@ export function BrandSettingsPanel({
   const initialized = useWorkspaceStore((state) => state.initialized);
   const isWorkspaceLoading = useWorkspaceStore((state) => state.isLoading);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
-  const [scope, setScope] = useState<BrandScope>('workspace');
+  const [scope, setScope] = useState<BrandScope>(() => canManageOrganizationBrand ? 'organization' : 'workspace');
   const [manualWorkspaceId, setManualWorkspaceId] = useState<string | null>(null);
   const [profile, setProfile] = useState<WorkspaceBrandProfile>(() => cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.canvas));
+  const [savedProfile, setSavedProfile] = useState<WorkspaceBrandProfile>(() => cloneWorkspaceBrandProfile(WORKSPACE_BRAND_PRESETS.canvas));
   const [configured, setConfigured] = useState(false);
   const [profileSource, setProfileSource] = useState<WorkspaceBrandProfileSource>('default');
   const [profileRevision, setProfileRevision] = useState(0);
@@ -637,7 +638,9 @@ export function BrandSettingsPanel({
     const directlyConfigured = targetScope === 'workspace'
       ? payload.workspaceOverride?.configured ?? payload.source === 'workspace'
       : payload.configured;
-    setProfile(cloneWorkspaceBrandProfile(payload.profile));
+    const nextProfile = cloneWorkspaceBrandProfile(payload.profile);
+    setProfile(nextProfile);
+    setSavedProfile(cloneWorkspaceBrandProfile(nextProfile));
     setConfigured(Boolean(directlyConfigured));
     setProfileSource(targetScope === 'workspace'
       ? payload.source || (directlyConfigured ? 'workspace' : 'default')
@@ -820,6 +823,10 @@ export function BrandSettingsPanel({
   };
 
   const isInheritedWorkspace = scope === 'workspace' && !configured;
+  const hasUnsavedChanges = useMemo(
+    () => JSON.stringify(profile) !== JSON.stringify(savedProfile),
+    [profile, savedProfile],
+  );
   const controlsDisabled = isLoading
     || isSaving
     || isUploadingLogo
@@ -1102,7 +1109,23 @@ export function BrandSettingsPanel({
               {t('appearance.modeHint')}
             </p>
           </div>
-          <BrandInterfacePreview profile={profile} />
+          <div className="space-y-3">
+            <BrandInterfacePreview profile={profile} />
+            <Button
+              type="button"
+              className="w-full"
+              disabled={controlsDisabled || !hasUnsavedChanges}
+              onClick={() => void saveProfile()}
+            >
+              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
+              {isSaving
+                ? t('saving')
+                : scope === 'organization' ? t('saveOrganization') : t('saveWorkspace')}
+            </Button>
+            <p className="text-center text-xs leading-5 text-muted-foreground">
+              {hasUnsavedChanges ? t('appearance.unsaved') : t('appearance.savedState')}
+            </p>
+          </div>
         </CardContent>
       </Card>
 
@@ -1360,7 +1383,7 @@ export function BrandSettingsPanel({
             </CardContent>
           </Card>
 
-          <div className="flex flex-col-reverse gap-2 rounded-xl border border-border bg-card p-3 sm:flex-row sm:items-center sm:justify-between">
+          <div className="flex rounded-xl border border-border bg-card p-3">
             <Button
               type="button"
               variant="ghost"
@@ -1369,16 +1392,6 @@ export function BrandSettingsPanel({
             >
               <RotateCcw className="h-4 w-4" />
               {scope === 'workspace' ? t('inheritance.useOrganization') : t('reset')}
-            </Button>
-            <Button
-              type="button"
-              disabled={controlsDisabled}
-              onClick={() => void saveProfile()}
-            >
-              {isSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <Save className="h-4 w-4" />}
-              {isSaving
-                ? t('saving')
-                : scope === 'organization' ? t('saveOrganization') : t('saveWorkspace')}
             </Button>
           </div>
         </div>

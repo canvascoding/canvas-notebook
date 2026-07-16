@@ -2873,6 +2873,8 @@
         "radiusSoft": "Soft",
         "radiusValue": "{value} px",
         "modeHint": "Your personal light or dark mode stays in place. Canvas adapts surfaces and contrast automatically.",
+        "unsaved": "The preview contains changes that have not been saved yet.",
+        "savedState": "The saved settings are active.",
         "preview": {
           "label": "Live interface preview",
           "active": "In use",

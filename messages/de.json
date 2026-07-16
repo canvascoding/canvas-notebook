@@ -2872,6 +2872,8 @@
         "radiusSoft": "Weich",
         "radiusValue": "{value} px",
         "modeHint": "Der persönliche Hell- oder Dunkelmodus bleibt erhalten. Canvas passt Flächen und Kontraste automatisch an.",
+        "unsaved": "Die Vorschau enthält noch nicht gespeicherte Änderungen.",
+        "savedState": "Die gespeicherten Einstellungen sind aktiv.",
         "preview": {
           "label": "Live-Oberflächenvorschau",
           "active": "Wird verwendet",

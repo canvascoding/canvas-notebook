@@ -11,6 +11,13 @@ const english = JSON.parse(readFileSync(path.join(root, 'messages/en.json'), 'ut
 assert.match(globalStyles, /--radius-full:\s*var\(--radius\);/u);
 assert.match(globalStyles, /\.rounded,\s*\.rounded-full\s*\{\s*border-radius:\s*var\(--radius\);/u);
 assert.match(panelSource, /<BrandInterfacePreview profile=\{profile\} \/>/u);
+assert.match(panelSource, /useState<BrandScope>\(\(\) => canManageOrganizationBrand \? 'organization' : 'workspace'\)/u);
+assert.match(
+  panelSource,
+  /<BrandInterfacePreview profile=\{profile\} \/>[\s\S]*?<Button[\s\S]*?disabled=\{controlsDisabled \|\| !hasUnsavedChanges\}[\s\S]*?saveOrganization/u,
+  'The primary save action must stay directly below the live interface preview.',
+);
+assert.equal((panelSource.match(/onClick=\{\(\) => void saveProfile\(\)\}/gu) || []).length, 1);
 assert.match(panelSource, /id="brand-appearance-radius"[\s\S]*?type="range"[\s\S]*?max=\{16\}[\s\S]*?step=\{2\}/u);
 assert.match(panelSource, /WORKSPACE_APPEARANCE_UPDATED_EVENT/u);
 assert.match(panelSource, /<SettingsAccordionCard[\s\S]*?documentDetails\.title/u);
