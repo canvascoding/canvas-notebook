@@ -88,3 +88,43 @@ Erfuellte Pflichten:
   erteilten Rechte,
 - bei einem DOMPurify-Upgrade werden Lizenzangebot, `NOTICE`-Bestand,
   Copyright und Modifikationsstatus erneut verifiziert.
+
+## 3. `@zone-eu/mailsplit@5.4.14`
+
+Status: technische Lizenzwahl abgeschlossen; Gesamtfreigabe weiterhin
+ausstehend.
+
+| Feld | Entscheidung |
+| --- | --- |
+| npm-Paket | `@zone-eu/mailsplit@5.4.14` |
+| npm-Tarball | `https://registry.npmjs.org/@zone-eu/mailsplit/-/mailsplit-5.4.14.tgz` |
+| npm-Integrity | `sha512-rz0FQOhN3Vq1XrSeSSa9+dPcaFbBxmQPjiZm6zS9oxdVHV7rOWIAYX3yP2YAUf0qBncY8CI+NogzPCmMVrMXcw==` |
+| npm-`gitHead` | `ce3e52530b56627c78c78f44fc42e61d71c4c6d0` |
+| Upstream-Tag | `v5.4.14`; Lightweight-Tag auf demselben Commit `ce3e52530b56627c78c78f44fc42e61d71c4c6d0` |
+| deklarierte Lizenz | `MIT OR EUPL-1.1+` |
+| gewaehlte Alternative | `MIT` |
+| verifizierter Beleg | `https://github.com/zone-eu/mailsplit/blob/v5.4.14/LICENSE.MIT` |
+| Copyright | `Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ` |
+| Canvas-Modifikation | keine |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der exakte npm-Release und der identische Upstream-Commit bieten MailSplit
+wahlweise unter MIT oder EUPL-1.1+ an. Canvas waehlt fuer alle ausgelieferten
+Kopien der Version `5.4.14` die MIT-Alternative. Das Paket wird transitiv ueber
+`imapflow` und `mailparser` in den Runtime-Bestand aufgenommen.
+
+Die Tarball-Pruefung hat `LICENSE.MIT` und `LICENSE.EUPL-1.2`, aber keine
+separate `NOTICE`-Datei ergeben.
+
+Erfuellte Pflichten:
+
+- der vollstaendige mit der Version ausgelieferte MIT-Text wird in
+  `THIRD_PARTY_NOTICES.md` aufgenommen,
+- der Copyright-Hinweis von Andris Reinman und Zone Media OÜ bleibt dem Paket
+  zugeordnet,
+- Paketname, Version, npm-Integritaet, Commit, Quelle, Text-Hash und
+  Zielartefakte stehen im maschinenlesbaren Inventar,
+- es wird keine EUPL-Lizenzierung von Canvas oder anderen separaten
+  Produktbestandteilen behauptet,
+- bei einem MailSplit-Upgrade werden die angebotenen Alternativen,
+  Copyright-/Notice-Dateien und der Modifikationsstatus erneut verifiziert.

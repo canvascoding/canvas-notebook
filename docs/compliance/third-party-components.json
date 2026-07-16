@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1913,
-    "reviewRequired": 68,
+    "allowed": 1914,
+    "reviewRequired": 67,
     "blocked": 0
   },
   "releaseGate": {
@@ -193,11 +193,6 @@
         "name": "@types/yauzl",
         "versionOrCommit": "2.10.3",
         "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "@zone-eu/mailsplit",
-        "versionOrCommit": "5.4.14",
-        "reason": "Policy decision is review_required for (MIT OR EUPL-1.1+)."
       },
       {
         "name": "client-only",
@@ -24797,7 +24792,7 @@
     {
       "name": "@zone-eu/mailsplit",
       "versionOrCommit": "5.4.14",
-      "sourceUrl": "https://github.com/zone-eu/mailsplit",
+      "sourceUrl": "https://github.com/zone-eu/mailsplit/tree/ce3e52530b56627c78c78f44fc42e61d71c4c6d0",
       "packagePathOrArtifact": "node_modules/@zone-eu/mailsplit",
       "usage": "runtime",
       "distributedIn": [
@@ -24807,14 +24802,15 @@
         "electron-web-app"
       ],
       "declaredLicense": "(MIT OR EUPL-1.1+)",
-      "verifiedLicense": "(MIT OR EUPL-1.1+)",
-      "licenseTextRef": "node_modules/@zone-eu/mailsplit/LICENSE.EUPL-1.2",
-      "licenseTextSha256": "c261d856395a4467e6e04ba968002c69080a981d11d4c98154201c2ece326184",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@zone-eu/mailsplit/LICENSE.MIT",
+      "licenseTextSha256": "d1cc09bdab0628b32bd6459357fc81aad6894c535baec7973d1dd8c85596fa08",
       "copyrightNotices": [
-        "EUPL © Euroopa Liit 2007, 2016"
+        "Copyright (c) 2011-2019, 2024 Andris Reinman and Zone Media OÜ"
       ],
       "modified": false,
-      "policyDecision": "review_required"
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares (MIT OR EUPL-1.1+), publishes gitHead ce3e52530b56627c78c78f44fc42e61d71c4c6d0, and the matching lightweight v5.4.14 tag resolves to that commit. Canvas elects MIT, retains the complete MIT text and upstream copyright notice, and does not modify the package. The exact npm tarball contains no separate NOTICE file. Verification source: https://github.com/zone-eu/mailsplit/blob/v5.4.14/LICENSE.MIT"
     },
     {
       "name": "abort-controller",

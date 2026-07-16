@@ -47,18 +47,17 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 47 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.913 Komponenten `allowed`, 68
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 46 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.914 Komponenten `allowed`, 67
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 47 Release-Pruefpositionen gliedern sich in:
+Die 46 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
-- einen noch zu entscheidenden Mehrfachlizenz-Fall (`mailsplit`),
 - 16 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
 
@@ -74,6 +73,16 @@ MPL-2.0 oder Apache-2.0 die Apache-2.0-Alternative. Der exakte npm-Tarball und
 Upstream-Commit enthalten keine separate `NOTICE`-Datei; der vollstaendige
 Apache-Text und der bestehende DOMPurify-Copyright-/Lizenzheader werden
 erhalten. Modifikationen am Paket liegen nicht vor.
+
+`@zone-eu/mailsplit@5.4.14` ist der dritte technisch abgeschlossene
+Mehrfachlizenz-Fall. Canvas waehlt aus MIT oder EUPL-1.1+ die MIT-Alternative.
+Der exakte npm-Tarball und der identische Upstream-Commit enthalten den
+vollstaendigen MIT-Text und keine separate `NOTICE`-Datei. Das unmodifizierte
+Paket wird transitiv ueber `imapflow` und `mailparser` ausgeliefert.
+
+Damit sind alle drei zuvor offenen alternativen Lizenzwahlen versionsgenau
+entschieden. Neue oder aktualisierte Mehrfachlizenzen werden weiterhin durch
+das Release-Gate blockiert, bis eine eigene Entscheidung dokumentiert ist.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine

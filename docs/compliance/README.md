@@ -125,8 +125,9 @@ Beispiele im aktuellen Bestand:
 - `dompurify@3.4.12`: Canvas hat die angebotene Apache-2.0-Alternative
   versionsgenau gewaehlt. Lizenztext, Copyright-/Lizenzheader, fehlende
   Upstream-`NOTICE`-Datei und Modifikationsstatus sind dokumentiert.
-- `@zone-eu/mailsplit`: angebotene MIT-/EUPL-Alternative und exakte
-  Release-Belege pruefen und eine Auswahl dokumentieren.
+- `@zone-eu/mailsplit@5.4.14`: Canvas hat die angebotene MIT-Alternative
+  versionsgenau gewaehlt und Text, Copyright, Commit, fehlende separate
+  `NOTICE`-Datei sowie die transitive Runtime-Auslieferung dokumentiert.
 
 Die Freigabe nennt immer Paket, Version, gewaehlt Lizenz, Belegquelle,
 Auslieferungsform und Reviewer.
