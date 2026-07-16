@@ -1661,7 +1661,7 @@ contentKind: document
     const firstAssistantMessage = page.getByTestId('chat-message-assistant').filter({ hasText: 'Ich sammle zuerst die Daten.' }).last();
     const finalAssistantMessage = page.getByTestId('chat-message-assistant').filter({ hasText: 'Hier ist die zusammengefasste Antwort.' }).last();
 
-    await expect(firstAssistantMessage).toHaveCount(0);
+    await expect(firstAssistantMessage).toBeVisible();
     await expect(finalAssistantMessage).toBeVisible();
     await expect(finalAssistantMessage.getByTestId('chat-usage-footer')).toHaveCount(0);
     await expect(page.getByTestId('chat-usage-footer')).toHaveCount(0);
@@ -1669,7 +1669,8 @@ contentKind: document
     const runDisclosure = page.getByTestId('chat-run-disclosure').first();
     await expect(runDisclosure).toBeVisible();
     await runDisclosure.getByTestId('chat-run-disclosure-toggle').click();
-    await expect(runDisclosure.getByTestId('chat-run-steps')).toContainText('Ich sammle zuerst die Daten.');
+    await expect(runDisclosure.getByTestId('chat-run-steps')).not.toContainText('Ich sammle zuerst die Daten.');
+    await expect(runDisclosure.getByTestId('chat-tool-subtle')).toHaveCount(1);
   });
 
   test('should show runtime status, queue state, and context budget in the chat UI', async ({ page }) => {

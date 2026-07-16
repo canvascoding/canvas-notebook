@@ -412,7 +412,6 @@ export default function CanvasAgentChat({
     setOptimisticRuntimePhase,
     setRuntimeStatus,
     setRuntimeStatusWithReconciliation,
-    toggleToolMessage,
   } = useChatRuntimeEvents({
     deferredSavedMessageRefreshSessionRef,
     refreshSavedMessagesRef,
@@ -1246,11 +1245,9 @@ export default function CanvasAgentChat({
 
             <ChatMessageList
               messages={messages}
-              isRuntimeBusy={isRuntimeBusy}
               runtimePhase={runtimeStatus?.phase}
               expandedRunKeys={expandedRunKeys}
               toolVerbosity={toolVerbosity}
-              onToggleToolMessage={toggleToolMessage}
               onToggleRunDisclosure={toggleRunDisclosure}
               onMediaClick={handleMediaPreviewClick}
               onAttachmentOpen={handleAttachmentPreviewOpen}

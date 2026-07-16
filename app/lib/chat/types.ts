@@ -217,14 +217,6 @@ export type ToolBatchProjection = {
   hiddenToolMessageIds: Set<string>;
 };
 
-export type CollapsedRun = {
-  key: string;
-  finalAssistantId: string;
-  steps: ChatMessage[];
-  startedAt: number | null;
-  endedAt: number | null;
-};
-
 export type AttachmentOpenHandler = (attachment: Attachment, previewGroup?: Attachment[]) => void;
 
 export type AgentProfile = {

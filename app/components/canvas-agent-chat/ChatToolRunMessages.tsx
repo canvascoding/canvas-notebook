@@ -37,7 +37,6 @@ import {
   Send,
   Settings,
   ShieldCheck,
-  Sparkles,
   SquareFunction,
   Terminal,
   UserRound,
@@ -49,11 +48,10 @@ import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/Attach
 import { ToolDataViewFromJson } from '@/app/components/canvas-agent-chat/ToolDataView';
 import { ToolOutputView } from '@/app/components/canvas-agent-chat/ToolOutputView';
 import { deriveUploadAttachmentPreview, getAttachmentMediaUrl } from '@/app/lib/chat/attachment-preview';
-import { dedupeAttachments, contentToString, getPiMessageDetails, truncatePreview } from '@/app/lib/chat/message-content';
+import { dedupeAttachments, contentToString, getPiMessageDetails } from '@/app/lib/chat/message-content';
 import { formatRunDuration } from '@/app/lib/chat/run-collapse';
-import type { Attachment, AttachmentOpenHandler, ChatMessage, CollapsedRun } from '@/app/lib/chat/types';
+import type { Attachment, AttachmentOpenHandler, ChatMessage, ToolBatch, ToolBatchCall } from '@/app/lib/chat/types';
 import { getToolDisplayInfo, type ToolDisplayTone } from '@/app/lib/pi/tool-display';
-import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogClose, DialogContent, DialogDescription, DialogTitle, DialogTrigger } from '@/components/ui/dialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
@@ -144,6 +142,8 @@ export function getToolStatusLabel(
   t: ReturnType<typeof useTranslations<'chat'>>
 ): string {
   switch (message.status) {
+    case 'pending':
+      return t('toolStatusPending');
     case 'sending':
       return t('toolStatusRunning');
     case 'aborting':
@@ -153,6 +153,28 @@ export function getToolStatusLabel(
     default:
       return t('toolStatusDone');
   }
+}
+
+const TOOL_TARGET_KEYS = ['path', 'filePath', 'query', 'pattern', 'directory', 'folder', 'name'] as const;
+
+function getToolTargetPreview(toolArgs: string | undefined): string | null {
+  if (!toolArgs) {
+    return null;
+  }
+
+  try {
+    const parsed = JSON.parse(toolArgs) as Record<string, unknown>;
+    for (const key of TOOL_TARGET_KEYS) {
+      const value = parsed[key];
+      if (typeof value === 'string' && value.trim()) {
+        return value.trim().replace(/\s+/g, ' ');
+      }
+    }
+  } catch {
+    return null;
+  }
+
+  return null;
 }
 
 export function ToolCallPill({
@@ -177,15 +199,17 @@ export function ToolCallPill({
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
   const display = getToolDisplayInfo(message.toolName, locale, getPiMessageDetails(message.piMessage));
   const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
-  const isRunning = message.status === 'sending' || message.status === 'aborting';
+  const isPending = message.status === 'pending';
+  const isRunning = isPending || message.status === 'sending' || message.status === 'aborting';
   const isError = message.status === 'error';
   const bodyContent =
     contentToString(message.content) ||
-    (isRunning ? t('runningTool') : t('noOutputYet'));
+    (isRunning && !isPending ? t('runningTool') : t('noOutputYet'));
   const toolStatusLabel = getToolStatusLabel(message, t);
   const imageAttachments = getPreviewableToolImageAttachments(message);
   const imagePreviewGroup = previewGroup?.length ? previewGroup : imageAttachments;
   const primaryAttachmentName = imageAttachments[0]?.name;
+  const targetPreview = primaryAttachmentName || getToolTargetPreview(message.toolArgs);
   const isOpen = open ?? uncontrolledOpen;
 
   const handleOpenChange = (nextOpen: boolean) => {
@@ -225,9 +249,9 @@ export function ToolCallPill({
     >
       <Icon className="h-3.5 w-3.5 shrink-0" />
       <span className="min-w-0 truncate font-medium">{display.label}</span>
-      {primaryAttachmentName ? (
+      {targetPreview ? (
         <span className="min-w-0 max-w-[9rem] truncate text-muted-foreground/80 sm:max-w-[13rem]">
-          {primaryAttachmentName}
+          {targetPreview}
         </span>
       ) : null}
       {isRunning ? (
@@ -355,123 +379,117 @@ export function ToolCallPill({
   );
 }
 
-function MessageStepIcon({ className }: { className?: string }) {
-  return <Sparkles className={className} />;
+function getToolBatchCallMessage(call: ToolBatchCall): ChatMessage {
+  return call.message || {
+    id: `pending-${call.id}`,
+    role: 'toolResult',
+    content: '',
+    status: 'pending',
+    type: 'tool_use',
+    toolCallId: call.toolCallId,
+    toolName: call.toolName,
+    toolArgs: call.toolArgs,
+    isCollapsed: true,
+  };
 }
 
-function RunStepItem({
-  message,
-  toolVerbosity,
-  onMediaClick,
-  onAttachmentOpen,
-  previewGroup,
-}: {
-  message: ChatMessage;
-  toolVerbosity: ToolVerbosity;
-  onMediaClick?: (mediaUrl: string) => void;
-  onAttachmentOpen?: AttachmentOpenHandler;
-  previewGroup?: Attachment[];
-}) {
-  const t = useTranslations('chat');
-  const locale = useLocale();
-  const isTool = message.role === 'toolResult';
-  const isAssistant = message.role === 'assistant';
-  const display = isTool ? getToolDisplayInfo(message.toolName, locale, getPiMessageDetails(message.piMessage)) : null;
-  const Icon = display ? (TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default) : MessageStepIcon;
-  const title = isTool ? (display?.label || message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
-  const bodyContent =
-    contentToString(message.content) ||
-    (message.status === 'sending' ? (isTool ? t('runningTool') : t('agentWorking')) : '');
-  const preview = message.previewText || truncatePreview(bodyContent || t('noOutputYet'));
-  const isMinimal = toolVerbosity === 'minimal';
-
-  if (isTool && toolVerbosity !== 'minimal') {
-    return (
-      <div data-testid="chat-run-step" className="min-w-0 overflow-hidden">
-        <ToolCallPill
-          message={message}
-          onMediaClick={onMediaClick}
-          onAttachmentOpen={onAttachmentOpen}
-          previewGroup={previewGroup}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div
-      data-testid="chat-run-step"
-      className={cn(
-        'min-w-0 overflow-hidden border border-border/70 bg-background/70',
-        isMinimal ? 'px-2 py-1.5' : 'p-2',
-      )}
-    >
-      <div className="flex min-w-0 items-start gap-2">
-        <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-        <div className="min-w-0 flex-1 overflow-hidden">
-          <div className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 truncate text-xs font-medium text-foreground">{title}</span>
-          </div>
-          {!isMinimal ? (
-            <div className="mt-0.5 line-clamp-2 min-w-0 break-words text-xs leading-relaxed text-muted-foreground [overflow-wrap:anywhere]">
-              {preview}
-            </div>
-          ) : null}
-        </div>
-      </div>
-    </div>
-  );
+function isFinishedToolCall(call: ToolBatchCall): boolean {
+  const status = call.message?.status;
+  return Boolean(call.message) && status !== 'pending' && status !== 'sending' && status !== 'aborting';
 }
 
-export function AgentRunDisclosure({
-  run,
+export function ToolBatchDisclosure({
+  batch,
   expanded,
   onToggle,
-  toolVerbosity,
   onMediaClick,
   onAttachmentOpen,
   previewGroups,
 }: {
-  run: CollapsedRun;
+  batch: ToolBatch;
   expanded: boolean;
   onToggle: () => void;
-  toolVerbosity: ToolVerbosity;
   onMediaClick?: (mediaUrl: string) => void;
   onAttachmentOpen?: AttachmentOpenHandler;
   previewGroups?: Map<string, Attachment[]>;
 }) {
   const t = useTranslations('chat');
-  const duration = formatRunDuration(run.startedAt, run.endedAt);
-  const summary = duration
-    ? t('workedForWithSteps', { duration, count: run.steps.length })
-    : t('workedSteps', { count: run.steps.length });
+  const locale = useLocale();
+  const primaryCall = batch.calls[0];
+  const primaryMessage = primaryCall ? getToolBatchCallMessage(primaryCall) : undefined;
+  const display = getToolDisplayInfo(primaryCall?.toolName, locale, getPiMessageDetails(primaryMessage?.piMessage));
+  const Icon = TOOL_TONE_ICONS[display.tone] || TOOL_TONE_ICONS.default;
+  const completedCount = batch.calls.filter(isFinishedToolCall).length;
+  const errorCount = batch.calls.filter((call) => call.message?.status === 'error').length;
+  const isAborting = batch.calls.some((call) => call.message?.status === 'aborting');
+  const isRunning = completedCount < batch.calls.length || batch.calls.some((call) => call.message?.status === 'sending');
+  const duration = formatRunDuration(batch.startedAt, batch.endedAt);
+  const targetPreview = getToolTargetPreview(primaryCall?.toolArgs);
+  const summary = batch.calls.length > 1
+    ? t('toolBatchSummary', { label: display.label, count: batch.calls.length })
+    : display.label;
+  const statusText = errorCount > 0
+    ? t('toolBatchErrors', { count: errorCount })
+    : isAborting
+      ? t('toolStatusAborting')
+      : isRunning
+        ? t('toolBatchProgress', { completed: completedCount, total: batch.calls.length })
+        : duration
+          ? duration
+          : t('toolStatusDone');
 
   return (
-    <div data-testid="chat-run-disclosure" className="flex justify-start">
+    <div data-testid="chat-run-disclosure" data-tool-batch="true" className="flex justify-start py-0.5">
       <div className="min-w-0 w-full max-w-[90%]">
         <button
           type="button"
           data-testid="chat-run-disclosure-toggle"
           onClick={onToggle}
-          className="group flex min-w-0 w-full items-start gap-2 border-t border-border/70 py-2 text-left text-sm text-muted-foreground transition-colors hover:text-foreground"
+          className={cn(
+            'group flex min-h-8 min-w-0 w-full items-center gap-2 rounded-md border border-transparent px-1.5 py-1.5 text-left text-sm text-muted-foreground transition-colors',
+            'hover:border-border/60 hover:bg-muted/35 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60',
+            expanded && 'border-border/60 bg-muted/25 text-foreground',
+          )}
           aria-expanded={expanded}
         >
+          <Icon className={cn('h-4 w-4 shrink-0', errorCount > 0 ? 'text-destructive' : 'text-muted-foreground')} />
+          <span className="min-w-0 truncate font-medium">{summary}</span>
+          {targetPreview ? (
+            <span className="hidden min-w-0 max-w-[12rem] truncate text-xs text-muted-foreground/75 sm:inline">
+              {targetPreview}
+            </span>
+          ) : null}
+          <span className={cn(
+            'ml-auto shrink-0 text-[11px] tabular-nums text-muted-foreground/80',
+            errorCount > 0 && 'text-destructive',
+          )}>
+            {statusText}
+          </span>
+          {errorCount > 0 ? (
+            <XCircle className="h-3.5 w-3.5 shrink-0 text-destructive" />
+          ) : isRunning || isAborting ? (
+            <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin text-muted-foreground" />
+          ) : (
+            <CheckCircle2 className="h-3.5 w-3.5 shrink-0 text-primary" />
+          )}
           {expanded ? <ChevronDown className="h-4 w-4 shrink-0" /> : <ChevronRight className="h-4 w-4 shrink-0" />}
-          <span className="min-w-0 break-words leading-relaxed [overflow-wrap:anywhere]">{summary}</span>
         </button>
 
         {expanded ? (
-          <div data-testid="chat-run-steps" className="mb-2 min-w-0 space-y-2 pl-4 sm:pl-6">
-            {run.steps.map((step) => (
-              <RunStepItem
-                key={step.id}
-                message={step}
-                toolVerbosity={toolVerbosity}
-                onMediaClick={onMediaClick}
-                onAttachmentOpen={onAttachmentOpen}
-                previewGroup={previewGroups?.get(step.id)}
-              />
-            ))}
+          <div data-testid="chat-run-steps" className="mb-2 ml-2 min-w-0 space-y-1 border-l border-border/70 py-1 pl-3 sm:ml-3 sm:pl-4">
+            {batch.calls.map((call) => {
+              const message = getToolBatchCallMessage(call);
+              return (
+                <div key={call.id} data-testid="chat-run-step" className="min-w-0 overflow-hidden">
+                  <ToolCallPill
+                    message={message}
+                    onMediaClick={onMediaClick}
+                    onAttachmentOpen={onAttachmentOpen}
+                    previewGroup={call.message ? previewGroups?.get(call.message.id) : undefined}
+                  />
+                </div>
+              );
+            })}
           </div>
         ) : null}
       </div>

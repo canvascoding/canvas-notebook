@@ -334,16 +334,6 @@ export function useChatRuntimeEvents({
     ]);
   }, [setMessages, t]);
 
-  const toggleToolMessage = useCallback((messageId: string) => {
-    setMessages((prev) =>
-      prev.map((message) => (
-        message.id === messageId && message.role === 'toolResult'
-          ? { ...message, isCollapsed: !message.isCollapsed, autoCollapsedAtEnd: false }
-          : message
-      )),
-    );
-  }, [setMessages]);
-
   const upsertToolMessage = useCallback((params: {
     assistantMessageId?: string | null;
     content?: string;
@@ -915,6 +905,5 @@ export function useChatRuntimeEvents({
     setOptimisticRuntimePhase,
     setRuntimeStatus,
     setRuntimeStatusWithReconciliation,
-    toggleToolMessage,
   };
 }

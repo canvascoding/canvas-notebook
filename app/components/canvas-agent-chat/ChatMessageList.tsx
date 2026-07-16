@@ -1,7 +1,7 @@
 'use client';
 
 import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Check, ChevronDown, ChevronRight, Copy, ExternalLink, Lock, Wrench } from 'lucide-react';
+import { Check, Copy, ExternalLink, Lock } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
@@ -9,15 +9,11 @@ import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileRefere
 import { getRecentStudioImageMediaUrls, MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
 import { SkillReferenceChipRow, useSkillReferenceCatalog } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
 import {
-  AgentRunDisclosure,
   buildToolImagePreviewGroups,
-  getToolStatusLabel,
-  ToolCallPill,
+  ToolBatchDisclosure,
 } from '@/app/components/canvas-agent-chat/ChatToolRunMessages';
-import { ToolDataViewFromJson } from '@/app/components/canvas-agent-chat/ToolDataView';
-import { ToolOutputView } from '@/app/components/canvas-agent-chat/ToolOutputView';
 import { extractFilePaths } from '@/app/lib/chat/extract-file-paths';
-import { buildCollapsedRunMap } from '@/app/lib/chat/run-collapse';
+import { buildToolBatchProjection } from '@/app/lib/chat/run-collapse';
 import { rewriteRelativeStudioImageMarkdown } from '@/app/lib/chat/studio-image-markdown';
 import type { AttachmentOpenHandler, ChatMessage } from '@/app/lib/chat/types';
 import { contentToString, isAbortedAssistantPiMessage } from '@/app/lib/chat/message-content';
@@ -197,69 +193,30 @@ function MessageActionBar({
 
 export function ChatMessageList({
   messages,
-  isRuntimeBusy,
   runtimePhase,
   expandedRunKeys,
   toolVerbosity,
-  onToggleToolMessage,
   onToggleRunDisclosure,
   onMediaClick,
   onAttachmentOpen,
 }: {
   messages: ChatMessage[];
-  isRuntimeBusy: boolean;
   runtimePhase: RuntimeStatus['phase'] | null | undefined;
   expandedRunKeys: Set<string>;
   toolVerbosity: ToolVerbosity;
-  onToggleToolMessage: (messageId: string) => void;
   onToggleRunDisclosure: (runKey: string) => void;
   onMediaClick?: (mediaUrl: string) => void;
   onAttachmentOpen: AttachmentOpenHandler;
 }) {
   const t = useTranslations('chat');
   const skillReferenceCatalog = useSkillReferenceCatalog();
-  const [openDirectToolIds, setOpenDirectToolIds] = useState<Set<string>>(() => new Set());
-  const hasLiveRunMessage = messages.some((message) => (
-    message.status === 'sending' || message.status === 'aborting'
-  ));
-  const collapsedRunMap = useMemo(
-    () => buildCollapsedRunMap(messages, isRuntimeBusy || hasLiveRunMessage, openDirectToolIds),
-    [messages, hasLiveRunMessage, isRuntimeBusy, openDirectToolIds],
-  );
+  const toolBatchProjection = useMemo(() => buildToolBatchProjection(messages), [messages]);
   const toolImagePreviewGroups = useMemo(() => buildToolImagePreviewGroups(messages), [messages]);
-  const hiddenStepIds = useMemo(() => {
-    const ids = new Set<string>();
-    for (const run of collapsedRunMap.values()) {
-      for (const step of run.steps) {
-        ids.add(step.id);
-      }
-    }
-    return ids;
-  }, [collapsedRunMap]);
-  const handleDirectToolOpenChange = useCallback((messageId: string, open: boolean) => {
-    setOpenDirectToolIds((current) => {
-      const isAlreadyOpen = current.has(messageId);
-      if (open === isAlreadyOpen) {
-        return current;
-      }
-
-      const next = new Set(current);
-      if (open) {
-        next.add(messageId);
-      } else {
-        next.delete(messageId);
-      }
-      return next;
-    });
-  }, []);
+  const hiddenToolMessageIds = toolBatchProjection.hiddenToolMessageIds;
 
   return (
     <TooltipProvider delayDuration={300}>
       {messages.map((message, messageIndex) => {
-        if (hiddenStepIds.has(message.id)) {
-          return null;
-        }
-
         const isUser = message.role === 'user';
         const isAssistant = message.role === 'assistant';
         const isTool = message.role === 'toolResult';
@@ -268,27 +225,27 @@ export function ChatMessageList({
         const isCompactBreak = message.type === 'compact_break';
         const isStreamingAssistant = isAssistant && message.status === 'sending';
         const isAbortedAssistant = isAssistant && isAbortedAssistantPiMessage(message.piMessage);
-        const collapsedRun = isAssistant ? collapsedRunMap.get(message.id) : undefined;
+        const toolBatch = toolBatchProjection.batchesByAnchorId.get(message.id);
         const toolImagePreviewGroup = isTool ? toolImagePreviewGroups.get(message.id) : undefined;
         const rawBodyContent = contentToString(message.content);
         const hasVisibleAssistantContent = rawBodyContent.trim().length > 0;
-        const suppressAssistantTitle = isAssistant && hasEarlierVisibleAssistantInRun(messages, messageIndex, hiddenStepIds);
+        const suppressAssistantTitle = isAssistant && hasEarlierVisibleAssistantInRun(messages, messageIndex, hiddenToolMessageIds);
+        const batchDisclosure = toolBatch && toolVerbosity !== 'minimal' ? (
+          <ToolBatchDisclosure
+            batch={toolBatch}
+            expanded={expandedRunKeys.has(toolBatch.key)}
+            onToggle={() => onToggleRunDisclosure(toolBatch.key)}
+            onMediaClick={onMediaClick}
+            onAttachmentOpen={onAttachmentOpen}
+            previewGroups={toolImagePreviewGroups}
+          />
+        ) : null;
 
-        if (isTool && toolVerbosity === 'minimal') {
-          return null;
-        }
-
-        if (isTool && toolVerbosity === 'subtle') {
+        if (hiddenToolMessageIds.has(message.id)) {
           return (
-            <ToolCallPill
-              key={message.id}
-              message={message}
-              onMediaClick={onMediaClick}
-              onAttachmentOpen={onAttachmentOpen}
-              previewGroup={toolImagePreviewGroups.get(message.id)}
-              open={openDirectToolIds.has(message.id)}
-              onOpenChange={(open) => handleDirectToolOpenChange(message.id, open)}
-            />
+            <Fragment key={message.id}>
+              {batchDisclosure}
+            </Fragment>
           );
         }
 
@@ -337,7 +294,7 @@ export function ChatMessageList({
         }
 
         if (isAssistant && !isStreamingAssistant && !hasVisibleAssistantContent && message.status !== 'error' && !isAbortedAssistant) {
-          return null;
+          return batchDisclosure ? <Fragment key={message.id}>{batchDisclosure}</Fragment> : null;
         }
 
         const bubbleClass = isUser
@@ -346,13 +303,11 @@ export function ChatMessageList({
             ? 'border-rose-500/30 bg-rose-500/10 text-rose-800 dark:text-rose-200'
             : isAssistant
               ? 'border-border bg-muted text-foreground'
-              : isTool
-                ? 'border-amber-500/40 bg-amber-500/10 text-foreground'
-                : isSystemError
+              : isSystemError
                   ? 'border-destructive/40 bg-destructive/10 text-destructive'
                   : 'border-border bg-background/80 text-muted-foreground';
 
-        const title = isUser ? t('you') : isTool ? (message.toolName || t('tool')) : isAssistant ? t('assistant') : t('system');
+        const title = isUser ? t('you') : isAssistant ? t('assistant') : t('system');
         const bodyContent =
           rawBodyContent ||
           (isAbortedAssistant
@@ -364,8 +319,8 @@ export function ChatMessageList({
                 : message.status === 'aborting'
                   ? t('willSendAfterStop')
                   : message.status === 'sending'
-                    ? (isTool ? t('runningTool') : t('agentWorking'))
-                    : '');
+                  ? t('agentWorking')
+                  : '');
         const displayBodyContent = isAssistant
           ? rewriteRelativeStudioImageMarkdown(
               bodyContent,
@@ -374,9 +329,6 @@ export function ChatMessageList({
           : bodyContent;
         const copyContent = isAssistant ? displayBodyContent : bodyContent;
         const showMessageActions = (isUser || isAssistant) && !isStreamingAssistant && copyContent.trim().length > 0;
-        const toolBodyVisible = isTool ? !message.isCollapsed : true;
-        const toolStatusLabel = isTool ? getToolStatusLabel(message, t) : null;
-
         const renderedMessage = (
           <div
             data-testid={`chat-message-${message.role}`}
@@ -386,49 +338,7 @@ export function ChatMessageList({
             )}
           >
             <div className={`max-w-[96%] border p-3 sm:max-w-[90%] overflow-hidden min-w-0 ${bubbleClass}`}>
-              {isTool ? (
-                <div>
-                  <button
-                    type="button"
-                    data-testid="chat-tool-toggle"
-                    onClick={() => onToggleToolMessage(message.id)}
-                    className="flex w-full items-start gap-3 text-left"
-                  >
-                    <span className="mt-0.5 text-amber-600/90">
-                      <Wrench className="h-4 w-4" />
-                    </span>
-                    <div className="min-w-0 flex-1">
-                      <div className="flex flex-wrap items-center gap-2">
-                        <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
-                        <span className="border border-amber-500/30 bg-background/60 px-2 py-0.5 text-[10px] font-medium uppercase tracking-widest text-muted-foreground">
-                          {toolStatusLabel}
-                        </span>
-                        {message.autoCollapsedAtEnd ? <span className="text-[10px] uppercase tracking-widest text-muted-foreground">{t('auto')}</span> : null}
-                      </div>
-                      <div className="mt-1 text-sm font-medium text-foreground">{message.toolName || t('tool')}</div>
-                      <div className="mt-1 text-xs text-muted-foreground">{message.previewText || t('noOutputYet')}</div>
-                    </div>
-                    <span className="mt-0.5 text-muted-foreground">
-                      {toolBodyVisible ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </span>
-                  </button>
-
-                  {toolBodyVisible ? (
-                    <div data-testid="chat-tool-body" className="mt-3 space-y-3">
-                      {message.toolArgs ? (
-                        <div className="rounded-md border border-amber-500/30 bg-background/60 p-3">
-                          <div className="mb-2 text-[10px] font-bold uppercase tracking-widest text-muted-foreground">{t('toolInput')}</div>
-                          <div className="max-h-52 overflow-auto pr-1">
-                            <ToolDataViewFromJson json={message.toolArgs} />
-                          </div>
-                        </div>
-                      ) : null}
-                      <ToolOutputView content={bodyContent} onMediaClick={onMediaClick} />
-                    </div>
-                  ) : null}
-                </div>
-              ) : (
-                <>
+              <>
                   {!isAssistant || !suppressAssistantTitle ? (
                     <div className="mb-2 flex items-center gap-2">
                       <span className="text-[10px] font-bold uppercase tracking-widest opacity-60">{title}</span>
@@ -479,8 +389,7 @@ export function ChatMessageList({
                   ) : (
                     <div className="whitespace-pre-wrap break-words text-sm leading-relaxed">{bodyContent}</div>
                   )}
-                </>
-              )}
+              </>
 
               {message.attachments && message.attachments.length > 0 && (
                 <div className="mt-2 flex flex-wrap gap-2">
@@ -507,19 +416,11 @@ export function ChatMessageList({
           </div>
         );
 
-        if (collapsedRun) {
+        if (batchDisclosure) {
           return (
             <Fragment key={message.id}>
-              <AgentRunDisclosure
-                run={collapsedRun}
-                expanded={expandedRunKeys.has(collapsedRun.key)}
-                onToggle={() => onToggleRunDisclosure(collapsedRun.key)}
-                toolVerbosity={toolVerbosity}
-                onMediaClick={onMediaClick}
-                onAttachmentOpen={onAttachmentOpen}
-                previewGroups={toolImagePreviewGroups}
-              />
               {renderedMessage}
+              {batchDisclosure}
             </Fragment>
           );
         }
