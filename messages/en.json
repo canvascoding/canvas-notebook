@@ -3527,6 +3527,7 @@
         },
         "pickerLabels": {
           "user": "Grant target user",
+          "role": "Grant target role",
           "workspace": "Grant target workspace",
           "project": "Grant target project"
         },
@@ -3538,11 +3539,13 @@
         },
         "search": {
           "user": "Search users...",
+          "role": "Search roles...",
           "workspace": "Search workspaces...",
           "project": "Search projects..."
         },
         "empty": {
           "user": "No matching users.",
+          "role": "No matching role.",
           "workspace": "No matching workspaces.",
           "project": "No matching projects."
         },
@@ -4411,12 +4414,45 @@
         "description": "Assign organization packages to the whole organization, a role, workspace, project, or user. Blocked always wins; required resources cannot be disabled personally.",
         "resource": "Package",
         "targetType": "Target",
-        "targetId": "Target ID",
-        "targetPlaceholder": "Role, workspace, project, or user ID",
+        "targetId": "Target",
+        "targetPlaceholder": "Select a role, workspace, project, or user",
         "effect": "Policy",
         "save": "Apply",
         "remove": "Remove",
         "empty": "No distribution policies configured.",
+        "organizationHint": "The organization ID is filled in automatically.",
+        "organizationValue": "Entire organization",
+        "projectDescription": "Project",
+        "pickerLabels": {
+          "role": "Policy target role",
+          "workspace": "Policy target workspace",
+          "project": "Policy target project",
+          "user": "Policy target user"
+        },
+        "select": {
+          "role": "Select role",
+          "workspace": "Select workspace",
+          "project": "Select project",
+          "user": "Select user"
+        },
+        "search": {
+          "role": "Search roles...",
+          "workspace": "Search workspaces...",
+          "project": "Search projects...",
+          "user": "Search users..."
+        },
+        "emptyTargets": {
+          "role": "No matching role.",
+          "workspace": "No matching workspaces.",
+          "project": "No matching projects.",
+          "user": "No matching users."
+        },
+        "roles": {
+          "member": "Member",
+          "admin": "Administrator",
+          "owner": "Owner",
+          "external": "External"
+        },
         "targets": {
           "organization": "Organization",
           "role": "Role",

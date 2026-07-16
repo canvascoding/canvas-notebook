@@ -1,23 +1,17 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { Check, ChevronsUpDown, Loader2, Plus, RefreshCw, Trash2, Users } from 'lucide-react';
+import { Loader2, Plus, RefreshCw, Trash2, Users } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
+import {
+  SearchablePolicyTargetPicker,
+  type PolicyTargetOption,
+} from '@/app/components/organization/SearchablePolicyTargetPicker';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Command,
-  CommandEmpty,
-  CommandGroup,
-  CommandInput,
-  CommandItem,
-  CommandList,
-} from '@/components/ui/command';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { cn } from '@/lib/utils';
 
 type GrantTargetType = 'organization' | 'role' | 'workspace' | 'project' | 'user';
 type AccessLevel = 'user' | 'editor' | 'manager';
@@ -56,30 +50,11 @@ type AgentGrantTargetCatalog = {
   }>;
 };
 
-type GrantTargetOption = {
-  id: string;
-  label: string;
-  description: string | null;
-};
-
 type AgentGrantsEditorProps = {
   active: boolean;
   agentId: string;
   revision: number;
   onChanged?: (agent: AgentSummary) => void | Promise<void>;
-};
-
-type SearchableTargetPickerProps = {
-  id: string;
-  value: string;
-  options: GrantTargetOption[];
-  label: string;
-  placeholder: string;
-  searchPlaceholder: string;
-  emptyLabel: string;
-  disabled?: boolean;
-  testId: string;
-  onValueChange: (value: string) => void;
 };
 
 const EMPTY_TARGETS: AgentGrantTargetCatalog = {
@@ -104,84 +79,6 @@ async function readResponse<T>(response: Response): Promise<T> {
   const payload = (await response.json().catch(() => ({}))) as { success?: boolean; data?: T; error?: string };
   if (!response.ok || !payload.success) throw new Error(payload.error || `Request failed (${response.status})`);
   return payload.data as T;
-}
-
-function SearchableTargetPicker({
-  id,
-  value,
-  options,
-  label,
-  placeholder,
-  searchPlaceholder,
-  emptyLabel,
-  disabled = false,
-  testId,
-  onValueChange,
-}: SearchableTargetPickerProps) {
-  const [open, setOpen] = useState(false);
-  const selected = useMemo(
-    () => options.find((option) => option.id === value) || null,
-    [options, value],
-  );
-
-  return (
-    <Popover open={disabled ? false : open} onOpenChange={(nextOpen) => {
-      if (!disabled) setOpen(nextOpen);
-    }}>
-      <PopoverTrigger asChild>
-        <Button
-          id={id}
-          type="button"
-          variant="outline"
-          role="combobox"
-          aria-label={label}
-          aria-expanded={!disabled && open}
-          disabled={disabled}
-          data-testid={testId}
-          className="h-9 w-full min-w-0 justify-between px-3 font-normal"
-        >
-          <span className={cn('min-w-0 truncate text-left', !selected && 'text-muted-foreground')}>
-            {selected?.label || placeholder}
-          </span>
-          <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 text-muted-foreground" />
-        </Button>
-      </PopoverTrigger>
-      <PopoverContent
-        align="start"
-        className="w-[var(--radix-popover-trigger-width)] min-w-[18rem] p-0"
-      >
-        <Command>
-          <CommandInput aria-label={searchPlaceholder} placeholder={searchPlaceholder} />
-          <CommandList>
-            <CommandEmpty>{emptyLabel}</CommandEmpty>
-            <CommandGroup>
-              {options.map((option) => (
-                <CommandItem
-                  key={option.id}
-                  value={`${option.label} ${option.description || ''} ${option.id}`}
-                  data-testid={`${testId}-option-${option.id}`}
-                  className="items-start py-2.5"
-                  onSelect={() => {
-                    onValueChange(option.id);
-                    setOpen(false);
-                  }}
-                >
-                  <Check className={cn('mt-0.5 h-4 w-4', value === option.id ? 'opacity-100' : 'opacity-0')} />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate font-medium">{option.label}</span>
-                    {option.description ? (
-                      <span className="mt-0.5 block truncate text-xs text-muted-foreground">{option.description}</span>
-                    ) : null}
-                    <span className="mt-0.5 block truncate font-mono text-[10px] text-muted-foreground/80">{option.id}</span>
-                  </span>
-                </CommandItem>
-              ))}
-            </CommandGroup>
-          </CommandList>
-        </Command>
-      </PopoverContent>
-    </Popover>
-  );
 }
 
 export function AgentGrantsEditor({ active, agentId, revision, onChanged }: AgentGrantsEditorProps) {
@@ -258,7 +155,14 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
     queueMicrotask(() => void load());
   }, [load]);
 
-  const targetOptions = useMemo<GrantTargetOption[]>(() => {
+  const targetOptions = useMemo<PolicyTargetOption[]>(() => {
+    if (targetType === 'role') {
+      return ['member', 'admin', 'owner', 'external'].map((role) => ({
+        id: role,
+        label: roleLabel(role),
+        description: null,
+      }));
+    }
     if (targetType === 'user') {
       return targets.users.map((user) => {
         const name = user.name?.trim();
@@ -293,7 +197,7 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
   }, [roleLabel, t, targetType, targets.projects, targets.users, targets.workspaces, workspaceTypeLabel]);
 
   const optionByGrantKey = useMemo(() => {
-    const entries: Array<[string, GrantTargetOption]> = [];
+    const entries: Array<[string, PolicyTargetOption]> = [];
     for (const user of targets.users) {
       const name = user.name?.trim();
       const email = user.email?.trim();
@@ -378,21 +282,7 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
     }
   };
 
-  const targetControl = targetType === 'role' ? (
-    <select
-      id="agent-grant-target"
-      aria-label={t('roleLabel')}
-      value={targetId}
-      onChange={(event) => setTargetId(event.target.value)}
-      className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
-    >
-      <option value="">{t('select.role')}</option>
-      <option value="member">{t('roles.member')}</option>
-      <option value="admin">{t('roles.admin')}</option>
-      <option value="owner">{t('roles.owner')}</option>
-      <option value="external">{t('roles.external')}</option>
-    </select>
-  ) : targetType === 'organization' ? (
+  const targetControl = targetType === 'organization' ? (
     <Input
       id="agent-grant-target"
       aria-label={t('organizationLabel')}
@@ -402,30 +292,14 @@ export function AgentGrantsEditor({ active, agentId, revision, onChanged }: Agen
       className="font-mono text-xs"
     />
   ) : (
-    <SearchableTargetPicker
+    <SearchablePolicyTargetPicker
       id="agent-grant-target"
       value={targetId}
       options={targetOptions}
-      label={targetType === 'workspace'
-        ? t('pickerLabels.workspace')
-        : targetType === 'project'
-          ? t('pickerLabels.project')
-          : t('pickerLabels.user')}
-      placeholder={targetType === 'workspace'
-        ? t('select.workspace')
-        : targetType === 'project'
-          ? t('select.project')
-          : t('select.user')}
-      searchPlaceholder={targetType === 'workspace'
-        ? t('search.workspace')
-        : targetType === 'project'
-          ? t('search.project')
-          : t('search.user')}
-      emptyLabel={targetType === 'workspace'
-        ? t('empty.workspace')
-        : targetType === 'project'
-          ? t('empty.project')
-          : t('empty.user')}
+      label={t(`pickerLabels.${targetType}`)}
+      placeholder={t(`select.${targetType}`)}
+      searchPlaceholder={t(`search.${targetType}`)}
+      emptyLabel={t(`empty.${targetType}`)}
       disabled={loading}
       testId={`grant-target-${targetType}-picker`}
       onValueChange={setTargetId}

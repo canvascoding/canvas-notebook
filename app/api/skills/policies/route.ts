@@ -14,6 +14,7 @@ import type {
   CapabilityResourceType,
 } from '@/app/lib/capabilities/types';
 import { OrganizationPermissionError, readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
+import { listOrganizationPolicyTargets } from '@/app/lib/organization/policy-targets';
 
 async function requestContext() {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -46,7 +47,8 @@ export async function GET() {
       organizationId: context.state.organizationId!,
       permission: context.state.permission!,
     });
-    return NextResponse.json({ success: true, policies });
+    const targets = await listOrganizationPolicyTargets(context.state.organizationId!);
+    return NextResponse.json({ success: true, policies, targets });
   } catch (error) {
     return errorResponse(error);
   }

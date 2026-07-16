@@ -29,6 +29,10 @@ import {
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
+import {
+  SearchablePolicyTargetPicker,
+  type PolicyTargetOption,
+} from '@/app/components/organization/SearchablePolicyTargetPicker';
 import { SkillDetailDialog } from '@/app/components/skills/SkillDetailDialog';
 import { SkillUploadDialog } from '@/app/components/skills/SkillUploadDialog';
 import {
@@ -69,6 +73,7 @@ import {
   AlertDialogTrigger,
 } from '@/components/ui/alert-dialog';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
+import type { OrganizationPolicyTargetCatalog } from '@/app/lib/organization/policy-targets';
 
 interface SkillFileNode {
   name: string;
@@ -111,6 +116,12 @@ type EffectiveCapabilitySummary = {
     version: string;
   };
   readiness: string;
+};
+
+const EMPTY_POLICY_TARGETS: OrganizationPolicyTargetCatalog = {
+  users: [],
+  workspaces: [],
+  projects: [],
 };
 
 const PANEL_TAB_STORAGE_KEY = 'canvas.skills.panelTab';
@@ -2238,8 +2249,10 @@ function CanvasPluginsSection({
 
 function OrganizationCapabilityPolicyPanel() {
   const t = useTranslations('skills.scope.policy');
+  const workspaceTypesT = useTranslations('workspaces.types');
   const [capabilities, setCapabilities] = useState<EffectiveCapabilitySummary[]>([]);
   const [policies, setPolicies] = useState<CapabilityPolicyRecord[]>([]);
+  const [targets, setTargets] = useState<OrganizationPolicyTargetCatalog>(EMPTY_POLICY_TARGETS);
   const [organizationId, setOrganizationId] = useState('');
   const [resourceId, setResourceId] = useState('');
   const [targetType, setTargetType] = useState<CapabilityPolicyTargetType>('organization');
@@ -2266,6 +2279,7 @@ function OrganizationCapabilityPolicyPanel() {
         .filter((entry: EffectiveCapabilitySummary) => entry.ref?.scopeType === 'organization');
       setCapabilities(organizationCapabilities);
       setPolicies(Array.isArray(policiesPayload.policies) ? policiesPayload.policies : []);
+      setTargets(policiesPayload.targets || EMPTY_POLICY_TARGETS);
       const nextOrganizationId = effectivePayload.snapshot?.organizationId || '';
       setOrganizationId(nextOrganizationId);
       setTargetId((current) => current || nextOrganizationId);
@@ -2276,6 +2290,93 @@ function OrganizationCapabilityPolicyPanel() {
       setPending(false);
     }
   }, [t]);
+
+  const roleLabel = useCallback((role: string) => {
+    if (role === 'owner') return t('roles.owner');
+    if (role === 'admin') return t('roles.admin');
+    if (role === 'external') return t('roles.external');
+    return t('roles.member');
+  }, [t]);
+
+  const workspaceTypeLabel = useCallback((type: string) => {
+    if (type === 'organization') return workspaceTypesT('organization');
+    if (type === 'team') return workspaceTypesT('team');
+    if (type === 'project') return workspaceTypesT('project');
+    return workspaceTypesT('personal');
+  }, [workspaceTypesT]);
+
+  const targetOptions = useMemo<PolicyTargetOption[]>(() => {
+    if (targetType === 'role') {
+      return ['member', 'admin', 'owner', 'external'].map((role) => ({
+        id: role,
+        label: roleLabel(role),
+        description: null,
+      }));
+    }
+    if (targetType === 'user') {
+      return targets.users.map((user) => {
+        const name = user.name?.trim();
+        const email = user.email?.trim();
+        const label = name || email || user.userId;
+        const description = [
+          email && email !== label ? email : null,
+          roleLabel(user.role),
+        ].filter((value): value is string => Boolean(value)).join(' · ');
+        return {
+          id: user.userId,
+          label,
+          description: description || null,
+        };
+      });
+    }
+    if (targetType === 'workspace') {
+      return targets.workspaces.map((workspace) => ({
+        id: workspace.workspaceId,
+        label: workspace.name,
+        description: workspaceTypeLabel(workspace.type),
+      }));
+    }
+    if (targetType === 'project') {
+      return targets.projects.map((project) => ({
+        id: project.projectId,
+        label: project.name,
+        description: t('projectDescription'),
+      }));
+    }
+    return [];
+  }, [roleLabel, t, targetType, targets.projects, targets.users, targets.workspaces, workspaceTypeLabel]);
+
+  const optionByPolicyTarget = useMemo(() => {
+    const entries: Array<[string, PolicyTargetOption]> = [];
+    for (const role of ['member', 'admin', 'owner', 'external']) {
+      entries.push([`role:${role}`, { id: role, label: roleLabel(role), description: null }]);
+    }
+    for (const user of targets.users) {
+      const name = user.name?.trim();
+      const email = user.email?.trim();
+      const label = name || email || user.userId;
+      entries.push([`user:${user.userId}`, {
+        id: user.userId,
+        label,
+        description: email && email !== label ? email : roleLabel(user.role),
+      }]);
+    }
+    for (const workspace of targets.workspaces) {
+      entries.push([`workspace:${workspace.workspaceId}`, {
+        id: workspace.workspaceId,
+        label: workspace.name,
+        description: workspaceTypeLabel(workspace.type),
+      }]);
+    }
+    for (const project of targets.projects) {
+      entries.push([`project:${project.projectId}`, {
+        id: project.projectId,
+        label: project.name,
+        description: t('projectDescription'),
+      }]);
+    }
+    return new Map(entries);
+  }, [roleLabel, t, targets.projects, targets.users, targets.workspaces, workspaceTypeLabel]);
 
   useEffect(() => {
     startTransition(() => {
@@ -2384,12 +2485,30 @@ function OrganizationCapabilityPolicyPanel() {
           </label>
           <label className="space-y-1 text-xs text-muted-foreground">
             <span>{t('targetId')}</span>
-            <Input
-              value={targetId}
-              onChange={(event) => setTargetId(event.target.value)}
-              disabled={pending || targetType === 'organization'}
-              placeholder={t('targetPlaceholder')}
-            />
+            {targetType === 'organization' ? (
+              <>
+                <Input
+                  value={organizationId}
+                  disabled
+                  title={t('organizationHint')}
+                  className="font-mono text-xs"
+                />
+                <span className="block text-[11px] text-muted-foreground">{t('organizationHint')}</span>
+              </>
+            ) : (
+              <SearchablePolicyTargetPicker
+                id="capability-policy-target"
+                value={targetId}
+                options={targetOptions}
+                label={t(`pickerLabels.${targetType}`)}
+                placeholder={t(`select.${targetType}`)}
+                searchPlaceholder={t(`search.${targetType}`)}
+                emptyLabel={t(`emptyTargets.${targetType}`)}
+                disabled={pending}
+                testId={`capability-policy-target-${targetType}-picker`}
+                onValueChange={setTargetId}
+              />
+            )}
           </label>
           <label className="space-y-1 text-xs text-muted-foreground">
             <span>{t('effect')}</span>
@@ -2416,11 +2535,22 @@ function OrganizationCapabilityPolicyPanel() {
             <p className="text-xs text-muted-foreground">{t('empty')}</p>
           ) : policies.map((policy) => {
             const capability = capabilities.find((entry) => entry.ref.resourceId === policy.resourceId);
+            const option = optionByPolicyTarget.get(`${policy.targetType}:${policy.targetId}`);
+            const targetLabel = policy.targetType === 'organization'
+              ? t('organizationValue')
+              : option?.label || policy.targetId;
             return (
               <div key={policy.id} className="flex flex-col gap-2 rounded-md border px-3 py-2 sm:flex-row sm:items-center">
                 <div className="min-w-0 flex-1 text-xs">
                   <span className="font-medium">{capability?.ref.name || policy.resourceId}</span>
-                  <span className="text-muted-foreground"> · {t(`targets.${policy.targetType}`)}: {policy.targetId}</span>
+                  <span className="text-muted-foreground"> · {t(`targets.${policy.targetType}`)}: </span>
+                  <span className="font-medium">{targetLabel}</span>
+                  {option?.description ? (
+                    <span className="mt-1 block truncate text-muted-foreground">{option.description}</span>
+                  ) : null}
+                  {targetLabel !== policy.targetId ? (
+                    <span className="mt-1 block truncate font-mono text-[10px] text-muted-foreground/80">{policy.targetId}</span>
+                  ) : null}
                 </div>
                 <Badge variant={policy.effect === 'blocked' ? 'destructive' : policy.effect === 'required' ? 'default' : 'secondary'}>
                   {t(`effects.${policy.effect}`)}

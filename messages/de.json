@@ -3526,6 +3526,7 @@
         },
         "pickerLabels": {
           "user": "Zielnutzer auswählen",
+          "role": "Zielrolle auswählen",
           "workspace": "Ziel-Workspace auswählen",
           "project": "Zielprojekt auswählen"
         },
@@ -3537,11 +3538,13 @@
         },
         "search": {
           "user": "Nutzer durchsuchen...",
+          "role": "Rollen durchsuchen...",
           "workspace": "Workspaces durchsuchen...",
           "project": "Projekte durchsuchen..."
         },
         "empty": {
           "user": "Keine passenden Nutzer gefunden.",
+          "role": "Keine passende Rolle gefunden.",
           "workspace": "Keine passenden Workspaces gefunden.",
           "project": "Keine passenden Projekte gefunden."
         },
@@ -4410,12 +4413,45 @@
         "description": "Ordne Organization-Pakete der gesamten Organisation, einer Rolle, einem Workspace, Projekt oder User zu. Blockiert gewinnt immer; erforderliche Ressourcen koennen nicht persoenlich deaktiviert werden.",
         "resource": "Paket",
         "targetType": "Ziel",
-        "targetId": "Ziel-ID",
-        "targetPlaceholder": "Rollen-, Workspace-, Projekt- oder User-ID",
+        "targetId": "Ziel",
+        "targetPlaceholder": "Rolle, Workspace, Projekt oder User auswählen",
         "effect": "Policy",
         "save": "Anwenden",
         "remove": "Entfernen",
         "empty": "Noch keine Verteilungs-Policies konfiguriert.",
+        "organizationHint": "Die Organisations-ID wird automatisch eingetragen.",
+        "organizationValue": "Gesamte Organisation",
+        "projectDescription": "Projekt",
+        "pickerLabels": {
+          "role": "Zielrolle auswählen",
+          "workspace": "Ziel-Workspace auswählen",
+          "project": "Zielprojekt auswählen",
+          "user": "Zielnutzer auswählen"
+        },
+        "select": {
+          "role": "Rolle auswählen",
+          "workspace": "Workspace auswählen",
+          "project": "Projekt auswählen",
+          "user": "Nutzer auswählen"
+        },
+        "search": {
+          "role": "Rollen durchsuchen...",
+          "workspace": "Workspaces durchsuchen...",
+          "project": "Projekte durchsuchen...",
+          "user": "Nutzer durchsuchen..."
+        },
+        "emptyTargets": {
+          "role": "Keine passende Rolle gefunden.",
+          "workspace": "Keine passenden Workspaces gefunden.",
+          "project": "Keine passenden Projekte gefunden.",
+          "user": "Keine passenden Nutzer gefunden."
+        },
+        "roles": {
+          "member": "Mitglied",
+          "admin": "Administrator",
+          "owner": "Owner",
+          "external": "Extern"
+        },
         "targets": {
           "organization": "Organisation",
           "role": "Rolle",
