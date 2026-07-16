@@ -194,13 +194,6 @@ function repositoryUrl(repository: InstalledPackageJson['repository']): string |
     .replace(/\.git$/u, '');
 }
 
-function authorLabel(author: InstalledPackageJson['author']): string | null {
-  if (!author) return null;
-  if (typeof author === 'string') return author.trim() || null;
-  const pieces = [author.name, author.email ? `<${author.email}>` : null].filter(Boolean);
-  return pieces.join(' ').trim() || null;
-}
-
 function findPackageNoticeFiles(packageDirectory: string): {
   licensePath: string | null;
   noticePaths: string[];
@@ -384,10 +377,6 @@ function createNpmComponent(
     || installedPackage.homepage
     || lockPackage.resolved
     || `https://www.npmjs.com/package/${encodeURIComponent(name)}/v/${encodeURIComponent(version)}`;
-  const author = authorLabel(installedPackage.author);
-  if (!copyrightNotices.length && author) {
-    reviewReasons.push(`Package author metadata: ${author}`);
-  }
 
   return {
     component: {

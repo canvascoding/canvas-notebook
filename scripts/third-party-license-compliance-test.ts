@@ -300,6 +300,12 @@ assert.equal(
   inventory.releaseGate.blockers.filter((blocker) => blocker.name.startsWith('@img/sharp')).length,
   28,
 );
+assert(
+  inventory.components.every((component) => (
+    !component.reviewNotes?.includes('Package author metadata:')
+  )),
+  'generated compliance artifacts must not depend on platform-specific optional package installation',
+);
 
 for (const name of [
   'docker-python:flatbuffers',
