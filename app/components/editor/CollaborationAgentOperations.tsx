@@ -5,44 +5,13 @@ import { Bot, Check, Loader2, RotateCcw, X } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 
+import {
+  loadCollaborationAgentOperations,
+  type CollaborationAgentOperation as AgentOperation,
+  type CollaborationAgentOperationStatus as OperationStatus,
+} from '@/app/lib/collaboration/agent-operations-client';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import { Button } from '@/components/ui/button';
-
-type OperationStatus =
-  | 'preparing'
-  | 'ready'
-  | 'applying'
-  | 'applied_to_ydoc'
-  | 'persisted_yjs'
-  | 'checkpointed_file'
-  | 'partially_applied'
-  | 'needs_review'
-  | 'semantic_conflict'
-  | 'cancel_requested'
-  | 'cancelled'
-  | 'expired'
-  | 'superseded'
-  | 'failed'
-  | 'rejected'
-  | 'reverted';
-
-type AgentOperation = {
-  operationId: string;
-  operationStatus: OperationStatus;
-  status: 'applied_to_ydoc' | 'partially_applied' | 'needs_review' | 'semantic_conflict';
-  durability: 'pending' | 'applied_to_ydoc' | 'persisted_yjs' | 'checkpointed_file' | 'needs_review';
-  actorId: string;
-  initiatedByDisplayName?: string;
-  initiatedByCurrentUser?: boolean;
-  appliedTargetIds: string[];
-  conflicts: Array<{ targetId: string; groupId: string; code: string }>;
-  reviewTargets?: Array<{
-    targetId: string;
-    groupId: string;
-    proposedReplacement: string;
-    currentText: string | null;
-  }>;
-};
 
 const REVIEW_STATUSES = new Set<OperationStatus>(['needs_review', 'partially_applied', 'semantic_conflict']);
 const CANCELLABLE_STATUSES = new Set<OperationStatus>(['preparing', 'ready', 'applying', 'cancel_requested']);
@@ -55,18 +24,12 @@ export function CollaborationAgentOperations({ documentId }: { documentId: strin
   const actionKeys = useRef(new Map<string, string>());
 
   const load = useCallback(async (signal?: AbortSignal) => {
-    try {
-      const response = await fetch(
-        `/api/files/collaboration/operations?documentId=${encodeURIComponent(documentId)}`,
-        { headers: workspaceHeaders(), cache: 'no-store', signal },
-      );
-      if (!response.ok || signal?.aborted) return;
-      const payload = await response.json() as { operations?: AgentOperation[] };
-      if (!signal?.aborted) setOperations((payload.operations || []).slice(0, 5));
-    } catch (error) {
-      if (signal?.aborted || (error instanceof DOMException && error.name === 'AbortError')) return;
-      throw error;
-    }
+    const nextOperations = await loadCollaborationAgentOperations({
+      documentId,
+      headers: workspaceHeaders(),
+      signal,
+    });
+    if (nextOperations !== null) setOperations(nextOperations);
   }, [documentId]);
 
   useEffect(() => {
