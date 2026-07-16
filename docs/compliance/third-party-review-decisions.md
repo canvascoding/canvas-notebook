@@ -165,3 +165,40 @@ Technische Entscheidung:
   korrigierten Upstream-Release mit Lizenz-/Copyright-Hinweis, Entfernung oder
   Ersatz der Abhaengigkeit oder eine dokumentierte menschlich-rechtliche
   Einzelfallentscheidung aufgeloest werden.
+
+## 5. `@better-auth/utils@0.4.2`
+
+Status: technisch geprueft, weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `@better-auth/utils@0.4.2` |
+| npm-Tarball | `https://registry.npmjs.org/@better-auth/utils/-/utils-0.4.2.tgz` |
+| npm-Integrity | `sha512-AUxrvu+HaaODsUyzDxFgwd/8RZ1yZaYo42LXKSrU2oGgR38pS1ij8nqQKNgtTWoYGpNevNXtCfgTy6loHveW9A==` |
+| npm-Provenance | signierte SLSA-Provenance fuer `refs/tags/v0.4.2` |
+| Upstream-Tag | `v0.4.2`; dereferenziert auf Commit `b20329a32d78f1f9bcc088bbd6f982b28c4192f1` |
+| deklarierte Lizenz | `MIT` |
+| verifizierter Lizenzbeleg | `license: MIT` in `package.json` des npm-Releases und exakten Commits |
+| fehlender Beleg | Lizenzdatei und belastbarer Copyright-Hinweis |
+| npm-Autor | `Bereket Engida` |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive und direkte Runtime-Abhaengigkeit innerhalb von `better-auth@1.6.23` |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Die signierte npm-Provenance bindet den veroeffentlichten Tarball an den
+GitHub-Workflow, Tag und Commit. Tarball und exakter Source-Commit enthalten
+jedoch nur `README.md`, `package.json`, Quell- beziehungsweise Build-Dateien;
+eine `LICENSE`-, `NOTICE`- oder Copyright-Datei und entsprechende Source-Header
+fehlen.
+
+Technische Entscheidung:
+
+- npm-Integritaet, signierte Provenance, Tag, Commit und MIT-Deklaration sind
+  reproduzierbar dokumentiert.
+- Canvas nimmt den kanonischen MIT-Text in die Notices auf.
+- Der npm-Autor und die Commit-Autoren werden nicht automatisch als
+  Copyright-Inhaber eingetragen, weil Autorenschaft und Rechteinhaberschaft
+  nicht zwingend identisch sind.
+- Der Release-Blocker bleibt bis zu einem korrigierten Upstream-Release,
+  Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
+  Einzelfallentscheidung bestehen.

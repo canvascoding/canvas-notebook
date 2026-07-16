@@ -181,6 +181,13 @@
       "verificationSource": "https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json",
       "reason": "The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. The package remains review_required until upstream supplies the missing notice or a responsible reviewer documents a legally supportable attribution."
     },
+    "@better-auth/utils@0.4.2": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "sourceUrl": "https://github.com/better-auth/utils/tree/b20329a32d78f1f9bcc088bbd6f982b28c4192f1",
+      "verificationSource": "https://github.com/better-auth/utils/blob/v0.4.2/package.json",
+      "reason": "The exact npm release declares MIT. Its signed npm provenance maps tag v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, which matches the dereferenced upstream tag. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. Package author metadata names Bereket Engida, but authorship alone is not treated as proof of copyright ownership. The package remains review_required."
+    },
     "@excalidraw/excalidraw@0.18.1": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "docs/compliance/license-texts/MIT.txt",

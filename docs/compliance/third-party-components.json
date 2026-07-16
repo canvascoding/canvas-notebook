@@ -37,7 +37,7 @@
       {
         "name": "@better-auth/utils",
         "versionOrCommit": "0.4.2",
-        "reason": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Bereket Engida"
+        "reason": "The exact npm release declares MIT. Its signed npm provenance maps tag v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, which matches the dereferenced upstream tag. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. Package author metadata names Bereket Engida, but authorship alone is not treated as proof of copyright ownership. The package remains review_required. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json The MIT copyright notice could not be attributed automatically. Package author metadata: Bereket Engida"
       },
       {
         "name": "@eigenpal/docx-js-editor",
@@ -11761,7 +11761,7 @@
     {
       "name": "@better-auth/utils",
       "versionOrCommit": "0.4.2",
-      "sourceUrl": "https://github.com/better-auth/utils",
+      "sourceUrl": "https://github.com/better-auth/utils/tree/b20329a32d78f1f9bcc088bbd6f982b28c4192f1",
       "packagePathOrArtifact": "node_modules/@better-auth/utils",
       "usage": "runtime",
       "distributedIn": [
@@ -11772,12 +11772,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Bereket Engida"
+      "reviewNotes": "The exact npm release declares MIT. Its signed npm provenance maps tag v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, which matches the dereferenced upstream tag. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. Package author metadata names Bereket Engida, but authorship alone is not treated as proof of copyright ownership. The package remains review_required. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json The MIT copyright notice could not be attributed automatically. Package author metadata: Bereket Engida"
     },
     {
       "name": "@better-fetch/fetch",

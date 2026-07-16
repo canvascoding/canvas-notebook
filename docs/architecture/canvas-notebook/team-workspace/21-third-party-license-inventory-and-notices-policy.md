@@ -93,6 +93,13 @@ nimmt den kanonischen MIT-Text auf, erfindet aber keinen Rechteinhaber. Die
 zulassigen Aufloesungswege sind in
 `docs/compliance/third-party-review-decisions.md` dokumentiert.
 
+`@better-auth/utils@0.4.2` ist ebenfalls technisch geprueft und bleibt
+blockierend. Eine signierte npm-Provenance bindet den Tarball an
+`v0.4.2` und den exakten Commit; beide deklarieren MIT, enthalten aber weder
+Lizenzdatei noch belastbaren Copyright-Hinweis. Der kanonische MIT-Text wird
+ausgeliefert, waehrend Autor- und Commit-Metadaten nicht als
+Rechteinhabernachweis umgedeutet werden.
+
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
 pauschale KI-Freigabe als erledigt markiert.
