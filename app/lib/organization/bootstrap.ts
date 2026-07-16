@@ -41,7 +41,6 @@ import {
 import { migrateLegacyWorkspaceToPersonalWorkspace } from '@/app/lib/workspaces/legacy-migration';
 import {
   ensureDefaultWorkspaceRecords,
-  organizationWorkspaceRootRelativePath,
 } from '@/app/lib/workspaces/service';
 import { resolveWorkspaceDataRoot } from '@/app/lib/workspaces/context';
 
@@ -213,7 +212,11 @@ function getDataRoot(): string {
   return resolveWorkspaceDataRoot();
 }
 
-function buildScopedPaths(organizationId: string, userId: string, teamFeaturesEnabled: boolean) {
+function buildScopedPaths(
+  organizationId: string,
+  userId: string,
+  organizationWorkspaceRootRelativePath: string | null = null,
+) {
   const dataRoot = getDataRoot();
   return {
     personalWorkspace: path.join(dataRoot, 'workspaces', 'personal', userId, 'files'),
@@ -231,8 +234,8 @@ function buildScopedPaths(organizationId: string, userId: string, teamFeaturesEn
     organizationMcpTemplates: resolveOrganizationMcpTemplatesDir(organizationId),
     organizationSkillTemplates: resolveOrganizationSkillTemplatesDir(organizationId),
     organizationPluginTemplates: resolveOrganizationPluginTemplatesDir(organizationId),
-    teamWorkspace: teamFeaturesEnabled
-      ? path.join(dataRoot, organizationWorkspaceRootRelativePath(organizationId))
+    teamWorkspace: organizationWorkspaceRootRelativePath
+      ? path.join(dataRoot, organizationWorkspaceRootRelativePath)
       : null,
     systemBackups: resolveSystemBackupsDir(),
     systemMigration: resolveSystemMigrationDir(),
@@ -240,8 +243,8 @@ function buildScopedPaths(organizationId: string, userId: string, teamFeaturesEn
   };
 }
 
-function ensureScopedDirectories(organizationId: string, userId: string, teamFeaturesEnabled: boolean): void {
-  const paths = buildScopedPaths(organizationId, userId, teamFeaturesEnabled);
+function ensureScopedDirectories(organizationId: string, userId: string): void {
+  const paths = buildScopedPaths(organizationId, userId);
   for (const directory of Object.values(paths)) {
     if (directory) {
       mkdirSync(directory, { recursive: true });
@@ -466,11 +469,10 @@ export function ensureOrganizationBootstrapForUser(
     );
   }
 
-  ensureScopedDirectories(organization.organization_id, ownerUser.id, teamFeaturesEnabled);
+  ensureScopedDirectories(organization.organization_id, ownerUser.id);
   const ownerWorkspaceRecords = ensureDefaultWorkspaceRecords(sqlite, {
     organizationId: organization.organization_id,
     userId: ownerUser.id,
-    teamFeaturesEnabled,
   });
   try {
     migrateLegacyWorkspaceToPersonalWorkspace({
@@ -487,11 +489,10 @@ export function ensureOrganizationBootstrapForUser(
     console.warn('[organization-bootstrap] Legacy secret migration failed:', error);
   }
   if (targetUser.id !== ownerUser.id) {
-    ensureScopedDirectories(organization.organization_id, targetUser.id, teamFeaturesEnabled);
+    ensureScopedDirectories(organization.organization_id, targetUser.id);
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId: organization.organization_id,
       userId: targetUser.id,
-      teamFeaturesEnabled,
     });
   }
 
@@ -530,8 +531,21 @@ function buildStatus(
   const databaseProviderGate = resolveDatabaseProviderGate({ teamFeaturesEnabled });
   const organizationId = organization?.organization_id || null;
   const ownerUserId = organization?.owner_user_id || ownerUser?.id || null;
+  const organizationWorkspace = organizationId
+    ? sqlite.prepare(`
+        SELECT root_relative_path
+        FROM canvas_workspaces
+        WHERE organization_id = ? AND type = 'organization' AND status = 'active'
+        ORDER BY created_at ASC
+        LIMIT 1
+      `).get(organizationId) as { root_relative_path: string } | undefined
+    : null;
   const paths = organizationId && ownerUserId
-    ? buildScopedPaths(organizationId, ownerUserId, teamFeaturesEnabled)
+    ? buildScopedPaths(
+        organizationId,
+        ownerUserId,
+        organizationWorkspace?.root_relative_path ?? null,
+      )
     : null;
   const warnings: string[] = [];
 

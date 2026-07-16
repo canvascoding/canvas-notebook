@@ -7,7 +7,11 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
 import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/bootstrap';
-import { ensureDefaultWorkspaceRecords } from '../app/lib/workspaces/service';
+import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
+import {
+  createWorkspaceRecord,
+  ensureDefaultWorkspaceRecords,
+} from '../app/lib/workspaces/service';
 
 type WorkspaceRow = {
   id: string;
@@ -141,8 +145,19 @@ async function main() {
 
     insertPermission(sqlite, organizationId, 'user-admin', 'admin', true);
     insertPermission(sqlite, organizationId, 'user-member', 'member', false);
-    ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-admin', teamFeaturesEnabled: true });
-    ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-member', teamFeaturesEnabled: true });
+    ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-admin' });
+    ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-member' });
+    createWorkspaceRecord(sqlite, {
+      actor: resolveWorkspaceActor({
+        id: 'user-owner',
+        email: 'owner@example.test',
+        role: 'admin',
+      }),
+      organizationId,
+      type: 'organization',
+      name: 'Offboarding Organization',
+      teamFeaturesEnabled: true,
+    });
 
     const setupNow = Date.now() + 60_000;
     sqlite.prepare(`

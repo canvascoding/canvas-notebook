@@ -2,6 +2,20 @@
 
 Datum: 2026-07-08 (v6, finaler PR-Stand)
 
+## Produktentscheidung: optionaler Organisations-Workspace (2026-07-16)
+
+Das aktuelle Produktmodell weicht in diesem Punkt von den älteren Abschnitten dieses historischen Umsetzungsplans ab:
+
+- Jeder User behält genau einen nicht löschbaren persönlichen Standard-Workspace.
+- Ein Organisations-Workspace ist optional und wird weder beim Organisations- noch beim User-Bootstrap automatisch angelegt.
+- Administratoren können den Organisations-Workspace anlegen, umbenennen, bearbeiten und löschen.
+- Pro Organisation wird höchstens ein aktiver Organisations-Workspace unterstützt.
+- Alle aktiven internen Organisationsmitglieder erhalten automatisch Zugriff; eine separate Workspace-Member-Verwaltung gibt es dafür nicht.
+- Team-Workspaces behalten ihre explizite Member- und Zugriffsverwaltung.
+- Projekt-Workspaces bleiben Zukunftsfunktionalität und werden durch diese Änderung nicht freigeschaltet.
+
+Wo spätere Abschnitte einen automatisch angelegten, als Standard markierten oder nicht löschbaren Organisations-Workspace beschreiben, hat diese Produktentscheidung Vorrang.
+
 ## Aktueller Stand
 
 Diese Version dokumentiert den Stand des Review-/Feature-Branches nach der Branch-Bereinigung und den weiter abgearbeiteten Workspace-TODOs:

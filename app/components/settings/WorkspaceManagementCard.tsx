@@ -50,7 +50,6 @@ function getAccessKey(workspace: ClientWorkspaceSummary): 'manage' | 'write' | '
 
 function getDeleteBlockKey(workspace: ClientWorkspaceSummary): string | null {
   if (workspace.isDefault) return 'errors.isDefault';
-  if (workspace.type === 'organization') return 'errors.organizationNotDeletable';
   if (workspace.status !== 'active') return 'errors.notActive';
   if (workspace.type === 'personal') {
     return workspace.permissions.canWrite ? null : 'errors.noDeletePermission';
@@ -85,6 +84,9 @@ export function WorkspaceManagementCard({
   const projectFeaturesEnabled = useWorkspaceStore((state) => state.projectFeaturesEnabled);
 
   const effectiveTeamFeaturesEnabled = teamFeaturesEnabled || storeTeamFeaturesEnabled;
+  const hasOrganizationWorkspace = workspaces.some(
+    (workspace) => workspace.type === 'organization' && workspace.status === 'active',
+  );
   const kindLabels = {
     personal: workspaceTypesT('personal'),
     organization: workspaceTypesT('organization'),
@@ -146,9 +148,7 @@ export function WorkspaceManagementCard({
       if (!response.ok || !payload.success) {
         const key = payload.code === 'WORKSPACE_IS_DEFAULT'
           ? 'errors.isDefault'
-          : payload.code === 'WORKSPACE_ORGANIZATION_NOT_DELETABLE'
-            ? 'errors.organizationNotDeletable'
-            : payload.code === 'WORKSPACE_HAS_AUTOMATIONS'
+          : payload.code === 'WORKSPACE_HAS_AUTOMATIONS'
               ? 'errors.hasAutomations'
               : null;
         throw new Error(key ? t(key) : payload.error || t('errors.deleteFailed'));
@@ -320,7 +320,8 @@ export function WorkspaceManagementCard({
       <CreateWorkspaceDialog
         open={isCreateDialogOpen}
         onOpenChange={handleCreateOpenChange}
-        canCreateTeamWorkspace={isAdmin}
+        canCreateSharedWorkspace={isAdmin}
+        hasOrganizationWorkspace={hasOrganizationWorkspace}
         teamFeaturesEnabled={effectiveTeamFeaturesEnabled}
         projectFeaturesEnabled={projectFeaturesEnabled}
         onCreated={handleCreated}

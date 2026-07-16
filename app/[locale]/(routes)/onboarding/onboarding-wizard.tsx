@@ -992,9 +992,9 @@ function WorkspaceReadinessStep({
       {!loading && !error && (
         <div className="grid gap-3 sm:grid-cols-2">
           <WorkspaceStatusCard icon={FolderKanban} title={t('personalWorkspaceCardTitle')} description={t('personalWorkspaceCardDescription')} name={personal?.name} />
-          {isTeamMode && (
+          {shared ? (
             <WorkspaceStatusCard icon={Users} title={t('teamWorkspaceCardTitle')} description={t(instanceCopy ? 'teamWorkspaceInstanceDescription' : 'teamWorkspaceUserDescription')} name={shared?.name} />
-          )}
+          ) : null}
         </div>
       )}
 

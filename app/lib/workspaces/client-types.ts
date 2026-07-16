@@ -35,6 +35,7 @@ export interface ClientWorkspaceResponse {
   organizationId?: string | null;
   teamFeaturesEnabled?: boolean;
   projectFeaturesEnabled?: boolean;
+  canCreateSharedWorkspaces?: boolean;
   databaseProvider?: string | null;
   activeWorkspaceId?: string | null;
   defaultWorkspace?: ClientWorkspaceSummary | null;

@@ -68,7 +68,6 @@ async function main() {
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'member-user',
-      teamFeaturesEnabled: true,
     });
     sqlite.prepare(`
       INSERT INTO organization_user_permissions (

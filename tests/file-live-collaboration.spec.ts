@@ -50,12 +50,30 @@ async function organizationWorkspace(request: APIRequestContext): Promise<string
 }
 
 async function organizationWorkspaceDetails(request: APIRequestContext): Promise<WorkspaceSummary> {
-  const response = await request.get('/api/workspaces');
-  const payload = await response.json() as WorkspacePayload;
+  let response = await request.get('/api/workspaces');
+  let payload = await response.json() as WorkspacePayload;
   expect(response.ok(), payload.error || 'Could not list team workspaces').toBeTruthy();
-  const workspace = payload.workspaces?.find((candidate) => (
+  let workspace = payload.workspaces?.find((candidate) => (
     candidate.type === 'organization' && candidate.permissions.canWrite
   ));
+  if (!workspace) {
+    const createResponse = await request.post('/api/workspaces', {
+      data: {
+        type: 'organization',
+        name: 'Collaboration Organization',
+      },
+    });
+    expect(
+      createResponse.ok() || createResponse.status() === 409,
+      await createResponse.text(),
+    ).toBeTruthy();
+    response = await request.get('/api/workspaces');
+    payload = await response.json() as WorkspacePayload;
+    expect(response.ok(), payload.error || 'Could not reload team workspaces').toBeTruthy();
+    workspace = payload.workspaces?.find((candidate) => (
+      candidate.type === 'organization' && candidate.permissions.canWrite
+    ));
+  }
   expect(workspace, 'A writable organization workspace is required').toBeTruthy();
   return workspace!;
 }

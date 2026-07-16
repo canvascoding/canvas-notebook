@@ -22,7 +22,7 @@ import type { ClientWorkspaceSummary, ClientWorkspaceType } from '@/app/lib/work
 import { WORKSPACE_DESCRIPTION_MAX_LENGTH } from '@/app/lib/workspaces/description';
 import { getDefaultWorkspaceIcon, type WorkspaceIcon } from '@/app/lib/workspaces/icons';
 
-type CreateWorkspaceType = Extract<ClientWorkspaceType, 'personal' | 'team' | 'project'>;
+type CreateWorkspaceType = Extract<ClientWorkspaceType, 'personal' | 'organization' | 'team' | 'project'>;
 
 type ProjectOption = {
   id: string;
@@ -33,7 +33,8 @@ type ProjectOption = {
 interface CreateWorkspaceDialogProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  canCreateTeamWorkspace: boolean;
+  canCreateSharedWorkspace: boolean;
+  hasOrganizationWorkspace: boolean;
   teamFeaturesEnabled: boolean;
   projectFeaturesEnabled: boolean;
   onCreated: (workspace: ClientWorkspaceSummary) => void | Promise<void>;
@@ -42,7 +43,8 @@ interface CreateWorkspaceDialogProps {
 export function CreateWorkspaceDialog({
   open,
   onOpenChange,
-  canCreateTeamWorkspace,
+  canCreateSharedWorkspace,
+  hasOrganizationWorkspace,
   teamFeaturesEnabled,
   projectFeaturesEnabled,
   onCreated,
@@ -65,7 +67,7 @@ export function CreateWorkspaceDialog({
   const [createdWorkspace, setCreatedWorkspace] = useState<ClientWorkspaceSummary | null>(null);
 
   const loadProjects = useCallback(async () => {
-    if (!open || !projectFeaturesEnabled || !canCreateTeamWorkspace) return;
+    if (!open || !projectFeaturesEnabled || !canCreateSharedWorkspace) return;
     setProjectsLoading(true);
     try {
       const response = await fetch('/api/projects', {
@@ -83,7 +85,7 @@ export function CreateWorkspaceDialog({
     } finally {
       setProjectsLoading(false);
     }
-  }, [canCreateTeamWorkspace, open, projectFeaturesEnabled]);
+  }, [canCreateSharedWorkspace, open, projectFeaturesEnabled]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -101,14 +103,19 @@ export function CreateWorkspaceDialog({
     const options: Array<{ value: CreateWorkspaceType; label: string; disabled?: boolean }> = [
       { value: 'personal', label: workspaceTypesT('personal') },
     ];
-    if (canCreateTeamWorkspace) {
+    if (canCreateSharedWorkspace) {
+      options.push({
+        value: 'organization',
+        label: workspaceTypesT('organization'),
+        disabled: !teamFeaturesEnabled || hasOrganizationWorkspace,
+      });
       options.push({
         value: 'team',
         label: workspaceTypesT('team'),
         disabled: !teamFeaturesEnabled,
       });
     }
-    if (canCreateTeamWorkspace && projectFeaturesEnabled) {
+    if (canCreateSharedWorkspace && projectFeaturesEnabled) {
       options.push({
         value: 'project',
         label: workspaceTypesT('project'),
@@ -116,7 +123,15 @@ export function CreateWorkspaceDialog({
       });
     }
     return options;
-  }, [availableProjects.length, canCreateTeamWorkspace, projectFeaturesEnabled, projectsLoading, teamFeaturesEnabled, workspaceTypesT]);
+  }, [
+    availableProjects.length,
+    canCreateSharedWorkspace,
+    hasOrganizationWorkspace,
+    projectFeaturesEnabled,
+    projectsLoading,
+    teamFeaturesEnabled,
+    workspaceTypesT,
+  ]);
 
   const resetForm = () => {
     setName('');
@@ -175,7 +190,10 @@ export function CreateWorkspaceDialog({
       });
       const payload = await response.json();
       if (!response.ok || !payload.success || !payload.workspace) {
-        throw new Error(payload.error || t('errors.createFailed'));
+        const key = payload.code === 'WORKSPACE_ORGANIZATION_ALREADY_EXISTS'
+          ? 'errors.organizationAlreadyExists'
+          : null;
+        throw new Error(key ? t(key) : payload.error || t('errors.createFailed'));
       }
       const workspace = payload.workspace as ClientWorkspaceSummary;
       await onCreated(workspace);
@@ -281,7 +299,13 @@ export function CreateWorkspaceDialog({
                 ))}
               </select>
               <p className="text-xs text-muted-foreground">
-                {type === 'team' || type === 'project' ? t('hints.teamProjectAccess') : t('hints.personalOnly')}
+                {type === 'organization'
+                  ? hasOrganizationWorkspace
+                    ? t('hints.organizationAlreadyExists')
+                    : t('hints.organizationAccess')
+                  : type === 'team' || type === 'project'
+                    ? t('hints.teamProjectAccess')
+                    : t('hints.personalOnly')}
               </p>
             </div>
 
@@ -317,12 +341,17 @@ export function CreateWorkspaceDialog({
               </div>
             ) : null}
 
-            {canCreateTeamWorkspace && !teamFeaturesEnabled ? (
+            {canCreateSharedWorkspace && !teamFeaturesEnabled ? (
               <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 {t('teamFeatureNotEnabled')}
               </p>
             ) : null}
-            {canCreateTeamWorkspace && !projectFeaturesEnabled ? (
+            {canCreateSharedWorkspace && teamFeaturesEnabled && hasOrganizationWorkspace ? (
+              <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
+                {t('hints.organizationAlreadyExists')}
+              </p>
+            ) : null}
+            {canCreateSharedWorkspace && !projectFeaturesEnabled ? (
               <p className="rounded-md border border-border bg-muted/40 px-3 py-2 text-xs text-muted-foreground">
                 {t('projectFeatureNotEnabled')}
               </p>

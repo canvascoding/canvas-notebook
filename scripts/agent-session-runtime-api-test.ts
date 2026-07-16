@@ -68,7 +68,11 @@ async function main() {
     SessionRuntimeSnapshotConflictError,
     writePiSessionRuntimeSnapshot,
   } = await import('../app/lib/agent-runtime-policy/runtime-store');
-  const { ensureDefaultWorkspaceRecords } = await import('../app/lib/workspaces/service');
+  const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
+  const {
+    createWorkspaceRecord,
+    ensureDefaultWorkspaceRecords,
+  } = await import('../app/lib/workspaces/service');
   const { PI_RUNTIME_CONFIG_PATH } = await import('../app/lib/agents/storage');
 
   const owner = await createInitialOwner({
@@ -91,6 +95,16 @@ async function main() {
   ensureDefaultWorkspaceRecords(sqlite, {
     organizationId: organization.organizationId,
     userId: owner.id,
+  });
+  createWorkspaceRecord(sqlite, {
+    actor: resolveWorkspaceActor({
+      id: owner.id,
+      email: owner.email,
+      role: 'admin',
+    }),
+    organizationId: organization.organizationId,
+    type: 'organization',
+    name: 'Session Runtime Organization',
     teamFeaturesEnabled: true,
   });
   const workspaces = sqlite.prepare(`

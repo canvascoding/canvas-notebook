@@ -223,7 +223,11 @@ async function main() {
   } = await import('../app/lib/agent-runtime-policy/runtime-store');
   const { createAgentProfile } = await import('../app/lib/agents/registry');
   const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
-  const { ensureDefaultWorkspaceRecords } = await import('../app/lib/workspaces/service');
+  const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
+  const {
+    createWorkspaceRecord,
+    ensureDefaultWorkspaceRecords,
+  } = await import('../app/lib/workspaces/service');
   const { resolveAgentSessionWorkspaceForUser } = await import('../app/lib/pi/session-workspace-context');
   const { buildPiSystemPromptSnapshotFromText } = await import('../app/lib/pi/system-prompt-snapshot');
   const { savePiSession } = await import('../app/lib/pi/session-store');
@@ -274,6 +278,16 @@ async function main() {
   ensureDefaultWorkspaceRecords(sqlite, {
     organizationId: organization.organizationId,
     userId: owner.id,
+  });
+  createWorkspaceRecord(sqlite, {
+    actor: resolveWorkspaceActor({
+      id: owner.id,
+      email: owner.email,
+      role: 'admin',
+    }),
+    organizationId: organization.organizationId,
+    type: 'organization',
+    name: 'Agent Runtime Organization',
     teamFeaturesEnabled: true,
   });
   const workspaces = sqlite.prepare(`

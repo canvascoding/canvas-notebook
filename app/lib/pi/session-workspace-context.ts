@@ -120,7 +120,6 @@ function ensureWorkspaceRecordsForExistingOrganization(
   ensureDefaultWorkspaceRecords(sqlite, {
     organizationId: organization.organization_id,
     userId,
-    teamFeaturesEnabled: organization.team_features_enabled === 1,
   });
 }
 

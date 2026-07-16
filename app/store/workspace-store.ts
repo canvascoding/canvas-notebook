@@ -39,6 +39,7 @@ interface WorkspaceStoreState {
   organizationId: string | null;
   teamFeaturesEnabled: boolean;
   projectFeaturesEnabled: boolean;
+  canCreateSharedWorkspaces: boolean;
   databaseProvider: string | null;
   teamModeUnavailable: TeamModeUnavailableState | null;
   warnings: string[];
@@ -140,6 +141,7 @@ export function normalizeWorkspaceResponse(payload: ClientWorkspaceResponse): {
   organizationId: string | null;
   teamFeaturesEnabled: boolean;
   projectFeaturesEnabled: boolean;
+  canCreateSharedWorkspaces: boolean;
   databaseProvider: string | null;
   warnings: string[];
 } {
@@ -161,6 +163,7 @@ export function normalizeWorkspaceResponse(payload: ClientWorkspaceResponse): {
     organizationId: typeof payload.organizationId === 'string' ? payload.organizationId : null,
     teamFeaturesEnabled: Boolean(payload.teamFeaturesEnabled),
     projectFeaturesEnabled: Boolean(payload.projectFeaturesEnabled),
+    canCreateSharedWorkspaces: Boolean(payload.canCreateSharedWorkspaces),
     databaseProvider: typeof payload.databaseProvider === 'string' ? payload.databaseProvider : null,
     warnings: Array.isArray(payload.warnings)
       ? payload.warnings.filter((warning): warning is string => typeof warning === 'string' && warning.trim().length > 0)
@@ -180,6 +183,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
   organizationId: null,
   teamFeaturesEnabled: false,
   projectFeaturesEnabled: false,
+  canCreateSharedWorkspaces: false,
   databaseProvider: null,
   teamModeUnavailable: null,
   warnings: [],
@@ -214,6 +218,7 @@ export const useWorkspaceStore = create<WorkspaceStoreState>((set, get) => ({
               organizationId: typeof payload.organizationId === 'string' ? payload.organizationId : get().organizationId,
               teamFeaturesEnabled: true,
               projectFeaturesEnabled: Boolean(payload.projectFeaturesEnabled),
+              canCreateSharedWorkspaces: false,
               databaseProvider: typeof payload.databaseProvider === 'string' ? payload.databaseProvider : get().databaseProvider,
               teamModeUnavailable,
               warnings: [],

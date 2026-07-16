@@ -117,6 +117,7 @@ const additionalPersonalWorkspace: ClientWorkspaceSummary = {
       success: true,
       organizationId: 'org_1',
       teamFeaturesEnabled: true,
+      canCreateSharedWorkspaces: true,
       databaseProvider: 'sqlite',
       activeWorkspaceId: personalWorkspace.id,
       defaultWorkspace: personalWorkspace,
@@ -136,12 +137,28 @@ async function main() {
     path.join(process.cwd(), 'app', 'components', 'settings', 'EditWorkspaceDialog.tsx'),
     'utf8',
   );
+  const workspaceManagementCardSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', 'components', 'settings', 'WorkspaceManagementCard.tsx'),
+    'utf8',
+  );
+  const onboardingWizardSource = fs.readFileSync(
+    path.join(process.cwd(), 'app', '[locale]', '(routes)', 'onboarding', 'onboarding-wizard.tsx'),
+    'utf8',
+  );
   for (const dialogSource of [createWorkspaceDialogSource, editWorkspaceDialogSource]) {
     assert.match(dialogSource, /<Textarea/u);
     assert.match(dialogSource, /maxLength=\{WORKSPACE_DESCRIPTION_MAX_LENGTH\}/u);
     assert.match(dialogSource, /fields\.descriptionCount/u);
     assert.match(dialogSource, /description\.trim\(\)/u);
   }
+  assert.match(
+    createWorkspaceDialogSource,
+    /Extract<ClientWorkspaceType, 'personal' \| 'organization' \| 'team' \| 'project'>/u,
+  );
+  assert.match(createWorkspaceDialogSource, /value: 'organization'/u);
+  assert.match(createWorkspaceDialogSource, /hints\.organizationAccess/u);
+  assert.doesNotMatch(workspaceManagementCardSource, /organizationNotDeletable/u);
+  assert.match(onboardingWizardSource, /\{shared \? \(/u);
 
   const knowledgeGraphShellSource = fs.readFileSync(
     path.join(process.cwd(), 'app', 'apps', 'knowledge-graph', 'components', 'KnowledgeGraphShell.tsx'),
@@ -222,6 +239,7 @@ async function main() {
 
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
   assert.equal(useWorkspaceStore.getState().activeWorkspaceId, personalWorkspace.id);
+  assert.equal(useWorkspaceStore.getState().canCreateSharedWorkspaces, true);
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.type, 'personal');
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.icon, 'notebook-pen');
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.description, 'Personal planning and notes.');
@@ -257,6 +275,7 @@ async function main() {
         success: true,
         organizationId: 'org_1',
         teamFeaturesEnabled: false,
+        canCreateSharedWorkspaces: false,
         databaseProvider: 'sqlite',
         activeWorkspaceId: personalWorkspace.id,
         defaultWorkspace: personalWorkspace,
@@ -269,6 +288,7 @@ async function main() {
 
   await useWorkspaceStore.getState().hydrateWorkspaces({ force: true });
   assert.equal(useWorkspaceStore.getState().teamFeaturesEnabled, false);
+  assert.equal(useWorkspaceStore.getState().canCreateSharedWorkspaces, false);
   assert.equal(selectActiveWorkspace(useWorkspaceStore.getState())?.id, personalWorkspace.id);
   const personalWorkspaceChanged = useWorkspaceStore.getState().setActiveWorkspace(additionalPersonalWorkspace.id, 'test');
   assert.equal(personalWorkspaceChanged, true);

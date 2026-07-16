@@ -7,6 +7,8 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
 import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/bootstrap';
+import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
+import { createWorkspaceRecord } from '../app/lib/workspaces/service';
 
 function insertUser(sqlite: Database.Database, id: string, name: string, email: string, role: string) {
   const now = Date.now();
@@ -78,6 +80,17 @@ async function main() {
     assert.equal(ownerStatus.teamFeaturesEnabled, true);
     assert.ok(ownerStatus.organizationId);
     const organizationId = ownerStatus.organizationId;
+    createWorkspaceRecord(sqlite, {
+      actor: resolveWorkspaceActor({
+        id: 'user-owner',
+        email: 'owner@example.test',
+        role: 'admin',
+      }),
+      organizationId,
+      type: 'organization',
+      name: 'Studio Organization',
+      teamFeaturesEnabled: true,
+    });
     const workspaceRows = sqlite.prepare(`
       SELECT id, type FROM canvas_workspaces WHERE organization_id = ? ORDER BY type, created_at
     `).all(organizationId) as Array<{ id: string; type: string }>;

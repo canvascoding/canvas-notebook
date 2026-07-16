@@ -7,7 +7,11 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
 import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/bootstrap';
-import { ensureDefaultWorkspaceRecords } from '../app/lib/workspaces/service';
+import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
+import {
+  createWorkspaceRecord,
+  ensureDefaultWorkspaceRecords,
+} from '../app/lib/workspaces/service';
 
 type WorkspaceRow = {
   id: string;
@@ -47,6 +51,16 @@ async function main() {
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-member',
+    });
+    createWorkspaceRecord(sqlite, {
+      actor: resolveWorkspaceActor({
+        id: 'user-owner',
+        email: 'owner@example.test',
+        role: 'admin',
+      }),
+      organizationId,
+      type: 'organization',
+      name: 'Automation Organization',
       teamFeaturesEnabled: true,
     });
     sqlite.prepare(`

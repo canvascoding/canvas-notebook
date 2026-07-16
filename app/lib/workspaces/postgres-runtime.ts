@@ -31,7 +31,7 @@ import type { WorkspaceActor, WorkspaceContext, WorkspaceStatus, WorkspaceType }
 import {
   normalizeWorkspaceSlug,
   normalizeWorkspaceDescription,
-  organizationWorkspaceRootRelativePath,
+  organizationWorkspaceRootRelativePathForSlug,
   personalWorkspaceRootRelativePath,
   personalWorkspaceRootRelativePathForSlug,
   projectWorkspaceRootRelativePath,
@@ -568,13 +568,13 @@ async function getPersonalWorkspace(database: RuntimeDb, userId: string) {
   return row ? rowToWorkspaceRecord(row) : null;
 }
 
-async function getOrganizationWorkspace(database: RuntimeDb, organizationId: string) {
+async function getActiveOrganizationWorkspace(database: RuntimeDb, organizationId: string) {
   const row = await database.get(
     `
       SELECT id, organization_id, type, owner_user_id, customer_id, project_id, root_relative_path, display_name, description, workspace_icon, status, is_default, created_at, updated_at
       FROM canvas_workspaces
-      WHERE type = 'organization' AND organization_id = ?
-      ORDER BY is_default DESC, created_at ASC
+      WHERE type = 'organization' AND organization_id = ? AND status = 'active'
+      ORDER BY created_at ASC
       LIMIT 1
     `,
     [organizationId],
@@ -585,7 +585,7 @@ async function getOrganizationWorkspace(database: RuntimeDb, organizationId: str
 
 async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   organizationId: string;
-  type: 'personal' | 'organization';
+  type: 'personal';
   ownerUserId: string | null;
   rootRelativePath: string;
   displayName: string;
@@ -593,9 +593,7 @@ async function ensureWorkspaceRecord(database: RuntimeDb, input: {
   isDefault?: boolean;
   preserveExistingRoot?: boolean;
 }) {
-  const existing = input.type === 'personal'
-    ? await getPersonalWorkspace(database, input.ownerUserId || '')
-    : await getOrganizationWorkspace(database, input.organizationId);
+  const existing = await getPersonalWorkspace(database, input.ownerUserId || '');
   const now = Date.now();
 
   if (existing) {
@@ -747,9 +745,10 @@ function canDeleteWorkspaceRecord(
   context: WorkspaceContext,
 ): boolean {
   if (record.isDefault) return false;
-  if (record.type === 'organization') return false;
   if (record.type === 'personal') return record.ownerUserId === actor.userId;
-  if (record.type === 'team' || record.type === 'project') return context.permissions.canManageWorkspace;
+  if (record.type === 'organization' || record.type === 'team' || record.type === 'project') {
+    return context.permissions.canManageWorkspace;
+  }
   return false;
 }
 
@@ -1183,6 +1182,7 @@ function buildStatus(
   organization: OrganizationRow | null,
   ownerUser: PostgresUserRow | null,
   permission: OrganizationPermissionSnapshot | null,
+  organizationWorkspaceRootRelativePath: string | null = null,
 ): OrganizationBootstrapStatus {
   const deploymentMode = organization?.deployment_mode || getDeploymentMode();
   const teamFeaturesEnabled = organization
@@ -1209,7 +1209,9 @@ function buildStatus(
       userSettings: ownerUserId ? path.join(dataRoot, 'users', ownerUserId, 'settings') : null,
       userSecrets: ownerUserId ? path.join(dataRoot, 'users', ownerUserId, 'secrets') : null,
       organizationRoot: organizationId ? path.join(dataRoot, 'organizations', organizationId) : null,
-      teamWorkspace: teamFeaturesEnabled && organizationId ? path.join(dataRoot, organizationWorkspaceRootRelativePath(organizationId)) : null,
+      teamWorkspace: organizationWorkspaceRootRelativePath
+        ? path.join(dataRoot, organizationWorkspaceRootRelativePath)
+        : null,
       systemBackups: path.join(dataRoot, 'system', 'backups'),
     },
     warnings,
@@ -1224,7 +1226,15 @@ export async function getPostgresOrganizationBootstrapStatus(): Promise<Organiza
     const permission = organization && ownerUser
       ? rowToPermissionSnapshot(await getPermissionRow(database, organization.organization_id, ownerUser.id))
       : null;
-    return buildStatus(organization, ownerUser, permission);
+    const organizationWorkspace = organization
+      ? await getActiveOrganizationWorkspace(database, organization.organization_id)
+      : null;
+    return buildStatus(
+      organization,
+      ownerUser,
+      permission,
+      organizationWorkspace?.rootRelativePath ?? null,
+    );
   } finally {
     await database.close();
   }
@@ -1293,18 +1303,6 @@ export async function ensurePostgresOrganizationBootstrapForUser(
     icon: getDefaultWorkspaceIcon('personal'),
     isDefault: true,
   });
-  if (teamFeaturesEnabled) {
-    await ensureWorkspaceRecord(database, {
-      organizationId: organization.organization_id,
-      type: 'organization',
-      ownerUserId: null,
-      rootRelativePath: organizationWorkspaceRootRelativePath(organization.organization_id),
-      displayName: 'Organization Workspace',
-      icon: getDefaultWorkspaceIcon('organization'),
-      isDefault: true,
-      preserveExistingRoot: true,
-    });
-  }
   if (targetUser.id !== ownerUser.id) {
     await ensureWorkspaceRecord(database, {
       organizationId: organization.organization_id,
@@ -1317,7 +1315,16 @@ export async function ensurePostgresOrganizationBootstrapForUser(
     });
   }
 
-  return buildStatus(organization, ownerUser, ownerPermission);
+  const organizationWorkspace = await getActiveOrganizationWorkspace(
+    database,
+    organization.organization_id,
+  );
+  return buildStatus(
+    organization,
+    ownerUser,
+    ownerPermission,
+    organizationWorkspace?.rootRelativePath ?? null,
+  );
 }
 
 export async function getPostgresWorkspaceState(actor: WorkspaceActor): Promise<PostgresWorkspaceState> {
@@ -1371,21 +1378,31 @@ export async function createPostgresWorkspaceForActor(
     const name = normalizeWorkspaceName(input.name);
     const description = normalizeWorkspaceDescription(input.description);
     const icon = normalizeWorkspaceIcon(input.icon, input.type);
-    if (input.type === 'organization') {
+    if (
+      input.type !== 'personal'
+      && input.type !== 'organization'
+      && input.type !== 'team'
+      && input.type !== 'project'
+    ) {
+      throw new WorkspaceOperationError('WORKSPACE_TYPE_INVALID', 'Workspace type is invalid.', 400);
+    }
+    if ((input.type === 'organization' || input.type === 'team') && !status.teamFeaturesEnabled) {
       throw new WorkspaceOperationError(
-        'WORKSPACE_ORGANIZATION_CREATE_FORBIDDEN',
-        'Organization workspaces are created automatically.',
+        'WORKSPACE_TEAM_FEATURES_DISABLED',
+        'Shared organization and team workspaces are not enabled.',
         403,
       );
     }
-    if (input.type !== 'personal' && input.type !== 'team' && input.type !== 'project') {
-      throw new WorkspaceOperationError('WORKSPACE_TYPE_INVALID', 'Workspace type is invalid.', 400);
-    }
-    if (input.type === 'team' && !status.teamFeaturesEnabled) {
-      throw new WorkspaceOperationError('WORKSPACE_TEAM_FEATURES_DISABLED', 'Team workspaces are not enabled.', 403);
-    }
-    if (input.type === 'team' && actor.role !== 'owner' && actor.role !== 'admin') {
-      throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create team workspaces.', 403);
+    if (
+      (input.type === 'organization' || input.type === 'team')
+      && actor.role !== 'owner'
+      && actor.role !== 'admin'
+    ) {
+      throw new WorkspaceOperationError(
+        'WORKSPACE_PERMISSION_DENIED',
+        'Only admins can create organization and team workspaces.',
+        403,
+      );
     }
     if (input.type === 'project' && actor.role !== 'owner' && actor.role !== 'admin') {
       throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Only admins can create project workspaces.', 403);
@@ -1415,6 +1432,19 @@ export async function createPostgresWorkspaceForActor(
         throw new WorkspaceOperationError('WORKSPACE_PROJECT_ALREADY_HAS_WORKSPACE', 'Project already has a workspace.', 409);
       }
     }
+    if (input.type === 'organization') {
+      await database.get(
+        'SELECT pg_advisory_xact_lock(hashtext(?))',
+        [`canvas:organization-workspace:${status.organizationId}`],
+      );
+      if (await getActiveOrganizationWorkspace(database, status.organizationId)) {
+        throw new WorkspaceOperationError(
+          'WORKSPACE_ORGANIZATION_ALREADY_EXISTS',
+          'An active organization workspace already exists.',
+          409,
+        );
+      }
+    }
 
     const project = input.type === 'project'
       ? await database.get(
@@ -1438,7 +1468,13 @@ export async function createPostgresWorkspaceForActor(
           slug,
           (candidate) => personalWorkspaceRootRelativePathForSlug(actor.userId, candidate),
         )
-      : input.type === 'team'
+      : input.type === 'organization'
+        ? await reserveWorkspaceRootRelativePath(
+            database,
+            slug,
+            (candidate) => organizationWorkspaceRootRelativePathForSlug(status.organizationId!, candidate),
+          )
+        : input.type === 'team'
         ? await reserveWorkspaceRootRelativePath(
             database,
             slug,
@@ -1449,7 +1485,7 @@ export async function createPostgresWorkspaceForActor(
       organizationId: status.organizationId,
       type: input.type,
       ownerUserId: input.type === 'personal' ? actor.userId : null,
-      projectId: input.type === 'project' ? project?.id ?? null : input.projectId ?? null,
+      projectId: input.type === 'project' ? project?.id ?? null : null,
       rootRelativePath,
       displayName: name,
       description,
@@ -1591,14 +1627,6 @@ export async function deletePostgresWorkspaceForActor(
     if (record.isDefault) {
       throw new WorkspaceOperationError('WORKSPACE_IS_DEFAULT', 'Default workspaces cannot be deleted.', 409);
     }
-    if (record.type === 'organization') {
-      throw new WorkspaceOperationError(
-        'WORKSPACE_ORGANIZATION_NOT_DELETABLE',
-        'Organization workspace cannot be deleted.',
-        409,
-      );
-    }
-
     const workspace = await resolveWorkspaceContextById(database, actor, workspaceId);
     if (!workspace || !canDeleteWorkspaceRecord(record, actor, workspace)) {
       throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);

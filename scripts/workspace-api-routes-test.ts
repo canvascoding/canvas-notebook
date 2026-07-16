@@ -197,10 +197,39 @@ async function main() {
   const initialList = await responseJson(initialListResponse);
   assert.equal(initialList.success, true);
   const personalDefault = workspaceByType(initialList, 'personal');
-  const organizationDefault = workspaceByType(initialList, 'organization');
   assert.equal(personalDefault.isDefault, true);
-  assert.equal(organizationDefault.isDefault, true);
+  assert.equal(
+    (initialList.workspaces as unknown[]).some((workspace) => (
+      expectObject(workspace, 'workspace').type === 'organization'
+    )),
+    false,
+  );
+  assert.equal(initialList.canCreateSharedWorkspaces, true);
   assert.equal(typeof initialList.organizationId, 'string');
+
+  const organizationCreateResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
+    type: 'organization',
+    name: 'Route Organization',
+    description: 'Shared by every active internal organization member.',
+    icon: 'landmark',
+  }));
+  assert.equal(organizationCreateResponse.status, 201);
+  const organizationCreate = await responseJson(organizationCreateResponse);
+  const organizationWorkspace = expectObject(organizationCreate.workspace, 'organization workspace');
+  const organizationWorkspaceId = workspaceId(organizationCreate);
+  assert.equal(organizationWorkspace.type, 'organization');
+  assert.equal(organizationWorkspace.isDefault, false);
+  assert.equal(organizationWorkspace.icon, 'landmark');
+
+  const duplicateOrganizationResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
+    type: 'organization',
+    name: 'Duplicate Organization',
+  }));
+  assert.equal(duplicateOrganizationResponse.status, 409);
+  assert.equal(
+    (await responseJson(duplicateOrganizationResponse)).code,
+    'WORKSPACE_ORGANIZATION_ALREADY_EXISTS',
+  );
 
   const teamCreateResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
     type: 'team',
@@ -345,6 +374,16 @@ async function main() {
     expectObject(candidate, 'workspace member candidate').userId === 'member-user'
   )));
 
+  const organizationMembersResponse = await membersRoute.GET(
+    request(`http://localhost/api/workspaces/${organizationWorkspaceId}/members`),
+    { params: Promise.resolve({ id: organizationWorkspaceId }) },
+  );
+  assert.equal(organizationMembersResponse.status, 403);
+  assert.equal(
+    (await responseJson(organizationMembersResponse)).code,
+    'WORKSPACE_ORGANIZATION_MANAGED_VIA_ORG',
+  );
+
   const personalMembersResponse = await membersRoute.GET(
     request(`http://localhost/api/workspaces/${personalDefault.id}/members`),
     { params: Promise.resolve({ id: personalDefault.id as string }) },
@@ -453,8 +492,26 @@ async function main() {
   assert.equal(memberWorkspacesResponse.status, 200);
   const memberWorkspaces = await responseJson(memberWorkspacesResponse);
   const memberPersonalWorkspace = workspaceByType(memberWorkspaces, 'personal');
+  const memberOrganizationWorkspace = workspaceByType(memberWorkspaces, 'organization');
   assert.equal(typeof memberPersonalWorkspace.id, 'string');
   assert.equal(typeof memberPersonalWorkspace.rootRelativePath, 'string');
+  assert.equal(memberOrganizationWorkspace.id, organizationWorkspaceId);
+  assert.equal(
+    expectObject(memberOrganizationWorkspace.permissions, 'organization permissions').canRead,
+    true,
+  );
+  assert.equal(memberWorkspaces.canCreateSharedWorkspaces, false);
+
+  const memberOrganizationCreateResponse = await workspacesRoute.POST(jsonRequest('http://localhost/api/workspaces', 'POST', {
+    type: 'organization',
+    name: 'Member Organization',
+  }));
+  assert.equal(memberOrganizationCreateResponse.status, 403);
+  assert.equal(
+    (await responseJson(memberOrganizationCreateResponse)).code,
+    'WORKSPACE_PERMISSION_DENIED',
+  );
+
   const memberPersonalRoot = path.join(dataRoot, memberPersonalWorkspace.rootRelativePath as string);
   await fs.mkdir(memberPersonalRoot, { recursive: true });
   await fs.writeFile(path.join(memberPersonalRoot, 'member-personal.txt'), 'member personal export');
@@ -515,11 +572,17 @@ async function main() {
   assert.equal((await responseJson(externalRoleResponse)).code, 'EXTERNAL_USERS_DISABLED');
 
   const deleteDefaultResponse = await workspaceRoute.DELETE(
-    request(`http://localhost/api/workspaces/${organizationDefault.id}`, { method: 'DELETE' }),
-    { params: Promise.resolve({ id: organizationDefault.id as string }) },
+    request(`http://localhost/api/workspaces/${personalDefault.id}`, { method: 'DELETE' }),
+    { params: Promise.resolve({ id: personalDefault.id as string }) },
   );
   assert.equal(deleteDefaultResponse.status, 409);
   assert.equal((await responseJson(deleteDefaultResponse)).code, 'WORKSPACE_IS_DEFAULT');
+
+  const deleteOrganizationResponse = await workspaceRoute.DELETE(
+    request(`http://localhost/api/workspaces/${organizationWorkspaceId}`, { method: 'DELETE' }),
+    { params: Promise.resolve({ id: organizationWorkspaceId }) },
+  );
+  assert.equal(deleteOrganizationResponse.status, 200);
 
   const deleteChangedWorkspaceResponse = await workspaceRoute.DELETE(
     request(`http://localhost/api/workspaces/${extraPersonalId}`, { method: 'DELETE' }),
@@ -531,6 +594,10 @@ async function main() {
   try {
     const disabled = finalDb.prepare('SELECT status FROM canvas_workspaces WHERE id = ?').get(extraPersonalId) as { status: string };
     assert.equal(disabled.status, 'disabled');
+    const disabledOrganization = finalDb.prepare(
+      'SELECT status, is_default AS isDefault FROM canvas_workspaces WHERE id = ?',
+    ).get(organizationWorkspaceId) as { status: string; isDefault: number };
+    assert.deepEqual(disabledOrganization, { status: 'disabled', isDefault: 0 });
     const auditCount = finalDb.prepare(`
       SELECT COUNT(*) AS count
       FROM audit_events

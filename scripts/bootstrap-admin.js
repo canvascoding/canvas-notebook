@@ -327,7 +327,7 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_org_user_permissions_single_owner ON organ
 
   db.exec(`
     UPDATE canvas_workspaces
-    SET type = 'organization', is_default = 1
+    SET type = 'organization', is_default = 0
     WHERE type = 'team'
       AND (
         LENGTH(root_relative_path) - LENGTH(REPLACE(root_relative_path, '/', '')) = 3
@@ -351,28 +351,17 @@ CREATE UNIQUE INDEX IF NOT EXISTS idx_org_user_permissions_single_owner ON organ
       );
 
     UPDATE canvas_workspaces
-    SET is_default = 1
-    WHERE type = 'organization'
-      AND organization_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM canvas_workspaces older
-        WHERE older.type = 'organization'
-          AND older.organization_id = canvas_workspaces.organization_id
-          AND (
-            older.created_at < canvas_workspaces.created_at
-            OR (older.created_at = canvas_workspaces.created_at AND older.id < canvas_workspaces.id)
-          )
-      );
+    SET is_default = 0
+    WHERE type = 'organization';
 
     CREATE INDEX IF NOT EXISTS idx_canvas_org_settings_owner ON canvas_organization_settings (owner_user_id);
     DROP INDEX IF EXISTS idx_canvas_workspaces_personal_owner;
     DROP INDEX IF EXISTS idx_canvas_workspaces_team_organization;
+    DROP INDEX IF EXISTS idx_canvas_workspaces_default_organization;
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization ON canvas_workspaces (organization_id);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_owner ON canvas_workspaces (owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization_type ON canvas_workspaces (organization_id, type);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_default_personal ON canvas_workspaces (owner_user_id) WHERE type = 'personal' AND is_default = 1;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_default_organization ON canvas_workspaces (organization_id) WHERE type = 'organization' AND is_default = 1;
     CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_org_user ON canvas_workspace_members (organization_id, user_id, status);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_workspace_status ON canvas_workspace_members (workspace_id, status);
   `);
@@ -538,7 +527,7 @@ function ensurePermissionRow(db, organizationId, userId, requestedRole) {
   );
 }
 
-function ensureScopedDirectories(organizationId, userId, includeTeamWorkspace) {
+function ensureScopedDirectories(organizationId, userId) {
   const dataRoot = getDataRoot();
   const directories = [
     path.join(dataRoot, 'workspaces', 'personal', userId, 'files'),
@@ -560,9 +549,6 @@ function ensureScopedDirectories(organizationId, userId, includeTeamWorkspace) {
     path.join(dataRoot, 'system', 'logs'),
     path.join(dataRoot, 'system', 'settings'),
   ];
-  if (includeTeamWorkspace) {
-    directories.push(path.join(dataRoot, 'workspaces', 'team', organizationId, 'files'));
-  }
   for (const directory of directories) {
     mkdirSync(directory, { recursive: true });
   }
@@ -908,7 +894,7 @@ function ensureWorkspaceRecord(db, input) {
   };
 }
 
-function ensureDefaultWorkspaceRecords(db, organizationId, userId, includeTeamWorkspace) {
+function ensureDefaultWorkspaceRecords(db, organizationId, userId) {
   const personal = ensureWorkspaceRecord(db, {
     organizationId,
     type: 'personal',
@@ -918,20 +904,7 @@ function ensureDefaultWorkspaceRecords(db, organizationId, userId, includeTeamWo
     isDefault: true,
   });
 
-  let organization = null;
-  if (includeTeamWorkspace) {
-    organization = ensureWorkspaceRecord(db, {
-      organizationId,
-      type: 'organization',
-      ownerUserId: null,
-      rootRelativePath: path.posix.join('workspaces', 'organization', organizationId, 'files'),
-      displayName: 'Organization Workspace',
-      isDefault: true,
-      preserveExistingRoot: true,
-    });
-  }
-
-  return { personal, organization, team: organization };
+  return { personal };
 }
 
 function ensureOrganizationBootstrap(db, userId) {
@@ -972,13 +945,13 @@ function ensureOrganizationBootstrap(db, userId) {
     db.prepare('UPDATE user SET role = ?, updated_at = ? WHERE id = ?').run('admin', now, targetUser.id);
     ensurePermissionRow(db, organization.organization_id, targetUser.id, 'admin');
   }
-  ensureScopedDirectories(organization.organization_id, ownerUser.id, includeTeamWorkspace);
-  const ownerWorkspaceRecords = ensureDefaultWorkspaceRecords(db, organization.organization_id, ownerUser.id, includeTeamWorkspace);
+  ensureScopedDirectories(organization.organization_id, ownerUser.id);
+  const ownerWorkspaceRecords = ensureDefaultWorkspaceRecords(db, organization.organization_id, ownerUser.id);
   migrateLegacyWorkspaceToPersonalWorkspace(organization.organization_id, ownerUser.id, ownerWorkspaceRecords.personal);
   migrateLegacySecretsToUserScope(ownerUser.id);
   if (targetUser.id !== ownerUser.id) {
-    ensureScopedDirectories(organization.organization_id, targetUser.id, includeTeamWorkspace);
-    ensureDefaultWorkspaceRecords(db, organization.organization_id, targetUser.id, includeTeamWorkspace);
+    ensureScopedDirectories(organization.organization_id, targetUser.id);
+    ensureDefaultWorkspaceRecords(db, organization.organization_id, targetUser.id);
   }
 }
 

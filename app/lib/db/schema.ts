@@ -195,7 +195,6 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   projectIdx: index("idx_canvas_workspaces_project").on(table.projectId),
   organizationTypeIdx: index("idx_canvas_workspaces_organization_type").on(table.organizationId, table.type),
   defaultPersonalIdx: uniqueIndex("idx_canvas_workspaces_default_personal").on(table.ownerUserId).where(sql`${table.type} = 'personal' AND ${table.isDefault} = 1`),
-  defaultOrganizationIdx: uniqueIndex("idx_canvas_workspaces_default_organization").on(table.organizationId).where(sql`${table.type} = 'organization' AND ${table.isDefault} = 1`),
   projectWorkspaceIdx: uniqueIndex("idx_canvas_workspaces_project_workspace").on(table.projectId).where(sql`${table.type} = 'project'`),
   projectIdRequired: check("chk_canvas_workspaces_project_id_required", sql`${table.type} != 'project' OR ${table.projectId} IS NOT NULL`),
 }));

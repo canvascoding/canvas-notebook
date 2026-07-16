@@ -1366,7 +1366,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   sqlite.exec(`
     UPDATE canvas_workspaces
-    SET type = 'organization', is_default = 1, updated_at = CASE WHEN updated_at IS NULL THEN created_at ELSE updated_at END
+    SET type = 'organization', is_default = 0, updated_at = CASE WHEN updated_at IS NULL THEN created_at ELSE updated_at END
     WHERE type = 'team'
       AND (
         LENGTH(root_relative_path) - LENGTH(REPLACE(root_relative_path, '/', '')) = 3
@@ -1390,19 +1390,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       );
 
     UPDATE canvas_workspaces
-    SET is_default = 1
-    WHERE type = 'organization'
-      AND organization_id IS NOT NULL
-      AND NOT EXISTS (
-        SELECT 1
-        FROM canvas_workspaces older
-        WHERE older.type = 'organization'
-          AND older.organization_id = canvas_workspaces.organization_id
-          AND (
-            older.created_at < canvas_workspaces.created_at
-            OR (older.created_at = canvas_workspaces.created_at AND older.id < canvas_workspaces.id)
-          )
-      );
+    SET is_default = 0
+    WHERE type = 'organization';
   `);
 
   sqlite.exec(`
@@ -2159,6 +2148,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   sqlite.exec(`
     DROP INDEX IF EXISTS idx_canvas_workspaces_personal_owner;
     DROP INDEX IF EXISTS idx_canvas_workspaces_team_organization;
+    DROP INDEX IF EXISTS idx_canvas_workspaces_default_organization;
 
     CREATE INDEX IF NOT EXISTS idx_canvas_org_settings_owner ON canvas_organization_settings (owner_user_id);
     CREATE INDEX IF NOT EXISTS idx_agents_organization_scope ON agents (organization_id, scope_type, updated_at);
@@ -2179,7 +2169,6 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_project ON canvas_workspaces (project_id);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspaces_organization_type ON canvas_workspaces (organization_id, type);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_default_personal ON canvas_workspaces (owner_user_id) WHERE type = 'personal' AND is_default = 1;
-    CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_default_organization ON canvas_workspaces (organization_id) WHERE type = 'organization' AND is_default = 1;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_canvas_workspaces_project_workspace ON canvas_workspaces (project_id) WHERE type = 'project';
     CREATE INDEX IF NOT EXISTS idx_workspace_brand_profiles_updated ON workspace_brand_profiles (updated_at);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_org_user ON canvas_workspace_members (organization_id, user_id, status);

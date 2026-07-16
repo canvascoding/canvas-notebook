@@ -100,6 +100,7 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const teamModeUnavailable = useWorkspaceStore((state) => state.teamModeUnavailable);
   const teamFeaturesEnabled = useWorkspaceStore((state) => state.teamFeaturesEnabled);
   const projectFeaturesEnabled = useWorkspaceStore((state) => state.projectFeaturesEnabled);
+  const canCreateSharedWorkspaces = useWorkspaceStore((state) => state.canCreateSharedWorkspaces);
   const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
   const refreshWorkspaces = useWorkspaceStore((state) => state.refreshWorkspaces);
   const setActiveWorkspace = useWorkspaceStore((state) => state.setActiveWorkspace);
@@ -122,8 +123,8 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
   const isMobileSheet = variant === 'mobile-sheet';
   const switchableWorkspaces = getSwitchableWorkspaces(workspaces);
   const canManageWorkspaces = hasWorkspaceManagementControls(workspaces);
-  const canCreateTeamWorkspace = workspaces.some(
-    (workspace) => workspace.type === 'organization' && workspace.permissions.canManageWorkspace,
+  const hasOrganizationWorkspace = workspaces.some(
+    (workspace) => workspace.type === 'organization' && workspace.status === 'active',
   );
   const kindLabels = {
     personal: t('types.personal'),
@@ -149,7 +150,8 @@ export function WorkspaceSwitcher({ source, variant = 'default', className }: Wo
       <CreateWorkspaceDialog
         open={createDialogOpen}
         onOpenChange={setCreateDialogOpen}
-        canCreateTeamWorkspace={canCreateTeamWorkspace}
+        canCreateSharedWorkspace={canCreateSharedWorkspaces}
+        hasOrganizationWorkspace={hasOrganizationWorkspace}
         teamFeaturesEnabled={teamFeaturesEnabled}
         projectFeaturesEnabled={projectFeaturesEnabled}
         onCreated={handleWorkspaceChanged}

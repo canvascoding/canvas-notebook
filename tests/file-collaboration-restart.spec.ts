@@ -24,13 +24,32 @@ async function login(page: Page): Promise<void> {
 }
 
 async function organizationWorkspace(page: Page): Promise<string> {
-  const response = await page.request.get('/api/workspaces');
-  const payload = await response.json() as {
+  let response = await page.request.get('/api/workspaces');
+  let payload = await response.json() as {
     workspaces?: Array<{ id: string; type: string; permissions: { canWrite: boolean } }>;
   };
-  const workspace = payload.workspaces?.find((candidate) => (
+  let workspace = payload.workspaces?.find((candidate) => (
     candidate.type === 'organization' && candidate.permissions.canWrite
   ));
+  if (!workspace) {
+    const createResponse = await page.request.post('/api/workspaces', {
+      data: {
+        type: 'organization',
+        name: 'Collaboration Restart Organization',
+      },
+    });
+    expect(
+      createResponse.ok() || createResponse.status() === 409,
+      await createResponse.text(),
+    ).toBeTruthy();
+    response = await page.request.get('/api/workspaces');
+    payload = await response.json() as {
+      workspaces?: Array<{ id: string; type: string; permissions: { canWrite: boolean } }>;
+    };
+    workspace = payload.workspaces?.find((candidate) => (
+      candidate.type === 'organization' && candidate.permissions.canWrite
+    ));
+  }
   expect(workspace, 'A writable organization workspace is required').toBeTruthy();
   return workspace!.id;
 }

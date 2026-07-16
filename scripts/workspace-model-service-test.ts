@@ -85,23 +85,19 @@ async function main() {
       role: 'admin',
     });
     const ownerWorkspaces = listWorkspaceContextsForUser(sqlite, { actor: ownerActor, organizationId });
-    assert.deepEqual(ownerWorkspaces.map((workspace) => workspace.workspaceType), ['personal', 'organization']);
+    assert.deepEqual(ownerWorkspaces.map((workspace) => workspace.workspaceType), ['personal']);
     assert.equal(ownerWorkspaces[0].isDefault, true);
-    assert.equal(ownerWorkspaces[1].isDefault, true);
     assert.equal(ownerWorkspaces[0].permissions.canRead, true);
     assert.equal(ownerWorkspaces[0].permissions.canWrite, true);
-    assert.equal(ownerWorkspaces[1].permissions.canRead, true);
-    assert.equal(ownerWorkspaces[1].permissions.canWrite, true);
     assert.equal(
       ownerWorkspaces[0].rootPath,
       path.join(dataRoot, 'workspaces', 'personal', 'user-owner', 'files')
     );
-    assert.equal(
-      ownerWorkspaces[1].rootPath,
-      path.join(dataRoot, 'workspaces', 'organization', organizationId, 'files')
-    );
     await fs.access(ownerWorkspaces[0].rootPath);
-    await fs.access(ownerWorkspaces[1].rootPath);
+    await assert.rejects(
+      () => fs.access(path.join(dataRoot, 'workspaces', 'organization', organizationId, 'files')),
+      (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'),
+    );
     assert.equal(
       await fs.readFile(path.join(ownerWorkspaces[0].rootPath, 'legacy.md'), 'utf8'),
       '# Legacy\n'
@@ -155,21 +151,14 @@ async function main() {
     assert.equal(defaultWorkspace?.workspaceId, ownerWorkspaces[0].workspaceId);
 
     sqlite.prepare('UPDATE canvas_workspaces SET display_name = ? WHERE id = ?').run('Private notes', ownerWorkspaces[0].workspaceId);
-    sqlite.prepare('UPDATE canvas_workspaces SET display_name = ? WHERE id = ?').run('Canvas Studio', ownerWorkspaces[1].workspaceId);
     const renamedDefaults = ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-owner',
-      teamFeaturesEnabled: true,
     });
     assert.equal(renamedDefaults.personal.displayName, 'Private notes');
-    assert.equal(renamedDefaults.organization?.displayName, 'Canvas Studio');
 
     assert.throws(
       () => deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: ownerWorkspaces[0].workspaceId }),
-      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_IS_DEFAULT',
-    );
-    assert.throws(
-      () => deleteWorkspaceRecord(sqlite, { actor: ownerActor, workspaceId: ownerWorkspaces[1].workspaceId }),
       (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_IS_DEFAULT',
     );
     assert.throws(
@@ -180,6 +169,71 @@ async function main() {
         teamFeaturesEnabled: true,
       }),
       (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_DEFAULT_TYPE_LOCKED',
+    );
+
+    const organizationWorkspace = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'organization',
+      name: 'Canvas Studio',
+      description: 'Shared organization knowledge and operations.',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(organizationWorkspace.workspaceType, 'organization');
+    assert.equal(organizationWorkspace.isDefault, false);
+    assert.equal(organizationWorkspace.ownerUserId, null);
+    assert.equal(organizationWorkspace.permissions.canManageWorkspace, true);
+    assert.equal(
+      organizationWorkspace.rootRelativePath,
+      path.posix.join('workspaces', 'organization', organizationId, 'canvas-studio', 'files'),
+    );
+    await fs.access(organizationWorkspace.rootPath);
+    const updatedOrganizationWorkspace = updateWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      workspaceId: organizationWorkspace.workspaceId,
+      name: 'Organization Hub',
+    });
+    assert.equal(updatedOrganizationWorkspace.displayName, 'Organization Hub');
+    sqlite.prepare('UPDATE canvas_workspaces SET is_default = 1 WHERE id = ?').run(
+      organizationWorkspace.workspaceId,
+    );
+    runMigrations(sqlite);
+    const migratedOrganizationDefault = sqlite.prepare(`
+      SELECT is_default AS isDefault
+      FROM canvas_workspaces
+      WHERE id = ?
+    `).get(organizationWorkspace.workspaceId) as { isDefault: number };
+    assert.equal(migratedOrganizationDefault.isDefault, 0);
+    const workspaceIndexes = new Set(
+      (sqlite.prepare('PRAGMA index_list(canvas_workspaces)').all() as Array<{ name: string }>)
+        .map((index) => index.name),
+    );
+    assert.equal(workspaceIndexes.has('idx_canvas_workspaces_default_organization'), false);
+    assert.throws(
+      () => createWorkspaceRecord(sqlite, {
+        actor: ownerActor,
+        organizationId,
+        type: 'organization',
+        name: 'Second Organization Workspace',
+        teamFeaturesEnabled: true,
+      }),
+      (error: unknown) => (
+        error instanceof WorkspaceOperationError
+        && error.code === 'WORKSPACE_ORGANIZATION_ALREADY_EXISTS'
+      ),
+    );
+    assert.throws(
+      () => createWorkspaceRecord(sqlite, {
+        actor: ownerActor,
+        organizationId,
+        type: 'organization',
+        name: 'Unavailable Organization Workspace',
+        teamFeaturesEnabled: false,
+      }),
+      (error: unknown) => (
+        error instanceof WorkspaceOperationError
+        && error.code === 'WORKSPACE_TEAM_FEATURES_DISABLED'
+      ),
     );
 
     const extraPersonal = createWorkspaceRecord(sqlite, {
@@ -539,7 +593,6 @@ async function main() {
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-member',
-      teamFeaturesEnabled: true,
     });
     sqlite.prepare(`
       INSERT INTO organization_user_permissions (
@@ -588,11 +641,8 @@ async function main() {
     const ensured = ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-member',
-      teamFeaturesEnabled: true,
     });
     assert.equal(ensured.personal.id, memberWorkspaces[0].workspaceId);
-    assert.equal(ensured.organization?.id, ownerWorkspaces[1].workspaceId);
-    assert.equal(ensured.team?.id, ownerWorkspaces[1].workspaceId);
     assert.equal(
       workspaceAbsoluteRoot(ensured.personal.rootRelativePath),
       path.join(dataRoot, 'workspaces', 'personal', 'user-member', 'files')
@@ -606,7 +656,6 @@ async function main() {
     const disabledEnsure = ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-member',
-      teamFeaturesEnabled: true,
     });
     assert.equal(disabledEnsure.personal.status, 'disabled');
     assert.equal(disabledEnsure.personal.displayName, 'Outdated Name');
@@ -616,7 +665,6 @@ async function main() {
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-no-permission',
-      teamFeaturesEnabled: true,
     });
     const actorWithoutPermission = resolveWorkspaceActor({
       id: 'user-no-permission',
@@ -629,6 +677,43 @@ async function main() {
     });
     assert.deepEqual(noPermissionWorkspaces.map((workspace) => workspace.workspaceType), ['personal']);
     assert.equal(noPermissionWorkspaces[0].permissions.canCreatePublicLinks, false);
+    assert.throws(
+      () => createWorkspaceRecord(sqlite, {
+        actor: memberActor,
+        organizationId,
+        type: 'organization',
+        name: 'Member Organization Workspace',
+        teamFeaturesEnabled: true,
+      }),
+      (error: unknown) => error instanceof WorkspaceOperationError && error.code === 'WORKSPACE_PERMISSION_DENIED',
+    );
+
+    deleteWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      workspaceId: organizationWorkspace.workspaceId,
+    });
+    assert.equal(getWorkspaceStatus(sqlite, organizationWorkspace.workspaceId), 'disabled');
+    ensureDefaultWorkspaceRecords(sqlite, {
+      organizationId,
+      userId: 'user-owner',
+    });
+    const activeOrganizationWorkspaceCount = sqlite.prepare(`
+      SELECT COUNT(*) AS count
+      FROM canvas_workspaces
+      WHERE organization_id = ? AND type = 'organization' AND status = 'active'
+    `).get(organizationId) as { count: number };
+    assert.equal(activeOrganizationWorkspaceCount.count, 0);
+
+    const replacementOrganizationWorkspace = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'organization',
+      name: 'Organization Hub',
+      teamFeaturesEnabled: true,
+    });
+    assert.equal(replacementOrganizationWorkspace.workspaceType, 'organization');
+    assert.notEqual(replacementOrganizationWorkspace.workspaceId, organizationWorkspace.workspaceId);
+    assert.notEqual(replacementOrganizationWorkspace.rootRelativePath, organizationWorkspace.rootRelativePath);
     assert.throws(() => workspaceAbsoluteRoot('../outside'), /Invalid workspace root path/);
   } finally {
     sqlite.close();

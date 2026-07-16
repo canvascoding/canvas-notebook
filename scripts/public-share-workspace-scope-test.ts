@@ -11,6 +11,7 @@ import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/boot
 import { createCanvasProject, ensureCanvasProjectWorkspace, upsertCanvasProjectMember } from '../app/lib/projects/service';
 import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
 import {
+  createWorkspaceRecord,
   ensureDefaultWorkspaceRecords,
   resolveWorkspaceContextById,
 } from '../app/lib/workspaces/service';
@@ -151,22 +152,18 @@ async function main() {
     const ownerRecords = ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-owner',
-      teamFeaturesEnabled: true,
     });
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-member',
-      teamFeaturesEnabled: true,
     });
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-reader',
-      teamFeaturesEnabled: true,
     });
     ensureDefaultWorkspaceRecords(sqlite, {
       organizationId,
       userId: 'user-manager-no-link',
-      teamFeaturesEnabled: true,
     });
     const project = createCanvasProject(sqlite, {
       organizationId,
@@ -222,6 +219,13 @@ async function main() {
       email: 'owner@example.test',
       role: 'admin',
     });
+    const organizationWorkspace = createWorkspaceRecord(sqlite, {
+      actor: ownerActor,
+      organizationId,
+      type: 'organization',
+      name: 'Public Sharing Organization',
+      teamFeaturesEnabled: true,
+    });
     const memberActor = resolveWorkspaceActor({
       id: 'user-member',
       email: 'member@example.test',
@@ -244,7 +248,7 @@ async function main() {
     }));
     const ownerTeam = requireWorkspace(resolveWorkspaceContextById(sqlite, {
       actor: ownerActor,
-      workspaceId: ownerRecords.team?.id ?? '',
+      workspaceId: organizationWorkspace.workspaceId,
     }));
     const memberTeam = requireWorkspace(resolveWorkspaceContextById(sqlite, {
       actor: memberActor,
