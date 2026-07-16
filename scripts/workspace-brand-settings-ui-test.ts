@@ -4,9 +4,12 @@ import path from 'node:path';
 
 const root = process.cwd();
 const panelSource = readFileSync(path.join(root, 'app/components/settings/BrandSettingsPanel.tsx'), 'utf8');
+const globalStyles = readFileSync(path.join(root, 'app/globals.css'), 'utf8');
 const german = JSON.parse(readFileSync(path.join(root, 'messages/de.json'), 'utf8')) as Record<string, unknown>;
 const english = JSON.parse(readFileSync(path.join(root, 'messages/en.json'), 'utf8')) as Record<string, unknown>;
 
+assert.match(globalStyles, /--radius-full:\s*var\(--radius\);/u);
+assert.match(globalStyles, /\.rounded,\s*\.rounded-full\s*\{\s*border-radius:\s*var\(--radius\);/u);
 assert.match(panelSource, /<BrandInterfacePreview profile=\{profile\} \/>/u);
 assert.match(panelSource, /id="brand-appearance-radius"[\s\S]*?type="range"[\s\S]*?max=\{16\}[\s\S]*?step=\{2\}/u);
 assert.match(panelSource, /WORKSPACE_APPEARANCE_UPDATED_EVENT/u);

@@ -140,6 +140,7 @@
   --radius-2xl: var(--radius);
   --radius-3xl: var(--radius);
   --radius-4xl: var(--radius);
+  --radius-full: var(--radius);
 }
 
 /* Sonner Toast Close Button Styling */
@@ -352,7 +353,8 @@
 }
 
 @layer utilities {
-  .rounded {
+  .rounded,
+  .rounded-full {
     border-radius: var(--radius);
   }
   .no-scrollbar {

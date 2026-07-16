@@ -2868,7 +2868,7 @@
         "font": "Font",
         "fontHint": "Applies to the interface and body copy in documents.",
         "radius": "Corner style",
-        "radiusHint": "Changes cards, buttons, and fields. Circles and switches stay round.",
+        "radiusHint": "Changes cards, buttons, fields, switches, and status indicators together.",
         "radiusSquare": "Sharp",
         "radiusSoft": "Soft",
         "radiusValue": "{value} px",

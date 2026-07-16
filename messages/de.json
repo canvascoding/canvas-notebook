@@ -2867,7 +2867,7 @@
         "font": "Schriftart",
         "fontHint": "Gilt für die Oberfläche und den Fließtext in Dokumenten.",
         "radius": "Eckenstil",
-        "radiusHint": "Verändert Karten, Buttons und Eingabefelder. Kreise und Schalter bleiben rund.",
+        "radiusHint": "Verändert Karten, Buttons, Eingabefelder, Schalter und Statusanzeigen gemeinsam.",
         "radiusSquare": "Kantig",
         "radiusSoft": "Weich",
         "radiusValue": "{value} px",
