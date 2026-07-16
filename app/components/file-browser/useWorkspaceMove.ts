@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
 import { useFileStore } from '@/app/store/file-store';
@@ -30,22 +30,41 @@ export function useWorkspaceMove(): WorkspaceMoveController {
   const t = useTranslations('notebook');
   const [conflict, setConflict] = useState<WorkspaceMoveConflict | null>(null);
   const [isMoving, setIsMoving] = useState(false);
+  const operationActiveRef = useRef(false);
+  const conflictResolutionActiveRef = useRef(false);
+
+  const finishMove = useCallback(() => {
+    operationActiveRef.current = false;
+    conflictResolutionActiveRef.current = false;
+    setIsMoving(false);
+  }, []);
 
   const completeMove = useCallback(async (successCount: number, skippedCount: number) => {
     const store = useFileStore.getState();
     store.clearMultiSelect();
-    await store.refreshVisibleTree();
-    setIsMoving(false);
+    try {
+      await store.refreshVisibleTree();
+    } catch (error) {
+      console.error('Failed to refresh the file tree after moving paths:', error);
+    } finally {
+      finishMove();
+    }
     if (skippedCount > 0) {
       toast.warning(t('moveMultiplePartialSuccess', { moved: successCount, skipped: skippedCount }));
       return;
     }
     toast.success(t('moveMultipleSuccess', { count: successCount }));
-  }, [t]);
+  }, [finishMove, t]);
 
   const handleMoveError = useCallback(async (error: unknown): Promise<WorkspaceMoveResult> => {
-    await useFileStore.getState().refreshVisibleTree();
     const err = error as Error & { code?: string; sourcePath?: string; destPath?: string };
+    try {
+      await useFileStore.getState().refreshVisibleTree();
+    } catch (refreshError) {
+      console.error('Failed to refresh the file tree after a move error:', refreshError);
+    } finally {
+      finishMove();
+    }
 
     if (err.code === 'DIRECTORY_EXISTS') {
       toast.error(t('directoryConflictError', { destination: err.destPath || '' }));
@@ -54,9 +73,8 @@ export function useWorkspaceMove(): WorkspaceMoveController {
     } else {
       toast.error(t('moveError', { error: err.message }));
     }
-    setIsMoving(false);
     return 'failed';
-  }, [t]);
+  }, [finishMove, t]);
 
   const processMoveQueue = useCallback(async function processMoveQueue(
     pathsToMove: string[],
@@ -124,7 +142,7 @@ export function useWorkspaceMove(): WorkspaceMoveController {
     paths: Iterable<string>,
     targetDir: string,
   ): Promise<WorkspaceMoveResult> => {
-    if (isMoving) return 'failed';
+    if (operationActiveRef.current) return 'failed';
     const plan = createWorkspaceMovePlan(paths, targetDir);
     if (plan.sourcePaths.length === 0) return 'failed';
     if (plan.protectedPaths.length > 0) {
@@ -136,35 +154,43 @@ export function useWorkspaceMove(): WorkspaceMoveController {
       return 'failed';
     }
 
+    operationActiveRef.current = true;
     setConflict(null);
     setIsMoving(true);
-    return processMoveQueue(plan.sourcePaths, targetDir);
-  }, [isMoving, processMoveQueue, t]);
+    try {
+      return await processMoveQueue(plan.sourcePaths, targetDir);
+    } catch (error) {
+      return handleMoveError(error);
+    }
+  }, [handleMoveError, processMoveQueue, t]);
 
   const resolveConflict = useCallback(async (
     action: WorkspaceMoveResolution,
   ): Promise<WorkspaceMoveResult> => {
-    if (!conflict) return 'failed';
+    if (!conflict || !operationActiveRef.current || conflictResolutionActiveRef.current) {
+      return 'failed';
+    }
+    conflictResolutionActiveRef.current = true;
     const activeConflict = conflict;
     setConflict(null);
 
-    if (action === 'skip' || action === 'overwrite-existing') {
-      return processMoveQueue(
-        activeConflict.remainingPaths,
-        activeConflict.targetDir,
-        activeConflict.successCount,
-        activeConflict.skippedCount + 1,
-      );
-    }
-
     try {
+      if (action === 'skip' || action === 'overwrite-existing') {
+        return await processMoveQueue(
+          activeConflict.remainingPaths,
+          activeConflict.targetDir,
+          activeConflict.successCount,
+          activeConflict.skippedCount + 1,
+        );
+      }
+
       await useFileStore.getState().renamePath(
         activeConflict.sourcePath,
         activeConflict.destPath,
         true,
         false,
       );
-      return processMoveQueue(
+      return await processMoveQueue(
         activeConflict.remainingPaths,
         activeConflict.targetDir,
         activeConflict.successCount + 1,
@@ -172,6 +198,8 @@ export function useWorkspaceMove(): WorkspaceMoveController {
       );
     } catch (error) {
       return handleMoveError(error);
+    } finally {
+      conflictResolutionActiveRef.current = false;
     }
   }, [conflict, handleMoveError, processMoveQueue]);
 

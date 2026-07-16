@@ -54,6 +54,22 @@ export async function POST(request: NextRequest) {
       return jsonError(`Protected app output folder cannot be overwritten: ${newPath}`, 403);
     }
 
+    // Resolve missing sources through the conflict path before reading metadata.
+    // This keeps stale/repeated move requests recoverable for bulk operations
+    // instead of leaking a raw ENOENT as a 500 response.
+    const conflict = await checkRenameConflict(oldPath, newPath, fileOptions);
+    if (conflict) {
+      const conflictError = conflict as RenameConflictError;
+      if (!(overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file')) {
+        return jsonError(conflict.message, 409, {
+          code: conflictError.code,
+          type: conflictError.type,
+          sourcePath: conflictError.sourcePath,
+          destPath: conflictError.destPath,
+        });
+      }
+    }
+
     const sourceStats = await getFileStats(oldPath, fileOptions);
     const shouldUpdateLinks = updateLinks && (
       sourceStats.isDirectory || /\.(?:md|markdown)$/i.test(oldPath)
@@ -86,8 +102,6 @@ export async function POST(request: NextRequest) {
       return result;
     };
 
-    // Check for conflicts first (for better error messages)
-    const conflict = await checkRenameConflict(oldPath, newPath, fileOptions);
     if (conflict) {
       const conflictError = conflict as RenameConflictError;
       if (overwrite && conflictError.code === 'FILE_EXISTS' && conflictError.type === 'file') {
@@ -140,12 +154,7 @@ export async function POST(request: NextRequest) {
         return jsonSuccess({ linkUpdates });
       }
 
-      return jsonError(conflict.message, 409, {
-        code: conflictError.code,
-        type: conflictError.type,
-        sourcePath: conflictError.sourcePath,
-        destPath: conflictError.destPath,
-      });
+      // Non-overwritable conflicts returned before the metadata read above.
     }
 
     await prepareLinkIndex();

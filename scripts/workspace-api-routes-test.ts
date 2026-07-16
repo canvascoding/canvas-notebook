@@ -171,6 +171,7 @@ async function main() {
   const permissionsRoute = await import('../app/api/admin/organization/users/[userId]/permissions/route');
   const roleRoute = await import('../app/api/admin/organization/users/[userId]/role/route');
   const downloadRoute = await import('../app/api/files/download/route');
+  const renameRoute = await import('../app/api/files/rename/route');
   const workspaceStatsRoute = await import('../app/api/files/workspace-stats/route');
   const {
     requireMigrationExportPermission,
@@ -303,6 +304,34 @@ async function main() {
   );
   assert.equal(adminTeamDownloadResponse.status, 200);
   assert.equal(adminTeamDownloadResponse.headers.get('content-disposition'), 'attachment; filename="workspace.zip"');
+
+  const movedSourcePath = path.join(dataRoot, teamWorkspacePath, 'files', '00_dashboard');
+  const movedDestinationPath = path.join(dataRoot, teamWorkspacePath, '00_dashboard');
+  await fs.rm(movedDestinationPath, { recursive: true, force: true });
+  await fs.mkdir(movedSourcePath, { recursive: true });
+  const moveRequest = () => renameRoute.POST(request('http://localhost/api/files/rename', {
+    method: 'POST',
+    headers: { 'x-canvas-workspace-id': teamWorkspaceId },
+    body: JSON.stringify({
+      oldPath: 'files/00_dashboard',
+      newPath: '00_dashboard',
+    }),
+  }));
+  const moveResponse = await moveRequest();
+  const movePayload = await responseJson(moveResponse);
+  assert.equal(moveResponse.status, 200, JSON.stringify(movePayload));
+  await fs.access(movedDestinationPath);
+  await assert.rejects(
+    () => fs.access(movedSourcePath),
+    (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT'),
+  );
+
+  const staleMoveResponse = await moveRequest();
+  assert.equal(staleMoveResponse.status, 409);
+  const staleMovePayload = await responseJson(staleMoveResponse);
+  assert.equal(staleMovePayload.code, 'SOURCE_NOT_FOUND');
+  assert.equal(staleMovePayload.sourcePath, 'files/00_dashboard');
+  assert.equal(staleMovePayload.destPath, '00_dashboard');
 
   const retiredDataDownloadResponse = await downloadRoute.GET(
     request('http://localhost/api/files/download?scope=data'),
