@@ -47,6 +47,14 @@ export type KnowledgeGraphFacets = {
   tags: KnowledgeGraphFacet[];
 };
 
+export type KnowledgeGraphSearchMatchKind = 'alias' | 'folder' | 'path' | 'tag' | 'title';
+
+export type KnowledgeGraphSearchResult = {
+  document: WorkspaceLinkDocument;
+  matchKind: KnowledgeGraphSearchMatchKind;
+  matchValue: string;
+};
+
 export type KnowledgeGraphOptions = {
   colorMode: KnowledgeGraphColorMode;
   selectedFolders?: readonly string[];
@@ -95,6 +103,107 @@ function documentFolder(path: string): string {
   const normalized = path.replace(/\\/g, '/').replace(/^\/+|\/+$/g, '');
   const slashIndex = normalized.lastIndexOf('/');
   return slashIndex >= 0 ? normalized.slice(0, slashIndex) : '/';
+}
+
+function normalizeSearchText(value: string): string {
+  return value
+    .normalize('NFKD')
+    .replace(/\p{M}+/gu, '')
+    .replace(/ß/gu, 'ss')
+    .toLocaleLowerCase()
+    .replace(/[\\/_.-]+/gu, ' ')
+    .replace(/[^\p{L}\p{N}]+/gu, ' ')
+    .trim()
+    .replace(/\s+/gu, ' ');
+}
+
+type SearchField = {
+  kind: KnowledgeGraphSearchMatchKind;
+  normalized: string;
+  priority: number;
+  value: string;
+};
+
+function getDocumentSearchFields(document: WorkspaceLinkDocument): SearchField[] {
+  const fileName = document.path.replace(/\\/g, '/').split('/').pop() ?? document.path;
+  const basename = fileName.replace(/\.md$/iu, '');
+  const folder = documentFolder(document.path);
+  const fields: Array<Omit<SearchField, 'normalized'>> = [
+    { kind: 'title', priority: 0, value: document.title },
+    ...document.aliases.map((value) => ({ kind: 'alias' as const, priority: 1, value })),
+    { kind: 'path', priority: 2, value: basename },
+    ...document.tags.map((value) => ({ kind: 'tag' as const, priority: 3, value })),
+    { kind: 'folder', priority: 4, value: folder },
+    { kind: 'path', priority: 5, value: document.path },
+  ];
+  return fields
+    .map((field) => ({ ...field, normalized: normalizeSearchText(field.value) }))
+    .filter((field) => field.normalized.length > 0);
+}
+
+export function searchKnowledgeGraphDocuments(
+  documents: readonly WorkspaceLinkDocument[],
+  query: string,
+  limit = 10,
+): KnowledgeGraphSearchResult[] {
+  const normalizedQuery = normalizeSearchText(query);
+  if (!normalizedQuery || limit <= 0) return [];
+  const tokens = [...new Set(normalizedQuery.split(' '))];
+
+  return documents
+    .map((document) => {
+      const fields = getDocumentSearchFields(document);
+      if (!tokens.every((token) => fields.some((field) => field.normalized.includes(token)))) return null;
+
+      const directMatches = fields
+        .filter((field) => field.normalized.includes(normalizedQuery))
+        .map((field) => ({
+          field,
+          score: field.priority * 4
+            + (field.normalized === normalizedQuery ? 0 : field.normalized.startsWith(normalizedQuery) ? 10 : 20),
+        }))
+        .sort((left, right) => left.score - right.score);
+
+      if (directMatches.length > 0) {
+        return {
+          document,
+          matchKind: directMatches[0].field.kind,
+          matchValue: directMatches[0].field.value,
+          score: directMatches[0].score,
+        };
+      }
+
+      const rankedFields = fields
+        .map((field) => ({
+          field,
+          tokenCount: tokens.filter((token) => field.normalized.includes(token)).length,
+        }))
+        .filter((entry) => entry.tokenCount > 0)
+        .sort((left, right) => (
+          right.tokenCount - left.tokenCount || left.field.priority - right.field.priority
+        ));
+      const tokenScore = tokens.reduce((score, token) => {
+        const bestField = fields
+          .filter((field) => field.normalized.includes(token))
+          .sort((left, right) => left.priority - right.priority)[0];
+        return score + (bestField?.priority ?? 10);
+      }, 0);
+
+      return {
+        document,
+        matchKind: rankedFields[0].field.kind,
+        matchValue: rankedFields[0].field.value,
+        score: 100 + tokenScore,
+      };
+    })
+    .filter((result): result is KnowledgeGraphSearchResult & { score: number } => result !== null)
+    .sort((left, right) => (
+      left.score - right.score
+      || left.document.title.localeCompare(right.document.title)
+      || left.document.path.localeCompare(right.document.path)
+    ))
+    .slice(0, limit)
+    .map(({ score: _score, ...result }) => result);
 }
 
 function documentFolderAncestors(path: string): string[] {

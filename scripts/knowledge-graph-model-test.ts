@@ -4,11 +4,12 @@ import {
   buildKnowledgeGraphData,
   getConnectedKnowledgeGraphNodes,
   getKnowledgeGraphFacets,
+  searchKnowledgeGraphDocuments,
 } from '../app/apps/knowledge-graph/lib/knowledge-graph-model';
 import { buildWorkspaceLinkIndexFromDocuments } from '../app/lib/markdown/workspace-link-index-core';
 
 const index = buildWorkspaceLinkIndexFromDocuments([
-  { path: 'Research/Overview.md', content: '---\ntags: [project/atlas, type/overview]\n---\n\n# Overview\n\n[[Research/Source]]\n[[Missing]]' },
+  { path: 'Research/Overview.md', content: '---\naliases: [Atlas Home, Übersicht]\ntags: [project/atlas, type/overview]\n---\n\n# Overview\n\n[[Research/Source]]\n[[Missing]]' },
   { path: 'Research/Source.md', content: '---\ntags: [reference, project/atlas]\n---\n\n# Source' },
   { path: 'Archive/Orphan.md', content: '---\ntags: [archive]\n---\n\n# Orphan' },
   { path: 'Archive/Broken only.md', content: '---\ntags: [archive]\n---\n\n# Broken only\n\n[[Nowhere]]' },
@@ -84,5 +85,27 @@ assert.deepEqual(
   filteredFolderAndTag.nodes.map((node) => node.path).sort(),
   ['Archive/Broken only.md', 'Archive/Orphan.md'],
 );
+
+assert.deepEqual(
+  searchKnowledgeGraphDocuments(index.documents, 'atlas home').map((result) => ({
+    kind: result.matchKind,
+    path: result.document.path,
+  })),
+  [{ kind: 'alias', path: 'Research/Overview.md' }],
+);
+assert.equal(
+  searchKnowledgeGraphDocuments(index.documents, 'ubersicht')[0]?.document.path,
+  'Research/Overview.md',
+);
+assert.deepEqual(
+  searchKnowledgeGraphDocuments(index.documents, 'project atlas source').map((result) => result.document.path),
+  ['Research/Source.md'],
+);
+assert.deepEqual(
+  searchKnowledgeGraphDocuments(index.documents, 'archive').map((result) => result.document.path).sort(),
+  ['Archive/Broken only.md', 'Archive/Orphan.md'],
+);
+assert.equal(searchKnowledgeGraphDocuments(index.documents, 'source', 1).length, 1);
+assert.deepEqual(searchKnowledgeGraphDocuments(index.documents, 'not in workspace'), []);
 
 console.log('knowledge-graph-model-test: ok');

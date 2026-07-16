@@ -1330,9 +1330,17 @@
     "eyebrow": "Workspace topology",
     "loading": "Indexing connections",
     "search": {
+      "clear": "Clear search",
       "label": "Search document, alias, folder, or tag",
+      "match": {
+        "alias": "Alias: {value}",
+        "folder": "Folder: {value}",
+        "tag": "Tag: {value}"
+      },
       "noResults": "No matching documents found.",
-      "placeholder": "Search docs, folders, or tags…"
+      "placeholder": "Search docs, folders, or tags…",
+      "results": "{count, plural, one {# search result} other {# search results}}",
+      "reveal": "Will be revealed"
     },
     "stats": {
       "documents": "Docs",

@@ -1329,9 +1329,17 @@
     "eyebrow": "Workspace-Topologie",
     "loading": "Verbindungen werden indexiert",
     "search": {
+      "clear": "Suche löschen",
       "label": "Dokument, Alias, Ordner oder Tag suchen",
+      "match": {
+        "alias": "Alias: {value}",
+        "folder": "Ordner: {value}",
+        "tag": "Tag: {value}"
+      },
       "noResults": "Keine passenden Dokumente gefunden.",
-      "placeholder": "Docs, Ordner oder Tags suchen …"
+      "placeholder": "Docs, Ordner oder Tags suchen …",
+      "results": "{count, plural, one {# Suchtreffer} other {# Suchtreffer}}",
+      "reveal": "Wird eingeblendet"
     },
     "stats": {
       "documents": "Docs",

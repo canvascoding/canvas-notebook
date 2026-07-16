@@ -28,9 +28,11 @@ import {
   buildKnowledgeGraphData,
   getConnectedKnowledgeGraphNodes,
   getKnowledgeGraphFacets,
+  searchKnowledgeGraphDocuments,
   type KnowledgeGraphColorMode,
   type KnowledgeGraphFacet,
   type KnowledgeGraphNode,
+  type KnowledgeGraphSearchResult,
 } from '@/app/apps/knowledge-graph/lib/knowledge-graph-model';
 import { loadWorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-client';
 import type { WorkspaceLinkIndex } from '@/app/lib/markdown/workspace-link-index-core';
@@ -495,6 +497,7 @@ export function KnowledgeGraphClient() {
   const [requestState, setRequestState] = useState<IndexRequestState | null>(null);
   const [refreshVersion, setRefreshVersion] = useState(0);
   const [query, setQuery] = useState('');
+  const [activeSearchIndex, setActiveSearchIndex] = useState(0);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [focusWorkspaceId, setFocusWorkspaceId] = useState<string | null>(null);
   const [mobileControlsOpen, setMobileControlsOpen] = useState(false);
@@ -569,24 +572,18 @@ export function KnowledgeGraphClient() {
     showOrphans,
   }), [colorMode, index, selectedFolders, selectedTags, showBroken, showOrphans]);
 
-  const searchResults = useMemo(() => {
-    const normalized = query.trim().toLocaleLowerCase();
-    if (!normalized) return [];
-    return graphData.nodes
-      .filter((node) => node.kind === 'document' && (
-        node.label.toLocaleLowerCase().includes(normalized)
-        || node.path?.toLocaleLowerCase().includes(normalized)
-        || node.folder.toLocaleLowerCase().includes(normalized)
-        || node.tags.some((tag) => tag.toLocaleLowerCase().includes(normalized))
-        || node.aliases.some((alias) => alias.toLocaleLowerCase().includes(normalized))
-      ))
-      .sort((left, right) => {
-        const leftStarts = left.label.toLocaleLowerCase().startsWith(normalized) ? 0 : 1;
-        const rightStarts = right.label.toLocaleLowerCase().startsWith(normalized) ? 0 : 1;
-        return leftStarts - rightStarts || left.label.localeCompare(right.label);
-      })
-      .slice(0, 7);
-  }, [graphData.nodes, query]);
+  const searchResults = useMemo(
+    () => searchKnowledgeGraphDocuments(index.documents, query),
+    [index.documents, query],
+  );
+  const visibleDocumentIds = useMemo(() => new Set(
+    graphData.nodes
+      .filter((node) => node.kind === 'document')
+      .map((node) => node.id),
+  ), [graphData.nodes]);
+  const boundedSearchIndex = searchResults.length > 0
+    ? Math.min(activeSearchIndex, searchResults.length - 1)
+    : -1;
 
   const navigableNodes = useMemo(() => (
     [...graphData.nodes]
@@ -617,6 +614,7 @@ export function KnowledgeGraphClient() {
     setFocusNodeId(node.id);
     setFocusWorkspaceId(activeWorkspaceId);
     setQuery('');
+    setActiveSearchIndex(0);
     setMobileControlsOpen(false);
   }, [activeWorkspaceId]);
   const clearNodeSelection = useCallback(() => {
@@ -626,11 +624,31 @@ export function KnowledgeGraphClient() {
   const focusNodeById = useCallback((nodeId: string | null) => {
     setFocusNodeId(nodeId);
     setFocusWorkspaceId(nodeId ? activeWorkspaceId : null);
-    if (nodeId) setQuery('');
+    if (nodeId) {
+      setQuery('');
+      setActiveSearchIndex(0);
+    }
   }, [activeWorkspaceId]);
-  const focusSearchResult = (node: KnowledgeGraphNode) => {
-    handleNodeSelect(node);
-  };
+  const clearSearch = useCallback(() => {
+    setQuery('');
+    setActiveSearchIndex(0);
+  }, []);
+  const focusSearchResult = useCallback((result: KnowledgeGraphSearchResult) => {
+    const documentId = result.document.path;
+    if (!visibleDocumentIds.has(documentId)) {
+      if (selectedFolders.length > 0) {
+        setFolderSelection({ values: [], workspaceId: activeWorkspaceId });
+      }
+      if (selectedTags.length > 0) {
+        setTagSelection({ values: [], workspaceId: activeWorkspaceId });
+      }
+      setShowOrphans(true);
+    }
+    setFocusNodeId(documentId);
+    setFocusWorkspaceId(activeWorkspaceId);
+    clearSearch();
+    setMobileControlsOpen(false);
+  }, [activeWorkspaceId, clearSearch, selectedFolders.length, selectedTags.length, visibleDocumentIds]);
   const refresh = () => {
     setRefreshVersion((version) => version + 1);
   };
@@ -700,18 +718,56 @@ export function KnowledgeGraphClient() {
             <Search className="h-4 w-4 text-cyan-400" />
             <Input
               aria-controls={query.trim() ? 'knowledge-graph-search-results' : undefined}
+              aria-expanded={Boolean(query.trim())}
               aria-label={t('search.label')}
-              role="searchbox"
+              aria-activedescendant={boundedSearchIndex >= 0
+                ? `knowledge-graph-search-result-${boundedSearchIndex}`
+                : undefined}
+              aria-autocomplete="list"
+              role="combobox"
               value={query}
-              onChange={(event) => setQuery(event.target.value)}
+              onChange={(event) => {
+                setQuery(event.target.value);
+                setActiveSearchIndex(0);
+              }}
               onKeyDown={(event) => {
-                if (event.key !== 'Enter' || searchResults.length === 0) return;
-                event.preventDefault();
-                focusSearchResult(searchResults[0]);
+                if (event.key === 'Escape') {
+                  clearSearch();
+                  return;
+                }
+                if (searchResults.length === 0) return;
+                if (event.key === 'ArrowDown') {
+                  event.preventDefault();
+                  setActiveSearchIndex((current) => (current + 1) % searchResults.length);
+                  return;
+                }
+                if (event.key === 'ArrowUp') {
+                  event.preventDefault();
+                  setActiveSearchIndex((current) => (
+                    (Math.min(current, searchResults.length - 1) - 1 + searchResults.length) % searchResults.length
+                  ));
+                  return;
+                }
+                if (event.key === 'Enter' && boundedSearchIndex >= 0) {
+                  event.preventDefault();
+                  focusSearchResult(searchResults[boundedSearchIndex]);
+                }
               }}
               placeholder={t('search.placeholder')}
               className="h-9 min-w-0 border-0 bg-transparent px-1 text-slate-100 shadow-none placeholder:text-slate-500 focus-visible:ring-0"
             />
+            {query ? (
+              <Button
+                type="button"
+                size="icon-sm"
+                variant="ghost"
+                className="rounded-full text-slate-500 hover:bg-slate-800 hover:text-slate-100"
+                onClick={clearSearch}
+                aria-label={t('search.clear')}
+              >
+                <X aria-hidden="true" className="h-4 w-4" />
+              </Button>
+            ) : null}
             <Button
               type="button"
               size="icon-sm"
@@ -766,21 +822,66 @@ export function KnowledgeGraphClient() {
             <div
               id="knowledge-graph-search-results"
               aria-live="polite"
+              aria-label={t('search.results', { count: searchResults.length })}
+              role="listbox"
               className="mt-1 max-h-[25dvh] overflow-y-auto rounded-2xl border border-slate-700/70 bg-slate-950/94 p-1 shadow-2xl backdrop-blur-xl [@media(min-height:640px)]:max-h-72 md:rounded-xl"
             >
-              {searchResults.map((node) => (
-                <div key={node.id} className="group flex items-center gap-2 rounded-xl px-2 py-2 hover:bg-slate-800/80">
+              {searchResults.map((result, resultIndex) => {
+                const resultIsActive = resultIndex === boundedSearchIndex;
+                const resultIsVisible = visibleDocumentIds.has(result.document.path);
+                const contextualMatch = result.matchKind === 'alias'
+                  ? t('search.match.alias', { value: result.matchValue })
+                  : result.matchKind === 'folder'
+                    ? t('search.match.folder', { value: result.matchValue })
+                    : result.matchKind === 'tag'
+                      ? t('search.match.tag', { value: result.matchValue })
+                      : null;
+                return (
                   <button
+                    key={result.document.path}
+                    id={`knowledge-graph-search-result-${resultIndex}`}
                     type="button"
-                    aria-current={activeFocusNodeId === node.id ? 'true' : undefined}
-                    className="min-w-0 flex-1 text-left"
-                    onClick={() => focusSearchResult(node)}
+                    role="option"
+                    aria-current={activeFocusNodeId === result.document.path ? 'true' : undefined}
+                    aria-selected={resultIsActive}
+                    onClick={() => focusSearchResult(result)}
+                    onFocus={() => setActiveSearchIndex(resultIndex)}
+                    onMouseEnter={() => setActiveSearchIndex(resultIndex)}
+                    className={cn(
+                      'flex w-full items-start gap-2.5 rounded-xl border border-transparent px-2.5 py-2 text-left transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400',
+                      resultIsActive
+                        ? 'border-cyan-400/25 bg-cyan-400/10'
+                        : 'hover:bg-slate-800/80',
+                    )}
                   >
-                    <span className="block truncate text-xs font-semibold text-slate-100">{node.label}</span>
-                    <span className="block truncate font-mono text-[10px] text-slate-500">{node.path}</span>
+                    <span className="mt-0.5 grid h-7 w-7 shrink-0 place-items-center rounded-lg bg-slate-800 text-cyan-300">
+                      <FileText aria-hidden="true" className="h-3.5 w-3.5" />
+                    </span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-xs font-semibold text-slate-100">
+                        {result.document.title}
+                      </span>
+                      <span className="block truncate font-mono text-[10px] text-slate-500">
+                        {result.document.path}
+                      </span>
+                      {contextualMatch || !resultIsVisible ? (
+                        <span className="mt-1 flex min-w-0 flex-wrap gap-1">
+                          {contextualMatch ? (
+                            <span className="max-w-full truncate rounded-full bg-slate-800 px-1.5 py-0.5 font-mono text-[9px] text-slate-300">
+                              {contextualMatch}
+                            </span>
+                          ) : null}
+                          {!resultIsVisible ? (
+                            <span className="rounded-full bg-amber-400/10 px-1.5 py-0.5 text-[9px] text-amber-200">
+                              {t('search.reveal')}
+                            </span>
+                          ) : null}
+                        </span>
+                      ) : null}
+                    </span>
                   </button>
-                </div>
-              ))}
+                );
+              })}
             </div>
           ) : (
             <div
