@@ -351,6 +351,9 @@ export function AgentSettingsPanel({
   const [capabilitiesError, setCapabilitiesError] = useState<string | null>(null);
   const [relevantSkillsDraft, setRelevantSkillsDraft] = useState<string[]>([]);
   const [relevantConnectionsDraft, setRelevantConnectionsDraft] = useState<string[]>([]);
+  const [modelOverrideEnabled, setModelOverrideEnabled] = useState(false);
+  const [modelOverrideSaving, setModelOverrideSaving] = useState(false);
+  const [modelOverrideError, setModelOverrideError] = useState<string | null>(null);
 
   const [heartbeatConfig, setHeartbeatConfig] = useState<AgentHeartbeatConfig | null>(null);
   const [heartbeatScheduleDraft, setHeartbeatScheduleDraft] = useState<AgentHeartbeatScheduleDraft>(() => defaultHeartbeatScheduleDraft());
@@ -395,6 +398,8 @@ export function AgentSettingsPanel({
     setOpenToolRows({});
     setActiveToolGroups(new Set());
     setCapabilitiesError(null);
+    setModelOverrideEnabled(false);
+    setModelOverrideError(null);
     setHeartbeatConfig(null);
     setHeartbeatScheduleDraft(defaultHeartbeatScheduleDraft());
     setHeartbeatDeliveryDraft(defaultHeartbeatDeliveryDraft());
@@ -426,6 +431,12 @@ export function AgentSettingsPanel({
   const toolsOverrideEnabled = isMainAgent || Array.isArray(selectedAgent?.enabledTools);
   const skillsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantSkills);
   const connectionsOverrideEnabled = !isMainAgent && Array.isArray(selectedAgent?.relevantConnections);
+  const hasStoredModelOverride = !isMainAgent && Boolean(
+    selectedAgent?.defaultProviderInstallationId
+    || selectedAgent?.defaultProvider
+    || selectedAgent?.defaultModel
+    || selectedAgent?.defaultThinking,
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -438,6 +449,16 @@ export function AgentSettingsPanel({
       cancelled = true;
     };
   }, [selectedAgent?.agentId, selectedAgent?.relevantConnections, selectedAgent?.relevantSkills]);
+
+  useEffect(() => {
+    let cancelled = false;
+    queueMicrotask(() => {
+      if (!cancelled) setModelOverrideEnabled(hasStoredModelOverride);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [hasStoredModelOverride, selectedAgent?.agentId]);
 
   const loadAgents = useCallback(async () => {
     setAgentsLoading(true);
@@ -1098,6 +1119,37 @@ export function AgentSettingsPanel({
     }
   };
 
+  const setAgentModelOverrideEnabled = async (enabled: boolean) => {
+    if (isMainAgent || !selectedAgent) return;
+    setModelOverrideError(null);
+
+    if (enabled) {
+      setModelOverrideEnabled(true);
+      setAgentSectionOpen('runtime', true);
+      return;
+    }
+
+    if (!hasStoredModelOverride) {
+      setModelOverrideEnabled(false);
+      return;
+    }
+
+    setModelOverrideSaving(true);
+    try {
+      await patchSelectedAgent({
+        defaultProviderInstallationId: null,
+        defaultProvider: null,
+        defaultModel: null,
+        defaultThinking: null,
+      });
+      setModelOverrideEnabled(false);
+    } catch (error) {
+      setModelOverrideError(error instanceof Error ? error.message : t('agentPanel.inheritance.errors.save'));
+    } finally {
+      setModelOverrideSaving(false);
+    }
+  };
+
   const saveAgentCapabilityOverrides = async (payload: Record<string, unknown>) => {
     if (isMainAgent) return;
     setCapabilitiesSaving(true);
@@ -1262,6 +1314,22 @@ export function AgentSettingsPanel({
           <CardContent className="grid gap-3 md:grid-cols-2">
             <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
               <div className="min-w-0">
+                <p className="text-sm font-medium">{t('agentPanel.inheritance.modelOverride')}</p>
+                <p className="truncate text-xs text-muted-foreground">
+                  {modelOverrideEnabled
+                    ? t('agentPanel.inheritance.usesDedicatedModel')
+                    : t('agentPanel.inheritance.inheritsAppDefault')}
+                </p>
+              </div>
+              <Switch
+                checked={modelOverrideEnabled}
+                onCheckedChange={(checked) => void setAgentModelOverrideEnabled(checked)}
+                disabled={modelOverrideSaving || !canManageAgentDefaults}
+                aria-label={t('agentPanel.inheritance.modelOverride')}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-4 rounded-md border bg-muted/20 p-3">
+              <div className="min-w-0">
                 <p className="text-sm font-medium">{t('agentPanel.inheritance.toolsOverride')}</p>
                 <p className="truncate text-xs text-muted-foreground">
                   {toolsOverrideEnabled
@@ -1308,6 +1376,7 @@ export function AgentSettingsPanel({
                 aria-label={t('agentPanel.capabilities.connectionsToggle')}
               />
             </div>
+            {modelOverrideError && <p className="text-sm text-destructive md:col-span-2">{modelOverrideError}</p>}
             {capabilitiesError && <p className="text-sm text-destructive md:col-span-2">{capabilitiesError}</p>}
           </CardContent>
         </Card>
@@ -1323,13 +1392,14 @@ export function AgentSettingsPanel({
         />
       )}
 
-      {!isMainAgent && selectedAgent && (
+      {!isMainAgent && selectedAgent && modelOverrideEnabled && (
         <AgentCatalogModelOverrideCard
           key={selectedAgent.agentId}
           agent={selectedAgent}
           canManage={canManageAgentDefaults}
           isOpen={agentSectionOpenById.runtime}
           onOpenChange={(isOpen) => setAgentSectionOpen('runtime', isOpen)}
+          onSavingChange={setModelOverrideSaving}
           onSaved={async () => {
             await loadAgents();
             await loadToolsConfig();

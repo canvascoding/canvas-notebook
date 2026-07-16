@@ -9,6 +9,7 @@ const navigation = read('app/components/settings/SettingsNavigation.tsx');
 const settingsClient = read('app/components/settings/IntegrationsSettingsClient.tsx');
 const agentSettings = read('app/components/settings/AgentSettingsPanel.tsx');
 const runtimeCard = read('app/components/settings/AgentRuntimePreferenceCard.tsx');
+const modelOverrideCard = read('app/components/settings/AgentCatalogModelOverrideEditor.tsx');
 const chatComposer = read('app/components/canvas-agent-chat/ChatComposer.tsx');
 const onboardingWizard = read('app/[locale]/(routes)/onboarding/onboarding-wizard.tsx');
 const legacyRuntimePanelPath = path.join(root, 'app/components/settings/MyAgentRuntimePanel.tsx');
@@ -19,6 +20,10 @@ assert.match(settingsClient, /value === ['"]my-agent-runtime['"]\) return ['"]ag
 assert.doesNotMatch(settingsClient, /renderLazyTabContent\(['"]my-agent-runtime['"]/u);
 assert.doesNotMatch(settingsClient, /import\(['"]@\/app\/components\/settings\/MyAgentRuntimePanel['"]\)/u);
 assert.match(agentSettings, /<AgentRuntimePreferenceCard/u);
+assert.match(agentSettings, /checked=\{modelOverrideEnabled\}/u);
+assert.match(agentSettings, /!isMainAgent && selectedAgent && modelOverrideEnabled/u);
+assert.match(agentSettings, /defaultProviderInstallationId:\s*null[\s\S]+defaultThinking:\s*null/u);
+assert.doesNotMatch(modelOverrideCard, /<Switch/u);
 assert.match(agentSettings, /searchParams\.get\(['"]tab['"]\) === ['"]my-agent-runtime['"] \? ['"]runtime['"] : null/u);
 assert.match(runtimeCard, /data-testid="agent-runtime-provider"/u);
 assert.match(runtimeCard, /data-testid="agent-runtime-model"/u);

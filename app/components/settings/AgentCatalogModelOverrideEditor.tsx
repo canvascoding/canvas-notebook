@@ -12,7 +12,6 @@ import type {
 } from '@/app/lib/agent-runtime-policy/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
 
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { readAdminRuntimeCatalog } from './ai-runtime/catalog-client';
@@ -258,6 +257,7 @@ type AgentCatalogModelOverrideCardProps = {
   isOpen: boolean;
   onOpenChange: (open: boolean) => void;
   onSaved: () => Promise<void> | void;
+  onSavingChange?: (saving: boolean) => void;
 };
 
 function selectionFromAgent(agent: AgentDefaultProfile): AgentCatalogModelSelection | null {
@@ -320,13 +320,10 @@ export function AgentCatalogModelOverrideCard({
   isOpen,
   onOpenChange,
   onSaved,
+  onSavingChange,
 }: AgentCatalogModelOverrideCardProps) {
   const t = useTranslations('settings.agentPanel.inheritance');
   const storedSelection = selectionFromAgent(agent);
-  const hasStoredOverride = Boolean(
-    agent.defaultProviderInstallationId || agent.defaultProvider || agent.defaultModel || agent.defaultThinking,
-  );
-  const [overrideEnabled, setOverrideEnabled] = useState(Boolean(storedSelection || hasStoredOverride));
   const [catalog, setCatalog] = useState<AiAppRuntimeCatalog | null>(null);
   const [selection, setSelection] = useState<AgentCatalogModelSelection | null>(storedSelection);
   const [loading, setLoading] = useState(false);
@@ -350,7 +347,7 @@ export function AgentCatalogModelOverrideCard({
   }, [canManage, t]);
 
   useEffect(() => {
-    if (!canManage || (!isOpen && !overrideEnabled) || catalog || loading) return;
+    if (!canManage || catalog || loading) return;
     let cancelled = false;
     queueMicrotask(() => {
       if (!cancelled) void loadCatalog();
@@ -358,12 +355,13 @@ export function AgentCatalogModelOverrideCard({
     return () => {
       cancelled = true;
     };
-  }, [canManage, catalog, isOpen, loadCatalog, loading, overrideEnabled]);
+  }, [canManage, catalog, loadCatalog, loading]);
 
   const save = async () => {
     if (!canManage) return;
-    if (overrideEnabled && !isAgentCatalogSelectionValid(catalog, selection)) return;
+    if (!isAgentCatalogSelectionValid(catalog, selection)) return;
     setSaving(true);
+    onSavingChange?.(true);
     setError(null);
     setSuccess(null);
     try {
@@ -371,7 +369,7 @@ export function AgentCatalogModelOverrideCard({
         agentId: agent.agentId,
         expectedRevision: agent.revision,
         catalogRevision: catalog?.revision,
-        selection: overrideEnabled ? selection : null,
+        selection,
       });
       setSuccess(t('overrideSaved'));
       await onSaved();
@@ -379,12 +377,11 @@ export function AgentCatalogModelOverrideCard({
       setError(saveError instanceof Error ? saveError.message : t('errors.save'));
     } finally {
       setSaving(false);
+      onSavingChange?.(false);
     }
   };
 
-  const summary = overrideEnabled
-    ? t('usesDedicatedModel')
-    : t('inheritsAppDefault');
+  const summary = t('usesDedicatedModel');
 
   if (!canManage) {
     return (
@@ -425,68 +422,33 @@ export function AgentCatalogModelOverrideCard({
       onOpenChange={onOpenChange}
       summaryItems={[summary]}
     >
-      <div className="flex items-start justify-between gap-4 rounded-lg border bg-muted/20 p-3">
-        <div className="min-w-0 space-y-1">
-          <p className="text-sm font-medium">{t('modelOverride')}</p>
-          <p className="text-xs leading-relaxed text-muted-foreground">
-            {overrideEnabled ? t('overrideEnabledDescription') : t('overrideDisabledDescription')}
-          </p>
-        </div>
-        <Switch
-          checked={overrideEnabled}
-          onCheckedChange={(enabled) => {
-            setOverrideEnabled(enabled);
-            setSuccess(null);
-            if (enabled && !catalog && !loading) void loadCatalog();
-          }}
-          disabled={saving}
-          aria-label={t('modelOverride')}
-          className="shrink-0"
-        />
-      </div>
-
-      {(overrideEnabled || isOpen) && (
-        <>
-          {!overrideEnabled && (
-            <p className="rounded-md border border-dashed bg-muted/20 px-3 py-2 text-sm leading-relaxed text-muted-foreground">
-              {t('inheritedDefaultPreview')}
-            </p>
-          )}
-          <AgentCatalogModelOverrideEditor
-            catalog={catalog}
-            selection={selection}
-            loading={loading}
-            error={error}
-            disabled={saving || !overrideEnabled}
-            onSelectionChange={(nextSelection) => {
-              setSelection(nextSelection);
-              setSuccess(null);
-            }}
-            onRetry={() => void loadCatalog()}
-          />
-        </>
-      )}
-
-      {!overrideEnabled && error && (
-        <p className="text-sm text-destructive" role="alert">{error}</p>
-      )}
+      <AgentCatalogModelOverrideEditor
+        catalog={catalog}
+        selection={selection}
+        loading={loading}
+        error={error}
+        disabled={saving}
+        onSelectionChange={(nextSelection) => {
+          setSelection(nextSelection);
+          setSuccess(null);
+        }}
+        onRetry={() => void loadCatalog()}
+      />
       {success && <p className="text-sm text-emerald-700 dark:text-emerald-300" role="status">{success}</p>}
 
       <div className="flex flex-wrap gap-2 pt-1">
         <Button
           type="button"
           onClick={() => void save()}
-          disabled={saving || (overrideEnabled && !isAgentCatalogSelectionValid(catalog, selection))}
+          disabled={saving || !isAgentCatalogSelectionValid(catalog, selection)}
         >
           {saving ? <Loader2 className="size-4 animate-spin" aria-hidden="true" /> : <Save className="size-4" aria-hidden="true" />}
           {saving ? t('savingOverride') : t('saveOverride')}
         </Button>
-        {overrideEnabled && (
-          <Button type="button" variant="outline" onClick={() => void loadCatalog()} disabled={loading || saving}>
-            <RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} aria-hidden="true" />
-            {t('reloadCatalog')}
-          </Button>
-        )}
+        <Button type="button" variant="outline" onClick={() => void loadCatalog()} disabled={loading || saving}>
+          <RefreshCw className={loading ? 'size-4 animate-spin' : 'size-4'} aria-hidden="true" />
+          {t('reloadCatalog')}
+        </Button>
       </div>
     </AgentSettingsAccordionCard>
   );
