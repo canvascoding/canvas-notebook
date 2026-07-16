@@ -301,6 +301,34 @@ assert.equal(
   28,
 );
 
+for (const name of [
+  'docker-python:flatbuffers',
+  'docker-python:magika',
+  'docker-python:markitdown',
+  'docker-global-npm:@sigstore/verify',
+  'docker-global-npm:imurmurhash',
+  'docker-global-npm:spdx-license-ids',
+]) {
+  const component = inventory.components.find((candidate) => candidate.name === name);
+  assert(component, `${name} must be represented outside the application package-lock inventory`);
+  assert.equal(component.policyDecision, 'allowed');
+  assert.equal(component.distributedIn.join(','), 'docker-image');
+  assert(component.licenseTextSha256);
+}
+for (const name of [
+  'docker-global-npm:@npmcli/agent',
+  'docker-global-npm:err-code',
+  'docker-global-npm:spdx-exceptions',
+]) {
+  const component = inventory.components.find((candidate) => candidate.name === name);
+  assert(component, `${name} must remain visible as a global npm runtime package`);
+  assert.equal(component.policyDecision, 'review_required');
+  assert(
+    inventory.releaseGate.blockers.some((blocker) => blocker.name === name),
+    `${name} must block a commercial release until its missing terms or attribution are resolved`,
+  );
+}
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

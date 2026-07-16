@@ -5,7 +5,7 @@ versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.7.16.2
 - Lockfile SHA-256: `900689ec66bf8da07a175d3ed8abb6184b2bb2c80c7e1b838e1b08561f859b2a`
-- Distributed components: 1473
+- Distributed components: 1482
 - Release gate: **blocked**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -26,6 +26,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | seed-skill:skill-creator | repository-version | asset | Apache-2.0 | allowed |
 | seed-skill:theme-factory | repository-version | asset | Apache-2.0 | allowed |
 | seed-skill:web-artifacts-builder | repository-version | asset | Apache-2.0 | allowed |
+| docker-global-npm:@npmcli/agent | 4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367 | native | ISC | review_required |
+| docker-global-npm:@sigstore/verify | 3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3 | native | Apache-2.0 | allowed |
+| docker-global-npm:err-code | 2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a | native | MIT | review_required |
+| docker-global-npm:imurmurhash | 0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2 | native | MIT | allowed |
+| docker-global-npm:spdx-exceptions | 2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799 | native | CC-BY-3.0 | review_required |
+| docker-global-npm:spdx-license-ids | 3.0.23 / a2a975daf48bbc2afdc8e7c304405b44c656fd53 | native | CC0-1.0 | allowed |
+| docker-python:flatbuffers | 25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953 | native | Apache-2.0 | allowed |
+| docker-python:magika | 0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767 | native | Apache-2.0 | allowed |
+| docker-python:markitdown | 0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551 | native | MIT | allowed |
 | electron-runtime | 42.6.1 | native | MIT | allowed |
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | review_required |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
@@ -1494,6 +1503,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 The following entries require a documented responsible/legal decision before a commercial release:
 
 - **first-commercial-release-approval 2026.7.16.2:** The deterministic engineering inventory is implemented. A responsible owner or legal reviewer must approve the first commercial-release inventory.
+- **docker-global-npm:@npmcli/agent 4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367:** The exact npm tarball, npm gitHead commit and global npm copy declare ISC but contain no LICENSE, NOTICE, full ISC terms or attributable copyright. Do not infer ownership from the npm organization.
+- **docker-global-npm:err-code 2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a:** The exact npm tarball, gitHead and dereferenced v2.0.3 tag contain only a README link to generic MIT terms, with no full license or attributable copyright. Canvas supplies canonical MIT terms but does not invent an owner.
+- **docker-global-npm:spdx-exceptions 2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799:** The exact npm tarball, gitHead and dereferenced v2.5.0 tag declare CC-BY-3.0 but omit its legal code and an explicit attribution statement. The dataset remains blocked until the correct attribution and legal text are established.
 - **node-docker-base node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d:** The Dockerfile pins the resolved multi-architecture image index digest. The image build captures exact Debian and Python versions plus hashes of packaged license/copyright files. A release reviewer must still assess the concrete Debian/Python license mix before commercial approval.
 - **@apm-js-collab/code-transformer-bundler-plugins 0.5.0:** The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. The package remains review_required until upstream supplies the missing notice or a responsible reviewer documents a legally supportable attribution. Verification source: https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json The MIT copyright notice could not be attributed automatically.
 - **@better-auth/utils 0.4.2:** The exact npm release declares MIT. Its signed npm provenance maps tag v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, which matches the dereferenced upstream tag. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. Package author metadata names Bereket Engida, but authorship alone is not treated as proof of copyright ownership. The package remains review_required. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json The MIT copyright notice could not be attributed automatically. Package author metadata: Bereket Engida
@@ -18239,7 +18251,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text a2010f343487
 
-Applies to fractional-indexing@3.2.0, highlightjs-vue@1.0.0.
+Applies to docker-global-npm:spdx-license-ids@3.0.23 / a2a975daf48bbc2afdc8e7c304405b44c656fd53, fractional-indexing@3.2.0, highlightjs-vue@1.0.0.
 
 Copyright notices:
 
@@ -21018,12 +21030,15 @@ THE SOFTWARE.
 
 ### License text b08840544230
 
-Applies to webdriver-bidi-protocol@0.4.1, webdriver-bidi-protocol@0.4.2.
+Applies to docker-global-npm:@sigstore/verify@3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3, docker-python:flatbuffers@25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953, docker-python:magika@0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767, webdriver-bidi-protocol@0.4.1, webdriver-bidi-protocol@0.4.2.
 
 Copyright notices:
 
 - (c) You must retain, in the Source form of any Derivative Works
+- Copyright 2016 Google Inc. All rights reserved.
 - Copyright 2024 Google Inc.
+- Copyright 2024 Google LLC
+- Copyright The Sigstore Authors
 - that You distribute, all copyright, patent, trademark, and
 
 ```text
@@ -27633,13 +27648,15 @@ SOFTWARE.
 
 ### License text f0112ade926a
 
-Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
+Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
 
 Copyright notices:
 
 - Copyright (c) 2009-2016 Stuart Knightley, David Duponchel, Franz Buchinger, António Afonso
+- Copyright (c) 2013 Gary Court, Jens Taylor
 - Copyright (c) 2020 Excalidraw
 - Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>
+- Copyright (c) Microsoft Corporation.
 - Copyright (c) Sami Samhuri
 
 ```text

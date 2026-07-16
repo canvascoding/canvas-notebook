@@ -38,23 +38,23 @@ Die technische Umsetzung ist vorhanden und reproduzierbar. Der Bestand vom
 
 | Kennzahl | Stand |
 | --- | ---: |
-| Komponenten gesamt | 1.981 |
-| ausgelieferter Runtime-/Asset-Bestand | 1.473 |
+| Komponenten gesamt | 1.990 |
+| ausgelieferter Runtime-/Asset-Bestand | 1.482 |
 | nur Entwicklung | 508 |
-| automatisch beziehungsweise dokumentiert `allowed` | 1.911 |
-| `review_required` im Gesamtbestand | 70 |
+| automatisch beziehungsweise dokumentiert `allowed` | 1.926 |
+| `review_required` im Gesamtbestand | 64 |
 | pauschal `blocked` | 0 |
-| Blocker fuer ein kommerzielles Release | 49 |
+| Blocker fuer ein kommerzielles Release | 43 |
 
 Das strikte Release-Gate ist absichtlich gesperrt. Offen sind:
 
 - die erste dokumentierte verantwortliche oder rechtliche Gesamtfreigabe,
 - die Bewertung des gepinnten Docker-Basisimages und des konkreten
   Debian-/Python-Lieferumfangs,
+- drei Pakete des global installierten npm ohne vollstaendigen exakten
+  Lizenz-/Attributionsbeleg,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Positionen,
-- die dokumentierte Lizenzwahl fuer `@zone-eu/mailsplit`, `dompurify` und
-  `jszip`,
-- 16 Runtime-Pakete ohne vollstaendigen exakten Lizenztext oder ohne belastbar
+- 10 Runtime-Pakete ohne vollstaendigen exakten Lizenztext oder ohne belastbar
   zugeordneten MIT-Copyright-Hinweis.
 
 Diese Positionen sind keine pauschale Aussage, dass die Komponenten unzulaessig
@@ -72,7 +72,8 @@ werden muss.
 | `docs/compliance/third-party-license-cache.json` | Lockfile-gebundene Upstream-Belege fuer fehlende Paket-Lizenzdateien | nur ueber Refresh-Skript |
 | `docs/compliance/third-party-components.json` | generiertes Komponenten-, Quellen-, Entscheidungs- und Release-Gate-Manifest | nicht direkt bearbeiten |
 | `THIRD_PARTY_NOTICES.md` | generierte menschenlesbare Notices | nicht direkt bearbeiten |
-| `docs/compliance/runtime-components.json` | im finalen Docker-Image erfasste Debian-/Python-Versionen und Beleg-Hashes | waehrend Image-Build erzeugt |
+| `docs/compliance/runtime-components.json` | im finalen Docker-Image erfasste Node-, Debian-, Python- und globale npm-Versionen samt Beleg-Hashes | waehrend Image-Build erzeugt |
+| `docs/compliance/docker-runtime-review.md` | technische Einzelpruefung von Basisimage, Source-Zuordnung, Python-Wheels und globalem npm | nach jedem Image-Lieferumfangswechsel aktualisieren |
 | `docs/compliance/sharp-native-binary-review.md` | versions- und plattformspezifische Pruefung der 28 sharp-/libvips-Binaerpositionen | nach Binary-/Source-Aenderung manuell aktualisieren |
 | `docs/compliance/third-party-review-decisions.md` | versionsgenaue technische Entscheidungen fuer einzelne Review-Blocker | nach abgeschlossener Einzelpruefung manuell |
 | `docs/compliance/third-party-release-approval-template.md` | Vorlage fuer menschliche Freigabe und Lizenzentscheidungen | pro Review kopieren/ausfuellen |

@@ -45,17 +45,19 @@ umgesetzt und liegt reproduzierbar im Repository:
 - Der GitHub-Release-Workflow und der lokale Release-Publisher-Ablauf verwenden
   `npm run verify:release` vor Paketierung, Tag und Veroeffentlichung.
 
-Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
+Der aktuelle technische Scan umfasst 1.990 Komponenten: 1.482 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 40 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.920 Komponenten `allowed`, 61
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 43 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.926 Komponenten `allowed`, 64
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 40 Release-Pruefpositionen gliedern sich in:
+Die 43 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
+- drei konkrete Pakete des global installierten npm ohne vollstaendigen
+  exakten Lizenz-/Attributionsbeleg,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
 - 10 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
@@ -224,9 +226,13 @@ Die technische Verifikation am 16. Juli 2026 umfasst:
   `sha256:34801b0e58fd994fe45d37f8e811e002e3d713583f1cec395c89b408748d261a`
   auf Basis des gepinnten Node-Image-Digests
   `sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d`,
-- 408 Debian-Pakete und 48 Python-Distributionen im finalen Image; fuer alle
-  Debian-Pakete und alle 45 nicht durch Debian verwalteten Python-Pakete ist
-  ein lesbarer, gehashter Lizenz-/Copyright-Beleg vorhanden,
+- 408 Debian-Pakete aus 276 Source-Paket/Versionspaaren, 48
+  Python-Distributionen, die Node-Runtime und 153 Pakete des global
+  installierten npm im Schema-3-Test gegen das finale arm64-Image,
+- korrigierte PEP-639-Erkennung mit 94 Python-Lizenzdateien einschliesslich
+  der zuvor uebersehenen plattformspezifischen PDFium-Build-Lizenzen,
+- sechs versionsgenaue Non-npm-Ergaenzungen fuer fehlende pip-/globale-
+  npm-Lizenztexte und drei bewusst blockierende globale npm-Einzelfaelle,
 - byte-identische Host- und Image-Ausgaben fuer
   `THIRD_PARTY_NOTICES.md` und das Komponentenmanifest,
 - Playwright-E2E gegen den neu gebauten Container fuer die Legal-Ansicht auf

@@ -37,6 +37,7 @@ ARG APP_USER=node
 ARG NODE_BASE_IMAGE
 ARG NPM_VERSION
 ARG POSTGRES_CLIENT_MAJOR=18
+ARG TARGETPLATFORM
 
 RUN set -eux; \
   apt-get update; \
@@ -102,6 +103,7 @@ COPY --from=builder /app/scripts ./scripts
 # package copyright files remain available under /usr/share/doc/*/copyright.
 RUN node ./scripts/capture-runtime-component-inventory.mjs \
   --base-image "${NODE_BASE_IMAGE}" \
+  --platform "${TARGETPLATFORM}" \
   --output /app/docs/compliance/runtime-components.json
 RUN node ./scripts/runtime-component-inventory-test.mjs \
   /app/docs/compliance/runtime-components.json

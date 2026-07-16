@@ -4,13 +4,13 @@
   "packageVersion": "2026.7.16.2",
   "lockfileSha256": "900689ec66bf8da07a175d3ed8abb6184b2bb2c80c7e1b838e1b08561f859b2a",
   "summary": {
-    "totalComponents": 1981,
+    "totalComponents": 1990,
     "npmComponents": 1968,
-    "nonNpmComponents": 13,
-    "runtimeComponents": 1473,
+    "nonNpmComponents": 22,
+    "runtimeComponents": 1482,
     "developmentOnlyComponents": 508,
-    "allowed": 1920,
-    "reviewRequired": 61,
+    "allowed": 1926,
+    "reviewRequired": 64,
     "blocked": 0
   },
   "releaseGate": {
@@ -23,6 +23,21 @@
         "name": "first-commercial-release-approval",
         "versionOrCommit": "2026.7.16.2",
         "reason": "The deterministic engineering inventory is implemented. A responsible owner or legal reviewer must approve the first commercial-release inventory."
+      },
+      {
+        "name": "docker-global-npm:@npmcli/agent",
+        "versionOrCommit": "4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367",
+        "reason": "The exact npm tarball, npm gitHead commit and global npm copy declare ISC but contain no LICENSE, NOTICE, full ISC terms or attributable copyright. Do not infer ownership from the npm organization."
+      },
+      {
+        "name": "docker-global-npm:err-code",
+        "versionOrCommit": "2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a",
+        "reason": "The exact npm tarball, gitHead and dereferenced v2.0.3 tag contain only a README link to generic MIT terms, with no full license or attributable copyright. Canvas supplies canonical MIT terms but does not invent an owner."
+      },
+      {
+        "name": "docker-global-npm:spdx-exceptions",
+        "versionOrCommit": "2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799",
+        "reason": "The exact npm tarball, gitHead and dereferenced v2.5.0 tag declare CC-BY-3.0 but omit its legal code and an explicit attribution statement. The dataset remains blocked until the correct attribution and legal text are established."
       },
       {
         "name": "node-docker-base",
@@ -10367,6 +10382,178 @@
       ],
       "modified": false,
       "policyDecision": "allowed"
+    },
+    {
+      "name": "docker-global-npm:@npmcli/agent",
+      "versionOrCommit": "4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367",
+      "sourceUrl": "https://github.com/npm/agent/tree/0f3b22d0e199237ec5628e2337ab3db027514367",
+      "packagePathOrArtifact": "/usr/local/lib/node_modules/npm/node_modules/@npmcli/agent",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "ISC",
+      "verifiedLicense": "ISC",
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "review_required",
+      "reviewNotes": "The exact npm tarball, npm gitHead commit and global npm copy declare ISC but contain no LICENSE, NOTICE, full ISC terms or attributable copyright. Do not infer ownership from the npm organization."
+    },
+    {
+      "name": "docker-global-npm:@sigstore/verify",
+      "versionOrCommit": "3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3",
+      "sourceUrl": "https://github.com/sigstore/sigstore-js/tree/c4ad6141eb947a20690837888e5d90d9a30b5af3",
+      "packagePathOrArtifact": "/usr/local/lib/node_modules/npm/node_modules/@sigstore/verify",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/webdriver-bidi-protocol/LICENSE",
+      "licenseTextSha256": "b08840544230421823a071f4dace39a58be90a54537f36c4b283c93d93d70cc6",
+      "copyrightNotices": [
+        "Copyright The Sigstore Authors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "npm's global bundle omits the package LICENSE. npm gitHead identifies the exact monorepo commit, whose root contains the canonical Apache-2.0 text and no NOTICE file."
+    },
+    {
+      "name": "docker-global-npm:err-code",
+      "versionOrCommit": "2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a",
+      "sourceUrl": "https://github.com/IndigoUnited/js-err-code/tree/92511d41a6a926c94c9d11493404867b1e92a77a",
+      "packagePathOrArtifact": "/usr/local/lib/node_modules/npm/node_modules/err-code",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "review_required",
+      "reviewNotes": "The exact npm tarball, gitHead and dereferenced v2.0.3 tag contain only a README link to generic MIT terms, with no full license or attributable copyright. Canvas supplies canonical MIT terms but does not invent an owner."
+    },
+    {
+      "name": "docker-global-npm:imurmurhash",
+      "versionOrCommit": "0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2",
+      "sourceUrl": "https://github.com/jensyt/imurmurhash-js/tree/9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2",
+      "packagePathOrArtifact": "/usr/local/lib/node_modules/npm/node_modules/imurmurhash",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
+      "copyrightNotices": [
+        "Copyright (c) 2013 Gary Court, Jens Taylor"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The global npm bundle omits the package LICENSE. Tag 0.1.4, the exact package code and the already inventoried application copy establish the same MIT terms and copyright."
+    },
+    {
+      "name": "docker-global-npm:spdx-exceptions",
+      "versionOrCommit": "2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799",
+      "sourceUrl": "https://github.com/kemitchell/spdx-exceptions.json/tree/3aa64bec339abc6a3eca00c3436aaa7e154b8799",
+      "packagePathOrArtifact": "/usr/local/lib/node_modules/npm/node_modules/spdx-exceptions",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "CC-BY-3.0",
+      "verifiedLicense": "CC-BY-3.0",
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "review_required",
+      "reviewNotes": "The exact npm tarball, gitHead and dereferenced v2.5.0 tag declare CC-BY-3.0 but omit its legal code and an explicit attribution statement. The dataset remains blocked until the correct attribution and legal text are established."
+    },
+    {
+      "name": "docker-global-npm:spdx-license-ids",
+      "versionOrCommit": "3.0.23 / a2a975daf48bbc2afdc8e7c304405b44c656fd53",
+      "sourceUrl": "https://github.com/jslicense/spdx-license-ids/tree/a2a975daf48bbc2afdc8e7c304405b44c656fd53",
+      "packagePathOrArtifact": "/usr/local/lib/node_modules/npm/node_modules/spdx-license-ids",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "CC0-1.0",
+      "verifiedLicense": "CC0-1.0",
+      "licenseTextRef": "docs/compliance/license-texts/CC0-1.0.txt",
+      "licenseTextSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The npm tarball and global npm bundle omit the legal code but npm gitHead and the dereferenced v3.0.23 tag identify this exact CC0 dataset release. Canvas supplies the official CC0-1.0 legal code."
+    },
+    {
+      "name": "docker-python:flatbuffers",
+      "versionOrCommit": "25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953",
+      "sourceUrl": "https://github.com/google/flatbuffers/tree/7e163021e59cca4f8e1e35a7c828b5c6b7915953",
+      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/flatbuffers-25.12.19.dist-info",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "Apache 2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/webdriver-bidi-protocol/LICENSE",
+      "licenseTextSha256": "b08840544230421823a071f4dace39a58be90a54537f36c4b283c93d93d70cc6",
+      "copyrightNotices": [
+        "Copyright 2016 Google Inc. All rights reserved."
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The installed pure-Python wheel declares Apache-2.0 but omits the text. The exact signed release tag resolves to this commit and contains the canonical Apache-2.0 LICENSE without NOTICE; the Python source headers retain the Google copyright."
+    },
+    {
+      "name": "docker-python:magika",
+      "versionOrCommit": "0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767",
+      "sourceUrl": "https://github.com/google/magika/tree/a04562a9bb5d52c809a4424911ca8d07c0265767",
+      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/magika-0.6.3.dist-info",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/webdriver-bidi-protocol/LICENSE",
+      "licenseTextSha256": "b08840544230421823a071f4dace39a58be90a54537f36c4b283c93d93d70cc6",
+      "copyrightNotices": [
+        "Copyright 2024 Google LLC"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The wheel and exact PyPI sdist SHA-256 7cc52aa7359af861957043e2bf7265ed4741067251c104532765cd668c0c0cb1 omit LICENSE. The official python-v0.6.3 commit contains the canonical Apache-2.0 LICENSE without NOTICE and matching source headers."
+    },
+    {
+      "name": "docker-python:markitdown",
+      "versionOrCommit": "0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551",
+      "sourceUrl": "https://github.com/microsoft/markitdown/tree/e144e0a2be95b34df17433bac904e635f2c5e551",
+      "packagePathOrArtifact": "/usr/local/lib/python3.11/dist-packages/markitdown-0.1.6.dist-info",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
+      "copyrightNotices": [
+        "Copyright (c) Microsoft Corporation."
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The wheel and exact PyPI sdist SHA-256 e5bdbaffd971b29598c7c39ef0e9afce2f08c0751fbfa4e4257678ebaf8cfc7e omit LICENSE. The signed v0.1.6 tag resolves to this commit and contains the exact MIT text and Microsoft copyright without NOTICE."
     },
     {
       "name": "electron-runtime",

@@ -785,3 +785,49 @@ Technische Entscheidung:
   modifizierter LGPL-Bestandteile nicht untersagen.
 - Erst nach Artefakttest und benannter menschlich-rechtlicher
   Plattformfreigabe darf eine Position auf `allowed` wechseln.
+
+## 20. Docker-Runtime: Node, Debian, Python und globales npm
+
+Status: vier Runtime-Klassen technisch inventarisiert; Docker-Sammelposten
+und drei globale npm-Einzelfaelle weiterhin `review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| Basisimage | `node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d` |
+| Plattformbelege | `linux/amd64` Manifest `sha256:d45d78e7929b46875bbd4e29bea672d5bc48186c6c3588306521c815e78352d6`; `linux/arm64/v8` Manifest `sha256:af01d58b748ec92b1d6e8e11429aad424fd1e68c848185399dca0596a1ab8f5c` |
+| Node | `24.18.0`, eigener Source-Tag und SHA-256 der aggregierten `/usr/local/LICENSE` |
+| Debian | 408 Binaerpakete, 276 eindeutige Source-Paket/Versionspaare, 408 gehashte Copyright-Dateien |
+| Python | 48 Distributionen, davon 45 durch pip und 3 durch Debian; 94 erkannte Lizenzdateien inklusive PEP-639-Verzeichnisse |
+| globales npm | `npm@11.11.0` mit insgesamt 153 Paketpfaden und 147 Paketlizenzdateien |
+| Canvas-Modifikation | keine Aenderung der erfassten Upstream-Runtime-Komponenten |
+| Detailbeleg | `docs/compliance/docker-runtime-review.md` |
+
+Der vorherige Scanner erfasste nur Debian- und Python-Komponenten. Das
+uebersah die ausserhalb von dpkg installierte Node-Runtime, die mit npm
+global ausgelieferten transitiven Pakete und Python-Lizenztexte in
+PEP-639-`licenses/`-Verzeichnissen. Schema 3 erfasst diese Klassen nun
+explizit, speichert Paket- beziehungsweise RECORD-Hashes und ordnet jedes
+Debian-Binaerpaket seinem konkreten Source-Paket samt Version zu.
+
+Drei Python-Wheels ohne mitgelieferten Lizenztext wurden anhand ihrer exakten
+Release-Quellen ergaenzt: `flatbuffers@25.12.19` und `magika@0.6.3` unter
+Apache-2.0 sowie `markitdown@0.1.6` unter MIT. Beim globalen npm wurden
+`@sigstore/verify@3.1.0`, `imurmurhash@0.1.4` und
+`spdx-license-ids@3.0.23` mit versionsgenauen Upstream-Belegen geschlossen.
+
+Offen bleiben `@npmcli/agent@4.0.0`, `err-code@2.0.3` und
+`spdx-exceptions@2.5.0`: Die exakten Tarballs und Commits deklarieren ISC,
+MIT beziehungsweise CC-BY-3.0, enthalten aber nicht alle erforderlichen
+Lizenztexte oder Attributionen. Die allgemeine npm-Lizenz ersetzt diese
+paketspezifischen Bedingungen nicht.
+
+Technische Entscheidung:
+
+- Die sechs geschlossenen Einzelfaelle sind versionsgebunden `allowed`.
+- Die drei offenen globalen npm-Pakete bleiben eigene Release-Blocker.
+- Der Docker-Sammelposten bleibt blockierend, bis beide Plattformimages mit
+  Schema 3 neu gebaut sind, pip/Wheels reproduzierbar gepinnt wurden und ein
+  releasegebundenes Corresponding-Source-Angebot fuer dpkg- und native
+  Bestandteile existiert.
+- Erst ein benannter verantwortlicher oder rechtlicher Reviewer darf die
+  konkrete Plattformmatrix nach Artefaktpruefung freigeben.

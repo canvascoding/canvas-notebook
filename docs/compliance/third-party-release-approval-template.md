@@ -29,7 +29,8 @@ ausgefuellte Felder keine Freigabe.
 - [ ] `npm run licenses:generate` erzeugt keinen ungelesenen Drift
 - [ ] `third-party-components.json` stimmt mit Lockfile und Lieferumfang
 - [ ] `THIRD_PARTY_NOTICES.md` ist reproduzierbar
-- [ ] Docker-Runtime-Inventar wurde aus dem finalen Image erzeugt
+- [ ] Docker-Runtime-Inventar Schema 3 wurde aus jedem finalen Plattformimage erzeugt
+- [ ] Node, dpkg, Python/pip und globales npm sind im Runtime-Inventar enthalten
 - [ ] Source-, Docker-, CLI- und Electron-Artefakte enthalten die Notices
 - [ ] Legal-UI und authentifizierte Download-Endpunkte wurden geprueft
 - [ ] anonymer Zugriff auf Legal-API bleibt gesperrt
@@ -59,11 +60,19 @@ Zulaessige Entscheidungen:
 
 ## Docker-, OS- und native Komponenten
 
+- finaler Node-Lieferumfang und aggregierte Node-Lizenz geprueft:
 - finaler Debian-Lieferumfang geprueft:
+- dpkg-Binaerpakete auf exakte Source-Paket/Versionspaare abgebildet:
+- Corresponding-Source-Manifest, Checksummen und dauerhafter Bezugsort geprueft:
 - finaler Python-/pip-Lieferumfang geprueft:
+- pip-Versionen und plattformspezifische Wheel-Hashes gepinnt:
+- PEP-639-Lizenzpfade und native Wheel-Bestandteile geprueft:
+- globales npm und dessen transitive Paketlizenzdateien geprueft:
+- offene globale npm-Einzelfaelle entschieden:
 - `sharp`-/`libvips`-Plattformpakete geprueft:
 - LGPL-/Relinking-/Source-Pflichten bewertet:
 - im Image enthaltene Lizenz-/Copyright-Belege lesbar:
+- amd64-/arm64-Inventare und Plattformmanifest-Digests verglichen:
 - Abweichungen zwischen Build- und Runtime-Image:
 - Entscheidung und Begruendung:
 
@@ -144,5 +153,7 @@ Nach erteilter Freigabe:
    werden.
 4. `npm run licenses:generate` ausfuehren.
 5. Diff von Policy, Cache, Manifest und Notices reviewen.
-6. `npm run verify:release` erfolgreich ausfuehren.
-7. Freigabenachweis zusammen mit dem Release aufbewahren.
+6. Finales Runtime-Inventar pro Containerplattform neu erzeugen und pruefen.
+7. Corresponding-Source-Manifest und plattformspezifische Wheel-Locks sichern.
+8. `npm run verify:release` erfolgreich ausfuehren.
+9. Freigabenachweis zusammen mit dem Release aufbewahren.
