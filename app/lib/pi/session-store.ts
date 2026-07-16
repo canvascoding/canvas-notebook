@@ -32,6 +32,10 @@ import {
   SessionRuntimeSnapshotConflictError,
 } from '@/app/lib/agent-runtime-policy/runtime-store';
 import type { AiSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/types';
+import {
+  findUnambiguousOwnedPiSessionForRuntime,
+  PiSessionRuntimeAccessError,
+} from '@/app/lib/pi/session-runtime-access';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -159,15 +163,28 @@ export async function insertPiSessionWithRuntimeSnapshotOnConnection(
     throw new Error('Organization setup is required for an AI runtime session.');
   }
 
-  const existing = await connection.get(
-    `SELECT id
+  const existingRows = await connection.all(
+    `SELECT id, agent_id
      FROM pi_sessions
-     WHERE session_id = ? AND user_id = ? AND agent_id = ?
+     WHERE session_id = ? AND user_id = ?
      ORDER BY id ASC
-     LIMIT 1`,
-    [input.sessionId, input.userId, input.agentId],
-  ) as { id?: number | string } | undefined;
+     LIMIT 2`,
+    [input.sessionId, input.userId],
+  ) as Array<{ id?: number | string; agent_id?: string }>;
+  if (existingRows.length > 1) {
+    throw new PiSessionRuntimeAccessError(
+      'Agent session ID is ambiguous across multiple agents.',
+      'SESSION_AMBIGUOUS',
+    );
+  }
+  const existing = existingRows[0];
   if (existing?.id !== undefined) {
+    if (existing.agent_id !== input.agentId) {
+      throw new PiSessionRuntimeAccessError(
+        'Agent session ID already belongs to a different agent.',
+        'SESSION_AGENT_MISMATCH',
+      );
+    }
     return { id: existing.id, created: false };
   }
 
@@ -311,10 +328,13 @@ export async function savePiSession(
   },
 ): Promise<void> {
   const agentId = resolveSessionAgentId(options?.agentId);
-  // Find or create session
-  const session = await db.query.piSessions.findFirst({
-    where: buildPiSessionLookup(sessionId, userId, agentId),
-  });
+  const session = await findUnambiguousOwnedPiSessionForRuntime({ sessionId, userId });
+  if (session && session.agentId !== agentId) {
+    throw new PiSessionRuntimeAccessError(
+      'Agent session ID already belongs to a different agent.',
+      'SESSION_AGENT_MISMATCH',
+    );
+  }
   const derivedTitle = deriveSessionTitle(messages);
   const normalizedTitleOverride = options?.titleOverride?.trim() || null;
 

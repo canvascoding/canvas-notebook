@@ -48,6 +48,10 @@ async function main() {
     path.join(root, 'app/components/canvas-agent-chat/useChatControlActions.ts'),
     'utf8',
   );
+  const channelRouter = readFileSync(
+    path.join(root, 'app/lib/channels/router.ts'),
+    'utf8',
+  );
   const websocketServer = readFileSync(
     path.join(root, 'server/websocket-server.ts'),
     'utf8',
@@ -55,8 +59,8 @@ async function main() {
 
   assert.match(
     canvasAgentChat,
-    /restoreWorkspaceSession:\s*true/u,
-    'workspace changes must prepare the target workspace session for restoration',
+    /clearCanvasChatActiveSessionStorage\(detail\.activeWorkspaceId\)/u,
+    'workspace changes must clear the target workspace resume pointer so the UI starts a new chat',
   );
   assert.doesNotMatch(
     canvasAgentChat,
@@ -70,8 +74,28 @@ async function main() {
   );
   assert.match(
     chatControlActions,
-    /userStartedNewChatRef\.current = options\?\.restoreWorkspaceSession !== true/u,
-    'a workspace transition must not be mistaken for a user-created blank chat',
+    /userStartedNewChatRef\.current = true/u,
+    'a workspace transition must keep the new workspace on a blank chat',
+  );
+  assert.doesNotMatch(
+    canvasAgentChat,
+    /restoreWorkspaceSession:\s*true/u,
+    'workspace changes must not restore a previous chat in the target workspace',
+  );
+  assert.match(
+    chatControlActions,
+    /agentId:\s*sessionAgentIdRef\.current \|\| selectedAgentId/u,
+    'the selected session agent must be sent with the first WebSocket message',
+  );
+  assert.match(
+    websocketServer,
+    /const agentId = existingSession\?\.agentId \|\| requestedAgentId[\s\S]*requestedSessionId:\s*message\.sessionId,[\s\S]*agentId,/u,
+    'the WebSocket server must prefer the stored session agent and forward it with the requested session',
+  );
+  assert.match(
+    channelRouter,
+    /requestedSessionId:\s*message\.requestedSessionId,[\s\S]*agentId:\s*message\.agentId/u,
+    'the channel router must preserve the selected agent during session resolution',
   );
 
   const unsubscribeStart = websocketServer.indexOf("case 'unsubscribe_session':");

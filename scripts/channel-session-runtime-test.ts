@@ -121,6 +121,7 @@ async function main() {
   const { and, eq } = await import('drizzle-orm');
   const { db } = await import('../app/lib/db');
   const {
+    agents,
     aiRuntimeDefaults,
     channelActiveSessions,
     piSessions,
@@ -131,6 +132,7 @@ async function main() {
     resolveAgentSessionWorkspaceForUser,
     workspaceToPiSessionFields,
   } = await import('../app/lib/pi/session-workspace-context');
+  const { createPiSessionWithRuntimeSnapshot } = await import('../app/lib/pi/session-store');
   const { createChannelSession, resolveChannelSession } = await import('../app/lib/channels/session-resolver');
   const { getActiveChannelSession, setActiveChannelSession } = await import('../app/lib/channels/active-sessions');
   const { ensureSessionChannelLink } = await import('../app/lib/channels/channel-links');
@@ -208,6 +210,52 @@ async function main() {
   });
   assert.equal(firstAfterRelink?.workspaceId, workspace.workspaceId);
   assert.equal(runtimeContexts.length, 1);
+
+  const specializedSessionId = 'sess-channel-runtime-specialized';
+  await db.insert(agents).values({
+    agentId: 'research-agent',
+    name: 'Research Agent',
+    iconId: 'bot',
+    type: 'special',
+    removable: true,
+    scopeType: 'user',
+    ownerUserId: userId,
+    createdByUserId: userId,
+    revision: 1,
+    createdAt: now,
+    updatedAt: now,
+  });
+  await createPiSessionWithRuntimeSnapshot({
+    sessionId: specializedSessionId,
+    userId,
+    agentId: 'research-agent',
+    title: 'Research Session',
+    workspace: workspaceToPiSessionFields(workspace),
+    runtimeSnapshot: currentSnapshot,
+    systemPromptSnapshot: {
+      systemPrompt: 'Research runtime test prompt',
+      systemPromptHash: '1'.repeat(64),
+      systemPromptCreatedAt: new Date(0),
+    },
+  });
+
+  const resolvedSpecializedSessionId = await resolveChannelSession({
+    requestedSessionId: specializedSessionId,
+    userId,
+    agentId: 'research-agent',
+    workspaceId: workspace.workspaceId,
+    channelId: 'web',
+    channelSessionKey: `web:user:${userId}`,
+  });
+  assert.equal(resolvedSpecializedSessionId, specializedSessionId);
+  const specializedSessions = await db.query.piSessions.findMany({
+    where: and(
+      eq(piSessions.sessionId, specializedSessionId),
+      eq(piSessions.userId, userId),
+    ),
+  });
+  assert.equal(specializedSessions.length, 1);
+  assert.equal(specializedSessions[0]?.agentId, 'research-agent');
 
   const requestedRaceSessionId = 'sess-channel-runtime-requested-race';
   const requestedRaceEntered = deferred();
@@ -423,6 +471,32 @@ async function main() {
   assert.equal(await db.query.channelActiveSessions.findFirst({
     where: eq(channelActiveSessions.sessionId, rejectedSessionId),
   }), undefined);
+
+  await assert.rejects(
+    createPiSessionWithRuntimeSnapshot({
+      sessionId: specializedSessionId,
+      userId,
+      agentId: 'canvas-agent',
+      title: 'Conflicting Canvas Session',
+      workspace: workspaceToPiSessionFields(workspace),
+      runtimeSnapshot: currentSnapshot,
+      systemPromptSnapshot: {
+        systemPrompt: 'Conflicting runtime test prompt',
+        systemPromptHash: '2'.repeat(64),
+        systemPromptCreatedAt: new Date(0),
+      },
+    }),
+    /different agent/u,
+  );
+  assert.equal(
+    (await db.query.piSessions.findMany({
+      where: and(
+        eq(piSessions.sessionId, specializedSessionId),
+        eq(piSessions.userId, userId),
+      ),
+    })).length,
+    1,
+  );
 
   console.log('channel-session-runtime-test: ok');
 }

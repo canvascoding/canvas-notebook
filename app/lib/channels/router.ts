@@ -21,6 +21,7 @@ export async function handleInboundChannelMessage(
     channelSessionKey: message.channelSessionKey,
     channelThreadKey: message.channelThreadKey,
     requestedSessionId: message.requestedSessionId,
+    agentId: message.agentId,
     displayName: typeof message.metadata?.displayName === 'string' ? message.metadata.displayName : null,
     workspaceId: requestedWorkspaceIdFromChatContext(context),
   });

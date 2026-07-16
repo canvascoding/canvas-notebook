@@ -59,7 +59,6 @@ type ChatRuntimeControlAction =
 
 type StartNewChatOptions = {
   clearActiveSessionStorage?: boolean;
-  restoreWorkspaceSession?: boolean;
 };
 
 type UseChatControlActionsParams = {
@@ -424,6 +423,7 @@ export function useChatControlActions({
       const payload = effectiveAction === 'send'
         ? await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('send_message', {
           sessionId: targetSessionId,
+          agentId: sessionAgentIdRef.current || selectedAgentId,
           message: userMessage as unknown as Record<string, unknown>,
           context: buildRequestContext(currentFilePath),
         }, chatRequestTimeoutMs)
@@ -450,7 +450,7 @@ export function useChatControlActions({
       }
       throw error;
     }
-  }, [appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFilePath, ensureSession, ensureSessionSubscribed, input, isMobile, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, runtimeSelection, scanForImageReferences, sessionIdRef, setAttachments, setInput, setIsResolvingInitialChatState, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, setShowHistory, shouldShowHistoryAsOverlay, showHistory, t, wsRequest]);
+  }, [appendOptimisticUserMessage, attachments, buildRequestContext, chatRequestTimeoutMs, clearCurrentAssistant, createAssistantBubble, currentFilePath, ensureSession, ensureSessionSubscribed, input, isMobile, isUploading, postControl, resetInputHistoryNavigation, runtimePhase, runtimeSelection, scanForImageReferences, selectedAgentId, sessionAgentIdRef, sessionIdRef, setAttachments, setInput, setIsResolvingInitialChatState, setMessages, setOptimisticRuntimePhase, setRuntimeStatusWithReconciliation, setShowHistory, shouldShowHistoryAsOverlay, showHistory, t, wsRequest]);
 
   const handleSend = useCallback(async () => {
     try {
@@ -560,8 +560,8 @@ export function useChatControlActions({
     sessionWorkspaceIdRef.current = null;
     sessionAgentIdRef.current = nextAgentId;
     resetRuntimeMessageRefs();
-    userStartedNewChatRef.current = options?.restoreWorkspaceSession !== true;
-    setIsResolvingInitialChatState(options?.restoreWorkspaceSession === true);
+    userStartedNewChatRef.current = true;
+    setIsResolvingInitialChatState(false);
     if (options?.clearActiveSessionStorage !== false) {
       clearCanvasChatActiveSessionStorage(activeWorkspaceId);
     }

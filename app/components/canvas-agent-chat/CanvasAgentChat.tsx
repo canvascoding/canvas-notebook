@@ -39,11 +39,13 @@ import {
   selectActiveWorkspace,
   useWorkspaceStore,
   WORKSPACE_CHANGED_EVENT,
+  type WorkspaceChangedDetail,
 } from '@/app/store/workspace-store';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
 import type { AiEffectiveRuntimeResolution, AiRuntimeSelection } from '@/app/lib/agent-runtime-policy/types';
 
 import {
+  clearCanvasChatActiveSessionStorage,
   readCanvasChatActiveSessionStorage,
   writeCanvasChatActiveSessionStorage,
 } from '@/app/lib/chat/constants';
@@ -781,12 +783,13 @@ export default function CanvasAgentChat({
   }, [latestSession, loadSession]);
 
   useEffect(() => {
-    const handleWorkspaceChange = () => {
+    const handleWorkspaceChange = (event: Event) => {
+      const detail = (event as CustomEvent<WorkspaceChangedDetail>).detail;
       closeReferencePicker();
       clearSessionParamFromUrl();
+      clearCanvasChatActiveSessionStorage(detail.activeWorkspaceId);
       startNewChat(undefined, {
         clearActiveSessionStorage: false,
-        restoreWorkspaceSession: true,
       });
     };
 

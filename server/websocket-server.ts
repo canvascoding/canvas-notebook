@@ -63,6 +63,7 @@ type ClientMessage =
       type: 'send_message';
       requestId?: string;
       sessionId: string;
+      agentId?: string;
       message: AgentMessage;
       context?: ChatRequestContext;
     }
@@ -140,6 +141,7 @@ function summarizeClientMessage(message: ClientMessage | { type?: unknown }): Re
     type?: unknown;
     requestId?: unknown;
     sessionId?: unknown;
+    agentId?: unknown;
     action?: unknown;
     queueItemId?: unknown;
     message?: { role?: unknown; content?: unknown };
@@ -151,6 +153,7 @@ function summarizeClientMessage(message: ClientMessage | { type?: unknown }): Re
 
   if (typeof input.requestId === 'string') summary.requestId = input.requestId;
   if (typeof input.sessionId === 'string') summary.sessionId = input.sessionId;
+  if (typeof input.agentId === 'string') summary.agentId = input.agentId;
   if (typeof input.action === 'string') summary.action = input.action;
   if (typeof input.queueItemId === 'string') summary.queueItemId = input.queueItemId;
   if (input.message) {
@@ -201,12 +204,15 @@ function sendWs(ws: WebSocket, msg: ServerMessage): void {
   ws.send(JSON.stringify(msg));
 }
 
-async function findSessionOwner(sessionId: string): Promise<string | null> {
+async function findSessionIdentity(sessionId: string): Promise<{
+  userId: string;
+  agentId: string;
+} | null> {
   const session = await db.query.piSessions.findFirst({
     where: eq(piSessions.sessionId, sessionId),
-    columns: { userId: true },
+    columns: { userId: true, agentId: true },
   });
-  return session?.userId ?? null;
+  return session ?? null;
 }
 
 async function userOwnsSession(sessionId: string, userId: string): Promise<boolean> {
@@ -679,9 +685,9 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
 
       // Authorization: if session already exists, it must belong to this user.
       // Non-existent sessions are allowed (new-session create flow).
-      const existingSessionOwner = await findSessionOwner(message.sessionId);
+      const existingSession = await findSessionIdentity(message.sessionId);
       dispatchTiming.mark('sessionAuthorization');
-      if (existingSessionOwner && existingSessionOwner !== userId) {
+      if (existingSession && existingSession.userId !== userId) {
         console.warn('[WebSocket] send_message rejected unauthorized', {
           connectionId: connection.id,
           userId,
@@ -691,6 +697,20 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         sendWs(ws, { type: 'error', error: 'Session not found', code: 'UNAUTHORIZED' });
         sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
+      }
+      const requestedAgentId = typeof message.agentId === 'string'
+        ? message.agentId.trim() || undefined
+        : undefined;
+      const agentId = existingSession?.agentId || requestedAgentId;
+      if (existingSession && requestedAgentId && requestedAgentId !== existingSession.agentId) {
+        console.warn('[WebSocket] send_message corrected stale agent', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+          requestedAgentId,
+          sessionAgentId: existingSession.agentId,
+        });
       }
 
       const context = message.context;
@@ -718,6 +738,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           channelId: WEB_CHANNEL_ID,
           channelSessionKey: webChannelSessionKey(userId),
           requestedSessionId: message.sessionId,
+          agentId,
           ...(agentMessageTimestamp ? { agentMessageTimestamp } : {}),
           userId,
           text: typeof message.message.content === 'string' ? message.message.content : '',

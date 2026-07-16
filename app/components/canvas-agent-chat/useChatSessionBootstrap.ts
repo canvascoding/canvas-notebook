@@ -171,6 +171,7 @@ export function useChatSessionBootstrap({
   userStartedNewChatRef,
 }: UseChatSessionBootstrapParams) {
   const requestedSessionLoadIdRef = useRef(0);
+  const restoredSessionLoadIdRef = useRef(0);
 
   useEffect(() => {
     if (initialPromptConsumedRef.current) return;
@@ -316,15 +317,22 @@ export function useChatSessionBootstrap({
       return;
     }
     setIsResolvingInitialChatState(true);
+    const requestId = restoredSessionLoadIdRef.current + 1;
+    restoredSessionLoadIdRef.current = requestId;
+    let cancelled = false;
+    const isCurrentRequest = () => !cancelled && restoredSessionLoadIdRef.current === requestId;
 
     const restoreSession = async () => {
       try {
         const cachedEntry = readLatestCachedChatSession(storedSessionId);
         if (cachedEntry && sessionMatchesActiveWorkspace(cachedEntry.session, activeWorkspaceId)) {
+          if (!isCurrentRequest()) return;
           addSessionToHistory(cachedEntry.session);
           await loadSession(cachedEntry.session);
+          if (!isCurrentRequest()) return;
           void loadSessionList()
             .then((sessions) => {
+              if (!isCurrentRequest()) return;
               setHistoryAndLatest(sessions.length > 0 ? sessions : [cachedEntry.session]);
             })
             .catch((err) => {
@@ -334,7 +342,7 @@ export function useChatSessionBootstrap({
         }
 
         const sessions = await loadSessionList();
-        if (sessionIdRef.current) return;
+        if (!isCurrentRequest() || sessionIdRef.current) return;
         if (sessions.length > 0) {
           setHistoryAndLatest(sessions);
           const targetSession = sessions.find((s: AISession) => s.sessionId === storedSessionId);
@@ -343,13 +351,20 @@ export function useChatSessionBootstrap({
           }
         }
       } catch (err) {
-        console.error('Failed to restore previous session', err);
+        if (isCurrentRequest()) {
+          console.error('Failed to restore previous session', err);
+        }
       } finally {
-        setIsResolvingInitialChatState(false);
+        if (isCurrentRequest()) {
+          setIsResolvingInitialChatState(false);
+        }
       }
     };
 
     void restoreSession();
+    return () => {
+      cancelled = true;
+    };
   }, [
     activeWorkspaceId,
     addSessionToHistory,

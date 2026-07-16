@@ -77,6 +77,7 @@ import {
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming, type OperationTiming } from '@/app/lib/observability/operation-timing';
+import { findUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -736,7 +737,11 @@ class LivePiRuntime {
 
   private async refreshSystemPrompt(): Promise<void> {
     const session = await db.query.piSessions.findFirst({
-      where: and(eq(piSessions.sessionId, this.sessionId), eq(piSessions.userId, this.userId)),
+      where: and(
+        eq(piSessions.sessionId, this.sessionId),
+        eq(piSessions.userId, this.userId),
+        eq(piSessions.agentId, this.agentId),
+      ),
     });
     const snapshot = await createPiSystemPromptSnapshot(this.agentId, {
       userId: this.userId,
@@ -751,7 +756,11 @@ class LivePiRuntime {
     await db
       .update(piSessions)
       .set(piSystemPromptSnapshotDbFields(snapshot))
-      .where(and(eq(piSessions.sessionId, this.sessionId), eq(piSessions.userId, this.userId)));
+      .where(and(
+        eq(piSessions.sessionId, this.sessionId),
+        eq(piSessions.userId, this.userId),
+        eq(piSessions.agentId, this.agentId),
+      ));
   }
 
   private getEffectiveSystemPrompt(): string {
@@ -1549,9 +1558,7 @@ class LivePiRuntime {
 
 async function createRuntime(sessionId: string, userId: string): Promise<LivePiRuntime> {
   const timing = createOperationTiming();
-  const sessionRecord = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId)),
-  });
+  const sessionRecord = await findUnambiguousOwnedPiSessionForRuntime({ sessionId, userId });
   timing.mark('sessionLookup');
   if (!sessionRecord) {
     throw new Error('Session not found. Create the chat session before starting its runtime.');
@@ -1903,9 +1910,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     return existing.getStatus();
   }
 
-  const sessionRecord = await db.query.piSessions.findFirst({
-    where: and(eq(piSessions.sessionId, sessionId), eq(piSessions.userId, userId)),
-  });
+  const sessionRecord = await findUnambiguousOwnedPiSessionForRuntime({ sessionId, userId });
 
   if (!sessionRecord) {
     return null;
