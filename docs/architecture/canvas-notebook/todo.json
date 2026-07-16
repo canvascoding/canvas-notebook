@@ -1427,7 +1427,9 @@
           "highlightjs-vue@1.0.0 anhand von npm-gitHead, exaktem Upstream-README und offiziellem CC0-1.0-Legal-Code freigegeben; Commit und Text-Hash per Regressionstest gesichert",
           "minimist@1.2.8 anhand von npm-gitHead, annotiertem Release-Tag, exaktem MIT-Text und der spaeteren primaeren Upstream-Klarstellung Copyright (c) 2013 James Halliday and contributors freigegeben",
           "react-remove-scroll-bar@2.3.8 anhand des signierten npm-Tarballs, byte-identischem Codevergleich mit 2.3.7 und der spaeteren offiziellen MIT-Datei mit Copyright (c) 2025 Anton Korzunov freigegeben",
-          "tr46@0.0.3 und tr46@6.0.0 als kombinierte Software-/Datenfaelle geprueft; generierte Tabellen bytegenau Unicode 8.0.0 bzw. 17.0.0 zugeordnet und MIT plus Unicode-DFS-2015 bzw. Unicode-3.0 samt Transformationshinweis dokumentiert"
+      "tr46@0.0.3 und tr46@6.0.0 als kombinierte Software-/Datenfaelle geprueft; generierte Tabellen bytegenau Unicode 8.0.0 bzw. 17.0.0 zugeordnet und MIT plus Unicode-DFS-2015 bzw. Unicode-3.0 samt Transformationshinweis dokumentiert"
+      ,
+      "Alle 28 sharp-/libvips-Binaerpositionen versions- und plattformspezifisch untersucht; falschen Apache-2.0-als-LGPL-Cachebeleg korrigiert, exakte Source-Commits und Teilbelege gesichert sowie Corresponding-Source-, Linking-, WASM- und Release-Auflagen dokumentiert"
         ],
         "verified": [
           "npm run test:licenses",
@@ -1445,7 +1447,7 @@
         "remainingExternalReview": [
           "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
           "Gepinnten Docker-Basisimage-Digest und den erfassten finalen Debian-/Python-Lizenzmix pruefen",
-          "28 sharp-/libvips-Lieferpositionen mit LGPL- oder zusammengesetzter Lizenz fuer die konkreten Plattformartefakte pruefen",
+      "Fuer die 28 technisch geprueften sharp-/libvips-Lieferpositionen vollstaendige Source-/Notice-Bundles, Austausch-/Relinking-Tests und eine benannte menschlich-rechtliche Plattformfreigabe bereitstellen",
           "10 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
         ],
         "reviewedButStillBlocked": [

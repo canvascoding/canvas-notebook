@@ -20,8 +20,8 @@ umgesetzt und liegt reproduzierbar im Repository:
   `docs/compliance/`; Pakete ohne belastbaren Text bleiben reviewpflichtig.
 - Die Copyright-Extraktion trennt echte Attributionen von Lizenzboilerplate.
   Saetze ueber `copyright holder`, Haftungsausschluesse oder abstrakte
-  Copyright-Pflichten werden nicht mehr faelschlich als Rechteinhaber in den
-  Notices ausgegeben.
+  Copyright-Pflichten sowie das Wort `COPYRIGHT` in einer reinen URL werden
+  nicht mehr faelschlich als Rechteinhaber in den Notices ausgegeben.
 - `scripts/third-party-license-compliance-test.ts` prueft Drift, MIT-Text und
   Copyright-Zuordnung, Excalidraw inklusive der selbst gehosteten Fonts sowie
   das Entfernen ungenutzter lizenzpflichtiger Pakete.
@@ -60,6 +60,19 @@ Die 40 Release-Pruefpositionen gliedern sich in:
   LGPL- beziehungsweise zusammengesetzter Lizenz,
 - 10 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
+
+Die 28 `sharp`-/`libvips`-Positionen sind inzwischen einzeln technisch
+untersucht und bleiben bewusst blockierend. Die exakten npm-Archive der
+POSIX-/macOS-libvips-Pakete enthalten keinen Lizenztext; die Apache-2.0-Datei
+im Repository gilt fuer die Buildskripte und wurde zuvor faelschlich als
+LGPL-Beleg zugeordnet. Windows und WASM liefern nur den Apache-Anteil ihrer
+zusammengesetzten Lizenz. Ausserdem werden zahlreiche Bibliotheken statisch
+in die `libvips`-Binaerdateien beziehungsweise das WASM-Modul eingebaut.
+Archivinhalt, Source-Commits, Linking-Bewertung, Corresponding-Source- und
+Release-Anforderungen sind in
+`docs/compliance/sharp-native-binary-review.md` festgehalten. Eine Freigabe
+erfolgt erst mit vollstaendigem Source-/Notice-Bundle, getestetem
+Austausch-/Relinking-Weg und benanntem Reviewer.
 
 `jszip@3.10.1` ist als erster Mehrfachlizenz-Fall technisch abgeschlossen:
 Der exakte npm-Release und der auf denselben Commit aufgeloeste Upstream-Tag

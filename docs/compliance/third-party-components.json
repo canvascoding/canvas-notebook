@@ -47,142 +47,142 @@
       {
         "name": "@img/sharp-libvips-darwin-arm64",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override. Package author metadata: Lovell Fuller <npm@lovell.info>"
       },
       {
         "name": "@img/sharp-libvips-darwin-arm64",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override. Package author metadata: Lovell Fuller <npm@lovell.info>"
       },
       {
         "name": "@img/sharp-libvips-darwin-x64",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-darwin-x64",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-arm",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-arm",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-arm64",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-arm64",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-ppc64",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-ppc64",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-riscv64",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-riscv64",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-s390x",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-s390x",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-x64",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linux-x64",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linuxmusl-arm64",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linuxmusl-arm64",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linuxmusl-x64",
         "versionOrCommit": "1.2.4",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+        "reason": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-libvips-linuxmusl-x64",
         "versionOrCommit": "1.3.2",
-        "reason": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+        "reason": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
       },
       {
         "name": "@img/sharp-wasm32",
         "versionOrCommit": "0.34.5",
-        "reason": "License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.34.5.tgz#LICENSE"
+        "reason": "License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later AND MIT expression; the LGPL and bundled-library terms remain unresolved."
       },
       {
         "name": "@img/sharp-wasm32",
         "versionOrCommit": "0.35.3",
-        "reason": "License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.35.3.tgz#LICENSE"
+        "reason": "License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later AND MIT expression; the LGPL and bundled-library terms remain unresolved."
       },
       {
         "name": "@img/sharp-win32-arm64",
         "versionOrCommit": "0.34.5",
-        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.34.5.tgz#LICENSE"
+        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
       },
       {
         "name": "@img/sharp-win32-arm64",
         "versionOrCommit": "0.35.3",
-        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.35.3.tgz#LICENSE"
+        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
       },
       {
         "name": "@img/sharp-win32-ia32",
         "versionOrCommit": "0.34.5",
-        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.34.5.tgz#LICENSE"
+        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
       },
       {
         "name": "@img/sharp-win32-ia32",
         "versionOrCommit": "0.35.3",
-        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.3.tgz#LICENSE"
+        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
       },
       {
         "name": "@img/sharp-win32-x64",
         "versionOrCommit": "0.34.5",
-        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#LICENSE"
+        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
       },
       {
         "name": "@img/sharp-win32-x64",
         "versionOrCommit": "0.35.3",
-        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE"
+        "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
       },
       {
         "name": "client-only",
@@ -484,7 +484,7 @@
     {
       "name": "@electron-internal/extract-zip",
       "versionOrCommit": "1.0.4",
-      "sourceUrl": "https://github.com/electron/extract-zip",
+      "sourceUrl": "https://github.com/electron/extract-zip/tree/3eb9258c8e5205cd522a84bc5872f3d18daba942",
       "packagePathOrArtifact": "node_modules/@electron-internal/extract-zip",
       "usage": "development-only",
       "distributedIn": [
@@ -497,7 +497,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "Published source revision: 3eb9258c8e5205cd522a84bc5872f3d18daba942 No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@electron/asar",
@@ -986,7 +986,7 @@
     {
       "name": "@humanfs/types",
       "versionOrCommit": "0.15.0",
-      "sourceUrl": "https://github.com/humanwhocodes/humanfs",
+      "sourceUrl": "https://github.com/humanwhocodes/humanfs/tree/85069f193cbacc371c3beb649ce746f8c5a493be",
       "packagePathOrArtifact": "node_modules/@humanfs/types",
       "usage": "development-only",
       "distributedIn": [
@@ -999,7 +999,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. Package author metadata: Nicholas C. Zakas"
+      "reviewNotes": "Published source revision: 85069f193cbacc371c3beb649ce746f8c5a493be No verified license text was found in the installed package or a versioned override. Package author metadata: Nicholas C. Zakas"
     },
     {
       "name": "@humanwhocodes/module-importer",
@@ -1908,7 +1908,7 @@
     {
       "name": "@tybys/wasm-util",
       "versionOrCommit": "0.10.3",
-      "sourceUrl": "https://github.com/toyobayashi/wasm-util",
+      "sourceUrl": "https://github.com/toyobayashi/wasm-util/tree/efb17cc128a30fb16b58127738f09c8871a3f7d1",
       "packagePathOrArtifact": "node_modules/@tybys/wasm-util",
       "usage": "development-only",
       "distributedIn": [
@@ -1921,7 +1921,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Published source revision: efb17cc128a30fb16b58127738f09c8871a3f7d1 No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@types/bcryptjs",
@@ -4016,7 +4016,7 @@
     {
       "name": "chromium-pickle-js",
       "versionOrCommit": "0.2.0",
-      "sourceUrl": "https://github.com/electron/node-chromium-pickle-js",
+      "sourceUrl": "https://github.com/electron/node-chromium-pickle-js/tree/72ecd4d52d8e676a595636e1ec9ba74060344137",
       "packagePathOrArtifact": "node_modules/chromium-pickle-js",
       "usage": "development-only",
       "distributedIn": [
@@ -4029,7 +4029,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "Published source revision: 72ecd4d52d8e676a595636e1ec9ba74060344137 No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "ci-info",
@@ -4160,10 +4160,12 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": null,
       "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "[MIT License](http://en.wikipedia.org/wiki/MIT_License) © [Kevin Mårtensson](https://github.com/kevva)"
+      ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Kevin Mårtensson <kevinmartensson@gmail.com>"
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "concat-map",
@@ -4710,7 +4712,7 @@
     {
       "name": "err-code",
       "versionOrCommit": "2.0.3",
-      "sourceUrl": "https://github.com/IndigoUnited/js-err-code",
+      "sourceUrl": "https://github.com/IndigoUnited/js-err-code/tree/92511d41a6a926c94c9d11493404867b1e92a77a",
       "packagePathOrArtifact": "node_modules/err-code",
       "usage": "development-only",
       "distributedIn": [
@@ -4723,7 +4725,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: IndigoUnited <hello@indigounited.com> (http://indigounited.com)"
+      "reviewNotes": "Published source revision: 92511d41a6a926c94c9d11493404867b1e92a77a No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: IndigoUnited <hello@indigounited.com> (http://indigounited.com)"
     },
     {
       "name": "es-abstract-get",
@@ -6997,7 +6999,7 @@
     {
       "name": "jsonify",
       "versionOrCommit": "0.0.1",
-      "sourceUrl": "https://github.com/ljharb/jsonify",
+      "sourceUrl": "https://github.com/ljharb/jsonify/tree/d26197e6c6357c9f3deec052a97056359f0497ac",
       "packagePathOrArtifact": "node_modules/jsonify",
       "usage": "development-only",
       "distributedIn": [
@@ -7010,7 +7012,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. Package author metadata: Douglas Crockford"
+      "reviewNotes": "Published source revision: d26197e6c6357c9f3deec052a97056359f0497ac No verified license text was found in the installed package or a versioned override. Package author metadata: Douglas Crockford"
     },
     {
       "name": "jsx-ast-utils",
@@ -7044,10 +7046,12 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": null,
       "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "MIT © Jared Wray"
+      ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Jared Wray <me@jaredwray.com> (http://jaredwray.com)"
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "klaw-sync",
@@ -7071,7 +7075,7 @@
     {
       "name": "language-subtag-registry",
       "versionOrCommit": "0.3.23",
-      "sourceUrl": "https://github.com/mattcg/language-subtag-registry",
+      "sourceUrl": "https://github.com/mattcg/language-subtag-registry/tree/1e7d67e7f9646f47f0766a04b08522f7df59e932",
       "packagePathOrArtifact": "node_modules/language-subtag-registry",
       "usage": "development-only",
       "distributedIn": [
@@ -7084,12 +7088,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
+      "reviewNotes": "Published source revision: 1e7d67e7f9646f47f0766a04b08522f7df59e932 No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "language-tags",
       "versionOrCommit": "1.0.9",
-      "sourceUrl": "https://github.com/mattcg/language-tags",
+      "sourceUrl": "https://github.com/mattcg/language-tags/tree/ea5aa61e53ced2a18e35783ff00bb2a533f6c77d",
       "packagePathOrArtifact": "node_modules/language-tags",
       "usage": "development-only",
       "distributedIn": [
@@ -7099,15 +7103,17 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": null,
       "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) 2013, [Matthew Caruana Galizia](http://twitter.com/mcaruanagalizia)."
+      ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Matthew Caruana Galizia <mattcg@gmail.com>"
+      "reviewNotes": "Published source revision: ea5aa61e53ced2a18e35783ff00bb2a533f6c77d No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "lazy-val",
       "versionOrCommit": "1.0.5",
-      "sourceUrl": "develar/lazy-val",
+      "sourceUrl": "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
       "packagePathOrArtifact": "node_modules/lazy-val",
       "usage": "development-only",
       "distributedIn": [
@@ -7120,7 +7126,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Vladimir Krivosheev"
+      "reviewNotes": "Published source revision: b69ad4119f1b19bdab13c61ee2fcc88d46b89071 No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Vladimir Krivosheev"
     },
     {
       "name": "levn",
@@ -7860,7 +7866,7 @@
     {
       "name": "natural-compare",
       "versionOrCommit": "1.4.0",
-      "sourceUrl": "https://github.com/litejs/natural-compare-lite",
+      "sourceUrl": "https://github.com/litejs/natural-compare-lite/tree/eec83eee67cfac84d6db30cdd65363f155673770",
       "packagePathOrArtifact": "node_modules/natural-compare",
       "usage": "development-only",
       "distributedIn": [
@@ -7870,10 +7876,12 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": null,
       "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) 2012-2015 Lauri Rooden &lt;lauri@rooden.ee&gt;"
+      ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Lauri Rooden (https://github.com/litejs/natural-compare-lite)"
+      "reviewNotes": "Published source revision: eec83eee67cfac84d6db30cdd65363f155673770 No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "node-abi",
@@ -9269,7 +9277,7 @@
     {
       "name": "stable-hash",
       "versionOrCommit": "0.0.5",
-      "sourceUrl": "https://github.com/shuding/stable-hash",
+      "sourceUrl": "https://github.com/shuding/stable-hash/tree/1b314f2cc3e9449bc8d49e417670175cf9afd42a",
       "packagePathOrArtifact": "node_modules/stable-hash",
       "usage": "development-only",
       "distributedIn": [
@@ -9282,7 +9290,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Shu Ding"
+      "reviewNotes": "Published source revision: 1b314f2cc3e9449bc8d49e417670175cf9afd42a No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Shu Ding"
     },
     {
       "name": "stat-mode",
@@ -9614,7 +9622,7 @@
     {
       "name": "temp-file",
       "versionOrCommit": "3.4.0",
-      "sourceUrl": "develar/temp-file",
+      "sourceUrl": "https://github.com/develar/temp-file/tree/3534650dce58cb671fe3b4655e5eeeb036ff1839",
       "packagePathOrArtifact": "node_modules/temp-file",
       "usage": "development-only",
       "distributedIn": [
@@ -9627,7 +9635,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Vladimir Krivosheev"
+      "reviewNotes": "Published source revision: 3534650dce58cb671fe3b4655e5eeeb036ff1839 No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Vladimir Krivosheev"
     },
     {
       "name": "tiny-async-pool",
@@ -9670,7 +9678,7 @@
     {
       "name": "tmp-promise",
       "versionOrCommit": "3.0.3",
-      "sourceUrl": "https://github.com/benjamingr/tmp-promise",
+      "sourceUrl": "https://github.com/benjamingr/tmp-promise/tree/7a9d92612d24791664669596c2705313d459ce7f",
       "packagePathOrArtifact": "node_modules/tmp-promise",
       "usage": "development-only",
       "distributedIn": [
@@ -9683,12 +9691,12 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Benjamin Gruenbaum and Collaborators."
+      "reviewNotes": "Published source revision: 7a9d92612d24791664669596c2705313d459ce7f No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Benjamin Gruenbaum and Collaborators."
     },
     {
       "name": "truncate-utf8-bytes",
       "versionOrCommit": "1.0.2",
-      "sourceUrl": "https://github.com/parshap/truncate-utf8-bytes",
+      "sourceUrl": "https://github.com/parshap/truncate-utf8-bytes/tree/c8fcebc8be093c8bd8db1e7d75c09b9fce7e4708",
       "packagePathOrArtifact": "node_modules/truncate-utf8-bytes",
       "usage": "development-only",
       "distributedIn": [
@@ -9701,7 +9709,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. Package author metadata: Carl Xiong <xiongc05@gmail.com>"
+      "reviewNotes": "Published source revision: c8fcebc8be093c8bd8db1e7d75c09b9fce7e4708 No verified license text was found in the installed package or a versioned override. Package author metadata: Carl Xiong <xiongc05@gmail.com>"
     },
     {
       "name": "ts-api-utils",
@@ -13951,7 +13959,7 @@
     {
       "name": "@img/sharp-darwin-arm64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-darwin-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13965,16 +13973,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-darwin-arm64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-darwin-arm64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-darwin-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -13988,16 +13996,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-darwin-arm64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-arm64/-/sharp-darwin-arm64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-darwin-x64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-darwin-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -14011,16 +14019,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-darwin-x64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-x64/-/sharp-darwin-x64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-x64/-/sharp-darwin-x64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-darwin-x64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-darwin-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -14034,16 +14042,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-darwin-x64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-x64/-/sharp-darwin-x64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-darwin-x64/-/sharp-darwin-x64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-freebsd-wasm32",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-freebsd-wasm32",
       "usage": "runtime",
       "distributedIn": [
@@ -14057,11 +14065,11 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-freebsd-wasm32@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-freebsd-wasm32/-/sharp-freebsd-wasm32-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-freebsd-wasm32/-/sharp-freebsd-wasm32-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-libvips-darwin-arm64",
@@ -14077,15 +14085,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-darwin-arm64@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override. Package author metadata: Lovell Fuller <npm@lovell.info>"
     },
     {
       "name": "@img/sharp-libvips-darwin-arm64",
@@ -14101,15 +14106,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-darwin-arm64@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override. Package author metadata: Lovell Fuller <npm@lovell.info>"
     },
     {
       "name": "@img/sharp-libvips-darwin-x64",
@@ -14125,15 +14127,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-darwin-x64@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-darwin-x64",
@@ -14149,15 +14148,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-darwin-x64@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-arm",
@@ -14173,15 +14169,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-linux-arm@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-arm",
@@ -14197,15 +14190,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-linux-arm@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-arm64",
@@ -14221,15 +14211,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-linux-arm64@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-arm64",
@@ -14245,15 +14232,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-linux-arm64@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-ppc64",
@@ -14269,15 +14253,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-linux-ppc64@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-ppc64",
@@ -14293,15 +14274,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-linux-ppc64@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-riscv64",
@@ -14317,15 +14295,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-linux-riscv64@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-riscv64",
@@ -14341,15 +14316,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-linux-riscv64@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-s390x",
@@ -14365,15 +14337,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-linux-s390x@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-s390x",
@@ -14389,15 +14358,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-linux-s390x@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-x64",
@@ -14413,15 +14379,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-linux-x64@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linux-x64",
@@ -14437,15 +14400,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-linux-x64@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linuxmusl-arm64",
@@ -14461,15 +14421,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-linuxmusl-arm64@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linuxmusl-arm64",
@@ -14485,15 +14442,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-linuxmusl-arm64@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linuxmusl-x64",
@@ -14509,15 +14463,12 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-libvips-linuxmusl-x64@1.2.4",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/20b5e899954907a3039d6e3d4c200aaa0ec52c4c/LICENSE Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c"
+      "reviewNotes": "Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-libvips-linuxmusl-x64",
@@ -14533,20 +14484,17 @@
       ],
       "declaredLicense": "LGPL-3.0-or-later",
       "verifiedLicense": "LGPL-3.0-or-later",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-libvips-linuxmusl-x64@1.3.2",
-      "licenseTextSha256": "b40930bbcf80744c86c46a12bc9da056641d722716c378f5659b9e555ef833e1",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/lovell/sharp-libvips/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6/LICENSE Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6"
+      "reviewNotes": "Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "@img/sharp-linux-arm",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-linux-arm",
       "usage": "runtime",
       "distributedIn": [
@@ -14560,16 +14508,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-linux-arm@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-arm/-/sharp-linux-arm-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-arm/-/sharp-linux-arm-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-linux-arm",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-arm",
       "usage": "runtime",
       "distributedIn": [
@@ -14583,16 +14531,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-arm@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-arm/-/sharp-linux-arm-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-arm/-/sharp-linux-arm-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-linux-arm64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-linux-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -14606,16 +14554,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-linux-arm64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-linux-arm64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -14629,16 +14577,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-arm64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-arm64/-/sharp-linux-arm64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-linux-ppc64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-linux-ppc64",
       "usage": "runtime",
       "distributedIn": [
@@ -14652,16 +14600,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-linux-ppc64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-ppc64/-/sharp-linux-ppc64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-ppc64/-/sharp-linux-ppc64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-linux-ppc64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-ppc64",
       "usage": "runtime",
       "distributedIn": [
@@ -14675,16 +14623,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-ppc64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-ppc64/-/sharp-linux-ppc64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-ppc64/-/sharp-linux-ppc64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-linux-riscv64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-linux-riscv64",
       "usage": "runtime",
       "distributedIn": [
@@ -14698,16 +14646,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-linux-riscv64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-riscv64/-/sharp-linux-riscv64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-riscv64/-/sharp-linux-riscv64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-linux-riscv64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-riscv64",
       "usage": "runtime",
       "distributedIn": [
@@ -14721,16 +14669,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-riscv64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-riscv64/-/sharp-linux-riscv64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-riscv64/-/sharp-linux-riscv64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-linux-s390x",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-linux-s390x",
       "usage": "runtime",
       "distributedIn": [
@@ -14744,16 +14692,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-linux-s390x@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-s390x/-/sharp-linux-s390x-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-s390x/-/sharp-linux-s390x-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-linux-s390x",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-s390x",
       "usage": "runtime",
       "distributedIn": [
@@ -14767,16 +14715,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-s390x@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-s390x/-/sharp-linux-s390x-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-s390x/-/sharp-linux-s390x-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-linux-x64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-linux-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -14790,16 +14738,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-linux-x64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-x64/-/sharp-linux-x64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-x64/-/sharp-linux-x64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-linux-x64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-linux-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -14813,16 +14761,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linux-x64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-x64/-/sharp-linux-x64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linux-x64/-/sharp-linux-x64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-linuxmusl-arm64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-linuxmusl-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -14836,16 +14784,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-linuxmusl-arm64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-linuxmusl-arm64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-linuxmusl-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -14859,16 +14807,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linuxmusl-arm64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-arm64/-/sharp-linuxmusl-arm64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-linuxmusl-x64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-linuxmusl-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -14882,16 +14830,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-linuxmusl-x64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "@img/sharp-linuxmusl-x64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-linuxmusl-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -14905,16 +14853,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-linuxmusl-x64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-linuxmusl-x64/-/sharp-linuxmusl-x64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-wasm32",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-wasm32",
       "usage": "runtime",
       "distributedIn": [
@@ -14928,16 +14876,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-wasm32@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later AND MIT expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-wasm32",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-wasm32",
       "usage": "runtime",
       "distributedIn": [
@@ -14951,16 +14899,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-wasm32@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-wasm32/-/sharp-wasm32-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later AND MIT expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-webcontainers-wasm32",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-webcontainers-wasm32",
       "usage": "runtime",
       "distributedIn": [
@@ -14974,16 +14922,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-webcontainers-wasm32@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-webcontainers-wasm32/-/sharp-webcontainers-wasm32-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-webcontainers-wasm32/-/sharp-webcontainers-wasm32-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18"
     },
     {
       "name": "@img/sharp-win32-arm64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-win32-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -14997,16 +14945,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-win32-arm64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-win32-arm64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-win32-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -15020,16 +14968,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-arm64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-arm64/-/sharp-win32-arm64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-win32-ia32",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-win32-ia32",
       "usage": "runtime",
       "distributedIn": [
@@ -15043,16 +14991,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-win32-ia32@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-win32-ia32",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-win32-ia32",
       "usage": "runtime",
       "distributedIn": [
@@ -15066,16 +15014,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-ia32@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-win32-x64",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/@img/sharp-win32-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -15089,16 +15037,16 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/@img/sharp-win32-x64@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@img/sharp-win32-x64",
       "versionOrCommit": "0.35.3",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/1018449164723ba0203c1beffaba0e21f7829c18",
       "packagePathOrArtifact": "node_modules/@img/sharp-win32-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -15112,11 +15060,11 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@img/sharp-win32-x64@0.35.3",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
       "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
+        "Copyright 2013 Lovell Fuller and others."
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
     },
     {
       "name": "@jridgewell/gen-mapping",
@@ -40212,12 +40160,10 @@
       "verifiedLicense": "Apache-2.0",
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/sharp@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
-      "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
-      ],
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/sharp/-/sharp-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/sharp/-/sharp-0.34.5.tgz#LICENSE Package author metadata: Lovell Fuller <npm@lovell.info>"
     },
     {
       "name": "sharp",
@@ -40235,11 +40181,10 @@
       "verifiedLicense": "Apache-2.0",
       "licenseTextRef": "node_modules/sharp/LICENSE",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
-      "copyrightNotices": [
-        "that is conspicuously marked or otherwise designated in writing by the copyright"
-      ],
+      "copyrightNotices": [],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "Package author metadata: Lovell Fuller <npm@lovell.info>"
     },
     {
       "name": "shebang-command",

@@ -14,6 +14,7 @@ type LockPackage = {
   version?: string;
   resolved?: string;
   optional?: boolean;
+  license?: string;
 };
 
 type CacheEntry = {
@@ -138,7 +139,13 @@ async function fetchRegistryMetadata(name: string, version: string): Promise<{
 async function fetchExactUpstreamLicense(
   name: string,
   version: string,
+  declaredLicense: string,
   packageJson: {
+    gitHead?: string;
+    repository?: unknown;
+    homepage?: string;
+  } | null,
+  registryMetadata: {
     gitHead?: string;
     repository?: unknown;
     homepage?: string;
@@ -152,9 +159,6 @@ async function fetchExactUpstreamLicense(
   licenseText: string;
   verificationNote: string | null;
 } | null> {
-  const registryMetadata = sourceRevisionOverride
-    ? null
-    : await fetchRegistryMetadata(name, version);
   const repositoryValue = sourceRevisionOverride?.repositoryUrl
     || registryMetadata?.repository
     || packageJson?.repository;
@@ -197,6 +201,15 @@ async function fetchExactUpstreamLicense(
       if (!candidateResponse.ok) continue;
       const candidateLicenseText = normalizeText(await candidateResponse.text());
       if (!candidateLicenseText.trim()) continue;
+      if (
+        declaredLicense.includes('LGPL')
+        && !/GNU LESSER GENERAL PUBLIC LICENSE/iu.test(candidateLicenseText)
+      ) {
+        // Some binary-only packages point at a repository whose root LICENSE
+        // covers the build scripts, not the bundled library declared by npm.
+        // Never substitute that unrelated text for the package declaration.
+        continue;
+      }
 
       let sourceRevision = revisionCandidate;
       if (!publishedGitHead) {
@@ -348,35 +361,75 @@ async function extractPackageLicense(
     const directLicenseText = licenseFileName
       ? normalizeText(await fs.readFile(path.join(extractRoot, licenseFileName), 'utf8'))
       : null;
-    const readmeLicenseText = !directLicenseText && readmeFileName
-      ? extractLicenseFromReadme(await fs.readFile(path.join(extractRoot, readmeFileName), 'utf8'))
+    const readmeText = readmeFileName
+      ? normalizeText(await fs.readFile(path.join(extractRoot, readmeFileName), 'utf8'))
+      : null;
+    const readmeLicenseText = !directLicenseText && readmeText
+      ? extractLicenseFromReadme(readmeText)
       : null;
     const licenseText = directLicenseText || readmeLicenseText;
-    const noticeTexts = await Promise.all(
+    const packagedNoticeTexts = await Promise.all(
       noticeFileNames.map(async (entry) => normalizeText(await fs.readFile(path.join(extractRoot, entry), 'utf8'))),
     );
+    const noticeTexts = [
+      ...packagedNoticeTexts,
+      ...(readmeText && /\bcopyright\b|\(c\)|©/iu.test(readmeText) ? [readmeText] : []),
+    ];
     const packageJson = await readOptionalJson<{
       gitHead?: string;
       repository?: unknown;
       homepage?: string;
     }>(path.join(extractRoot, 'package.json'));
+    const registryMetadata = sourceRevisionOverride
+      ? null
+      : await fetchRegistryMetadata(name, version);
     const upstreamLicense = licenseText
       ? null
-      : await fetchExactUpstreamLicense(name, version, packageJson, sourceRevisionOverride);
+      : await fetchExactUpstreamLicense(
+        name,
+        version,
+        String(lockPackage.license || ''),
+        packageJson,
+        registryMetadata,
+        sourceRevisionOverride,
+      );
     const resolvedLicenseText = licenseText || upstreamLicense?.licenseText || null;
+    const incompleteCompositeLicense = (
+      Boolean(directLicenseText)
+      && String(lockPackage.license || '').includes('LGPL')
+      && !/GNU LESSER GENERAL PUBLIC LICENSE/iu.test(directLicenseText || '')
+    );
+    const exactPackageEvidenceNote = incompleteCompositeLicense
+      ? `The exact npm tarball LICENSE covers only part of the declared ${lockPackage.license} expression; the LGPL and bundled-library terms remain unresolved.`
+      : !licenseText && String(lockPackage.license || '').includes('LGPL')
+        ? `The exact npm tarball contains no complete ${lockPackage.license} license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries.`
+      : readmeLicenseText
+        ? 'The complete license text is embedded in the exact npm tarball README license section.'
+        : null;
+    const registryRepository = githubRepository(registryMetadata?.repository);
+    const publishedRevision = sourceRevisionOverride?.revision
+      || registryMetadata?.gitHead
+      || packageJson?.gitHead
+      || null;
+    const publishedSourceUrl = registryRepository && publishedRevision
+      ? `${registryRepository.baseUrl}/tree/${publishedRevision}`
+      : null;
     return {
       packagePath,
       name,
       version,
       sourceUrl: upstreamLicense?.sourceUrl
+        || publishedSourceUrl
         || repositoryUrl(packageJson?.repository)
+        || repositoryUrl(registryMetadata?.repository)
         || packageJson?.homepage
+        || registryMetadata?.homepage
         || lockPackage.resolved,
-      sourceRevision: upstreamLicense?.sourceRevision || packageJson?.gitHead || null,
+      sourceRevision: upstreamLicense?.sourceRevision || publishedRevision,
       verificationSource: upstreamLicense?.verificationSource
         || (licenseText ? `${lockPackage.resolved}#${licenseFileName || `${readmeFileName}#License`}` : null),
       verificationNote: upstreamLicense?.verificationNote
-        || (readmeLicenseText ? 'The complete license text is embedded in the exact npm tarball README license section.' : null),
+        || exactPackageEvidenceNote,
       licenseFileName: upstreamLicense?.licenseFileName
         || licenseFileName
         || (readmeLicenseText ? `${readmeFileName}#License` : null),
@@ -418,6 +471,7 @@ async function main() {
   };
   const policy = JSON.parse(await fs.readFile(thirdPartyCompliancePaths.policy, 'utf8')) as LicensePolicy;
   const previousCache = await readOptionalJson<{
+    schemaVersion?: number;
     lockfileSha256?: string;
     entries?: Record<string, CacheEntry>;
   }>(thirdPartyCompliancePaths.licenseCache);
@@ -449,6 +503,11 @@ async function main() {
           || !await hasLocalLicenseFile(packagePath)
         );
         const needsRefresh = !existing?.licenseText
+          && !existing?.verificationNote
+          || Boolean(
+            (previousCache?.schemaVersion || 0) < 5
+            && name.startsWith('@img/sharp'),
+          )
           || Boolean(sourceRevisionOverride && existing.sourceRevision !== sourceRevisionOverride.revision);
         return {
           packagePath,
@@ -497,7 +556,7 @@ async function main() {
     return result;
   });
   const cache = {
-    schemaVersion: 3,
+    schemaVersion: 5,
     lockfileSha256,
     entries: {
       ...Object.fromEntries(

@@ -22,7 +22,13 @@ const licenseCache = JSON.parse(fs.readFileSync(
   thirdPartyCompliancePaths.licenseCache,
   'utf8',
 )) as {
-  entries?: Record<string, unknown>;
+  schemaVersion?: number;
+  entries?: Record<string, {
+    sourceRevision?: string | null;
+    licenseText?: string | null;
+    verificationNote?: string | null;
+    copyrightNotices?: string[];
+  }>;
 };
 const licensePolicy = JSON.parse(fs.readFileSync(
   thirdPartyCompliancePaths.policy,
@@ -259,6 +265,41 @@ assert.equal(webworkify.licenseTextSha256, '435a6722c786b0a56fbe7387028f1d9d3f3a
 assert.deepEqual(webworkify.copyrightNotices, []);
 assert.match(webworkify.sourceUrl, /baf2884256768aea6c36be1ea6e1efb2144fcfbc/u);
 assert.match(webworkify.reviewNotes || '', /embedded in pica's distributed browser bundles/u);
+
+assert.equal(licenseCache.schemaVersion, 5);
+const sharpLibvipsComponents = inventory.components.filter((component) => (
+  component.name.startsWith('@img/sharp-libvips-')
+));
+assert.equal(sharpLibvipsComponents.length, 20);
+for (const component of sharpLibvipsComponents) {
+  assert.equal(component.policyDecision, 'review_required');
+  assert.equal(
+    component.licenseTextRef,
+    null,
+    `${component.name}@${component.versionOrCommit} must not use the Apache build-script license as LGPL evidence`,
+  );
+  assert.equal(component.licenseTextSha256, null);
+  assert.deepEqual(component.copyrightNotices, []);
+  assert.match(component.sourceUrl, /\/tree\/[0-9a-f]{40}$/u);
+  assert.match(component.reviewNotes || '', /repository-root Apache-2\.0 license/u);
+}
+
+const sharpCompositeBinaryComponents = inventory.components.filter((component) => (
+  component.name === '@img/sharp-wasm32'
+  || component.name.startsWith('@img/sharp-win32-')
+));
+assert.equal(sharpCompositeBinaryComponents.length, 8);
+for (const component of sharpCompositeBinaryComponents) {
+  assert.equal(component.policyDecision, 'review_required');
+  assert(component.licenseTextSha256, 'the exact sharp Apache portion must remain available');
+  assert(component.copyrightNotices.includes('Copyright 2013 Lovell Fuller and others.'));
+  assert.match(component.sourceUrl, /\/tree\/[0-9a-f]{40}$/u);
+  assert.match(component.reviewNotes || '', /LICENSE covers only part of the declared/u);
+}
+assert.equal(
+  inventory.releaseGate.blockers.filter((blocker) => blocker.name.startsWith('@img/sharp')).length,
+  28,
+);
 
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

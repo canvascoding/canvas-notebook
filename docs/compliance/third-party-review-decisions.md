@@ -741,3 +741,47 @@ Technische Entscheidung:
   getesteten Ersatz beziehungsweise einer Entfernung einschliesslich der
   Bundle-Kopie oder einer dokumentierten menschlich-rechtlichen
   Einzelfallentscheidung bestehen.
+
+## 19. `sharp`-/`libvips`-Binaerpakete
+
+Status: alle 28 Positionen technisch untersucht, weiterhin
+`review_required`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| Paketfamilien | 20 `@img/sharp-libvips-*`, 6 `@img/sharp-win32-*`, 2 `@img/sharp-wasm32` |
+| Versionslinien | `sharp` 0.34.5 / `sharp-libvips` 1.2.4 / libvips 8.17.3 sowie `sharp` 0.35.3 / `sharp-libvips` 1.3.2 / libvips 8.18.3 |
+| Source-Commits | `e0624568686516209c434de2d3c0ef6688f0811d`, `1018449164723ba0203c1beffaba0e21f7829c18`, `20b5e899954907a3039d6e3d4c200aaa0ec52c4c`, `4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6` |
+| Ergebnis POSIX/macOS | npm-Archive ohne Lizenzdatei; zahlreiche statisch eingebaute Drittbibliotheken |
+| Ergebnis Windows/WASM | npm-`LICENSE` deckt nur Apache-2.0 fuer sharp ab, nicht die LGPL-/MIT- und weiteren Bundle-Bestandteile |
+| Canvas-Modifikation | keine Aenderung der Upstream-Binaerdateien |
+| Auslieferung | zielplattformabhaengig in Next.js-Server, Docker-Image und Electron |
+| Detailbeleg | `docs/compliance/sharp-native-binary-review.md` |
+
+Die vorherige Cache-Aufloesung verwendete fuer
+`@img/sharp-libvips-*` die Apache-2.0-Lizenz des Repository-Roots. Diese
+Lizenz deckt die Build-/Verpackungsskripte, ist aber kein Beleg fuer die
+als LGPL deklarierten und in der Binaerdatei enthaltenen Bibliotheken.
+Cache-Schema 5 weist den exakten Source-Commit weiterhin nach, verwirft den
+unpassenden Text jedoch und haelt die fehlende LGPL-Evidenz explizit fest.
+
+Fuer Windows und WASM bleibt der im exakten npm-Tarball enthaltene
+Apache-2.0-Text als Teilbeleg erhalten. Er wird nicht als vollstaendige
+Erfuellung des zusammengesetzten Ausdrucks behandelt. Die README-Attribution
+`Copyright 2013 Lovell Fuller and others.` wird korrekt uebernommen;
+Lizenzboilerplate und `COPYRIGHT`-URLs werden nicht mehr als Rechteinhaber
+ausgegeben.
+
+Technische Entscheidung:
+
+- Alle 28 Binaerpositionen bleiben Release-Blocker.
+- Fuer POSIX/macOS/Windows muss ein reproduzierbares, releasegebundenes
+  Corresponding-Source- und Notice-Bundle erstellt und ein
+  interface-kompatibler Bibliotheksaustausch getestet werden.
+- Fuer das statisch kombinierte WASM-Modul muss ein belastbares
+  Relinking-Modell vorliegen oder das Paket nachweislich aus jedem
+  Lieferartefakt ausgeschlossen werden.
+- Canvas-Produktbedingungen duerfen Reverse Engineering zum Debuggen
+  modifizierter LGPL-Bestandteile nicht untersagen.
+- Erst nach Artefakttest und benannter menschlich-rechtlicher
+  Plattformfreigabe darf eine Position auf `allowed` wechseln.

@@ -73,6 +73,7 @@ werden muss.
 | `docs/compliance/third-party-components.json` | generiertes Komponenten-, Quellen-, Entscheidungs- und Release-Gate-Manifest | nicht direkt bearbeiten |
 | `THIRD_PARTY_NOTICES.md` | generierte menschenlesbare Notices | nicht direkt bearbeiten |
 | `docs/compliance/runtime-components.json` | im finalen Docker-Image erfasste Debian-/Python-Versionen und Beleg-Hashes | waehrend Image-Build erzeugt |
+| `docs/compliance/sharp-native-binary-review.md` | versions- und plattformspezifische Pruefung der 28 sharp-/libvips-Binaerpositionen | nach Binary-/Source-Aenderung manuell aktualisieren |
 | `docs/compliance/third-party-review-decisions.md` | versionsgenaue technische Entscheidungen fuer einzelne Review-Blocker | nach abgeschlossener Einzelpruefung manuell |
 | `docs/compliance/third-party-release-approval-template.md` | Vorlage fuer menschliche Freigabe und Lizenzentscheidungen | pro Review kopieren/ausfuellen |
 
@@ -147,7 +148,16 @@ Themen sind beispielsweise:
 Solche Positionen bleiben `review_required`, bis die konkrete technische
 Nutzung und der Distributionsweg dokumentiert bewertet wurden. Das gilt
 insbesondere fuer die nativen `libvips`-Bestandteile der plattformspezifischen
-`sharp`-Pakete.
+`sharp`-Pakete. Die exakte Archiv-, Linking-, Source- und Plattformpruefung
+steht in `sharp-native-binary-review.md`.
+
+Beim aktuellen Bestand wurde ein fehlerhafter Beleg korrigiert: Die
+Repository-Root-Lizenz von `sharp-libvips` ist Apache-2.0 und gilt fuer die
+Build-/Verpackungsskripte. Sie darf nicht als LGPL-Text der im npm-Binary
+enthaltenen Bibliotheken verwendet werden. Der Cache verwirft diese
+Substitution jetzt deterministisch. Windows- und WASM-Archive enthalten zwar
+Apache-2.0 fuer `sharp`, aber nicht die vollstaendigen Texte ihrer deklarierten
+zusammengesetzten Lizenz und bleiben deshalb ebenfalls blockierend.
 
 ### Source-Available, proprietaere oder kommerziell eingeschraenkte Pakete
 

@@ -15,12 +15,14 @@ export function extractCopyrightNotices(
     if (!text) continue;
     for (const line of text.split('\n')) {
       const normalized = line.trim().replace(/^[*#/\s-]+/u, '').trim();
-      const containsAttributionMarker = /\bcopyright\b|\(c\)|©/iu.test(normalized);
+      const withoutUrls = normalized.replace(/https?:\/\/[^\s)]+/gu, '');
+      const containsAttributionMarker = /\bcopyright\b|\(c\)|©/iu.test(withoutUrls);
       const isLicenseBoilerplate = (
         /\bcopyright (?:holder|owner|notice|law|laws|license|permission|statement|doctrine|treaty|interest|ownership)\b/iu.test(normalized)
         || /\bcopyright and (?:related|similar) rights\b/iu.test(normalized)
         || /\b(?:authors?|copyright holders?)\b.*\b(?:liable|liability|claim|damage|warranty)\b/iu.test(normalized)
         || /\b(?:retain|remove|reproduce|publish|include|provided that|add|authorized by).*\bcopyright\b/iu.test(normalized)
+        || /\b(?:marked|designated)\b.*\bcopyright\b/iu.test(normalized)
         || /\b(?:copyright|patent|trademark),?\s+(?:and\s+)?attribution notices\b/iu.test(normalized)
         || /\bcopyright\b.*\b(?:infringement|fair use|public license|covered work)\b/iu.test(normalized)
         || /^(?:this software is provided|noninfringement\b|\(including copyright notices)/iu.test(normalized)
