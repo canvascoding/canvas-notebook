@@ -11,6 +11,25 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.15.4] - 2026-07-15
+
+### Added
+
+- Added workspace descriptions to agent context and workspace setup flows.
+- Added workspace appearance profiles, branding controls, and branded interface theming.
+
+### Changed
+
+- Refined organization and workspace branding settings and applied workspace radius preferences across the editor interface.
+
+### Fixed
+
+- Preserved automation edits after moving an automation between workspaces and invalidated stale workspace appearance caches after updates.
+
+### Verification
+
+- `npm run build`
+
 ## [2026.7.15.3] - 2026-07-15
 
 ### Added
