@@ -19,6 +19,7 @@ import { getFileWatcherClient, type FileEvent } from '@/app/lib/file-watcher/cli
 import { isMarpMarkdown } from '@/app/lib/marp/detect';
 import { MarkdownEditor } from './MarkdownEditorClient';
 import { MarpPreview } from './MarpPreview';
+import { MarpExportDialog } from '../file-browser/MarpExportDialog';
 import { ShareMarkdownDialog } from '../file-browser/ShareMarkdownDialog';
 import { FileActionsDropdown } from '../file-browser/FileActionsDropdown';
 import { CodeEditor } from './CodeEditorClient';
@@ -450,6 +451,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const localWriteTrackerRef = useRef(new LocalFileWriteTracker());
   const imagePreviewRef = useRef<HTMLDivElement>(null);
   const [shareOpen, setShareOpen] = useState(false);
+  const [marpExportOpen, setMarpExportOpen] = useState(false);
   const [htmlViewPreference, setHtmlViewPreference] = useState<{ path: string | null; mode: HtmlViewMode }>({
     path: null,
     mode: 'preview',
@@ -725,8 +727,13 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       return;
     }
 
+    if (isMarpMarkdownFile) {
+      setMarpExportOpen(true);
+      return;
+    }
+
     setShareOpen(true);
-  }, [currentFile, downloadFile, isPdf]);
+  }, [currentFile, downloadFile, isMarpMarkdownFile, isPdf]);
 
   const handleReloadExternalTextChange = useCallback(async () => {
     const change = activeExternalTextChange;
@@ -1216,16 +1223,18 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
               </FileHeaderTooltip>
             ) : null}
             {(isMarkdown || isHtml || isPdf) && (
-              <FileHeaderTooltip label={isPdf ? t('downloadPdf') : t('share')}>
+              <FileHeaderTooltip label={isPdf ? t('downloadPdf') : isMarpMarkdownFile ? t('exportMarpSlides') : t('share')}>
                 <Button
                   variant="ghost"
                   size="sm"
                   className="h-6 w-6 p-0 text-xs 2xl:w-auto 2xl:gap-1.5 2xl:px-2"
                   onClick={handleShareAction}
-                  aria-label={isPdf ? t('downloadPdf') : t('share')}
+                  aria-label={isPdf ? t('downloadPdf') : isMarpMarkdownFile ? t('exportMarpSlides') : t('share')}
                 >
                   <Share2 className="h-3.5 w-3.5" />
-                  <span className="hidden 2xl:inline">{t('share')}</span>
+                  <span className="hidden 2xl:inline">
+                    {isMarpMarkdownFile ? t('exportMarpSlides') : t('share')}
+                  </span>
                 </Button>
               </FileHeaderTooltip>
             )}
@@ -1418,13 +1427,21 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           )}
       </div>
     </div>
-    {(isMarkdown || isHtml) && currentFile && (
+    {((isMarkdown && !isMarpMarkdownFile) || isHtml) && currentFile && (
       <ShareMarkdownDialog
         open={shareOpen}
         onOpenChange={setShareOpen}
         filePath={currentFile.path}
         fileName={breadcrumbs[breadcrumbs.length - 1] ?? currentFile.path}
         kind={isHtml ? 'html' : 'markdown'}
+      />
+    )}
+    {isMarpMarkdownFile && currentFile && (
+      <MarpExportDialog
+        open={marpExportOpen}
+        onOpenChange={setMarpExportOpen}
+        filePath={currentFile.path}
+        fileName={breadcrumbs[breadcrumbs.length - 1] ?? currentFile.path}
       />
     )}
     </>
