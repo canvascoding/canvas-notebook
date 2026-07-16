@@ -470,8 +470,8 @@ export async function completeWorkspaceUploadFile(params: {
     if (session.files.every((candidate) => candidate.status === 'completed')) {
       session.status = 'completed';
     }
-    await fs.rm(sourcePath, { force: true }).catch(() => undefined);
     await writeSession(session);
+    await fs.rm(sourcePath, { force: true }).catch(() => undefined);
     return { session, file, alreadyCompleted: false };
   });
 }

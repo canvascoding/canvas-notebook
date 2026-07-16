@@ -203,24 +203,25 @@ export async function replaceWorkspaceFileFromPath(
     await createDirectory(parentDir, options);
   }
   const fullPath = await resolveWritableWorkspacePath(filePath, options);
-
-  try {
-    await fs.rename(sourcePath, fullPath);
-    return;
-  } catch (error) {
-    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) {
-      throw error;
-    }
-  }
-
   const stagingPath = `${fullPath}.canvas-upload-${randomUUID()}.tmp`;
   try {
-    await pipeline(
-      createLocalReadStream(sourcePath),
-      createLocalWriteStream(stagingPath, { flags: 'wx', mode: 0o644 }),
-    );
+    try {
+      await fs.link(sourcePath, stagingPath);
+    } catch (error) {
+      const canCopy = Boolean(
+        error
+        && typeof error === 'object'
+        && 'code' in error
+        && ['EXDEV', 'EPERM', 'EACCES', 'ENOTSUP', 'EMLINK'].includes(String(error.code)),
+      );
+      if (!canCopy) throw error;
+      await pipeline(
+        createLocalReadStream(sourcePath),
+        createLocalWriteStream(stagingPath, { flags: 'wx', mode: 0o644 }),
+      );
+    }
     await fs.rename(stagingPath, fullPath);
-    await fs.rm(sourcePath, { force: true });
+    await fs.chmod(fullPath, 0o644);
   } finally {
     await fs.rm(stagingPath, { force: true }).catch(() => undefined);
   }

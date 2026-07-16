@@ -90,6 +90,7 @@ async function successfulRetryScenario() {
     const url = String(input);
     if (url === '/api/files/uploads' && init?.method === 'POST') {
       createCalls += 1;
+      if (createCalls === 1) throw new TypeError('Temporary network failure');
       return uploadSessionResponse(files);
     }
     if (url.endsWith('/complete') && init?.method === 'POST') {
@@ -119,7 +120,7 @@ async function successfulRetryScenario() {
     onFileProgress: (event) => events.push(event),
   });
 
-  assert.equal(createCalls, 1);
+  assert.equal(createCalls, 2, 'session creation should retry a transient network error');
   assert.equal(result.completed.length, 2);
   assert.equal(result.failed.length, 0);
   assert.equal(deleteCalls, 1);

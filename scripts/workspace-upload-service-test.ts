@@ -172,7 +172,9 @@ async function main(): Promise<void> {
   });
   assert.equal(completed.file.status, 'completed');
   assert.equal(completed.session.status, 'completed');
-  assert.deepEqual(await fs.readFile(path.join(workspaceRoot, 'folder/nested/test_.txt')), content);
+  const completedPath = path.join(workspaceRoot, 'folder/nested/test_.txt');
+  assert.deepEqual(await fs.readFile(completedPath), content);
+  assert.equal((await fs.stat(completedPath)).mode & 0o777, 0o644);
 
   const completedRetry = await service.completeWorkspaceUploadFile({
     sessionId: upload.id,

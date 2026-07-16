@@ -549,6 +549,18 @@ export async function uploadWorkspaceFiles({
 
   await new Promise<void>((resolve, reject) => {
     const xhr = new XMLHttpRequest();
+    const failFiles = (message: string) => {
+      files.forEach((file, index) => onFileProgress?.({
+        index,
+        path: pathMap?.get(file) || (file as { webkitRelativePath?: string }).webkitRelativePath || file.name,
+        size: file.size,
+        uploadedBytes: 0,
+        status: 'failed',
+        attempt: 1,
+        error: message,
+      }));
+      reject(new Error(message));
+    };
     xhr.open('POST', '/api/files/upload', true);
     xhr.withCredentials = true;
     const workspaceId = getActiveWorkspaceId();
@@ -584,6 +596,7 @@ export async function uploadWorkspaceFiles({
         return;
       }
 
+      let message = `Upload failed with status ${xhr.status}`;
       try {
         const error = JSON.parse(xhr.responseText) as { error?: unknown; code?: unknown };
         if (error.code === 'FORMDATA_PARSE_ERROR') {
@@ -596,13 +609,14 @@ export async function uploadWorkspaceFiles({
             hasConvertParams: Boolean(convertParams?.length),
           });
         }
-        reject(new Error(typeof error.error === 'string' ? error.error : `Upload failed with status ${xhr.status}`));
+        if (typeof error.error === 'string') message = error.error;
       } catch {
-        reject(new Error(`Upload failed with status ${xhr.status}`));
+        // The response may be an HTML error page emitted by a reverse proxy.
       }
+      failFiles(message);
     };
 
-    xhr.onerror = () => reject(new Error('Network error during upload'));
+    xhr.onerror = () => failFiles('Network error during upload');
     xhr.send(formData);
   });
 

@@ -169,7 +169,9 @@ async function retryRequest<T>(
       return await request();
     } catch (error) {
       lastError = error instanceof Error ? error : new Error(String(error));
-      const retryable = error instanceof WorkspaceUploadRequestError && error.retryable;
+      const retryable = error instanceof WorkspaceUploadRequestError
+        ? error.retryable
+        : error instanceof TypeError;
       if (!retryable || attempt >= WORKSPACE_UPLOAD_MAX_RETRIES) {
         throw lastError;
       }
@@ -277,20 +279,25 @@ export async function uploadWorkspaceFilesInChunks(params: {
   params.files.forEach((_entry, index) => reportFile(index, 'pending', 0, 0));
   reportOverallProgress();
 
-  const createResponse = await fetch('/api/files/uploads', {
-    method: 'POST',
-    headers: requestHeaders(params.workspaceId, true),
-    credentials: 'include',
-    body: JSON.stringify({
-      targetDir: params.targetDir,
-      files: params.files.map((entry) => ({
-        path: entry.path,
-        size: entry.file.size,
-        mimeType: entry.file.type || 'application/octet-stream',
-      })),
-    }),
-  });
-  const created = await readJsonResponse<CreateUploadResponse>(createResponse, 'Could not start upload');
+  const created = await retryRequest(
+    async () => {
+      const createResponse = await fetch('/api/files/uploads', {
+        method: 'POST',
+        headers: requestHeaders(params.workspaceId, true),
+        credentials: 'include',
+        body: JSON.stringify({
+          targetDir: params.targetDir,
+          files: params.files.map((entry) => ({
+            path: entry.path,
+            size: entry.file.size,
+            mimeType: entry.file.type || 'application/octet-stream',
+          })),
+        }),
+      });
+      return readJsonResponse<CreateUploadResponse>(createResponse, 'Could not start upload');
+    },
+    () => undefined,
+  );
   const sessionId = created.upload.id;
   const chunkBytes = Math.max(1, Math.min(
     created.limits?.chunkBytes ?? WORKSPACE_UPLOAD_CHUNK_SIZE,
