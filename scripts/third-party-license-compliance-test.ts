@@ -133,6 +133,20 @@ for (const [name, version] of [
   );
 }
 
+const highlightjsVue = inventory.components.find((component) => (
+  component.name === 'highlightjs-vue' && component.versionOrCommit === '1.0.0'
+));
+assert(highlightjsVue, 'highlightjs-vue@1.0.0 must be inventoried');
+assert.equal(highlightjsVue.verifiedLicense, 'CC0-1.0');
+assert.equal(highlightjsVue.policyDecision, 'allowed');
+assert.equal(highlightjsVue.licenseTextSha256, 'a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499');
+assert.deepEqual(
+  highlightjsVue.copyrightNotices,
+  [],
+  'CC0 must not turn legal-code references to copyright into false attribution notices',
+);
+assert.match(highlightjsVue.sourceUrl, /2a0d197ec24ba70e019e12a13bd42f006124506a/u);
+
 const exactSourceComponents = [
   ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
   ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],

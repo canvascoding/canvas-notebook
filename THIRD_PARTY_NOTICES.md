@@ -937,7 +937,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | highlight.js | 10.7.3 | runtime | BSD-3-Clause | allowed |
 | highlight.js | 10.7.3 | runtime | BSD-3-Clause | allowed |
 | highlight.js | 11.11.1 | runtime | BSD-3-Clause | allowed |
-| highlightjs-vue | 1.0.0 | runtime | CC0-1.0 | review_required |
+| highlightjs-vue | 1.0.0 | runtime | CC0-1.0 | allowed |
 | hono | 4.12.30 | runtime | MIT | allowed |
 | html-encoding-sniffer | 6.0.0 | runtime | MIT | allowed |
 | html-to-text | 10.0.0 | runtime | MIT | allowed |
@@ -1529,7 +1529,6 @@ The following entries require a documented responsible/legal decision before a c
 - **client-only 0.0.1:** The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required. Verification source: https://registry.npmjs.org/client-only/0.0.1 The MIT copyright notice could not be attributed automatically.
 - **dingbat-to-unicode 1.0.1:** The exact npm release and upstream tag js-1.0.1 declare BSD-2-Clause; the annotated tag resolves to commit b27f259b49907f99b1b9097abba5a9668106b779. Neither the npm tarball nor that source tree contains a LICENSE, NOTICE, copyright file, or source header. Package author metadata and all commits up to the release name Michael Williamson, but authorship is not treated as a substitute for an explicit copyright notice. The package remains review_required pending corrected upstream evidence, replacement/removal, or responsible legal decision. Verification source: https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json No verified license text was found in the installed package or a versioned override. Package author metadata: Michael Williamson <mike@zwobble.org>
 - **github-from-package 0.0.0:** The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
-- **highlightjs-vue 1.0.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: Sara Lissette <lissette.ibnz@gmail.com> (https://github.com/LissetteIbnz)
 - **https 1.0.0:** No verified license text was found in the installed package or a versioned override. Package author metadata: hardus van der berg <hardus@sunfork.com> (http://www.sunfork.com)
 - **is-reference 1.2.1:** No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically. Package author metadata: Rich Harris
 - **minimist 1.2.8:** The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>
@@ -18182,7 +18181,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text a2010f343487
 
-Applies to fractional-indexing@3.2.0.
+Applies to fractional-indexing@3.2.0, highlightjs-vue@1.0.0.
 
 Copyright notices:
 

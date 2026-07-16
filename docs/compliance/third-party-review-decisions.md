@@ -390,3 +390,38 @@ Technische Entscheidung:
 - Der Blocker bleibt bis zu einem historischen primaeren Upstream-Beleg,
   Entfernung/Ersatz oder einer dokumentierten menschlich-rechtlichen
   Einzelfallentscheidung bestehen.
+
+## 11. `highlightjs-vue@1.0.0`
+
+Status: technischer Lizenzbeleg abgeschlossen; Komponente `allowed`.
+
+| Feld | Ergebnis |
+| --- | --- |
+| npm-Paket | `highlightjs-vue@1.0.0` |
+| npm-Tarball | `https://registry.npmjs.org/highlightjs-vue/-/highlightjs-vue-1.0.0.tgz` |
+| npm-Integrity | `sha512-PDEfEF102G23vHmPhLyPboFCD+BkMGu+GuJe2d9/eH4FsCwvgBpnc9n0pGE+ffKdph38s6foEZiEjdgHdzp+IA==` |
+| npm-`gitHead` | `2a0d197ec24ba70e019e12a13bd42f006124506a` |
+| deklarierte Lizenz | `CC0-1.0` |
+| Upstream-Beleg | `package.json` und README am exakten Commit; README verlinkt den offiziellen CC0-1.0-Deed |
+| vollstaendiger Text | offizieller Creative-Commons-Legal-Code unter `docs/compliance/license-texts/CC0-1.0.txt` |
+| Text-SHA-256 | `a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499` |
+| Canvas-Modifikation | keine |
+| Herkunft | transitive Runtime-Abhaengigkeit von `react-syntax-highlighter@16.1.1` |
+| Auslieferung | Source-Release, Next.js-Server, Docker-Image und Electron-Web-App |
+
+Der npm-Release und der exakte Upstream-Commit deklarieren CC0-1.0. Das README
+verlinkt unmittelbar den Creative-Commons-Deed. Im Gegensatz zur MIT-Lizenz
+verlangt CC0 keinen zu erhaltenden Copyright-Hinweis; entscheidend sind die
+nachweisbare Zuordnung der Freigabe und die vollstaendigen Bedingungen
+einschliesslich Public-License-Fallback und Einschraenkungen fuer Marken-,
+Patent- und Drittpersonenrechte.
+
+Technische Entscheidung:
+
+- Der unveraenderte offizielle CC0-1.0-Legal-Code wird versioniert und in den
+  Third-Party Notices ausgeliefert.
+- Paket, Version, npm-Integritaet, `gitHead`, Quelle und Text-Hash sind
+  reproduzierbar zugeordnet.
+- Ein Regressionstest sichert Lizenz, Commit und exakten Legal-Code-Hash.
+- Die Komponente ist damit technisch `allowed`; bei einem Upgrade wird die
+  CC0-Zuordnung erneut gegen die neue Version geprueft.

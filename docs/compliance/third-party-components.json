@@ -9,8 +9,8 @@
     "nonNpmComponents": 13,
     "runtimeComponents": 1473,
     "developmentOnlyComponents": 508,
-    "allowed": 1916,
-    "reviewRequired": 65,
+    "allowed": 1917,
+    "reviewRequired": 64,
     "blocked": 0
   },
   "releaseGate": {
@@ -198,11 +198,6 @@
         "name": "github-from-package",
         "versionOrCommit": "0.0.0",
         "reason": "The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically. Package author metadata: James Halliday <mail@substack.net>"
-      },
-      {
-        "name": "highlightjs-vue",
-        "versionOrCommit": "1.0.0",
-        "reason": "No verified license text was found in the installed package or a versioned override. Package author metadata: Sara Lissette <lissette.ibnz@gmail.com> (https://github.com/LissetteIbnz)"
       },
       {
         "name": "https",
@@ -31420,7 +31415,7 @@
     {
       "name": "highlightjs-vue",
       "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/highlightjs/highlightjs-vue",
+      "sourceUrl": "https://github.com/highlightjs/highlightjs-vue/tree/2a0d197ec24ba70e019e12a13bd42f006124506a",
       "packagePathOrArtifact": "node_modules/highlightjs-vue",
       "usage": "runtime",
       "distributedIn": [
@@ -31431,12 +31426,12 @@
       ],
       "declaredLicense": "CC0-1.0",
       "verifiedLicense": "CC0-1.0",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
+      "licenseTextRef": "docs/compliance/license-texts/CC0-1.0.txt",
+      "licenseTextSha256": "a2010f343487d3f7618affe54f789f5487602331c0a8d03f49e9a7c547cf0499",
       "copyrightNotices": [],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "No verified license text was found in the installed package or a versioned override. Package author metadata: Sara Lissette <lissette.ibnz@gmail.com> (https://github.com/LissetteIbnz)"
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares CC0-1.0, publishes gitHead 2a0d197ec24ba70e019e12a13bd42f006124506a, and the matching source README links directly to the Creative Commons CC0 1.0 deed. CC0 does not require an MIT-style copyright attribution. Canvas retains the complete official CC0 1.0 legal code from https://creativecommons.org/publicdomain/zero/1.0/legalcode.txt and does not modify the package. Verification source: https://github.com/highlightjs/highlightjs-vue/blob/2a0d197ec24ba70e019e12a13bd42f006124506a/README.md Package author metadata: Sara Lissette <lissette.ibnz@gmail.com> (https://github.com/LissetteIbnz)"
     },
     {
       "name": "hono",

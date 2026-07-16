@@ -347,8 +347,8 @@ function createNpmComponent(
   const additionalNoticeTexts = cached
     ? (cached.noticeTexts || []).map(normalizeText)
     : noticeFiles.noticePaths.map(readOptionalText);
-  const copyrightNotices = override?.copyrightNotices?.length
-    ? [...override.copyrightNotices].sort((left, right) => left.localeCompare(right))
+  const copyrightNotices = override && Object.hasOwn(override, 'copyrightNotices')
+    ? [...(override.copyrightNotices || [])].sort((left, right) => left.localeCompare(right))
     : extractCopyrightNotices(licenseText, ...additionalNoticeTexts);
 
   const usage = declaredPackageUsage(policy, packagePath, lockPackage, lockPackages);

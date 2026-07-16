@@ -47,18 +47,18 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.981 Komponenten: 1.473 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 44 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.916 Komponenten `allowed`, 65
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 43 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.917 Komponenten `allowed`, 64
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 44 Release-Pruefpositionen gliedern sich in:
+Die 43 Release-Pruefpositionen gliedern sich in:
 
 - eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
   LGPL- beziehungsweise zusammengesetzter Lizenz,
-- 14 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
+- 13 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
   keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
 
 `jszip@3.10.1` ist als erster Mehrfachlizenz-Fall technisch abgeschlossen:
@@ -130,6 +130,11 @@ werden ohne expliziten Notice-Beleg nicht als Rechteinhaber eingetragen.
 exakte Tarball liefert den vollstaendigen MIT-Wortlaut, laesst aber die
 Copyright-Zeile aus. Paketautor und fremde kommerzielle Notice-Listen werden
 ohne primaeren Upstream-Beleg nicht als Rechteinhabernachweis uebernommen.
+
+`highlightjs-vue@1.0.0` ist abgeschlossen. npm-Release und exakter `gitHead`
+deklarieren CC0-1.0; das README verlinkt direkt den Creative-Commons-Deed.
+Canvas liefert den vollstaendigen offiziellen CC0-1.0-Legal-Code aus. Ein
+MIT-artiger Copyright-Hinweis ist unter CC0 nicht erforderlich.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
