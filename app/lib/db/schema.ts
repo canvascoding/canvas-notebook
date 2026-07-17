@@ -568,6 +568,42 @@ export const piSessions = sqliteTable("pi_sessions", {
   userWorkspaceCreatedIdx: index("idx_pi_sessions_user_workspace_created").on(table.userId, table.workspaceId, table.createdAt),
 }));
 
+export const piDelegations = sqliteTable("pi_delegations", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  sourceSessionId: text("source_session_id").notNull(),
+  sourceAgentId: text("source_agent_id").notNull(),
+  workerSessionId: text("worker_session_id").notNull(),
+  targetAgentId: text("target_agent_id"),
+  workerType: text("worker_type").notNull(),
+  goal: text("goal").notNull(),
+  context: text("context"),
+  workerRole: text("worker_role"),
+  toolsetsJson: text("toolsets_json").notNull().default("[]"),
+  status: text("status").notNull().default("queued"),
+  resultStatus: text("result_status"),
+  resultText: text("result_text"),
+  errorText: text("error_text"),
+  deliveryStatus: text("delivery_status").notNull().default("pending"),
+  deliveryErrorText: text("delivery_error_text"),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  cancelRequestedAt: integer("cancel_requested_at", { mode: "timestamp" }),
+  startedAt: integer("started_at", { mode: "timestamp" }),
+  completedAt: integer("completed_at", { mode: "timestamp" }),
+  deliveredAt: integer("delivered_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userCreatedIdx: index("idx_pi_delegations_user_created").on(table.userId, table.createdAt),
+  sourceSessionIdx: index("idx_pi_delegations_source_session").on(table.userId, table.sourceSessionId, table.createdAt),
+  statusCreatedIdx: index("idx_pi_delegations_status_created").on(table.status, table.createdAt),
+  deliveryIdx: index("idx_pi_delegations_delivery").on(table.deliveryStatus, table.completedAt),
+  workerSessionIdx: index("idx_pi_delegations_worker_session").on(table.userId, table.workerSessionId),
+  workerTypeCheck: check("pi_delegations_worker_type_check", sql`${table.workerType} IN ('ephemeral', 'managed')`),
+  statusCheck: check("pi_delegations_status_check", sql`${table.status} IN ('queued', 'running', 'completed', 'failed', 'cancelled')`),
+  deliveryStatusCheck: check("pi_delegations_delivery_status_check", sql`${table.deliveryStatus} IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')`),
+}));
+
 export const agents = sqliteTable("agents", {
   id: integer("id").primaryKey({ autoIncrement: true }),
   agentId: text("agent_id").notNull().unique(),

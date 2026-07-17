@@ -521,6 +521,40 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS pi_delegations (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      source_session_id TEXT NOT NULL,
+      source_agent_id TEXT NOT NULL,
+      worker_session_id TEXT NOT NULL,
+      target_agent_id TEXT,
+      worker_type TEXT NOT NULL CHECK (worker_type IN ('ephemeral', 'managed')),
+      goal TEXT NOT NULL,
+      context TEXT,
+      worker_role TEXT,
+      toolsets_json TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'queued' CHECK (status IN ('queued', 'running', 'completed', 'failed', 'cancelled')),
+      result_status TEXT,
+      result_text TEXT,
+      error_text TEXT,
+      delivery_status TEXT NOT NULL DEFAULT 'pending' CHECK (delivery_status IN ('pending', 'delivering', 'delivered', 'failed', 'skipped')),
+      delivery_error_text TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      cancel_requested_at INTEGER,
+      started_at INTEGER,
+      completed_at INTEGER,
+      delivered_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pi_delegations_user_created ON pi_delegations (user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_delegations_source_session ON pi_delegations (user_id, source_session_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_delegations_status_created ON pi_delegations (status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_delegations_delivery ON pi_delegations (delivery_status, completed_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_delegations_worker_session ON pi_delegations (user_id, worker_session_id);
+
     CREATE TABLE IF NOT EXISTS pi_messages (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       pi_session_db_id INTEGER NOT NULL,
