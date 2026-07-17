@@ -166,7 +166,7 @@ async function getOwnedProfileRow(
 }
 
 async function assertUserExists(database: SqlConnection, userId: string): Promise<void> {
-  const row = await database.get('SELECT id FROM user WHERE id = ? LIMIT 1', [userId]) as { id: string } | undefined;
+  const row = await database.get('SELECT id FROM "user" WHERE id = ? LIMIT 1', [userId]) as { id: string } | undefined;
   if (!row) {
     throw new ComposioProfileError('COMPOSIO_PROFILE_USER_NOT_FOUND', 'The profile owner does not exist.', 404);
   }
