@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.17.6] - 2026-07-17
+
+### Added
+
+- Added workspace-specific Composio connection profiles with trigger binding, profile controls, and automation usage visibility.
+- Added model-change history in chats, Markdown heading-anchor navigation, and effective skill-package browsing for agents.
+
+### Changed
+
+- Reworked the self-hosting README and improved branded PDF output by showing the workspace brand name beside its logo.
+- Completed the strict third-party license release gate and aligned the release workflows with the generated compliance bundle.
+
+### Fixed
+
+- Fixed scoped skill browsing so agents can read the files exposed by enabled skill packages.
+- Fixed PostgreSQL organization-policy target queries used by capability controls.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.7.17.5] - 2026-07-17
 
 ### Added
