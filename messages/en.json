@@ -3118,6 +3118,17 @@
     "workspacePanel": {
       "title": "Workspace",
       "description": "Select an accessible workspace and download it as a ZIP archive.",
+      "chatDisplay": {
+        "title": "Chat Display",
+        "description": "Choose how much background activity appears in the chat.",
+        "currentMode": "Current: {mode}",
+        "minimal": "Minimal",
+        "minimalDescription": "Hide tool calls and only show a quiet activity indicator while the agent works.",
+        "subtle": "Subtle",
+        "subtleDescription": "Show compact readable badges. Click a badge when you need details.",
+        "verbose": "Verbose",
+        "verboseDescription": "Show full tool call details with input and output for debugging."
+      },
       "personalExport": {
         "title": "My personal workspace",
         "description": "Export only the files in your personal workspace.",
@@ -3800,17 +3811,6 @@
           "mcpDetail": "{count} cached tools",
           "composioDetail": "{count} tools"
         }
-      },
-      "chatDisplay": {
-        "title": "Chat Display",
-        "description": "Choose how much background activity appears in the chat.",
-        "currentMode": "Current: {mode}",
-        "minimal": "Minimal",
-        "minimalDescription": "Hide tool calls and only show a quiet activity indicator while the agent works.",
-        "subtle": "Subtle",
-        "subtleDescription": "Show compact readable badges. Click a badge when you need details.",
-        "verbose": "Verbose",
-        "verboseDescription": "Show full tool call details with input and output for debugging."
       },
       "sections": {
         "expand": "Expand",

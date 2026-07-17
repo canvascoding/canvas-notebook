@@ -4,31 +4,31 @@ import { Eye, EyeOff, ListCollapse, Wrench, type LucideIcon } from 'lucide-react
 import { useTranslations } from 'next-intl';
 
 import type { ToolVerbosity } from '@/app/store/tool-verbosity-store';
-import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
+import { SettingsAccordionCard } from './SettingsAccordionCard';
 
-type AgentChatDisplayCardProps = {
+type ChatDisplayCardProps = {
   toolVerbosity: ToolVerbosity;
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   onToolVerbosityChange: (value: ToolVerbosity) => void;
 };
 
-export function AgentChatDisplayCard({
+export function ChatDisplayCard({
   toolVerbosity,
   isOpen,
   onOpenChange,
   onToolVerbosityChange,
-}: AgentChatDisplayCardProps) {
+}: ChatDisplayCardProps) {
   const t = useTranslations('settings');
 
   return (
-    <AgentSettingsAccordionCard
-      title={t('agentPanel.chatDisplay.title')}
-      description={t('agentPanel.chatDisplay.description')}
+    <SettingsAccordionCard
+      title={t('workspacePanel.chatDisplay.title')}
+      description={t('workspacePanel.chatDisplay.description')}
       icon={Eye}
       isOpen={isOpen}
       onOpenChange={onOpenChange}
-      summaryItems={[t('agentPanel.chatDisplay.currentMode', { mode: t(`agentPanel.chatDisplay.${toolVerbosity}`) })]}
+      summaryItems={[t('workspacePanel.chatDisplay.currentMode', { mode: t(`workspacePanel.chatDisplay.${toolVerbosity}`) })]}
     >
       <div className="grid gap-2 md:grid-cols-3">
         {([
@@ -52,15 +52,15 @@ export function AgentChatDisplayCard({
             >
               <div className="flex items-center gap-2 text-sm font-semibold">
                 <Icon className="h-4 w-4" />
-                {t(`agentPanel.chatDisplay.${option.value}`)}
+                {t(`workspacePanel.chatDisplay.${option.value}`)}
               </div>
               <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
-                {t(`agentPanel.chatDisplay.${option.value}Description`)}
+                {t(`workspacePanel.chatDisplay.${option.value}Description`)}
               </p>
             </button>
           );
         })}
       </div>
-    </AgentSettingsAccordionCard>
+    </SettingsAccordionCard>
   );
 }

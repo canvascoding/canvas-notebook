@@ -3117,6 +3117,17 @@
     "workspacePanel": {
       "title": "Workspace",
       "description": "Einen zugänglichen Workspace auswählen und als ZIP-Archiv herunterladen.",
+      "chatDisplay": {
+        "title": "Chat-Anzeige",
+        "description": "Lege fest, wie viel Hintergrundaktivität im Chat sichtbar ist.",
+        "currentMode": "Aktuell: {mode}",
+        "minimal": "Minimal",
+        "minimalDescription": "Tool-Aufrufe ausblenden und nur eine ruhige Aktivitätsanzeige zeigen, während der Agent arbeitet.",
+        "subtle": "Kompakt",
+        "subtleDescription": "Kompakte, lesbare Badges anzeigen. Für Details kann ein Badge angeklickt werden.",
+        "verbose": "Detailliert",
+        "verboseDescription": "Vollständige Tool-Details mit Input und Output zum Debuggen anzeigen."
+      },
       "personalExport": {
         "title": "Mein persönlicher Workspace",
         "description": "Exportiere ausschließlich die Dateien aus deinem persönlichen Workspace.",
@@ -3799,17 +3810,6 @@
           "mcpDetail": "{count} gecachte Tools",
           "composioDetail": "{count} Tools"
         }
-      },
-      "chatDisplay": {
-        "title": "Chat-Anzeige",
-        "description": "Lege fest, wie viel Hintergrundaktivität im Chat sichtbar ist.",
-        "currentMode": "Aktuell: {mode}",
-        "minimal": "Minimal",
-        "minimalDescription": "Tool-Aufrufe ausblenden und nur eine ruhige Aktivitätsanzeige zeigen, während der Agent arbeitet.",
-        "subtle": "Kompakt",
-        "subtleDescription": "Kompakte, lesbare Badges anzeigen. Für Details kann ein Badge angeklickt werden.",
-        "verbose": "Detailliert",
-        "verboseDescription": "Vollständige Tool-Details mit Input und Output zum Debuggen anzeigen."
       },
       "sections": {
         "expand": "Aufklappen",

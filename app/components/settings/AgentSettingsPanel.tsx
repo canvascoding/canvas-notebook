@@ -13,14 +13,12 @@ import {
   enableToolInConfig,
   disableToolInConfig,
 } from '@/app/lib/pi/enabled-tools';
-import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { AgentSessionsCard, type AgentSessionItem } from './AgentSessionsCard';
 import { AgentDoctorCard, type DoctorResult } from './AgentDoctorCard';
 import { AgentManagedFilesCard, type ManagedFileName, type ResetTarget } from './AgentManagedFilesCard';
 import { AgentToolsCard, type ToolMetadata } from './AgentToolsCard';
 import { AgentConnectionsPicker, AgentRelevantSkillsPicker } from './AgentCapabilityPickers';
-import { AgentChatDisplayCard } from './AgentChatDisplayCard';
 import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
 import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
@@ -53,14 +51,13 @@ type AgentToolsConfigData = {
   enabledTools: string[];
 };
 
-type AgentSettingsSectionId = 'runtime' | 'chatDisplay' | 'tools' | 'connections' | 'skills' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
+type AgentSettingsSectionId = 'runtime' | 'tools' | 'connections' | 'skills' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
 const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
 const SHOW_AGENT_DOCTOR_SECTION = false;
 const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState = {
   runtime: false,
-  chatDisplay: false,
   tools: false,
   connections: false,
   skills: false,
@@ -87,7 +84,6 @@ function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSe
     const storedState = JSON.parse(window.localStorage.getItem(AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY) || '{}') as Partial<AgentSettingsSectionOpenState>;
     return {
       runtime: typeof storedState.runtime === 'boolean' ? storedState.runtime : fallback.runtime,
-      chatDisplay: typeof storedState.chatDisplay === 'boolean' ? storedState.chatDisplay : fallback.chatDisplay,
       tools: typeof storedState.tools === 'boolean' ? storedState.tools : fallback.tools,
       connections: typeof storedState.connections === 'boolean' ? storedState.connections : fallback.connections,
       skills: typeof storedState.skills === 'boolean' ? storedState.skills : fallback.skills,
@@ -292,8 +288,6 @@ export function AgentSettingsPanel({
   const requestedPanel = searchParams.get('panel')
     ?? (searchParams.get('tab') === 'my-agent-runtime' ? 'runtime' : null);
   const shouldOpenCreateAgentDialog = searchParams.get('createAgent') === '1';
-  const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
-  const setToolVerbosity = useToolVerbosityStore((s) => s.setToolVerbosity);
   const [agentSectionOpenById, setAgentSectionOpenById] = useState<AgentSettingsSectionOpenState>(() => getFallbackAgentSectionOpenState(requestedPanel));
 
   const [agents, setAgents] = useState<AgentProfileItem[]>([]);
@@ -1406,13 +1400,6 @@ export function AgentSettingsPanel({
           }}
         />
       )}
-
-      <AgentChatDisplayCard
-        toolVerbosity={toolVerbosity}
-        isOpen={agentSectionOpenById.chatDisplay}
-        onOpenChange={(isOpen) => setAgentSectionOpen('chatDisplay', isOpen)}
-        onToolVerbosityChange={setToolVerbosity}
-      />
 
       {(isMainAgent || toolsOverrideEnabled) && (
         <AgentToolsCard

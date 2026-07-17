@@ -25,7 +25,9 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { WorkspaceManagementCard } from '@/app/components/settings/WorkspaceManagementCard';
 import { WorkspaceExportCard } from '@/app/components/settings/WorkspaceExportCard';
+import { ChatDisplayCard } from '@/app/components/settings/ChatDisplayCard';
 import { TeamModeHostedOnlyNotice } from '@/app/components/team/TeamModeHostedOnlyNotice';
+import { useToolVerbosityStore } from '@/app/store/tool-verbosity-store';
 import {
   DEFAULT_MIGRATION_COMPONENTS,
   MIGRATION_COMPONENT_KEYS,
@@ -136,6 +138,9 @@ function SettingsDataContent({
   createWorkspaceOpen = false,
 }: SettingsDataContentProps) {
   const t = useTranslations('settings');
+  const toolVerbosity = useToolVerbosityStore((state) => state.toolVerbosity);
+  const setToolVerbosity = useToolVerbosityStore((state) => state.setToolVerbosity);
+  const [chatDisplayOpen, setChatDisplayOpen] = useState(false);
   const [organizationStatus, setOrganizationStatus] = useState<OrganizationBootstrapStatus | null>(null);
   const [isOrganizationLoading, setIsOrganizationLoading] = useState(section === 'system' && isAdmin);
   const [organizationError, setOrganizationError] = useState<string | null>(null);
@@ -511,6 +516,13 @@ function SettingsDataContent({
         teamFeaturesEnabled={organizationStatus?.teamFeaturesEnabled ?? false}
         focusManagement={workspaceManagementOpen}
         openCreateDialog={createWorkspaceOpen}
+      />
+
+      <ChatDisplayCard
+        toolVerbosity={toolVerbosity}
+        isOpen={chatDisplayOpen}
+        onOpenChange={setChatDisplayOpen}
+        onToolVerbosityChange={setToolVerbosity}
       />
 
         </>
