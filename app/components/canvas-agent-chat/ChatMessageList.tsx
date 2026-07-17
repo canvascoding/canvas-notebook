@@ -304,20 +304,29 @@ export function ChatMessageList({
                 <div className="flex items-start gap-3">
                   <Lock className="mt-0.5 h-5 w-5 shrink-0 text-blue-500" />
                   <div className="min-w-0 flex-1">
-                    <p className="text-sm font-semibold text-foreground">Authentication Required</p>
+                    <p className="text-sm font-semibold text-foreground">{t('composioAuthTitle')}</p>
                     <p className="mt-1 text-sm text-muted-foreground">
-                      {meta.toolkitName} needs authorization to use {meta.toolName}.
+                      {t('composioAuthDescription', { toolkit: meta.toolkitName, tool: meta.toolName })}
                     </p>
+                    {meta.profileName ? (
+                      <p className="mt-2 rounded-md border border-blue-500/20 bg-background/70 px-2.5 py-2 text-xs text-muted-foreground">
+                        {t('composioAuthProfile', { name: meta.profileName })}
+                        {' · '}
+                        {meta.profileSource === 'workspace_override'
+                          ? t('composioAuthWorkspaceOnly')
+                          : t('composioAuthDefault')}
+                      </p>
+                    ) : null}
                     <div className="mt-3 flex flex-wrap gap-2">
                       {meta.redirectUrl && (
                         <Button size="sm" onClick={() => window.open(meta.redirectUrl, '_blank', 'noopener,noreferrer')}>
                           <ExternalLink className="mr-1 h-3 w-3" />
-                          Connect {meta.toolkitName}
+                          {t('composioAuthConnect', { toolkit: meta.toolkitName })}
                         </Button>
                       )}
-                      <Link href="/settings?tab=integrations">
+                      <Link href={`/settings?tab=integrations&section=composio${meta.workspaceId ? `&workspaceId=${encodeURIComponent(meta.workspaceId)}` : ''}`}>
                         <Button variant="outline" size="sm">
-                          {t('goToSettings') || 'Settings → Integrations'}
+                          {t('goToIntegrations')}
                         </Button>
                       </Link>
                     </div>

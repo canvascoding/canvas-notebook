@@ -262,6 +262,7 @@ type IntegrationsSectionOpenState = Record<IntegrationsSectionId, boolean>;
 type ConnectedAppsPanelProps = {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
+  isAdmin?: boolean;
 };
 type UsageAnalyticsClientProps = {
   isAdmin: boolean;
@@ -3050,6 +3051,7 @@ export function IntegrationsSettingsClient({
               <ConnectedAppsPanel
                 isOpen={integrationsSectionOpenById.connectedApps}
                 onOpenChange={(isOpen) => setIntegrationsSectionOpen('connectedApps', isOpen)}
+                isAdmin={isAdmin}
               />
               <EmailAccountsCard
                 isOpen={integrationsSectionOpenById.emailAccounts}

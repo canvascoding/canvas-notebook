@@ -2,7 +2,11 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { clearComposioGatewayCaches } from '@/app/lib/composio/composio-gateway';
 import { requireComposioRequestContext } from '@/app/lib/composio/composio-request';
-import { toPublicComposioProfile, toPublicEffectiveComposioContext } from '@/app/lib/composio/composio-context';
+import {
+  resolveBoundComposioContext,
+  toPublicComposioProfile,
+  toPublicEffectiveComposioContext,
+} from '@/app/lib/composio/composio-context';
 import {
   ComposioProfileError,
   createComposioProfile,
@@ -23,9 +27,30 @@ export async function GET(request: NextRequest) {
 
   try {
     const profiles = await listComposioProfiles(contextResult.session.user.id);
+    const publicProfiles = await Promise.all(profiles.map(async (profile) => {
+      const publicProfile = toPublicComposioProfile(profile);
+      try {
+        const profileContext = await resolveBoundComposioContext({
+          userId: contextResult.session.user.id,
+          workspaceId: contextResult.workspace.workspaceId,
+          profileId: profile.id,
+        });
+        const profileStatus = await import('@/app/lib/composio/composio-gateway')
+          .then(({ getGatewayStatus }) => getGatewayStatus(profileContext));
+        return {
+          ...publicProfile,
+          connectedApps: profileStatus.connectedAccounts.map((account) => ({
+            slug: account.toolkit.slug,
+            name: account.toolkit.name,
+          })),
+        };
+      } catch {
+        return { ...publicProfile, connectedApps: [] };
+      }
+    }));
     return NextResponse.json({
       success: true,
-      profiles: profiles.map(toPublicComposioProfile),
+      profiles: publicProfiles,
       effectiveProfile: toPublicEffectiveComposioContext(contextResult.composioContext),
       workspace: {
         id: contextResult.workspace.workspaceId,

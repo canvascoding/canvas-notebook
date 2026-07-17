@@ -13,6 +13,7 @@ import {
 import { useTranslations } from 'next-intl';
 import { ChevronDown, Loader2, Pause, Play, Plus, Search, Trash2, X } from 'lucide-react';
 
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -32,6 +33,7 @@ type ToolkitToolsDialogProps = {
   connected: boolean;
   toolsCount: number;
   hasTriggers: boolean;
+  workspaceId: string;
   onClose: () => void;
   onConnect?: (slug: string) => void;
   onDisconnect?: (slug: string) => void;
@@ -115,6 +117,7 @@ export function ToolkitToolsDialog({
   connected,
   toolsCount,
   hasTriggers,
+  workspaceId,
   onClose,
   onConnect,
   onDisconnect,
@@ -143,6 +146,10 @@ export function ToolkitToolsDialog({
   const [targetOutputPath, setTargetOutputPath] = useState('');
   const [webhookSubStatus, setWebhookSubStatus] = useState<{ configured: boolean; webhookUrl?: string; expectedUrl?: string; urlMismatch?: boolean; mode?: string } | null>(null);
   const backdropPointerDownRef = useRef(false);
+  const requestHeaders = useCallback((json = false): HeadersInit => ({
+    ...(workspaceId ? { [WORKSPACE_ID_HEADER]: workspaceId } : {}),
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  }), [workspaceId]);
 
   const loadTools = useCallback(async () => {
     setLoading(true);
@@ -150,6 +157,7 @@ export function ToolkitToolsDialog({
     try {
       const response = await fetch(`/api/composio/toolkits/${encodeURIComponent(slug)}/tools`, {
         credentials: 'include',
+        headers: requestHeaders(),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Failed to load tools');
@@ -159,7 +167,7 @@ export function ToolkitToolsDialog({
     } finally {
       setLoading(false);
     }
-  }, [slug]);
+  }, [requestHeaders, slug]);
 
   useEffect(() => {
     startTransition(() => {
@@ -168,7 +176,10 @@ export function ToolkitToolsDialog({
   }, [loadTools]);
 
   const loadActiveTriggers = useCallback(async () => {
-    const activeResponse = await fetch('/api/composio/triggers', { credentials: 'include' });
+    const activeResponse = await fetch(`/api/composio/triggers?workspaceId=${encodeURIComponent(workspaceId)}`, {
+      credentials: 'include',
+      headers: requestHeaders(),
+    });
     const activePayload = await readJsonResponse(activeResponse, 'Active triggers fetch');
     if (!activeResponse.ok) throw new Error(stringValue(activePayload.error) || 'Failed to load active triggers');
 
@@ -180,7 +191,7 @@ export function ToolkitToolsDialog({
         .filter((entry): entry is ActiveTriggerInfo => Boolean(entry))
         .filter((entry) => entry.toolkitSlug === slug || !entry.toolkitSlug),
     );
-  }, [slug]);
+  }, [requestHeaders, slug, workspaceId]);
 
   const loadTriggers = useCallback(async () => {
     if (!connected) {
@@ -192,7 +203,10 @@ export function ToolkitToolsDialog({
     setTriggersLoading(true);
     setTriggersError(null);
     try {
-      const typesResponse = await fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(slug)}`, { credentials: 'include' });
+      const typesResponse = await fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(slug)}&workspaceId=${encodeURIComponent(workspaceId)}`, {
+        credentials: 'include',
+        headers: requestHeaders(),
+      });
       const typesPayload = await readJsonResponse(typesResponse, 'Trigger types fetch');
       if (!typesResponse.ok) throw new Error(stringValue(typesPayload.error) || 'Failed to load trigger types');
 
@@ -210,7 +224,10 @@ export function ToolkitToolsDialog({
       }
 
       try {
-        const subResponse = await fetch('/api/composio/webhook/subscription', { credentials: 'include' });
+        const subResponse = await fetch('/api/composio/webhook/subscription', {
+          credentials: 'include',
+          headers: requestHeaders(),
+        });
         if (subResponse.ok) {
           const subData = await subResponse.json();
           setWebhookSubStatus({ configured: subData.configured, webhookUrl: subData.webhookUrl, expectedUrl: subData.expectedUrl, urlMismatch: subData.urlMismatch, mode: subData.mode });
@@ -226,7 +243,7 @@ export function ToolkitToolsDialog({
     } finally {
       setTriggersLoading(false);
     }
-  }, [connected, loadActiveTriggers, slug]);
+  }, [connected, loadActiveTriggers, requestHeaders, slug, workspaceId]);
 
   useEffect(() => {
     if (activeTab === 'triggers' && hasTriggers) {
@@ -246,7 +263,7 @@ export function ToolkitToolsDialog({
     try {
       const response = await fetch(
         `/api/composio/toolkits/${encodeURIComponent(slug)}/tools?search=${encodeURIComponent(query)}`,
-        { credentials: 'include' },
+        { credentials: 'include', headers: requestHeaders() },
       );
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || 'Search failed');
@@ -256,7 +273,7 @@ export function ToolkitToolsDialog({
     } finally {
       setSearchLoading(false);
     }
-  }, [slug]);
+  }, [requestHeaders, slug]);
 
   const handleSearchChange = useCallback((value: string) => {
     setSearchQuery(value);
@@ -331,7 +348,7 @@ export function ToolkitToolsDialog({
       const response = await fetch('/api/composio/triggers', {
         method: 'POST',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: requestHeaders(true),
         body: JSON.stringify({
           name: triggerName.trim(),
           prompt: triggerPrompt.trim(),
@@ -339,6 +356,7 @@ export function ToolkitToolsDialog({
           toolkitSlug: slug,
           triggerConfig,
           targetOutputPath: targetOutputPath.trim() || null,
+          workspaceId,
         }),
       });
       const data = await readJsonResponse(response, 'Create trigger fetch');
@@ -362,7 +380,7 @@ export function ToolkitToolsDialog({
       const response = await fetch(`/api/composio/triggers/${encodeURIComponent(trigger.triggerId)}`, {
         method: 'PATCH',
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
+        headers: requestHeaders(true),
         body: JSON.stringify({ status }),
       });
       const data = await readJsonResponse(response, 'Update trigger fetch');
@@ -383,6 +401,7 @@ export function ToolkitToolsDialog({
       const response = await fetch(`/api/composio/triggers/${encodeURIComponent(trigger.triggerId)}`, {
         method: 'DELETE',
         credentials: 'include',
+        headers: requestHeaders(),
       });
       const data = await readJsonResponse(response, 'Delete trigger fetch');
       if (!response.ok) throw new Error(stringValue(data.error) || 'Failed to delete trigger');

@@ -3,14 +3,28 @@
 import { useCallback, useEffect, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
-import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, EyeOff, ChevronDown, ChevronRight } from 'lucide-react';
+import { Loader2, Link2, Unlink, RefreshCw, Search, ExternalLink, Plug, Eye, EyeOff, ChevronDown, ChevronRight, Plus } from 'lucide-react';
 
+import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Badge } from '@/components/ui/badge';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { ToolkitToolsDialog } from './ToolkitToolsDialog';
 import { SettingsAccordionCard } from './SettingsAccordionCard';
+import {
+  ComposioProfileSwitcher,
+  type ComposioEffectiveProfile,
+} from './ComposioProfileSwitcher';
 
 type ConnectedAccount = {
   id: string;
@@ -46,16 +60,25 @@ type ComposioStatus = {
   localConfigured?: boolean;
   managedAvailable?: boolean;
   connectedAccounts: ConnectedAccount[];
+  effectiveProfile?: ComposioEffectiveProfile;
+  workspace?: {
+    id: string;
+    name: string | null;
+    type: string;
+  };
 };
 
 type ConnectedAppsPanelProps = {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
+  isAdmin?: boolean;
 };
 
-export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelProps) {
+export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: ConnectedAppsPanelProps) {
   const t = useTranslations('settings.connectedApps');
   const searchParams = useSearchParams();
+  const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const hydrateWorkspaces = useWorkspaceStore((state) => state.hydrateWorkspaces);
 
   const [status, setStatus] = useState<ComposioStatus | null>(null);
   const [toolkits, setToolkits] = useState<ToolkitInfo[]>([]);
@@ -71,32 +94,54 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
   const [apiKeySaved, setApiKeySaved] = useState(false);
   const [apiKeyVisible, setApiKeyVisible] = useState(false);
   const [dialogToolkit, setDialogToolkit] = useState<ToolkitInfo | null>(null);
+  const [pendingConnectToolkit, setPendingConnectToolkit] = useState<ToolkitInfo | null>(null);
+  const [profileSelectionRequest, setProfileSelectionRequest] = useState(0);
+  const [profileCreateRequest, setProfileCreateRequest] = useState(0);
+  const [effectiveProfileUsage, setEffectiveProfileUsage] = useState({ workspaceOverrideCount: 0, automationCount: 0 });
   const [availablePage, setAvailablePage] = useState(1);
   const [availableOpen, setAvailableOpen] = useState<boolean | undefined>(undefined);
   const [connectedSearchQuery, setConnectedSearchQuery] = useState('');
   const [connectedPage, setConnectedPage] = useState(1);
   const CONNECTED_PAGE_SIZE = 6;
   const AVAILABlE_PAGE_SIZE = 30;
+  const activeWorkspaceId = activeWorkspace?.id || '';
 
-  const loadStatus = useCallback(async () => {
-    setLoading(true);
+  const composioHeaders = useCallback((json = false): HeadersInit => ({
+    ...(activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : {}),
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  }), [activeWorkspaceId]);
+
+  useEffect(() => {
+    void hydrateWorkspaces();
+  }, [hydrateWorkspaces]);
+
+  const loadStatus = useCallback(async (options: { showLoading?: boolean } = {}) => {
+    const showLoading = options.showLoading !== false;
+    if (showLoading) setLoading(true);
     setError(null);
     try {
-      const response = await fetch('/api/composio/status', { credentials: 'include' });
+      const response = await fetch('/api/composio/status', {
+        credentials: 'include',
+        cache: 'no-store',
+        headers: composioHeaders(),
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('loadError'));
       setStatus(data);
     } catch (err) {
       setError(err instanceof Error ? err.message : t('loadError'));
     } finally {
-      setLoading(false);
+      if (showLoading) setLoading(false);
     }
-  }, [t]);
+  }, [composioHeaders, t]);
 
   const loadToolkits = useCallback(async () => {
     setToolkitsLoading(true);
     try {
-      const response = await fetch('/api/composio/toolkits', { credentials: 'include' });
+      const response = await fetch('/api/composio/toolkits', {
+        credentials: 'include',
+        headers: composioHeaders(),
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('loadError'));
       setToolkits(data.toolkits || []);
@@ -105,11 +150,14 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
     } finally {
       setToolkitsLoading(false);
     }
-  }, [t]);
+  }, [composioHeaders, t]);
 
   const loadTriggerCounts = useCallback(async () => {
     try {
-      const response = await fetch('/api/composio/trigger-apps', { credentials: 'include' });
+      const response = await fetch('/api/composio/trigger-apps', {
+        credentials: 'include',
+        headers: composioHeaders(),
+      });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('loadError'));
       const apps: TriggerAppInfo[] = Array.isArray(data.apps) ? data.apps : [];
@@ -123,11 +171,11 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
     } catch {
       setTriggerCountsByToolkit({});
     }
-  }, [t]);
+  }, [composioHeaders, t]);
 
   const loadExistingEnvEntries = useCallback(async (): Promise<Array<{ key: string; value: string }>> => {
     try {
-      const response = await fetch('/api/integrations/env?scope=integrations', { credentials: 'include' });
+      const response = await fetch('/api/integrations/env?scope=integrations&secretScope=system', { credentials: 'include' });
       const data = await response.json();
       if (data.success && data.data?.entries) {
         return data.data.entries;
@@ -156,11 +204,11 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
         entries = [...existing, { key: 'COMPOSIO_API_KEY', value: apiKeyDraft.trim() }];
       }
 
-      const response = await fetch('/api/integrations/env?scope=integrations', {
+      const response = await fetch('/api/integrations/env?scope=integrations&secretScope=system', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         credentials: 'include',
-        body: JSON.stringify({ scope: 'integrations', mode: 'kv', entries }),
+        body: JSON.stringify({ scope: 'integrations', secretScope: 'system', mode: 'kv', entries }),
       });
       const data = await response.json();
       if (!response.ok || !data.success) throw new Error(data.error || 'Failed to save API key');
@@ -208,13 +256,14 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
     }
   }, [searchParams, status?.configured, status?.apiKeyValid, loadToolkits, loadTriggerCounts]);
 
-  const handleConnect = async (toolkitSlug: string) => {
+  const connectToolkit = async (toolkitSlug: string) => {
     setActionInProgress(`connect-${toolkitSlug}`);
     setError(null);
     try {
       const response = await fetch(`/api/composio/connect/${encodeURIComponent(toolkitSlug)}`, {
         method: 'POST',
         credentials: 'include',
+        headers: composioHeaders(),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('connectError'));
@@ -234,13 +283,28 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
     }
   };
 
+  const handleConnect = (toolkit: ToolkitInfo) => {
+    if (!status?.effectiveProfile || !status.workspace?.id) {
+      void connectToolkit(toolkit.slug);
+      return;
+    }
+    setPendingConnectToolkit(toolkit);
+  };
+
   const handleDisconnect = async (toolkitSlug: string) => {
-    if (!window.confirm(t('disconnectConfirm', { toolkit: toolkitSlug }))) return;
+    if (!window.confirm(t('disconnectConfirm', {
+      toolkit: toolkitSlug,
+      profile: status?.effectiveProfile?.name || t('profiles.unknownProfile'),
+      workspace: status?.workspace?.name || activeWorkspace?.name || t('profiles.unknownWorkspace'),
+      workspaces: effectiveProfileUsage.workspaceOverrideCount,
+      automations: effectiveProfileUsage.automationCount,
+    }))) return;
     setActionInProgress(`disconnect-${toolkitSlug}`);
     try {
       const response = await fetch(`/api/composio/disconnect/${encodeURIComponent(toolkitSlug)}`, {
         method: 'DELETE',
         credentials: 'include',
+        headers: composioHeaders(),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('disconnectError'));
@@ -261,6 +325,7 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
       const response = await fetch(`/api/composio/refresh/${encodeURIComponent(toolkitSlug)}`, {
         method: 'POST',
         credentials: 'include',
+        headers: composioHeaders(),
       });
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('refreshError'));
@@ -334,6 +399,7 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
   };
   const summaryItems = [
     isManagedMode ? t('modeManaged') : needsApiKey ? t('notConfiguredShort') : t('summary', { connected: connectedToolkits.length, available: availableToolkits.length }),
+    status?.effectiveProfile?.name ? t('profiles.summaryProfile', { name: status.effectiveProfile.name }) : null,
     error ? t('errorSummary') : null,
   ].filter((item): item is string => Boolean(item));
   const modeLabel = isManagedMode
@@ -354,6 +420,22 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
     >
         {error && <p className="text-sm text-destructive">{error}</p>}
 
+        {status?.workspace?.id && status.effectiveProfile ? (
+          <ComposioProfileSwitcher
+            key={status.workspace.id}
+            workspaceId={status.workspace.id}
+            workspaceName={status.workspace.name || activeWorkspace?.name || t('profiles.unknownWorkspace')}
+            initialEffectiveProfile={status.effectiveProfile}
+            selectionRequest={profileSelectionRequest}
+            createRequest={profileCreateRequest}
+            onEffectiveProfileUsageChange={setEffectiveProfileUsage}
+            onProfileChanged={async () => {
+              await loadStatus({ showLoading: false });
+              await Promise.all([loadToolkits(), loadTriggerCounts()]);
+            }}
+          />
+        ) : null}
+
         <div className="flex flex-wrap items-center gap-2">
           <Badge variant={status?.configured ? 'default' : 'secondary'}>{modeLabel}</Badge>
           {status?.localConfigured && <Badge variant="outline">{t('localConfigured')}</Badge>}
@@ -364,7 +446,7 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
         </p>
 
         {/* API Key Section */}
-        {needsApiKey && (
+        {needsApiKey && isAdmin && (
           <div className="rounded-md border border-border p-4 space-y-3">
             <h3 className="text-sm font-semibold">Composio API Key</h3>
             <p className="text-sm text-muted-foreground">
@@ -408,6 +490,13 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
             >
               {t('getApiKey')} <ExternalLink className="h-3 w-3" />
             </a>
+          </div>
+        )}
+
+        {needsApiKey && !isAdmin && (
+          <div className="rounded-md border border-border bg-muted/20 p-4">
+            <h3 className="text-sm font-semibold">{t('apiKeyAdminTitle')}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{t('apiKeyAdminDescription')}</p>
           </div>
         )}
 
@@ -560,7 +649,7 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
                         <Button
                           variant="outline"
                           size="sm"
-                          onClick={(e) => { e.stopPropagation(); void handleConnect(tk.slug); }}
+                          onClick={(e) => { e.stopPropagation(); handleConnect(tk); }}
                           disabled={actionInProgress === `connect-${tk.slug}`}
                         >
                           {actionInProgress === `connect-${tk.slug}` ? (
@@ -594,11 +683,72 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange }: ConnectedAppsPanelP
           connected={dialogToolkit.connected}
           toolsCount={dialogToolkit.toolsCount}
           hasTriggers={Boolean(triggerCountsByToolkit[dialogToolkit.slug] && triggerCountsByToolkit[dialogToolkit.slug] > 0)}
+          workspaceId={status?.workspace?.id || activeWorkspaceId}
           onClose={() => setDialogToolkit(null)}
-          onConnect={dialogToolkit.connected ? undefined : (slug) => { setDialogToolkit(null); void handleConnect(slug); }}
+          onConnect={dialogToolkit.connected ? undefined : () => {
+            const toolkit = dialogToolkit;
+            setDialogToolkit(null);
+            handleConnect(toolkit);
+          }}
           onDisconnect={(slug) => { setDialogToolkit(null); void handleDisconnect(slug); }}
         />
       )}
+      <Dialog open={Boolean(pendingConnectToolkit)} onOpenChange={(open) => {
+        if (!open) setPendingConnectToolkit(null);
+      }}>
+        <DialogContent className="sm:max-w-lg" data-testid="composio-connect-context-dialog">
+          <DialogHeader>
+            <DialogTitle>{t('connectContext.title', { toolkit: pendingConnectToolkit?.name || '' })}</DialogTitle>
+            <DialogDescription>
+              {t('connectContext.description', {
+                toolkit: pendingConnectToolkit?.name || '',
+                profile: status?.effectiveProfile?.name || t('profiles.unknownProfile'),
+              })}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-lg border bg-muted/25 p-3 text-sm">
+            <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-2">
+              <dt className="text-muted-foreground">{t('connectContext.workspaceLabel')}</dt>
+              <dd className="font-medium">{status?.workspace?.name || activeWorkspace?.name || t('profiles.unknownWorkspace')}</dd>
+              <dt className="text-muted-foreground">{t('connectContext.profileLabel')}</dt>
+              <dd className="font-medium">{status?.effectiveProfile?.name || t('profiles.unknownProfile')}</dd>
+            </dl>
+          </div>
+          <p className="text-sm leading-5 text-muted-foreground">{t('connectContext.reuseHint')}</p>
+          <DialogFooter className="flex-col-reverse gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
+            <Button
+              variant="ghost"
+              onClick={() => {
+                setPendingConnectToolkit(null);
+                setProfileSelectionRequest((request) => request + 1);
+              }}
+            >
+              {t('connectContext.chooseProfile')}
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => {
+                setPendingConnectToolkit(null);
+                setProfileCreateRequest((request) => request + 1);
+              }}
+            >
+              <Plus className="mr-1.5 h-4 w-4" />
+              {t('connectContext.createProfile')}
+            </Button>
+            <Button
+              onClick={() => {
+                const toolkit = pendingConnectToolkit;
+                setPendingConnectToolkit(null);
+                if (toolkit) void connectToolkit(toolkit.slug);
+              }}
+              data-testid="composio-connect-current-profile"
+            >
+              <Link2 className="mr-1.5 h-4 w-4" />
+              {t('connectContext.confirm')}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </SettingsAccordionCard>
   );
 }

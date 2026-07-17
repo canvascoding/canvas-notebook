@@ -74,6 +74,8 @@ import {
 } from '@/components/ui/alert-dialog';
 import type { CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import type { OrganizationPolicyTargetCatalog } from '@/app/lib/organization/policy-targets';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 
 interface SkillFileNode {
   name: string;
@@ -533,6 +535,11 @@ function CanvasPluginsSection({
   onPluginsChanged: () => void;
 }) {
   const t = useTranslations('skills.plugins');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId) || '';
+  const composioHeaders = useCallback((json = false): HeadersInit => ({
+    ...(activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : {}),
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  }), [activeWorkspaceId]);
   const [plugins, setPlugins] = useState<CanvasPluginSettingsRecord[]>([]);
   const [storePlugins, setStorePlugins] = useState<CanvasPluginStoreEntry[]>([]);
   const [storeMetadata, setStoreMetadata] = useState<CanvasPluginStoreMetadata | null>(null);
@@ -643,7 +650,11 @@ function CanvasPluginsSection({
 
     try {
       setComposioConnectorState((current) => ({ ...current, isLoading: true, error: undefined }));
-      const statusResponse = await fetch('/api/composio/status', { credentials: 'include', cache: 'no-store' });
+      const statusResponse = await fetch('/api/composio/status', {
+        credentials: 'include',
+        cache: 'no-store',
+        headers: composioHeaders(),
+      });
       const status = await statusResponse.json();
       const configured = Boolean(status.configured);
       const apiKeyValid = Boolean(status.apiKeyValid);
@@ -661,6 +672,7 @@ function CanvasPluginsSection({
         const toolkitsResponse = await fetch('/api/composio/toolkits?summary=1&includeLogos=1', {
           credentials: 'include',
           cache: 'no-store',
+          headers: composioHeaders(),
         });
         const toolkitsPayload = await toolkitsResponse.json();
         if (Array.isArray(toolkitsPayload.toolkits)) {
@@ -696,7 +708,7 @@ function CanvasPluginsSection({
         });
       }
     }
-  }, [requiredComposioToolkits, t]);
+  }, [composioHeaders, requiredComposioToolkits, t]);
 
   useEffect(() => {
     let cancelled = false;
@@ -750,7 +762,7 @@ function CanvasPluginsSection({
     try {
       const response = await fetch('/api/plugins/store/preflight', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: composioHeaders(true),
         body: JSON.stringify({ name: pluginName, version, scope: managementScope }),
       });
       const data = await response.json();
@@ -886,7 +898,11 @@ function CanvasPluginsSection({
     for (let attempt = 0; attempt < 12; attempt += 1) {
       await new Promise((resolve) => window.setTimeout(resolve, attempt === 0 ? 2500 : 4000));
       await loadComposioConnectorState();
-      const statusResponse = await fetch('/api/composio/status', { credentials: 'include', cache: 'no-store' }).catch(() => null);
+      const statusResponse = await fetch('/api/composio/status', {
+        credentials: 'include',
+        cache: 'no-store',
+        headers: composioHeaders(),
+      }).catch(() => null);
       if (!statusResponse) continue;
       const status = await statusResponse.json().catch(() => null);
       const connected = Array.isArray(status?.connectedAccounts)
@@ -897,14 +913,14 @@ function CanvasPluginsSection({
 
   async function connectComposioToolkit(toolkit: string) {
     if (!composioConnectorState.configured || !composioConnectorState.apiKeyValid) {
-      window.location.href = '/settings?tab=integrations&section=composio';
+      window.location.href = `/settings?tab=integrations&section=composio${activeWorkspaceId ? `&workspaceId=${encodeURIComponent(activeWorkspaceId)}` : ''}`;
       return;
     }
 
     const toolkitState = composioConnectorState.toolkitsBySlug[toolkit];
     const isConnected = Boolean(toolkitState?.connected || composioConnectorState.connectedSlugs[toolkit]);
     if (isConnected) {
-      window.location.href = `/settings?tab=integrations&section=composio&connected=${encodeURIComponent(toolkit)}`;
+      window.location.href = `/settings?tab=integrations&section=composio&connected=${encodeURIComponent(toolkit)}${activeWorkspaceId ? `&workspaceId=${encodeURIComponent(activeWorkspaceId)}` : ''}`;
       return;
     }
 
@@ -925,6 +941,7 @@ function CanvasPluginsSection({
       const response = await fetch(`/api/composio/connect/${encodeURIComponent(toolkit)}`, {
         method: 'POST',
         credentials: 'include',
+        headers: composioHeaders(),
       });
       const data = await response.json();
       if (!response.ok) {

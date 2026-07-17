@@ -54,6 +54,7 @@ import type {
   FriendlySchedule,
 } from '@/app/lib/automations/types';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { selectActiveWorkspace, useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -195,7 +196,24 @@ type ComposioStatus = {
     };
     status?: string;
   }>;
+  effectiveProfile?: {
+    id: string;
+    name: string;
+    source: 'default' | 'workspace_override';
+    workspaceId: string;
+  };
 };
+
+type AutomationJobView = AutomationJobRecord & {
+  composioConnectionManagedByViewer?: boolean;
+};
+
+function composioWorkspaceHeaders(workspaceId: string, json = false): HeadersInit {
+  return {
+    ...(workspaceId ? { [WORKSPACE_ID_HEADER]: workspaceId } : {}),
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  };
+}
 
 type AutomationsClientProps = {
   initialJobId?: string | null;
@@ -846,7 +864,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     }
     return automationWorkspaces[0]?.id || '';
   }, [activeWorkspace, automationWorkspaces]);
-  const [jobs, setJobs] = useState<AutomationJobRecord[]>([]);
+  const [jobs, setJobs] = useState<AutomationJobView[]>([]);
   const [selectedJobId, setSelectedJobId] = useState<string | null>(null);
   const [draft, setDraft] = useState<JobDraft>(() => defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId));
   const [triggerDraft, setTriggerDraft] = useState<TriggerComposerDraft>(() => defaultTriggerDraft(defaultAutomationWorkspaceId));
@@ -1007,7 +1025,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadJobs'));
 
-      const nextJobs = payload.data as AutomationJobRecord[];
+      const nextJobs = payload.data as AutomationJobView[];
       setJobs(nextJobs);
 
       if (!options?.keepSelection) {
@@ -1138,7 +1156,11 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     setTriggerAppsError(null);
     setHasAttemptedTriggerAppsLoad(true);
     try {
-      const appsResponse = await fetch('/api/composio/trigger-apps', { cache: 'no-store', credentials: 'include' });
+      const appsResponse = await fetch('/api/composio/trigger-apps', {
+        cache: 'no-store',
+        credentials: 'include',
+        headers: composioWorkspaceHeaders(triggerWorkspaceId),
+      });
       const appsPayload = await readJsonResponse(appsResponse, 'Composio trigger apps');
       if (!appsResponse.ok) throw new Error(stringValue(appsPayload.error) || t('triggers.errors.loadApps'));
 
@@ -1181,6 +1203,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       const response = await fetch(`/api/composio/triggers?toolkit=${encodeURIComponent(toolkitSlug)}`, {
         cache: 'no-store',
         credentials: 'include',
+        headers: composioWorkspaceHeaders(triggerWorkspaceId),
       });
       const payload = await readJsonResponse(response, `Trigger types for ${toolkitSlug}`);
       if (!response.ok || payload.success === false) {
@@ -1457,7 +1480,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       const triggerConfig = buildTriggerConfigFromSchema(selectedTriggerType.configSchema, triggerDraft.configValues);
       const response = await fetch('/api/composio/triggers', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: composioWorkspaceHeaders(triggerWorkspaceId, true),
         credentials: 'include',
         body: JSON.stringify({
           name: triggerDraft.name.trim(),
@@ -1590,6 +1613,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       const response = await fetch(`/api/composio/connect/${encodeURIComponent(app.slug)}`, {
         method: 'POST',
         credentials: 'include',
+        headers: composioWorkspaceHeaders(triggerWorkspaceId),
       });
       const payload = await readJsonResponse(response, 'Connect Composio app');
       if (!response.ok) throw new Error(stringValue(payload.error) || t('triggers.errors.connect'));
@@ -1736,6 +1760,10 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     const updateWorkspaceId = (workspaceId: string) => {
       if (target === 'trigger') {
         setTriggerDraft((current) => ({ ...current, workspaceId }));
+        setTriggerApps([]);
+        setTriggerTypesByToolkit({});
+        setComposioStatus(null);
+        setHasAttemptedTriggerAppsLoad(false);
       } else if (target === 'customWebhook') {
         setCustomWebhookDraft((current) => ({ ...current, workspaceId }));
       } else {
@@ -2143,13 +2171,22 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                         <Webhook className="h-4 w-4 text-muted-foreground" />
                         <p className="text-sm font-medium">{t('triggers.detailTitle')}</p>
                       </div>
+                      {selectedJob.composioConnectionManagedByViewer === false ? (
+                        <p className="rounded-md border border-dashed bg-background p-3 text-xs text-muted-foreground">
+                          {t('triggers.connectionManagedByResponsibleUser')}
+                        </p>
+                      ) : null}
                       <div className="grid gap-2 text-xs sm:grid-cols-2">
                         <span className="text-muted-foreground">{t('triggers.fields.app')}</span>
                         <span className="min-w-0 break-all font-mono">{selectedJob.composioToolkitSlug || t('noneYet')}</span>
                         <span className="text-muted-foreground">{t('triggers.fields.event')}</span>
                         <span className="min-w-0 break-all font-mono">{selectedJob.composioTriggerSlug || t('noneYet')}</span>
-                        <span className="text-muted-foreground">{t('triggers.fields.triggerId')}</span>
-                        <span className="min-w-0 break-all font-mono">{selectedJob.composioTriggerId || t('noneYet')}</span>
+                        {selectedJob.composioConnectionManagedByViewer !== false ? (
+                          <>
+                            <span className="text-muted-foreground">{t('triggers.fields.triggerId')}</span>
+                            <span className="min-w-0 break-all font-mono">{selectedJob.composioTriggerId || t('noneYet')}</span>
+                          </>
+                        ) : null}
                       </div>
                     </div>
                   ) : (
@@ -2509,7 +2546,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">
                       <p className="font-medium text-foreground">{t('triggers.setupRequiredTitle')}</p>
                       <p className="mt-1">{t('triggers.setupRequiredDescription')}</p>
-                      <Link href="/settings?tab=integrations" className="mt-3 inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline">
+                      <Link href={`/settings?tab=integrations&section=composio&workspaceId=${encodeURIComponent(triggerWorkspaceId)}`} className="mt-3 inline-flex items-center text-sm font-medium text-primary underline-offset-4 hover:underline">
                         <ExternalLink className="mr-2 h-4 w-4" />
                         {t('triggers.openIntegrations')}
                       </Link>
@@ -2518,6 +2555,26 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     <div className="rounded-md border border-dashed p-4 text-sm text-muted-foreground">{t('triggers.noApps')}</div>
                   ) : (
                     <>
+                      {composioStatus?.effectiveProfile ? (
+                        <div className="flex flex-col gap-2 rounded-lg border border-primary/25 bg-primary/[0.045] px-3 py-2.5 text-sm sm:flex-row sm:items-center sm:justify-between">
+                          <div className="min-w-0">
+                            <p className="font-medium text-foreground">
+                              {t('triggers.profileContext', { name: composioStatus.effectiveProfile.name })}
+                            </p>
+                            <p className="text-xs text-muted-foreground">
+                              {composioStatus.effectiveProfile.source === 'workspace_override'
+                                ? t('triggers.profileWorkspaceOnly')
+                                : t('triggers.profileDefault')}
+                            </p>
+                          </div>
+                          <Link
+                            href={`/settings?tab=integrations&section=composio&workspaceId=${encodeURIComponent(triggerWorkspaceId)}`}
+                            className="shrink-0 text-xs font-medium text-primary underline-offset-4 hover:underline"
+                          >
+                            {t('triggers.manageProfile')}
+                          </Link>
+                        </div>
+                      ) : null}
                       <div className="grid min-w-0 gap-4 xl:grid-cols-[minmax(0,0.9fr)_minmax(0,1.1fr)]">
                         <section className="min-w-0 space-y-2">
                           <div className="flex items-center justify-between gap-3">

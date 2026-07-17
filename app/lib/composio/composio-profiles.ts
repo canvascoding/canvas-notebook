@@ -26,6 +26,7 @@ type ProfileRow = {
 
 type ProfileWithUsageRow = ProfileRow & {
   workspace_override_count: number;
+  automation_count: number;
 };
 
 type OverrideRow = {
@@ -46,6 +47,7 @@ export interface ComposioConnectionProfile {
   isDefault: boolean;
   status: ComposioConnectionProfileStatus;
   workspaceOverrideCount: number;
+  automationCount: number;
   createdAt: Date;
   updatedAt: Date;
 }
@@ -118,6 +120,9 @@ function profileFromRow(row: ProfileRow | ProfileWithUsageRow): ComposioConnecti
     status: profileStatus(row.status),
     workspaceOverrideCount: 'workspace_override_count' in row
       ? Number(row.workspace_override_count) || 0
+      : 0,
+    automationCount: 'automation_count' in row
+      ? Number(row.automation_count) || 0
       : 0,
     createdAt: new Date(row.created_at),
     updatedAt: new Date(row.updated_at),
@@ -265,20 +270,23 @@ export async function listComposioProfiles(ownerUserIdValue: string): Promise<Co
         profile.status,
         profile.created_at,
         profile.updated_at,
-        COUNT(workspace_override.workspace_id) AS workspace_override_count
+        (
+          SELECT COUNT(*)
+          FROM composio_workspace_profile_overrides workspace_override
+          WHERE workspace_override.profile_id = profile.id
+        ) AS workspace_override_count,
+        (
+          SELECT COUNT(*)
+          FROM automation_jobs job
+          WHERE job.composio_profile_id = profile.id
+             OR (
+               job.composio_profile_id IS NULL
+               AND job.composio_user_id = profile.composio_user_id
+               AND COALESCE(job.responsible_user_id, job.owner_user_id, job.created_by_user_id) = profile.owner_user_id
+             )
+        ) AS automation_count
       FROM composio_connection_profiles profile
-      LEFT JOIN composio_workspace_profile_overrides workspace_override
-        ON workspace_override.profile_id = profile.id
       WHERE profile.owner_user_id = ? AND profile.status = 'active'
-      GROUP BY
-        profile.id,
-        profile.owner_user_id,
-        profile.name,
-        profile.composio_user_id,
-        profile.is_default,
-        profile.status,
-        profile.created_at,
-        profile.updated_at
       ORDER BY profile.is_default DESC, profile.created_at ASC, profile.id ASC
     `, [ownerUserId]) as ProfileWithUsageRow[];
     return rows.map(profileFromRow);

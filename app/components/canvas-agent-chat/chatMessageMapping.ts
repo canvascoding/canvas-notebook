@@ -61,8 +61,45 @@ export function mapPersistedChatMessage(
         toolkitName: authMsg.toolkitName,
         redirectUrl: authMsg.redirectUrl,
         toolName: authMsg.toolName,
+        workspaceId: authMsg.workspaceId,
+        profileId: authMsg.profileId,
+        profileName: authMsg.profileName,
+        profileSource: authMsg.profileSource,
       },
     };
+  }
+
+  if (rawMessage.role === 'toolResult') {
+    const resultContent = getPiMessageContent(rawMessage);
+    const resultText = extractToolResultText(Array.isArray(resultContent) ? resultContent : undefined)
+      || extractPiMessageText(rawMessage);
+    try {
+      const payload = JSON.parse(resultText) as Record<string, unknown>;
+      if (payload.auth_required === true) {
+        const toolkit = typeof payload.toolkit === 'string' ? payload.toolkit : '';
+        const toolkitName = typeof payload.toolkit_name === 'string' ? payload.toolkit_name : toolkit;
+        return {
+          id: rawMessage.id?.toString() || `composio-auth-${toolkit}`,
+          role: 'system',
+          content: resultText,
+          type: 'composio_auth_required',
+          status: 'sent',
+          piMessage: rawMessage,
+          composioAuthMeta: {
+            toolkit,
+            toolkitName,
+            redirectUrl: typeof payload.redirect_url === 'string' ? payload.redirect_url : '',
+            toolName: typeof payload.tool_name === 'string' ? payload.tool_name : '',
+            workspaceId: typeof payload.workspace_id === 'string' ? payload.workspace_id : null,
+            profileId: typeof payload.profile_id === 'string' ? payload.profile_id : null,
+            profileName: typeof payload.profile_name === 'string' ? payload.profile_name : null,
+            profileSource: payload.profile_source === 'workspace_override' ? 'workspace_override' : 'default',
+          },
+        };
+      }
+    } catch {
+      // Regular tool results are not required to contain JSON.
+    }
   }
 
   const isToolResult = rawMessage.role === 'toolResult';

@@ -10,6 +10,8 @@ import { Input } from '@/components/ui/input';
 import { Skeleton } from '@/components/ui/skeleton';
 import { CanvasSkillIcon } from '@/app/lib/skills/skill-icons';
 import type { CanvasSkillInterface } from '@/app/lib/skills/canvas-skill-manifest';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { cn } from '@/lib/utils';
 
 export type SkillOption = {
@@ -511,6 +513,7 @@ export function AgentConnectionsPicker({
   pageSize = DEFAULT_PAGE_SIZE,
 }: AgentConnectionsPickerProps) {
   const t = useTranslations('settings.agentPanel.capabilities.connections');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId) || '';
   const [searchInput, setSearchInput] = useState('');
   const [query, setQuery] = useState('');
   const [page, setPage] = useState(1);
@@ -549,6 +552,7 @@ export function AgentConnectionsPicker({
           credentials: 'include',
           cache: 'no-store',
           signal: controller.signal,
+          headers: activeWorkspaceId ? { [WORKSPACE_ID_HEADER]: activeWorkspaceId } : undefined,
         });
         const payload = (await response.json().catch(() => ({}))) as {
           success?: boolean;
@@ -575,7 +579,7 @@ export function AgentConnectionsPicker({
 
     void loadConnections();
     return () => controller.abort();
-  }, [enabled, page, pageSize, query, t]);
+  }, [activeWorkspaceId, enabled, page, pageSize, query, t]);
 
   const selectedSet = useMemo(() => new Set(selectedConnectionIds), [selectedConnectionIds]);
 

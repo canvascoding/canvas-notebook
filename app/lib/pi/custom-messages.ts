@@ -33,6 +33,10 @@ export interface ComposioAuthRequiredMessage {
   toolkitName: string;
   redirectUrl: string;
   toolName: string;
+  workspaceId?: string | null;
+  profileId?: string | null;
+  profileName?: string | null;
+  profileSource?: 'default' | 'workspace_override' | null;
 }
 
 export function createComposioAuthRequiredMessage(
@@ -40,8 +44,14 @@ export function createComposioAuthRequiredMessage(
   toolkitName: string,
   redirectUrl: string,
   toolName: string,
+  context: {
+    workspaceId?: string | null;
+    profileId?: string | null;
+    profileName?: string | null;
+    profileSource?: 'default' | 'workspace_override' | null;
+  } = {},
 ): ComposioAuthRequiredMessage {
-  return { role: 'composio_auth_required', toolkit, toolkitName, redirectUrl, toolName };
+  return { role: 'composio_auth_required', toolkit, toolkitName, redirectUrl, toolName, ...context };
 }
 
 export function isComposioAuthRequiredMessage(m: AgentMessage): m is ComposioAuthRequiredMessage {

@@ -99,6 +99,10 @@ export interface ChatMessage {
     toolkitName: string;
     redirectUrl: string;
     toolName: string;
+    workspaceId?: string | null;
+    profileId?: string | null;
+    profileName?: string | null;
+    profileSource?: 'default' | 'workspace_override' | null;
   };
 }
 
