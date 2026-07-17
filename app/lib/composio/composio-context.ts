@@ -26,6 +26,7 @@ export interface PublicComposioProfile {
   isDefault: boolean;
   status: 'active' | 'archived';
   workspaceOverrideCount: number;
+  automationCount: number;
   createdAt: string;
   updatedAt: string;
 }
@@ -37,6 +38,7 @@ export function toPublicComposioProfile(profile: ComposioConnectionProfile): Pub
     isDefault: profile.isDefault,
     status: profile.status,
     workspaceOverrideCount: profile.workspaceOverrideCount,
+    automationCount: profile.automationCount,
     createdAt: profile.createdAt.toISOString(),
     updatedAt: profile.updatedAt.toISOString(),
   };
