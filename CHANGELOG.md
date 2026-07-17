@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.17.6] - 2026-07-17
+## [2026.7.17.7] - 2026-07-17
 
 ### Added
 
@@ -25,6 +25,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Fixed
 
+- Fixed Composio profile creation on PostgreSQL by quoting the reserved `user` table name.
 - Fixed scoped skill browsing so agents can read the files exposed by enabled skill packages.
 - Fixed PostgreSQL organization-policy target queries used by capability controls.
 
