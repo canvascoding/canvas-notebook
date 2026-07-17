@@ -1,6 +1,6 @@
 # sharp/libvips Native Binary Review
 
-Stand: 2026-07-16
+Stand: 2026-07-17
 
 ## Entscheidung
 
@@ -27,6 +27,28 @@ tatsaechlich ausgelieferte Plattformartefakt:
 
 Eine URL auf den aktuellen Upstream-Branch, ein SPDX-Kuerzel oder nur die
 Apache-2.0-Datei aus dem npm-Archiv erfuellt diese Checkliste nicht.
+
+Die erneute Pruefung am 17. Juli 2026 hat diese Entscheidung bestaetigt:
+
+- die offizielle LGPLv3 verlangt fuer Combined Works entweder Minimal
+  Corresponding Source und geeigneten Application Code zum Relinking oder
+  einen nachweislich geeigneten Shared-Library-Mechanismus sowie
+  Installationsinformationen,
+- die offizielle sharp-Dokumentation bestaetigt, dass die vorgebauten
+  Plattformbinaries verwendet werden und ein eigenes globales libvips nur
+  unter den dokumentierten Plattform- und Versionsbedingungen greift,
+- die exakten `sharp-libvips`-Builddefinitionen bestaetigen weiterhin die
+  Vielzahl statisch eingebauter Bibliotheken.
+
+Primaerquellen:
+
+- `https://www.gnu.org/licenses/lgpl+gpl-3.0-standalone.html`
+- `https://sharp.pixelplumbing.com/install/`
+- `https://github.com/lovell/sharp-libvips/tree/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6`
+
+Die verantwortliche Erstfreigabe des Gesamtinventars ist dokumentiert. Sie
+setzt diese Bedingungen nicht ausser Kraft; die 28 Eintraege bleiben deshalb
+weiterhin harte Artefaktblocker.
 
 ## Exakter Bestand
 

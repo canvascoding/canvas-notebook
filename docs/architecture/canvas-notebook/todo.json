@@ -1389,17 +1389,17 @@
         "npm run build"
       ],
       "progress": {
-        "updatedAt": "2026-07-16",
+        "updatedAt": "2026-07-17",
         "engineeringImplementation": "implemented_release_blocked",
-        "commercialReleaseGate": "blocked_pending_review",
+        "commercialReleaseGate": "blocked_pending_native_artifact_compliance",
         "inventory": {
           "totalComponents": 1990,
           "runtimeComponents": 1482,
           "developmentOnlyComponents": 508,
-          "allowed": 1926,
-          "reviewRequired": 64,
+          "allowed": 1939,
+          "reviewRequired": 51,
           "blocked": 0,
-          "releaseBlockers": 43
+          "releaseBlockers": 29
         },
         "completed": [
           "Deterministischer npm- und Non-npm-Inventargenerator",
@@ -1430,12 +1430,15 @@
           "tr46@0.0.3 und tr46@6.0.0 als kombinierte Software-/Datenfaelle geprueft; generierte Tabellen bytegenau Unicode 8.0.0 bzw. 17.0.0 zugeordnet und MIT plus Unicode-DFS-2015 bzw. Unicode-3.0 samt Transformationshinweis dokumentiert",
           "Alle 28 sharp-/libvips-Binaerpositionen versions- und plattformspezifisch untersucht; falschen Apache-2.0-als-LGPL-Cachebeleg korrigiert, exakte Source-Commits und Teilbelege gesichert sowie Corresponding-Source-, Linking-, WASM- und Release-Auflagen dokumentiert",
           "Docker-Runtime-Inventar auf Schema 3 erweitert: Node-Lizenz, 408 Debian-Binaries mit 276 Source-Paket/Versionspaaren, 48 Python-Distributionen mit PEP-639-Pfaden und RECORD-Hashes sowie 153 globale npm-Pakete mit 147 Paketlizenzdateien",
-          "Fehlende Runtime-Texte fuer flatbuffers@25.12.19, magika@0.6.3, markitdown@0.1.6, @sigstore/verify@3.1.0, imurmurhash@0.1.4 und spdx-license-ids@3.0.23 versionsgenau ergaenzt; drei globale npm-Einzelfaelle bewusst blockierend dokumentiert",
-          "Plattformabhaengige Notice-Drift durch optional installierte Paket-Autorenmetadaten beseitigt und per Regressionstest abgesichert"
+          "Fehlende Runtime-Texte fuer flatbuffers@25.12.19, magika@0.6.3, markitdown@0.1.6, @sigstore/verify@3.1.0, imurmurhash@0.1.4 und spdx-license-ids@3.0.23 versionsgenau ergaenzt; drei globale npm-Einzelfaelle zunaechst blockierend dokumentiert",
+          "Plattformabhaengige Notice-Drift durch optional installierte Paket-Autorenmetadaten beseitigt und per Regressionstest abgesichert",
+          "Erste verantwortliche Gesamtfreigabe durch Frank Alexander Weber am 17. Juli 2026 versions- und Commit-gebunden in docs/compliance/third-party-release-approval-2026.7.17.1.md dokumentiert",
+          "Zehn npm-Runtime-Pakete und drei globale npm-Pakete nach Einzelfallpruefung mit exakten Versionsgrenzen, vorhandenen Primaerbelegen, bestmoeglicher Attribution und ausdruecklich akzeptiertem Restrisiko freigegeben",
+          "Sharp-/libvips- und Docker-Positionen erneut gegen Primaerquellen geprueft; verantwortliche Risikofreigabe bewusst nicht als Ersatz fuer LGPL-/GPL-Pflichten oder fehlende finale Multi-Arch-Artefaktbelege verwendet"
         ],
         "verified": [
           "npm run test:licenses",
-          "Negativtest: npm run test:licenses:release blockiert mit 43 dokumentierten Pruefpositionen",
+          "Negativtest: npm run test:licenses:release blockiert mit 29 dokumentierten Pruefpositionen",
           "npx tsc --noEmit --pretty false",
           "npm run lint",
           "npm run build",
@@ -1448,25 +1451,12 @@
           "Anonymer Zugriff auf /api/legal/third-party bleibt mit HTTP 401 gesperrt"
         ],
         "remainingExternalReview": [
-          "Erste dokumentierte verantwortliche oder rechtliche Freigabe",
-          "Docker amd64 noch mit Runtime-Schema 3 bauen; dpkg-/native Corresponding-Source-Angebot, gepinnte Python-Wheels, drei globale npm-Einzelfaelle und eine benannte menschlich-rechtliche Plattformfreigabe abschliessen",
-          "Fuer die 28 technisch geprueften sharp-/libvips-Lieferpositionen vollstaendige Source-/Notice-Bundles, Austausch-/Relinking-Tests und eine benannte menschlich-rechtliche Plattformfreigabe bereitstellen",
-          "10 Runtime-Pakete ohne vollstaendigen exakten Lizenz-/Copyright-Beleg freigeben, durch korrigierten Upstream ersetzen oder entfernen"
+          "Fuer die final vertriebenen amd64- und arm64-Container Runtime-Schema 3, gepinnte Debian-/Python-Artefakte, vollstaendige Corresponding-Source-Zuordnung und eine kandidatenbezogene Plattformfreigabe nachweisen",
+          "Fuer die 28 technisch geprueften sharp-/libvips-Lieferpositionen den tatsaechlichen Zielplattform-Lieferumfang eingrenzen sowie vollstaendige Source-/Notice-Bundles, Austausch-/Relinking-Tests und kandidatenbezogene Plattformfreigaben bereitstellen"
         ],
         "reviewedButStillBlocked": [
-          "@apm-js-collab/code-transformer-bundler-plugins@0.5.0: MIT ist in npm-Paket und exaktem Commit deklariert, aber Lizenzdatei und belastbarer Copyright-Hinweis fehlen; kanonischer MIT-Text wird ausgeliefert, der Blocker bleibt bis Upstream-Fix, Ersatz/Entfernung oder menschlich-rechtlicher Einzelfallentscheidung bestehen",
-          "@better-auth/utils@0.4.2: signierte npm-Provenance bindet den Release an Tag und Commit; MIT ist deklariert, aber Lizenzdatei und belastbarer Copyright-Hinweis fehlen, daher bleibt der Blocker trotz ausgeliefertem kanonischem MIT-Text bestehen",
-          "@eigenpal/docx-js-editor@0.5.3: MIT-Deklaration und Commit sind durch npm-Metadaten, README und signierte Provenance belegt; Tarball ohne Lizenz-/Copyright-Datei und inzwischen nicht oeffentlich erreichbarer Upstream verhindern die Freigabe, waehrend die Apache-2.0-Nachfolge als separate getestete Migrationsoption dokumentiert ist",
-          "client-only@0.0.1: einziger npm-Release deklariert MIT und verweist auf React, liefert aber weder Repository/Commit oder Provenance noch Lizenzdatei oder Copyright-Hinweis; kanonischer MIT-Text wird ausgeliefert, der Rechteinhaber bleibt bewusst unbestimmt",
-          "dingbat-to-unicode@1.0.1: exakter Tag und Commit deklarieren BSD-2-Clause, enthalten aber keinen Lizenztext oder Copyright-Hinweis; Paketautor und alleinige Commit-Autorenschaft werden nicht als Rechteinhabernachweis umgedeutet",
-          "github-from-package@0.0.0: exakter Tarball enthaelt den MIT-Wortlaut ohne Copyright-Zeile; Paketautor und fremde kommerzielle Notice-Listen werden ohne primaeren Upstream-Beleg nicht als Rechteinhabernachweis uebernommen",
-          "https@1.0.0: signierter exakter Tarball enthaelt nur package.json mit ISC-Deklaration, aber keinen Lizenztext, Copyright- oder Source-Beleg; die ueber pptxgenjs eingezogene Abhaengigkeit wirkt wegen des tatsaechlichen node:https-Imports technisch ueberfluessig, bleibt bis zu einem getesteten Dependency-Fix oder menschlich-rechtlicher Entscheidung blockierend",
-          "is-reference@1.2.1: npm-gitHead und annotierter Upstream-Tag belegen den exakten Release mit MIT-Deklaration in package.json und README, aber vollstaendiger MIT-Text und Copyright-Hinweis fehlen; Canvas liefert den kanonischen Text aus und laesst die Rechteinhaberzuordnung offen",
-          "server-only@0.0.1: einziger signierter npm-Release deklariert MIT und verweist auf React, liefert aber weder Autor, Repository/Commit oder Provenance noch Lizenzdatei oder Copyright-Hinweis; trotz direkter breiter Canvas-Nutzung wird ohne primaeren Beleg keine Meta-/React-/Vercel-/Maintainer-Attribution erfunden",
-          "webworkify@1.5.0: exakter npm-gitHead, annotierter Tag und MIT-Wortlaut sind belegt, aber die Copyright-Zeile fehlt seit dem initialen Upstream-Commit; eine Entfernung muss neben dem npm-Paket auch die in pica gebuendelte und ueber Excalidraw ausgelieferte Kopie beruecksichtigen",
-          "docker-global-npm:@npmcli/agent@4.0.0: exakter npm-Tarball, gitHead-Commit und die im Image enthaltene Kopie deklarieren ISC, enthalten aber weder den vollstaendigen Text noch eine belastbare Copyright-Zuordnung",
-          "docker-global-npm:err-code@2.0.3: exakter Tarball, gitHead und Tag enthalten nur einen generischen MIT-Link; Canvas liefert den kanonischen Text, erfindet aber keinen Rechteinhaber",
-          "docker-global-npm:spdx-exceptions@2.5.0: exakter Tarball, gitHead und Tag deklarieren CC-BY-3.0, enthalten aber weder Legal-Code noch eine eindeutige Attribution"
+          "node-docker-base: der vorhandene arm64-Testbeleg stammt nicht aus dem finalen Kandidatencommit; amd64-Schema-3-Inventar, fest gepinnte Runtime-Artefakte und releasegebundene Corresponding-Source-Zuordnung fehlen noch",
+          "28 @img/sharp- und @img/sharp-libvips-Lieferpositionen: Paketdeklarationen und Source-Revisionsbelege sind vorhanden, aber LGPL-/GPL-Lizenztexte, vollstaendige Corresponding-Source-/Notice-Bundles, Austausch-/Relinking-Nachweise und zielplattformbezogene Artefaktfreigaben fehlen noch"
         ]
       }
     },
@@ -1543,7 +1533,7 @@
         "architectureResearch": "completed",
         "selectedApproach": "canvas_native_excalidraw_scene_provider",
         "implementation": "completed",
-        "commercialReleaseGate": "blocked_by_task_51_pending_responsible_or_legal_review",
+        "commercialReleaseGate": "blocked_by_task_51_pending_native_artifact_compliance",
         "verifiedFacts": [
           "@excalidraw/excalidraw 0.18.1 ist installiert und exportiert reconcileElements, CaptureUpdateAction.NEVER, updateScene, onPointerUpdate, collaborators, getSceneElementsIncludingDeleted, getFiles und addFiles",
           "isCollaborating aktiviert nur den Collaboration-Modus der UI und startet keinen Room, Transport oder Persistenz",

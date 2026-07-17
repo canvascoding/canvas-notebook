@@ -1,15 +1,36 @@
 # Third-Party Review Decisions
 
-Stand: 2026-07-16
+Stand: 2026-07-17
 
 Dieses Dokument protokolliert versionsgenaue technische Lizenzentscheidungen,
-die einzelne automatische Release-Blocker aufloesen. Es ersetzt nicht die noch
-ausstehende verantwortliche oder rechtliche Freigabe des Gesamtinventars.
+die einzelne automatische Release-Blocker aufloesen. Die verantwortliche
+Erstfreigabe und ihre Grenzen stehen in
+`third-party-release-approval-2026.7.17.1.md`.
 
 Eine Position wird hier erst als technisch abgeschlossen dokumentiert, wenn
 Paketversion, unveraenderlicher Upstream-Stand, angebotene Lizenz, ausgewaehlte
 Alternative, Copyright-Hinweis, Auslieferungsform und erfuellte Pflichten
 nachvollziehbar sind.
+
+## Statusupdate vom 17. Juli 2026
+
+Frank Alexander Weber hat den ersten Gesamtbestand verantwortlich freigegeben
+und fuer die exakten Versionen in den Abschnitten 4, 5, 6, 8, 9, 10, 12, 13,
+16 und 18 sowie fuer die drei zuvor offenen globalen npm-Pakete aus Abschnitt
+20 eine versionsgebundene Restrisikoentscheidung getroffen. Diese Positionen
+sind in der Policy jetzt `allowed`; die technischen Befunde ueber fehlende
+Upstream-Texte oder Attributionen bleiben als Auditspur erhalten und werden
+nicht nachtraeglich als vollstaendige Primaerbelege dargestellt.
+
+Die in den betroffenen historischen Einzelabschnitten beschriebenen
+Aufloesungswege und damaligen Blockerformulierungen dokumentieren den Stand vor
+dieser menschlichen Entscheidung. Massgeblich fuer die aktuelle Entscheidung,
+bestverfuegbare Attribution, Reviewer, Datum und Upgrade-Ausloeser ist der
+ausgefuellte Freigabebeleg.
+
+Nicht freigegeben sind `node-docker-base` und alle 28
+`sharp`-/`libvips`-Positionen. Dort fehlen keine blosse Risikoentscheidung,
+sondern konkrete Artefakt-, Source-, Notice- und Relinking-Nachweise.
 
 ## 1. `jszip@3.10.1`
 
@@ -131,7 +152,8 @@ Erfuellte Pflichten:
 
 ## 4. `@apm-js-collab/code-transformer-bundler-plugins@0.5.0`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -168,7 +190,8 @@ Technische Entscheidung:
 
 ## 5. `@better-auth/utils@0.4.2`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -205,7 +228,8 @@ Technische Entscheidung:
 
 ## 6. `@eigenpal/docx-js-editor@0.5.3`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -281,7 +305,8 @@ Technische Korrektur:
 
 ## 8. `client-only@0.0.1`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -316,7 +341,8 @@ Technische Entscheidung:
 
 ## 9. `dingbat-to-unicode@1.0.1`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -354,7 +380,8 @@ Technische Entscheidung:
 
 ## 10. `github-from-package@0.0.0`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -428,7 +455,8 @@ Technische Entscheidung:
 
 ## 12. `https@1.0.0`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -472,7 +500,8 @@ Technische Entscheidung:
 
 ## 13. `is-reference@1.2.1`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -601,7 +630,8 @@ Technische Entscheidung:
 
 ## 16. `server-only@0.0.1`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -696,7 +726,8 @@ Technische Entscheidung:
 
 ## 18. `webworkify@1.5.0`
 
-Status: technisch geprueft, weiterhin `review_required`.
+Status: technisch geprueft; seit 2026-07-17 versionsgebunden unter
+dokumentiertem Attributionsrestrisiko `allowed`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -788,8 +819,9 @@ Technische Entscheidung:
 
 ## 20. Docker-Runtime: Node, Debian, Python und globales npm
 
-Status: vier Runtime-Klassen technisch inventarisiert; Docker-Sammelposten
-und drei globale npm-Einzelfaelle weiterhin `review_required`.
+Status: vier Runtime-Klassen technisch inventarisiert; drei globale
+npm-Einzelfaelle versionsgebunden unter Restrisiko `allowed`;
+Docker-Sammelposten weiterhin `review_required`.
 
 | Feld | Ergebnis |
 | --- | --- |
@@ -815,16 +847,19 @@ Apache-2.0 sowie `markitdown@0.1.6` unter MIT. Beim globalen npm wurden
 `@sigstore/verify@3.1.0`, `imurmurhash@0.1.4` und
 `spdx-license-ids@3.0.23` mit versionsgenauen Upstream-Belegen geschlossen.
 
-Offen bleiben `@npmcli/agent@4.0.0`, `err-code@2.0.3` und
-`spdx-exceptions@2.5.0`: Die exakten Tarballs und Commits deklarieren ISC,
-MIT beziehungsweise CC-BY-3.0, enthalten aber nicht alle erforderlichen
+`@npmcli/agent@4.0.0`, `err-code@2.0.3` und `spdx-exceptions@2.5.0` deklarieren
+ISC, MIT beziehungsweise CC-BY-3.0, enthalten aber nicht alle erforderlichen
 Lizenztexte oder Attributionen. Die allgemeine npm-Lizenz ersetzt diese
-paketspezifischen Bedingungen nicht.
+paketspezifischen Bedingungen nicht. Der verantwortliche Reviewer hat die
+exakten Versionen am 17. Juli 2026 unter dokumentiertem Restrisiko freigegeben.
+Canvas liefert die ergaenzten Lizenztexte, bestverfuegbare Publisher-
+Attribution, Immutable Source, Reviewer und Datum aus.
 
 Technische Entscheidung:
 
 - Die sechs geschlossenen Einzelfaelle sind versionsgebunden `allowed`.
-- Die drei offenen globalen npm-Pakete bleiben eigene Release-Blocker.
+- Die drei globalen npm-Einzelfaelle sind nur fuer die dokumentierten exakten
+  Versionen `allowed`; jedes Upgrade erzeugt erneut einen Review.
 - Der Docker-Sammelposten bleibt blockierend, bis beide Plattformimages mit
   Schema 3 neu gebaut sind, pip/Wheels reproduzierbar gepinnt wurden und ein
   releasegebundenes Corresponding-Source-Angebot fuer dpkg- und native

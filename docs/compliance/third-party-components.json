@@ -9,55 +9,20 @@
     "nonNpmComponents": 22,
     "runtimeComponents": 1482,
     "developmentOnlyComponents": 508,
-    "allowed": 1926,
-    "reviewRequired": 64,
+    "allowed": 1939,
+    "reviewRequired": 51,
     "blocked": 0
   },
   "releaseGate": {
     "status": "blocked",
-    "approvalStatus": "pending",
-    "approvalReviewedBy": null,
-    "approvalReviewedAt": null,
+    "approvalStatus": "approved",
+    "approvalReviewedBy": "Frank Alexander Weber",
+    "approvalReviewedAt": "2026-07-17",
     "blockers": [
-      {
-        "name": "first-commercial-release-approval",
-        "versionOrCommit": "2026.7.16.2",
-        "reason": "The deterministic engineering inventory is implemented. A responsible owner or legal reviewer must approve the first commercial-release inventory."
-      },
-      {
-        "name": "docker-global-npm:@npmcli/agent",
-        "versionOrCommit": "4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367",
-        "reason": "The exact npm tarball, npm gitHead commit and global npm copy declare ISC but contain no LICENSE, NOTICE, full ISC terms or attributable copyright. Do not infer ownership from the npm organization."
-      },
-      {
-        "name": "docker-global-npm:err-code",
-        "versionOrCommit": "2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a",
-        "reason": "The exact npm tarball, gitHead and dereferenced v2.0.3 tag contain only a README link to generic MIT terms, with no full license or attributable copyright. Canvas supplies canonical MIT terms but does not invent an owner."
-      },
-      {
-        "name": "docker-global-npm:spdx-exceptions",
-        "versionOrCommit": "2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799",
-        "reason": "The exact npm tarball, gitHead and dereferenced v2.5.0 tag declare CC-BY-3.0 but omit its legal code and an explicit attribution statement. The dataset remains blocked until the correct attribution and legal text are established."
-      },
       {
         "name": "node-docker-base",
         "versionOrCommit": "node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
         "reason": "The Dockerfile pins the resolved multi-architecture image index digest. The image build captures exact Debian and Python versions plus hashes of packaged license/copyright files. A release reviewer must still assess the concrete Debian/Python license mix before commercial approval."
-      },
-      {
-        "name": "@apm-js-collab/code-transformer-bundler-plugins",
-        "versionOrCommit": "0.5.0",
-        "reason": "The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. The package remains review_required until upstream supplies the missing notice or a responsible reviewer documents a legally supportable attribution. Verification source: https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "@better-auth/utils",
-        "versionOrCommit": "0.4.2",
-        "reason": "The exact npm release declares MIT. Its signed npm provenance maps tag v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, which matches the dereferenced upstream tag. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. Package author metadata names Bereket Engida, but authorship alone is not treated as proof of copyright ownership. The package remains review_required. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "@eigenpal/docx-js-editor",
-        "versionOrCommit": "0.5.3",
-        "reason": "The exact npm release declares MIT and its README displays an MIT badge. Signed npm provenance binds the tarball to branch 0.x commit e06dfceae557f8c1607a28618a99a34be8fed1fb. The npm tarball contains no LICENSE, NOTICE, copyright file, or attributable package copyright statement, and the referenced upstream repository is no longer publicly accessible for exact-commit verification. The current 1.x successor is Apache-2.0, which is not treated as retroactive evidence for 0.5.3. Canvas retains the canonical MIT terms but keeps this package review_required pending an upstream archive/license record, migration to the licensed successor, removal, or responsible legal decision. Verification source: https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3 The MIT copyright notice could not be attributed automatically."
       },
       {
         "name": "@img/sharp-libvips-darwin-arm64",
@@ -198,41 +163,6 @@
         "name": "@img/sharp-win32-x64",
         "versionOrCommit": "0.35.3",
         "reason": "License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved."
-      },
-      {
-        "name": "client-only",
-        "versionOrCommit": "0.0.1",
-        "reason": "The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required. Verification source: https://registry.npmjs.org/client-only/0.0.1 The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "dingbat-to-unicode",
-        "versionOrCommit": "1.0.1",
-        "reason": "The exact npm release and upstream tag js-1.0.1 declare BSD-2-Clause; the annotated tag resolves to commit b27f259b49907f99b1b9097abba5a9668106b779. Neither the npm tarball nor that source tree contains a LICENSE, NOTICE, copyright file, or source header. Package author metadata and all commits up to the release name Michael Williamson, but authorship is not treated as a substitute for an explicit copyright notice. The package remains review_required pending corrected upstream evidence, replacement/removal, or responsible legal decision. Verification source: https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json No verified license text was found in the installed package or a versioned override."
-      },
-      {
-        "name": "github-from-package",
-        "versionOrCommit": "0.0.0",
-        "reason": "The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "https",
-        "versionOrCommit": "1.0.0",
-        "reason": "The signed exact npm tarball declares ISC but contains only package.json; even its declared index.js entry point is absent. It provides no LICENSE, NOTICE, copyright statement, repository, gitHead, or signed provenance. Author metadata names hardus van der berg, but authorship is not treated as proof of copyright ownership. The package is pulled in by pptxgenjs@4.0.1 even though that exact release imports Node's built-in node:https module and maps both https and node:https to false for browser bundles. Canvas does not silently remove or replace a transitive package solely during the license audit. The package remains review_required pending corrected upstream metadata, removal/replacement, or a responsible legal decision. Verification source: https://registry.npmjs.org/https/1.0.0 No verified license text was found in the installed package or a versioned override."
-      },
-      {
-        "name": "is-reference",
-        "versionOrCommit": "1.2.1",
-        "reason": "The exact npm release publishes gitHead 9d2719fbcc2059567203063f1e7b65d7831bfd64, and annotated tag v1.2.1 dereferences to that commit. package.json declares MIT and the exact README has a one-line MIT license section, but neither the npm tarball nor the exact source commit contains the full MIT terms, a LICENSE/NOTICE file, a source copyright header, or an attributable copyright statement. Repository and package author metadata name Rich Harris, but authorship and commit history are not treated as proof of copyright ownership. Canvas retains the canonical MIT terms while the package remains review_required pending corrected upstream evidence, replacement/removal, or a responsible legal decision. Verification source: https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "server-only",
-        "versionOrCommit": "0.0.1",
-        "reason": "The only published release declares MIT, links to the React homepage and facebook/react issue tracker, and was published by npm maintainer sebmarkbage. The signed exact tarball contains only package.json, index.js, and empty.js; it provides no author, repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. An official Next.js documentation issue independently records that the package source and ownership are unclear despite React and Next.js documentation recommending it. Canvas directly uses the marker across server-only modules, retains the canonical MIT terms, and does not infer Meta, React, Vercel, Next.js, or the npm maintainer as copyright owner. The package remains review_required. Verification source: https://registry.npmjs.org/server-only/0.0.1 The MIT copyright notice could not be attributed automatically."
-      },
-      {
-        "name": "webworkify",
-        "versionOrCommit": "1.5.0",
-        "reason": "The exact npm release publishes gitHead baf2884256768aea6c36be1ea6e1efb2144fcfbc, and annotated tag v1.5.0 dereferences to that commit. The npm tarball and exact source contain the complete MIT permission and warranty text, but the LICENSE has omitted its copyright-holder line since the initial 2013 commit and remains unchanged upstream. Package metadata names James Halliday as author, while the release history includes multiple contributors; authorship and commit history are not treated as copyright ownership evidence. The package is both installed transitively through pica@7.1.1 and embedded in pica's distributed browser bundles used by Excalidraw. Canvas retains the exact MIT text but keeps the package review_required pending corrected upstream attribution, replacement/removal including the bundled copy, or a responsible legal decision. Verification source: https://github.com/substack/webworkify/blob/v1.5.0/LICENSE The MIT copyright notice could not be attributed automatically."
       }
     ]
   },
@@ -10393,12 +10323,16 @@
       ],
       "declaredLicense": "ISC",
       "verifiedLicense": "ISC",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/license-texts/npmcli-agent-4.0.0-ISC.txt",
+      "licenseTextSha256": "7397a8f6c738f878682e1ea05213013ea10b6dd251e9454e66cbca469398b62e",
+      "copyrightNotices": [
+        "Copyright (c) GitHub, Inc. and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm tarball, npm gitHead commit and global npm copy declare ISC but contain no LICENSE, NOTICE, full ISC terms or attributable copyright. Do not infer ownership from the npm organization."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm tarball and gitHead commit declare ISC but omit full terms and explicit copyright. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies standard ISC terms and uses exact publisher author metadata GitHub Inc. with a contributors qualifier as the best available attribution. Any version change requires a new review.",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "docker-global-npm:@sigstore/verify",
@@ -10433,10 +10367,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
       "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) IndigoUnited and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm tarball, gitHead and dereferenced v2.0.3 tag contain only a README link to generic MIT terms, with no full license or attributable copyright. Canvas supplies canonical MIT terms but does not invent an owner."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm tarball, gitHead and v2.0.3 tag declare MIT but omit full terms and explicit copyright. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses exact publisher author metadata IndigoUnited with a contributors qualifier as the best available attribution. Any version change requires a new review.",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "docker-global-npm:imurmurhash",
@@ -10461,7 +10399,7 @@
     {
       "name": "docker-global-npm:spdx-exceptions",
       "versionOrCommit": "2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799",
-      "sourceUrl": "https://github.com/kemitchell/spdx-exceptions.json/tree/3aa64bec339abc6a3eca00c3436aaa7e154b8799",
+      "sourceUrl": "https://github.com/jslicense/spdx-exceptions.json/tree/3aa64bec339abc6a3eca00c3436aaa7e154b8799",
       "packagePathOrArtifact": "/usr/local/lib/node_modules/npm/node_modules/spdx-exceptions",
       "usage": "native",
       "distributedIn": [
@@ -10469,12 +10407,16 @@
       ],
       "declaredLicense": "CC-BY-3.0",
       "verifiedLicense": "CC-BY-3.0",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/license-texts/CC-BY-3.0.txt",
+      "licenseTextSha256": "e6bc9e9c474700b708f568bac9e5a8a9bcb2b1dad53442f5ba449fcb848b8e76",
+      "copyrightNotices": [
+        "SPDX Exceptions data by The Linux Foundation; package contribution by Kyle E. Mitchell"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm tarball, gitHead and dereferenced v2.5.0 tag declare CC-BY-3.0 but omit its legal code and an explicit attribution statement. The dataset remains blocked until the correct attribution and legal text are established."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm tarball, gitHead and v2.5.0 tag declare CC-BY-3.0 but omit its legal code and explicit attribution statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies the official CC-BY-3.0 legal code and attributes the work using exact publisher metadata naming The Linux Foundation and contributor Kyle E. Mitchell, with the immutable source URL. Any version change requires a new review.",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "docker-global-npm:spdx-license-ids",
@@ -10653,10 +10595,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
       "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) contributors to @apm-js-collab/code-transformer-bundler-plugins"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. The package remains review_required until upstream supplies the missing notice or a responsible reviewer documents a legally supportable attribution. Verification source: https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce, but neither the tarball nor the exact source commit contains a LICENSE, NOTICE or attributable copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies the canonical MIT terms and a conservative collective contributor notice without claiming a verified individual owner. Any version change requires a new review. Verification source: https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "@apm-js-collab/code-transformer",
@@ -11938,10 +11884,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
       "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) Bereket Engida and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm release declares MIT. Its signed npm provenance maps tag v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, which matches the dereferenced upstream tag. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. Package author metadata names Bereket Engida, but authorship alone is not treated as proof of copyright ownership. The package remains review_required. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares MIT and signed provenance maps v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, but the release omits a LICENSE and explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies the canonical MIT terms and uses the exact publisher author metadata, Bereket Engida, with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "@better-fetch/fetch",
@@ -12959,10 +12909,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
       "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) EigenPal and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm release declares MIT and its README displays an MIT badge. Signed npm provenance binds the tarball to branch 0.x commit e06dfceae557f8c1607a28618a99a34be8fed1fb. The npm tarball contains no LICENSE, NOTICE, copyright file, or attributable package copyright statement, and the referenced upstream repository is no longer publicly accessible for exact-commit verification. The current 1.x successor is Apache-2.0, which is not treated as retroactive evidence for 0.5.3. Canvas retains the canonical MIT terms but keeps this package review_required pending an upstream archive/license record, migration to the licensed successor, removal, or responsible legal decision. Verification source: https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3 The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares MIT, displays an MIT badge and has signed provenance for commit e06dfceae557f8c1607a28618a99a34be8fed1fb, but the tarball omits a LICENSE and explicit copyright statement and the historical repository is unavailable. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the exact publisher author metadata, EigenPal, with a contributors qualifier. The Apache-2.0 successor is not treated as retroactive evidence. Any version change requires a new review. Verification source: https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "@emnapi/runtime",
@@ -26603,10 +26557,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
       "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) Sebastian Markbåge and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required. Verification source: https://registry.npmjs.org/client-only/0.0.1 The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "The only release declares MIT, links to React and was published by npm maintainer sebmarkbage, but provides no repository, provenance, LICENSE or explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the publisher identity Sebastian Markbåge with a contributors qualifier as the best available attribution without claiming React, Meta, Vercel or Next.js ownership. Any version change requires a new review. Verification source: https://registry.npmjs.org/client-only/0.0.1",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "cliui",
@@ -28931,12 +28889,16 @@
       ],
       "declaredLicense": "BSD-2-Clause",
       "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/license-texts/dingbat-to-unicode-1.0.1-BSD-2-Clause.txt",
+      "licenseTextSha256": "f35ad51b19e3d7ca4ec0258c7f284947a3b0cfe1772fbbff12a808991ad000e8",
+      "copyrightNotices": [
+        "Copyright (c) Michael Williamson and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm release and upstream tag js-1.0.1 declare BSD-2-Clause; the annotated tag resolves to commit b27f259b49907f99b1b9097abba5a9668106b779. Neither the npm tarball nor that source tree contains a LICENSE, NOTICE, copyright file, or source header. Package author metadata and all commits up to the release name Michael Williamson, but authorship is not treated as a substitute for an explicit copyright notice. The package remains review_required pending corrected upstream evidence, replacement/removal, or responsible legal decision. Verification source: https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json No verified license text was found in the installed package or a versioned override."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release and annotated tag js-1.0.1 at commit b27f259b49907f99b1b9097abba5a9668106b779 declare BSD-2-Clause but omit its text and explicit copyright notice. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies the standard BSD-2-Clause terms and uses package author and sole pre-release commit author Michael Williamson with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "dom-serializer",
@@ -30929,10 +30891,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/github-from-package/LICENSE",
       "licenseTextSha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) James Halliday and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm tarball contains the full MIT terms but omits its copyright-holder line; publisher metadata names James Halliday and the historical repository is unavailable. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas retains the exact MIT text and uses James Halliday with a contributors qualifier as the best available publisher attribution. Any version change requires a new review. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "glob-parent",
@@ -31767,12 +31733,16 @@
       ],
       "declaredLicense": "ISC",
       "verifiedLicense": "ISC",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
+      "licenseTextRef": "docs/compliance/license-texts/https-1.0.0-ISC.txt",
+      "licenseTextSha256": "704427f69daecc2b9c4231d17c830d579571f9298683af407f00f0ef3e6a8301",
+      "copyrightNotices": [
+        "Copyright (c) hardus van der berg and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The signed exact npm tarball declares ISC but contains only package.json; even its declared index.js entry point is absent. It provides no LICENSE, NOTICE, copyright statement, repository, gitHead, or signed provenance. Author metadata names hardus van der berg, but authorship is not treated as proof of copyright ownership. The package is pulled in by pptxgenjs@4.0.1 even though that exact release imports Node's built-in node:https module and maps both https and node:https to false for browser bundles. Canvas does not silently remove or replace a transitive package solely during the license audit. The package remains review_required pending corrected upstream metadata, removal/replacement, or a responsible legal decision. Verification source: https://registry.npmjs.org/https/1.0.0 No verified license text was found in the installed package or a versioned override."
+      "policyDecision": "allowed",
+      "reviewNotes": "The signed exact npm tarball declares ISC but contains only package.json and omits the license text, copyright statement, repository and provenance. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies standard ISC terms and uses exact publisher author metadata hardus van der berg with a contributors qualifier as the best available attribution. The package remains present in the lockfile although the exact pptxgenjs release imports Node's built-in node:https module and disables both https mappings for browser bundles. Any version change requires a new review. Verification source: https://registry.npmjs.org/https/1.0.0",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "iconv-lite",
@@ -32698,10 +32668,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
       "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) Rich Harris and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm release publishes gitHead 9d2719fbcc2059567203063f1e7b65d7831bfd64, and annotated tag v1.2.1 dereferences to that commit. package.json declares MIT and the exact README has a one-line MIT license section, but neither the npm tarball nor the exact source commit contains the full MIT terms, a LICENSE/NOTICE file, a source copyright header, or an attributable copyright statement. Repository and package author metadata name Rich Harris, but authorship and commit history are not treated as proof of copyright ownership. Canvas retains the canonical MIT terms while the package remains review_required pending corrected upstream evidence, replacement/removal, or a responsible legal decision. Verification source: https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm gitHead and annotated tag v1.2.1 resolve to commit 9d2719fbcc2059567203063f1e7b65d7831bfd64 and declare MIT, but omit full terms and explicit copyright. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses package and repository author Rich Harris with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "is-stream",
@@ -40258,10 +40232,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
       "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) Sebastian Markbåge and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The only published release declares MIT, links to the React homepage and facebook/react issue tracker, and was published by npm maintainer sebmarkbage. The signed exact tarball contains only package.json, index.js, and empty.js; it provides no author, repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. An official Next.js documentation issue independently records that the package source and ownership are unclear despite React and Next.js documentation recommending it. Canvas directly uses the marker across server-only modules, retains the canonical MIT terms, and does not infer Meta, React, Vercel, Next.js, or the npm maintainer as copyright owner. The package remains review_required. Verification source: https://registry.npmjs.org/server-only/0.0.1 The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "The only release declares MIT, links to React and was published by npm maintainer sebmarkbage, but provides no author, repository, provenance, LICENSE or explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the publisher identity Sebastian Markbåge with a contributors qualifier as the best available attribution without claiming React, Meta, Vercel or Next.js ownership. Any version change requires a new review. Verification source: https://registry.npmjs.org/server-only/0.0.1",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "set-cookie-parser",
@@ -42997,10 +42975,14 @@
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/webworkify/LICENSE",
       "licenseTextSha256": "435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright (c) James Halliday and contributors"
+      ],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The exact npm release publishes gitHead baf2884256768aea6c36be1ea6e1efb2144fcfbc, and annotated tag v1.5.0 dereferences to that commit. The npm tarball and exact source contain the complete MIT permission and warranty text, but the LICENSE has omitted its copyright-holder line since the initial 2013 commit and remains unchanged upstream. Package metadata names James Halliday as author, while the release history includes multiple contributors; authorship and commit history are not treated as copyright ownership evidence. The package is both installed transitively through pica@7.1.1 and embedded in pica's distributed browser bundles used by Excalidraw. Canvas retains the exact MIT text but keeps the package review_required pending corrected upstream attribution, replacement/removal including the bundled copy, or a responsible legal decision. Verification source: https://github.com/substack/webworkify/blob/v1.5.0/LICENSE The MIT copyright notice could not be attributed automatically."
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release and annotated v1.5.0 tag resolve to commit baf2884256768aea6c36be1ea6e1efb2144fcfbc and contain full MIT terms without a copyright-holder line. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas retains the exact MIT text and uses package author James Halliday with a contributors qualifier as the best available attribution, including for the copy embedded in pica's distributed browser bundles. Any version change requires a new review. Verification source: https://github.com/substack/webworkify/blob/v1.5.0/LICENSE",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     },
     {
       "name": "whatwg-mimetype",

@@ -63,6 +63,9 @@ assert.equal(
     .filter(([packagePath, value]) => packagePath.startsWith('node_modules/') && value.version)
     .length,
 );
+assert.equal(inventory.releaseGate.approvalStatus, 'approved');
+assert.equal(inventory.releaseGate.approvalReviewedBy, 'Frank Alexander Weber');
+assert.equal(inventory.releaseGate.approvalReviewedAt, '2026-07-17');
 
 for (const [packagePath, lockPackage] of Object.entries(lockfile.packages)) {
   if (
@@ -153,15 +156,44 @@ assert.deepEqual(
 );
 assert.match(highlightjsVue.sourceUrl, /2a0d197ec24ba70e019e12a13bd42f006124506a/u);
 
+for (const [name, version] of [
+  ['@apm-js-collab/code-transformer-bundler-plugins', '0.5.0'],
+  ['@better-auth/utils', '0.4.2'],
+  ['@eigenpal/docx-js-editor', '0.5.3'],
+  ['client-only', '0.0.1'],
+  ['dingbat-to-unicode', '1.0.1'],
+  ['github-from-package', '0.0.0'],
+  ['https', '1.0.0'],
+  ['is-reference', '1.2.1'],
+  ['server-only', '0.0.1'],
+  ['webworkify', '1.5.0'],
+] as const) {
+  const component = inventory.components.find((candidate) => (
+    candidate.name === name && candidate.versionOrCommit === version
+  ));
+  assert(component, `${name}@${version} must be inventoried`);
+  assert.equal(component.policyDecision, 'allowed');
+  assert.equal(component.reviewedBy, 'Frank Alexander Weber');
+  assert.equal(component.reviewedAt, '2026-07-17');
+  assert(component.licenseTextSha256, `${name}@${version} must ship its selected license terms`);
+  assert(component.copyrightNotices.length > 0, `${name}@${version} must ship best-evidence attribution`);
+  assert.match(component.reviewNotes || '', /documented residual attribution risk/u);
+}
+
 const httpsPlaceholder = inventory.components.find((component) => (
   component.name === 'https' && component.versionOrCommit === '1.0.0'
 ));
 assert(httpsPlaceholder, 'https@1.0.0 must be inventoried');
 assert.equal(httpsPlaceholder.verifiedLicense, 'ISC');
-assert.equal(httpsPlaceholder.policyDecision, 'review_required');
-assert.equal(httpsPlaceholder.licenseTextRef, null);
-assert.equal(httpsPlaceholder.licenseTextSha256, null);
-assert.deepEqual(httpsPlaceholder.copyrightNotices, []);
+assert.equal(httpsPlaceholder.policyDecision, 'allowed');
+assert.equal(
+  httpsPlaceholder.licenseTextRef,
+  'docs/compliance/license-texts/https-1.0.0-ISC.txt',
+);
+assert(httpsPlaceholder.licenseTextSha256);
+assert(httpsPlaceholder.copyrightNotices.includes(
+  'Copyright (c) hardus van der berg and contributors',
+));
 assert.equal(
   httpsPlaceholder.sourceUrl,
   'https://registry.npmjs.org/https/-/https-1.0.0.tgz',
@@ -173,9 +205,9 @@ const isReference = inventory.components.find((component) => (
 ));
 assert(isReference, 'is-reference@1.2.1 must be inventoried');
 assert.equal(isReference.verifiedLicense, 'MIT');
-assert.equal(isReference.policyDecision, 'review_required');
+assert.equal(isReference.policyDecision, 'allowed');
 assert(isReference.licenseTextSha256, 'is-reference must retain the canonical MIT terms');
-assert.deepEqual(isReference.copyrightNotices, []);
+assert(isReference.copyrightNotices.includes('Copyright (c) Rich Harris and contributors'));
 assert.match(isReference.sourceUrl, /9d2719fbcc2059567203063f1e7b65d7831bfd64/u);
 assert.match(isReference.reviewNotes || '', /annotated tag v1\.2\.1/u);
 
@@ -216,14 +248,16 @@ const serverOnly = inventory.components.find((component) => (
 ));
 assert(serverOnly, 'server-only@0.0.1 must be inventoried');
 assert.equal(serverOnly.verifiedLicense, 'MIT');
-assert.equal(serverOnly.policyDecision, 'review_required');
+assert.equal(serverOnly.policyDecision, 'allowed');
 assert(serverOnly.licenseTextSha256, 'server-only must retain the canonical MIT terms');
-assert.deepEqual(serverOnly.copyrightNotices, []);
+assert(serverOnly.copyrightNotices.includes(
+  'Copyright (c) Sebastian Markbåge and contributors',
+));
 assert.equal(
   serverOnly.sourceUrl,
   'https://registry.npmjs.org/server-only/-/server-only-0.0.1.tgz',
 );
-assert.match(serverOnly.reviewNotes || '', /source and ownership are unclear/u);
+assert.match(serverOnly.reviewNotes || '', /provides no author, repository, provenance/u);
 
 const tr46Legacy = inventory.components.find((component) => (
   component.name === 'tr46' && component.versionOrCommit === '0.0.3'
@@ -260,9 +294,11 @@ const webworkify = inventory.components.find((component) => (
 ));
 assert(webworkify, 'webworkify@1.5.0 must be inventoried');
 assert.equal(webworkify.verifiedLicense, 'MIT');
-assert.equal(webworkify.policyDecision, 'review_required');
+assert.equal(webworkify.policyDecision, 'allowed');
 assert.equal(webworkify.licenseTextSha256, '435a6722c786b0a56fbe7387028f1d9d3f3a2d0fb615bb8fee118727c3f59b7b');
-assert.deepEqual(webworkify.copyrightNotices, []);
+assert(webworkify.copyrightNotices.includes(
+  'Copyright (c) James Halliday and contributors',
+));
 assert.match(webworkify.sourceUrl, /baf2884256768aea6c36be1ea6e1efb2144fcfbc/u);
 assert.match(webworkify.reviewNotes || '', /embedded in pica's distributed browser bundles/u);
 
@@ -328,11 +364,13 @@ for (const name of [
 ]) {
   const component = inventory.components.find((candidate) => candidate.name === name);
   assert(component, `${name} must remain visible as a global npm runtime package`);
-  assert.equal(component.policyDecision, 'review_required');
-  assert(
-    inventory.releaseGate.blockers.some((blocker) => blocker.name === name),
-    `${name} must block a commercial release until its missing terms or attribution are resolved`,
-  );
+  assert.equal(component.policyDecision, 'allowed');
+  assert.equal(component.reviewedBy, 'Frank Alexander Weber');
+  assert.equal(component.reviewedAt, '2026-07-17');
+  assert(component.licenseTextSha256);
+  assert(component.copyrightNotices.length > 0);
+  assert.match(component.reviewNotes || '', /documented residual attribution risk/u);
+  assert(!inventory.releaseGate.blockers.some((blocker) => blocker.name === name));
 }
 
 const exactSourceComponents = [
@@ -361,9 +399,10 @@ for (const name of ['github-from-package', 'webworkify']) {
   assert(component, `${name} must be inventoried`);
   assert.equal(
     component.policyDecision,
-    'review_required',
-    `${name} must not use MIT boilerplate as a substitute for a copyright attribution`,
+    'allowed',
+    `${name} must retain the exact terms and the reviewed best-evidence attribution`,
   );
+  assert.equal(component.reviewedBy, 'Frank Alexander Weber');
 }
 
 for (const component of inventory.components) {
@@ -397,17 +436,10 @@ for (const component of inventory.components) {
   }
 }
 
-if (inventory.releaseGate.approvalStatus === 'pending') {
-  assert.equal(
-    inventory.releaseGate.status,
-    'blocked',
-    'commercial releases must remain blocked while the initial responsible/legal approval is pending',
-  );
-  assert(
-    inventory.releaseGate.blockers.some((blocker) => blocker.name === 'first-commercial-release-approval'),
-    'the pending initial approval must remain visible as a release blocker',
-  );
-}
+assert(
+  !inventory.releaseGate.blockers.some((blocker) => blocker.name === 'first-commercial-release-approval'),
+  'the completed initial approval must no longer remain visible as a release blocker',
+);
 if (inventory.releaseGate.status === 'blocked') {
   assert(inventory.releaseGate.blockers.length > 0);
 }

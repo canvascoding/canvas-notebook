@@ -26,11 +26,11 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | seed-skill:skill-creator | repository-version | asset | Apache-2.0 | allowed |
 | seed-skill:theme-factory | repository-version | asset | Apache-2.0 | allowed |
 | seed-skill:web-artifacts-builder | repository-version | asset | Apache-2.0 | allowed |
-| docker-global-npm:@npmcli/agent | 4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367 | native | ISC | review_required |
+| docker-global-npm:@npmcli/agent | 4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367 | native | ISC | allowed |
 | docker-global-npm:@sigstore/verify | 3.1.0 / c4ad6141eb947a20690837888e5d90d9a30b5af3 | native | Apache-2.0 | allowed |
-| docker-global-npm:err-code | 2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a | native | MIT | review_required |
+| docker-global-npm:err-code | 2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a | native | MIT | allowed |
 | docker-global-npm:imurmurhash | 0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2 | native | MIT | allowed |
-| docker-global-npm:spdx-exceptions | 2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799 | native | CC-BY-3.0 | review_required |
+| docker-global-npm:spdx-exceptions | 2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799 | native | CC-BY-3.0 | allowed |
 | docker-global-npm:spdx-license-ids | 3.0.23 / a2a975daf48bbc2afdc8e7c304405b44c656fd53 | native | CC0-1.0 | allowed |
 | docker-python:flatbuffers | 25.12.19 / 7e163021e59cca4f8e1e35a7c828b5c6b7915953 | native | Apache-2.0 | allowed |
 | docker-python:magika | 0.6.3 / a04562a9bb5d52c809a4424911ca8d07c0265767 | native | Apache-2.0 | allowed |
@@ -39,7 +39,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | node-docker-base | node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d | native | Multiple | review_required |
 | @antfu/install-pkg | 1.1.0 | runtime | MIT | allowed |
 | @anthropic-ai/sdk | 0.91.1 | runtime | MIT | allowed |
-| @apm-js-collab/code-transformer-bundler-plugins | 0.5.0 | runtime | MIT | review_required |
+| @apm-js-collab/code-transformer-bundler-plugins | 0.5.0 | runtime | MIT | allowed |
 | @apm-js-collab/code-transformer | 0.15.0 | runtime | Apache-2.0 | allowed |
 | @apm-js-collab/tracing-hooks | 0.10.1 | runtime | Apache-2.0 | allowed |
 | @asamuzakjp/css-color | 5.1.11 | runtime | MIT | allowed |
@@ -95,7 +95,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @better-auth/mongo-adapter | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/prisma-adapter | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/telemetry | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/utils | 0.4.2 | runtime | MIT | review_required |
+| @better-auth/utils | 0.4.2 | runtime | MIT | allowed |
 | @better-fetch/fetch | 1.3.1 | runtime | MIT | allowed |
 | @borewit/text-codec | 0.2.2 | runtime | MIT | allowed |
 | @braintree/sanitize-url | 6.0.2 | runtime | MIT | allowed |
@@ -141,7 +141,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @csstools/selector-specificity | 5.0.0 | runtime | MIT-0 | allowed |
 | @earendil-works/pi-agent-core | 0.80.6 | runtime | MIT | allowed |
 | @earendil-works/pi-ai | 0.80.6 | runtime | MIT | allowed |
-| @eigenpal/docx-js-editor | 0.5.3 | runtime | MIT | review_required |
+| @eigenpal/docx-js-editor | 0.5.3 | runtime | MIT | allowed |
 | @emnapi/runtime | 1.11.2 | runtime | MIT | allowed |
 | @esbuild/aix-ppc64 | 0.28.1 | runtime | MIT | allowed |
 | @esbuild/android-arm | 0.28.1 | runtime | MIT | allowed |
@@ -723,7 +723,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | chromium-bidi | 16.0.1 | runtime | Apache-2.0 | allowed |
 | cjs-module-lexer | 2.2.0 | runtime | MIT | allowed |
 | class-variance-authority | 0.7.1 | runtime | Apache-2.0 | allowed |
-| client-only | 0.0.1 | runtime | MIT | review_required |
+| client-only | 0.0.1 | runtime | MIT | allowed |
 | cliui | 8.0.1 | runtime | ISC | allowed |
 | cliui | 9.0.1 | runtime | ISC | allowed |
 | clsx | 1.1.1 | runtime | MIT | allowed |
@@ -828,7 +828,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | devlop | 1.1.0 | runtime | MIT | allowed |
 | devtools-protocol | 0.0.1608973 | runtime | BSD-3-Clause | allowed |
 | devtools-protocol | 0.0.1638949 | runtime | BSD-3-Clause | allowed |
-| dingbat-to-unicode | 1.0.1 | runtime | BSD-2-Clause | review_required |
+| dingbat-to-unicode | 1.0.1 | runtime | BSD-2-Clause | allowed |
 | dom-serializer | 2.0.0 | runtime | MIT | allowed |
 | domelementtype | 2.3.0 | runtime | BSD-2-Clause | allowed |
 | domhandler | 5.0.3 | runtime | BSD-2-Clause | allowed |
@@ -918,7 +918,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | get-proto | 1.0.1 | runtime | MIT | allowed |
 | get-stream | 5.2.0 | runtime | MIT | allowed |
 | get-uri | 6.0.5 | runtime | MIT | allowed |
-| github-from-package | 0.0.0 | runtime | MIT | review_required |
+| github-from-package | 0.0.0 | runtime | MIT | allowed |
 | glob-parent | 5.1.2 | runtime | ISC | allowed |
 | glob | 13.0.6 | runtime | BlueOak-1.0.0 | allowed |
 | glur | 1.1.2 | runtime | MIT | allowed |
@@ -956,7 +956,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | http-errors | 2.0.1 | runtime | MIT | allowed |
 | http-proxy-agent | 7.0.2 | runtime | MIT | allowed |
 | https-proxy-agent | 7.0.6 | runtime | MIT | allowed |
-| https | 1.0.0 | runtime | ISC | review_required |
+| https | 1.0.0 | runtime | ISC | allowed |
 | iconv-lite | 0.6.3 | runtime | MIT | allowed |
 | iconv-lite | 0.7.3 | runtime | MIT | allowed |
 | iconv-lite | 0.7.3 | runtime | MIT | allowed |
@@ -998,7 +998,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | is-plain-obj | 4.1.0 | runtime | MIT | allowed |
 | is-potential-custom-element-name | 1.0.1 | runtime | MIT | allowed |
 | is-promise | 4.0.0 | runtime | MIT | allowed |
-| is-reference | 1.2.1 | runtime | MIT | review_required |
+| is-reference | 1.2.1 | runtime | MIT | allowed |
 | is-stream | 4.0.1 | runtime | MIT | allowed |
 | isarray | 1.0.0 | runtime | MIT | allowed |
 | isarray | 1.0.0 | runtime | MIT | allowed |
@@ -1335,7 +1335,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | send | 1.2.1 | runtime | MIT | allowed |
 | serve-index | 1.9.2 | runtime | MIT | allowed |
 | serve-static | 2.2.1 | runtime | MIT | allowed |
-| server-only | 0.0.1 | runtime | MIT | review_required |
+| server-only | 0.0.1 | runtime | MIT | allowed |
 | set-cookie-parser | 3.1.2 | runtime | MIT | allowed |
 | setimmediate | 1.0.5 | runtime | MIT | allowed |
 | setprototypeof | 1.2.0 | runtime | ISC | allowed |
@@ -1459,7 +1459,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | webdriver-bidi-protocol | 0.4.2 | runtime | Apache-2.0 | allowed |
 | webidl-conversions | 3.0.1 | runtime | BSD-2-Clause | allowed |
 | webidl-conversions | 8.0.1 | runtime | BSD-2-Clause | allowed |
-| webworkify | 1.5.0 | runtime | MIT | review_required |
+| webworkify | 1.5.0 | runtime | MIT | allowed |
 | whatwg-mimetype | 5.0.0 | runtime | MIT | allowed |
 | whatwg-url | 16.0.1 | runtime | MIT | allowed |
 | whatwg-url | 5.0.0 | runtime | MIT | allowed |
@@ -1502,14 +1502,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 
 The following entries require a documented responsible/legal decision before a commercial release:
 
-- **first-commercial-release-approval 2026.7.16.2:** The deterministic engineering inventory is implemented. A responsible owner or legal reviewer must approve the first commercial-release inventory.
-- **docker-global-npm:@npmcli/agent 4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367:** The exact npm tarball, npm gitHead commit and global npm copy declare ISC but contain no LICENSE, NOTICE, full ISC terms or attributable copyright. Do not infer ownership from the npm organization.
-- **docker-global-npm:err-code 2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a:** The exact npm tarball, gitHead and dereferenced v2.0.3 tag contain only a README link to generic MIT terms, with no full license or attributable copyright. Canvas supplies canonical MIT terms but does not invent an owner.
-- **docker-global-npm:spdx-exceptions 2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799:** The exact npm tarball, gitHead and dereferenced v2.5.0 tag declare CC-BY-3.0 but omit its legal code and an explicit attribution statement. The dataset remains blocked until the correct attribution and legal text are established.
 - **node-docker-base node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d:** The Dockerfile pins the resolved multi-architecture image index digest. The image build captures exact Debian and Python versions plus hashes of packaged license/copyright files. A release reviewer must still assess the concrete Debian/Python license mix before commercial approval.
-- **@apm-js-collab/code-transformer-bundler-plugins 0.5.0:** The exact npm release declares MIT and publishes gitHead 9443e2a3d03b36eeaea5717b31f9c1ffa7255dce. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. The package remains review_required until upstream supplies the missing notice or a responsible reviewer documents a legally supportable attribution. Verification source: https://github.com/apm-js-collab/code-transformer-bundler-plugins/blob/9443e2a3d03b36eeaea5717b31f9c1ffa7255dce/package.json The MIT copyright notice could not be attributed automatically.
-- **@better-auth/utils 0.4.2:** The exact npm release declares MIT. Its signed npm provenance maps tag v0.4.2 to commit b20329a32d78f1f9bcc088bbd6f982b28c4192f1, which matches the dereferenced upstream tag. Canvas can retain the canonical MIT terms, but neither the npm tarball nor the exact source commit contains a LICENSE, NOTICE, copyright file, source header, or attributable copyright statement. Package author metadata names Bereket Engida, but authorship alone is not treated as proof of copyright ownership. The package remains review_required. Verification source: https://github.com/better-auth/utils/blob/v0.4.2/package.json The MIT copyright notice could not be attributed automatically.
-- **@eigenpal/docx-js-editor 0.5.3:** The exact npm release declares MIT and its README displays an MIT badge. Signed npm provenance binds the tarball to branch 0.x commit e06dfceae557f8c1607a28618a99a34be8fed1fb. The npm tarball contains no LICENSE, NOTICE, copyright file, or attributable package copyright statement, and the referenced upstream repository is no longer publicly accessible for exact-commit verification. The current 1.x successor is Apache-2.0, which is not treated as retroactive evidence for 0.5.3. Canvas retains the canonical MIT terms but keeps this package review_required pending an upstream archive/license record, migration to the licensed successor, removal, or responsible legal decision. Verification source: https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3 The MIT copyright notice could not be attributed automatically.
 - **@img/sharp-libvips-darwin-arm64 1.2.4:** Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override.
 - **@img/sharp-libvips-darwin-arm64 1.3.2:** Published source revision: 4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6 The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override.
 - **@img/sharp-libvips-darwin-x64 1.2.4:** Published source revision: 20b5e899954907a3039d6e3d4c200aaa0ec52c4c The exact npm tarball contains no complete LGPL-3.0-or-later license text. The repository-root Apache-2.0 license covers the sharp-libvips build scripts and was rejected as evidence for the bundled libraries. No verified license text was found in the installed package or a versioned override.
@@ -1538,13 +1531,6 @@ The following entries require a documented responsible/legal decision before a c
 - **@img/sharp-win32-ia32 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-ia32/-/sharp-win32-ia32-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved.
 - **@img/sharp-win32-x64 0.34.5:** License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved.
 - **@img/sharp-win32-x64 0.35.3:** License text source: https://registry.npmjs.org/@img/sharp-win32-x64/-/sharp-win32-x64-0.35.3.tgz#LICENSE Published source revision: 1018449164723ba0203c1beffaba0e21f7829c18 The exact npm tarball LICENSE covers only part of the declared Apache-2.0 AND LGPL-3.0-or-later expression; the LGPL and bundled-library terms remain unresolved.
-- **client-only 0.0.1:** The only published release declares MIT, links to the React homepage and issue tracker, and was published by npm maintainer sebmarkbage. The exact tarball contains only package.json, index.js, and error.js; it provides no repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. Canvas retains the canonical MIT terms but does not infer a copyright owner from the maintainer identity or React branding. The package remains review_required. Verification source: https://registry.npmjs.org/client-only/0.0.1 The MIT copyright notice could not be attributed automatically.
-- **dingbat-to-unicode 1.0.1:** The exact npm release and upstream tag js-1.0.1 declare BSD-2-Clause; the annotated tag resolves to commit b27f259b49907f99b1b9097abba5a9668106b779. Neither the npm tarball nor that source tree contains a LICENSE, NOTICE, copyright file, or source header. Package author metadata and all commits up to the release name Michael Williamson, but authorship is not treated as a substitute for an explicit copyright notice. The package remains review_required pending corrected upstream evidence, replacement/removal, or responsible legal decision. Verification source: https://github.com/mwilliamson/dingbat-to-unicode/blob/js-1.0.1/js/package.json No verified license text was found in the installed package or a versioned override.
-- **github-from-package 0.0.0:** The exact npm tarball contains the full MIT permission and warranty text but intentionally contains no copyright-holder line. Package metadata names James Halliday as author and the former substack/github-from-package repository, which is no longer publicly accessible. Secondary commercial notice lists commonly attribute the package to James Halliday, but Canvas does not use secondary notices or author metadata as a substitute for primary copyright evidence. The package remains review_required. Verification source: https://registry.npmjs.org/github-from-package/-/github-from-package-0.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically.
-- **https 1.0.0:** The signed exact npm tarball declares ISC but contains only package.json; even its declared index.js entry point is absent. It provides no LICENSE, NOTICE, copyright statement, repository, gitHead, or signed provenance. Author metadata names hardus van der berg, but authorship is not treated as proof of copyright ownership. The package is pulled in by pptxgenjs@4.0.1 even though that exact release imports Node's built-in node:https module and maps both https and node:https to false for browser bundles. Canvas does not silently remove or replace a transitive package solely during the license audit. The package remains review_required pending corrected upstream metadata, removal/replacement, or a responsible legal decision. Verification source: https://registry.npmjs.org/https/1.0.0 No verified license text was found in the installed package or a versioned override.
-- **is-reference 1.2.1:** The exact npm release publishes gitHead 9d2719fbcc2059567203063f1e7b65d7831bfd64, and annotated tag v1.2.1 dereferences to that commit. package.json declares MIT and the exact README has a one-line MIT license section, but neither the npm tarball nor the exact source commit contains the full MIT terms, a LICENSE/NOTICE file, a source copyright header, or an attributable copyright statement. Repository and package author metadata name Rich Harris, but authorship and commit history are not treated as proof of copyright ownership. Canvas retains the canonical MIT terms while the package remains review_required pending corrected upstream evidence, replacement/removal, or a responsible legal decision. Verification source: https://github.com/Rich-Harris/is-reference/blob/v1.2.1/README.md#license The MIT copyright notice could not be attributed automatically.
-- **server-only 0.0.1:** The only published release declares MIT, links to the React homepage and facebook/react issue tracker, and was published by npm maintainer sebmarkbage. The signed exact tarball contains only package.json, index.js, and empty.js; it provides no author, repository, gitHead, provenance, LICENSE, NOTICE, source header, or attributable copyright statement. An official Next.js documentation issue independently records that the package source and ownership are unclear despite React and Next.js documentation recommending it. Canvas directly uses the marker across server-only modules, retains the canonical MIT terms, and does not infer Meta, React, Vercel, Next.js, or the npm maintainer as copyright owner. The package remains review_required. Verification source: https://registry.npmjs.org/server-only/0.0.1 The MIT copyright notice could not be attributed automatically.
-- **webworkify 1.5.0:** The exact npm release publishes gitHead baf2884256768aea6c36be1ea6e1efb2144fcfbc, and annotated tag v1.5.0 dereferences to that commit. The npm tarball and exact source contain the complete MIT permission and warranty text, but the LICENSE has omitted its copyright-holder line since the initial 2013 commit and remains unchanged upstream. Package metadata names James Halliday as author, while the release history includes multiple contributors; authorship and commit history are not treated as copyright ownership evidence. The package is both installed transitively through pica@7.1.1 and embedded in pica's distributed browser bundles used by Excalidraw. Canvas retains the exact MIT text but keeps the package review_required pending corrected upstream attribution, replacement/removal including the bundled copy, or a responsible legal decision. Verification source: https://github.com/substack/webworkify/blob/v1.5.0/LICENSE The MIT copyright notice could not be attributed automatically.
 
 ## License texts and copyright notices
 
@@ -7665,6 +7651,7 @@ Applies to github-from-package@0.0.0, minimist@1.2.8, webworkify@1.5.0.
 Copyright notices:
 
 - Copyright (c) 2013 James Halliday and contributors
+- Copyright (c) James Halliday and contributors
 
 ```text
 This software is released under the MIT license:
@@ -11956,6 +11943,32 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
 THE SOFTWARE.
 ```
 
+### License text 704427f69dae
+
+Applies to https@1.0.0.
+
+Copyright notices:
+
+- Copyright (c) hardus van der berg and contributors
+
+```text
+ISC License
+
+Copyright (c) hardus van der berg and contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
+```
+
 ### License text 70b126abc64d
 
 Applies to merge-descriptors@2.0.0.
@@ -12183,6 +12196,32 @@ SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
 CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
 OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
 OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+```
+
+### License text 7397a8f6c738
+
+Applies to docker-global-npm:@npmcli/agent@4.0.0 / 0f3b22d0e199237ec5628e2337ab3db027514367.
+
+Copyright notices:
+
+- Copyright (c) GitHub, Inc. and contributors
+
+```text
+ISC License
+
+Copyright (c) GitHub, Inc. and contributors
+
+Permission to use, copy, modify, and/or distribute this software for any
+purpose with or without fee is hereby granted, provided that the above
+copyright notice and this permission notice appear in all copies.
+
+THE SOFTWARE IS PROVIDED "AS IS" AND THE AUTHOR DISCLAIMS ALL WARRANTIES
+WITH REGARD TO THIS SOFTWARE INCLUDING ALL IMPLIED WARRANTIES OF
+MERCHANTABILITY AND FITNESS. IN NO EVENT SHALL THE AUTHOR BE LIABLE FOR ANY
+SPECIAL, DIRECT, INDIRECT, OR CONSEQUENTIAL DAMAGES OR ANY DAMAGES
+WHATSOEVER RESULTING FROM LOSS OF USE, DATA OR PROFITS, WHETHER IN AN ACTION
+OF CONTRACT, NEGLIGENCE OR OTHER TORTIOUS ACTION, ARISING OUT OF OR IN
+CONNECTION WITH THE USE OR PERFORMANCE OF THIS SOFTWARE.
 ```
 
 ### License text 73b5283588ba
@@ -27063,6 +27102,336 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text e6bc9e9c4747
+
+Applies to docker-global-npm:spdx-exceptions@2.5.0 / 3aa64bec339abc6a3eca00c3436aaa7e154b8799.
+
+Copyright notices:
+
+- SPDX Exceptions data by The Linux Foundation; package contribution by Kyle E. Mitchell
+
+```text
+Creative Commons Legal Code
+
+Attribution 3.0 Unported
+
+    CREATIVE COMMONS CORPORATION IS NOT A LAW FIRM AND DOES NOT PROVIDE
+    LEGAL SERVICES. DISTRIBUTION OF THIS LICENSE DOES NOT CREATE AN
+    ATTORNEY-CLIENT RELATIONSHIP. CREATIVE COMMONS PROVIDES THIS
+    INFORMATION ON AN "AS-IS" BASIS. CREATIVE COMMONS MAKES NO WARRANTIES
+    REGARDING THE INFORMATION PROVIDED, AND DISCLAIMS LIABILITY FOR
+    DAMAGES RESULTING FROM ITS USE.
+
+License
+
+THE WORK (AS DEFINED BELOW) IS PROVIDED UNDER THE TERMS OF THIS CREATIVE
+COMMONS PUBLIC LICENSE ("CCPL" OR "LICENSE"). THE WORK IS PROTECTED BY
+COPYRIGHT AND/OR OTHER APPLICABLE LAW. ANY USE OF THE WORK OTHER THAN AS
+AUTHORIZED UNDER THIS LICENSE OR COPYRIGHT LAW IS PROHIBITED.
+
+BY EXERCISING ANY RIGHTS TO THE WORK PROVIDED HERE, YOU ACCEPT AND AGREE
+TO BE BOUND BY THE TERMS OF THIS LICENSE. TO THE EXTENT THIS LICENSE MAY
+BE CONSIDERED TO BE A CONTRACT, THE LICENSOR GRANTS YOU THE RIGHTS
+CONTAINED HERE IN CONSIDERATION OF YOUR ACCEPTANCE OF SUCH TERMS AND
+CONDITIONS.
+
+1. Definitions
+
+ a. "Adaptation" means a work based upon the Work, or upon the Work and
+    other pre-existing works, such as a translation, adaptation,
+    derivative work, arrangement of music or other alterations of a
+    literary or artistic work, or phonogram or performance and includes
+    cinematographic adaptations or any other form in which the Work may be
+    recast, transformed, or adapted including in any form recognizably
+    derived from the original, except that a work that constitutes a
+    Collection will not be considered an Adaptation for the purpose of
+    this License. For the avoidance of doubt, where the Work is a musical
+    work, performance or phonogram, the synchronization of the Work in
+    timed-relation with a moving image ("synching") will be considered an
+    Adaptation for the purpose of this License.
+ b. "Collection" means a collection of literary or artistic works, such as
+    encyclopedias and anthologies, or performances, phonograms or
+    broadcasts, or other works or subject matter other than works listed
+    in Section 1(f) below, which, by reason of the selection and
+    arrangement of their contents, constitute intellectual creations, in
+    which the Work is included in its entirety in unmodified form along
+    with one or more other contributions, each constituting separate and
+    independent works in themselves, which together are assembled into a
+    collective whole. A work that constitutes a Collection will not be
+    considered an Adaptation (as defined above) for the purposes of this
+    License.
+ c. "Distribute" means to make available to the public the original and
+    copies of the Work or Adaptation, as appropriate, through sale or
+    other transfer of ownership.
+ d. "Licensor" means the individual, individuals, entity or entities that
+    offer(s) the Work under the terms of this License.
+ e. "Original Author" means, in the case of a literary or artistic work,
+    the individual, individuals, entity or entities who created the Work
+    or if no individual or entity can be identified, the publisher; and in
+    addition (i) in the case of a performance the actors, singers,
+    musicians, dancers, and other persons who act, sing, deliver, declaim,
+    play in, interpret or otherwise perform literary or artistic works or
+    expressions of folklore; (ii) in the case of a phonogram the producer
+    being the person or legal entity who first fixes the sounds of a
+    performance or other sounds; and, (iii) in the case of broadcasts, the
+    organization that transmits the broadcast.
+ f. "Work" means the literary and/or artistic work offered under the terms
+    of this License including without limitation any production in the
+    literary, scientific and artistic domain, whatever may be the mode or
+    form of its expression including digital form, such as a book,
+    pamphlet and other writing; a lecture, address, sermon or other work
+    of the same nature; a dramatic or dramatico-musical work; a
+    choreographic work or entertainment in dumb show; a musical
+    composition with or without words; a cinematographic work to which are
+    assimilated works expressed by a process analogous to cinematography;
+    a work of drawing, painting, architecture, sculpture, engraving or
+    lithography; a photographic work to which are assimilated works
+    expressed by a process analogous to photography; a work of applied
+    art; an illustration, map, plan, sketch or three-dimensional work
+    relative to geography, topography, architecture or science; a
+    performance; a broadcast; a phonogram; a compilation of data to the
+    extent it is protected as a copyrightable work; or a work performed by
+    a variety or circus performer to the extent it is not otherwise
+    considered a literary or artistic work.
+ g. "You" means an individual or entity exercising rights under this
+    License who has not previously violated the terms of this License with
+    respect to the Work, or who has received express permission from the
+    Licensor to exercise rights under this License despite a previous
+    violation.
+ h. "Publicly Perform" means to perform public recitations of the Work and
+    to communicate to the public those public recitations, by any means or
+    process, including by wire or wireless means or public digital
+    performances; to make available to the public Works in such a way that
+    members of the public may access these Works from a place and at a
+    place individually chosen by them; to perform the Work to the public
+    by any means or process and the communication to the public of the
+    performances of the Work, including by public digital performance; to
+    broadcast and rebroadcast the Work by any means including signs,
+    sounds or images.
+ i. "Reproduce" means to make copies of the Work by any means including
+    without limitation by sound or visual recordings and the right of
+    fixation and reproducing fixations of the Work, including storage of a
+    protected performance or phonogram in digital form or other electronic
+    medium.
+
+2. Fair Dealing Rights. Nothing in this License is intended to reduce,
+limit, or restrict any uses free from copyright or rights arising from
+limitations or exceptions that are provided for in connection with the
+copyright protection under copyright law or other applicable laws.
+
+3. License Grant. Subject to the terms and conditions of this License,
+Licensor hereby grants You a worldwide, royalty-free, non-exclusive,
+perpetual (for the duration of the applicable copyright) license to
+exercise the rights in the Work as stated below:
+
+ a. to Reproduce the Work, to incorporate the Work into one or more
+    Collections, and to Reproduce the Work as incorporated in the
+    Collections;
+ b. to create and Reproduce Adaptations provided that any such Adaptation,
+    including any translation in any medium, takes reasonable steps to
+    clearly label, demarcate or otherwise identify that changes were made
+    to the original Work. For example, a translation could be marked "The
+    original work was translated from English to Spanish," or a
+    modification could indicate "The original work has been modified.";
+ c. to Distribute and Publicly Perform the Work including as incorporated
+    in Collections; and,
+ d. to Distribute and Publicly Perform Adaptations.
+ e. For the avoidance of doubt:
+
+     i. Non-waivable Compulsory License Schemes. In those jurisdictions in
+        which the right to collect royalties through any statutory or
+        compulsory licensing scheme cannot be waived, the Licensor
+        reserves the exclusive right to collect such royalties for any
+        exercise by You of the rights granted under this License;
+    ii. Waivable Compulsory License Schemes. In those jurisdictions in
+        which the right to collect royalties through any statutory or
+        compulsory licensing scheme can be waived, the Licensor waives the
+        exclusive right to collect such royalties for any exercise by You
+        of the rights granted under this License; and,
+   iii. Voluntary License Schemes. The Licensor waives the right to
+        collect royalties, whether individually or, in the event that the
+        Licensor is a member of a collecting society that administers
+        voluntary licensing schemes, via that society, from any exercise
+        by You of the rights granted under this License.
+
+The above rights may be exercised in all media and formats whether now
+known or hereafter devised. The above rights include the right to make
+such modifications as are technically necessary to exercise the rights in
+other media and formats. Subject to Section 8(f), all rights not expressly
+granted by Licensor are hereby reserved.
+
+4. Restrictions. The license granted in Section 3 above is expressly made
+subject to and limited by the following restrictions:
+
+ a. You may Distribute or Publicly Perform the Work only under the terms
+    of this License. You must include a copy of, or the Uniform Resource
+    Identifier (URI) for, this License with every copy of the Work You
+    Distribute or Publicly Perform. You may not offer or impose any terms
+    on the Work that restrict the terms of this License or the ability of
+    the recipient of the Work to exercise the rights granted to that
+    recipient under the terms of the License. You may not sublicense the
+    Work. You must keep intact all notices that refer to this License and
+    to the disclaimer of warranties with every copy of the Work You
+    Distribute or Publicly Perform. When You Distribute or Publicly
+    Perform the Work, You may not impose any effective technological
+    measures on the Work that restrict the ability of a recipient of the
+    Work from You to exercise the rights granted to that recipient under
+    the terms of the License. This Section 4(a) applies to the Work as
+    incorporated in a Collection, but this does not require the Collection
+    apart from the Work itself to be made subject to the terms of this
+    License. If You create a Collection, upon notice from any Licensor You
+    must, to the extent practicable, remove from the Collection any credit
+    as required by Section 4(b), as requested. If You create an
+    Adaptation, upon notice from any Licensor You must, to the extent
+    practicable, remove from the Adaptation any credit as required by
+    Section 4(b), as requested.
+ b. If You Distribute, or Publicly Perform the Work or any Adaptations or
+    Collections, You must, unless a request has been made pursuant to
+    Section 4(a), keep intact all copyright notices for the Work and
+    provide, reasonable to the medium or means You are utilizing: (i) the
+    name of the Original Author (or pseudonym, if applicable) if supplied,
+    and/or if the Original Author and/or Licensor designate another party
+    or parties (e.g., a sponsor institute, publishing entity, journal) for
+    attribution ("Attribution Parties") in Licensor's copyright notice,
+    terms of service or by other reasonable means, the name of such party
+    or parties; (ii) the title of the Work if supplied; (iii) to the
+    extent reasonably practicable, the URI, if any, that Licensor
+    specifies to be associated with the Work, unless such URI does not
+    refer to the copyright notice or licensing information for the Work;
+    and (iv) , consistent with Section 3(b), in the case of an Adaptation,
+    a credit identifying the use of the Work in the Adaptation (e.g.,
+    "French translation of the Work by Original Author," or "Screenplay
+    based on original Work by Original Author"). The credit required by
+    this Section 4 (b) may be implemented in any reasonable manner;
+    provided, however, that in the case of a Adaptation or Collection, at
+    a minimum such credit will appear, if a credit for all contributing
+    authors of the Adaptation or Collection appears, then as part of these
+    credits and in a manner at least as prominent as the credits for the
+    other contributing authors. For the avoidance of doubt, You may only
+    use the credit required by this Section for the purpose of attribution
+    in the manner set out above and, by exercising Your rights under this
+    License, You may not implicitly or explicitly assert or imply any
+    connection with, sponsorship or endorsement by the Original Author,
+    Licensor and/or Attribution Parties, as appropriate, of You or Your
+    use of the Work, without the separate, express prior written
+    permission of the Original Author, Licensor and/or Attribution
+    Parties.
+ c. Except as otherwise agreed in writing by the Licensor or as may be
+    otherwise permitted by applicable law, if You Reproduce, Distribute or
+    Publicly Perform the Work either by itself or as part of any
+    Adaptations or Collections, You must not distort, mutilate, modify or
+    take other derogatory action in relation to the Work which would be
+    prejudicial to the Original Author's honor or reputation. Licensor
+    agrees that in those jurisdictions (e.g. Japan), in which any exercise
+    of the right granted in Section 3(b) of this License (the right to
+    make Adaptations) would be deemed to be a distortion, mutilation,
+    modification or other derogatory action prejudicial to the Original
+    Author's honor and reputation, the Licensor will waive or not assert,
+    as appropriate, this Section, to the fullest extent permitted by the
+    applicable national law, to enable You to reasonably exercise Your
+    right under Section 3(b) of this License (right to make Adaptations)
+    but not otherwise.
+
+5. Representations, Warranties and Disclaimer
+
+UNLESS OTHERWISE MUTUALLY AGREED TO BY THE PARTIES IN WRITING, LICENSOR
+OFFERS THE WORK AS-IS AND MAKES NO REPRESENTATIONS OR WARRANTIES OF ANY
+KIND CONCERNING THE WORK, EXPRESS, IMPLIED, STATUTORY OR OTHERWISE,
+INCLUDING, WITHOUT LIMITATION, WARRANTIES OF TITLE, MERCHANTIBILITY,
+FITNESS FOR A PARTICULAR PURPOSE, NONINFRINGEMENT, OR THE ABSENCE OF
+LATENT OR OTHER DEFECTS, ACCURACY, OR THE PRESENCE OF ABSENCE OF ERRORS,
+WHETHER OR NOT DISCOVERABLE. SOME JURISDICTIONS DO NOT ALLOW THE EXCLUSION
+OF IMPLIED WARRANTIES, SO SUCH EXCLUSION MAY NOT APPLY TO YOU.
+
+6. Limitation on Liability. EXCEPT TO THE EXTENT REQUIRED BY APPLICABLE
+LAW, IN NO EVENT WILL LICENSOR BE LIABLE TO YOU ON ANY LEGAL THEORY FOR
+ANY SPECIAL, INCIDENTAL, CONSEQUENTIAL, PUNITIVE OR EXEMPLARY DAMAGES
+ARISING OUT OF THIS LICENSE OR THE USE OF THE WORK, EVEN IF LICENSOR HAS
+BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+7. Termination
+
+ a. This License and the rights granted hereunder will terminate
+    automatically upon any breach by You of the terms of this License.
+    Individuals or entities who have received Adaptations or Collections
+    from You under this License, however, will not have their licenses
+    terminated provided such individuals or entities remain in full
+    compliance with those licenses. Sections 1, 2, 5, 6, 7, and 8 will
+    survive any termination of this License.
+ b. Subject to the above terms and conditions, the license granted here is
+    perpetual (for the duration of the applicable copyright in the Work).
+    Notwithstanding the above, Licensor reserves the right to release the
+    Work under different license terms or to stop distributing the Work at
+    any time; provided, however that any such election will not serve to
+    withdraw this License (or any other license that has been, or is
+    required to be, granted under the terms of this License), and this
+    License will continue in full force and effect unless terminated as
+    stated above.
+
+8. Miscellaneous
+
+ a. Each time You Distribute or Publicly Perform the Work or a Collection,
+    the Licensor offers to the recipient a license to the Work on the same
+    terms and conditions as the license granted to You under this License.
+ b. Each time You Distribute or Publicly Perform an Adaptation, Licensor
+    offers to the recipient a license to the original Work on the same
+    terms and conditions as the license granted to You under this License.
+ c. If any provision of this License is invalid or unenforceable under
+    applicable law, it shall not affect the validity or enforceability of
+    the remainder of the terms of this License, and without further action
+    by the parties to this agreement, such provision shall be reformed to
+    the minimum extent necessary to make such provision valid and
+    enforceable.
+ d. No term or provision of this License shall be deemed waived and no
+    breach consented to unless such waiver or consent shall be in writing
+    and signed by the party to be charged with such waiver or consent.
+ e. This License constitutes the entire agreement between the parties with
+    respect to the Work licensed here. There are no understandings,
+    agreements or representations with respect to the Work not specified
+    here. Licensor shall not be bound by any additional provisions that
+    may appear in any communication from You. This License may not be
+    modified without the mutual written agreement of the Licensor and You.
+ f. The rights granted under, and the subject matter referenced, in this
+    License were drafted utilizing the terminology of the Berne Convention
+    for the Protection of Literary and Artistic Works (as amended on
+    September 28, 1979), the Rome Convention of 1961, the WIPO Copyright
+    Treaty of 1996, the WIPO Performances and Phonograms Treaty of 1996
+    and the Universal Copyright Convention (as revised on July 24, 1971).
+    These rights and subject matter take effect in the relevant
+    jurisdiction in which the License terms are sought to be enforced
+    according to the corresponding provisions of the implementation of
+    those treaty provisions in the applicable national law. If the
+    standard suite of rights granted under applicable copyright law
+    includes additional rights not granted under this License, such
+    additional rights are deemed to be included in the License; this
+    License is not intended to restrict the license of any rights under
+    applicable law.
+
+
+Creative Commons Notice
+
+    Creative Commons is not a party to this License, and makes no warranty
+    whatsoever in connection with the Work. Creative Commons will not be
+    liable to You or any party on any legal theory for any damages
+    whatsoever, including without limitation any general, special,
+    incidental or consequential damages arising in connection to this
+    license. Notwithstanding the foregoing two (2) sentences, if Creative
+    Commons has expressly identified itself as the Licensor hereunder, it
+    shall have all rights and obligations of Licensor.
+
+    Except for the limited purpose of indicating to the public that the
+    Work is licensed under the CCPL, Creative Commons does not authorize
+    the use by either party of the trademark "Creative Commons" or any
+    related trademark or logo of Creative Commons without the prior
+    written consent of Creative Commons. Any permitted use will be in
+    compliance with Creative Commons' then-current trademark usage
+    guidelines, as may be published on its website or otherwise made
+    available upon request from time to time. For the avoidance of doubt,
+    this trademark restriction does not form part of this License.
+
+    Creative Commons may be contacted at https://creativecommons.org/.
+```
+
 ### License text e70ff771504b
 
 Applies to normalize-path@3.0.0.
@@ -27656,8 +28025,14 @@ Copyright notices:
 - Copyright (c) 2013 Gary Court, Jens Taylor
 - Copyright (c) 2020 Excalidraw
 - Copyright (c) 2025 Anton Korzunov <thekashey@gmail.com>
+- Copyright (c) Bereket Engida and contributors
+- Copyright (c) contributors to @apm-js-collab/code-transformer-bundler-plugins
+- Copyright (c) EigenPal and contributors
+- Copyright (c) IndigoUnited and contributors
 - Copyright (c) Microsoft Corporation.
+- Copyright (c) Rich Harris and contributors
 - Copyright (c) Sami Samhuri
+- Copyright (c) Sebastian Markbåge and contributors
 
 ```text
 MIT License
@@ -27815,6 +28190,42 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+```
+
+### License text f35ad51b19e3
+
+Applies to dingbat-to-unicode@1.0.1.
+
+Copyright notices:
+
+- Copyright (c) Michael Williamson and contributors
+
+```text
+BSD 2-Clause License
+
+Copyright (c) Michael Williamson and contributors
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice,
+   this list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE
+ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE
+LIABLE FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR
+CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF
+SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS
+INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN
+CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE)
+ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
+POSSIBILITY OF SUCH DAMAGE.
 ```
 
 ### License text f3df0b92efcd

@@ -1,13 +1,14 @@
 # Docker Runtime License Review
 
-Stand: 2026-07-16
+Stand: 2026-07-17
 
 ## Entscheidung
 
 Der Docker-Lieferumfang ist technisch inventarisiert, aber noch nicht fuer
 ein kommerzielles Release freigegeben. Der Sammelposten `node-docker-base`
-bleibt `review_required`. Zusaetzlich bleiben drei konkrete Pakete des global
-installierten npm als eigene Release-Blocker sichtbar.
+bleibt `review_required`. Die drei zuvor offenen Pakete des global
+installierten npm sind seit dem 17. Juli 2026 fuer ihre exakten Versionen durch
+eine benannte verantwortliche Restrisikoentscheidung `allowed`.
 
 Der aktuelle Scan erfasst jetzt vier statt bisher nur zwei Runtime-Klassen:
 
@@ -129,20 +130,30 @@ Paketpfade ohne eigenen Text wurden einzeln geprueft:
 | `@sigstore/verify@3.1.0` | Apache-2.0 anhand npm-`gitHead`, exaktem Monorepo-Commit und Sigstore-Copyright ergaenzt; `allowed` |
 | `imurmurhash@0.1.4` | identische bereits inventarisierte MIT-Version, Tag und Copyright; `allowed` |
 | `spdx-license-ids@3.0.23` | exakter CC0-Datensatz mit offiziellem CC0-1.0-Legal-Code; `allowed` |
-| `@npmcli/agent@4.0.0` | ISC nur deklariert; kein vollstaendiger Text und keine belastbare Attribution; `review_required` |
-| `err-code@2.0.3` | README verlinkt generische MIT-Bedingungen; vollstaendiger Text und Rechteinhaber fehlen; `review_required` |
-| `spdx-exceptions@2.5.0` | CC-BY-3.0 deklariert, aber Legal-Code und eindeutige Attribution fehlen; `review_required` |
+| `@npmcli/agent@4.0.0` | ISC nur deklariert; fehlender Upstream-Text und unvollstaendige Attribution als versionsgebundenes Restrisiko akzeptiert; kanonischer ISC-Text und Best-Evidence-Attribution werden ausgeliefert; `allowed` |
+| `err-code@2.0.3` | README verlinkt generische MIT-Bedingungen; fehlender Upstream-Volltext und Rechteinhaberzeile als versionsgebundenes Restrisiko akzeptiert; kanonischer MIT-Text und Best-Evidence-Attribution werden ausgeliefert; `allowed` |
+| `spdx-exceptions@2.5.0` | CC-BY-3.0 deklariert; fehlender Legal-Code und unvollstaendige Attribution im Tarball als versionsgebundenes Restrisiko akzeptiert; offizieller CC-BY-3.0-Text und Best-Evidence-Attribution werden ausgeliefert; `allowed` |
 
 Die letzten drei Pakete werden nicht durch die Sammellizenz von npm geheilt.
-Sie bleiben eigene Release-Blocker, bis Upstream-Beleg, Ersatz/Entfernung oder
-eine dokumentierte menschlich-rechtliche Einzelfallentscheidung vorliegt.
+Frank Alexander Weber hat deshalb fuer die exakten Versionen eine
+verantwortliche Einzelfallentscheidung getroffen. Canvas liefert die
+kanonischen beziehungsweise offiziellen Lizenztexte und folgende
+bestverfuegbare Publisher-Attributionen aus:
+
+- `@npmcli/agent@4.0.0`: GitHub, Inc. und Contributors,
+- `err-code@2.0.3`: IndigoUnited und Contributors,
+- `spdx-exceptions@2.5.0`: The Linux Foundation; Package-Contribution von
+  Kyle E. Mitchell.
+
+Die Unsicherheit der fehlenden Upstream-Notices bleibt im Freigabebeleg
+ausdruecklich sichtbar. Die Entscheidung gilt nicht fuer neue Versionen.
 
 ## Freigabepfad
 
 Der Docker-Sammelposten darf erst auf `allowed` wechseln, wenn:
 
 1. Schema 3 in finalen amd64- und arm64-Images erfolgreich geprueft wurde,
-2. die drei globalen npm-Einzelfaelle entschieden sind,
+2. neue oder geaenderte globale npm-Einzelfaelle entschieden sind,
 3. die pip-Abhaengigkeiten reproduzierbar gepinnt und native Wheel-Bestandteile
    samt Quellen erfasst sind,
 4. fuer jedes dpkg-Source-Paket und jede sourcepflichtige Native-Komponente

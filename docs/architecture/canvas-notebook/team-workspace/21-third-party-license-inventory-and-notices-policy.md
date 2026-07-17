@@ -1,6 +1,6 @@
 # Third-Party License Inventory and Notices Policy
 
-Stand: 2026-07-16
+Stand: 2026-07-17
 
 ## Umsetzungsstand
 
@@ -47,21 +47,23 @@ umgesetzt und liegt reproduzierbar im Repository:
 
 Der aktuelle technische Scan umfasst 1.990 Komponenten: 1.482 werden als
 ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 43 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.926 Komponenten `allowed`, 64
+klassifiziert. Das kommerzielle Release-Gate bleibt mit 29 Eintraegen
+absichtlich gesperrt. Im Gesamtinventar sind 1.939 Komponenten `allowed`, 51
 `review_required` und keine pauschal `blocked`; Development-only-Eintraege
 zaehlen nicht als Release-Blocker.
 
-Die 43 Release-Pruefpositionen gliedern sich in:
+Die verantwortliche Erstfreigabe wurde am 17. Juli 2026 durch Frank Alexander
+Weber dokumentiert. Zehn npm-Pakete und drei Pakete des global installierten
+npm sind fuer ihre exakten Versionen unter transparentem
+Attributionsrestrisiko freigegeben. Die Entscheidung, Reviewer, bestverfuegbare
+Attribution und Upgrade-Ausloeser stehen in
+`docs/compliance/third-party-release-approval-2026.7.17.1.md`.
 
-- eine erste dokumentierte verantwortliche oder rechtliche Freigabe,
+Die 29 verbleibenden Release-Pruefpositionen gliedern sich in:
+
 - einen Review von Docker-Basisimage-Digest und Debian-/Python-Lieferumfang,
-- drei konkrete Pakete des global installierten npm ohne vollstaendigen
-  exakten Lizenz-/Attributionsbeleg,
 - 28 plattform- und versionsspezifische `sharp`-/`libvips`-Eintraege mit
-  LGPL- beziehungsweise zusammengesetzter Lizenz,
-- 10 Pakete, deren exakter Release keinen vollstaendigen Lizenztext oder
-  keinen belastbar zugeordneten MIT-Copyright-Hinweis mitliefert.
+  noch nicht erfuellten LGPL-/GPL-Source-, Notice- und Relinking-Pflichten.
 
 Die 28 `sharp`-/`libvips`-Positionen sind inzwischen einzeln technisch
 untersucht und bleiben bewusst blockierend. Die exakten npm-Archive der
@@ -203,11 +205,12 @@ Autor- und Contributor-Metadaten werden nicht als Rechteinhabernachweis
 umgedeutet. Eine Entfernung muesste neben dem npm-Knoten auch die in
 `pica@7.1.1` gebuendelte und ueber Excalidraw ausgelieferte Kopie erfassen.
 
-Damit sind alle zehn verbleibenden Runtime-Pakete ohne vollstaendigen exakten
-Lizenz-/Copyright-Beleg technisch einzeln untersucht. Sie bleiben nicht wegen
-fehlender Recherche offen, sondern benoetigen jeweils Upstream-Korrektur,
-getesteten Ersatz/Entfernung oder eine dokumentierte verantwortliche
-Einzelfallentscheidung.
+Damit sind alle zehn Runtime-Pakete ohne vollstaendigen exakten
+Lizenz-/Copyright-Beleg technisch einzeln untersucht und seit dem 17. Juli
+2026 fuer ihre exakten Versionen durch eine dokumentierte verantwortliche
+Einzelfallentscheidung `allowed`. Ihre fehlenden Upstream-Belege bleiben als
+Restrisiko sichtbar; Canonical Terms, bestverfuegbare Attribution, Reviewer
+und Datum werden ausgeliefert. Jede neue Version muss erneut geprueft werden.
 
 Alle offenen Punkte stehen einzeln in
 `docs/compliance/third-party-components.json`; sie werden nicht durch eine
@@ -234,7 +237,8 @@ Die technische Verifikation am 16. Juli 2026 umfasst:
 - korrigierte PEP-639-Erkennung mit 94 Python-Lizenzdateien einschliesslich
   der zuvor uebersehenen plattformspezifischen PDFium-Build-Lizenzen,
 - sechs versionsgenaue Non-npm-Ergaenzungen fuer fehlende pip-/globale-
-  npm-Lizenztexte und drei bewusst blockierende globale npm-Einzelfaelle,
+  npm-Lizenztexte und drei spaeter verantwortlich unter dokumentiertem
+  Restrisiko freigegebene globale npm-Einzelfaelle,
 - plattformunabhaengige Notice-Generierung: optional installierte
   Paketmetadaten koennen auf macOS und Linux keinen Manifest-Drift mehr
   verursachen,

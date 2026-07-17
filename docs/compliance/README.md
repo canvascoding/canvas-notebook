@@ -1,6 +1,6 @@
 # Third-Party Compliance Runbook
 
-Stand: 2026-07-16
+Stand: 2026-07-17
 
 ## Zweck und rechtliche Einordnung
 
@@ -33,29 +33,33 @@ dieser Komponente nicht wieder nehmen.
 
 ## Aktueller Freigabestatus
 
-Die technische Umsetzung ist vorhanden und reproduzierbar. Der Bestand vom
-16. Juli 2026 umfasst:
+Die technische Umsetzung ist vorhanden und reproduzierbar. Der am 17. Juli
+2026 neu erzeugte Bestand umfasst:
 
 | Kennzahl | Stand |
 | --- | ---: |
 | Komponenten gesamt | 1.990 |
 | ausgelieferter Runtime-/Asset-Bestand | 1.482 |
 | nur Entwicklung | 508 |
-| automatisch beziehungsweise dokumentiert `allowed` | 1.926 |
-| `review_required` im Gesamtbestand | 64 |
+| automatisch beziehungsweise dokumentiert `allowed` | 1.939 |
+| `review_required` im Gesamtbestand | 51 |
 | pauschal `blocked` | 0 |
-| Blocker fuer ein kommerzielles Release | 43 |
+| Blocker fuer ein kommerzielles Release | 29 |
 
-Das strikte Release-Gate ist absichtlich gesperrt. Offen sind:
+Die erste verantwortliche Gesamtfreigabe ist dokumentiert. Zehn npm-Pakete
+und drei Pakete des global installierten npm wurden fuer ihre exakten
+Versionen unter transparentem Attributionsrestrisiko freigegeben. Canonical
+beziehungsweise offizielle Lizenztexte, bestverfuegbare Publisher-
+Attributionen, Reviewer und Datum werden ausgeliefert. Die Entscheidung steht
+in `third-party-release-approval-2026.7.17.1.md` und gilt nicht fuer Upgrades.
 
-- die erste dokumentierte verantwortliche oder rechtliche Gesamtfreigabe,
+Das strikte Release-Gate bleibt trotzdem absichtlich gesperrt. Offen sind:
+
 - die Bewertung des gepinnten Docker-Basisimages und des konkreten
-  Debian-/Python-Lieferumfangs,
-- drei Pakete des global installierten npm ohne vollstaendigen exakten
-  Lizenz-/Attributionsbeleg,
-- 28 plattform- und versionsspezifische `sharp`-/`libvips`-Positionen,
-- 10 Runtime-Pakete ohne vollstaendigen exakten Lizenztext oder ohne belastbar
-  zugeordneten MIT-Copyright-Hinweis.
+  finalen amd64-/arm64-Debian-/Python-Lieferumfangs sowie das
+  releasegebundene Corresponding-Source-Angebot,
+- 28 plattform- und versionsspezifische `sharp`-/`libvips`-Positionen mit
+  noch nicht erfuellten Source-, Notice- und Relinking-/Austauschpflichten.
 
 Diese Positionen sind keine pauschale Aussage, dass die Komponenten unzulaessig
 sind. Sie bedeuten, dass die vorhandenen Belege fuer eine automatische
@@ -77,6 +81,7 @@ werden muss.
 | `docs/compliance/sharp-native-binary-review.md` | versions- und plattformspezifische Pruefung der 28 sharp-/libvips-Binaerpositionen | nach Binary-/Source-Aenderung manuell aktualisieren |
 | `docs/compliance/third-party-review-decisions.md` | versionsgenaue technische Entscheidungen fuer einzelne Review-Blocker | nach abgeschlossener Einzelpruefung manuell |
 | `docs/compliance/third-party-release-approval-template.md` | Vorlage fuer menschliche Freigabe und Lizenzentscheidungen | pro Review kopieren/ausfuellen |
+| `docs/compliance/third-party-release-approval-2026.7.17.1.md` | verantwortliche Erstfreigabe, versionsgebundene Restrisikoentscheidungen und verbleibende harte Auflagen | versionierter Reviewbeleg |
 
 Manuelle Korrekturen gehoeren in die Policy oder in einen dort referenzierten,
 versionierten Lizenztext. Eine direkte Aenderung der generierten Notices oder
@@ -284,10 +289,11 @@ normalen `npm run build` ersetzen.
 
 ### Einmalige Freigabe gegen wiederkehrende Pruefung
 
-Die erste vollstaendige Bestandsaufnahme braucht einmalig eine dokumentierte
-verantwortliche oder rechtliche Freigabe des vorhandenen Bestands. Danach wird
-nicht jede unveraenderte Bibliothek bei jedem Release von Grund auf neu
-bewertet.
+Die erste vollstaendige Bestandsaufnahme besitzt seit dem 17. Juli 2026 eine
+dokumentierte verantwortliche Freigabe. Diese Freigabe beseitigt weder
+komponentenbezogene Blocker noch noch nicht erfuellte Lizenzpflichten. Nach
+deren technischer Erfuellung muss nicht jede unveraenderte Bibliothek bei jedem
+Release von Grund auf neu bewertet werden.
 
 Trotzdem ist die Aufgabe nicht dauerhaft abgeschlossen:
 
@@ -340,6 +346,9 @@ erzeugt und `npm run verify:release` erneut ausgefuehrt.
 
 Vorlage:
 `docs/compliance/third-party-release-approval-template.md`.
+
+Aktueller Freigabebeleg:
+`docs/compliance/third-party-release-approval-2026.7.17.1.md`.
 
 ## Nicht zulaessige Abkuerzungen
 
