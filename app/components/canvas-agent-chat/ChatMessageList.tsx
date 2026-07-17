@@ -7,6 +7,11 @@ import { useTranslations } from 'next-intl';
 import { AttachmentPreviewItem } from '@/app/components/canvas-agent-chat/AttachmentPreviewItem';
 import { FileReferenceCard } from '@/app/components/canvas-agent-chat/FileReferenceCard';
 import { getRecentStudioImageMediaUrls, MarkdownMessage } from '@/app/components/canvas-agent-chat/ChatMarkdownMessage';
+import {
+  formatChatRuntimeIdentity,
+  indexChatRuntimeChanges,
+  type ChatRuntimeChange,
+} from '@/app/components/canvas-agent-chat/chatRuntimeChanges';
 import { SkillReferenceChipRow, useSkillReferenceCatalog } from '@/app/components/canvas-agent-chat/SkillReferenceChips';
 import {
   buildToolImagePreviewGroups,
@@ -62,6 +67,34 @@ function getCompactBreakLabel(
   }
 
   return baseLabel;
+}
+
+function RuntimeChangeSeparator({ change }: { change: ChatRuntimeChange }) {
+  const t = useTranslations('chat');
+  const from = formatChatRuntimeIdentity(change.from);
+  const to = formatChatRuntimeIdentity(change.to);
+  const title = t('runtimeChangeTitle', { from, to });
+
+  return (
+    <div
+      data-testid="chat-runtime-change"
+      aria-label={title}
+      title={title}
+      className="flex min-w-0 items-center gap-2 py-1"
+    >
+      <div className="h-px min-w-3 flex-1 bg-border/70" />
+      <div className="flex min-w-0 max-w-[85%] items-center gap-1.5 border border-border/60 bg-background/90 px-2 py-1 text-[10px] leading-none text-muted-foreground shadow-sm">
+        <span className="shrink-0 font-semibold uppercase tracking-[0.12em]">
+          {t('runtimeChangeLabel')}
+        </span>
+        <span aria-hidden="true" className="text-border">·</span>
+        <span className="min-w-0 truncate font-mono tracking-tight">
+          {from} → {to}
+        </span>
+      </div>
+      <div className="h-px min-w-3 flex-1 bg-border/70" />
+    </div>
+  );
 }
 
 function StreamingMessageIndicator() {
@@ -212,11 +245,13 @@ export function ChatMessageList({
   const skillReferenceCatalog = useSkillReferenceCatalog();
   const toolBatchProjection = useMemo(() => buildToolBatchProjection(messages), [messages]);
   const toolImagePreviewGroups = useMemo(() => buildToolImagePreviewGroups(messages), [messages]);
+  const runtimeChanges = useMemo(() => indexChatRuntimeChanges(messages), [messages]);
   const hiddenToolMessageIds = toolBatchProjection.hiddenToolMessageIds;
 
   return (
     <TooltipProvider delayDuration={300}>
       {messages.map((message, messageIndex) => {
+        const runtimeChange = runtimeChanges.get(message.id);
         const isUser = message.role === 'user';
         const isAssistant = message.role === 'assistant';
         const isTool = message.role === 'toolResult';
@@ -419,6 +454,7 @@ export function ChatMessageList({
         if (batchDisclosure) {
           return (
             <Fragment key={message.id}>
+              {runtimeChange ? <RuntimeChangeSeparator change={runtimeChange} /> : null}
               {renderedMessage}
               {batchDisclosure}
             </Fragment>
@@ -427,6 +463,7 @@ export function ChatMessageList({
 
         return (
           <Fragment key={message.id}>
+            {runtimeChange ? <RuntimeChangeSeparator change={runtimeChange} /> : null}
             {renderedMessage}
           </Fragment>
         );

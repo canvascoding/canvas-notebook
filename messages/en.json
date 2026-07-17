@@ -1030,6 +1030,8 @@
     "compactAutomatic": "Context compacted automatically",
     "compactWithCount": "{label} · {count} older messages compacted",
     "compactAlreadyOptimized": "Context is already optimized — no messages to compact",
+    "runtimeChangeLabel": "Model change",
+    "runtimeChangeTitle": "AI runtime changed from {from} to {to}",
     "assistantStreamingAria": "Assistant response is still streaming",
     "assistantStreamingSr": "Assistant response is still streaming",
     "example": "Example",

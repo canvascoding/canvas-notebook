@@ -1029,6 +1029,8 @@
     "compactAutomatic": "Kontext automatisch verdichtet",
     "compactWithCount": "{label} · {count} ältere Nachrichten komprimiert",
     "compactAlreadyOptimized": "Kontext ist bereits optimiert — keine Nachrichten zu verdichten",
+    "runtimeChangeLabel": "Modellwechsel",
+    "runtimeChangeTitle": "KI-Laufzeit von {from} zu {to} gewechselt",
     "assistantStreamingAria": "Assistant-Antwort wird noch gestreamt",
     "assistantStreamingSr": "Assistant-Antwort wird noch gestreamt",
     "example": "Beispiel",
