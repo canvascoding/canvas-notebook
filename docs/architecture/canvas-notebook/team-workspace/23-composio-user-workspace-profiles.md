@@ -232,6 +232,22 @@ Auth-required Chat-Nachrichten speichern keine frei waehlbare externe User ID.
 Sie tragen `workspaceId`, `profileId`, Profilname und Herkunft aus dem bereits
 validierten Resolver, damit die UI den richtigen Kontext erklaeren kann.
 
+### Deterministische Tool-Discovery
+
+Wenn der User ein bekanntes Toolkit nennt, uebergibt der Agent dessen exakten
+Slug an `COMPOSIO_SEARCH_TOOLS`, zum Beispiel `toolkits: ["instagram"]`. Fehlt
+der Filter im Modellaufruf, darf die Runtime ein im Prompt genanntes aktives
+Toolkit aus dem Effective Profile erkennen. In beiden Faellen wird der
+vollstaendige Toolkit-Katalog geladen und lokal gerankt. Ein leerer globaler
+semantischer Suchtreffer ist kein Beleg dafuer, dass ein verbundenes Toolkit
+keine Lese- oder Schreiboperationen besitzt.
+
+`COMPOSIO_SEARCH_TOOLS` akzeptiert deshalb auch einen Request mit `toolkits`,
+aber ohne `query`, um den Katalog deterministisch aufzulisten. Dieses Verhalten
+gilt fuer alle Toolkits und fuer Local- und Managed-Mode. Im Managed-Mode nutzt
+das Notebook die Control-Plane-Route fuer den Toolkit-Katalog; die Control Plane
+wendet denselben Fallback auch auf direkte toolkit-scoped Suchrequests an.
+
 ## Automations und Trigger
 
 ### Geplante Automations

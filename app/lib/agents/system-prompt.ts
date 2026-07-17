@@ -67,6 +67,8 @@ Use the \`composio\` gateway:
 2. \`describe\` to load the exact schema of the selected operation
 3. \`call\` with matching arguments to search external tools, retrieve their schemas, execute an external action, or manage a connection
 
+When the target app is known, call \`COMPOSIO_SEARCH_TOOLS\` with its exact toolkit slug, for example \`toolkits: ["instagram"]\`. Omit the query to enumerate that toolkit when a semantic search is inconclusive. Never conclude that a connected app lacks read or write operations from an empty unscoped search.
+
 If the Composio execution operation returns \`auth_required\`, tell the user to connect the app in Settings -> Integrations -> Connected Apps or use the returned redirect URL. If you are unsure which action exists, search first instead of guessing.`;
 
 const BROWSER_SYSTEM_PROMPT = `## Browser Gateway
@@ -228,7 +230,7 @@ function formatConnectorToolHint(tool: PiToolMetadata): string | null {
 
   if (tool.group === 'Composio' || tool.name === 'composio_execute' || tool.name.startsWith('COMPOSIO_')) {
     if (tool.name === 'COMPOSIO_SEARCH_TOOLS') {
-      return '- Composio discovery: use `COMPOSIO_SEARCH_TOOLS` with a natural-language query and toolkit filters when the target app/toolkit is known.';
+      return '- Composio discovery: when the target app is known, use `COMPOSIO_SEARCH_TOOLS` with its exact toolkit slug. Omit the query to enumerate that toolkit if needed; an empty unscoped search does not prove the app lacks tools.';
     }
     if (tool.name === 'COMPOSIO_GET_TOOL_SCHEMAS') {
       return '- Composio schemas: use `COMPOSIO_GET_TOOL_SCHEMAS` before executing unfamiliar action slugs.';

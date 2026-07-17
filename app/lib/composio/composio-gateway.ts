@@ -7,6 +7,12 @@ import { disconnectTool, getActiveConnectedAccounts, getConnectedAccounts, initi
 import { resetSessionCache } from './composio-session';
 import { clearToolkitCache, getAvailableToolkits } from './composio-toolkit-registry';
 import { composioContextCacheKey, type ResolvedComposioContext } from './composio-context';
+import {
+  inferConnectedComposioToolkits,
+  normalizeComposioToolkits,
+  selectComposioToolSearchResults,
+  type ComposioToolSummary,
+} from './composio-tool-discovery';
 import { createComposioOAuthFlowState } from './composio-oauth-state';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import { encryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
@@ -394,18 +400,47 @@ export async function refreshGatewayToolkit(toolkit: string, context: ResolvedCo
 export async function searchGatewayTools(query: string, toolkits: string[] | undefined, context: ResolvedComposioContext) {
   const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
+  const normalizedQuery = query.trim();
+  let resolvedToolkits = normalizeComposioToolkits(toolkits)
+    .filter((toolkit) => !HIDDEN_TOOLKIT_SLUGS.has(toolkit));
+  if (resolvedToolkits.length === 0 && normalizedQuery) {
+    const status = await getGatewayStatus(context);
+    resolvedToolkits = inferConnectedComposioToolkits(normalizedQuery, status.connectedAccounts)
+      .filter((toolkit) => !HIDDEN_TOOLKIT_SLUGS.has(toolkit));
+  }
+
+  if (resolvedToolkits.length > 0) {
+    const toolkitResults = await Promise.all(
+      resolvedToolkits.map((toolkit) => getGatewayToolkitTools(toolkit, '', context)),
+    );
+    const allTools = toolkitResults.flatMap((result) => Array.isArray(result.tools)
+      ? result.tools as ComposioToolSummary[]
+      : []);
+    const selected = selectComposioToolSearchResults(allTools, normalizedQuery, resolvedToolkits);
+    return {
+      tools: selected.tools,
+      count: selected.tools.length,
+      totalCount: selected.totalCount,
+      toolkits: resolvedToolkits,
+      discovery: 'toolkit_catalog' as const,
+      fallback: selected.fallback,
+    };
+  }
+
+  if (!normalizedQuery) {
+    throw new Error('Provide a search query or at least one toolkit slug. To list an app catalog, pass toolkits and omit query.');
+  }
   if (mode === 'managed') {
     return managedRequest<{ tools: unknown[]; count: number }>('/tools/search', {
       method: 'POST',
-      body: { query, toolkits },
+      body: { query: normalizedQuery },
     }, context);
   }
 
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   const results = await composio.tools.getRawComposioTools({
-    search: query,
-    ...(toolkits ? { toolkits } : {}),
+    search: normalizedQuery,
   } as Parameters<typeof composio.tools.getRawComposioTools>[0]);
   const resultArr = Array.isArray(results) ? results : [];
   const filtered = resultArr.filter((tool: Record<string, unknown>) => {

@@ -17,15 +17,15 @@ import {
 } from './composio-context';
 
 const COMPOSIO_TOOL_DESCRIPTIONS = {
-  SEARCH_TOOLS: 'Search for available tools across connected external apps (GitHub, Gmail, Slack, etc.). Returns tool name, description, and toolkit. Use this to discover which actions are available before executing. Always search before executing — don\'t guess action names.',
+  SEARCH_TOOLS: 'Search for available tools across external apps, or deterministically list and search a known app toolkit. When the user names an app, always pass its exact toolkit slug in toolkits (for example ["instagram"]). Omit query to list that toolkit catalog. An empty unscoped semantic search is not evidence that an app has no tools. Returns tool name, description, and toolkit. Always discover before executing — don\'t guess action names.',
   GET_TOOL_SCHEMAS: 'Get the complete input parameter schemas for specific Composio tools. Provide tool slugs obtained from COMPOSIO_SEARCH_TOOLS. Returns JSON Schema for each tool\'s parameters so you know exactly what fields to provide.',
   EXECUTE: 'Execute a Composio tool action. The action must be a valid tool slug (use COMPOSIO_SEARCH_TOOLS to find available actions first). If the tool requires authentication you haven\'t set up, the response will contain auth_required with a redirect URL to connect the app.',
   MANAGE_CONNECTIONS: 'Manage connections to external apps. Use \'connect\' to get an OAuth redirect URL, \'disconnect\' to remove a connection, or \'status\' to check if a toolkit is connected.',
 } as const;
 
 const ComposioSearchToolsParameters = Type.Object({
-  query: Type.String({ description: 'Natural language search query for tools (e.g., "list repositories github" or "send email")' }),
-  toolkits: Type.Optional(Type.Array(Type.String(), { description: 'Filter to specific toolkit slugs (e.g., ["github", "gmail"])' })),
+  query: Type.Optional(Type.String({ description: 'Natural-language tool query. Omit to list the catalog of the toolkit slugs supplied in toolkits.' })),
+  toolkits: Type.Optional(Type.Array(Type.String(), { description: 'Exact toolkit slugs. Always set this when the target app is known (e.g., ["instagram"], ["github"], or ["gmail"]).' })),
 });
 
 const ComposioGetToolSchemasParameters = Type.Object({
@@ -61,7 +61,7 @@ export function createComposioSearchToolsTool(context?: ResolvedComposioContext 
     execute: async (_toolCallId: string, params: unknown) => {
       try {
         assertResolvedComposioContext(context);
-        const p = params as { query: string; toolkits?: string[] };
+        const p = params as { query?: string; toolkits?: string[] };
         const query = String(p.query || '');
         const toolkits = Array.isArray(p.toolkits) ? p.toolkits : undefined;
         return textResult(JSON.stringify(await searchGatewayTools(query, toolkits, context)));
