@@ -3,8 +3,8 @@
 This file is generated from `package-lock.json`, installed package license files,
 versioned overrides, and the bundled non-npm component inventory.
 
-- Canvas Notebook version: 2026.7.16.2
-- Lockfile SHA-256: `900689ec66bf8da07a175d3ed8abb6184b2bb2c80c7e1b838e1b08561f859b2a`
+- Canvas Notebook version: 2026.7.17.1
+- Lockfile SHA-256: `8cb69bf86198b7d9caec738e32527371b546e4e4d5d7d120cce98938633e6820`
 - Distributed components: 1433
 - Release gate: **approved**
 
@@ -4381,6 +4381,7 @@ Applies to pg-cloudflare@1.4.0, pg-protocol@1.15.0, pg@8.22.0.
 Copyright notices:
 
 - Copyright (c) 2010 - 2021 Brian Carlson
+- Copyright (c) 2023 Brian M. Carlson
 
 ```text
 MIT License
@@ -5636,6 +5637,7 @@ Applies to fsevents@2.3.2, fsevents@2.3.3.
 Copyright notices:
 
 - Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller
+- The MIT License Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller — see LICENSE file.
 
 ```text
 MIT License
@@ -6191,6 +6193,7 @@ Applies to isarray@1.0.0, isarray@1.0.0.
 
 Copyright notices:
 
+- Copyright (c) 2013 Julian Gruber &lt;julian@juliangruber.com&gt;
 - Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>
 
 ```text
@@ -10566,6 +10569,7 @@ Applies to data-uri-to-buffer@4.0.1.
 
 Copyright notices:
 
+- Copyright (c) 2014 Nathan Rajlich &lt;nathan@tootallnate.net&gt;
 - Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>
 
 ```text
@@ -12686,6 +12690,10 @@ THE SOFTWARE.
 
 Applies to sharp@0.34.5, sharp@0.35.3.
 
+Copyright notices:
+
+- Copyright 2013 Lovell Fuller and others.
+
 ```text
 Apache License
 Version 2.0, January 2004
@@ -14623,6 +14631,7 @@ Applies to degenerator@5.0.1.
 
 Copyright notices:
 
+- Copyright (c) 2013 Nathan Rajlich &lt;nathan@tootallnate.net&gt;
 - Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>
 
 ```text
@@ -24139,6 +24148,7 @@ Applies to rehype-katex@7.0.1, remark-math@6.0.0.
 
 Copyright notices:
 
+- [MIT][license] © [Junyoung Choi][author]
 - Copyright (c) 2017 Junyoung Choi <fluke8259@gmail.com>
 
 ```text

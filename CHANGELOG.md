@@ -11,6 +11,32 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.17.1] - 2026-07-17
+
+### Added
+
+- Added Canvas-native Excalidraw live collaboration with multi-user presence, durable scene and asset persistence, reconnect/resync handling, and agent patch review after user intervention.
+- Added resilient chunked workspace uploads, workspace document previews and relations, searchable organization policy targets, and grouped chat tool batches.
+- Added a complete third-party license inventory, authenticated Legal downloads, exact native source evidence, and release-bound amd64/arm64 compliance artifacts.
+
+### Changed
+
+- Rebuilt both shipped Sharp versions against a replaceable shared libvips built from an exact source archive, and excluded all prebuilt `@img/sharp-*` payloads from Docker releases.
+- Pinned Debian, PostgreSQL and Python runtime inputs to immutable snapshots, versions and hashes, with schema-4 runtime inventories and a pre-manifest multi-architecture evidence gate.
+- Improved workspace-aware agent access, Markdown document references, chat presentation, plugin policy targeting, and upload progress handling.
+
+### Fixed
+
+- Fixed workspace upload retries and finalization, repeated bulk folder moves, knowledge-graph document search, Markdown editor state alignment, and Marp export memory handling.
+
+### Verification
+
+- `npm run verify:release`
+- `npm run test:licenses`
+- `npx tsc --noEmit --pretty false`
+- pip hash-resolution dry-runs for CPython 3.11 on linux/amd64 and linux/arm64
+- direct SHA-256 verification of all pinned PGDG binary and source artifacts
+
 ## [2026.7.16.2] - 2026-07-16
 
 ### Added

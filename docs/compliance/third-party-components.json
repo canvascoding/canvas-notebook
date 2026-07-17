@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.7.16.2",
-  "lockfileSha256": "900689ec66bf8da07a175d3ed8abb6184b2bb2c80c7e1b838e1b08561f859b2a",
+  "packageVersion": "2026.7.17.1",
+  "lockfileSha256": "8cb69bf86198b7d9caec738e32527371b546e4e4d5d7d120cce98938633e6820",
   "summary": {
     "totalComponents": 1991,
     "npmComponents": 1968,
@@ -455,7 +455,7 @@
     {
       "name": "@emnapi/core",
       "versionOrCommit": "1.10.0",
-      "sourceUrl": "https://github.com/toyobayashi/emnapi",
+      "sourceUrl": "https://github.com/toyobayashi/emnapi/tree/ba84999164c8d9ee10e57f72bb6fa5fa0b192b54",
       "packagePathOrArtifact": "node_modules/@emnapi/core",
       "usage": "development-only",
       "distributedIn": [
@@ -470,7 +470,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@emnapi/core/-/core-1.10.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@emnapi/core/-/core-1.10.0.tgz#LICENSE Published source revision: ba84999164c8d9ee10e57f72bb6fa5fa0b192b54"
     },
     {
       "name": "@emnapi/core",
@@ -493,7 +493,7 @@
     {
       "name": "@emnapi/runtime",
       "versionOrCommit": "1.10.0",
-      "sourceUrl": "https://github.com/toyobayashi/emnapi",
+      "sourceUrl": "https://github.com/toyobayashi/emnapi/tree/ba84999164c8d9ee10e57f72bb6fa5fa0b192b54",
       "packagePathOrArtifact": "node_modules/@unrs/resolver-binding-wasm32-wasi/node_modules/@emnapi/runtime",
       "usage": "development-only",
       "distributedIn": [
@@ -508,7 +508,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from @unrs/resolver-binding-wasm32-wasi. License text source: https://registry.npmjs.org/@emnapi/runtime/-/runtime-1.10.0.tgz#LICENSE"
+      "reviewNotes": "Inherited development-only classification from @unrs/resolver-binding-wasm32-wasi. License text source: https://registry.npmjs.org/@emnapi/runtime/-/runtime-1.10.0.tgz#LICENSE Published source revision: ba84999164c8d9ee10e57f72bb6fa5fa0b192b54"
     },
     {
       "name": "@emnapi/runtime",
@@ -531,7 +531,7 @@
     {
       "name": "@emnapi/wasi-threads",
       "versionOrCommit": "1.2.1",
-      "sourceUrl": "https://github.com/toyobayashi/emnapi",
+      "sourceUrl": "https://github.com/toyobayashi/emnapi/tree/8037eb8107ae0c74f99c3fe0b045d5cf3f438ff9",
       "packagePathOrArtifact": "node_modules/@emnapi/wasi-threads",
       "usage": "development-only",
       "distributedIn": [
@@ -546,7 +546,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@emnapi/wasi-threads/-/wasi-threads-1.2.1.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@emnapi/wasi-threads/-/wasi-threads-1.2.1.tgz#LICENSE Published source revision: 8037eb8107ae0c74f99c3fe0b045d5cf3f438ff9"
     },
     {
       "name": "@emnapi/wasi-threads",
@@ -3720,7 +3720,7 @@
     {
       "name": "agent-base",
       "versionOrCommit": "6.0.2",
-      "sourceUrl": "https://github.com/TooTallNate/node-agent-base",
+      "sourceUrl": "https://github.com/TooTallNate/node-agent-base/tree/c4b8ea2e1a11bae023bb09b708050a50418204e9",
       "packagePathOrArtifact": "node_modules/@sentry/cli/node_modules/agent-base",
       "usage": "development-only",
       "distributedIn": [
@@ -3731,11 +3731,12 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli/node_modules/agent-base@6.0.2",
       "licenseTextSha256": "c6b33d5dce9eac5b628c4c5835e3ef6e9d7cc1e40e2c4a773a922d538f9b90b3",
       "copyrightNotices": [
+        "Copyright (c) 2013 Nathan Rajlich &lt;nathan@tootallnate.net&gt;",
         "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited from @sentry/cli: Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://registry.npmjs.org/agent-base/-/agent-base-6.0.2.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "Inherited from @sentry/cli: Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://registry.npmjs.org/agent-base/-/agent-base-6.0.2.tgz#README.md#License Published source revision: c4b8ea2e1a11bae023bb09b708050a50418204e9 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "ajv",
@@ -4383,7 +4384,7 @@
     {
       "name": "boolean",
       "versionOrCommit": "3.2.0",
-      "sourceUrl": "https://github.com/thenativeweb/boolean",
+      "sourceUrl": "https://github.com/thenativeweb/boolean/tree/919d80f7c987e809270671bbfa99e14da8bdc477",
       "packagePathOrArtifact": "node_modules/boolean",
       "usage": "development-only",
       "distributedIn": [
@@ -4398,7 +4399,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/boolean/-/boolean-3.2.0.tgz#LICENSE.txt"
+      "reviewNotes": "License text source: https://registry.npmjs.org/boolean/-/boolean-3.2.0.tgz#LICENSE.txt Published source revision: 919d80f7c987e809270671bbfa99e14da8bdc477"
     },
     {
       "name": "brace-expansion",
@@ -5180,7 +5181,7 @@
     {
       "name": "detect-node",
       "versionOrCommit": "2.1.0",
-      "sourceUrl": "https://github.com/iliakan/detect-node",
+      "sourceUrl": "https://github.com/iliakan/detect-node/tree/00381fd0fdbdefa625ac7b8230adfc1df11d49ad",
       "packagePathOrArtifact": "node_modules/detect-node",
       "usage": "development-only",
       "distributedIn": [
@@ -5195,7 +5196,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/detect-node/-/detect-node-2.1.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/detect-node/-/detect-node-2.1.0.tgz#LICENSE Published source revision: 00381fd0fdbdefa625ac7b8230adfc1df11d49ad"
     },
     {
       "name": "dir-compare",
@@ -5603,7 +5604,7 @@
     {
       "name": "es6-error",
       "versionOrCommit": "4.1.1",
-      "sourceUrl": "https://github.com/bjyoungblood/es6-error",
+      "sourceUrl": "https://github.com/bjyoungblood/es6-error/tree/5b553293429bac6b15d8caeab8a4174faeb38fa0",
       "packagePathOrArtifact": "node_modules/es6-error",
       "usage": "development-only",
       "distributedIn": [
@@ -5618,7 +5619,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/es6-error/-/es6-error-4.1.1.tgz#LICENSE.md"
+      "reviewNotes": "License text source: https://registry.npmjs.org/es6-error/-/es6-error-4.1.1.tgz#LICENSE.md Published source revision: 5b553293429bac6b15d8caeab8a4174faeb38fa0"
     },
     {
       "name": "escape-string-regexp",
@@ -5918,7 +5919,7 @@
     {
       "name": "esrecurse",
       "versionOrCommit": "4.3.0",
-      "sourceUrl": "https://github.com/estools/esrecurse",
+      "sourceUrl": "https://github.com/estools/esrecurse/tree/8ceb63797813d9ac69572a671b95cf58ffdf35b6",
       "packagePathOrArtifact": "node_modules/esrecurse",
       "usage": "development-only",
       "distributedIn": [
@@ -5933,7 +5934,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/esrecurse/-/esrecurse-4.3.0.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "License text source: https://registry.npmjs.org/esrecurse/-/esrecurse-4.3.0.tgz#README.md#License Published source revision: 8ceb63797813d9ac69572a671b95cf58ffdf35b6 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "exponential-backoff",
@@ -6486,7 +6487,7 @@
     {
       "name": "global-agent",
       "versionOrCommit": "3.0.0",
-      "sourceUrl": "https://github.com/gajus/global-agent",
+      "sourceUrl": "https://github.com/gajus/global-agent/tree/ee7d160ad5547738a6e0d6ce3a352d53f28add14",
       "packagePathOrArtifact": "node_modules/global-agent",
       "usage": "development-only",
       "distributedIn": [
@@ -6501,7 +6502,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/global-agent/-/global-agent-3.0.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/global-agent/-/global-agent-3.0.0.tgz#LICENSE Published source revision: ee7d160ad5547738a6e0d6ce3a352d53f28add14"
     },
     {
       "name": "globals",
@@ -6792,7 +6793,7 @@
     {
       "name": "https-proxy-agent",
       "versionOrCommit": "5.0.1",
-      "sourceUrl": "https://github.com/TooTallNate/node-https-proxy-agent",
+      "sourceUrl": "https://github.com/TooTallNate/node-https-proxy-agent/tree/d0d80cc0482f20495aa8595f802e1a9f3b1b3409",
       "packagePathOrArtifact": "node_modules/@sentry/cli/node_modules/https-proxy-agent",
       "usage": "development-only",
       "distributedIn": [
@@ -6803,11 +6804,12 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli/node_modules/https-proxy-agent@5.0.1",
       "licenseTextSha256": "74f4bf144ab45e95695f6a0fb4da073e31abe312c446c6f4b6ef279fbe984026",
       "copyrightNotices": [
+        "Copyright (c) 2013 Nathan Rajlich &lt;nathan@tootallnate.net&gt;",
         "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited from @sentry/cli: Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-5.0.1.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "Inherited from @sentry/cli: Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://registry.npmjs.org/https-proxy-agent/-/https-proxy-agent-5.0.1.tgz#README.md#License Published source revision: d0d80cc0482f20495aa8595f802e1a9f3b1b3409 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "ignore",
@@ -7404,7 +7406,7 @@
     {
       "name": "isarray",
       "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/juliangruber/isarray",
+      "sourceUrl": "https://github.com/juliangruber/isarray/tree/2a23a281f369e9ae06394c0fb4d2381355a6ba33",
       "packagePathOrArtifact": "node_modules/duplexer2/node_modules/isarray",
       "usage": "development-only",
       "distributedIn": [
@@ -7415,11 +7417,12 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/duplexer2/node_modules/isarray@1.0.0",
       "licenseTextSha256": "2fddaa39f078491374494ab2140bfe9168e288bb88df411a5d69bdc4b7e365c1",
       "copyrightNotices": [
+        "Copyright (c) 2013 Julian Gruber &lt;julian@juliangruber.com&gt;",
         "Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from duplexer2. License text source: https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "Inherited development-only classification from duplexer2. License text source: https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz#README.md#License Published source revision: 2a23a281f369e9ae06394c0fb4d2381355a6ba33 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "isarray",
@@ -7679,7 +7682,7 @@
     {
       "name": "json-stringify-safe",
       "versionOrCommit": "5.0.1",
-      "sourceUrl": "https://github.com/isaacs/json-stringify-safe",
+      "sourceUrl": "https://github.com/isaacs/json-stringify-safe/tree/3890dceab3ad14f8701e38ca74f38276abc76de5",
       "packagePathOrArtifact": "node_modules/json-stringify-safe",
       "usage": "development-only",
       "distributedIn": [
@@ -7694,7 +7697,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/json-stringify-safe/-/json-stringify-safe-5.0.1.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/json-stringify-safe/-/json-stringify-safe-5.0.1.tgz#LICENSE Published source revision: 3890dceab3ad14f8701e38ca74f38276abc76de5"
     },
     {
       "name": "json5",
@@ -7909,7 +7912,7 @@
     {
       "name": "lightningcss-android-arm64",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-android-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -7924,12 +7927,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-android-arm64/-/lightningcss-android-arm64-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-android-arm64/-/lightningcss-android-arm64-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-darwin-arm64",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-darwin-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -7944,12 +7947,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-darwin-arm64/-/lightningcss-darwin-arm64-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-darwin-arm64/-/lightningcss-darwin-arm64-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-darwin-x64",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-darwin-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -7964,12 +7967,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-darwin-x64/-/lightningcss-darwin-x64-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-darwin-x64/-/lightningcss-darwin-x64-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-freebsd-x64",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-freebsd-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -7984,12 +7987,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-freebsd-x64/-/lightningcss-freebsd-x64-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-freebsd-x64/-/lightningcss-freebsd-x64-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-linux-arm-gnueabihf",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-linux-arm-gnueabihf",
       "usage": "development-only",
       "distributedIn": [
@@ -8004,12 +8007,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-arm-gnueabihf/-/lightningcss-linux-arm-gnueabihf-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-arm-gnueabihf/-/lightningcss-linux-arm-gnueabihf-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-linux-arm64-gnu",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-linux-arm64-gnu",
       "usage": "development-only",
       "distributedIn": [
@@ -8024,12 +8027,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-arm64-gnu/-/lightningcss-linux-arm64-gnu-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-arm64-gnu/-/lightningcss-linux-arm64-gnu-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-linux-arm64-musl",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-linux-arm64-musl",
       "usage": "development-only",
       "distributedIn": [
@@ -8044,12 +8047,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-arm64-musl/-/lightningcss-linux-arm64-musl-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-arm64-musl/-/lightningcss-linux-arm64-musl-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-linux-x64-gnu",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-linux-x64-gnu",
       "usage": "development-only",
       "distributedIn": [
@@ -8064,12 +8067,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-x64-gnu/-/lightningcss-linux-x64-gnu-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-x64-gnu/-/lightningcss-linux-x64-gnu-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-linux-x64-musl",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-linux-x64-musl",
       "usage": "development-only",
       "distributedIn": [
@@ -8084,12 +8087,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-x64-musl/-/lightningcss-linux-x64-musl-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-linux-x64-musl/-/lightningcss-linux-x64-musl-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-win32-arm64-msvc",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-win32-arm64-msvc",
       "usage": "development-only",
       "distributedIn": [
@@ -8104,12 +8107,12 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-win32-arm64-msvc/-/lightningcss-win32-arm64-msvc-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-win32-arm64-msvc/-/lightningcss-win32-arm64-msvc-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss-win32-x64-msvc",
       "versionOrCommit": "1.32.0",
-      "sourceUrl": "https://github.com/parcel-bundler/lightningcss",
+      "sourceUrl": "https://github.com/parcel-bundler/lightningcss/tree/7f8a861bdee476fe90c89a8badeb3fd33a99c51a",
       "packagePathOrArtifact": "node_modules/lightningcss-win32-x64-msvc",
       "usage": "development-only",
       "distributedIn": [
@@ -8124,7 +8127,7 @@
       ],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.32.0.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/lightningcss-win32-x64-msvc/-/lightningcss-win32-x64-msvc-1.32.0.tgz#LICENSE Published source revision: 7f8a861bdee476fe90c89a8badeb3fd33a99c51a"
     },
     {
       "name": "lightningcss",
@@ -8246,7 +8249,7 @@
     {
       "name": "matcher",
       "versionOrCommit": "3.0.0",
-      "sourceUrl": "sindresorhus/matcher",
+      "sourceUrl": "https://github.com/sindresorhus/matcher/tree/d29550d281885df0b32d53c2b72ec788e3265454",
       "packagePathOrArtifact": "node_modules/matcher",
       "usage": "development-only",
       "distributedIn": [
@@ -8261,7 +8264,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/matcher/-/matcher-3.0.0.tgz#license"
+      "reviewNotes": "License text source: https://registry.npmjs.org/matcher/-/matcher-3.0.0.tgz#license Published source revision: d29550d281885df0b32d53c2b72ec788e3265454"
     },
     {
       "name": "merge2",
@@ -9585,7 +9588,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/roarr/-/roarr-2.15.4.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/roarr/-/roarr-2.15.4.tgz#LICENSE Published source revision: 449dd3d7c10fd87a7c9f332bc3a18b4cd0426418"
     },
     {
       "name": "run-parallel",
@@ -9725,7 +9728,7 @@
     {
       "name": "semver-compare",
       "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/substack/semver-compare",
+      "sourceUrl": "https://github.com/substack/semver-compare/tree/152c863e7c2615f9e9e81a9a370b672afaa3819a",
       "packagePathOrArtifact": "node_modules/semver-compare",
       "usage": "development-only",
       "distributedIn": [
@@ -9738,7 +9741,7 @@
       "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/semver-compare/-/semver-compare-1.0.0.tgz#LICENSE The MIT copyright notice could not be attributed automatically."
+      "reviewNotes": "License text source: https://registry.npmjs.org/semver-compare/-/semver-compare-1.0.0.tgz#LICENSE Published source revision: 152c863e7c2615f9e9e81a9a370b672afaa3819a The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "semver",
@@ -9863,7 +9866,7 @@
     {
       "name": "serialize-error",
       "versionOrCommit": "7.0.1",
-      "sourceUrl": "sindresorhus/serialize-error",
+      "sourceUrl": "https://github.com/sindresorhus/serialize-error/tree/9592a668a011cde29a2f60e39f54c6a4eed6f1db",
       "packagePathOrArtifact": "node_modules/serialize-error",
       "usage": "development-only",
       "distributedIn": [
@@ -9878,7 +9881,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/serialize-error/-/serialize-error-7.0.1.tgz#license"
+      "reviewNotes": "License text source: https://registry.npmjs.org/serialize-error/-/serialize-error-7.0.1.tgz#license Published source revision: 9592a668a011cde29a2f60e39f54c6a4eed6f1db"
     },
     {
       "name": "set-function-length",
@@ -10016,7 +10019,7 @@
     {
       "name": "sprintf-js",
       "versionOrCommit": "1.1.3",
-      "sourceUrl": "https://github.com/alexei/sprintf.js",
+      "sourceUrl": "https://github.com/alexei/sprintf.js/tree/3a0d8c26d291b5bd9f1974877ecc50739921d6f5",
       "packagePathOrArtifact": "node_modules/sprintf-js",
       "usage": "development-only",
       "distributedIn": [
@@ -10031,7 +10034,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/sprintf-js/-/sprintf-js-1.1.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/sprintf-js/-/sprintf-js-1.1.3.tgz#LICENSE Published source revision: 3a0d8c26d291b5bd9f1974877ecc50739921d6f5"
     },
     {
       "name": "stable-hash",
@@ -10566,7 +10569,7 @@
     {
       "name": "type-fest",
       "versionOrCommit": "0.13.1",
-      "sourceUrl": "sindresorhus/type-fest",
+      "sourceUrl": "https://github.com/sindresorhus/type-fest/tree/0824c0c521f38ecd02f94b1e371ab754e7b5dfc7",
       "packagePathOrArtifact": "node_modules/serialize-error/node_modules/type-fest",
       "usage": "development-only",
       "distributedIn": [
@@ -10581,7 +10584,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from serialize-error. License text source: https://registry.npmjs.org/type-fest/-/type-fest-0.13.1.tgz#license"
+      "reviewNotes": "Inherited development-only classification from serialize-error. License text source: https://registry.npmjs.org/type-fest/-/type-fest-0.13.1.tgz#license Published source revision: 0824c0c521f38ecd02f94b1e371ab754e7b5dfc7"
     },
     {
       "name": "typed-array-buffer",
@@ -13758,7 +13761,7 @@
     {
       "name": "@emnapi/runtime",
       "versionOrCommit": "1.11.2",
-      "sourceUrl": "https://github.com/toyobayashi/emnapi",
+      "sourceUrl": "https://github.com/toyobayashi/emnapi/tree/061ae9e8c0b4ec4a31db9cbaecc82a63527ad334",
       "packagePathOrArtifact": "node_modules/@emnapi/runtime",
       "usage": "runtime",
       "distributedIn": [
@@ -13776,7 +13779,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@emnapi/runtime/-/runtime-1.11.2.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@emnapi/runtime/-/runtime-1.11.2.tgz#LICENSE Published source revision: 061ae9e8c0b4ec4a31db9cbaecc82a63527ad334"
     },
     {
       "name": "@esbuild/aix-ppc64",
@@ -16401,7 +16404,7 @@
     {
       "name": "@napi-rs/canvas",
       "versionOrCommit": "1.0.2",
-      "sourceUrl": "https://github.com/Brooooooklyn/canvas",
+      "sourceUrl": "https://github.com/Brooooooklyn/canvas/tree/826600b258db693d98a652c935e2b94107b41bb2",
       "packagePathOrArtifact": "node_modules/pdfjs-dist/node_modules/@napi-rs/canvas",
       "usage": "runtime",
       "distributedIn": [
@@ -16419,7 +16422,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@napi-rs/canvas/-/canvas-1.0.2.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@napi-rs/canvas/-/canvas-1.0.2.tgz#LICENSE Published source revision: 826600b258db693d98a652c935e2b94107b41bb2"
     },
     {
       "name": "@next/env",
@@ -16929,7 +16932,7 @@
     {
       "name": "@parcel/watcher-android-arm64",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-android-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -16947,12 +16950,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-android-arm64/-/watcher-android-arm64-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-android-arm64/-/watcher-android-arm64-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-darwin-arm64",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-darwin-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -16970,12 +16973,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-darwin-arm64/-/watcher-darwin-arm64-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-darwin-arm64/-/watcher-darwin-arm64-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-darwin-x64",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-darwin-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -16993,12 +16996,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-darwin-x64/-/watcher-darwin-x64-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-darwin-x64/-/watcher-darwin-x64-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-freebsd-x64",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-freebsd-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -17016,12 +17019,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-freebsd-x64/-/watcher-freebsd-x64-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-freebsd-x64/-/watcher-freebsd-x64-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-linux-arm-glibc",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-linux-arm-glibc",
       "usage": "runtime",
       "distributedIn": [
@@ -17039,12 +17042,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-arm-glibc/-/watcher-linux-arm-glibc-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-arm-glibc/-/watcher-linux-arm-glibc-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-linux-arm-musl",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-linux-arm-musl",
       "usage": "runtime",
       "distributedIn": [
@@ -17062,12 +17065,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-arm-musl/-/watcher-linux-arm-musl-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-arm-musl/-/watcher-linux-arm-musl-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-linux-arm64-glibc",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-linux-arm64-glibc",
       "usage": "runtime",
       "distributedIn": [
@@ -17085,12 +17088,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-arm64-glibc/-/watcher-linux-arm64-glibc-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-arm64-glibc/-/watcher-linux-arm64-glibc-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-linux-arm64-musl",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-linux-arm64-musl",
       "usage": "runtime",
       "distributedIn": [
@@ -17108,12 +17111,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-arm64-musl/-/watcher-linux-arm64-musl-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-arm64-musl/-/watcher-linux-arm64-musl-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-linux-x64-glibc",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-linux-x64-glibc",
       "usage": "runtime",
       "distributedIn": [
@@ -17131,12 +17134,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-x64-glibc/-/watcher-linux-x64-glibc-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-x64-glibc/-/watcher-linux-x64-glibc-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-linux-x64-musl",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-linux-x64-musl",
       "usage": "runtime",
       "distributedIn": [
@@ -17154,12 +17157,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-x64-musl/-/watcher-linux-x64-musl-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-linux-x64-musl/-/watcher-linux-x64-musl-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-win32-arm64",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-win32-arm64",
       "usage": "runtime",
       "distributedIn": [
@@ -17177,12 +17180,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-win32-arm64/-/watcher-win32-arm64-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-win32-arm64/-/watcher-win32-arm64-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-win32-ia32",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-win32-ia32",
       "usage": "runtime",
       "distributedIn": [
@@ -17200,12 +17203,12 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-win32-ia32/-/watcher-win32-ia32-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-win32-ia32/-/watcher-win32-ia32-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher-win32-x64",
       "versionOrCommit": "2.5.6",
-      "sourceUrl": "https://github.com/parcel-bundler/watcher",
+      "sourceUrl": "https://github.com/parcel-bundler/watcher/tree/8926bb8b281733bbfcaf69bb4e62ab7a1431c42a",
       "packagePathOrArtifact": "node_modules/@parcel/watcher-win32-x64",
       "usage": "runtime",
       "distributedIn": [
@@ -17223,7 +17226,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-win32-x64/-/watcher-win32-x64-2.5.6.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/@parcel/watcher-win32-x64/-/watcher-win32-x64-2.5.6.tgz#LICENSE Published source revision: 8926bb8b281733bbfcaf69bb4e62ab7a1431c42a"
     },
     {
       "name": "@parcel/watcher",
@@ -23075,7 +23078,7 @@
     {
       "name": "@tokenizer/token",
       "versionOrCommit": "0.3.0",
-      "sourceUrl": "https://github.com/Borewit/tokenizer-token",
+      "sourceUrl": "https://github.com/Borewit/tokenizer-token/tree/e068a455370090f44c757946b8571bb3fb1f117e",
       "packagePathOrArtifact": "node_modules/@tokenizer/token",
       "usage": "runtime",
       "distributedIn": [
@@ -23093,7 +23096,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@tokenizer/token/-/token-0.3.0.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "License text source: https://registry.npmjs.org/@tokenizer/token/-/token-0.3.0.tgz#README.md#License Published source revision: e068a455370090f44c757946b8571bb3fb1f117e The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "@tootallnate/quickjs-emscripten",
@@ -28093,7 +28096,7 @@
     {
       "name": "data-uri-to-buffer",
       "versionOrCommit": "4.0.1",
-      "sourceUrl": "https://github.com/TooTallNate/node-data-uri-to-buffer",
+      "sourceUrl": "https://github.com/TooTallNate/node-data-uri-to-buffer/tree/85cd8c854aefbf1bb636789d80364cfac8ea1583",
       "packagePathOrArtifact": "node_modules/gaxios/node_modules/data-uri-to-buffer",
       "usage": "runtime",
       "distributedIn": [
@@ -28107,11 +28110,12 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/gaxios/node_modules/data-uri-to-buffer@4.0.1",
       "licenseTextSha256": "5c16f15a21274d9da3f4b8d9e88ed8ade06c5b3b717196c9e1261eac273f8e14",
       "copyrightNotices": [
+        "Copyright (c) 2014 Nathan Rajlich &lt;nathan@tootallnate.net&gt;",
         "Copyright (c) 2014 Nathan Rajlich <nathan@tootallnate.net>"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/data-uri-to-buffer/-/data-uri-to-buffer-4.0.1.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "License text source: https://registry.npmjs.org/data-uri-to-buffer/-/data-uri-to-buffer-4.0.1.tgz#README.md#License Published source revision: 85cd8c854aefbf1bb636789d80364cfac8ea1583 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "data-uri-to-buffer",
@@ -28395,6 +28399,7 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@marp-team/marp-cli/node_modules/degenerator@5.0.1",
       "licenseTextSha256": "856b7c5bc8da91a46ffe0b6c2431da418b39bf25063b1919974289ca7b9ef155",
       "copyrightNotices": [
+        "Copyright (c) 2013 Nathan Rajlich &lt;nathan@tootallnate.net&gt;",
         "Copyright (c) 2013 Nathan Rajlich <nathan@tootallnate.net>"
       ],
       "modified": false,
@@ -30292,7 +30297,7 @@
     {
       "name": "fsevents",
       "versionOrCommit": "2.3.2",
-      "sourceUrl": "https://github.com/fsevents/fsevents",
+      "sourceUrl": "https://github.com/fsevents/fsevents/tree/a7f5d00939b74e141a73131468c4ce48ee0f2197",
       "packagePathOrArtifact": "node_modules/fsevents",
       "usage": "runtime",
       "distributedIn": [
@@ -30306,16 +30311,17 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/fsevents@2.3.2",
       "licenseTextSha256": "2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1",
       "copyrightNotices": [
-        "Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller"
+        "Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller",
+        "The MIT License Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller — see LICENSE file."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/fsevents/-/fsevents-2.3.2.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/fsevents/-/fsevents-2.3.2.tgz#LICENSE Published source revision: a7f5d00939b74e141a73131468c4ce48ee0f2197"
     },
     {
       "name": "fsevents",
       "versionOrCommit": "2.3.3",
-      "sourceUrl": "https://github.com/fsevents/fsevents",
+      "sourceUrl": "https://github.com/fsevents/fsevents/tree/2db891e51aa0f2975c5eaaf6aa30f13d720a830a",
       "packagePathOrArtifact": "node_modules/tsx/node_modules/fsevents",
       "usage": "runtime",
       "distributedIn": [
@@ -30329,11 +30335,12 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/tsx/node_modules/fsevents@2.3.3",
       "licenseTextSha256": "2a8a5d6197bb97a018b8a190dd3ed853d750ca87c8e80c17aad41d6c6ff448e1",
       "copyrightNotices": [
-        "Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller"
+        "Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller",
+        "The MIT License Copyright (C) 2010-2020 by Philipp Dunkel, Ben Noordhuis, Elan Shankar, Paul Miller — see LICENSE file."
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/fsevents/-/fsevents-2.3.3.tgz#LICENSE Published source revision: 2db891e51aa0f2975c5eaaf6aa30f13d720a830a"
     },
     {
       "name": "function-bind",
@@ -32429,7 +32436,7 @@
     {
       "name": "isarray",
       "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/juliangruber/isarray",
+      "sourceUrl": "https://github.com/juliangruber/isarray/tree/2a23a281f369e9ae06394c0fb4d2381355a6ba33",
       "packagePathOrArtifact": "node_modules/jszip/node_modules/isarray",
       "usage": "runtime",
       "distributedIn": [
@@ -32443,16 +32450,17 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/jszip/node_modules/isarray@1.0.0",
       "licenseTextSha256": "2fddaa39f078491374494ab2140bfe9168e288bb88df411a5d69bdc4b7e365c1",
       "copyrightNotices": [
+        "Copyright (c) 2013 Julian Gruber &lt;julian@juliangruber.com&gt;",
         "Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "License text source: https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz#README.md#License Published source revision: 2a23a281f369e9ae06394c0fb4d2381355a6ba33 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "isarray",
       "versionOrCommit": "1.0.0",
-      "sourceUrl": "https://github.com/juliangruber/isarray",
+      "sourceUrl": "https://github.com/juliangruber/isarray/tree/2a23a281f369e9ae06394c0fb4d2381355a6ba33",
       "packagePathOrArtifact": "node_modules/lazystream/node_modules/isarray",
       "usage": "runtime",
       "distributedIn": [
@@ -32466,11 +32474,12 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/lazystream/node_modules/isarray@1.0.0",
       "licenseTextSha256": "2fddaa39f078491374494ab2140bfe9168e288bb88df411a5d69bdc4b7e365c1",
       "copyrightNotices": [
+        "Copyright (c) 2013 Julian Gruber &lt;julian@juliangruber.com&gt;",
         "Copyright (c) 2013 Julian Gruber <julian@juliangruber.com>"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "License text source: https://registry.npmjs.org/isarray/-/isarray-1.0.0.tgz#README.md#License Published source revision: 2a23a281f369e9ae06394c0fb4d2381355a6ba33 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "isexe",
@@ -36911,7 +36920,7 @@
     {
       "name": "pg-cloudflare",
       "versionOrCommit": "1.4.0",
-      "sourceUrl": "https://github.com/brianc/node-postgres",
+      "sourceUrl": "https://github.com/brianc/node-postgres/tree/544b1ce8152bc280e398dc1e8a66920abe6a640e",
       "packagePathOrArtifact": "node_modules/pg-cloudflare",
       "usage": "runtime",
       "distributedIn": [
@@ -36925,7 +36934,8 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/pg-cloudflare@1.4.0",
       "licenseTextSha256": "192b8f5c96900f04a1271dec39688655d7416c1c6ea84a508e18b50d2b6751f3",
       "copyrightNotices": [
-        "Copyright (c) 2010 - 2021 Brian Carlson"
+        "Copyright (c) 2010 - 2021 Brian Carlson",
+        "Copyright (c) 2023 Brian M. Carlson"
       ],
       "modified": false,
       "policyDecision": "allowed",
@@ -37022,7 +37032,7 @@
     {
       "name": "pg-types",
       "versionOrCommit": "2.2.0",
-      "sourceUrl": "https://github.com/brianc/node-pg-types",
+      "sourceUrl": "https://github.com/brianc/node-pg-types/tree/d9d9dfb87eb50914043cbc178c301b7dd3b0c50d",
       "packagePathOrArtifact": "node_modules/pg-types",
       "usage": "runtime",
       "distributedIn": [
@@ -37040,7 +37050,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/pg-types/-/pg-types-2.2.0.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "License text source: https://registry.npmjs.org/pg-types/-/pg-types-2.2.0.tgz#README.md#License Published source revision: d9d9dfb87eb50914043cbc178c301b7dd3b0c50d The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "pg",
@@ -37067,7 +37077,7 @@
     {
       "name": "pgpass",
       "versionOrCommit": "1.0.5",
-      "sourceUrl": "https://github.com/hoegaarden/pgpass",
+      "sourceUrl": "https://github.com/hoegaarden/pgpass/tree/4230ed5e417ba6044ea7eb80b7c33db9ec301398",
       "packagePathOrArtifact": "node_modules/pgpass",
       "usage": "runtime",
       "distributedIn": [
@@ -37085,7 +37095,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/pgpass/-/pgpass-1.0.5.tgz#README.md#License The complete license text is embedded in the exact npm tarball README license section."
+      "reviewNotes": "License text source: https://registry.npmjs.org/pgpass/-/pgpass-1.0.5.tgz#README.md#License Published source revision: 4230ed5e417ba6044ea7eb80b7c33db9ec301398 The complete license text is embedded in the exact npm tarball README license section."
     },
     {
       "name": "pica",
@@ -39081,6 +39091,7 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/rehype-katex@7.0.1",
       "licenseTextSha256": "cb992262f361a5359e6771c28740d33c7041e15332ae8537fae40538992591a9",
       "copyrightNotices": [
+        "[MIT][license] © [Junyoung Choi][author]",
         "Copyright (c) 2017 Junyoung Choi <fluke8259@gmail.com>"
       ],
       "modified": false,
@@ -39148,6 +39159,7 @@
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/remark-math@6.0.0",
       "licenseTextSha256": "cb992262f361a5359e6771c28740d33c7041e15332ae8537fae40538992591a9",
       "copyrightNotices": [
+        "[MIT][license] © [Junyoung Choi][author]",
         "Copyright (c) 2017 Junyoung Choi <fluke8259@gmail.com>"
       ],
       "modified": false,
@@ -40037,7 +40049,7 @@
     {
       "name": "sharp",
       "versionOrCommit": "0.34.5",
-      "sourceUrl": "https://github.com/lovell/sharp",
+      "sourceUrl": "https://github.com/lovell/sharp/tree/e0624568686516209c434de2d3c0ef6688f0811d",
       "packagePathOrArtifact": "node_modules/next/node_modules/sharp",
       "usage": "runtime",
       "distributedIn": [
@@ -40050,10 +40062,12 @@
       "verifiedLicense": "Apache-2.0",
       "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/next/node_modules/sharp@0.34.5",
       "licenseTextSha256": "73ba74dfaa520b49a401b5d21459a8523a146f3b7518a833eea5efa85130bf68",
-      "copyrightNotices": [],
+      "copyrightNotices": [
+        "Copyright 2013 Lovell Fuller and others."
+      ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/sharp/-/sharp-0.34.5.tgz#LICENSE"
+      "reviewNotes": "License text source: https://registry.npmjs.org/sharp/-/sharp-0.34.5.tgz#LICENSE Published source revision: e0624568686516209c434de2d3c0ef6688f0811d"
     },
     {
       "name": "sharp",
