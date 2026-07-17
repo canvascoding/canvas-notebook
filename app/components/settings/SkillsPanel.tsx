@@ -81,6 +81,11 @@ interface SkillFileNode {
   name: string;
   path: string;
   type: 'file' | 'directory';
+  resourceId?: string;
+  skillName?: string;
+  scopeType?: 'system' | 'organization' | 'user';
+  sourceType?: 'core' | 'standalone' | 'plugin';
+  relativePath?: string;
   size?: number;
   modified?: number;
   children?: SkillFileNode[];
@@ -2625,28 +2630,45 @@ export function SkillsPanel() {
   const [skillStoreError, setSkillStoreError] = useState<string | null>(null);
   const [skillActionError, setSkillActionError] = useState<string | null>(null);
   const [pendingSkillAction, setPendingSkillAction] = useState<string | null>(null);
+  const skillsRequestRef = useRef(0);
+  const skillTreeRequestRef = useRef(0);
+
+  const changeManagementScope = useCallback((scope: CapabilityManagementScope) => {
+    if (scope === managementScope) return;
+    skillsRequestRef.current += 1;
+    skillTreeRequestRef.current += 1;
+    setSkillTree([]);
+    setExpandedDirs(new Set());
+    setSelectedSkill(null);
+    setSelectedPath(null);
+    setRightView('info');
+    setManagementScope(scope);
+  }, [managementScope]);
 
   async function loadSkills() {
+    const requestId = ++skillsRequestRef.current;
+    const requestedScope = managementScope;
     try {
       setIsLoading(true);
       const [skillsRes, statusRes] = await Promise.all([
-        fetch(capabilityScopeUrl('/api/skills', managementScope)),
+        fetch(capabilityScopeUrl('/api/skills', requestedScope)),
         fetch('/api/skills/status'),
       ]);
       const skillsData = await skillsRes.json();
       const statusData = await statusRes.json();
+      if (requestId !== skillsRequestRef.current) return;
 
       if (skillsData.success) {
         const canManageOrganization = skillsData.canManageOrganizationCapabilities === true;
         setCanManageOrganizationCapabilities(canManageOrganization);
-        if (!canManageOrganization && managementScope === 'organization') {
-          setManagementScope('user');
+        if (!canManageOrganization && requestedScope === 'organization') {
+          changeManagementScope('user');
         }
         const allSkills: CanvasSkill[] = skillsData.skills;
         const enabledNames: string[] = statusData.success ? (statusData.enabledSkills || []) : [];
         const allEnabled = statusData.success && statusData.allEnabled === true;
 
-        const merged = managementScope === 'organization' || allSkills.some((skill) => Boolean(skill.resourceId))
+        const merged = requestedScope === 'organization' || allSkills.some((skill) => Boolean(skill.resourceId))
           ? allSkills
           : allSkills.map((skill: CanvasSkill) => ({
             ...skill,
@@ -2660,29 +2682,21 @@ export function SkillsPanel() {
           enabled: enabledCount,
           disabled: merged.length - enabledCount,
         });
-        if (managementScope === 'organization') {
-          setSkillTree(merged.map((skill) => ({
-            name: skill.name,
-            path: skill.name,
-            type: 'directory' as const,
-          })));
-        }
       }
     } catch (error) {
       console.error('Failed to load skills:', error);
     } finally {
-      setIsLoading(false);
+      if (requestId === skillsRequestRef.current) setIsLoading(false);
     }
   }
 
   async function loadSkillTree() {
-    if (managementScope === 'organization') {
-      return;
-    }
+    const requestId = ++skillTreeRequestRef.current;
+    const requestedScope = managementScope;
     try {
-      const res = await fetch('/api/skills/tree?depth=4');
+      const res = await fetch(capabilityScopeUrl('/api/skills/tree?depth=4', requestedScope));
       const data = await res.json();
-      if (data.success) {
+      if (requestId === skillTreeRequestRef.current && data.success) {
         setSkillTree(data.data || []);
       }
     } catch (error) {
@@ -2755,26 +2769,35 @@ export function SkillsPanel() {
     });
   }, []);
 
-  const handleSkillClick = useCallback((skillName: string) => {
+  const handleSkillClick = useCallback((node: SkillFileNode) => {
+    const skillName = node.skillName || node.name;
     const namedSkills = skills.filter((skill) => skill.name === skillName);
-    const skill = namedSkills.find((entry) => entry.scopeType === 'user')
+    const skill = (node.resourceId
+      ? namedSkills.find((entry) => entry.resourceId === node.resourceId)
+      : null)
+      || namedSkills.find((entry) => entry.scopeType === 'user')
       || namedSkills.find((entry) => entry.scopeType === 'system')
       || namedSkills.find((entry) => entry.scopeType !== 'organization')
       || namedSkills[0];
     if (skill) {
       setSelectedSkill(skill);
       setRightView('info');
-      setSelectedPath(skillName);
+      setSelectedPath(node.path);
     }
   }, [skills]);
 
-  const handleFileClick = useCallback(async (filePath: string) => {
-    setSelectedPath(filePath);
+  const handleFileClick = useCallback(async (node: SkillFileNode) => {
+    setSelectedPath(node.path);
     setRightView('preview');
     setPreviewLoading(true);
     setPreviewError(null);
     try {
-      const res = await fetch(`/api/skills/file?path=${encodeURIComponent(filePath)}`);
+      const params = new URLSearchParams({
+        path: node.relativePath ?? node.path,
+        scope: managementScope,
+      });
+      if (node.resourceId) params.set('resourceId', node.resourceId);
+      const res = await fetch(`/api/skills/file?${params.toString()}`);
       const data = await res.json();
       if (data.success) {
         setPreviewContent(data.content || '');
@@ -2786,7 +2809,7 @@ export function SkillsPanel() {
     } finally {
       setPreviewLoading(false);
     }
-  }, []);
+  }, [managementScope]);
 
   async function toggleSkill(skill: CanvasSkill, enabled: boolean) {
     if (skill.core && !enabled) {
@@ -2966,7 +2989,10 @@ export function SkillsPanel() {
     return nodes.map(node => {
       const isSkillDir = node.type === 'directory' && depth === 0;
       const namedSkills = isSkillDir ? skills.filter((entry) => entry.name === node.name) : [];
-      const skill = namedSkills.find((entry) => entry.scopeType === 'user')
+      const skill = (node.resourceId
+        ? namedSkills.find((entry) => entry.resourceId === node.resourceId)
+        : null)
+        || namedSkills.find((entry) => entry.scopeType === 'user')
         || namedSkills.find((entry) => entry.scopeType === 'system')
         || namedSkills.find((entry) => entry.scopeType !== 'organization')
         || namedSkills[0]
@@ -2990,21 +3016,21 @@ export function SkillsPanel() {
             onClick={() => {
               if (node.type === 'directory') {
                 if (isSkillDir && skill) {
-                  handleSkillClick(skill.name);
+                  handleSkillClick(node);
                 }
                 toggleDirectory(node.path);
               } else {
-                handleFileClick(node.path);
+                handleFileClick(node);
               }
             }}
             onKeyDown={(e) => {
               if (e.key === 'Enter' || e.key === ' ') {
                 e.preventDefault();
                 if (node.type === 'directory') {
-                  if (isSkillDir && skill) handleSkillClick(skill.name);
+                  if (isSkillDir && skill) handleSkillClick(node);
                   toggleDirectory(node.path);
                 } else {
-                  handleFileClick(node.path);
+                  handleFileClick(node);
                 }
               }
             }}
@@ -3227,7 +3253,7 @@ export function SkillsPanel() {
               type="button"
               size="sm"
               variant={managementScope === 'user' ? 'secondary' : 'ghost'}
-              onClick={() => setManagementScope('user')}
+              onClick={() => changeManagementScope('user')}
             >
               {t('scope.personal')}
             </Button>
@@ -3236,7 +3262,7 @@ export function SkillsPanel() {
                 type="button"
                 size="sm"
                 variant={managementScope === 'organization' ? 'secondary' : 'ghost'}
-                onClick={() => setManagementScope('organization')}
+                onClick={() => changeManagementScope('organization')}
               >
                 {t('scope.organization')}
               </Button>
@@ -3413,49 +3439,6 @@ export function SkillsPanel() {
                       ) : (
                         renderTree(skillTree)
                       )}
-                      {managementScope === 'user' ? skills
-                        .filter((skill) => skill.scopeType === 'organization')
-                        .map((skill) => (
-                          <div
-                            key={skill.resourceId || skill.name}
-                            role="button"
-                            tabIndex={0}
-                            className={cn(
-                              'mt-1 flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left text-sm hover:bg-muted',
-                              selectedSkill?.resourceId === skill.resourceId && 'bg-primary/10 text-primary',
-                            )}
-                            onClick={() => {
-                              setSelectedSkill(skill);
-                              setSelectedPath(skill.name);
-                              setRightView('info');
-                            }}
-                            onKeyDown={(event) => {
-                              if (event.key === 'Enter' || event.key === ' ') {
-                                event.preventDefault();
-                                setSelectedSkill(skill);
-                                setSelectedPath(skill.name);
-                                setRightView('info');
-                              }
-                            }}
-                          >
-                            <CanvasSkillIcon skill={skill} className="h-5 w-5 text-[10px]" />
-                            <span className="min-w-0 flex-1 truncate">{skill.name}</span>
-                            {skill.version ? <Badge variant="outline" className="text-[9px]">v{skill.version}</Badge> : null}
-                            {skill.readiness === 'blocked' || skill.readiness === 'conflict' ? (
-                              <Badge variant="destructive" className="text-[9px]">
-                                {skill.readiness}
-                              </Badge>
-                            ) : null}
-                            <Switch
-                              checked={skill.enabled}
-                              disabled={skill.effectivePolicy === 'required' || skill.readiness === 'blocked' || skill.readiness === 'conflict'}
-                              onClick={(event) => event.stopPropagation()}
-                              onCheckedChange={(checked) => void toggleSkill(skill, checked)}
-                              className="scale-75 shrink-0"
-                              aria-label={t('toggleSkill', { name: skill.name })}
-                            />
-                          </div>
-                        )) : null}
                     </div>
                   </div>
 

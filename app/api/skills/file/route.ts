@@ -3,7 +3,15 @@ import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
 import { auth } from '@/app/lib/auth';
+import { loadCapabilityCandidates } from '@/app/lib/capabilities/catalog';
+import { parseCapabilityManagementScope } from '@/app/lib/capabilities/request-scope';
+import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { resolveReadableScopedSkillsDataDir } from '@/app/lib/runtime-data-paths';
+import {
+  CapabilitySkillFileError,
+  resolveCapabilitySkillFile,
+  selectBrowsableSkillCandidates,
+} from '@/app/lib/skills/capability-skill-browser';
 import { resolveCoreSkillFilePath } from '@/app/lib/skills/core-skill-loader';
 
 function sanitizeFilePath(filePath: string): string {
@@ -25,9 +33,38 @@ export async function GET(request: NextRequest) {
   try {
     const { searchParams } = new URL(request.url);
     const filePath = searchParams.get('path');
+    const resourceId = searchParams.get('resourceId')?.trim();
 
     if (!filePath) {
       return NextResponse.json({ success: false, error: 'path parameter is required' }, { status: 400 });
+    }
+
+    if (resourceId) {
+      const organizationState = await readOrganizationPermissionForUser(session.user.id);
+      if (!organizationState.organizationId || organizationState.permission?.status !== 'active') {
+        return NextResponse.json(
+          { success: false, error: 'Active organization membership required' },
+          { status: 403 },
+        );
+      }
+      const managementScope = parseCapabilityManagementScope(searchParams.get('scope'));
+      const candidates = await loadCapabilityCandidates({
+        organizationId: organizationState.organizationId,
+        userId: session.user.id,
+        role: organizationState.permission.role,
+      }, { resolveConnections: false });
+      const resolved = await resolveCapabilitySkillFile(
+        selectBrowsableSkillCandidates(candidates, managementScope),
+        { resourceId, relativePath: filePath },
+      );
+      const content = await fs.readFile(resolved.filePath, 'utf-8');
+      return NextResponse.json({
+        success: true,
+        content,
+        name: path.basename(resolved.filePath),
+        size: resolved.stat.size,
+        modified: resolved.stat.mtimeMs,
+      });
     }
 
     const sanitizedPath = sanitizeFilePath(filePath);
@@ -72,6 +109,9 @@ export async function GET(request: NextRequest) {
       modified: stat.mtimeMs,
     });
   } catch (error) {
+    if (error instanceof CapabilitySkillFileError) {
+      return NextResponse.json({ success: false, error: error.message }, { status: error.status });
+    }
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
       return NextResponse.json({ success: false, error: 'File not found' }, { status: 404 });
     }
