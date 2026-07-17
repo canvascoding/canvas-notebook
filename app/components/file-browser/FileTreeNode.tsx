@@ -18,6 +18,7 @@ import {
   SidebarMenuSub,
 } from '@/components/ui/sidebar';
 import { useFileStore } from '@/app/store/file-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import type { BrowserMode, FileNode as FileNodeType } from '@/app/lib/files/types';
 import { cn } from '@/lib/utils';
 import { getFileIconComponent, isImageFile } from '@/app/lib/files/file-icons';
@@ -55,6 +56,7 @@ function FileTreeNodeComponent({
 }: FileTreeNodeProps) {
   const t = useTranslations('notebook');
   const locale = useLocale();
+  const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const {
     isExpanded,
     isLoading,
@@ -252,7 +254,12 @@ function FileTreeNodeComponent({
         <ImageThumbnailIcon
           path={node.path}
           name={node.name}
-          className="h-5 w-5 rounded-sm"
+          workspaceId={workspaceId}
+          className={cn(
+            browserMode === 'list'
+              ? 'h-8 w-8 rounded-md md:h-7 md:w-7'
+              : 'h-6 w-6 rounded-sm md:h-5 md:w-5'
+          )}
           fallbackIcon={getFileIconComponent({
             name: node.name,
             path: node.path,

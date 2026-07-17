@@ -22,7 +22,9 @@ export function ImageThumbnailIcon({
   imageClassName,
   fallbackIcon,
 }: ImageThumbnailIconProps) {
-  const [hasError, setHasError] = useState(false);
+  const previewSrc = toPreviewUrl(path, 64, { preset: 'mini', workspaceId });
+  const [failedSrc, setFailedSrc] = useState<string | null>(null);
+  const hasError = failedSrc === previewSrc;
 
   if (hasError) {
     return (
@@ -36,12 +38,13 @@ export function ImageThumbnailIcon({
     <span className={cn('block h-5 w-5 shrink-0 overflow-hidden rounded border border-border/70 bg-muted/40', className)}>
       {/* eslint-disable-next-line @next/next/no-img-element */}
       <img
-        src={toPreviewUrl(path, 64, { preset: 'mini', workspaceId })}
+        src={previewSrc}
         alt={name}
         className={cn('h-full w-full object-cover', imageClassName)}
         loading="lazy"
         decoding="async"
-        onError={() => setHasError(true)}
+        fetchPriority="low"
+        onError={() => setFailedSrc(previewSrc)}
       />
     </span>
   );
