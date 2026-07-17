@@ -315,8 +315,10 @@ Die Profilansicht zeigt:
 - `Profil umbenennen` und fuer unbenutzte Nicht-Standardprofile `Archivieren`.
 
 `In diesem Workspace nicht mehr verwenden` und `App trennen` sind getrennte
-Aktionen. Vor `App trennen` nennt der Dialog die Anzahl betroffener eigener
-Workspaces und Automations.
+Aktionen. Vor `App trennen` nennt die UI den aktiven Workspace, die Anzahl
+expliziter eigener Workspace-Overrides und gebundener Automations. Beim
+Standardprofil weist sie zusaetzlich darauf hin, dass weitere Workspaces das
+Profil ohne eigenen Override erben koennen.
 
 ### Connect- und Auth-required-Flow
 
@@ -381,7 +383,39 @@ wiederverwendet werden.
 - Managed Control Plane transportiert die aufgeloeste externe User ID, darf aber
   keine Profile verschiedener Canvas User zusammenfassen.
 
-## Umsetzung in abgeschlossenen Schritten
+## Implementierungsstand
+
+Die V1-Implementierung ist abgeschlossen:
+
+- Datenmodell, Legacy-Uebernahme und Effective-Profile-Resolver liegen in
+  `app/lib/composio/composio-profiles.ts` und
+  `app/lib/composio/composio-context.ts`.
+- Profile, Workspace-Overrides und die workspace-aware bestehenden
+  Composio-Routen sind unter `app/api/composio/*` umgesetzt.
+- OAuth-State, Gateway-Sessions, Caches, Agent-Tools und Auth-required-Events
+  sind an das aufgeloeste Profil gebunden.
+- Connected Apps bietet persoenliche Profilauswahl, Erstellen, Umbenennen,
+  Archivieren, Standard-Wiederherstellung sowie kontextbezogene Connect- und
+  Disconnect-Warnungen.
+- Scheduled Automations und Webhook-Trigger speichern beziehungsweise
+  validieren das konkrete Profil. Trigger werden bei einem Profilwechsel sicher
+  migriert oder sichtbar pausiert.
+- Profil- und Accountdetails einer Automation werden nur dem verantwortlichen
+  User praesentiert.
+
+Automatisch verifiziert wurden:
+
+- `npm run test:composio:user-scope`,
+- `npx tsx --conditions react-server scripts/composio-user-workspace-profiles-test.ts`,
+- `npm run test:db:sqlite-to-postgres-plan`,
+- `npx tsx scripts/composio-profile-ui-test.ts`,
+- gezieltes ESLint und `npx tsc --noEmit`,
+- `npm run build` inklusive License-Gate und Next.js-Produktionsbuild.
+
+Der Browser-E2E-Test bleibt gemaess Repository-Regel bis zur ausdruecklichen
+Freigabe ausstehend. Es wurde kein Container gebaut oder gestartet.
+
+## Umsetzungsreihenfolge
 
 1. Datenmodell, Migration, Repository und Effective-Profile-Resolver inklusive
    Ownership-/Workspace-Tests.
@@ -391,8 +425,8 @@ wiederverwendet werden.
 4. Connected-Apps-UI, Profilauswahl, Profilverwaltung und Warnungen umsetzen.
 5. Geplante Automations und Webhook-Trigger auf Responsible User plus Effective
    Profile umstellen.
-6. Regressionstests, Lint, Build und nach expliziter Freigabe ein Browser-E2E-Test
-   mit zwei Usern, zwei Workspaces und mindestens zwei Profilen.
+6. Regressionstests, Lint und Build; nach expliziter Freigabe zusaetzlich ein
+   Browser-E2E-Test mit zwei Usern, zwei Workspaces und mindestens zwei Profilen.
 
 ## Akzeptanzkriterien
 
