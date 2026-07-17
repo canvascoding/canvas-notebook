@@ -2,7 +2,7 @@ import { db, getDatabaseProvider, openDb, type SqlConnection } from '../db';
 import { legacyAiTablesExist } from '../db/legacy-ai-tables';
 import { toDatabaseTimestamp } from '../db/timestamps';
 import { piSessions, piMessages, aiSessions, aiMessages, sessionChannelLinks } from '../db/schema';
-import { eq, and, asc, desc } from 'drizzle-orm';
+import { eq, and, asc, desc, gt } from 'drizzle-orm';
 import { type AgentMessage } from '@earendil-works/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
@@ -36,6 +36,7 @@ import {
   findUnambiguousOwnedPiSessionForRuntime,
   PiSessionRuntimeAccessError,
 } from '@/app/lib/pi/session-runtime-access';
+import { deletePiSessionsByDbIds } from './session-deletion';
 
 /**
  * Handles persistence for PI session snapshots (AgentMessage context).
@@ -446,6 +447,62 @@ export async function savePiSession(
       }))
     );
   }
+}
+
+export async function finalizePiSessionAfterNoop(input: {
+  sessionId: string;
+  userId: string;
+  agentId?: string | null;
+  retainedMessageCount: number;
+  deleteSessionIfEmpty?: boolean;
+  title?: string | null;
+  titleGenerationState?: string | null;
+  summary?: PiSessionSummaryState;
+}): Promise<void> {
+  const agentId = resolveSessionAgentId(input.agentId);
+  const session = await findUnambiguousOwnedPiSessionForRuntime({
+    sessionId: input.sessionId,
+    userId: input.userId,
+  });
+  if (!session) {
+    throw new PiSessionRuntimeAccessError(
+      'Agent session could not be restored after a no-op run.',
+      'SESSION_NOT_FOUND',
+    );
+  }
+  if (session.agentId !== agentId) {
+    throw new PiSessionRuntimeAccessError(
+      'Agent session ID already belongs to a different agent.',
+      'SESSION_AGENT_MISMATCH',
+    );
+  }
+
+  const retainedMessageCount = Math.max(0, Math.floor(input.retainedMessageCount));
+  await db.delete(piMessages).where(and(
+    eq(piMessages.piSessionDbId, session.id),
+    gt(piMessages.sequence, retainedMessageCount),
+  ));
+
+  if (input.deleteSessionIfEmpty && retainedMessageCount === 0) {
+    await deletePiSessionsByDbIds([session.id]);
+    return;
+  }
+
+  await db.update(piSessions)
+    .set({
+      updatedAt: new Date(),
+      title: input.title === undefined ? session.title : input.title,
+      titleGenerationState: input.titleGenerationState === undefined
+        ? session.titleGenerationState
+        : input.titleGenerationState,
+      ...(input.summary ? {
+        summaryText: input.summary.summaryText ?? null,
+        summaryUpdatedAt: input.summary.summaryUpdatedAt ?? null,
+        summaryThroughTimestamp: input.summary.summaryThroughTimestamp ?? null,
+        summaryThroughSequence: input.summary.summaryThroughSequence ?? null,
+      } : {}),
+    })
+    .where(eq(piSessions.id, session.id));
 }
 
 export async function loadPiSession(

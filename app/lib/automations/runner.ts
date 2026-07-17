@@ -17,6 +17,7 @@ import { estimateTextTokens } from '@/app/lib/pi/history-budget';
 import { MAX_LLM_HISTORY_BYTES } from '@/app/lib/pi/llm-payload-limits';
 import {
   createPiSessionWithRuntimeSnapshot,
+  finalizePiSessionAfterNoop,
   loadPiSessionWithSummary,
   savePiSession,
 } from '@/app/lib/pi/session-store';
@@ -46,6 +47,7 @@ import { getPiTools } from '@/app/lib/pi/tool-registry';
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
 import { buildHeartbeatPrompt } from './heartbeat';
+import { classifyHeartbeatResult, HEARTBEAT_OK_TOKEN } from './heartbeat-result';
 import {
   AutomationLoopShutdownError,
   AutomationRunTimeoutError,
@@ -611,53 +613,89 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         }
 
         const assistantText = extractAssistantText(finalMessages);
-        dispatchResult = await dispatchAutomationResult({
-          job,
-          userId: automationUserId,
-          resolution: deliveryResolution,
-          text: assistantText,
-        });
+        const heartbeatResult = job.jobType === 'heartbeat'
+          ? classifyHeartbeatResult(assistantText)
+          : null;
+        if (heartbeatResult?.kind === 'empty') {
+          throw new Error(`Heartbeat completed without a final response. Return ${HEARTBEAT_OK_TOKEN} when there are no relevant updates.`);
+        }
+        const heartbeatOk = heartbeatResult?.kind === 'ok';
+        dispatchResult = heartbeatOk
+          ? {
+              attempted: false,
+              delivered: false,
+              skippedReason: 'heartbeat_ok',
+              error: null,
+            }
+          : await dispatchAutomationResult({
+              job,
+              userId: automationUserId,
+              resolution: deliveryResolution,
+              text: assistantText,
+            });
         assertAutomationExecutionActive(executionSignal);
         const deliveryFailureMessage = getAutomationDeliveryFailureMessage(deliveryResolution, dispatchResult);
         if (deliveryFailureMessage) {
           throw new Error(deliveryFailureMessage);
         }
-        const persistedFinalMessages = buildPersistedAutomationMessages({
-          existingMessages,
-          promptMessage,
-          runMessages: finalMessages,
-        });
-        const persistedLength = getAutomationPersistedLength({
-          existingMessagesLength: existingMessages.length,
-          promptPersistedBeforeRun,
-        });
-        await savePiSession(
-          piSessionId,
-          automationUserId,
-          provider,
-          model.id,
-          persistedFinalMessages,
-          sessionSummary,
-          {
-            titleOverride: piSessionTitle,
+        if (heartbeatOk) {
+          await finalizePiSessionAfterNoop({
+            sessionId: piSessionId,
+            userId: automationUserId,
             agentId: job.agentId,
-            persistedLength,
-            channelId: deliveryResolution.channelId,
-            channelSessionKey: deliveryResolution.channelSessionKey || null,
-            workspaceId: automationWorkspace.workspaceId,
-          },
-        );
+            retainedMessageCount: existingMessages.length,
+            deleteSessionIfEmpty: !persistedSession,
+            title: persistedSession?.title,
+            titleGenerationState: persistedSession?.titleGenerationState,
+            summary: sessionSummary,
+          });
+        } else {
+          const persistedFinalMessages = buildPersistedAutomationMessages({
+            existingMessages,
+            promptMessage,
+            runMessages: finalMessages,
+          });
+          const persistedLength = getAutomationPersistedLength({
+            existingMessagesLength: existingMessages.length,
+            promptPersistedBeforeRun,
+          });
+          await savePiSession(
+            piSessionId,
+            automationUserId,
+            provider,
+            model.id,
+            persistedFinalMessages,
+            sessionSummary,
+            {
+              titleOverride: piSessionTitle,
+              agentId: job.agentId,
+              persistedLength,
+              channelId: deliveryResolution.channelId,
+              channelSessionKey: deliveryResolution.channelSessionKey || null,
+              workspaceId: automationWorkspace.workspaceId,
+            },
+          );
+        }
         assertAutomationExecutionActive(executionSignal);
         console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
         const finishedRun = await markAutomationRunFinished(run.id, {
           status: 'success',
-          resultText: assistantText || 'Run completed without assistant text output.',
+          resultText: heartbeatOk
+            ? 'Heartbeat completed without relevant updates.'
+            : assistantText || 'Run completed without assistant text output.',
           eventsLog: events,
           metadataJson: {
             provider,
             model: model.id,
             runtime: buildAutomationRuntimeMetadata(executableRuntime),
             ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
+            ...(heartbeatResult ? {
+              heartbeat: {
+                outcome: heartbeatOk ? 'no_updates' : 'message',
+                acknowledgement: heartbeatOk ? HEARTBEAT_OK_TOKEN : null,
+                deliverySuppressed: heartbeatOk,
+              },
+            } : {}),
             status: 'success',
             targetOutputPath: job.targetOutputPath,
             effectiveTargetOutputPath,

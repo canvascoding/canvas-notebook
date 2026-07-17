@@ -20,7 +20,7 @@ const toolCalls: Array<{
   sessionId: string | null | undefined;
 }> = [];
 let agentLoopToolNames: string[] = [];
-let agentLoopMode: 'success' | 'empty-error' = 'success';
+let agentLoopMode: 'success' | 'heartbeat-ok' | 'empty-error' = 'success';
 let exclusiveMode: 'pass' | 'busy' = 'pass';
 let timeoutMode: 'pass' | 'non-quiescent' = 'pass';
 let beforeExclusivePreflight: (() => Promise<void>) | null = null;
@@ -151,6 +151,31 @@ moduleInternals._load = (request, parent, isMain) => {
                 },
                 stopReason: 'error',
                 errorMessage: 'empty model failure',
+                timestamp: Date.now(),
+              },
+            ],
+          };
+          return;
+        }
+        if (agentLoopMode === 'heartbeat-ok') {
+          yield {
+            type: 'agent_end',
+            messages: [
+              {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'HEARTBEAT_OK' }],
+                api: testModel.api,
+                provider: testModel.provider,
+                model: testModel.id,
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
+                stopReason: 'stop',
                 timestamp: Date.now(),
               },
             ],
@@ -369,6 +394,7 @@ async function main() {
     getAutomationRun,
     markAutomationRunRetryScheduled,
     scheduleAutomationJobRun,
+    upsertHeartbeatJob,
   } = await import('../app/lib/automations/store');
   const { executeAutomationRun } = await import('../app/lib/automations/runner');
 
@@ -454,6 +480,7 @@ async function main() {
   const session = await db.query.piSessions.findFirst({
     where: eq(piSessions.userId, userId),
   });
+  assert.ok(session);
   assert.equal(session?.userId, userId);
   assert.equal(session?.agentId, agentId);
   assert.equal(session?.runtimeProviderInstallationId, testSelection.selection.providerInstallationId);
@@ -462,6 +489,117 @@ async function main() {
   assert.equal(session?.runtimeSelectionSource, 'app_default');
   assert.equal(session?.thinkingLevel, 'off');
   assert.doesNotMatch(session?.systemPromptSnapshot || '', /## Current Workspace File Tree/);
+
+  const heartbeatMessagesBefore = await db.query.piMessages.findMany({
+    where: eq(piMessages.piSessionDbId, session.id),
+    orderBy: [asc(piMessages.sequence)],
+  });
+  const heartbeatSessionBefore = await db.query.piSessions.findFirst({
+    where: eq(piSessions.id, session.id),
+  });
+  assert.ok(heartbeatSessionBefore);
+
+  const heartbeatJob = await upsertHeartbeatJob({
+    userId,
+    agentId,
+    enabled: true,
+    schedule: { kind: 'interval', every: 1, unit: 'hours', timeZone: 'UTC' },
+    deliveryMode: 'web',
+    deliveryChannelId: 'web',
+    deliverySessionMode: 'fixed_session',
+    deliverySessionId: session.sessionId,
+  });
+  const heartbeatRun = await scheduleAutomationJobRun(heartbeatJob.id, 'manual', now);
+  assert.ok(heartbeatRun);
+
+  agentLoopMode = 'heartbeat-ok';
+  await executeAutomationRun(heartbeatRun.id);
+  agentLoopMode = 'success';
+
+  const finishedHeartbeatRun = await getAutomationRun(heartbeatRun.id);
+  assert.equal(finishedHeartbeatRun?.status, 'success');
+  assert.equal(finishedHeartbeatRun?.resultText, 'Heartbeat completed without relevant updates.');
+  assert.deepEqual(finishedHeartbeatRun?.metadataJson?.heartbeat, {
+    outcome: 'no_updates',
+    acknowledgement: 'HEARTBEAT_OK',
+    deliverySuppressed: true,
+  });
+  assert.deepEqual((finishedHeartbeatRun?.metadataJson?.delivery as Record<string, unknown>)?.dispatch, {
+    attempted: false,
+    delivered: false,
+    skippedReason: 'heartbeat_ok',
+    error: null,
+  });
+
+  const heartbeatMessagesAfter = await db.query.piMessages.findMany({
+    where: eq(piMessages.piSessionDbId, session.id),
+    orderBy: [asc(piMessages.sequence)],
+  });
+  assert.deepEqual(
+    heartbeatMessagesAfter.map(({ role, content, sequence }) => ({ role, content, sequence })),
+    heartbeatMessagesBefore.map(({ role, content, sequence }) => ({ role, content, sequence })),
+  );
+  const heartbeatSessionAfter = await db.query.piSessions.findFirst({
+    where: eq(piSessions.id, session.id),
+  });
+  assert.equal(heartbeatSessionAfter?.title, heartbeatSessionBefore.title);
+  assert.equal(heartbeatSessionAfter?.lastMessageAt?.getTime(), heartbeatSessionBefore.lastMessageAt?.getTime());
+
+  const heartbeatMessageRun = await scheduleAutomationJobRun(heartbeatJob.id, 'manual', now);
+  assert.ok(heartbeatMessageRun);
+  await executeAutomationRun(heartbeatMessageRun.id);
+
+  const finishedHeartbeatMessageRun = await getAutomationRun(heartbeatMessageRun.id);
+  assert.equal(finishedHeartbeatMessageRun?.status, 'success');
+  assert.deepEqual(finishedHeartbeatMessageRun?.metadataJson?.heartbeat, {
+    outcome: 'message',
+    acknowledgement: null,
+    deliverySuppressed: false,
+  });
+  assert.deepEqual((finishedHeartbeatMessageRun?.metadataJson?.delivery as Record<string, unknown>)?.dispatch, {
+    attempted: true,
+    delivered: true,
+    skippedReason: null,
+    error: null,
+  });
+  const heartbeatMessageRows = await db.query.piMessages.findMany({
+    where: eq(piMessages.piSessionDbId, session.id),
+    orderBy: [asc(piMessages.sequence)],
+  });
+  assert.equal(heartbeatMessageRows.length, heartbeatMessagesBefore.length + 2);
+  assert.ok(heartbeatMessageRows.at(-1)?.content.includes('Automation finished.'));
+  const heartbeatMessageSession = await db.query.piSessions.findFirst({
+    where: eq(piSessions.id, session.id),
+  });
+  assert.ok((heartbeatMessageSession?.lastMessageAt?.getTime() || 0) >= (heartbeatSessionBefore.lastMessageAt?.getTime() || 0));
+
+  const newSessionHeartbeatJob = await upsertHeartbeatJob({
+    userId,
+    agentId,
+    enabled: true,
+    schedule: { kind: 'interval', every: 1, unit: 'hours', timeZone: 'UTC' },
+    deliveryMode: 'web',
+    deliveryChannelId: 'web',
+    deliverySessionMode: 'new_session',
+    deliverySessionId: null,
+  });
+  const newSessionHeartbeatRun = await scheduleAutomationJobRun(newSessionHeartbeatJob.id, 'manual', now);
+  assert.ok(newSessionHeartbeatRun);
+
+  agentLoopMode = 'heartbeat-ok';
+  await executeAutomationRun(newSessionHeartbeatRun.id);
+  agentLoopMode = 'success';
+
+  const finishedNewSessionHeartbeatRun = await getAutomationRun(newSessionHeartbeatRun.id);
+  const newHeartbeatSessionId = `auto-${newSessionHeartbeatRun.id.replace(/^run-/, '')}`;
+  assert.equal(finishedNewSessionHeartbeatRun?.status, 'success');
+  assert.equal(finishedNewSessionHeartbeatRun?.hasPersistedSession, false);
+  assert.equal(await db.query.piSessions.findFirst({
+    where: eq(piSessions.sessionId, newHeartbeatSessionId),
+  }), undefined);
+  assert.equal(await db.query.sessionChannelLinks.findFirst({
+    where: eq(sessionChannelLinks.sessionId, newHeartbeatSessionId),
+  }), undefined);
 
   const busyJob = await createAutomationJob(
     {

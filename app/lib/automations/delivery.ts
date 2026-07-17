@@ -235,7 +235,7 @@ export function getAutomationDeliveryFailureMessage(
     return null;
   }
 
-  if (dispatch.skippedReason === 'empty_result') {
+  if (dispatch.skippedReason === 'empty_result' || dispatch.skippedReason === 'heartbeat_ok') {
     return null;
   }
 
