@@ -1,9 +1,10 @@
 import 'server-only';
 
 import { getComposio } from './composio-client';
-import { getComposioSession, getComposioUserId } from './composio-session';
+import { getComposioSession } from './composio-session';
 import { getAvailableToolkitsRaw } from './composio-toolkit-registry';
-import type { EnvStorageScope } from '../integrations/env-config';
+import type { ResolvedComposioContext } from './composio-context';
+import { createComposioOAuthFlowState } from './composio-oauth-state';
 
 export type ComposioConnectedAccountStatus =
   | 'INITIALIZING'
@@ -18,11 +19,11 @@ type ConnectedAccountListOptions = {
   statuses?: ComposioConnectedAccountStatus[];
 };
 
-export async function initiateConnection(toolkit: string, storageScope?: EnvStorageScope | null): Promise<{ redirectUrl: string | null; noAuth?: boolean }> {
-  const composio = await getComposio(storageScope);
+export async function initiateConnection(toolkit: string, context: ResolvedComposioContext): Promise<{ redirectUrl: string | null; noAuth?: boolean }> {
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio not configured');
 
-  const rawItems = await getAvailableToolkitsRaw(storageScope);
+  const rawItems = await getAvailableToolkitsRaw(context);
   const toolkitInfo = rawItems.find((item) => {
     const t = item as Record<string, unknown>;
     return t.slug === toolkit;
@@ -34,27 +35,27 @@ export async function initiateConnection(toolkit: string, storageScope?: EnvStor
     return { redirectUrl: null, noAuth: true };
   }
 
-  const session = await getComposioSession(storageScope);
+  const session = await getComposioSession(context);
   if (!session) throw new Error('Composio not configured');
 
-  const callbackUrl = `${getAppBaseUrl()}/api/composio/callback`;
+  const { callbackUrl } = await createComposioOAuthFlowState({ context, toolkitSlug: toolkit });
   const connectionRequest = await session.authorize(toolkit, { callbackUrl });
   return { redirectUrl: connectionRequest.redirectUrl };
 }
 
-export async function disconnectTool(toolkit: string, storageScope?: EnvStorageScope | null): Promise<void> {
-  const accounts = await getConnectedAccounts({}, storageScope);
+export async function disconnectTool(toolkit: string, context: ResolvedComposioContext): Promise<void> {
+  const accounts = await getConnectedAccounts({}, context);
   const account = accounts.find((a) => a.toolkit?.slug === toolkit);
 
   if (account) {
-    const composio = await getComposio(storageScope);
+    const composio = await getComposio(context.storageScope);
     if (!composio) throw new Error('Composio not configured');
     await composio.connectedAccounts.delete((account as { id: string }).id);
   }
 }
 
-export async function getAuthConfigs(storageScope?: EnvStorageScope | null): Promise<Array<Record<string, unknown>>> {
-  const composio = await getComposio(storageScope);
+export async function getAuthConfigs(context: ResolvedComposioContext): Promise<Array<Record<string, unknown>>> {
+  const composio = await getComposio(context.storageScope);
   if (!composio) return [];
 
   try {
@@ -69,18 +70,17 @@ export async function getAuthConfigs(storageScope?: EnvStorageScope | null): Pro
 }
 
 export async function getConnectedAccounts(
-  options: ConnectedAccountListOptions = {},
-  storageScope?: EnvStorageScope | null,
+  options: ConnectedAccountListOptions,
+  context: ResolvedComposioContext,
 ) {
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) return [];
 
-  const userId = await getComposioUserId(storageScope);
   const allItems: Array<{ id: string; toolkit?: { slug?: string; name?: string }; status?: string; createdAt?: string; [key: string]: unknown }> = [];
   let cursor: string | undefined;
 
   do {
-    const params: Record<string, unknown> = { userIds: [userId], limit: 100 };
+    const params: Record<string, unknown> = { userIds: [context.composioUserId], limit: 100 };
     if (options.statuses?.length) params.statuses = options.statuses;
     if (cursor) params.cursor = cursor;
     const result = await composio.connectedAccounts.list(params as Parameters<typeof composio.connectedAccounts.list>[0]);
@@ -92,12 +92,12 @@ export async function getConnectedAccounts(
   return allItems;
 }
 
-export async function getActiveConnectedAccounts(storageScope?: EnvStorageScope | null) {
-  return getConnectedAccounts({ statuses: ['ACTIVE'] }, storageScope);
+export async function getActiveConnectedAccounts(context: ResolvedComposioContext) {
+  return getConnectedAccounts({ statuses: ['ACTIVE'] }, context);
 }
 
-export async function getToolkitsWithStatus(storageScope?: EnvStorageScope | null) {
-  const session = await getComposioSession(storageScope);
+export async function getToolkitsWithStatus(context: ResolvedComposioContext) {
+  const session = await getComposioSession(context);
   if (!session) return [];
 
   const { items } = await session.toolkits();
@@ -108,13 +108,4 @@ export function isToolkitConnected(accounts: Array<{ toolkit?: { slug?: string }
   return accounts.some(
     (a) => a.toolkit?.slug === toolkit && a.status === 'ACTIVE'
   );
-}
-
-function getAppBaseUrl(): string {
-  const baseUrl = process.env.BASE_URL || process.env.APP_BASE_URL;
-  if (baseUrl) return baseUrl;
-  const port = process.env.PORT || '3000';
-  const vercelUrl = process.env.VERCEL_URL;
-  if (vercelUrl) return `https://${vercelUrl}`;
-  return `http://localhost:${port}`;
 }

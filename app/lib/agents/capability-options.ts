@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
 import { getMcpRuntimeStatus } from '@/app/lib/mcp/manager';
 
@@ -55,16 +56,20 @@ async function loadMcpConnectionOptions(userId?: string | null): Promise<AgentCo
     }));
 }
 
-async function loadComposioConnectionOptions(userId?: string | null): Promise<AgentConnectionOption[]> {
-  const storageScope = userId ? { userId } : undefined;
-  const status = await getGatewayStatus(storageScope);
+async function loadComposioConnectionOptions(
+  userId?: string | null,
+  workspaceId?: string | null,
+): Promise<AgentConnectionOption[]> {
+  if (!userId) return [];
+  const composioContext = await resolveComposioContext({ userId, workspaceId });
+  const status = await getGatewayStatus(composioContext);
   if (!status.configured || !status.apiKeyValid || status.connectedAccounts.length === 0) {
     return [];
   }
 
   let toolkitSummaryBySlug = new Map<string, ReturnType<typeof toToolkitSummary>>();
   try {
-    const result = await getGatewayToolkits(storageScope);
+    const result = await getGatewayToolkits(composioContext);
     if (Array.isArray(result.toolkits)) {
       toolkitSummaryBySlug = new Map(
         result.toolkits
@@ -91,11 +96,15 @@ async function loadComposioConnectionOptions(userId?: string | null): Promise<Ag
     });
 }
 
-export async function loadAgentConnectionOptions(params: { query?: string; userId?: string | null } = {}): Promise<AgentConnectionOption[]> {
+export async function loadAgentConnectionOptions(params: {
+  query?: string;
+  userId?: string | null;
+  workspaceId?: string | null;
+} = {}): Promise<AgentConnectionOption[]> {
   const query = params.query?.trim().toLowerCase() || '';
   const [mcpResult, composioResult] = await Promise.allSettled([
     loadMcpConnectionOptions(params.userId),
-    loadComposioConnectionOptions(params.userId),
+    loadComposioConnectionOptions(params.userId, params.workspaceId),
   ]);
 
   return [

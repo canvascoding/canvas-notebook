@@ -2,8 +2,7 @@ import 'server-only';
 
 import { getComposio } from './composio-client';
 import { getConnectedAccounts } from './composio-auth';
-import { getComposioUserId } from './composio-identity';
-import type { EnvStorageScope } from '../integrations/env-config';
+import { composioContextCacheKey, type ResolvedComposioContext } from './composio-context';
 
 export interface ToolkitInfo {
   slug: string;
@@ -56,22 +55,23 @@ function cleanupExpiredToolsEntries() {
   }
 }
 
-function storageScopeCacheKey(storageScope?: EnvStorageScope | null): string {
-  const userId = storageScope?.userId?.trim() || '';
-  const organizationId = storageScope?.organizationId?.trim() || '';
-  const secretScope = storageScope?.secretScope || (userId ? 'user' : organizationId ? 'organization' : 'legacy');
+function storageScopeCacheKey(context: ResolvedComposioContext): string {
+  const storageScope = context.storageScope;
+  const userId = storageScope.userId?.trim() || '';
+  const organizationId = storageScope.organizationId?.trim() || '';
+  const secretScope = storageScope.secretScope || (userId ? 'user' : organizationId ? 'organization' : 'legacy');
   return `${secretScope}:${userId}:${organizationId}`;
 }
 
-export async function getAvailableToolkitsRaw(storageScope?: EnvStorageScope | null): Promise<unknown[]> {
+export async function getAvailableToolkitsRaw(context: ResolvedComposioContext): Promise<unknown[]> {
   const now = Date.now();
-  const cacheKey = storageScopeCacheKey(storageScope);
+  const cacheKey = storageScopeCacheKey(context);
   const cached = rawToolkitCache.get(cacheKey);
   if (cached && cached.expires > now) {
     return cached.data;
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) return [];
 
   try {
@@ -86,22 +86,21 @@ export async function getAvailableToolkitsRaw(storageScope?: EnvStorageScope | n
   }
 }
 
-export async function getAvailableToolkits(storageScope?: EnvStorageScope | null): Promise<ToolkitInfo[]> {
+export async function getAvailableToolkits(context: ResolvedComposioContext): Promise<ToolkitInfo[]> {
   const now = Date.now();
-  const userId = await getComposioUserId(storageScope);
-  const cacheKey = `local:${storageScopeCacheKey(storageScope)}:${userId}`;
+  const cacheKey = `local:${composioContextCacheKey(context)}`;
   const cachedToolkits = toolkitCache.get(cacheKey);
   if (cachedToolkits && cachedToolkits.expires > now) {
     return cachedToolkits.data;
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) return [];
 
   try {
     const [rawItems, connectedAccounts] = await Promise.all([
-      getAvailableToolkitsRaw(storageScope),
-      getConnectedAccounts({}, storageScope),
+      getAvailableToolkitsRaw(context),
+      getConnectedAccounts({}, context),
     ]);
 
     console.log(`[Composio] Processing ${rawItems.length} toolkits, ${connectedAccounts.length} connected accounts`);
@@ -158,17 +157,17 @@ export async function getAvailableToolkits(storageScope?: EnvStorageScope | null
   }
 }
 
-export async function getToolkitTools(toolkitSlug: string, storageScope?: EnvStorageScope | null): Promise<ToolkitToolInfo[]> {
+export async function getToolkitTools(toolkitSlug: string, context: ResolvedComposioContext): Promise<ToolkitToolInfo[]> {
   cleanupExpiredToolsEntries();
 
   const now = Date.now();
-  const cacheKey = `${storageScopeCacheKey(storageScope)}:${toolkitSlug}`;
+  const cacheKey = `${storageScopeCacheKey(context)}:${toolkitSlug}`;
   const cached = toolsCache.get(cacheKey);
   if (cached && cached.expires > now) {
     return cached.data;
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) return [];
 
   try {

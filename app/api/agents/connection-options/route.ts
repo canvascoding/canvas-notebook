@@ -4,6 +4,7 @@ import { auth } from '@/app/lib/auth';
 import { loadAgentConnectionOptions } from '@/app/lib/agents/capability-options';
 import { paginateItems, parsePositiveInteger } from '@/app/lib/utils/pagination';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
 const DEFAULT_LIMIT = 8;
 const MAX_LIMIT = 50;
@@ -29,9 +30,12 @@ export async function GET(request: NextRequest) {
 
   try {
     const query = request.nextUrl.searchParams.get('query')?.trim().toLowerCase() || '';
+    const workspaceId = request.headers.get(WORKSPACE_ID_HEADER)?.trim()
+      || request.nextUrl.searchParams.get('workspaceId')?.trim()
+      || null;
     const page = parsePositiveInteger(request.nextUrl.searchParams.get('page'), 1);
     const limit = parsePositiveInteger(request.nextUrl.searchParams.get('limit'), DEFAULT_LIMIT, MAX_LIMIT);
-    const options = await loadAgentConnectionOptions({ query, userId: session.user.id });
+    const options = await loadAgentConnectionOptions({ query, userId: session.user.id, workspaceId });
     const { items, pagination } = paginateItems(options, page, limit);
 
     return NextResponse.json({

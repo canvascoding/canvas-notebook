@@ -4,14 +4,14 @@ import { randomUUID } from 'crypto';
 import { eq, desc } from 'drizzle-orm';
 import { getComposio, getComposioMode, isManagedComposioConfigured, verifyApiKey, type ComposioMode } from './composio-client';
 import { disconnectTool, getActiveConnectedAccounts, getConnectedAccounts, initiateConnection } from './composio-auth';
-import { getComposioSession } from './composio-session';
-import { getComposioUserId } from './composio-identity';
+import { resetSessionCache } from './composio-session';
 import { clearToolkitCache, getAvailableToolkits } from './composio-toolkit-registry';
+import { composioContextCacheKey, type ResolvedComposioContext } from './composio-context';
+import { createComposioOAuthFlowState } from './composio-oauth-state';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import { encryptWebhookSecret, previewWebhookSecret } from './composio-webhook-secret';
 import { db } from '../db';
 import { composioWebhookSubscriptions } from '../db/schema';
-import type { EnvStorageScope } from '../integrations/env-config';
 
 const HIDDEN_TOOLKIT_SLUGS = new Set([
   'gemini',
@@ -115,13 +115,6 @@ function logComposioTriggerError(message: string, error: unknown, details?: Reco
   });
 }
 
-function storageScopeCacheKey(storageScope?: EnvStorageScope | null): string {
-  const userId = storageScope?.userId?.trim() || '';
-  const organizationId = storageScope?.organizationId?.trim() || '';
-  const secretScope = storageScope?.secretScope || (userId ? 'user' : organizationId ? 'organization' : 'legacy');
-  return `${secretScope}:${userId}:${organizationId}`;
-}
-
 function normalizeLocalTriggerInstance(
   value: unknown,
   accountById: Map<string, ComposioConnectedAccount>,
@@ -149,9 +142,9 @@ function normalizeLocalTriggerInstance(
 async function managedRequest<T>(
   path: string,
   options: { method?: string; body?: Record<string, unknown>; query?: URLSearchParams } = {},
-  storageScope?: EnvStorageScope | null,
+  context: ResolvedComposioContext,
 ): Promise<T> {
-  const userId = await getComposioUserId(storageScope);
+  const userId = context.composioUserId;
   const url = new URL(`${controlPlaneBaseUrl()}/v1/managed/composio${path}`);
   if (options.query) {
     options.query.forEach((value, key) => url.searchParams.set(key, value));
@@ -213,12 +206,12 @@ function connectedAccountResponse(accounts: ComposioConnectedAccount[]) {
   }));
 }
 
-export async function getComposioGatewayMode(storageScope?: EnvStorageScope | null): Promise<ComposioMode> {
-  return getComposioMode(storageScope);
+export async function getComposioGatewayMode(context: ResolvedComposioContext): Promise<ComposioMode> {
+  return getComposioMode(context.storageScope);
 }
 
-export async function getGatewayStatus(storageScope?: EnvStorageScope | null): Promise<ComposioStatusResult> {
-  const mode = await getComposioMode(storageScope);
+export async function getGatewayStatus(context: ResolvedComposioContext): Promise<ComposioStatusResult> {
+  const mode = await getComposioMode(context.storageScope);
   const localConfigured = mode === 'local';
   const managedAvailable = isManagedComposioConfigured();
   if (mode === 'disabled') {
@@ -226,7 +219,7 @@ export async function getGatewayStatus(storageScope?: EnvStorageScope | null): P
   }
 
   if (mode === 'managed') {
-    const result = await managedRequest<ComposioStatusResult>('/status', {}, storageScope);
+    const result = await managedRequest<ComposioStatusResult>('/status', {}, context);
     return {
       ...result,
       configured: result.configured !== false,
@@ -239,14 +232,14 @@ export async function getGatewayStatus(storageScope?: EnvStorageScope | null): P
     };
   }
 
-  const apiKeyValid = await verifyApiKey(storageScope);
+  const apiKeyValid = await verifyApiKey(context);
   if (!apiKeyValid) {
     return { configured: true, apiKeyValid: false, mode, localConfigured, managedAvailable, webhookSubscription: null, connectedAccounts: [] };
   }
-  const accounts = await getActiveConnectedAccounts(storageScope);
+  const accounts = await getActiveConnectedAccounts(context);
   let webhookSubscription: ComposioStatusResult['webhookSubscription'] = null;
   try {
-    const sub = await getLocalWebhookSubscription(storageScope);
+    const sub = await getLocalWebhookSubscription(context);
     if (sub) {
       webhookSubscription = { configured: true, webhookUrl: sub.webhookUrl, status: sub.status, mode: sub.mode };
     } else {
@@ -256,15 +249,15 @@ export async function getGatewayStatus(storageScope?: EnvStorageScope | null): P
   return { configured: true, apiKeyValid: true, mode, localConfigured, managedAvailable, webhookSubscription, connectedAccounts: connectedAccountResponse(accounts) };
 }
 
-export async function getGatewayToolkits(storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function getGatewayToolkits(context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') return { toolkits: [] };
-  if (mode === 'managed') return managedRequest<{ toolkits: unknown[] }>('/toolkits', {}, storageScope);
-  return { toolkits: await getAvailableToolkits(storageScope) };
+  if (mode === 'managed') return managedRequest<{ toolkits: unknown[] }>('/toolkits', {}, context);
+  return { toolkits: await getAvailableToolkits(context) };
 }
 
-export async function getGatewayTriggerApps(storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function getGatewayTriggerApps(context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') {
     return {
       apps: [],
@@ -274,11 +267,11 @@ export async function getGatewayTriggerApps(storageScope?: EnvStorageScope | nul
   }
 
   const now = Date.now();
-  const cacheKey = storageScopeCacheKey(storageScope);
+  const cacheKey = composioContextCacheKey(context);
   const cached = triggerAppCache.get(cacheKey);
   let baseApps = cached && cached.expiresAt > now ? cached.apps : null;
   if (!baseApps) {
-    const result = await getGatewayTriggerTypes('', storageScope);
+    const result = await getGatewayTriggerTypes('', context);
     const bySlug = new Map<string, {
       slug: string;
       name: string;
@@ -312,7 +305,7 @@ export async function getGatewayTriggerApps(storageScope?: EnvStorageScope | nul
     });
   }
 
-  const status = await getGatewayStatus(storageScope);
+  const status = await getGatewayStatus(context);
   const connectedBySlug = new Map(status.connectedAccounts.map((account) => [account.toolkit.slug, account]));
   const apps = baseApps
     .map((app) => {
@@ -329,16 +322,16 @@ export async function getGatewayTriggerApps(storageScope?: EnvStorageScope | nul
   return { apps, totalCount: apps.length, status };
 }
 
-export async function getGatewayToolkitTools(toolkit: string, search: string, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function getGatewayToolkitTools(toolkit: string, search: string, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') return { tools: [], totalCount: 0 };
   if (mode === 'managed') {
     const query = new URLSearchParams();
     if (search) query.set('search', search);
-    return managedRequest<{ tools: unknown[]; totalCount: number; hasMore?: boolean }>(`/toolkits/${encodeURIComponent(toolkit)}/tools`, { query }, storageScope);
+    return managedRequest<{ tools: unknown[]; totalCount: number; hasMore?: boolean }>(`/toolkits/${encodeURIComponent(toolkit)}/tools`, { query }, context);
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) return { tools: [], totalCount: 0 };
   const queryParams: Parameters<typeof composio.tools.getRawComposioTools>[0] = {
     toolkits: [toolkit],
@@ -360,36 +353,37 @@ export async function getGatewayToolkitTools(toolkit: string, search: string, st
   return { tools, totalCount: tools.length, hasMore: toolList.length >= 500 };
 }
 
-export async function connectGatewayToolkit(toolkit: string, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function connectGatewayToolkit(toolkit: string, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio not configured');
   if (mode === 'managed') {
+    const flow = await createComposioOAuthFlowState({ context, toolkitSlug: toolkit });
     return managedRequest<{ redirectUrl: string | null; noAuth?: boolean }>(`/connect/${encodeURIComponent(toolkit)}`, {
       method: 'POST',
-      body: { returnUrl: `${appBaseUrl()}/settings?tab=integrations&connected=${encodeURIComponent(toolkit)}` },
-    }, storageScope);
+      body: { returnUrl: flow.callbackUrl },
+    }, context);
   }
-  return initiateConnection(toolkit, storageScope);
+  return initiateConnection(toolkit, context);
 }
 
-export async function disconnectGatewayToolkit(toolkit: string, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function disconnectGatewayToolkit(toolkit: string, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio not configured');
   if (mode === 'managed') {
-    return managedRequest<{ success: boolean }>(`/disconnect/${encodeURIComponent(toolkit)}`, { method: 'DELETE' }, storageScope);
+    return managedRequest<{ success: boolean }>(`/disconnect/${encodeURIComponent(toolkit)}`, { method: 'DELETE' }, context);
   }
-  await disconnectTool(toolkit, storageScope);
+  await disconnectTool(toolkit, context);
   return { success: true };
 }
 
-export async function refreshGatewayToolkit(toolkit: string, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function refreshGatewayToolkit(toolkit: string, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio not configured');
   if (mode === 'managed') {
-    return managedRequest<{ toolkit: string; status: string; connectedAt: string | null }>(`/refresh/${encodeURIComponent(toolkit)}`, { method: 'POST' }, storageScope);
+    return managedRequest<{ toolkit: string; status: string; connectedAt: string | null }>(`/refresh/${encodeURIComponent(toolkit)}`, { method: 'POST' }, context);
   }
 
-  const accounts = await getConnectedAccounts({}, storageScope);
+  const accounts = await getConnectedAccounts({}, context);
   const account = accounts.find((a) => a.toolkit?.slug === toolkit);
   if (account) {
     return { toolkit, status: account.status || 'UNKNOWN', connectedAt: account.createdAt || null };
@@ -397,17 +391,17 @@ export async function refreshGatewayToolkit(toolkit: string, storageScope?: EnvS
   return { toolkit, status: 'NOT_CONNECTED', connectedAt: null };
 }
 
-export async function searchGatewayTools(query: string, toolkits?: string[], storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function searchGatewayTools(query: string, toolkits: string[] | undefined, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
     return managedRequest<{ tools: unknown[]; count: number }>('/tools/search', {
       method: 'POST',
       body: { query, toolkits },
-    }, storageScope);
+    }, context);
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   const results = await composio.tools.getRawComposioTools({
     search: query,
@@ -431,17 +425,17 @@ export async function searchGatewayTools(query: string, toolkits?: string[], sto
   return { tools: formatted, count: formatted.length };
 }
 
-export async function getGatewayToolSchemas(tools: string[], storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function getGatewayToolSchemas(tools: string[], context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
     return managedRequest<Record<string, unknown>>('/tools/schemas', {
       method: 'POST',
       body: { tools },
-    }, storageScope);
+    }, context);
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   const schemas: Record<string, unknown> = {};
   for (const slug of tools.slice(0, 10)) {
@@ -456,50 +450,42 @@ export async function getGatewayToolSchemas(tools: string[], storageScope?: EnvS
   return schemas;
 }
 
-export async function executeGatewayTool(action: string, params: Record<string, unknown>, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function executeGatewayTool(action: string, params: Record<string, unknown>, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
+    const toolkit = action.split('_')[0]?.trim().toLowerCase() || 'unknown';
+    const flow = await createComposioOAuthFlowState({ context, toolkitSlug: toolkit });
     return managedRequest<unknown>('/execute', {
       method: 'POST',
-      body: { action, params, returnUrl: `${appBaseUrl()}/settings?tab=integrations&connected=${encodeURIComponent(action.split('_')[0]?.toLowerCase() ?? '')}` },
-    }, storageScope);
+      body: { action, params, returnUrl: flow.callbackUrl },
+    }, context);
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   return composio.tools.execute(action, {
-    userId: await getComposioUserId(storageScope),
+    userId: context.composioUserId,
     arguments: params,
     dangerouslySkipVersionCheck: true,
   });
 }
 
-export async function getGatewayAuthRedirect(toolkit: string, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
-  if (mode === 'managed') {
-    const result = await managedRequest<{ redirectUrl: string | null; noAuth?: boolean }>(`/connect/${encodeURIComponent(toolkit)}`, {
-      method: 'POST',
-      body: { returnUrl: `${appBaseUrl()}/settings?tab=integrations&connected=${encodeURIComponent(toolkit)}` },
-    }, storageScope);
-    return result.redirectUrl || '';
-  }
-  const session = await getComposioSession(storageScope);
-  if (!session) return '';
-  const connectionRequest = await session.authorize(toolkit, { callbackUrl: `${appBaseUrl()}/api/composio/callback` });
-  return connectionRequest.redirectUrl;
+export async function getGatewayAuthRedirect(toolkit: string, context: ResolvedComposioContext) {
+  const result = await connectGatewayToolkit(toolkit, context);
+  return result.redirectUrl || '';
 }
 
-export async function getGatewayTriggerTypes(toolkit: string, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function getGatewayTriggerTypes(toolkit: string, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
     const query = new URLSearchParams();
     if (toolkit) query.set('toolkit', toolkit);
-    return managedRequest<{ triggerTypes: unknown[]; totalCount: number; hasMore?: boolean; nextCursor?: string | null }>('/triggers/types', { query }, storageScope);
+    return managedRequest<{ triggerTypes: unknown[]; totalCount: number; hasMore?: boolean; nextCursor?: string | null }>('/triggers/types', { query }, context);
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   logComposioTrigger('Listing local trigger types', { toolkit });
   const result = await composio.triggers.listTypes({
@@ -515,14 +501,14 @@ export async function getGatewayTriggerTypes(toolkit: string, storageScope?: Env
   };
 }
 
-export async function listGatewayTriggers(storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function listGatewayTriggers(context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
-  if (mode === 'managed') return managedRequest<{ triggers: unknown[] }>('/triggers', {}, storageScope);
+  if (mode === 'managed') return managedRequest<{ triggers: unknown[] }>('/triggers', {}, context);
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  const accounts = await getConnectedAccounts({}, storageScope);
+  const accounts = await getConnectedAccounts({}, context);
   const accountById = new Map(accounts.map((account) => [account.id, account as ComposioConnectedAccount]));
   const connectedAccountIds = Array.from(accountById.keys());
   if (connectedAccountIds.length === 0) {
@@ -548,8 +534,8 @@ const COMPOSIO_WEBHOOK_EVENT_TYPES = [
   'composio.trigger.disabled',
 ];
 
-export async function getLocalWebhookSubscription(storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function getLocalWebhookSubscription(context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode !== 'local') return null;
   const [row] = await db
     .select()
@@ -560,17 +546,17 @@ export async function getLocalWebhookSubscription(storageScope?: EnvStorageScope
   return row ?? null;
 }
 
-export async function ensureLocalWebhookSubscription(options?: { forceRefresh?: boolean; storageScope?: EnvStorageScope | null }) {
-  const mode = await getComposioMode(options?.storageScope);
+export async function ensureLocalWebhookSubscription(options: { forceRefresh?: boolean; context: ResolvedComposioContext }) {
+  const mode = await getComposioMode(options.context.storageScope);
   if (mode !== 'local') throw new Error('Webhook subscriptions are only supported in local Composio mode.');
-  const apiKey = await import('./composio-client').then((m) => m.getLocalComposioApiKey(options?.storageScope));
+  const apiKey = await import('./composio-client').then((m) => m.getLocalComposioApiKey(options.context.storageScope));
   if (!apiKey) throw new Error('Composio API key is required to create a webhook subscription.');
-  const existing = await getLocalWebhookSubscription(options?.storageScope);
+  const existing = await getLocalWebhookSubscription(options.context);
   const currentUrl = `${appBaseUrl()}/api/composio/webhook`;
   if (existing && !options?.forceRefresh) {
     if (existing.webhookUrl !== currentUrl) {
       logComposioTrigger('Webhook URL changed, re-registering subscription', { old: existing.webhookUrl, new: currentUrl });
-      return ensureLocalWebhookSubscription({ forceRefresh: true, storageScope: options?.storageScope });
+      return ensureLocalWebhookSubscription({ forceRefresh: true, context: options.context });
     }
     return existing;
   }
@@ -701,20 +687,20 @@ export async function createGatewayTrigger(input: {
   connectedAccountId?: string;
   triggerConfig?: Record<string, unknown>;
   notebookWebhookUrl?: string | null;
-}, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+}, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
-    await managedRequest('/webhook/subscription', { method: 'POST', body: {} }, storageScope);
+    await managedRequest('/webhook/subscription', { method: 'POST', body: {} }, context);
     return managedRequest<{ trigger: Record<string, unknown> }>('/triggers', {
       method: 'POST',
       body: input,
-    }, storageScope);
+    }, context);
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
-  await ensureLocalWebhookSubscription({ storageScope });
+  await ensureLocalWebhookSubscription({ context });
   logComposioTrigger('Creating local trigger', {
     triggerSlug: input.triggerSlug,
     toolkitSlug: input.toolkitSlug,
@@ -722,7 +708,7 @@ export async function createGatewayTrigger(input: {
     hasTriggerConfig: Boolean(input.triggerConfig && Object.keys(input.triggerConfig).length > 0),
   });
   const triggerType = await composio.triggers.getType(input.triggerSlug);
-  const composioUserId = await getComposioUserId(storageScope);
+  const composioUserId = context.composioUserId;
   const result = await composio.triggers.create(composioUserId, input.triggerSlug, {
     connectedAccountId: input.connectedAccountId,
     triggerConfig: input.triggerConfig || {},
@@ -759,38 +745,39 @@ export async function createGatewayTrigger(input: {
 export async function updateGatewayTrigger(
   triggerId: string,
   input: { status?: 'active' | 'paused'; triggerConfig?: Record<string, unknown>; notebookWebhookUrl?: string | null },
-  storageScope?: EnvStorageScope | null,
+  context: ResolvedComposioContext,
 ) {
-  const mode = await getComposioMode(storageScope);
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
     return managedRequest<{ trigger: Record<string, unknown> }>(`/triggers/${encodeURIComponent(triggerId)}`, {
       method: 'PATCH',
       body: input,
-    }, storageScope);
+    }, context);
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   if (input.status === 'paused') await composio.triggers.disable(triggerId);
   if (input.status === 'active') await composio.triggers.enable(triggerId);
   return { trigger: { triggerId, status: input.status } };
 }
 
-export async function deleteGatewayTrigger(triggerId: string, storageScope?: EnvStorageScope | null) {
-  const mode = await getComposioMode(storageScope);
+export async function deleteGatewayTrigger(triggerId: string, context: ResolvedComposioContext) {
+  const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations or enable managed Composio.');
   if (mode === 'managed') {
-    return managedRequest<{ success: boolean }>(`/triggers/${encodeURIComponent(triggerId)}`, { method: 'DELETE' }, storageScope);
+    return managedRequest<{ success: boolean }>(`/triggers/${encodeURIComponent(triggerId)}`, { method: 'DELETE' }, context);
   }
 
-  const composio = await getComposio(storageScope);
+  const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio is not configured. Add COMPOSIO_API_KEY in Settings → Integrations.');
   await composio.triggers.delete(triggerId);
   return { success: true };
 }
 
-export function clearComposioGatewayCaches(): void {
+export function clearComposioGatewayCaches(context?: ResolvedComposioContext | null): void {
   clearToolkitCache();
   triggerAppCache.clear();
+  resetSessionCache(context);
 }

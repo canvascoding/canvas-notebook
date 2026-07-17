@@ -106,12 +106,14 @@ function pluginCandidate(
 async function resolvePluginReadiness(
   plugins: CanvasPluginInstallRecord[],
   userId: string,
+  workspaceId?: string | null,
 ): Promise<Map<CanvasPluginInstallRecord, boolean>> {
   const entries = await Promise.all(plugins.map(async (plugin) => {
     if (connectionRequirementCount(plugin) === 0) return [plugin, true] as const;
     const readiness = await resolvePluginConnectionReadiness({
       connectors: plugin.connectors,
       userId,
+      workspaceId,
     });
     return [plugin, readiness.ready] as const;
   }));
@@ -278,6 +280,7 @@ export async function loadCapabilityCandidates(
     : await resolvePluginReadiness(
       [...organizationPlugins, ...personalPlugins],
       context.userId,
+      context.workspaceId,
     );
   const candidates: CapabilityCandidate[] = coreSkills.map((skill) => ({
     ref: createCapabilityReference({

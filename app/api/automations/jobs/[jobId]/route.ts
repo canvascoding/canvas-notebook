@@ -7,12 +7,22 @@ import {
 } from '@/app/lib/automations/api';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { deleteAutomationJob, getAutomationJob, updateAutomationJob } from '@/app/lib/automations/store';
+import type { AutomationJobRecord } from '@/app/lib/automations/types';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
 };
+
+function composioResponsibleUserId(job: AutomationJobRecord): string {
+  return job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+}
+
+function cannotManagePrivateComposioConnection(job: AutomationJobRecord, actorUserId: string): boolean {
+  return Boolean(job.composioTriggerId && composioResponsibleUserId(job) !== actorUserId);
+}
 
 export async function GET(request: NextRequest, context: RouteContext) {
   const { session, response } = await requireAutomationSession(request);
@@ -69,7 +79,17 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
       );
     }
     if (existing.composioTriggerId && (payload?.status === 'active' || payload?.status === 'paused')) {
-      await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status }, { userId: session.user.id });
+      if (cannotManagePrivateComposioConnection(existing, session.user.id)) {
+        return NextResponse.json({
+          success: false,
+          error: 'Only the user responsible for this automation can change its private Composio trigger.',
+        }, { status: 409 });
+      }
+      const composioContext = await resolveComposioContext({
+        userId: composioResponsibleUserId(existing),
+        workspaceId: existing.workspaceId,
+      });
+      await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status }, composioContext);
     }
     const updated = await updateAutomationJob(jobId, payload, { actorUserId: session.user.id });
     if (!updated) {
@@ -126,7 +146,17 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
   if (existing.composioTriggerId) {
-    await deleteGatewayTrigger(existing.composioTriggerId, { userId: session.user.id });
+    if (cannotManagePrivateComposioConnection(existing, session.user.id)) {
+      return NextResponse.json({
+        success: false,
+        error: 'Only the user responsible for this automation can delete its private Composio trigger.',
+      }, { status: 409 });
+    }
+    const composioContext = await resolveComposioContext({
+      userId: composioResponsibleUserId(existing),
+      workspaceId: existing.workspaceId,
+    });
+    await deleteGatewayTrigger(existing.composioTriggerId, composioContext);
   }
   const deleted = await deleteAutomationJob(jobId);
   if (!deleted) {

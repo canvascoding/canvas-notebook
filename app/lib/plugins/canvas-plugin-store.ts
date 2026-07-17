@@ -900,6 +900,7 @@ export async function preflightCanvasPluginFromStore(
   version: string | undefined,
   userId: string,
   scope?: CanvasPluginStorageScope | null,
+  workspaceId?: string | null,
 ): Promise<CanvasPluginStorePreflight> {
   if (!isValidCanvasPluginName(pluginName)) {
     throw new Error('Invalid plugin name');
@@ -916,6 +917,7 @@ export async function preflightCanvasPluginFromStore(
   const connectionReadiness = await resolvePluginConnectionReadiness({
     connectors: plugin.connectors,
     userId,
+    workspaceId,
     fresh: true,
   });
   return {

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
 import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
+import { requireComposioRequestContext } from '@/app/lib/composio/composio-request';
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -29,22 +29,20 @@ function toToolkitSummary(value: unknown) {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ toolkits: [], error: 'Unauthorized' }, { status: 401 });
-  }
+  const contextResult = await requireComposioRequestContext(request);
+  if (contextResult.response) return contextResult.response;
 
   try {
-    const storageScope = { userId: session.user.id };
+    const composioContext = contextResult.composioContext;
     const connectedOnly = request.nextUrl.searchParams.get('connectedOnly') === '1';
     const summaryOnly = request.nextUrl.searchParams.get('summary') === '1';
     const includeLogos = request.nextUrl.searchParams.get('includeLogos') === '1';
 
     if (connectedOnly) {
-      const status = await getGatewayStatus(storageScope);
+      const status = await getGatewayStatus(composioContext);
       let toolkitSummaryBySlug = new Map<string, ReturnType<typeof toToolkitSummary>>();
       if (includeLogos) {
-        const result = await getGatewayToolkits(storageScope).catch(() => ({ toolkits: [] }));
+        const result = await getGatewayToolkits(composioContext).catch(() => ({ toolkits: [] }));
         if (Array.isArray(result.toolkits)) {
           toolkitSummaryBySlug = new Map(
             result.toolkits
@@ -70,7 +68,7 @@ export async function GET(request: NextRequest) {
       });
     }
 
-    const result = await getGatewayToolkits(storageScope);
+    const result = await getGatewayToolkits(composioContext);
     if (summaryOnly && Array.isArray(result.toolkits)) {
       return NextResponse.json({
         ...result,

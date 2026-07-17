@@ -1,6 +1,7 @@
 import { type AgentTool } from '@earendil-works/pi-agent-core';
 import { createComposioTools } from '@/app/lib/composio/composio-tools';
 import { isComposioConfigured } from '@/app/lib/composio/composio-client';
+import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 import { assertUserOrganizationAdmin } from '@/app/lib/organization/permissions';
 import { resolveAgentRuntimeSettings } from '@/app/lib/agents/effective-runtime-config';
 import { resolveEnabledToolNames, isLegacyEnabledToolsValue, getDefaultEnabledToolNames } from './enabled-tools';
@@ -214,7 +215,12 @@ export function buildPiToolRegistry(userId?: string, agentId?: string | null, se
   return collapseProgressiveToolGroups([...coreTools, ...userScopedTools, ...agentManagementTools]);
 }
 
-export async function buildPiToolRegistryAsync(userId?: string, agentId?: string | null, sessionId?: string | null): Promise<AgentTool[]> {
+export async function buildPiToolRegistryAsync(
+  userId?: string,
+  agentId?: string | null,
+  sessionId?: string | null,
+  options: { executionContext?: AgentExecutionContext } = {},
+): Promise<AgentTool[]> {
   const userScopedTools = createUserScopedTools(userId, agentId, sessionId);
   const normalizedAgentId = agentId?.trim().toLowerCase() || DEFAULT_MANAGED_AGENT_ID;
   const agentManagementTools = normalizedAgentId === DEFAULT_MANAGED_AGENT_ID
@@ -225,9 +231,18 @@ export async function buildPiToolRegistryAsync(userId?: string, agentId?: string
     ...piTools.filter((tool) => tool.name !== 'mcp' && !overriddenNames.has(tool.name)),
     ...(overriddenNames.has('mcp') ? [] : [createMcpProxyTool(userId)]),
   ];
-  const composioStorageScope = userId ? { userId } : undefined;
+  const composioContext = userId && options.executionContext
+    ? await resolveComposioContext({
+        userId,
+        workspaceId: options.executionContext.workspaceId,
+      }).catch((error) => {
+        console.error('[ToolRegistry] Composio profile context is unavailable:', getErrorMessage(error));
+        return null;
+      })
+    : null;
+  const composioStorageScope = composioContext?.storageScope ?? (userId ? { userId } : undefined);
   const composioConfigured = await isComposioConfigured(composioStorageScope);
-  const composioTools = composioConfigured ? createComposioTools(composioStorageScope) : [];
+  const composioTools = composioConfigured ? createComposioTools(composioContext) : [];
   const directMcpTools = userId
     ? await assertUserOrganizationAdmin(userId, 'Only organization admins can use MCP servers.')
       .then(() => buildDirectMcpTools({ userId }))
@@ -300,7 +315,33 @@ export async function getPiTools(
   sessionId?: string | null,
   options: { executionContext?: AgentExecutionContext } = {},
 ): Promise<AgentTool[]> {
-  let allTools = await buildPiToolRegistryAsync(userId, agentId, sessionId);
+  let resolvedExecutionContext: AgentExecutionContext | undefined;
+  if (userId && sessionId) {
+    try {
+      const ambientContext = getAgentExecutionContext();
+      const suppliedContext = options.executionContext ?? ambientContext;
+      const contextMatches = suppliedContext?.userId === userId
+        && suppliedContext.sessionId === sessionId
+        && (!agentId || suppliedContext.agentId === agentId);
+      if (options.executionContext && !contextMatches) {
+        throw new Error('Supplied tool execution context does not match the requested session.');
+      }
+      resolvedExecutionContext = contextMatches
+        ? suppliedContext
+        : await resolveAgentExecutionContextForSession({
+            userId,
+            sessionId,
+            agentId,
+          });
+    } catch (error) {
+      console.error('[ToolRegistry] Failed to resolve workspace execution context; disabling tools until the next reload:', error);
+      return [];
+    }
+  }
+
+  let allTools = await buildPiToolRegistryAsync(userId, agentId, sessionId, {
+    executionContext: resolvedExecutionContext,
+  });
   const onboardingProfileToolAvailable = await isOnboardingProfileToolAvailable({ userId, agentId, sessionId }).catch(() => false);
 
   try {
@@ -360,30 +401,8 @@ export async function getPiTools(
     }
   }
 
-  if (userId && sessionId) {
-    let executionContext: AgentExecutionContext;
-    try {
-      const ambientContext = getAgentExecutionContext();
-      const suppliedContext = options.executionContext ?? ambientContext;
-      const contextMatches = suppliedContext?.userId === userId
-        && suppliedContext.sessionId === sessionId
-        && (!agentId || suppliedContext.agentId === agentId);
-      if (options.executionContext && !contextMatches) {
-        throw new Error('Supplied tool execution context does not match the requested session.');
-      }
-      executionContext = contextMatches
-        ? suppliedContext
-        : await resolveAgentExecutionContextForSession({
-            userId,
-            sessionId,
-            agentId,
-          });
-    } catch (error) {
-      console.error('[ToolRegistry] Failed to resolve workspace execution context; disabling tools until the next reload:', error);
-      return [];
-    }
-
-    return allTools.map((tool) => wrapToolWithExecutionContext(tool, executionContext));
+  if (resolvedExecutionContext) {
+    return allTools.map((tool) => wrapToolWithExecutionContext(tool, resolvedExecutionContext));
   }
 
   return allTools;

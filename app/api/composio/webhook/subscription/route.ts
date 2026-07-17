@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
 
-import { auth } from '@/app/lib/auth';
 import { getComposioMode } from '@/app/lib/composio/composio-client';
 import { ensureLocalWebhookSubscription, getLocalWebhookSubscription } from '@/app/lib/composio/composio-gateway';
+import { requireComposioRequestContext } from '@/app/lib/composio/composio-request';
 
 function currentWebhookUrl(): string {
   const baseUrl = process.env.BASE_URL || process.env.APP_BASE_URL;
@@ -13,13 +13,11 @@ function currentWebhookUrl(): string {
 }
 
 export async function GET(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ configured: false, mode: 'disabled', reason: 'Unauthorized' }, { status: 401 });
-  }
+  const contextResult = await requireComposioRequestContext(request);
+  if (contextResult.response) return contextResult.response;
 
-  const storageScope = { userId: session.user.id };
-  const mode = await getComposioMode(storageScope);
+  const composioContext = contextResult.composioContext;
+  const mode = await getComposioMode(composioContext.storageScope);
   if (mode !== 'local') {
     return NextResponse.json(
       { configured: false, mode, reason: mode === 'managed' ? 'Webhook subscriptions are managed by the Control Plane.' : 'Composio is not configured.' },
@@ -27,7 +25,7 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const subscription = await getLocalWebhookSubscription(storageScope);
+  const subscription = await getLocalWebhookSubscription(composioContext);
   const expectedUrl = currentWebhookUrl();
   if (!subscription) {
     return NextResponse.json({
@@ -58,13 +56,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  const session = await auth.api.getSession({ headers: request.headers });
-  if (!session) {
-    return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-  }
+  const contextResult = await requireComposioRequestContext(request);
+  if (contextResult.response) return contextResult.response;
 
-  const storageScope = { userId: session.user.id };
-  const mode = await getComposioMode(storageScope);
+  const composioContext = contextResult.composioContext;
+  const mode = await getComposioMode(composioContext.storageScope);
   if (mode !== 'local') {
     return NextResponse.json(
       { error: mode === 'managed' ? 'Webhook subscriptions are managed by the Control Plane.' : 'Composio is not configured.' },
@@ -79,7 +75,7 @@ export async function POST(request: NextRequest) {
   } catch { /* empty body is fine */ }
 
   try {
-    const subscription = await ensureLocalWebhookSubscription({ forceRefresh: rotate, storageScope });
+    const subscription = await ensureLocalWebhookSubscription({ forceRefresh: rotate, context: composioContext });
     return NextResponse.json({
       configured: true,
       webhookUrl: subscription.webhookUrl,

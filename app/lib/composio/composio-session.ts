@@ -1,32 +1,23 @@
 import 'server-only';
 
 import { getComposio, resetComposioInstance } from './composio-client';
-import { getComposioUserId, resetComposioUserIdCache } from './composio-identity';
-import type { EnvStorageScope } from '../integrations/env-config';
+import { composioContextCacheKey, type ResolvedComposioContext } from './composio-context';
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
 const sessionCache = new Map<string, any>();
 
-function storageScopeCacheKey(storageScope?: EnvStorageScope | null): string {
-  const userId = storageScope?.userId?.trim() || '';
-  const organizationId = storageScope?.organizationId?.trim() || '';
-  const secretScope = storageScope?.secretScope || (userId ? 'user' : organizationId ? 'organization' : 'legacy');
-  return `${secretScope}:${userId}:${organizationId}`;
-}
-
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-export async function getComposioSession(storageScope?: EnvStorageScope | null): Promise<any | null> {
-  const composio = await getComposio(storageScope);
+export async function getComposioSession(context: ResolvedComposioContext): Promise<any | null> {
+  const composio = await getComposio(context.storageScope);
   if (!composio) return null;
-  const userId = await getComposioUserId(storageScope);
-  const cacheKey = `${storageScopeCacheKey(storageScope)}:${userId}`;
+  const cacheKey = composioContextCacheKey(context);
 
   if (sessionCache.has(cacheKey)) {
     return sessionCache.get(cacheKey)!;
   }
 
   try {
-    const session = await composio.create(userId);
+    const session = await composio.create(context.composioUserId);
     sessionCache.set(cacheKey, session);
     return session;
   } catch (error) {
@@ -35,10 +26,11 @@ export async function getComposioSession(storageScope?: EnvStorageScope | null):
   }
 }
 
-export function resetSessionCache(): void {
-  sessionCache.clear();
-  resetComposioUserIdCache();
+export function resetSessionCache(context?: ResolvedComposioContext | null): void {
+  if (context) {
+    sessionCache.delete(composioContextCacheKey(context));
+  } else {
+    sessionCache.clear();
+  }
   resetComposioInstance();
 }
-
-export { getComposioUserId };

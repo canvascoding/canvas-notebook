@@ -256,6 +256,22 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (profile_id) REFERENCES composio_connection_profiles(id) ON DELETE RESTRICT
     );
 
+    CREATE TABLE IF NOT EXISTS composio_oauth_flow_states (
+      state_hash TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      composio_user_id TEXT NOT NULL,
+      toolkit_slug TEXT NOT NULL,
+      return_path TEXT NOT NULL,
+      expires_at INTEGER NOT NULL,
+      consumed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (profile_id) REFERENCES composio_connection_profiles(id) ON DELETE CASCADE
+    );
+
     CREATE TABLE IF NOT EXISTS workspace_trash_entries (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT,
@@ -2240,6 +2256,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_composio_profiles_owner_status ON composio_connection_profiles (owner_user_id, status, created_at);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_profiles_owner_default ON composio_connection_profiles (owner_user_id) WHERE is_default = 1 AND status = 'active';
     CREATE INDEX IF NOT EXISTS idx_composio_workspace_overrides_profile ON composio_workspace_profile_overrides (profile_id, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_composio_oauth_states_expiry ON composio_oauth_flow_states (expires_at, consumed_at);
+    CREATE INDEX IF NOT EXISTS idx_composio_oauth_states_user_profile ON composio_oauth_flow_states (user_id, profile_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_workspace_status ON workspace_trash_entries (workspace_id, status, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_expires ON workspace_trash_entries (status, expires_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_org_status ON workspace_trash_entries (organization_id, status, deleted_at);

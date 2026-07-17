@@ -8,7 +8,7 @@ import {
 import type { AutomationDeliveryMode, AutomationDeliverySessionMode } from '@/app/lib/automations/types';
 import { createWebhookAutomationJob } from '@/app/lib/automations/store';
 import { createGatewayTrigger, getGatewayTriggerTypes, listGatewayTriggers } from '@/app/lib/composio/composio-gateway';
-import { getComposioUserId } from '@/app/lib/composio/composio-identity';
+import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -37,19 +37,22 @@ export async function GET(request: NextRequest) {
   const { session, response } = await requireAutomationSession(request);
   if (!session || response) return response;
 
-  const storageScope = { userId: session.user.id };
   const toolkit = request.nextUrl.searchParams.get('toolkit') || '';
   try {
+    const composioContext = await resolveComposioContext({
+      userId: session.user.id,
+      workspaceId: request.nextUrl.searchParams.get('workspaceId'),
+    });
     logTriggerRoute('GET started', { toolkit: toolkit || null });
     if (toolkit) {
-      const result = await getGatewayTriggerTypes(toolkit, storageScope);
+      const result = await getGatewayTriggerTypes(toolkit, composioContext);
       logTriggerRoute('GET trigger types completed', {
         toolkit,
         count: Array.isArray(result.triggerTypes) ? result.triggerTypes.length : 0,
       });
       return NextResponse.json({ success: true, data: result });
     }
-    const result = await listGatewayTriggers(storageScope);
+    const result = await listGatewayTriggers(composioContext);
     logTriggerRoute('GET active triggers completed', {
       count: Array.isArray(result.triggers) ? result.triggers.length : 0,
     });
@@ -67,10 +70,14 @@ export async function POST(request: NextRequest) {
   const { session, response } = await requireAutomationSession(request);
   if (!session || response) return response;
 
-  const storageScope = { userId: session.user.id };
   try {
     const payload = recordValue(await request.json());
     await assertCanCreateRequestedAutomation(payload, session.user);
+    const workspaceId = stringValue(payload.workspaceId) || null;
+    const composioContext = await resolveComposioContext({
+      userId: session.user.id,
+      workspaceId,
+    });
     const name = stringValue(payload.name);
     const prompt = stringValue(payload.prompt);
     const triggerSlug = stringValue(payload.triggerSlug);
@@ -93,7 +100,7 @@ export async function POST(request: NextRequest) {
       connectedAccountId: connectedAccountId || undefined,
       triggerConfig,
       notebookWebhookUrl: stringValue(payload.notebookWebhookUrl) || null,
-    }, storageScope);
+    }, composioContext);
     const trigger = recordValue(created.trigger);
     const triggerId = stringValue(trigger.triggerId) || stringValue(trigger.trigger_id);
     if (!triggerId) {
@@ -118,10 +125,10 @@ export async function POST(request: NextRequest) {
       composioTriggerSlug: stringValue(trigger.triggerSlug) || triggerSlug,
       composioToolkitSlug: stringValue(trigger.toolkitSlug) || toolkitSlug || triggerSlug.split('_')[0]?.toLowerCase() || 'unknown',
       composioConnectedAccountId: stringValue(trigger.connectedAccountId) || connectedAccountId || '',
-      composioUserId: stringValue(trigger.composioUserId) || await getComposioUserId(storageScope),
+      composioUserId: stringValue(trigger.composioUserId) || composioContext.composioUserId,
       webhookTriggerConfig: triggerConfig,
       scope: stringValue(payload.scope) as 'personal' | 'organization' | 'team' || undefined,
-      workspaceId: stringValue(payload.workspaceId) || null,
+      workspaceId,
     }, session.user);
 
     logTriggerRoute('POST completed', { triggerId, jobId: job.id, triggerSlug, toolkitSlug });

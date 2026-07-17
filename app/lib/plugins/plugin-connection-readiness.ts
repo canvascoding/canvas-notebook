@@ -131,13 +131,18 @@ function stringValue(value: unknown): string | undefined {
 async function resolvePluginConnectionReadinessUncached(input: {
   connectors?: CanvasPluginConnectorManifest;
   userId: string;
+  workspaceId?: string | null;
 }): Promise<PluginConnectionReadiness> {
   const items: PluginConnectionReadinessItem[] = [];
   const composio = normalizeComposioConnectors(input.connectors);
   if (composio.length > 0) {
+    const { resolveComposioContext } = await import('@/app/lib/composio/composio-context');
     const { getGatewayStatus, getGatewayToolkits } = await import('@/app/lib/composio/composio-gateway');
-    const scope = { userId: input.userId };
-    const status = await getGatewayStatus(scope).catch(() => ({
+    const composioContext = await resolveComposioContext({
+      userId: input.userId,
+      workspaceId: input.workspaceId,
+    });
+    const status = await getGatewayStatus(composioContext).catch(() => ({
       configured: false,
       apiKeyValid: false,
       connectedAccounts: [],
@@ -149,7 +154,7 @@ async function resolvePluginConnectionReadinessUncached(input: {
     );
     let toolkitBySlug = new Map<string, { name?: string; logo?: string }>();
     if (status.configured && status.apiKeyValid) {
-      const toolkitResult = await getGatewayToolkits(scope).catch(() => ({ toolkits: [] }));
+      const toolkitResult = await getGatewayToolkits(composioContext).catch(() => ({ toolkits: [] }));
       if (Array.isArray(toolkitResult.toolkits)) {
         toolkitBySlug = new Map(toolkitResult.toolkits
           .map((toolkit) => toolkit && typeof toolkit === 'object' ? toolkit as Record<string, unknown> : {})
@@ -258,9 +263,10 @@ async function resolvePluginConnectionReadinessUncached(input: {
 export async function resolvePluginConnectionReadiness(input: {
   connectors?: CanvasPluginConnectorManifest;
   userId: string;
+  workspaceId?: string | null;
   fresh?: boolean;
 }): Promise<PluginConnectionReadiness> {
-  const cacheKey = `${input.userId}\0${JSON.stringify(input.connectors || {})}`;
+  const cacheKey = `${input.userId}\0${input.workspaceId || ''}\0${JSON.stringify(input.connectors || {})}`;
   const now = Date.now();
   const cached = readinessCache.get(cacheKey);
   if (!input.fresh && cached && cached.expiresAt > now) {

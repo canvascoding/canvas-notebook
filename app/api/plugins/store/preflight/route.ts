@@ -5,6 +5,7 @@ import { auth } from '@/app/lib/auth';
 import { resolveCapabilityStorageScope } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { preflightCanvasPluginFromStore } from '@/app/lib/plugins/canvas-plugin-store';
+import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 
 export async function POST(request: Request) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
       typeof body.version === 'string' ? body.version.trim() : undefined,
       session.user.id,
       capabilityScope,
+      request.headers.get(WORKSPACE_ID_HEADER)?.trim() || null,
     );
 
     return NextResponse.json({ success: true, preflight });

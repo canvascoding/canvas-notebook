@@ -254,6 +254,22 @@ export const composioWorkspaceProfileOverrides = sqliteTable("composio_workspace
   profileIdx: index("idx_composio_workspace_overrides_profile").on(table.profileId, table.updatedAt),
 }));
 
+export const composioOauthFlowStates = sqliteTable("composio_oauth_flow_states", {
+  stateHash: text("state_hash").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  profileId: text("profile_id").notNull().references(() => composioConnectionProfiles.id, { onDelete: 'cascade' }),
+  composioUserId: text("composio_user_id").notNull(),
+  toolkitSlug: text("toolkit_slug").notNull(),
+  returnPath: text("return_path").notNull(),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  consumedAt: integer("consumed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  expiryIdx: index("idx_composio_oauth_states_expiry").on(table.expiresAt, table.consumedAt),
+  userProfileIdx: index("idx_composio_oauth_states_user_profile").on(table.userId, table.profileId, table.createdAt),
+}));
+
 export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),

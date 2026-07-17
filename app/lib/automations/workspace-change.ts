@@ -6,6 +6,7 @@ import { resolveExecutableAgentRuntime } from '@/app/lib/agent-runtime-policy/pr
 import { getAgentProfile } from '@/app/lib/agents/registry';
 import { getChannelDeliveryReadiness } from '@/app/lib/channels/availability';
 import { WEB_CHANNEL_ID } from '@/app/lib/channels/constants';
+import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 import { getGatewayStatus } from '@/app/lib/composio/composio-gateway';
 import { findOwnedPiSessionForRuntime, isPiSessionInWorkspace } from '@/app/lib/pi/session-runtime-access';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
@@ -296,7 +297,11 @@ async function prepareAutomationWorkspaceChange(
 
   if (job.composioConnectedAccountId) {
     try {
-      const status = await getGatewayStatus({ userId: responsibleUserId });
+      const composioContext = await resolveComposioContext({
+        userId: responsibleUserId,
+        workspaceId: executionWorkspace.workspaceId,
+      });
+      const status = await getGatewayStatus(composioContext);
       const connected = status.configured
         && status.apiKeyValid
         && status.connectedAccounts.some((account) => account.id === job.composioConnectedAccountId);

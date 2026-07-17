@@ -4,6 +4,7 @@ import { requireAutomationSession } from '@/app/lib/automations/api';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { deleteAutomationJob, getAutomationJobByComposioTriggerId, updateAutomationJob } from '@/app/lib/automations/store';
 import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
+import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 
 function logTriggerRoute(message: string, details?: Record<string, unknown>): void {
   if (details) {
@@ -38,8 +39,18 @@ export async function PATCH(
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
 
-  const storageScope = { userId: session.user.id };
   try {
+    const responsibleUserId = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+    if (responsibleUserId !== session.user.id) {
+      return NextResponse.json({
+        success: false,
+        error: 'Only the responsible user can manage this trigger connection.',
+      }, { status: 403 });
+    }
+    const composioContext = await resolveComposioContext({
+      userId: responsibleUserId,
+      workspaceId: job.workspaceId,
+    });
     const payload = await request.json();
     const status = payload?.status === 'paused' ? 'paused' : payload?.status === 'active' ? 'active' : undefined;
     logTriggerRoute('PATCH started', { triggerId, status: status || null });
@@ -47,7 +58,7 @@ export async function PATCH(
       status,
       triggerConfig: payload?.triggerConfig && typeof payload.triggerConfig === 'object' && !Array.isArray(payload.triggerConfig) ? payload.triggerConfig : undefined,
       notebookWebhookUrl: typeof payload?.notebookWebhookUrl === 'string' ? payload.notebookWebhookUrl : undefined,
-    }, storageScope);
+    }, composioContext);
     const updatedJob = status ? await updateAutomationJob(job.id, { status }, { actorUserId: session.user.id }) : job;
     logTriggerRoute('PATCH completed', { triggerId, jobId: job.id, status: status || null });
     return NextResponse.json({ success: true, data: { trigger: updatedTrigger.trigger, job: updatedJob } });
@@ -78,10 +89,20 @@ export async function DELETE(
     return NextResponse.json({ success: false, error: 'Trigger not found.' }, { status: 404 });
   }
 
-  const storageScope = { userId: session.user.id };
   try {
+    const responsibleUserId = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+    if (responsibleUserId !== session.user.id) {
+      return NextResponse.json({
+        success: false,
+        error: 'Only the responsible user can manage this trigger connection.',
+      }, { status: 403 });
+    }
+    const composioContext = await resolveComposioContext({
+      userId: responsibleUserId,
+      workspaceId: job.workspaceId,
+    });
     logTriggerRoute('DELETE started', { triggerId, jobId: job.id });
-    await deleteGatewayTrigger(triggerId, storageScope);
+    await deleteGatewayTrigger(triggerId, composioContext);
     await deleteAutomationJob(job.id);
     logTriggerRoute('DELETE completed', { triggerId, jobId: job.id });
     return NextResponse.json({ success: true });

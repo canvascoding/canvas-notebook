@@ -8,8 +8,20 @@ const moduleInternals = Module as typeof Module & {
   _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
 };
 const originalLoad = moduleInternals._load;
+const createdComposioSessions: string[] = [];
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
+  if (request === '@composio/core') {
+    return {
+      Composio: class {
+        connectedAccounts = { list: async () => ({ items: [] }) };
+        create = async (userId: string) => {
+          createdComposioSessions.push(userId);
+          return { userId, sessionNumber: createdComposioSessions.length };
+        };
+      },
+    };
+  }
   return originalLoad(request, parent, isMain);
 };
 
@@ -22,6 +34,13 @@ async function main() {
 
   const { openDb, closeDatabaseConnections } = await import('../app/lib/db');
   const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
+  const { getLocalComposioApiKey } = await import('../app/lib/composio/composio-client');
+  const { resolveComposioContext } = await import('../app/lib/composio/composio-context');
+  const {
+    createComposioOAuthFlowState,
+    consumeComposioOAuthFlowState,
+  } = await import('../app/lib/composio/composio-oauth-state');
+  const { getComposioSession } = await import('../app/lib/composio/composio-session');
   const {
     ComposioProfileError,
     archiveComposioProfile,
@@ -88,6 +107,9 @@ async function main() {
   await replaceScopedEnvEntries('integrations', [
     { key: 'COMPOSIO_USER_ID', value: 'legacy-user-a' },
   ], { userId: 'user-a' });
+  await replaceScopedEnvEntries('integrations', [
+    { key: 'COMPOSIO_API_KEY', value: 'one-project-key' },
+  ], { secretScope: 'legacy' });
 
   const defaultA = await ensureDefaultComposioProfile('user-a');
   const defaultAAgain = await ensureDefaultComposioProfile('user-a');
@@ -116,6 +138,40 @@ async function main() {
   });
   assert.equal(teamA.id, companyA.id);
   assert.equal(teamA.source, 'workspace_override');
+
+  const teamContextA = await resolveComposioContext({ userId: 'user-a', workspaceId: 'ws-team' });
+  const personalContextA = await resolveComposioContext({ userId: 'user-a', workspaceId: 'ws-personal-a' });
+  assert.equal(teamContextA.profileId, companyA.id);
+  assert.equal(teamContextA.composioUserId, companyA.composioUserId);
+  assert.equal(personalContextA.profileId, defaultA.id);
+  assert.equal(await getLocalComposioApiKey(teamContextA.storageScope), 'one-project-key');
+
+  const teamSessionA = await getComposioSession(teamContextA) as { userId: string };
+  const teamSessionAAgain = await getComposioSession(teamContextA);
+  const personalSessionA = await getComposioSession(personalContextA) as { userId: string };
+  assert.equal(teamSessionA.userId, companyA.composioUserId);
+  assert.equal(teamSessionAAgain, teamSessionA);
+  assert.equal(personalSessionA.userId, defaultA.composioUserId);
+  assert.deepEqual(createdComposioSessions, [companyA.composioUserId, defaultA.composioUserId]);
+
+  const oauthFlow = await createComposioOAuthFlowState({
+    context: teamContextA,
+    toolkitSlug: 'instagram',
+  });
+  assert.match(oauthFlow.callbackUrl, /\/api\/composio\/callback\?flow=/u);
+  assert.ok(!oauthFlow.callbackUrl.includes(companyA.composioUserId));
+  await assert.rejects(
+    consumeComposioOAuthFlowState({ state: oauthFlow.state, userId: 'user-b' }),
+    (error: unknown) => error instanceof ComposioProfileError && error.code === 'COMPOSIO_OAUTH_STATE_INVALID',
+  );
+  const consumedFlow = await consumeComposioOAuthFlowState({ state: oauthFlow.state, userId: 'user-a' });
+  assert.equal(consumedFlow.profileId, companyA.id);
+  assert.equal(consumedFlow.workspaceId, 'ws-team');
+  assert.equal(consumedFlow.toolkitSlug, 'instagram');
+  await assert.rejects(
+    consumeComposioOAuthFlowState({ state: oauthFlow.state, userId: 'user-a' }),
+    (error: unknown) => error instanceof ComposioProfileError && error.code === 'COMPOSIO_OAUTH_STATE_INVALID',
+  );
 
   const personalA = await resolveEffectiveComposioProfile({ userId: 'user-a', workspaceId: 'ws-personal-a' });
   const teamB = await resolveEffectiveComposioProfile({ userId: 'user-b', workspaceId: 'ws-team' });

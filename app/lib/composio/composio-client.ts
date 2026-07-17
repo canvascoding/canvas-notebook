@@ -3,7 +3,7 @@ import 'server-only';
 import { Composio } from '@composio/core';
 import { readScopedEnvState, type EnvStorageScope } from '../integrations/env-config';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
-import { getComposioUserId } from './composio-identity';
+import type { ResolvedComposioContext } from './composio-context';
 
 const composioInstances = new Map<string, Composio>();
 
@@ -24,15 +24,17 @@ export function isManagedComposioConfigured(): boolean {
 export async function getLocalComposioApiKey(storageScope?: EnvStorageScope | null): Promise<string | null> {
   const managedAvailable = isManagedComposioAvailable();
   try {
-    const state = await readScopedEnvState('integrations', storageScope);
-    const byKey = new Map(state.entries.map((entry) => [entry.key, entry.value]));
-    const envKey = byKey.get('COMPOSIO_API_KEY')?.trim();
-    if (envKey) return envKey;
+    const centralState = await readScopedEnvState('integrations', { secretScope: 'legacy' });
+    const centralKey = centralState.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim();
+    if (centralKey) return centralKey;
 
-    if (!managedAvailable && (storageScope?.userId?.trim() || storageScope?.organizationId?.trim())) {
-      const legacyState = await readScopedEnvState('integrations', { secretScope: 'legacy' });
-      const legacyKey = legacyState.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim();
-      if (legacyKey) return legacyKey;
+    // Transitional fallback for installations that stored the project key in a
+    // user-scoped env file before Composio profiles existed. New UI writes the
+    // single project key to the system/legacy integration store.
+    if (storageScope?.userId?.trim() || storageScope?.organizationId?.trim()) {
+      const scopedState = await readScopedEnvState('integrations', storageScope);
+      const scopedKey = scopedState.entries.find((entry) => entry.key === 'COMPOSIO_API_KEY')?.value.trim();
+      if (scopedKey) return scopedKey;
     }
 
     if (!managedAvailable && process.env.COMPOSIO_API_KEY) return process.env.COMPOSIO_API_KEY.trim() || null;
@@ -63,11 +65,11 @@ export async function getComposio(storageScope?: EnvStorageScope | null): Promis
   return composio;
 }
 
-export async function verifyApiKey(storageScope?: EnvStorageScope | null): Promise<boolean> {
+export async function verifyApiKey(context: ResolvedComposioContext): Promise<boolean> {
   try {
-    const composio = await getComposio(storageScope);
+    const composio = await getComposio(context.storageScope);
     if (!composio) return false;
-    await composio.connectedAccounts.list({ userIds: [await getComposioUserId(storageScope)], limit: 1 });
+    await composio.connectedAccounts.list({ userIds: [context.composioUserId], limit: 1 });
     return true;
   } catch {
     return false;

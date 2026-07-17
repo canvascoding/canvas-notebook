@@ -40,13 +40,18 @@ async function main() {
     { key: 'COMPOSIO_API_KEY', value: 'user-a-key' },
   ], { userId: 'user-a' });
 
+  assert.equal(await getLocalComposioApiKey({ userId: 'user-a' }), 'legacy-key');
+  assert.equal(await getLocalComposioApiKey({ userId: 'user-b' }), 'legacy-key');
+  assert.equal(await getComposioMode({ userId: 'user-b' }), 'local');
+
+  await replaceScopedEnvEntries('integrations', [], { secretScope: 'legacy' });
   assert.equal(await getLocalComposioApiKey({ userId: 'user-a' }), 'user-a-key');
   assert.equal(await getLocalComposioApiKey({ userId: 'user-b' }), null);
   assert.equal(await getComposioMode({ userId: 'user-b' }), 'managed');
 
   process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'false';
-  assert.equal(await getLocalComposioApiKey({ userId: 'user-b' }), 'legacy-key');
-  assert.equal(await getComposioMode({ userId: 'user-b' }), 'local');
+  assert.equal(await getLocalComposioApiKey({ userId: 'user-b' }), null);
+  assert.equal(await getComposioMode({ userId: 'user-b' }), 'disabled');
   process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'true';
 
   const userAComposioId = await getComposioUserId({ userId: 'user-a' });

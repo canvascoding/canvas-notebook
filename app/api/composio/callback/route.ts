@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { clearToolkitCache } from '@/app/lib/composio/composio-toolkit-registry';
-import { resetSessionCache } from '@/app/lib/composio/composio-session';
+import { auth } from '@/app/lib/auth';
+import { consumeComposioOAuthFlowState } from '@/app/lib/composio/composio-oauth-state';
+import { clearComposioGatewayCaches } from '@/app/lib/composio/composio-gateway';
+import { composioContextFromEffectiveProfile } from '@/app/lib/composio/composio-context';
+import { ComposioProfileError, resolveEffectiveComposioProfile } from '@/app/lib/composio/composio-profiles';
 
 function getBaseUrl(): string {
   const baseUrl = process.env.BASE_URL || process.env.APP_BASE_URL;
@@ -13,18 +16,33 @@ function getBaseUrl(): string {
 
 export async function GET(request: NextRequest) {
   try {
+    const session = await auth.api.getSession({ headers: request.headers });
+    if (!session) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
+    }
     const url = new URL(request.url);
-    const connected = url.searchParams.get('connected');
-
-    clearToolkitCache();
-    resetSessionCache();
+    const flowState = await consumeComposioOAuthFlowState({
+      state: url.searchParams.get('flow') || '',
+      userId: session.user.id,
+    });
+    const effective = await resolveEffectiveComposioProfile({
+      userId: session.user.id,
+      workspaceId: flowState.workspaceId,
+    });
+    const context = effective.id === flowState.profileId
+      ? composioContextFromEffectiveProfile(session.user.id, effective)
+      : null;
+    clearComposioGatewayCaches(context);
 
     const baseUrl = getBaseUrl();
-    const redirectUrl = new URL(`/settings?tab=integrations${connected ? `&connected=${connected}` : ''}`, baseUrl);
+    const redirectUrl = new URL(flowState.returnPath, baseUrl);
 
     return NextResponse.redirect(redirectUrl);
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
-    return NextResponse.json({ error: message }, { status: 500 });
+    return NextResponse.json({
+      error: message,
+      code: error instanceof ComposioProfileError ? error.code : 'COMPOSIO_CALLBACK_FAILED',
+    }, { status: error instanceof ComposioProfileError ? error.status : 500 });
   }
 }
