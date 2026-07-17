@@ -225,6 +225,7 @@ function getAllowedRuntimeReadRoots(executionContext: AgentExecutionContext): st
     '/data/user-uploads',
     path.join(getStudioRoot(), 'system'),
     '/data/studio/system',
+    ...(executionContext.skillReadRoots || []),
   ];
 
   if (executionContext.organizationId) {

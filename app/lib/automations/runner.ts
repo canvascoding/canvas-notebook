@@ -31,6 +31,7 @@ import {
   WORKSPACE_FILE_TREE_MAX_PROMPT_BYTES,
 } from '@/app/lib/agents/workspace-file-tree-context';
 import {
+  addEffectiveSkillReadRoots,
   workspaceToAgentExecutionContext,
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
@@ -317,12 +318,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       status: 'running',
       attemptNumber: startedRun.attemptNumber,
     };
-    let executionContext = workspaceToAgentExecutionContext({
+    let executionContext = await addEffectiveSkillReadRoots(workspaceToAgentExecutionContext({
       workspace: automationWorkspace,
       userId: automationUserId,
       sessionId: piSessionId,
       agentId: job.agentId,
-    });
+    }));
 
     await withExclusivePiSessionExecution({
       sessionId: piSessionId,
@@ -335,12 +336,12 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           throw new Error('Automation workspace identity changed while waiting for session execution.');
         }
         automationWorkspace = refreshedWorkspace;
-        executionContext = workspaceToAgentExecutionContext({
+        executionContext = await addEffectiveSkillReadRoots(workspaceToAgentExecutionContext({
           workspace: refreshedWorkspace,
           userId: automationUserId,
           sessionId: piSessionId,
           agentId: job.agentId,
-        });
+        }));
       },
       operation: async (reservation) => {
         try {

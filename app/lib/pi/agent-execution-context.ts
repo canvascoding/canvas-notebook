@@ -17,6 +17,7 @@ export type AgentExecutionContext = {
   projectId: string | null;
   workspaceRoot: string;
   workspaceRootRelativePath: string | null;
+  skillReadRoots?: readonly string[];
   canWrite: boolean;
   canDelete: boolean;
   canShare: boolean;

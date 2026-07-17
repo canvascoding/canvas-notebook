@@ -9,6 +9,7 @@ import { requireAgentAccess } from '@/app/lib/agents/access';
 import { db } from '@/app/lib/db';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { piSessions } from '@/app/lib/db/schema';
+import { resolveEffectiveSkillReadRoots } from '@/app/lib/skills/effective-skill-read-roots';
 import {
   ensureOrganizationBootstrapForUser,
 } from '@/app/lib/organization/bootstrap';
@@ -199,12 +200,35 @@ export function workspaceToAgentExecutionContext(input: {
     projectId: input.workspace.projectId ?? null,
     workspaceRoot: input.workspace.rootPath,
     workspaceRootRelativePath: input.workspace.rootRelativePath ?? null,
+    skillReadRoots: [],
     canWrite: input.workspace.permissions.canWrite,
     canDelete: input.workspace.permissions.canDelete,
     canShare: input.workspace.permissions.canCreatePublicLinks,
     legacy: input.workspace.legacy,
     brandContext: input.workspace.brandContext,
   };
+}
+
+export async function addEffectiveSkillReadRoots(
+  executionContext: AgentExecutionContext,
+): Promise<AgentExecutionContext> {
+  if (!executionContext.organizationId) {
+    return { ...executionContext, skillReadRoots: [] };
+  }
+
+  try {
+    const skillReadRoots = await resolveEffectiveSkillReadRoots({
+      organizationId: executionContext.organizationId,
+      userId: executionContext.userId,
+      workspaceId: executionContext.workspaceId,
+      projectId: executionContext.projectId,
+      agentId: executionContext.agentId,
+    });
+    return { ...executionContext, skillReadRoots };
+  } catch (error) {
+    console.warn('[AgentExecutionContext] Failed to resolve effective skill read roots:', error);
+    return { ...executionContext, skillReadRoots: [] };
+  }
 }
 
 function piSessionWorkspaceFieldsChanged(
@@ -357,10 +381,10 @@ export async function resolveAgentExecutionContextForSession(input: {
     projectId: workspace.projectId,
   });
 
-  return workspaceToAgentExecutionContext({
+  return addEffectiveSkillReadRoots(workspaceToAgentExecutionContext({
     workspace,
     userId: input.userId,
     sessionId: input.sessionId,
     agentId: input.agentId ?? null,
-  });
+  }));
 }

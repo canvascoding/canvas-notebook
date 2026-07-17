@@ -394,6 +394,32 @@ async function main() {
     const repeated = resolveEffectiveCapabilities({ context, candidates, policies, createdAt: new Date(1) });
     assert.equal(snapshot.snapshotId, repeated.snapshotId, 'snapshot identity must not depend on wall-clock time');
 
+    const { getEffectiveSkillReadRoots } = await import('../app/lib/skills/effective-skill-read-roots');
+    const mainAgentSkillRoots = getEffectiveSkillReadRoots({
+      snapshot,
+      agentId: 'canvas-agent',
+    });
+    assert.deepEqual(
+      mainAgentSkillRoots.sort(),
+      ['/org/required', '/system/core'].sort(),
+      'the main agent may read only enabled and available skill packages',
+    );
+    const specializedAgentSkillRoots = getEffectiveSkillReadRoots({
+      snapshot,
+      agentId: 'campaign-agent',
+      relevantSkills: [],
+    });
+    assert.deepEqual(
+      specializedAgentSkillRoots.sort(),
+      ['/org/required', '/system/core'].sort(),
+      'specialized agents retain core and organization-required skill access',
+    );
+    assert.equal(
+      mainAgentSkillRoots.includes('/org/campaign'),
+      false,
+      'skills blocked through their source plugin must never become read roots',
+    );
+
     const defaultEnabledPolicy = {
       ...required,
       id: 'policy-default-enabled',
@@ -427,6 +453,15 @@ async function main() {
     const connectionSkill = personalChoiceSnapshot.capabilities.find((entry) => entry.ref.resourceId === personalConnectionSkillRef.resourceId);
     assert.equal(connectionSkill?.readiness, 'personal-connection-required');
     assert.equal(connectionSkill?.effectiveEnabled, false, 'plugin connection readiness must cascade to its skills');
+    assert.deepEqual(
+      getEffectiveSkillReadRoots({
+        snapshot: personalChoiceSnapshot,
+        agentId: 'campaign-agent',
+        relevantSkills: ['default-enabled-skill'],
+      }),
+      ['/org/default'],
+      'a specialized agent may read an assigned effective skill but not disabled or connection-blocked skills',
+    );
     const userOptionalOverride = {
       ...defaultEnabledPolicy,
       id: 'policy-user-optional',
