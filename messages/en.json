@@ -1043,6 +1043,8 @@
     "sessionLabel": "Session",
     "agentLabel": "Agent",
     "agentSelectTitle": "Select agent",
+    "agentsLoading": "Loading agents",
+    "agentLoadFailed": "Agents could not be refreshed. Showing the previously loaded list.",
     "createAgent": "Create new agent",
     "editAgent": "Edit {name}",
     "agentCreateFailed": "Failed to create agent.",

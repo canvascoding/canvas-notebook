@@ -5,5 +5,8 @@ export async function fetchChatAgents(workspaceId: string): Promise<AgentProfile
   const query = new URLSearchParams({ workspaceId });
   const res = await fetch(`/api/agents?${query.toString()}`, { cache: 'no-store' });
   const data = await safeFetchJson<{ success: boolean; data?: { agents?: AgentProfile[] } }>(res);
-  return data?.success ? data.data?.agents || [] : [];
+  if (!data?.success || !Array.isArray(data.data?.agents)) {
+    throw new Error('Failed to load chat agents.');
+  }
+  return data.data.agents;
 }

@@ -2298,7 +2298,16 @@ contentKind: document
   test('should expose a clickable active agent selector on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
+    let delayAgentRefresh = false;
+    let includeCreatedAgent = false;
+    let releaseAgentRefresh: (() => void) | undefined;
+
     await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
+      if (delayAgentRefresh) {
+        await new Promise<void>((resolve) => {
+          releaseAgentRefresh = resolve;
+        });
+      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -2307,7 +2316,9 @@ contentKind: document
           data: {
             agents: [
               { agentId: 'canvas-agent', name: 'Canvas Agent', iconId: 'bot', type: 'main', removable: false },
-              { agentId: 'research-agent', name: 'Research Agent', iconId: 'search', type: 'special', removable: true },
+              ...(includeCreatedAgent
+                ? [{ agentId: 'research-agent', name: 'Research Agent', iconId: 'search', type: 'special', removable: true }]
+                : []),
             ],
           },
         }),
@@ -2347,9 +2358,15 @@ contentKind: document
     await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /Canvas Agent/);
     await expect(page.getByTestId('chat-mobile-details-toggle')).toHaveCount(0);
 
+    delayAgentRefresh = true;
     await page.getByTestId('chat-agent-id').click();
     await expect(page.getByTestId('chat-agent-selector-popover')).toBeVisible();
     await expect(page.getByTestId('chat-agent-selector-popover')).toHaveCSS('z-index', '110');
+    await expect(page.getByTestId('chat-agent-selector-skeleton')).toBeVisible();
+    includeCreatedAgent = true;
+    delayAgentRefresh = false;
+    releaseAgentRefresh?.();
+    await expect(page.getByTestId('chat-agent-selector-skeleton')).toHaveCount(0);
     await page.getByRole('button', { name: /Research Agent\s+research-agent/i }).click();
 
     await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /Research Agent/);

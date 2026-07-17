@@ -1042,6 +1042,8 @@
     "sessionLabel": "Session",
     "agentLabel": "Agent",
     "agentSelectTitle": "Agent auswählen",
+    "agentsLoading": "Agenten werden geladen",
+    "agentLoadFailed": "Agenten konnten nicht aktualisiert werden. Die zuvor geladene Liste wird weiterhin angezeigt.",
     "createAgent": "Neuen Agenten anlegen",
     "editAgent": "{name} bearbeiten",
     "agentCreateFailed": "Agent konnte nicht erstellt werden.",

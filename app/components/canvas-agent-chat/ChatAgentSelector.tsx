@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useRef, useState } from 'react';
 import { CheckCircle2, ChevronDown, Pencil, Plus } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -10,6 +10,7 @@ import { authClient } from '@/app/lib/auth-client';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { CreateAgentDialog, type CreateAgentInput, type CreatedAgent } from '@/app/components/settings/CreateAgentDialog';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { Skeleton } from '@/components/ui/skeleton';
 import { cn } from '@/lib/utils';
 
 export function ChatAgentSelector({
@@ -44,8 +45,37 @@ export function ChatAgentSelector({
   const [createError, setCreateError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [editTarget, setEditTarget] = useState<AgentProfile | null>(null);
+  const [agentsLoading, setAgentsLoading] = useState(false);
+  const [agentsLoadError, setAgentsLoadError] = useState<string | null>(null);
+  const agentsLoadSequenceRef = useRef(0);
   const { data: session } = authClient.useSession();
   const canManageAgentDefaults = session?.user?.role === 'admin';
+
+  const reloadAgents = useCallback(async () => {
+    if (!onReloadAgents) return;
+    const requestSequence = ++agentsLoadSequenceRef.current;
+    setAgentsLoading(true);
+    setAgentsLoadError(null);
+    try {
+      await onReloadAgents();
+    } catch (error) {
+      console.error('Failed to reload chat agents', error);
+      if (requestSequence === agentsLoadSequenceRef.current) {
+        setAgentsLoadError(t('agentLoadFailed'));
+      }
+    } finally {
+      if (requestSequence === agentsLoadSequenceRef.current) {
+        setAgentsLoading(false);
+      }
+    }
+  }, [onReloadAgents, t]);
+
+  const handlePopoverOpenChange = useCallback((open: boolean) => {
+    setPopoverOpen(open);
+    if (open) {
+      void reloadAgents();
+    }
+  }, [reloadAgents]);
 
   const createAgent = useCallback(async (input: CreateAgentInput): Promise<CreatedAgent | null> => {
     setCreating(true);
@@ -92,7 +122,7 @@ export function ChatAgentSelector({
 
   return (
     <>
-    <Popover open={popoverOpen} onOpenChange={setPopoverOpen}>
+    <Popover open={popoverOpen} onOpenChange={handlePopoverOpenChange}>
       <PopoverTrigger asChild>
         <button
           type="button"
@@ -155,7 +185,25 @@ export function ChatAgentSelector({
             <Plus className="h-4 w-4" />
           </button>
         </div>
-        {agents.map((agent) => {
+        {agentsLoading ? (
+          <div
+            role="status"
+            aria-label={t('agentsLoading')}
+            aria-live="polite"
+            data-testid="chat-agent-selector-skeleton"
+            className="space-y-1 px-1 pb-1"
+          >
+            {[0, 1, 2].map((index) => (
+              <div key={index} className="flex items-center gap-2 rounded-md px-1 py-2">
+                <Skeleton className="h-9 w-9 shrink-0 rounded-full" />
+                <div className="min-w-0 flex-1 space-y-1.5">
+                  <Skeleton className={cn('h-3.5', index === 1 ? 'w-2/3' : 'w-1/2')} />
+                  <Skeleton className={cn('h-2.5', index === 2 ? 'w-1/2' : 'w-3/4')} />
+                </div>
+              </div>
+            ))}
+          </div>
+        ) : agents.map((agent) => {
           const selected = agent.agentId === activeAgentId;
           return (
             <div key={agent.agentId} className="group flex min-w-0 items-center gap-1">
@@ -193,6 +241,11 @@ export function ChatAgentSelector({
             </div>
           );
         })}
+        {!agentsLoading && agentsLoadError ? (
+          <p role="alert" className="px-2 pb-2 pt-1 text-xs text-destructive">
+            {agentsLoadError}
+          </p>
+        ) : null}
       </PopoverContent>
     </Popover>
     <CreateAgentDialog
