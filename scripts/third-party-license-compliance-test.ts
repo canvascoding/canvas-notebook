@@ -574,6 +574,16 @@ for (const name of ['github-from-package', 'webworkify']) {
   assert.equal(component.reviewedBy, 'Frank Alexander Weber');
 }
 
+const terser = inventory.components.find((component) => (
+  component.name === 'terser' && component.versionOrCommit === '5.49.0'
+));
+assert(terser, 'terser@5.49.0 must be inventoried from the synchronized lockfile');
+assert.deepEqual(
+  terser.copyrightNotices,
+  ['Copyright 2012-2018 (c) Mihai Bazon <mihai.bazon@gmail.com>'],
+  'Terser README instructions about preserving copyright comments are not attributions',
+);
+
 for (const component of inventory.components) {
   assert(component.name);
   assert(component.versionOrCommit);

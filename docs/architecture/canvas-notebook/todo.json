@@ -1393,10 +1393,10 @@
       "engineeringImplementation": "implemented_pending_first_remote_multiarch_evidence",
       "commercialReleaseGate": "static_gate_approved_remote_artifact_gate_required",
       "inventory": {
-        "totalComponents": 1991,
-        "runtimeComponents": 1433,
-        "developmentOnlyComponents": 558,
-        "allowed": 1941,
+        "totalComponents": 2054,
+        "runtimeComponents": 1492,
+        "developmentOnlyComponents": 562,
+        "allowed": 2004,
         "reviewRequired": 50,
         "blocked": 0,
         "releaseBlockers": 0
@@ -1455,7 +1455,7 @@
           "Host und Docker-Image enthalten byte-identische Third-Party Notices und Komponentenmanifest",
           "Playwright-E2E Desktop und Mobile gegen den neu gebauten Container fuer Settings -> Rechtliches und alle drei Legal-API-Endpunkte",
       "Anonymer Zugriff auf /api/legal/third-party bleibt mit HTTP 401 gesperrt",
-      "npm run test:licenses mit 1991 Komponenten und null Release-Blockern",
+      "npm run test:licenses mit 2054 Komponenten und null Release-Blockern",
       "YAML-, Node-Syntax- und statische Docker-/Workflow-/Policy-/Python-Hashlock-Pruefungen ohne lokalen Docker-Build",
       "Alle zehn PGDG-Binaer-/Source-Artefakte direkt von apt.postgresql.org heruntergeladen und gegen die Policy-SHA-256-Werte verifiziert",
       "pip --dry-run fuer CPython 3.11 mit manylinux_2_28 plus manylinux2014 auf amd64 und arm64; exakt 45 Pakete und alle Wheel-Hashes akzeptiert",

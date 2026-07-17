@@ -38,10 +38,10 @@ Die technische Umsetzung ist vorhanden und reproduzierbar. Der am 17. Juli
 
 | Kennzahl | Stand |
 | --- | ---: |
-| Komponenten gesamt | 1.991 |
-| ausgelieferter Runtime-/Asset-Bestand | 1.433 |
-| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 558 |
-| automatisch beziehungsweise dokumentiert `allowed` | 1.941 |
+| Komponenten gesamt | 2.054 |
+| ausgelieferter Runtime-/Asset-Bestand | 1.492 |
+| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 562 |
+| automatisch beziehungsweise dokumentiert `allowed` | 2.004 |
 | `review_required` im Gesamtbestand | 50, alle nicht ausgeliefert |
 | pauschal `blocked` | 0 |
 | Blocker im statischen kommerziellen Release-Gate | 0 |
@@ -69,13 +69,21 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
   Upstream-Archiv als austauschbare Shared Library, baut sharp 0.34.5 und
   0.35.3 dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
 
-`npm run test:licenses:release` ist damit statisch gruen. Ein Docker-Release
+`npm run test:licenses:release` ist damit statisch gruen. `npm run
+verify:release` prueft ausserdem vor Lint und Produktions-Build mit einem
+skriptfreien `npm ci --dry-run`, dass `package.json` und Lockfile auch in einer
+frischen CI-Umgebung vollstaendig synchron sind. Ein Docker-Release
 darf trotzdem erst publiziert werden, wenn der Tag-Workflow die finalen
 linux/amd64- und linux/arm64-Images erfolgreich gebaut, ihre Inventare und
 Sharp-Verlinkung einzeln geprueft und den Multi-Arch-Abgleich vor dem Manifest
 bestanden hat. Diese kandidatenbezogenen Evidenzen werden als
 `canvas-native-compliance-<version>.tar.gz` archiviert. In diesem lokalen Lauf
 wurde entsprechend der Owner-Vorgabe kein Docker-Container gebaut.
+
+Die Copyright-Extraktion verwirft dabei auch README-Anleitungen zum Erhalten,
+Platzieren oder Filtern von Copyright-Kommentaren. Solche Bedienhinweise gelten
+nicht als Rechteinhaber; fuer `terser@5.49.0` ist dies durch einen exakten
+Regressionstest gegen den tatsaechlichen Urheberhinweis abgesichert.
 
 ## Verbindliche Quellen
 

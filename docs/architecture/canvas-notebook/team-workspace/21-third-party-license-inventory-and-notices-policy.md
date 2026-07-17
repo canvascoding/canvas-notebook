@@ -4,9 +4,9 @@ Stand: 2026-07-17
 
 ## Task-51-Abschlussstand
 
-Der statische kommerzielle Release-Gate-Bestand umfasst 1.991 Komponenten:
-1.433 werden ausgeliefert, 558 sind Development-/Source-Install-Positionen,
-1.941 sind `allowed`, 50 ausschliesslich nicht ausgelieferte Positionen sind
+Der statische kommerzielle Release-Gate-Bestand umfasst 2.054 Komponenten:
+1.492 werden ausgeliefert, 562 sind Development-/Source-Install-Positionen,
+2.004 sind `allowed`, 50 ausschliesslich nicht ausgelieferte Positionen sind
 weiter `review_required`, und es gibt null Release-Blocker.
 
 Die frueheren 29 Blocker wurden nicht pauschal freigegeben, sondern technisch
@@ -48,7 +48,9 @@ umgesetzt und liegt reproduzierbar im Repository:
 - Die Copyright-Extraktion trennt echte Attributionen von Lizenzboilerplate.
   Saetze ueber `copyright holder`, Haftungsausschluesse oder abstrakte
   Copyright-Pflichten sowie das Wort `COPYRIGHT` in einer reinen URL werden
-  nicht mehr faelschlich als Rechteinhaber in den Notices ausgegeben.
+  nicht mehr faelschlich als Rechteinhaber in den Notices ausgegeben. Das gilt
+  ebenfalls fuer README-Anleitungen zum Erhalten, Platzieren oder Filtern von
+  Copyright-Kommentaren; `terser@5.49.0` deckt diesen Fall als Regression ab.
 - `scripts/third-party-license-compliance-test.ts` prueft Drift, MIT-Text und
   Copyright-Zuordnung, Excalidraw inklusive der selbst gehosteten Fonts sowie
   das Entfernen ungenutzter lizenzpflichtiger Pakete.
@@ -66,9 +68,10 @@ umgesetzt und liegt reproduzierbar im Repository:
   installierten Debian- und Python-Versionen sowie die Hashes ihrer
   Lizenz-/Copyright-Belege zur Build-Zeit.
 - `npm run build` startet ueber `prebuild` immer den nicht-strikten
-  Drift-/Notice-Check. `npm run verify:release` fuehrt vor einem Release
-  zusaetzlich das strikte kommerzielle Gate, ESLint und den vollstaendigen
-  Produktions-Build aus.
+  Drift-/Notice-Check. `npm run verify:release` prueft vor einem Release zuerst
+  per skriptfreiem `npm ci --dry-run` die vollstaendige Lockfile-Synchronitaet
+  und fuehrt danach das strikte kommerzielle Gate, ESLint und den
+  vollstaendigen Produktions-Build aus.
 - Der GitHub-Release-Workflow und der lokale Release-Publisher-Ablauf verwenden
   `npm run verify:release` vor Paketierung, Tag und Veroeffentlichung.
 

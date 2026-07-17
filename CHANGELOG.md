@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.17.1] - 2026-07-17
+## [2026.7.17.2] - 2026-07-17
 
 ### Added
 
@@ -28,6 +28,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 ### Fixed
 
 - Fixed workspace upload retries and finalization, repeated bulk folder moves, knowledge-graph document search, Markdown editor state alignment, and Marp export memory handling.
+- Synchronized all transitive peer and optional dependencies in `package-lock.json` and added a clean-install dry-run to the permanent release gate.
 
 ### Verification
 
