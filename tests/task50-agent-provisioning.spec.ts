@@ -296,7 +296,7 @@ test.describe('Task 50 agent provisioning and management', () => {
       const toolId = toolsCard.getByText(toolName, { exact: true });
       await expect(toolId).toBeVisible();
       const toolRow = toolId.locator('xpath=../../..');
-      await expect(toolRow.getByRole('switch')).not.toBeChecked();
+      await expect(toolRow.getByRole('switch')).toBeChecked();
       await expect(toolRow.getByText('Agents', { exact: true })).toBeVisible();
     }
     await expect(toolsCard.getByText('create_agent', { exact: true }).locator('xpath=../../..').getByText('On demand', { exact: true })).toBeVisible();

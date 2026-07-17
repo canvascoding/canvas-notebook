@@ -29,8 +29,9 @@ async function main() {
   const { createInitialOwner } = await import('../app/lib/auth-setup');
   const { createAgentManagementTools, AGENT_MANAGEMENT_OPERATION_NAMES } = await import('../app/lib/pi/agent-management-tools');
   const { collapseProgressiveToolGroups, getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
-  const { DISABLED_BY_DEFAULT_TOOL_NAMES } = await import('../app/lib/pi/enabled-tools');
+  const { DISABLED_BY_DEFAULT_TOOL_NAMES, getDefaultEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
   const { PLANNING_MODE_ALLOWED_TOOLS } = await import('../app/lib/pi/planning-mode');
+  const { getPiTools } = await import('../app/lib/pi/tool-registry');
   const { getPiToolsetsForTool } = await import('../app/lib/pi/toolsets');
 
   const owner = await createInitialOwner({
@@ -49,8 +50,17 @@ async function main() {
   assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('inspect_agent'), true);
   assert.equal(PLANNING_MODE_ALLOWED_TOOLS.has('create_agent'), false);
   assert.deepEqual(getPiToolsetsForTool('create_agent'), ['agents']);
-  for (const name of ['list_agents', 'inspect_agent', ...AGENT_MANAGEMENT_OPERATION_NAMES]) {
-    assert.equal(DISABLED_BY_DEFAULT_TOOL_NAMES.has(name), true, `${name} must be disabled by default`);
+  const agentToolNames = ['list_agents', 'inspect_agent', ...AGENT_MANAGEMENT_OPERATION_NAMES];
+  const defaultEnabledToolNames = getDefaultEnabledToolNames(agentToolNames);
+  for (const name of agentToolNames) {
+    assert.equal(DISABLED_BY_DEFAULT_TOOL_NAMES.has(name), false, `${name} must not be disabled by default`);
+    assert.equal(defaultEnabledToolNames.has(name), true, `${name} must be enabled by default`);
+  }
+  const defaultRuntimeToolNames = getProgressiveGatewayCapabilityNames(
+    await getPiTools(owner.id, 'canvas-agent'),
+  );
+  for (const name of agentToolNames) {
+    assert.equal(defaultRuntimeToolNames.includes(name), true, `${name} must be available in the default Canvas Agent runtime`);
   }
 
   const collapsed = collapseProgressiveToolGroups(tools);

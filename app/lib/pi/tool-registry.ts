@@ -121,7 +121,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   }
   if (group === 'Agents') {
     notes.push('Creates and changes personal or organization agents through the same permission, revision, policy, storage, confirmation, and audit actions as the UI/API.');
-    notes.push('Disabled by default and available only to the Canvas Agent. Agent creation or mutation requires an explicit user request.');
+    notes.push('Enabled by default and available only to the Canvas Agent. Agent creation or mutation requires an explicit user request.');
   }
   if (group === 'Audio') {
     notes.push('Reads local audio files and may call external transcription services.');
