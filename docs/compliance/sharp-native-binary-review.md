@@ -2,7 +2,50 @@
 
 Stand: 2026-07-17
 
-## Entscheidung
+## Abschlussupdate: Ausschluss der vorgebauten Archive
+
+Die 28 unvollstaendig belegten `@img/sharp-libvips-*`,
+`@img/sharp-win32-*` und `@img/sharp-wasm32` bleiben im Gesamtinventar
+sichtbar und `review_required`. Sie blockieren Canvas-Releases aber nicht
+mehr, weil sie nicht mehr von Canvas ausgeliefert werden:
+
+- Alle 50 optionalen `@img/sharp-*`-Lockfile-Positionen sind als
+  `source-development-install` klassifiziert. Ein Lockfile-Verweis ist kein
+  von Canvas gebuendeltes Binaerartefakt; ein Source-Nutzer laedt optionale
+  Pakete unmittelbar von npm.
+- Der Docker-Build entfernt nach `npm ci` und erneut nach dem
+  Production-Prune jedes installierte `@img/sharp-*`-Verzeichnis.
+- Das Runtime-Inventar muss deshalb fuer beide Linux-Plattformen eine leere
+  Liste `installedSharpPrebuiltPackages` liefern.
+
+Canvas baut stattdessen libvips 8.18.3 als Shared Library aus dem offiziellen
+Release-Archiv
+`https://github.com/libvips/libvips/releases/download/v8.18.3/vips-8.18.3.tar.xz`
+mit SHA-256
+`f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146`.
+Das Archiv bleibt unveraendert, wird im Image unter
+`/usr/share/canvas-notebook/corresponding-source/` mitgeliefert und zusammen
+mit LGPL-2.1-or-later, Dockerfile und Austauschanleitung in das native
+Release-Evidenzarchiv aufgenommen.
+
+Sharp 0.35.3 und die von Next.js verwendete Version 0.34.5 werden beide lokal
+gegen `/usr/local/lib/libvips*.so*` gebaut. Je Plattform muss CI:
+
+1. beide lokalen `.node`-Addons samt Hash inventarisieren,
+2. per `ldd` die dynamische Aufloesung nach `/usr/local/lib` belegen,
+3. mit beiden Sharp-Versionen ein echtes SVG als PNG konvertieren,
+4. Abwesenheit aller vorgebauten `@img/sharp-*`-Pakete nachweisen,
+5. den libvips-Source-Hash und alle Evidenzen vor dem Multi-Arch-Manifest
+   zwischen amd64 und arm64 vergleichen.
+
+Der Austauschweg, `ldconfig`-Schritt und die betriebliche Upgrade-Folge stehen
+in `sharp-libvips-relinking.md`. Canvas verbietet fuer diesen LGPL-Anteil
+keine zur Modifikation oder zum Debugging erforderliche Reverse-Engineering-
+Handlung. Die technische Aufloesung gilt nur fuer die Docker-Lieferung;
+zukuenftige Electron-/Windows-/WASM-Artefakte duerfen die vorgebauten Archive
+nicht ohne eine neue, artefaktbezogene Pruefung aufnehmen.
+
+## Historische Entscheidung zu den Upstream-Binaerarchiven
 
 Die 28 plattform- und versionsspezifischen `sharp`-/`libvips`-Positionen
 bleiben `review_required` und blockieren ein kommerzielles Release. Sie sind

@@ -2,6 +2,33 @@
 
 Stand: 2026-07-17
 
+## Task-51-Abschlussstand
+
+Der statische kommerzielle Release-Gate-Bestand umfasst 1.991 Komponenten:
+1.433 werden ausgeliefert, 558 sind Development-/Source-Install-Positionen,
+1.941 sind `allowed`, 50 ausschliesslich nicht ausgelieferte Positionen sind
+weiter `review_required`, und es gibt null Release-Blocker.
+
+Die frueheren 29 Blocker wurden nicht pauschal freigegeben, sondern technisch
+aufgeloest:
+
+- `node-docker-base` ist nur fuer den digest-, snapshot-, versions- und
+  hashgebundenen Lieferweg mit Schema-4-Multi-Arch-Evidenz `allowed`.
+- Vorher gebuendelte `@img/sharp-*`-Binaries werden aus Docker-Releases
+  entfernt. Die problematischen Lockfile-Positionen bleiben sichtbar.
+- libvips 8.18.3 wird unveraendert aus dem exakt gehashten Source-Archiv als
+  Shared Library gebaut; Sharp 0.34.5 und 0.35.3 werden lokal dagegen gebaut.
+- LGPL-2.1-or-later, Quellarchiv, Buildrezept, Austauschanleitung, per-Arch-
+  Inventare und Linkage-/Convert-Belege werden ausgeliefert.
+- Der Release-Workflow erzeugt das Multi-Arch-Manifest erst nach
+  erfolgreichem amd64-/arm64-Abgleich und archiviert die native Evidenz.
+
+Ein lokaler Docker-Build wurde fuer diesen Stand auf ausdrueckliche
+Owner-Vorgabe nicht ausgefuehrt. Deshalb ist die Implementierung statisch
+releasefaehig, waehrend die erste konkrete kandidatenbezogene Image-Evidenz
+erst durch den naechsten Tag-Workflow entsteht. Ein fehlgeschlagener
+Plattformbuild blockiert Manifest und Release.
+
 ## Umsetzungsstand
 
 Die technische Inventar- und Release-Gate-Implementierung ist am 16. Juli 2026
@@ -45,12 +72,11 @@ umgesetzt und liegt reproduzierbar im Repository:
 - Der GitHub-Release-Workflow und der lokale Release-Publisher-Ablauf verwenden
   `npm run verify:release` vor Paketierung, Tag und Veroeffentlichung.
 
-Der aktuelle technische Scan umfasst 1.990 Komponenten: 1.482 werden als
-ausgelieferter Runtime-/Asset-Bestand und 508 als `development-only`
-klassifiziert. Das kommerzielle Release-Gate bleibt mit 29 Eintraegen
-absichtlich gesperrt. Im Gesamtinventar sind 1.939 Komponenten `allowed`, 51
-`review_required` und keine pauschal `blocked`; Development-only-Eintraege
-zaehlen nicht als Release-Blocker.
+Der vorherige technische Scan mit 1.990 Komponenten und 29 Blockern ist durch
+den oben dokumentierten Task-51-Abschlussstand ersetzt. Die nachfolgenden
+Einzelbefunde bleiben als Audit-Historie erhalten; wo sie eine aktuelle
+Blockierung der Docker-/Sharp-Auslieferung behaupten, beschreibt dies den
+Schema-3-Ausgangsbefund vor der Source-/Shared-Library-Umstellung.
 
 Die verantwortliche Erstfreigabe wurde am 17. Juli 2026 durch Frank Alexander
 Weber dokumentiert. Zehn npm-Pakete und drei Pakete des global installierten
@@ -58,6 +84,12 @@ npm sind fuer ihre exakten Versionen unter transparentem
 Attributionsrestrisiko freigegeben. Die Entscheidung, Reviewer, bestverfuegbare
 Attribution und Upgrade-Ausloeser stehen in
 `docs/compliance/third-party-release-approval-2026.7.17.1.md`.
+
+### Historischer Vorfreigabebefund (ersetzt)
+
+Die folgenden Einzelbewertungen erklaeren, warum die Positionen vor der
+verantwortlichen Freigabe beziehungsweise vor dem neuen Native-Liefermodell
+blockierten. Sie sind keine Aussage ueber den aktuellen Release-Gate-Status.
 
 Die 29 verbleibenden Release-Pruefpositionen gliedern sich in:
 
@@ -212,9 +244,10 @@ Einzelfallentscheidung `allowed`. Ihre fehlenden Upstream-Belege bleiben als
 Restrisiko sichtbar; Canonical Terms, bestverfuegbare Attribution, Reviewer
 und Datum werden ausgeliefert. Jede neue Version muss erneut geprueft werden.
 
-Alle offenen Punkte stehen einzeln in
-`docs/compliance/third-party-components.json`; sie werden nicht durch eine
-pauschale KI-Freigabe als erledigt markiert.
+Alle weiterhin `review_required` klassifizierten, aber nicht ausgelieferten
+Positionen stehen einzeln in `docs/compliance/third-party-components.json`;
+sie wurden nicht durch eine pauschale KI-Freigabe als rechtlich geklaert
+markiert.
 
 Die technische Verifikation am 16. Juli 2026 umfasst:
 

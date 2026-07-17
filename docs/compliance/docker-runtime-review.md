@@ -2,7 +2,54 @@
 
 Stand: 2026-07-17
 
-## Entscheidung
+## Abschlussupdate fuer Schema 4
+
+Der zuvor blockierende Sammelposten `node-docker-base` ist fuer den exakt
+definierten Lieferweg `allowed`. Das ist keine pauschale Lizenzierung aller
+Containerinhalte, sondern eine kontrollierte Aggregate-Entscheidung des
+verantwortlichen Owners mit weiterhin komponentengenauen Belegen.
+
+Die neue Definition bindet den Lieferumfang an:
+
+- `node:24-bookworm-slim` unter dem unveraenderlichen Multi-Arch-Digest
+  `sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d`,
+- Debian Bookworm und Security unter Snapshot `20260716T000000Z`, jeweils mit
+  `deb` und `deb-src`,
+- PostgreSQL 18.4 und `postgresql-client-common` 293 aus PGDG mit exakten
+  amd64-/arm64-Binary-Hashes und den exakten `.dsc`-/Source-Archiv-Hashes,
+- 45 pip-Pakete mit einer gemeinsamen, versions- und wheel-gehashten
+  Python-3.11-Lockdatei fuer linux/amd64 und linux/arm64,
+- ein Schema-4-Runtime-Inventar mit Dockerfile-/Policy-/Lock-Hash, Node,
+  libvips, dpkg-Binary-zu-Source-Zuordnung, Python, globalem npm und den lokal
+  gebauten Sharp-Addons.
+
+Der Tag-Workflow prueft die finalen Plattformimages getrennt und danach
+gemeinsam. Das Multi-Arch-Manifest wird erst erzeugt, wenn beide Inventare,
+Notices, Hauptinventare, libvips-Quellarchive und Sharp-Linkage-Evidenzen
+erfolgreich verglichen wurden. Die Evidenzen werden als
+`canvas-native-compliance-<version>.tar.gz` aufbewahrt. Exakte Parameter und
+Hashes stehen in `docker-native-distribution-policy.json`.
+
+Der lokale Arbeitslauf vom 17. Juli 2026 hat absichtlich keinen Container
+gebaut. Bis ein konkreter Release-Tag den Remote-Matrixlauf bestanden hat,
+liegt daher eine implementierte und statisch gepruefte Releasebedingung, aber
+noch kein neuer kandidatenbezogener Image-Digest vor.
+
+Ohne Containerbau wurden alle in der Policy referenzierten PGDG-Binaer- und
+Source-URLs erneut heruntergeladen und gegen ihre zehn hinterlegten SHA-256-
+Werte geprueft. Die Python-Lockdatei wurde mit pip-Dry-Runs fuer CPython 3.11
+gegen die kompatiblen `manylinux_2_28`-/`manylinux2014`-Tags auf amd64 und
+arm64 aufgeloest; beide Plattformen waehlen exakt denselben 45-Paket-Bestand
+und akzeptieren die hinterlegten Wheel-Hashes.
+
+Bei jeder Aenderung an Basisdigest, Snapshot, apt-/PGDG-Paketen, Python-Lock,
+Dockerfile oder Plattformmatrix erlischt diese konkrete technische Zuordnung
+und muss durch neue Artefakte ersetzt werden. Die unter
+`/usr/share/doc/*/copyright` enthaltenen komponentenspezifischen Bedingungen
+bleiben vorrangig; Source-Paket und Version werden im Release-Inventar exakt
+auf den Debian-Snapshot beziehungsweise die gehashten PGDG-Quellen abgebildet.
+
+## Historischer Schema-3-Ausgangsbefund
 
 Der Docker-Lieferumfang ist technisch inventarisiert, aber noch nicht fuer
 ein kommerzielles Release freigegeben. Der Sammelposten `node-docker-base`

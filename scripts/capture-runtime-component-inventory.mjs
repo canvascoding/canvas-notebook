@@ -13,6 +13,16 @@ const baseImageArgumentIndex = process.argv.indexOf('--base-image');
 const baseImage = baseImageArgumentIndex >= 0
   ? process.argv[baseImageArgumentIndex + 1]
   : 'unresolved';
+const debianSnapshotArgumentIndex = process.argv.indexOf('--debian-snapshot');
+const debianSnapshot = debianSnapshotArgumentIndex >= 0
+  ? process.argv[debianSnapshotArgumentIndex + 1]
+  : 'unresolved';
+const appRoot = process.env.CANVAS_APP_ROOT || '/app';
+const nativeDistributionPolicyPath = path.join(
+  appRoot,
+  'docs/compliance/docker-native-distribution-policy.json',
+);
+const pythonRequirementsPath = path.join(appRoot, 'requirements/runtime-python.txt');
 
 function sha256File(filePath) {
   try {
@@ -92,6 +102,73 @@ function packageDirectoriesInNodeModules(nodeModulesDirectory) {
   return packageDirectories;
 }
 
+function readJson(filePath) {
+  try {
+    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
+  } catch {
+    return null;
+  }
+}
+
+const nativeDistributionPolicy = readJson(nativeDistributionPolicyPath);
+
+function sharpBuilds() {
+  return [
+    path.join(appRoot, 'node_modules/sharp'),
+    path.join(appRoot, 'node_modules/next/node_modules/sharp'),
+  ].map((packageDirectory) => {
+    const packageJson = readJson(path.join(packageDirectory, 'package.json'));
+    if (!packageJson?.version) return null;
+    const releaseDirectory = path.join(packageDirectory, 'src/build/Release');
+    let addonPath = null;
+    try {
+      addonPath = fs.readdirSync(releaseDirectory)
+        .filter((entry) => entry.endsWith('.node'))
+        .sort()[0] || null;
+    } catch {
+      addonPath = null;
+    }
+    const absoluteAddonPath = addonPath ? path.join(releaseDirectory, addonPath) : null;
+    return {
+      name: 'sharp',
+      version: String(packageJson.version),
+      packagePath: packageDirectory,
+      addonPath: absoluteAddonPath,
+      addonSha256: absoluteAddonPath ? sha256File(absoluteAddonPath) : null,
+      sourcePath: path.join(packageDirectory, 'src'),
+    };
+  }).filter(Boolean);
+}
+
+function installedSharpPrebuiltPackages() {
+  const imgDirectories = [
+    path.join(appRoot, 'node_modules/@img'),
+    path.join(appRoot, 'node_modules/next/node_modules/@img'),
+  ];
+  const entries = [];
+  for (const imgDirectory of imgDirectories) {
+    try {
+      for (const entry of fs.readdirSync(imgDirectory, { withFileTypes: true })) {
+        if (!entry.isDirectory() || !entry.name.startsWith('sharp')) continue;
+        const packageDirectory = path.join(imgDirectory, entry.name);
+        const packageJson = readJson(path.join(packageDirectory, 'package.json'));
+        entries.push({
+          name: `@img/${entry.name}`,
+          version: packageJson?.version || 'unresolved',
+          packagePath: packageDirectory,
+        });
+      }
+    } catch {
+      // Optional platform packages may be absent by design.
+    }
+  }
+  return entries.sort((left, right) => (
+    left.name.localeCompare(right.name)
+    || left.version.localeCompare(right.version)
+    || left.packagePath.localeCompare(right.packagePath)
+  ));
+}
+
 function globalNpmPackages() {
   const queue = packageDirectoriesInNodeModules('/usr/local/lib/node_modules');
   const seen = new Set();
@@ -150,6 +227,29 @@ const dpkgPackages = commandLines(
     };
   })
   .sort((left, right) => left.name.localeCompare(right.name));
+
+const dpkgSourcePackages = [...new Map(dpkgPackages.map((component) => {
+  const key = `${component.sourcePackage}@${component.sourceVersion}`;
+  return [key, {
+    ecosystem: 'deb-source',
+    name: component.sourcePackage,
+    version: component.sourceVersion,
+    sourcePageUrl: component.sourceVersion.includes('.pgdg')
+      ? 'https://apt.postgresql.org/pub/repos/apt/pool/'
+      : `https://snapshot.debian.org/package/${encodeURIComponent(component.sourcePackage)}/${encodeURIComponent(component.sourceVersion)}/`,
+    sourceArtifacts: component.sourceVersion.includes('.pgdg')
+      ? (nativeDistributionPolicy?.postgresql?.sourceArtifacts || []).filter((artifact) => (
+          component.sourcePackage === 'postgresql-18'
+            ? artifact.url.includes('/postgresql-18/postgresql-18_')
+            : component.sourcePackage === 'postgresql-common'
+              ? artifact.url.includes('/postgresql-common/postgresql-common_')
+              : false
+        ))
+      : [],
+  }];
+})).values()].sort((left, right) => (
+  left.name.localeCompare(right.name) || left.version.localeCompare(right.version)
+));
 
 const pythonInventoryScript = String.raw`
 import hashlib
@@ -243,12 +343,20 @@ try {
 }
 
 const inventory = {
-  schemaVersion: 3,
+  schemaVersion: 4,
   generatedBy: 'scripts/capture-runtime-component-inventory.mjs',
   baseImage,
+  debianSnapshot,
   platform: process.argv.includes('--platform')
     ? process.argv[process.argv.indexOf('--platform') + 1]
     : `${process.platform}/${process.arch}`,
+  evidence: {
+    dockerfileSha256: sha256File(path.join(appRoot, 'Dockerfile')),
+    nativeDistributionPolicyPath,
+    nativeDistributionPolicySha256: sha256File(nativeDistributionPolicyPath),
+    pythonRequirementsPath,
+    pythonRequirementsSha256: sha256File(pythonRequirementsPath),
+  },
   nativeComponents: [
     {
       ecosystem: 'native',
@@ -257,10 +365,27 @@ const inventory = {
       sourceUrl: `https://github.com/nodejs/node/tree/v${process.version.replace(/^v/u, '')}`,
       noticeFiles: packageNoticeFiles('/usr/local'),
     },
+    {
+      ecosystem: 'native',
+      name: 'libvips',
+      version: (commandLines('vips', ['--version'])[0] || '').replace(/^vips-/u, '') || 'unresolved',
+      sourceUrl: nativeDistributionPolicy?.libvips?.sourceUrl || null,
+      sourceArchivePath: nativeDistributionPolicy?.libvips?.version
+        ? `/usr/share/canvas-notebook/corresponding-source/vips-${nativeDistributionPolicy.libvips.version}.tar.xz`
+        : null,
+      sourceArchiveSha256: nativeDistributionPolicy?.libvips?.version
+        ? sha256File(`/usr/share/canvas-notebook/corresponding-source/vips-${nativeDistributionPolicy.libvips.version}.tar.xz`)
+        : null,
+      license: nativeDistributionPolicy?.libvips?.license || null,
+      linkage: nativeDistributionPolicy?.libvips?.linkage || null,
+    },
   ],
   dpkgPackages,
+  dpkgSourcePackages,
   pythonPackages,
   globalNpmPackages: globalNpmPackages(),
+  sharpBuilds: sharpBuilds(),
+  installedSharpPrebuiltPackages: installedSharpPrebuiltPackages(),
 };
 
 fs.mkdirSync(path.dirname(outputPath), { recursive: true });

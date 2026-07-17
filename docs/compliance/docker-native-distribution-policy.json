@@ -1,0 +1,89 @@
+{
+  "schemaVersion": 1,
+  "reviewedBy": "Frank Alexander Weber",
+  "reviewedAt": "2026-07-17",
+  "dockerPlatforms": [
+    "linux/amd64",
+    "linux/arm64"
+  ],
+  "baseImage": {
+    "reference": "node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
+    "sourceUrl": "https://github.com/nodejs/docker-node/tree/303e6c3be0be8010403376712d3018fb99809f86/24/bookworm-slim",
+    "nodeVersion": "24.18.0",
+    "nodeSourceUrl": "https://github.com/nodejs/node/archive/refs/tags/v24.18.0.tar.gz"
+  },
+  "debianSnapshot": {
+    "timestamp": "20260716T000000Z",
+    "archiveUrl": "https://snapshot.debian.org/archive/debian/20260716T000000Z/",
+    "securityArchiveUrl": "https://snapshot.debian.org/archive/debian-security/20260716T000000Z/"
+  },
+  "postgresql": {
+    "clientVersion": "18.4-1.pgdg12+1",
+    "commonVersion": "293.pgdg12+1",
+    "binaryArtifacts": {
+      "common": {
+        "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-common/postgresql-client-common_293.pgdg12+1_all.deb",
+        "sha256": "a4e2461975abffae23688fc95c4fdc97fea4c4c9cc096c2c4a7a4e334dfc3353"
+      },
+      "linux/amd64": {
+        "clientUrl": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-client-18_18.4-1.pgdg12+1_amd64.deb",
+        "clientSha256": "21c9b6e141053fcecceddd5cb196a105eef9e0c5fd9d6d4f5b52a9b4693a871f",
+        "libpqUrl": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/libpq5_18.4-1.pgdg12+1_amd64.deb",
+        "libpqSha256": "e09e61eec1057fa11ee078ef357ad7bf3257c91f7f0f90681389bed2a99842b7"
+      },
+      "linux/arm64": {
+        "clientUrl": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-client-18_18.4-1.pgdg12+1_arm64.deb",
+        "clientSha256": "8fbcd33a01b4603a55bf7e9a8d695b0114d0d1ca340f88771d59cd96ca65dd74",
+        "libpqUrl": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/libpq5_18.4-1.pgdg12+1_arm64.deb",
+        "libpqSha256": "414ce97cf223533003155708165d2a08fd38dc42df1c762ecb33d81a0415da67"
+      }
+    },
+    "sourceArtifacts": [
+      {
+        "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-18_18.4-1.pgdg12+1.dsc",
+        "sha256": "99ba4ae8e97a11b6af4b44f860ce40d7da20edb411e224cbcc9281e5ff740a50"
+      },
+      {
+        "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-18_18.4.orig.tar.bz2",
+        "sha256": "81a81ec695fb0c7901407defaa1d2f7973617154cf27ba74e3a7ab8e64436094"
+      },
+      {
+        "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-18/postgresql-18_18.4-1.pgdg12+1.debian.tar.xz",
+        "sha256": "992c43bc5f97e4a75c3746ff7bfa72329eeb0a553c99a8697b7260baee247ce1"
+      },
+      {
+        "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-common/postgresql-common_293.pgdg12+1.dsc",
+        "sha256": "fc1b229024670e6d0cf1c40f3987bf1509aecf146791a6e22966fbf764c391da"
+      },
+      {
+        "url": "https://apt.postgresql.org/pub/repos/apt/pool/main/p/postgresql-common/postgresql-common_293.pgdg12+1.tar.xz",
+        "sha256": "7a12dca9e636d56b72f45a00c52fb8cf054c3bf9aba8dc74bcca5fb6be17b07f"
+      }
+    ]
+  },
+  "pythonRequirements": "requirements/runtime-python.txt",
+  "libvips": {
+    "version": "8.18.3",
+    "sourceUrl": "https://github.com/libvips/libvips/releases/download/v8.18.3/vips-8.18.3.tar.xz",
+    "sourceSha256": "f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146",
+    "license": "LGPL-2.1-or-later",
+    "licenseTextPath": "docs/compliance/license-texts/LGPL-2.1-or-later.txt",
+    "sharpVersions": [
+      "0.34.5",
+      "0.35.3"
+    ],
+    "linkage": "shared",
+    "installationPrefix": "/usr/local",
+    "relinkingGuide": "docs/compliance/sharp-libvips-relinking.md"
+  },
+  "excludedPrebuiltPackagePrefixes": [
+    "@img/sharp-"
+  ],
+  "releaseEvidence": {
+    "workflow": ".github/workflows/build-both.yml",
+    "runtimeInventoryPattern": "runtime-components-linux-*.json",
+    "linkageEvidencePattern": "sharp-linkage-linux-*.json",
+    "sourceAsset": "vips-8.18.3.tar.xz",
+    "complianceAssetPattern": "canvas-native-compliance-*.tar.gz"
+  }
+}

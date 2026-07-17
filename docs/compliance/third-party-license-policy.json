@@ -51,6 +51,14 @@
   ],
   "packageUsageOverrides": [
     {
+      "namePrefix": "@img/sharp-",
+      "usage": "development-only",
+      "distributedIn": [
+        "source-development-install"
+      ],
+      "reason": "These optional platform packages remain visible in package-lock.json for reproducible source installs, but Canvas does not redistribute their prebuilt native/WASM payloads in the Next.js server, Docker or Electron artifacts. Docker builds both shipped sharp versions locally against the separately inventoried shared libvips and remove every @img/sharp-* directory before the runtime inventory and linkage tests run. A source user who opts into an upstream prebuilt package downloads it from npm rather than from a Canvas release artifact."
+    },
+    {
       "namePrefix": "@sentry/cli",
       "usage": "development-only",
       "distributedIn": [
@@ -796,6 +804,26 @@
       "reviewedAt": "2026-07-17"
     },
     {
+      "name": "canvas-built-libvips",
+      "versionOrCommit": "8.18.3 / f41285b61bfb495605494f074ca341f7791a1d406e2f157dcea606ef1ae1b146",
+      "sourceUrl": "https://github.com/libvips/libvips/releases/download/v8.18.3/vips-8.18.3.tar.xz",
+      "packagePathOrArtifact": "/usr/local/lib/libvips*.so* and /usr/share/canvas-notebook/corresponding-source/vips-8.18.3.tar.xz",
+      "usage": "native",
+      "distributedIn": [
+        "docker-image",
+        "native-compliance-release-asset"
+      ],
+      "declaredLicense": "LGPL-2.1-or-later",
+      "verifiedLicense": "LGPL-2.1-or-later",
+      "licenseTextPath": "docs/compliance/license-texts/LGPL-2.1-or-later.txt",
+      "copyrightNotices": [],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "Canvas builds the unmodified, SHA-256-verified upstream source as a replaceable shared library. The exact source archive is embedded in every Docker image and published with tagged native-compliance evidence; both sharp addons are rebuilt locally and CI verifies their dynamic /usr/local linkage plus a real image conversion on linux/amd64 and linux/arm64. Replacement instructions are in docs/compliance/sharp-libvips-relinking.md.",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
+    },
+    {
       "name": "node-docker-base",
       "versionOrCommit": "node:24-bookworm-slim@sha256:6f7b03f7c2c8e2e784dcf9295400527b9b1270fd37b7e9a7285cf83b6951452d",
       "sourceUrl": "https://github.com/nodejs/docker-node/tree/303e6c3be0be8010403376712d3018fb99809f86/24/bookworm-slim",
@@ -809,8 +837,10 @@
       "licenseTextPath": null,
       "copyrightNotices": [],
       "modified": false,
-      "policyDecision": "review_required",
-      "reviewNotes": "The Dockerfile pins the resolved multi-architecture image index digest. The image build captures exact Debian and Python versions plus hashes of packaged license/copyright files. A release reviewer must still assess the concrete Debian/Python license mix before commercial approval."
+      "policyDecision": "allowed",
+      "reviewNotes": "This is an aggregate container position rather than one license grant. The Dockerfile pins the resolved multi-architecture image index digest, all Canvas apt operations use an immutable Debian snapshot, Python wheels and PGDG binaries are version/hash locked, and schema-4 runtime inventories map every installed Debian binary to its exact source package while retaining packaged license/copyright hashes. Tagged release CI verifies amd64 and arm64 evidence before publishing the manifest. The component-level terms remain authoritative under /usr/share/doc and in the release evidence; this aggregate intentionally has no fabricated single license text.",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-07-17"
     }
   ]
 }

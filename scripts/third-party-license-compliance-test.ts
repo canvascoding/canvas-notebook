@@ -35,7 +35,44 @@ const licensePolicy = JSON.parse(fs.readFileSync(
   'utf8',
 )) as {
   packageOverrides?: Record<string, { licenseTextPath?: string | null }>;
+  packageUsageOverrides?: Array<{
+    namePrefix: string;
+    usage: string;
+    distributedIn: string[];
+    reason: string;
+  }>;
 };
+const nativeDistributionPolicy = JSON.parse(fs.readFileSync(
+  'docs/compliance/docker-native-distribution-policy.json',
+  'utf8',
+)) as {
+  baseImage: { reference: string; nodeVersion: string };
+  debianSnapshot: { timestamp: string };
+  postgresql: {
+    clientVersion: string;
+    commonVersion: string;
+    binaryArtifacts: Record<string, Record<string, string>>;
+    sourceArtifacts: Array<{ url: string; sha256: string }>;
+  };
+  pythonRequirements: string;
+  libvips: {
+    version: string;
+    sourceUrl: string;
+    sourceSha256: string;
+    license: string;
+    licenseTextPath: string;
+    sharpVersions: string[];
+    linkage: string;
+    relinkingGuide: string;
+  };
+  excludedPrebuiltPackagePrefixes: string[];
+};
+const dockerfile = fs.readFileSync('Dockerfile', 'utf8');
+const nativeBuildWorkflow = fs.readFileSync('.github/workflows/build-both.yml', 'utf8');
+const runtimePythonRequirements = fs.readFileSync(
+  nativeDistributionPolicy.pythonRequirements,
+  'utf8',
+);
 
 assert.equal(
   packageJson.dependencies?.['@jspreadsheet/react'],
@@ -66,6 +103,108 @@ assert.equal(
 assert.equal(inventory.releaseGate.approvalStatus, 'approved');
 assert.equal(inventory.releaseGate.approvalReviewedBy, 'Frank Alexander Weber');
 assert.equal(inventory.releaseGate.approvalReviewedAt, '2026-07-17');
+assert.equal(inventory.releaseGate.status, 'approved');
+assert.deepEqual(inventory.releaseGate.blockers, []);
+
+const sharpUsageOverride = licensePolicy.packageUsageOverrides?.find((entry) => (
+  entry.namePrefix === '@img/sharp-'
+));
+assert(sharpUsageOverride, 'prebuilt sharp payloads need an explicit non-distribution classification');
+assert.equal(sharpUsageOverride.usage, 'development-only');
+assert.deepEqual(sharpUsageOverride.distributedIn, ['source-development-install']);
+assert.match(sharpUsageOverride.reason, /does not redistribute/u);
+
+assert.equal(nativeDistributionPolicy.libvips.version, '8.18.3');
+assert.equal(nativeDistributionPolicy.libvips.license, 'LGPL-2.1-or-later');
+assert.equal(nativeDistributionPolicy.libvips.linkage, 'shared');
+assert.deepEqual(nativeDistributionPolicy.libvips.sharpVersions.sort(), ['0.34.5', '0.35.3']);
+assert.deepEqual(nativeDistributionPolicy.excludedPrebuiltPackagePrefixes, ['@img/sharp-']);
+assert.match(
+  fs.readFileSync(nativeDistributionPolicy.libvips.licenseTextPath, 'utf8'),
+  /GNU LESSER GENERAL PUBLIC LICENSE\s+Version 2\.1/u,
+);
+assert.match(
+  fs.readFileSync(nativeDistributionPolicy.libvips.relinkingGuide, 'utf8'),
+  /Replace and verify/u,
+);
+
+for (const requiredDockerFragment of [
+  `ARG NODE_BASE_IMAGE=${nativeDistributionPolicy.baseImage.reference}`,
+  `ARG DEBIAN_SNAPSHOT=${nativeDistributionPolicy.debianSnapshot.timestamp}`,
+  `ARG LIBVIPS_VERSION=${nativeDistributionPolicy.libvips.version}`,
+  `ARG LIBVIPS_SHA256=${nativeDistributionPolicy.libvips.sourceSha256}`,
+  'Types: deb deb-src',
+  'FROM canvas-base AS libvips-build',
+  '--libdir=lib --buildtype=release',
+  'SHARP_FORCE_GLOBAL_LIBVIPS=1',
+  'npm --prefix node_modules/sharp run build',
+  'npm --prefix node_modules/next/node_modules/sharp run build',
+  "find node_modules -type d -path '*/@img/sharp-*'",
+  '--require-hashes -r /app/requirements/runtime-python.txt',
+  'capture-runtime-component-inventory.mjs',
+  'runtime-component-inventory-test.mjs',
+  'sharp-runtime-linkage-test.mjs',
+]) {
+  assert(
+    dockerfile.includes(requiredDockerFragment),
+    `Dockerfile must retain native compliance control: ${requiredDockerFragment}`,
+  );
+}
+for (const requiredWorkflowFragment of [
+  'Verify amd64 native compliance payload',
+  'Verify arm64 native compliance payload',
+  'runtime-component-inventory-test.mjs',
+  'runtime-multiarch-compliance-test.mjs',
+  'sharp-linkage-linux-amd64.json',
+  'sharp-linkage-linux-arm64.json',
+  'vips-8.18.3.tar.xz',
+  'Package native compliance evidence',
+  'canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz',
+]) {
+  assert(
+    nativeBuildWorkflow.includes(requiredWorkflowFragment),
+    `multi-architecture release workflow must retain: ${requiredWorkflowFragment}`,
+  );
+}
+assert.equal(
+  (dockerfile.match(/find node_modules -type d -path '\*\/@img\/sharp-\*'/gu) || []).length,
+  2,
+  'prebuilt sharp payloads must be removed after the initial install and after production pruning',
+);
+for (const artifact of [
+  nativeDistributionPolicy.postgresql.binaryArtifacts.common,
+  nativeDistributionPolicy.postgresql.binaryArtifacts['linux/amd64'],
+  nativeDistributionPolicy.postgresql.binaryArtifacts['linux/arm64'],
+]) {
+  for (const value of Object.values(artifact)) {
+    if (/^[a-f0-9]{64}$/u.test(value)) {
+      assert(dockerfile.includes(value), `Dockerfile must verify PostgreSQL artifact ${value}`);
+    }
+  }
+}
+for (const artifact of nativeDistributionPolicy.postgresql.sourceArtifacts) {
+  assert.match(artifact.url, /^https:\/\/apt\.postgresql\.org\//u);
+  assert.match(artifact.sha256, /^[a-f0-9]{64}$/u);
+}
+
+const pythonRequirementBody = runtimePythonRequirements
+  .split(/\r?\n/u)
+  .filter((line) => line.trim() && !line.trimStart().startsWith('#'))
+  .join('\n');
+const pythonEntries = pythonRequirementBody
+  .split(/(?=^[a-z0-9][a-z0-9._-]*==)/gimu)
+  .map((block) => {
+    const match = block.match(/^([a-z0-9][a-z0-9._-]*)==([^\s\\]+)/iu);
+    assert(match, `invalid Python requirement block: ${block}`);
+    return [match[1], match[2], block] as const;
+  });
+assert.equal(pythonEntries.length, 45, 'the Docker Python lock must retain the reviewed package set');
+assert.equal(new Set(pythonEntries.map((entry) => entry[0].toLowerCase())).size, pythonEntries.length);
+for (const [name, version, hashes] of pythonEntries) {
+  assert(version, `${name} must use an exact Python version`);
+  assert.match(hashes, /--hash=sha256:[a-f0-9]{64}/u, `${name} must retain wheel hashes`);
+  assert.doesNotMatch(hashes, /--hash=sha256:(?![a-f0-9]{64})/u);
+}
 
 for (const [packagePath, lockPackage] of Object.entries(lockfile.packages)) {
   if (
@@ -309,6 +448,8 @@ const sharpLibvipsComponents = inventory.components.filter((component) => (
 assert.equal(sharpLibvipsComponents.length, 20);
 for (const component of sharpLibvipsComponents) {
   assert.equal(component.policyDecision, 'review_required');
+  assert.equal(component.usage, 'development-only');
+  assert.deepEqual(component.distributedIn, ['source-development-install']);
   assert.equal(
     component.licenseTextRef,
     null,
@@ -327,15 +468,21 @@ const sharpCompositeBinaryComponents = inventory.components.filter((component) =
 assert.equal(sharpCompositeBinaryComponents.length, 8);
 for (const component of sharpCompositeBinaryComponents) {
   assert.equal(component.policyDecision, 'review_required');
+  assert.equal(component.usage, 'development-only');
+  assert.deepEqual(component.distributedIn, ['source-development-install']);
   assert(component.licenseTextSha256, 'the exact sharp Apache portion must remain available');
   assert(component.copyrightNotices.includes('Copyright 2013 Lovell Fuller and others.'));
   assert.match(component.sourceUrl, /\/tree\/[0-9a-f]{40}$/u);
   assert.match(component.reviewNotes || '', /LICENSE covers only part of the declared/u);
 }
-assert.equal(
-  inventory.releaseGate.blockers.filter((blocker) => blocker.name.startsWith('@img/sharp')).length,
-  28,
-);
+const allSharpPrebuiltComponents = inventory.components.filter((component) => (
+  component.name.startsWith('@img/sharp-')
+));
+assert.equal(allSharpPrebuiltComponents.length, 50);
+assert(allSharpPrebuiltComponents.every((component) => component.usage === 'development-only'));
+assert(allSharpPrebuiltComponents.every((component) => (
+  component.distributedIn.join(',') === 'source-development-install'
+)));
 assert(
   inventory.components.every((component) => (
     !component.reviewNotes?.includes('Package author metadata:')
@@ -357,6 +504,29 @@ for (const name of [
   assert.equal(component.distributedIn.join(','), 'docker-image');
   assert(component.licenseTextSha256);
 }
+
+const canvasLibvips = inventory.components.find((component) => (
+  component.name === 'canvas-built-libvips'
+));
+assert(canvasLibvips, 'the Canvas-built shared libvips must be inventoried');
+assert.equal(canvasLibvips.policyDecision, 'allowed');
+assert.equal(canvasLibvips.verifiedLicense, 'LGPL-2.1-or-later');
+assert.equal(canvasLibvips.licenseTextRef, nativeDistributionPolicy.libvips.licenseTextPath);
+assert(canvasLibvips.licenseTextSha256);
+assert.equal(canvasLibvips.modified, false);
+assert.match(canvasLibvips.reviewNotes || '', /replaceable shared library/u);
+
+const nodeDockerBase = inventory.components.find((component) => (
+  component.name === 'node-docker-base'
+));
+assert(nodeDockerBase, 'the immutable Node/Debian base-image aggregate must be inventoried');
+assert.equal(nodeDockerBase.policyDecision, 'allowed');
+assert.equal(nodeDockerBase.versionOrCommit, nativeDistributionPolicy.baseImage.reference);
+assert.equal(nodeDockerBase.licenseTextRef, null);
+assert.equal(nodeDockerBase.licenseTextSha256, null);
+assert.equal(nodeDockerBase.reviewedBy, 'Frank Alexander Weber');
+assert.equal(nodeDockerBase.reviewedAt, '2026-07-17');
+assert.match(nodeDockerBase.reviewNotes || '', /aggregate container position/u);
 for (const name of [
   'docker-global-npm:@npmcli/agent',
   'docker-global-npm:err-code',
@@ -370,7 +540,6 @@ for (const name of [
   assert(component.licenseTextSha256);
   assert(component.copyrightNotices.length > 0);
   assert.match(component.reviewNotes || '', /documented residual attribution risk/u);
-  assert(!inventory.releaseGate.blockers.some((blocker) => blocker.name === name));
 }
 
 const exactSourceComponents = [
@@ -418,7 +587,11 @@ for (const component of inventory.components) {
       `${component.name}@${component.versionOrCommit} contains license boilerplate instead of an attributable copyright notice`,
     );
   }
-  if (component.policyDecision === 'allowed' && component.usage !== 'development-only') {
+  if (
+    component.policyDecision === 'allowed'
+    && component.usage !== 'development-only'
+    && component.name !== 'node-docker-base'
+  ) {
     assert(
       component.licenseTextSha256,
       `allowed distributed component ${component.name}@${component.versionOrCommit} needs a verified license text`,
@@ -434,14 +607,6 @@ for (const component of inventory.components) {
       `allowed distributed MIT component ${component.name}@${component.versionOrCommit} needs a copyright notice`,
     );
   }
-}
-
-assert(
-  !inventory.releaseGate.blockers.some((blocker) => blocker.name === 'first-commercial-release-approval'),
-  'the completed initial approval must no longer remain visible as a release blocker',
-);
-if (inventory.releaseGate.status === 'blocked') {
-  assert(inventory.releaseGate.blockers.length > 0);
 }
 
 console.log('third-party-license-compliance-test: ok');

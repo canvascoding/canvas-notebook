@@ -38,13 +38,13 @@ Die technische Umsetzung ist vorhanden und reproduzierbar. Der am 17. Juli
 
 | Kennzahl | Stand |
 | --- | ---: |
-| Komponenten gesamt | 1.990 |
-| ausgelieferter Runtime-/Asset-Bestand | 1.482 |
-| nur Entwicklung | 508 |
-| automatisch beziehungsweise dokumentiert `allowed` | 1.939 |
-| `review_required` im Gesamtbestand | 51 |
+| Komponenten gesamt | 1.991 |
+| ausgelieferter Runtime-/Asset-Bestand | 1.433 |
+| nur Entwicklung beziehungsweise externe Source-Install-Pfade | 558 |
+| automatisch beziehungsweise dokumentiert `allowed` | 1.941 |
+| `review_required` im Gesamtbestand | 50, alle nicht ausgeliefert |
 | pauschal `blocked` | 0 |
-| Blocker fuer ein kommerzielles Release | 29 |
+| Blocker im statischen kommerziellen Release-Gate | 0 |
 
 Die erste verantwortliche Gesamtfreigabe ist dokumentiert. Zehn npm-Pakete
 und drei Pakete des global installierten npm wurden fuer ihre exakten
@@ -53,18 +53,29 @@ beziehungsweise offizielle Lizenztexte, bestverfuegbare Publisher-
 Attributionen, Reviewer und Datum werden ausgeliefert. Die Entscheidung steht
 in `third-party-release-approval-2026.7.17.1.md` und gilt nicht fuer Upgrades.
 
-Das strikte Release-Gate bleibt trotzdem absichtlich gesperrt. Offen sind:
+Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
 
-- die Bewertung des gepinnten Docker-Basisimages und des konkreten
-  finalen amd64-/arm64-Debian-/Python-Lieferumfangs sowie das
-  releasegebundene Corresponding-Source-Angebot,
-- 28 plattform- und versionsspezifische `sharp`-/`libvips`-Positionen mit
-  noch nicht erfuellten Source-, Notice- und Relinking-/Austauschpflichten.
+- Der Node-Image-Index bleibt digestgepinnt. Canvas-eigene apt-Aufloesungen
+  verwenden den Debian-Snapshot `20260716T000000Z`; PostgreSQL-Binaerpakete
+  und die 45 pip-Pakete sind versions- und hashgebunden.
+- Das Image erzeugt ein Schema-4-Inventar mit exakten Debian-Source-Paaren,
+  Lizenzdatei-Hashes, Python-Wheel-Belegen, globalem npm, Dockerfile- und
+  Policy-Hash.
+- Alle vorgebauten `@img/sharp-*`-Payloads werden vor der Auslieferung
+  entfernt. Die 28 unvollstaendig belegten Positionen bleiben transparent im
+  Gesamtinventar `review_required`, sind aber keine Canvas-Binaerlieferung und
+  daher keine Release-Blocker.
+- Canvas baut libvips 8.18.3 unveraendert aus dem exakt gehashten
+  Upstream-Archiv als austauschbare Shared Library, baut sharp 0.34.5 und
+  0.35.3 dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
 
-Diese Positionen sind keine pauschale Aussage, dass die Komponenten unzulaessig
-sind. Sie bedeuten, dass die vorhandenen Belege fuer eine automatische
-kommerzielle Freigabe nicht ausreichen oder eine echte Lizenzwahl dokumentiert
-werden muss.
+`npm run test:licenses:release` ist damit statisch gruen. Ein Docker-Release
+darf trotzdem erst publiziert werden, wenn der Tag-Workflow die finalen
+linux/amd64- und linux/arm64-Images erfolgreich gebaut, ihre Inventare und
+Sharp-Verlinkung einzeln geprueft und den Multi-Arch-Abgleich vor dem Manifest
+bestanden hat. Diese kandidatenbezogenen Evidenzen werden als
+`canvas-native-compliance-<version>.tar.gz` archiviert. In diesem lokalen Lauf
+wurde entsprechend der Owner-Vorgabe kein Docker-Container gebaut.
 
 ## Verbindliche Quellen
 
@@ -76,7 +87,9 @@ werden muss.
 | `docs/compliance/third-party-license-cache.json` | Lockfile-gebundene Upstream-Belege fuer fehlende Paket-Lizenzdateien | nur ueber Refresh-Skript |
 | `docs/compliance/third-party-components.json` | generiertes Komponenten-, Quellen-, Entscheidungs- und Release-Gate-Manifest | nicht direkt bearbeiten |
 | `THIRD_PARTY_NOTICES.md` | generierte menschenlesbare Notices | nicht direkt bearbeiten |
-| `docs/compliance/runtime-components.json` | im finalen Docker-Image erfasste Node-, Debian-, Python- und globale npm-Versionen samt Beleg-Hashes | waehrend Image-Build erzeugt |
+| `docs/compliance/runtime-components.json` | im finalen Docker-Image erfasste Node-, libvips-, Debian-, Python-, globale npm- und Sharp-Build-Evidenz samt Source-/Beleg-Hashes | waehrend Image-Build erzeugt |
+| `docs/compliance/docker-native-distribution-policy.json` | exakte Basisimage-, Snapshot-, PGDG-, Python- und libvips-Quellen/Hashes fuer beide Linux-Plattformen | bei jedem nativen Lieferumfangswechsel reviewen |
+| `docs/compliance/sharp-libvips-relinking.md` | Rebuild-, Austausch- und Verifikation des LGPL-Shared-Library-Wegs | mit libvips-/Sharp-Build aendern |
 | `docs/compliance/docker-runtime-review.md` | technische Einzelpruefung von Basisimage, Source-Zuordnung, Python-Wheels und globalem npm | nach jedem Image-Lieferumfangswechsel aktualisieren |
 | `docs/compliance/sharp-native-binary-review.md` | versions- und plattformspezifische Pruefung der 28 sharp-/libvips-Binaerpositionen | nach Binary-/Source-Aenderung manuell aktualisieren |
 | `docs/compliance/third-party-review-decisions.md` | versionsgenaue technische Entscheidungen fuer einzelne Review-Blocker | nach abgeschlossener Einzelpruefung manuell |
@@ -151,19 +164,23 @@ Themen sind beispielsweise:
 - Aenderungs- und Notice-Pflichten,
 - Weitergabe der Lizenz an Empfaenger.
 
-Solche Positionen bleiben `review_required`, bis die konkrete technische
-Nutzung und der Distributionsweg dokumentiert bewertet wurden. Das gilt
-insbesondere fuer die nativen `libvips`-Bestandteile der plattformspezifischen
-`sharp`-Pakete. Die exakte Archiv-, Linking-, Source- und Plattformpruefung
-steht in `sharp-native-binary-review.md`.
-
 Beim aktuellen Bestand wurde ein fehlerhafter Beleg korrigiert: Die
 Repository-Root-Lizenz von `sharp-libvips` ist Apache-2.0 und gilt fuer die
 Build-/Verpackungsskripte. Sie darf nicht als LGPL-Text der im npm-Binary
-enthaltenen Bibliotheken verwendet werden. Der Cache verwirft diese
-Substitution jetzt deterministisch. Windows- und WASM-Archive enthalten zwar
-Apache-2.0 fuer `sharp`, aber nicht die vollstaendigen Texte ihrer deklarierten
-zusammengesetzten Lizenz und bleiben deshalb ebenfalls blockierend.
+enthaltenen Bibliotheken verwendet werden. Die betreffenden 28 Lockfile-
+Positionen bleiben deshalb `review_required` und werden nicht nachtraeglich
+als rechtlich geklaert umetikettiert.
+
+Canvas loest dies auf der Auslieferungsebene: Kein vorgebautes
+`@img/sharp-*`-Archiv landet im Docker-Image. Stattdessen wird das
+unveraenderte libvips-Archiv 8.18.3 mit SHA-256-Pruefung als Shared Library
+gebaut und als vollstaendiger Quellcode zusammen mit LGPL-2.1-or-later und
+Austauschanleitung ausgeliefert. Beide Sharp-Versionen werden lokal dagegen
+gebaut. Der Release-Workflow prueft per `ldd`, dass `/usr/local/lib` verwendet
+wird, und fuehrt mit beiden Addons eine echte SVG-zu-PNG-Konvertierung aus.
+Damit bleiben die unklaren Upstream-Binaries sichtbar, werden aber nicht zur
+Grundlage der Canvas-Lieferung gemacht. Details stehen in
+`sharp-native-binary-review.md` und `sharp-libvips-relinking.md`.
 
 ### Source-Available, proprietaere oder kommerziell eingeschraenkte Pakete
 
@@ -242,8 +259,10 @@ oder kopierter Upstream-Code geaendert werden:
 4. Diff von Policy, Cache, Komponentenmanifest und Notices lesen.
 5. Neue `review_required`- oder `blocked`-Positionen vor dem Release
    entscheiden, ersetzen oder entfernen.
-6. Bei Docker-Aenderungen das Image neu bauen und
-   `docs/compliance/runtime-components.json` aus dem finalen Image pruefen.
+6. Bei Docker-Aenderungen Policy, Snapshot, Source-/Binary-Hashes und
+   Hash-Lockdateien aktualisieren. Der Tag-Workflow baut beide finalen
+   Plattformimages und prueft deren Schema-4-Inventare; lokal wird ein
+   Container nur nach ausdruecklicher Owner-Anweisung gebaut.
 7. Technische Einzelentscheidungen versionsgenau in
    `third-party-review-decisions.md` dokumentieren.
 8. Die verantwortliche beziehungsweise rechtliche Gesamtentscheidung mit der
@@ -287,6 +306,19 @@ Blocker existiert, muss dieser Befehl fehlschlagen. Release-Skripte, CI und der
 Release-Publisher duerfen den Fehler nicht ueberspringen oder durch einen
 normalen `npm run build` ersetzen.
 
+Fuer Docker-Releases kommt danach ein zwingendes Artefakt-Gate hinzu:
+
+1. linux/amd64 und linux/arm64 werden aus demselben Tag/Commit gebaut,
+2. jedes Image muss sein Runtime-Inventar, die byte-identischen Hauptnotices,
+   das libvips-Quellarchiv und den erfolgreichen Sharp-Linkage-/Convert-Test
+   herausgeben,
+3. beide Evidenzsaetze werden vor dem Multi-Arch-Manifest miteinander und mit
+   Dockerfile, Policy und Python-Lock verglichen,
+4. erst danach entstehen Manifest und Release-Artefakt.
+
+Ein statisch gruenes `npm run verify:release` allein behauptet deshalb noch
+nicht, dass ein noch nicht gebauter Container erfolgreich geprueft wurde.
+
 ### Einmalige Freigabe gegen wiederkehrende Pruefung
 
 Die erste vollstaendige Bestandsaufnahme besitzt seit dem 17. Juli 2026 eine
@@ -317,6 +349,7 @@ Quelle offline erreichbar ist:
 | --- | --- |
 | Source-Release | `LICENSE`, `THIRD_PARTY_NOTICES.md`, Komponentenmanifest |
 | Docker-Image | Lizenz, Notices, Komponentenmanifest und Runtime-Inventar |
+| Native Compliance Asset | amd64-/arm64-Inventare, Sharp-Linkage, Dockerfile, Hash-Locks, LGPL-Text, Relinking-Anleitung und exaktes libvips-Quellarchiv |
 | Portable CLI | Lizenz, Notices, Komponentenmanifest |
 | Host CLI | Lizenz, Notices, Komponentenmanifest |
 | Electron | Lizenz, Notices, Komponentenmanifest sowie Electron-/Chromium-Notices |

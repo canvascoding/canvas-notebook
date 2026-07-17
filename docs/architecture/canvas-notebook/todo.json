@@ -1343,7 +1343,7 @@
     {
       "id": 51,
       "title": "Alle integrierten Drittanbieter- und MIT-Lizenzen inventarisieren und vollstaendige Third-Party Notices als Release-Gate ausliefern",
-      "status": "in_progress",
+    "status": "in_progress",
       "repo": "canvasstudios-notebook",
       "dependsOn": [],
       "planningArtifacts": [
@@ -1390,16 +1390,16 @@
       ],
       "progress": {
         "updatedAt": "2026-07-17",
-        "engineeringImplementation": "implemented_release_blocked",
-        "commercialReleaseGate": "blocked_pending_native_artifact_compliance",
-        "inventory": {
-          "totalComponents": 1990,
-          "runtimeComponents": 1482,
-          "developmentOnlyComponents": 508,
-          "allowed": 1939,
-          "reviewRequired": 51,
-          "blocked": 0,
-          "releaseBlockers": 29
+      "engineeringImplementation": "implemented_pending_first_remote_multiarch_evidence",
+      "commercialReleaseGate": "static_gate_approved_remote_artifact_gate_required",
+      "inventory": {
+        "totalComponents": 1991,
+        "runtimeComponents": 1433,
+        "developmentOnlyComponents": 558,
+        "allowed": 1941,
+        "reviewRequired": 50,
+        "blocked": 0,
+        "releaseBlockers": 0
         },
         "completed": [
           "Deterministischer npm- und Non-npm-Inventargenerator",
@@ -1434,11 +1434,17 @@
           "Plattformabhaengige Notice-Drift durch optional installierte Paket-Autorenmetadaten beseitigt und per Regressionstest abgesichert",
           "Erste verantwortliche Gesamtfreigabe durch Frank Alexander Weber am 17. Juli 2026 versions- und Commit-gebunden in docs/compliance/third-party-release-approval-2026.7.17.1.md dokumentiert",
           "Zehn npm-Runtime-Pakete und drei globale npm-Pakete nach Einzelfallpruefung mit exakten Versionsgrenzen, vorhandenen Primaerbelegen, bestmoeglicher Attribution und ausdruecklich akzeptiertem Restrisiko freigegeben",
-          "Sharp-/libvips- und Docker-Positionen erneut gegen Primaerquellen geprueft; verantwortliche Risikofreigabe bewusst nicht als Ersatz fuer LGPL-/GPL-Pflichten oder fehlende finale Multi-Arch-Artefaktbelege verwendet"
+      "Sharp-/libvips- und Docker-Positionen erneut gegen Primaerquellen geprueft; verantwortliche Risikofreigabe bewusst nicht als Ersatz fuer LGPL-/GPL-Pflichten oder fehlende finale Multi-Arch-Artefaktbelege verwendet",
+      "Alle vorgebauten @img/sharp-* Payloads aus Docker-Lieferartefakten ausgeschlossen und 50 optionale Lockfile-Positionen als nicht von Canvas ausgelieferte Source-Install-Pfade klassifiziert",
+      "libvips 8.18.3 aus dem exakten SHA-256-geprueften Upstream-Source-Archiv als austauschbare Shared Library definiert; Sharp 0.34.5 und 0.35.3 werden lokal dagegen gebaut",
+      "LGPL-2.1-or-later-Text, Quellarchiv, vollstaendiges Docker-Buildrezept und Relinking-/Austauschanleitung in Image und Native-Compliance-Release-Artefakt aufgenommen",
+      "Debian auf Snapshot 20260716T000000Z, PGDG-Binaries und -Sources versions-/hashgebunden sowie 45 Python-Pakete fuer amd64/arm64 gemeinsam versions-/wheel-gehasht",
+      "Schema-4-Runtime-Inventar und verpflichtenden zweistufigen amd64-/arm64-CI-Abgleich vor Erzeugung des Multi-Arch-Manifests implementiert",
+      "Statisches kommerzielles Lizenz-Gate auf null Release-Blocker geschlossen"
         ],
         "verified": [
           "npm run test:licenses",
-          "Negativtest: npm run test:licenses:release blockiert mit 29 dokumentierten Pruefpositionen",
+      "Historischer Negativtest: npm run test:licenses:release blockierte vor der Native-Umstellung mit 29 dokumentierten Pruefpositionen",
           "npx tsc --noEmit --pretty false",
           "npm run lint",
           "npm run build",
@@ -1448,16 +1454,17 @@
           "Isoliertes finales Linux-arm64-Image sha256:d8a3666463040b15e03688e32807fd4ff656a7430ee37532e98f3423b1081409 mit Dockerfile-Schema 3 neu gebaut und das aus dem gestoppten Image gelesene Inventar mit Node, 408 Debian, 48 Python und 153 globalen npm-Paketen geprueft",
           "Host und Docker-Image enthalten byte-identische Third-Party Notices und Komponentenmanifest",
           "Playwright-E2E Desktop und Mobile gegen den neu gebauten Container fuer Settings -> Rechtliches und alle drei Legal-API-Endpunkte",
-          "Anonymer Zugriff auf /api/legal/third-party bleibt mit HTTP 401 gesperrt"
-        ],
-        "remainingExternalReview": [
-          "Fuer die final vertriebenen amd64- und arm64-Container Runtime-Schema 3, gepinnte Debian-/Python-Artefakte, vollstaendige Corresponding-Source-Zuordnung und eine kandidatenbezogene Plattformfreigabe nachweisen",
-          "Fuer die 28 technisch geprueften sharp-/libvips-Lieferpositionen den tatsaechlichen Zielplattform-Lieferumfang eingrenzen sowie vollstaendige Source-/Notice-Bundles, Austausch-/Relinking-Tests und kandidatenbezogene Plattformfreigaben bereitstellen"
-        ],
-        "reviewedButStillBlocked": [
-          "node-docker-base: der vorhandene arm64-Testbeleg stammt nicht aus dem finalen Kandidatencommit; amd64-Schema-3-Inventar, fest gepinnte Runtime-Artefakte und releasegebundene Corresponding-Source-Zuordnung fehlen noch",
-          "28 @img/sharp- und @img/sharp-libvips-Lieferpositionen: Paketdeklarationen und Source-Revisionsbelege sind vorhanden, aber LGPL-/GPL-Lizenztexte, vollstaendige Corresponding-Source-/Notice-Bundles, Austausch-/Relinking-Nachweise und zielplattformbezogene Artefaktfreigaben fehlen noch"
-        ]
+      "Anonymer Zugriff auf /api/legal/third-party bleibt mit HTTP 401 gesperrt",
+      "npm run test:licenses mit 1991 Komponenten und null Release-Blockern",
+      "YAML-, Node-Syntax- und statische Docker-/Workflow-/Policy-/Python-Hashlock-Pruefungen ohne lokalen Docker-Build",
+      "Alle zehn PGDG-Binaer-/Source-Artefakte direkt von apt.postgresql.org heruntergeladen und gegen die Policy-SHA-256-Werte verifiziert",
+      "pip --dry-run fuer CPython 3.11 mit manylinux_2_28 plus manylinux2014 auf amd64 und arm64; exakt 45 Pakete und alle Wheel-Hashes akzeptiert",
+      "npm run verify:release mit null Lizenzblockern, ESLint, TypeScript und vollstaendig erfolgreichem Next.js-Produktionsbuild"
+    ],
+    "remainingExternalReview": [
+      "Ersten taggebundenen Remote-Workflow fuer linux/amd64 und linux/arm64 erfolgreich abschliessen und das erzeugte canvas-native-compliance-<version>.tar.gz samt Image-Digests archivieren"
+    ],
+    "reviewedButStillBlocked": []
       }
     },
     {
@@ -1533,7 +1540,7 @@
         "architectureResearch": "completed",
         "selectedApproach": "canvas_native_excalidraw_scene_provider",
         "implementation": "completed",
-        "commercialReleaseGate": "blocked_by_task_51_pending_native_artifact_compliance",
+    "commercialReleaseGate": "task_51_static_gate_approved_pending_first_remote_multiarch_evidence",
         "verifiedFacts": [
           "@excalidraw/excalidraw 0.18.1 ist installiert und exportiert reconcileElements, CaptureUpdateAction.NEVER, updateScene, onPointerUpdate, collaborators, getSceneElementsIncludingDeleted, getFiles und addFiles",
           "isCollaborating aktiviert nur den Collaboration-Modus der UI und startet keinen Room, Transport oder Persistenz",

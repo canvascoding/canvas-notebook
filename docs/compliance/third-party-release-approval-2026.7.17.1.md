@@ -125,3 +125,49 @@ Die Freigabe ist damit dokumentarisch wirksam, aber noch keine Erlaubnis, das
 aktuelle Multi-Architecture-Dockerrelease zu veroeffentlichen. Das strikte
 Release-Gate muss bis zur technischen Erfuellung der verbleibenden Pflichten
 rot bleiben.
+
+## Technisches Erfuellungsaddendum vom 17. Juli 2026
+
+Nach der obigen, bewusst konservativen Erstentscheidung wurden die beiden
+verbleibenden Problemklassen technisch veraendert. Dieses Addendum ersetzt
+nicht die historischen Befunde, sondern dokumentiert, warum sie im neuen
+Liefermodell keine statischen Release-Blocker mehr sind.
+
+### Docker-Aggregat
+
+Der Owner hat die vier Basisimage-/Plattformpositionen formal freigegeben.
+Canvas bindet diese Freigabe nun an einen exakten Node-Multi-Arch-Digest, den
+Debian-Snapshot `20260716T000000Z`, gehashte PGDG-Binaer- und Source-Artefakte,
+eine 45-Paket-Python-Hashlockdatei sowie Schema-4-Inventare. Die Entscheidung
+`node-docker-base=allowed` gilt ausschliesslich fuer diesen kontrollierten
+Lieferweg und nicht als pauschale Aussage ueber spaetere Imageinhalte.
+
+### Sharp/libvips
+
+Die 28 unvollstaendig belegten Upstream-Binaerpositionen werden nicht auf
+`allowed` umetikettiert. Canvas entfernt stattdessen alle vorgebauten
+`@img/sharp-*`-Payloads aus Docker-Releases. Das neue Objektartefakt ist eine
+aus dem unveraenderten, exakt gehashten Upstream-Quellarchiv gebaute,
+austauschbare Shared-Library libvips 8.18.3. LGPL-Text, Source-Archiv,
+vollstaendiges Docker-Buildrezept und Austauschanleitung werden ausgeliefert;
+beide Sharp-Versionen werden lokal dagegen gebaut.
+
+### Kandidatenbezogene Bedingung
+
+Das statische `npm run test:licenses:release` besitzt jetzt null Blocker. Ein
+konkreter Container-Release bleibt dennoch bedingt: Der Remote-Tag-Workflow
+muss linux/amd64 und linux/arm64 erfolgreich bauen, die dynamische
+libvips-Verlinkung und eine echte Konvertierung mit beiden Sharp-Versionen
+nachweisen, alle vorgebauten Sharp-Pakete ausschliessen und die beiden
+Runtime-Inventare vor Erstellung des Multi-Arch-Manifests vergleichen.
+
+- [x] statische Lizenz-/Notice-Freigabe ohne Release-Blocker
+- [x] exakte Docker-/Python-/PGDG-/libvips-Definition und Hashbindung
+- [x] LGPL-Shared-Library-, Source- und Relinking-Modell implementiert
+- [x] verpflichtende amd64-/arm64-Artefaktpruefung im Release-Workflow
+- [ ] erster Release-Tag mit erfolgreich archivierter Multi-Arch-Evidenz
+
+Lokal wurde fuer dieses Addendum gemaess Owner-Vorgabe kein neuer
+Docker-Container gebaut. Die letzte Checkbox kann daher nur durch den
+taggebundenen Remote-Build geschlossen werden; ein lokaler statischer Test
+darf diese Evidenz nicht vortaeuschen.
