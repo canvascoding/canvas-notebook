@@ -4,7 +4,7 @@ import { requireAutomationSession } from '@/app/lib/automations/api';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
 import { deleteAutomationJob, getAutomationJobByComposioTriggerId, updateAutomationJob } from '@/app/lib/automations/store';
 import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
-import { resolveComposioContext } from '@/app/lib/composio/composio-context';
+import { resolveBoundComposioContext } from '@/app/lib/composio/composio-context';
 
 function logTriggerRoute(message: string, details?: Record<string, unknown>): void {
   if (details) {
@@ -47,9 +47,11 @@ export async function PATCH(
         error: 'Only the responsible user can manage this trigger connection.',
       }, { status: 403 });
     }
-    const composioContext = await resolveComposioContext({
+    const composioContext = await resolveBoundComposioContext({
       userId: responsibleUserId,
       workspaceId: job.workspaceId,
+      profileId: job.composioProfileId,
+      composioUserId: job.composioUserId,
     });
     const payload = await request.json();
     const status = payload?.status === 'paused' ? 'paused' : payload?.status === 'active' ? 'active' : undefined;
@@ -97,9 +99,11 @@ export async function DELETE(
         error: 'Only the responsible user can manage this trigger connection.',
       }, { status: 403 });
     }
-    const composioContext = await resolveComposioContext({
+    const composioContext = await resolveBoundComposioContext({
       userId: responsibleUserId,
       workspaceId: job.workspaceId,
+      profileId: job.composioProfileId,
+      composioUserId: job.composioUserId,
     });
     logTriggerRoute('DELETE started', { triggerId, jobId: job.id });
     await deleteGatewayTrigger(triggerId, composioContext);

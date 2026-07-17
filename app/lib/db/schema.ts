@@ -1117,6 +1117,7 @@ export const automationJobs = sqliteTable("automation_jobs", {
   composioTriggerSlug: text("composio_trigger_slug"),
   composioToolkitSlug: text("composio_toolkit_slug"),
   composioConnectedAccountId: text("composio_connected_account_id"),
+  composioProfileId: text("composio_profile_id").references(() => composioConnectionProfiles.id),
   composioUserId: text("composio_user_id"),
   webhookTriggerConfigJson: text("webhook_trigger_config_json"),
 }, (table) => ({
@@ -1125,6 +1126,7 @@ export const automationJobs = sqliteTable("automation_jobs", {
   projectStatusIdx: index("idx_automation_jobs_project_status").on(table.projectId, table.status, table.nextRunAt),
   jobScopeStatusIdx: index("idx_automation_jobs_job_scope_status").on(table.jobScope, table.status, table.nextRunAt),
   composioTriggerIdx: uniqueIndex("idx_automation_jobs_composio_trigger_id").on(table.composioTriggerId),
+  composioProfileIdx: index("idx_automation_jobs_composio_profile").on(table.responsibleUserId, table.workspaceId, table.composioProfileId),
 }));
 
 export const composioWebhookSubscriptions = sqliteTable("composio_webhook_subscriptions", {

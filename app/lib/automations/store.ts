@@ -485,6 +485,7 @@ function mapJobRow(
     composioTriggerSlug: row.composioTriggerSlug ?? null,
     composioToolkitSlug: row.composioToolkitSlug ?? null,
     composioConnectedAccountId: row.composioConnectedAccountId ?? null,
+    composioProfileId: row.composioProfileId ?? null,
     composioUserId: row.composioUserId ?? null,
     webhookTriggerConfig: parseOptionalJsonObject(row.webhookTriggerConfigJson),
     customWebhookId: customWebhookTrigger?.id ?? null,
@@ -633,6 +634,53 @@ export async function getAutomationJobByComposioTriggerId(triggerId: string): Pr
   });
 
   return row ? mapJobRowWithWebhookTrigger(row) : null;
+}
+
+export async function listComposioTriggerJobsForResponsibleWorkspace(input: {
+  userId: string;
+  workspaceId: string;
+}): Promise<AutomationJobRecord[]> {
+  const rows = await db
+    .select()
+    .from(automationJobs)
+    .where(and(
+      eq(automationJobs.workspaceId, input.workspaceId),
+      or(
+        eq(automationJobs.responsibleUserId, input.userId),
+        and(
+          sql`${automationJobs.responsibleUserId} IS NULL`,
+          eq(automationJobs.createdByUserId, input.userId),
+        ),
+      ),
+      sql`${automationJobs.composioTriggerId} IS NOT NULL`,
+    ));
+  return rows.map((row) => mapJobRow(row, null));
+}
+
+export async function updateComposioAutomationTriggerBinding(input: {
+  jobId: string;
+  actorUserId: string;
+  status: AutomationJobStatus;
+  triggerId: string;
+  connectedAccountId: string;
+  profileId: string;
+  composioUserId: string;
+}): Promise<AutomationJobRecord | null> {
+  const [updated] = await db
+    .update(automationJobs)
+    .set({
+      status: input.status,
+      nextRunAt: null,
+      composioTriggerId: normalizeString(input.triggerId, 'Composio trigger ID', 500),
+      composioConnectedAccountId: normalizeString(input.connectedAccountId, 'Composio connected account ID', 500),
+      composioProfileId: normalizeString(input.profileId, 'Composio profile ID', 500),
+      composioUserId: normalizeString(input.composioUserId, 'Composio user ID', 500),
+      lastEditedByUserId: input.actorUserId,
+      updatedAt: new Date(),
+    })
+    .where(eq(automationJobs.id, input.jobId))
+    .returning();
+  return updated ? mapJobRow(updated, null) : null;
 }
 
 export async function getAutomationJob(jobId: string): Promise<AutomationJobRecord | null> {
@@ -850,6 +898,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
   const composioTriggerSlug = normalizeString(input.composioTriggerSlug, 'Composio trigger slug', 500);
   const composioToolkitSlug = normalizeString(input.composioToolkitSlug, 'Composio toolkit slug', 120);
   const composioConnectedAccountId = normalizeString(input.composioConnectedAccountId, 'Composio connected account ID', 500);
+  const composioProfileId = normalizeString(input.composioProfileId, 'Composio profile ID', 500);
   const composioUserId = normalizeString(input.composioUserId, 'Composio user ID', 500);
   const now = new Date();
   const id = `job-${randomUUID()}`;
@@ -901,6 +950,7 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       composioTriggerSlug,
       composioToolkitSlug,
       composioConnectedAccountId,
+      composioProfileId,
       composioUserId,
       webhookTriggerConfigJson: JSON.stringify(input.webhookTriggerConfig || {}),
     })

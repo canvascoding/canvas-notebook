@@ -2,6 +2,7 @@ import 'server-only';
 
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
 import {
+  resolveOwnedComposioProfileBinding,
   resolveEffectiveComposioProfile,
   type ComposioConnectionProfile,
   type EffectiveComposioProfile,
@@ -68,6 +69,22 @@ export async function resolveComposioContext(input: {
     workspaceId: input.workspaceId,
   });
   return composioContextFromEffectiveProfile(userId, effective);
+}
+
+export async function resolveBoundComposioContext(input: {
+  userId: string;
+  workspaceId?: string | null;
+  profileId?: string | null;
+  composioUserId?: string | null;
+}): Promise<ResolvedComposioContext> {
+  const userId = input.userId.trim();
+  const profile = await resolveOwnedComposioProfileBinding({
+    userId,
+    workspaceId: input.workspaceId,
+    profileId: input.profileId,
+    composioUserId: input.composioUserId,
+  });
+  return composioContextFromEffectiveProfile(userId, profile);
 }
 
 export function composioContextCacheKey(context: ResolvedComposioContext): string {

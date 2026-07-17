@@ -93,6 +93,7 @@ export type AutomationJobRecord = {
   composioTriggerSlug: string | null;
   composioToolkitSlug: string | null;
   composioConnectedAccountId: string | null;
+  composioProfileId: string | null;
   composioUserId: string | null;
   webhookTriggerConfig: Record<string, unknown> | null;
   customWebhookId?: string | null;
@@ -174,6 +175,7 @@ export type CreateWebhookAutomationJobInput = {
   composioTriggerSlug: string;
   composioToolkitSlug: string;
   composioConnectedAccountId: string;
+  composioProfileId: string;
   composioUserId: string;
   webhookTriggerConfig?: Record<string, unknown>;
 };

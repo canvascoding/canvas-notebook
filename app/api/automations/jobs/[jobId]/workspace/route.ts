@@ -15,6 +15,7 @@ import {
   previewAutomationWorkspaceChange,
 } from '@/app/lib/automations/workspace-change';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { presentAutomationJobForViewer } from '@/app/lib/automations/presentation';
 
 type RouteContext = {
   params: Promise<{ jobId: string }>;
@@ -91,7 +92,13 @@ export async function POST(request: NextRequest, context: RouteContext) {
       },
     });
 
-    return NextResponse.json({ success: true, data: result });
+    return NextResponse.json({
+      success: true,
+      data: {
+        ...result,
+        job: presentAutomationJobForViewer(result.job, session.user.id),
+      },
+    });
   } catch (error) {
     const status = error instanceof AutomationWorkspaceChangeConflictError
       ? error.status

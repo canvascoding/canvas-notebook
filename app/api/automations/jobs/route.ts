@@ -7,6 +7,7 @@ import {
   requireAutomationSession,
 } from '@/app/lib/automations/api';
 import { createAutomationJob, listAutomationJobs } from '@/app/lib/automations/store';
+import { presentAutomationJobForViewer } from '@/app/lib/automations/presentation';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 
 export async function GET(request: NextRequest) {
@@ -21,7 +22,10 @@ export async function GET(request: NextRequest) {
   }
 
   const jobs = await listAutomationJobs(session.user.id);
-  return NextResponse.json({ success: true, data: jobs });
+  return NextResponse.json({
+    success: true,
+    data: jobs.map((job) => presentAutomationJobForViewer(job, session.user.id)),
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -62,7 +66,10 @@ export async function POST(request: NextRequest) {
         deliveryMode: job.deliveryMode,
       },
     });
-    return NextResponse.json({ success: true, data: job }, { status: 201 });
+    return NextResponse.json({
+      success: true,
+      data: presentAutomationJobForViewer(job, session.user.id),
+    }, { status: 201 });
   } catch (error) {
     const status = getAutomationRouteErrorStatus(error);
     return NextResponse.json(

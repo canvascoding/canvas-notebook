@@ -81,6 +81,7 @@ async function main() {
     composioTriggerSlug: null,
     composioToolkitSlug: null,
     composioConnectedAccountId: null,
+    composioProfileId: null,
     composioUserId: null,
     webhookTriggerConfig: null,
   };

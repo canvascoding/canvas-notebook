@@ -6,10 +6,11 @@ import {
   requireAutomationSession,
 } from '@/app/lib/automations/api';
 import { assertCanAccessAutomationJob } from '@/app/lib/automations/policy';
+import { presentAutomationJobForViewer } from '@/app/lib/automations/presentation';
 import { deleteAutomationJob, getAutomationJob, updateAutomationJob } from '@/app/lib/automations/store';
 import type { AutomationJobRecord } from '@/app/lib/automations/types';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
-import { resolveComposioContext } from '@/app/lib/composio/composio-context';
+import { resolveBoundComposioContext } from '@/app/lib/composio/composio-context';
 import { deleteGatewayTrigger, updateGatewayTrigger } from '@/app/lib/composio/composio-gateway';
 
 type RouteContext = {
@@ -46,7 +47,10 @@ export async function GET(request: NextRequest, context: RouteContext) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
 
-  return NextResponse.json({ success: true, data: job });
+  return NextResponse.json({
+    success: true,
+    data: presentAutomationJobForViewer(job, session.user.id),
+  });
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
@@ -85,9 +89,11 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
           error: 'Only the user responsible for this automation can change its private Composio trigger.',
         }, { status: 409 });
       }
-      const composioContext = await resolveComposioContext({
+      const composioContext = await resolveBoundComposioContext({
         userId: composioResponsibleUserId(existing),
         workspaceId: existing.workspaceId,
+        profileId: existing.composioProfileId,
+        composioUserId: existing.composioUserId,
       });
       await updateGatewayTrigger(existing.composioTriggerId, { status: payload.status }, composioContext);
     }
@@ -114,7 +120,10 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
         changedFields: payload && typeof payload === 'object' && !Array.isArray(payload) ? Object.keys(payload) : [],
       },
     });
-    return NextResponse.json({ success: true, data: updated });
+    return NextResponse.json({
+      success: true,
+      data: presentAutomationJobForViewer(updated, session.user.id),
+    });
   } catch (error) {
     const status = getAutomationRouteErrorStatus(error);
     return NextResponse.json(
@@ -152,9 +161,11 @@ export async function DELETE(request: NextRequest, context: RouteContext) {
         error: 'Only the user responsible for this automation can delete its private Composio trigger.',
       }, { status: 409 });
     }
-    const composioContext = await resolveComposioContext({
+    const composioContext = await resolveBoundComposioContext({
       userId: composioResponsibleUserId(existing),
       workspaceId: existing.workspaceId,
+      profileId: existing.composioProfileId,
+      composioUserId: existing.composioUserId,
     });
     await deleteGatewayTrigger(existing.composioTriggerId, composioContext);
   }

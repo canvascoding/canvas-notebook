@@ -7,6 +7,7 @@ import {
 } from '@/app/lib/automations/api';
 import type { AutomationDeliveryMode, AutomationDeliverySessionMode } from '@/app/lib/automations/types';
 import { createWebhookAutomationJob } from '@/app/lib/automations/store';
+import { presentAutomationJobForViewer } from '@/app/lib/automations/presentation';
 import { createGatewayTrigger, getGatewayTriggerTypes, listGatewayTriggers } from '@/app/lib/composio/composio-gateway';
 import { resolveComposioContext } from '@/app/lib/composio/composio-context';
 
@@ -125,6 +126,7 @@ export async function POST(request: NextRequest) {
       composioTriggerSlug: stringValue(trigger.triggerSlug) || triggerSlug,
       composioToolkitSlug: stringValue(trigger.toolkitSlug) || toolkitSlug || triggerSlug.split('_')[0]?.toLowerCase() || 'unknown',
       composioConnectedAccountId: stringValue(trigger.connectedAccountId) || connectedAccountId || '',
+      composioProfileId: composioContext.profileId,
       composioUserId: stringValue(trigger.composioUserId) || composioContext.composioUserId,
       webhookTriggerConfig: triggerConfig,
       scope: stringValue(payload.scope) as 'personal' | 'organization' | 'team' || undefined,
@@ -132,7 +134,10 @@ export async function POST(request: NextRequest) {
     }, session.user);
 
     logTriggerRoute('POST completed', { triggerId, jobId: job.id, triggerSlug, toolkitSlug });
-    return NextResponse.json({ success: true, data: { trigger, job } }, { status: 201 });
+    return NextResponse.json({
+      success: true,
+      data: { trigger, job: presentAutomationJobForViewer(job, session.user.id) },
+    }, { status: 201 });
   } catch (error) {
     logTriggerRouteError('POST failed', error);
     const status = getAutomationRouteErrorStatus(error);

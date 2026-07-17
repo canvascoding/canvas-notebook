@@ -366,6 +366,23 @@ export async function archiveComposioProfile(input: {
         409,
       );
     }
+    const automationUsage = await database.get(`
+      SELECT COUNT(*) AS count
+      FROM automation_jobs
+      WHERE composio_profile_id = ?
+         OR (
+           composio_profile_id IS NULL
+           AND composio_user_id = ?
+           AND COALESCE(responsible_user_id, owner_user_id, created_by_user_id) = ?
+         )
+    `, [profileId, profile.composio_user_id, ownerUserId]) as { count: number } | undefined;
+    if (Number(automationUsage?.count || 0) > 0) {
+      throw new ComposioProfileError(
+        'COMPOSIO_PROFILE_AUTOMATION_IN_USE',
+        'Repair or remove the automations bound to this profile before archiving it.',
+        409,
+      );
+    }
     await database.run(`
       UPDATE composio_connection_profiles
       SET status = 'archived', updated_at = ?
@@ -445,6 +462,50 @@ export async function resolveEffectiveComposioProfile(input: {
       workspaceId: workspace.workspaceId,
       source: 'workspace_override',
       cacheRevision: `${resolved.id}:${resolved.updatedAt.getTime()}:${override.updated_at}`,
+    };
+  });
+}
+
+export async function resolveOwnedComposioProfileBinding(input: {
+  userId: string;
+  workspaceId?: string | null;
+  profileId?: string | null;
+  composioUserId?: string | null;
+}): Promise<EffectiveComposioProfile> {
+  const userId = normalizeUserId(input.userId);
+  const workspace = await resolveReadableWorkspace(userId, input.workspaceId);
+  const profileId = input.profileId?.trim() || null;
+  const composioUserId = input.composioUserId?.trim() || null;
+  if (!profileId && !composioUserId) {
+    throw new ComposioProfileError(
+      'COMPOSIO_PROFILE_BINDING_REQUIRED',
+      'The bound connection profile could not be identified.',
+      409,
+    );
+  }
+
+  return withDatabase(async (database) => {
+    const row = profileId
+      ? await getOwnedProfileRow(database, userId, profileId, { activeOnly: true })
+      : await database.get(`
+          SELECT id, owner_user_id, name, composio_user_id, is_default, status, created_at, updated_at
+          FROM composio_connection_profiles
+          WHERE owner_user_id = ? AND composio_user_id = ? AND status = 'active'
+          LIMIT 1
+        `, [userId, composioUserId]) as ProfileRow | undefined || null;
+    if (!row || (composioUserId && row.composio_user_id !== composioUserId)) {
+      throw new ComposioProfileError(
+        'COMPOSIO_PROFILE_BINDING_INVALID',
+        'The connection profile bound to this automation is unavailable.',
+        409,
+      );
+    }
+    const profile = profileFromRow(row);
+    return {
+      ...profile,
+      workspaceId: workspace.workspaceId,
+      source: profile.isDefault ? 'default' : 'workspace_override',
+      cacheRevision: `${profile.id}:${profile.updatedAt.getTime()}:binding`,
     };
   });
 }

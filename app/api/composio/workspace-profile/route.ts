@@ -1,16 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { clearComposioGatewayCaches } from '@/app/lib/composio/composio-gateway';
-import {
-  composioContextFromEffectiveProfile,
-  toPublicEffectiveComposioContext,
-} from '@/app/lib/composio/composio-context';
+import { toPublicEffectiveComposioContext } from '@/app/lib/composio/composio-context';
 import { requireComposioRequestContext } from '@/app/lib/composio/composio-request';
-import {
-  clearComposioWorkspaceProfileOverride,
-  ComposioProfileError,
-  setComposioWorkspaceProfileOverride,
-} from '@/app/lib/composio/composio-profiles';
+import { ComposioProfileError } from '@/app/lib/composio/composio-profiles';
+import { changeComposioWorkspaceProfile } from '@/app/lib/composio/composio-workspace-profile-change';
 
 function stringValue(value: unknown): string {
   return typeof value === 'string' ? value.trim() : '';
@@ -39,17 +33,17 @@ export async function PUT(request: NextRequest) {
   if (contextResult.response) return contextResult.response;
 
   try {
-    const effective = await setComposioWorkspaceProfileOverride({
+    const change = await changeComposioWorkspaceProfile({
       userId: contextResult.session.user.id,
       workspaceId: contextResult.workspace.workspaceId,
       profileId,
     });
-    const nextContext = composioContextFromEffectiveProfile(contextResult.session.user.id, effective);
     clearComposioGatewayCaches(contextResult.composioContext);
-    clearComposioGatewayCaches(nextContext);
+    clearComposioGatewayCaches(change.effectiveContext);
     return NextResponse.json({
       success: true,
-      effectiveProfile: toPublicEffectiveComposioContext(nextContext),
+      effectiveProfile: toPublicEffectiveComposioContext(change.effectiveContext),
+      triggerChanges: change.triggerChanges,
     });
   } catch (error) {
     return errorResponse(error);
@@ -61,16 +55,17 @@ export async function DELETE(request: NextRequest) {
   if (contextResult.response) return contextResult.response;
 
   try {
-    const effective = await clearComposioWorkspaceProfileOverride({
+    const change = await changeComposioWorkspaceProfile({
       userId: contextResult.session.user.id,
       workspaceId: contextResult.workspace.workspaceId,
+      profileId: null,
     });
-    const nextContext = composioContextFromEffectiveProfile(contextResult.session.user.id, effective);
     clearComposioGatewayCaches(contextResult.composioContext);
-    clearComposioGatewayCaches(nextContext);
+    clearComposioGatewayCaches(change.effectiveContext);
     return NextResponse.json({
       success: true,
-      effectiveProfile: toPublicEffectiveComposioContext(nextContext),
+      effectiveProfile: toPublicEffectiveComposioContext(change.effectiveContext),
+      triggerChanges: change.triggerChanges,
     });
   } catch (error) {
     return errorResponse(error);

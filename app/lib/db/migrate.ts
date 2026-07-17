@@ -1012,6 +1012,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       composio_trigger_slug TEXT,
       composio_toolkit_slug TEXT,
       composio_connected_account_id TEXT,
+      composio_profile_id TEXT,
       composio_user_id TEXT,
       webhook_trigger_config_json TEXT,
       FOREIGN KEY (created_by_user_id) REFERENCES user(id),
@@ -1019,6 +1020,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE SET NULL,
       FOREIGN KEY (owner_user_id) REFERENCES user(id),
       FOREIGN KEY (responsible_user_id) REFERENCES user(id),
+      FOREIGN KEY (composio_profile_id) REFERENCES composio_connection_profiles(id),
       FOREIGN KEY (approved_by_user_id) REFERENCES user(id),
       FOREIGN KEY (last_edited_by_user_id) REFERENCES user(id)
     );
@@ -2103,6 +2105,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     composio_trigger_slug: 'TEXT',
     composio_toolkit_slug: 'TEXT',
     composio_connected_account_id: 'TEXT',
+    composio_profile_id: 'TEXT',
     composio_user_id: 'TEXT',
     webhook_trigger_config_json: 'TEXT',
   });
@@ -2143,6 +2146,23 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       OR job_scope IS NULL
       OR job_scope = ''
       OR job_scope = 'personal:legacy:legacy';
+
+    UPDATE automation_jobs
+    SET composio_profile_id = (
+      SELECT profile.id
+      FROM composio_connection_profiles profile
+      WHERE profile.owner_user_id = COALESCE(
+          automation_jobs.responsible_user_id,
+          automation_jobs.owner_user_id,
+          automation_jobs.created_by_user_id
+        )
+        AND profile.composio_user_id = automation_jobs.composio_user_id
+        AND profile.status = 'active'
+      LIMIT 1
+    )
+    WHERE composio_profile_id IS NULL
+      AND composio_user_id IS NOT NULL
+      AND composio_user_id <> '';
 
     UPDATE automation_runs
     SET
@@ -2258,6 +2278,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_composio_workspace_overrides_profile ON composio_workspace_profile_overrides (profile_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_composio_oauth_states_expiry ON composio_oauth_flow_states (expires_at, consumed_at);
     CREATE INDEX IF NOT EXISTS idx_composio_oauth_states_user_profile ON composio_oauth_flow_states (user_id, profile_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_automation_jobs_composio_profile ON automation_jobs (responsible_user_id, workspace_id, composio_profile_id);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_workspace_status ON workspace_trash_entries (workspace_id, status, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_expires ON workspace_trash_entries (status, expires_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_org_status ON workspace_trash_entries (organization_id, status, deleted_at);

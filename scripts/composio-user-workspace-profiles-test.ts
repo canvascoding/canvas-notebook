@@ -9,12 +9,58 @@ const moduleInternals = Module as typeof Module & {
 };
 const originalLoad = moduleInternals._load;
 const createdComposioSessions: string[] = [];
+const connectedAccountsByComposioUser = new Map<string, Array<{
+  id: string;
+  toolkit: { slug: string; name: string };
+  status: string;
+  createdAt: string;
+}>>();
+const fakeTriggers = new Map<string, { connectedAccountId: string; disabled: boolean }>();
+const fakeTriggerActions: string[] = [];
+let fakeTriggerSequence = 0;
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') return {};
   if (request === '@composio/core') {
     return {
       Composio: class {
-        connectedAccounts = { list: async () => ({ items: [] }) };
+        connectedAccounts = {
+          list: async (input: { userIds?: string[] }) => ({
+            items: connectedAccountsByComposioUser.get(input.userIds?.[0] || '') || [],
+          }),
+          delete: async () => undefined,
+        };
+        triggers = {
+          getType: async () => ({ toolkit: { slug: 'instagram' } }),
+          create: async (_userId: string, _slug: string, input: { connectedAccountId?: string }) => {
+            const triggerId = `migrated-trigger-${++fakeTriggerSequence}`;
+            fakeTriggers.set(triggerId, {
+              connectedAccountId: input.connectedAccountId || '',
+              disabled: false,
+            });
+            fakeTriggerActions.push(`create:${triggerId}`);
+            return { triggerId };
+          },
+          listActive: async (input: { triggerIds?: string[] }) => ({
+            items: (input.triggerIds || []).flatMap((triggerId) => {
+              const trigger = fakeTriggers.get(triggerId);
+              return trigger ? [{ triggerId, connectedAccountId: trigger.connectedAccountId }] : [];
+            }),
+          }),
+          disable: async (triggerId: string) => {
+            const trigger = fakeTriggers.get(triggerId);
+            if (trigger) trigger.disabled = true;
+            fakeTriggerActions.push(`disable:${triggerId}`);
+          },
+          enable: async (triggerId: string) => {
+            const trigger = fakeTriggers.get(triggerId);
+            if (trigger) trigger.disabled = false;
+            fakeTriggerActions.push(`enable:${triggerId}`);
+          },
+          delete: async (triggerId: string) => {
+            fakeTriggers.delete(triggerId);
+            fakeTriggerActions.push(`delete:${triggerId}`);
+          },
+        };
         create = async (userId: string) => {
           createdComposioSessions.push(userId);
           return { userId, sessionNumber: createdComposioSessions.length };
@@ -41,10 +87,11 @@ async function main() {
     consumeComposioOAuthFlowState,
   } = await import('../app/lib/composio/composio-oauth-state');
   const { getComposioSession } = await import('../app/lib/composio/composio-session');
+  const { changeComposioWorkspaceProfile } = await import('../app/lib/composio/composio-workspace-profile-change');
+  const { createWebhookAutomationJob, getAutomationJob } = await import('../app/lib/automations/store');
   const {
     ComposioProfileError,
     archiveComposioProfile,
-    clearComposioWorkspaceProfileOverride,
     createComposioProfile,
     ensureDefaultComposioProfile,
     listComposioProfiles,
@@ -131,13 +178,73 @@ async function main() {
   });
   assert.equal(renamed.name, 'Company A Social');
 
-  const teamA = await setComposioWorkspaceProfileOverride({
+  connectedAccountsByComposioUser.set(defaultA.composioUserId, [{
+    id: 'account-default-instagram',
+    toolkit: { slug: 'instagram', name: 'Instagram' },
+    status: 'ACTIVE',
+    createdAt: new Date(now).toISOString(),
+  }]);
+  connectedAccountsByComposioUser.set(companyA.composioUserId, [{
+    id: 'account-company-instagram',
+    toolkit: { slug: 'instagram', name: 'Instagram' },
+    status: 'ACTIVE',
+    createdAt: new Date(now).toISOString(),
+  }]);
+  fakeTriggers.set('original-trigger', {
+    connectedAccountId: 'account-default-instagram',
+    disabled: false,
+  });
+  const webhookDatabase = await openDb();
+  try {
+    await webhookDatabase.run(`
+      INSERT INTO composio_webhook_subscriptions (
+        id, subscription_id, webhook_url, encrypted_secret, secret_preview,
+        event_types, status, mode, created_at, updated_at, rotated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'active', 'local', ?, ?, NULL)
+    `, [
+      'subscription-local-test',
+      'subscription-remote-test',
+      'http://localhost:3000/api/composio/webhook',
+      'test-secret',
+      'test',
+      '[]',
+      now,
+      now,
+    ]);
+  } finally {
+    await webhookDatabase.close();
+  }
+  const triggerJob = await createWebhookAutomationJob({
+    name: 'Instagram trigger',
+    prompt: 'Handle the incoming event.',
+    scope: 'organization',
+    workspaceId: 'ws-team',
+    composioTriggerId: 'original-trigger',
+    composioTriggerSlug: 'INSTAGRAM_NEW_MEDIA',
+    composioToolkitSlug: 'instagram',
+    composioConnectedAccountId: 'account-default-instagram',
+    composioProfileId: defaultA.id,
+    composioUserId: defaultA.composioUserId,
+    webhookTriggerConfig: { page: 'company-a' },
+  }, { id: 'user-a', email: 'user-a@example.test', role: 'admin' });
+
+  const teamAChange = await changeComposioWorkspaceProfile({
     userId: 'user-a',
     workspaceId: 'ws-team',
     profileId: companyA.id,
   });
-  assert.equal(teamA.id, companyA.id);
-  assert.equal(teamA.source, 'workspace_override');
+  const teamA = teamAChange.effectiveContext;
+  assert.equal(teamA.profileId, companyA.id);
+  assert.equal(teamA.profileSource, 'workspace_override');
+  assert.equal(teamAChange.triggerChanges[0]?.status, 'migrated');
+  const migratedJob = await getAutomationJob(triggerJob.id);
+  assert.equal(migratedJob?.composioProfileId, companyA.id);
+  assert.equal(migratedJob?.composioUserId, companyA.composioUserId);
+  assert.equal(migratedJob?.composioConnectedAccountId, 'account-company-instagram');
+  assert.match(migratedJob?.composioTriggerId || '', /^migrated-trigger-/u);
+  assert.ok(fakeTriggerActions.includes('disable:original-trigger'));
+  assert.ok(fakeTriggerActions.includes('delete:original-trigger'));
+  assert.ok(fakeTriggerActions.includes(`enable:${migratedJob?.composioTriggerId}`));
 
   const teamContextA = await resolveComposioContext({ userId: 'user-a', workspaceId: 'ws-team' });
   const personalContextA = await resolveComposioContext({ userId: 'user-a', workspaceId: 'ws-personal-a' });
@@ -206,9 +313,14 @@ async function main() {
     (error: unknown) => error instanceof ComposioProfileError && error.code === 'COMPOSIO_DEFAULT_PROFILE_ARCHIVE_FORBIDDEN',
   );
 
-  const restoredDefault = await clearComposioWorkspaceProfileOverride({ userId: 'user-a', workspaceId: 'ws-team' });
-  assert.equal(restoredDefault.id, defaultA.id);
-  assert.equal(restoredDefault.source, 'default');
+  const restoredDefaultChange = await changeComposioWorkspaceProfile({
+    userId: 'user-a',
+    workspaceId: 'ws-team',
+    profileId: null,
+  });
+  assert.equal(restoredDefaultChange.effectiveContext.profileId, defaultA.id);
+  assert.equal(restoredDefaultChange.effectiveContext.profileSource, 'default');
+  assert.equal(restoredDefaultChange.triggerChanges[0]?.status, 'migrated');
   await archiveComposioProfile({ ownerUserId: 'user-a', profileId: companyA.id });
   assert.deepEqual((await listComposioProfiles('user-a')).map((profile) => profile.id), [defaultA.id]);
 
