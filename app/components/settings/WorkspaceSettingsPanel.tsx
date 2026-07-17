@@ -509,22 +509,21 @@ function SettingsDataContent({
 
       {section === 'workspace' ? (
         <>
-      <WorkspaceExportCard isAdmin={isAdmin} />
+          <WorkspaceManagementCard
+            isAdmin={isAdmin}
+            teamFeaturesEnabled={organizationStatus?.teamFeaturesEnabled ?? false}
+            focusManagement={workspaceManagementOpen}
+            openCreateDialog={createWorkspaceOpen}
+          />
 
-      <WorkspaceManagementCard
-        isAdmin={isAdmin}
-        teamFeaturesEnabled={organizationStatus?.teamFeaturesEnabled ?? false}
-        focusManagement={workspaceManagementOpen}
-        openCreateDialog={createWorkspaceOpen}
-      />
+          <WorkspaceExportCard isAdmin={isAdmin} />
 
-      <ChatDisplayCard
-        toolVerbosity={toolVerbosity}
-        isOpen={chatDisplayOpen}
-        onOpenChange={setChatDisplayOpen}
-        onToolVerbosityChange={setToolVerbosity}
-      />
-
+          <ChatDisplayCard
+            toolVerbosity={toolVerbosity}
+            isOpen={chatDisplayOpen}
+            onOpenChange={setChatDisplayOpen}
+            onToolVerbosityChange={setToolVerbosity}
+          />
         </>
       ) : null}
 
