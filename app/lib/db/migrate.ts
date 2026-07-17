@@ -232,6 +232,30 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (invited_by_user_id) REFERENCES user(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS composio_connection_profiles (
+      id TEXT PRIMARY KEY NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      composio_user_id TEXT NOT NULL,
+      is_default INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (owner_user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS composio_workspace_profile_overrides (
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      profile_id TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, workspace_id),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (profile_id) REFERENCES composio_connection_profiles(id) ON DELETE RESTRICT
+    );
+
     CREATE TABLE IF NOT EXISTS workspace_trash_entries (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT,
@@ -2212,6 +2236,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_workspace_brand_profiles_updated ON workspace_brand_profiles (updated_at);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_org_user ON canvas_workspace_members (organization_id, user_id, status);
     CREATE INDEX IF NOT EXISTS idx_canvas_workspace_members_workspace_status ON canvas_workspace_members (workspace_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_profiles_external_user ON composio_connection_profiles (composio_user_id);
+    CREATE INDEX IF NOT EXISTS idx_composio_profiles_owner_status ON composio_connection_profiles (owner_user_id, status, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_composio_profiles_owner_default ON composio_connection_profiles (owner_user_id) WHERE is_default = 1 AND status = 'active';
+    CREATE INDEX IF NOT EXISTS idx_composio_workspace_overrides_profile ON composio_workspace_profile_overrides (profile_id, updated_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_workspace_status ON workspace_trash_entries (workspace_id, status, deleted_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_expires ON workspace_trash_entries (status, expires_at);
     CREATE INDEX IF NOT EXISTS idx_workspace_trash_org_status ON workspace_trash_entries (organization_id, status, deleted_at);

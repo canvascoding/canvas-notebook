@@ -228,6 +228,32 @@ export const canvasWorkspaceMembers = sqliteTable("canvas_workspace_members", {
   workspaceStatusIdx: index("idx_canvas_workspace_members_workspace_status").on(table.workspaceId, table.status),
 }));
 
+export const composioConnectionProfiles = sqliteTable("composio_connection_profiles", {
+  id: text("id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  name: text("name").notNull(),
+  composioUserId: text("composio_user_id").notNull(),
+  isDefault: integer("is_default", { mode: "boolean" }).notNull().default(false),
+  status: text("status").notNull().default("active"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  ownerStatusIdx: index("idx_composio_profiles_owner_status").on(table.ownerUserId, table.status, table.createdAt),
+  ownerDefaultIdx: uniqueIndex("idx_composio_profiles_owner_default").on(table.ownerUserId).where(sql`${table.isDefault} = 1 AND ${table.status} = 'active'`),
+  externalUserIdx: uniqueIndex("idx_composio_profiles_external_user").on(table.composioUserId),
+}));
+
+export const composioWorkspaceProfileOverrides = sqliteTable("composio_workspace_profile_overrides", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").notNull().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
+  profileId: text("profile_id").notNull().references(() => composioConnectionProfiles.id, { onDelete: 'restrict' }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey(table.userId, table.workspaceId),
+  profileIdx: index("idx_composio_workspace_overrides_profile").on(table.profileId, table.updatedAt),
+}));
+
 export const workspaceTrashEntries = sqliteTable("workspace_trash_entries", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id"),
