@@ -1,6 +1,6 @@
 'use client';
 
-import React from 'react';
+import React, { useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
 import {
@@ -15,6 +15,10 @@ import {
   ObsidianInlineFootnote,
 } from '@/app/components/shared/ObsidianMarkdownElements';
 import { getWorkspaceMarkdownNavigationTarget } from '@/app/lib/markdown/obsidian-link-resolver';
+import {
+  markdownHeadingAnchorFromHref,
+  scrollToMarkdownHeadingAnchor,
+} from '@/app/lib/markdown/heading-anchor';
 import { cn } from '@/lib/utils';
 
 interface MarkdownRendererProps {
@@ -26,7 +30,7 @@ interface MarkdownRendererProps {
 }
 
 const SHARED_CLASSES =
-  'break-words [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
+  'break-words [&_p]:my-0 [&_p+p]:mt-3 [&_ul]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:my-3 [&_ol]:list-decimal [&_ol]:pl-5 [&_li]:mt-1 [&_blockquote]:my-3 [&_blockquote]:border-l-2 [&_blockquote]:pl-3 [&_table]:my-3 [&_table]:w-full [&_table]:border-collapse [&_th]:border [&_th]:px-2 [&_th]:py-1 [&_th]:text-left [&_td]:border [&_td]:px-2 [&_td]:py-1 [&_hr]:my-4 [&_hr]:border-border/60 [&_pre]:my-3 [&_pre]:overflow-x-auto [&_pre]:rounded-md [&_pre]:border [&_pre]:p-3 [&_pre_code]:bg-transparent [&_pre_code]:p-0 [&_code]:rounded-sm [&_code]:px-1.5 [&_code]:py-0.5 [&_a]:underline [&_a]:underline-offset-2 [&_h1[id]]:scroll-mt-4 [&_h2[id]]:scroll-mt-4 [&_h3[id]]:scroll-mt-4 [&_h4[id]]:scroll-mt-4 [&_h5[id]]:scroll-mt-4 [&_h6[id]]:scroll-mt-4 [&_strong]:font-semibold [&_.katex-display]:my-3 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden';
 
 const VARIANT_CLASSES: Record<string, string> = {
   default:
@@ -47,6 +51,7 @@ export function MarkdownRenderer({
   embedAncestorPaths,
   sourcePath,
 }: MarkdownRendererProps) {
+  const rootRef = useRef<HTMLDivElement>(null);
   const ancestorPaths = embedAncestorPaths ?? (sourcePath ? [sourcePath] : []);
   const extractColorCode = (props: Record<string, unknown>): string | null => {
     const colorCode =
@@ -107,6 +112,20 @@ export function MarkdownRenderer({
           >
             {children}
           </ObsidianWikiLink>
+        );
+      }
+      if (href && markdownHeadingAnchorFromHref(href)) {
+        return (
+          <a
+            href={href}
+            className="underline underline-offset-2"
+            onClick={(event) => {
+              event.preventDefault();
+              if (rootRef.current) scrollToMarkdownHeadingAnchor(rootRef.current, href);
+            }}
+          >
+            {children}
+          </a>
         );
       }
       const workspaceTarget = href ? getWorkspaceMarkdownNavigationTarget(href, sourcePath) : null;
@@ -203,6 +222,7 @@ export function MarkdownRenderer({
 
   return (
     <div
+      ref={rootRef}
       className={cn(
         SHARED_CLASSES,
         VARIANT_CLASSES[variant],

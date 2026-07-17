@@ -794,6 +794,10 @@ li.task-list-item > p {
   line-height: 1.35;
 }
 
+.tiptap-editor-shell :is(h1, h2, h3, h4, h5, h6)[id] {
+  scroll-margin-top: 1rem;
+}
+
 .tiptap-editor-shell p {
   line-height: 1.65;
 }

@@ -118,6 +118,12 @@ import {
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
+import {
+  createMarkdownHeadingAnchorFactory,
+  markdownHeadingAnchorFromHref,
+  scrollToMarkdownHeadingAnchor,
+} from '@/app/lib/markdown/heading-anchor';
+import { MarkdownHeadingAnchors } from '@/app/lib/markdown/tiptap-heading-anchors';
 import { hasObsidianRichEditorUnsupportedSyntax } from '@/app/lib/markdown/obsidian-flavored-markdown';
 import {
   buildObsidianWikiLinkTarget,
@@ -1757,6 +1763,7 @@ function createEditorExtensions(
       types: 'all',
       filterTransaction: (transaction) => !isChangeOrigin(transaction),
     }),
+    MarkdownHeadingAnchors,
     ColorSwatchDecorations,
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
@@ -4100,12 +4107,17 @@ function RichMarkdownEditor({
     ) return;
 
     const wantedHeading = markdownNavigationTarget.heading.trim().toLocaleLowerCase();
+    const nextAnchor = createMarkdownHeadingAnchorFactory();
     let headingPosition: number | null = null;
     editor.state.doc.descendants((node, position) => {
+      const headingAnchor = node.type.name === 'heading' ? nextAnchor(node.textContent) : null;
       if (
         headingPosition === null
         && node.type.name === 'heading'
-        && node.textContent.trim().toLocaleLowerCase() === wantedHeading
+        && (
+          node.textContent.trim().toLocaleLowerCase() === wantedHeading
+          || headingAnchor === wantedHeading
+        )
       ) {
         headingPosition = position + 1;
         return false;
@@ -4229,6 +4241,12 @@ function RichMarkdownEditor({
       if (!anchor || !editorElement.contains(anchor)) return;
 
       const href = anchor.getAttribute('href') ?? '';
+      if (markdownHeadingAnchorFromHref(href)) {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        scrollToMarkdownHeadingAnchor(editorElement, href);
+        return;
+      }
       const workspaceTarget = getWorkspaceMarkdownNavigationTarget(href, filePath);
       if (!workspaceTarget) return;
 

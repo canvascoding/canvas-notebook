@@ -75,4 +75,16 @@ const standaloneEmbedMarkdown = renderMarkdown('![[Plan#Outcome]]');
 assert.match(standaloneEmbedMarkdown, /data-canvas-wiki-transclude="true"/);
 assert.match(standaloneEmbedMarkdown, /canvas-wiki-embed-container/);
 
+const headingAnchorMarkdown = renderMarkdown(`# Einführung & Überblick
+
+[Zum Überblick](#einführung-überblick)
+
+## Wiederholt
+
+## Wiederholt`);
+assert.match(headingAnchorMarkdown, /<h1 id="einführung-überblick">/);
+assert.match(headingAnchorMarkdown, /href="#einf%C3%BChrung-%C3%BCberblick"/);
+assert.match(headingAnchorMarkdown, /<h2 id="wiederholt">/);
+assert.match(headingAnchorMarkdown, /<h2 id="wiederholt-1">/);
+
 console.log('canvas-markdown-rendering-test: ok');

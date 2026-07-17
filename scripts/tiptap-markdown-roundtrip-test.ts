@@ -14,6 +14,11 @@ import {
   getTextEditorPerformanceProfile,
 } from '../app/lib/editor/text-editor-guards';
 import {
+  createMarkdownHeadingAnchorFactory,
+  markdownHeadingAnchorBase,
+  scrollToMarkdownHeadingAnchor,
+} from '../app/lib/markdown/heading-anchor';
+import {
   CANVAS_BLOCK_DRAG_DATA_TYPE,
   getReorderableBlockRangeAt,
   hasCanvasBlockDragData,
@@ -193,6 +198,7 @@ async function main() {
   const { TaskList } = await import('@tiptap/extension-task-list');
   const { TaskItem } = await import('@tiptap/extension-task-item');
   const { TableKit } = await import('@tiptap/extension-table');
+  const { MarkdownHeadingAnchors } = await import('../app/lib/markdown/tiptap-heading-anchors');
   const { createObsidianWikiLinkExtensions } = await import('../app/components/editor/ObsidianWikiLinkExtension');
   const { ObsidianInlineFootnoteExtension } = await import('../app/components/editor/ObsidianInlineFootnoteExtension');
   const { getActiveWorkspaceWikiLink } = await import('../app/lib/markdown/tiptap-workspace-link');
@@ -221,6 +227,7 @@ async function main() {
         nested: true,
       }),
       TableKit.configure({ table: { resizable: false } }),
+      MarkdownHeadingAnchors,
       ...createObsidianWikiLinkExtensions({
         labels: { empty: 'No match', group: 'Workspace links' },
         workspaceId: null,
@@ -287,6 +294,29 @@ $$`));
     editor.view.dom.querySelector('li[data-type="taskItem"]'),
     'editable task item node views should keep the data-type attribute used by editor CSS',
   );
+  assert.equal(
+    editor.view.dom.querySelector('h1')?.id,
+    'title',
+    'rich-editor headings should expose document-local anchor IDs',
+  );
+  assert.equal(markdownHeadingAnchorBase('Einführung & Überblick'), 'einführung-überblick');
+  const nextHeadingAnchor = createMarkdownHeadingAnchorFactory();
+  assert.deepEqual(
+    ['Topic', 'Topic', 'Topic 1'].map(nextHeadingAnchor),
+    ['topic', 'topic-1', 'topic-1-1'],
+    'generated heading anchors should remain unique even when a suffix resembles another heading',
+  );
+  let scrolledToHeading = false;
+  const titleHeading = editor.view.dom.querySelector('h1');
+  assert.ok(titleHeading, 'rich-editor heading should be rendered');
+  Object.defineProperty(titleHeading, 'scrollIntoView', {
+    configurable: true,
+    value: () => {
+      scrolledToHeading = true;
+    },
+  });
+  assert.equal(scrollToMarkdownHeadingAnchor(editor.view.dom, '#title'), true);
+  assert.equal(scrolledToHeading, true, 'document-local links should scroll to the matching rich-editor heading');
 
   const wikiLinkCountBeforePaste = nodeTypes.filter((type) => type === 'obsidianWikiLink').length;
   editor.commands.insertContent(' [[Pasted/Document|Pasted title]]', { applyPasteRules: true });
