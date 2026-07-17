@@ -14,6 +14,7 @@ async function main() {
   const { readHeartbeatConfig, saveHeartbeatConfig } = await import('../app/lib/automations/heartbeat-config');
   const { advanceAutomationJobSchedule, getHeartbeatJob } = await import('../app/lib/automations/store');
   const { buildHeartbeatPrompt } = await import('../app/lib/automations/heartbeat');
+  const { classifyHeartbeatResult, HEARTBEAT_OK_TOKEN } = await import('../app/lib/automations/heartbeat-result');
   const { writeManagedAgentFile } = await import('../app/lib/agents/storage');
   const { DEFAULT_USER_TIME_ZONE } = await import('../app/lib/time-zones');
 
@@ -127,6 +128,21 @@ async function main() {
   assert.match(automatedResearchPrompt, /Aktueller Heartbeat-Zeitplan: Intervall: alle 2 Stunden/);
   assert.match(automatedResearchPrompt, /\/settings\?tab=agent-settings/);
   assert.doesNotMatch(automatedResearchPrompt, /\/data\/agents\//);
+  assert.match(automatedResearchPrompt, new RegExp(`ausschließlich mit exakt ${HEARTBEAT_OK_TOKEN}`));
+  assert.match(automatedResearchPrompt, /keine relevante Information/);
+
+  assert.deepEqual(classifyHeartbeatResult(`  ${HEARTBEAT_OK_TOKEN}\n`), {
+    kind: 'ok',
+    text: HEARTBEAT_OK_TOKEN,
+  });
+  assert.deepEqual(classifyHeartbeatResult(`${HEARTBEAT_OK_TOKEN}.`), {
+    kind: 'message',
+    text: `${HEARTBEAT_OK_TOKEN}.`,
+  });
+  assert.deepEqual(classifyHeartbeatResult('  '), {
+    kind: 'empty',
+    text: '',
+  });
 
   console.log('heartbeat config tests passed');
 }

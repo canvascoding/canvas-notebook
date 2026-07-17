@@ -1,11 +1,17 @@
 # Heartbeat Instructions
 
-Frag mich kurz und konkret, was gerade ansteht.
+Prüfe kurz, ob es seit dem letzten Heartbeat neue Informationen gibt, die meine Aufmerksamkeit benötigen.
 
-Wenn es offene To-dos gibt, frage nach dem aktuellen Stand:
+Berücksichtige dabei insbesondere:
 
-- Was ist gerade das wichtigste To-do?
-- Gibt es Blocker?
-- Soll ich bei einem nächsten Schritt helfen?
+- neue oder eskalierte Blocker
+- überfällige oder zeitkritische To-dos
+- fehlgeschlagene Aktionen
+- notwendige Entscheidungen oder Rückfragen
 
-Halte die Nachricht kurz. Keine lange Zusammenfassung, außer ich frage danach.
+Sende nur dann eine kurze, konkrete Nachricht, wenn es tatsächlich etwas Neues oder Handlungsrelevantes gibt.
+Sende keine reine Routinebestätigung und keine allgemeine Check-in-Frage.
+
+Wenn nach allen Prüfungen nichts Neues oder Relevantes mitzuteilen ist, antworte ausschließlich mit:
+
+HEARTBEAT_OK

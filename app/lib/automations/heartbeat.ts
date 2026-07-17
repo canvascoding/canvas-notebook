@@ -2,6 +2,7 @@ import 'server-only';
 
 import { readManagedAgentFile } from '@/app/lib/agents/storage';
 
+import { HEARTBEAT_OK_TOKEN } from './heartbeat-result';
 import type { AutomationIntervalUnit, AutomationJobRecord, AutomationWeekday, FriendlySchedule } from './types';
 
 type BuildHeartbeatPromptOptions = {
@@ -76,11 +77,19 @@ export async function buildHeartbeatPrompt(job: AutomationJobRecord, options: Bu
   return [
     ...context,
     'Führe die unten eingebetteten Heartbeat-Anweisungen aus.',
-    'Die Ergebnisse sollen in dieser Automation-Session kommuniziert und danach über das konfigurierte Delivery-Ziel ausgeliefert werden.',
     '',
     'Inhalt der HEARTBEAT.md:',
     '---',
     heartbeatContent.trim() || '(HEARTBEAT.md ist leer.)',
     '---',
+    '',
+    'VERBINDLICHES HEARTBEAT-ANTWORTPROTOKOLL',
+    'Die HEARTBEAT.md bestimmt die auszuführenden Prüfungen und Aktionen. Dieses Protokoll bestimmt, ob das Ergebnis an den User ausgeliefert wird.',
+    'Führe zuerst alle vorgesehenen Prüfungen und Aktionen vollständig aus.',
+    `Wenn danach keine neue, konkrete oder anderweitig relevante Information für den User besteht, antworte ausschließlich mit exakt ${HEARTBEAT_OK_TOKEN}.`,
+    'Eine reine Routinebestätigung, eine Wiederholung eines unveränderten Stands oder eine allgemeine Check-in-Frage ist keine relevante Information.',
+    'Bei Fehlern, Blockern, notwendigen Rückfragen oder Informationen, die Aufmerksamkeit erfordern, antworte stattdessen mit einer kurzen normalen Nachricht.',
+    `Setze ${HEARTBEAT_OK_TOKEN} nie in einen Markdown-Codeblock und ergänze davor oder danach keinen weiteren Text, keine Satzzeichen und keine Formatierung.`,
+    `Eine alleinige Antwort mit ${HEARTBEAT_OK_TOKEN} wird intern als erfolgreicher Heartbeat ohne neue Hinweise erfasst und nicht an den User ausgeliefert.`,
   ].join('\n');
 }
