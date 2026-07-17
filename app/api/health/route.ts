@@ -44,16 +44,30 @@ export async function GET() {
       if (collaboration.capabilityReady) {
         try {
           await connection.get('SELECT 1 AS ok FROM collaboration_yjs_states LIMIT 1');
+          await connection.get('SELECT 1 AS ok FROM collaboration_excalidraw_states LIMIT 1');
+          await connection.get('SELECT 1 AS ok FROM collaboration_excalidraw_assets LIMIT 1');
           collaboration.persistenceReady = true;
+          collaboration.scenePersistenceReady = true;
+          collaboration.assetStoreReady = true;
         } catch {
           collaboration.persistenceReady = false;
+          collaboration.scenePersistenceReady = false;
+          collaboration.assetStoreReady = false;
         }
-        checks.collaboration = collaboration.websocketReady && collaboration.persistenceReady ? 'ok' : 'error';
+        checks.collaboration = collaboration.websocketReady
+          && collaboration.persistenceReady
+          && collaboration.excalidrawWebsocketReady
+          && collaboration.scenePersistenceReady
+          && collaboration.assetStoreReady
+          ? 'ok'
+          : 'error';
         if (checks.collaboration === 'error') status = 503;
       }
       setCollaborationRuntimeHealth({
         capabilityReady: collaboration.capabilityReady,
         persistenceReady: collaboration.persistenceReady,
+        scenePersistenceReady: collaboration.scenePersistenceReady,
+        assetStoreReady: collaboration.assetStoreReady,
       });
     }
   } catch {

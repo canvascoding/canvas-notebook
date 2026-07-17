@@ -22,7 +22,7 @@ assert.equal(isCollaborationWebSocketRequest('/de/ws/collaboration'), true);
 assert.equal(isCollaborationWebSocketRequest('/ws/chat'), false);
 const issued = issueCollaborationTicket({
   userId: 'u', sessionId: 's', workspaceId: 'w', organizationId: null, documentId: 'd', path: 'a.txt',
-  representation: 'plain_text', permission: 'read', lifecycleGeneration: 2,
+  provider: 'yjs', representation: 'plain_text', permission: 'read', lifecycleGeneration: 2,
 }, 1_000);
 const [ticketPayload, ticketSignature] = issued.token.split('.');
 const tamperedPayload = `${ticketPayload[0] === 'a' ? 'b' : 'a'}${ticketPayload.slice(1)}`;

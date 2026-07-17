@@ -1,10 +1,10 @@
 # Excalidraw Live Collaboration Policy
 
-Stand: 2026-07-16
+Stand: 2026-07-17
 
 ## Zweck und Abgrenzung
 
-Dieses Dokument plant echte Multi-User-Bearbeitung fuer `.excalidraw`-Dateien in Canvas Team Workspaces. Excalidraw wird als eigene Collaboration-Repraesentation behandelt und ausdruecklich nicht in Aufgabe `48` fuer Markdown-/Text-Yjs-Collaboration aufgenommen.
+Dieses Dokument beschreibt die implementierte echte Multi-User-Bearbeitung fuer `.excalidraw`-Dateien in Canvas Team Workspaces. Excalidraw wird als eigene Collaboration-Repraesentation behandelt und ausdruecklich nicht in Aufgabe `48` fuer Markdown-/Text-Yjs-Collaboration aufgenommen.
 
 Gemeinsam genutzt werden duerfen die Canvas-Querschnittsmechaniken aus Aufgabe `48`:
 
@@ -17,27 +17,63 @@ Gemeinsam genutzt werden duerfen die Canvas-Querschnittsmechaniken aus Aufgabe `
 
 Nicht gemeinsam genutzt wird die Dokumentrepraesentation. Eine Excalidraw-Szene ist weder ein `Y.Text` noch ein Tiptap-`Y.XmlFragment`. Ihre Elemente besitzen bereits eigene IDs, Versionen, `versionNonce`, Loeschmarker, Bindings und Fractional Indices. Sie brauchen einen Excalidraw-spezifischen Scene-Provider und eine gegen die offizielle Reconciliation-Semantik getestete Merge-Logik.
 
-## Status quo in Canvas
+## Implementierungsstatus in Canvas
 
 Canvas Notebook verwendet aktuell `@excalidraw/excalidraw` `0.18.1` als eingebettete npm-Komponente.
 
-Der bestehende Editor:
+Der Editor im Einzelbenutzermodus:
 
 - liest und schreibt portable `.excalidraw`-JSON-Dateien,
 - serialisiert bei `onChange` die vollstaendige Szene inklusive `appState` und `files`,
 - reicht das Ergebnis an den allgemeinen Editor-Draft weiter,
 - speichert die komplette Datei nach drei Sekunden per Whole-File-Autosave,
-- setzt `isCollaborating={false}`,
+- setzt `isCollaborating={false}` ausserhalb berechtigter Team-Collaboration,
 - laedt externe Dateiaenderungen nur neu, wenn der lokale Draft nicht dirty ist.
 
-Die bestehende File-Collaboration-Policy behandelt nur `.md`, `.markdown` und `.txt` als `crdt_text`. `.excalidraw` faellt derzeit auf `revision_check` zurueck. Zwei gleichzeitig geoeffnete Clients koennen deshalb keine live konvergierende Szene bearbeiten; sie konkurrieren weiterhin um komplette JSON-Dateistaende.
+Aufgabe `52` ist technisch implementiert. Berechtigte Postgres-Team-Workspaces
+verwenden fuer `.excalidraw` jetzt `provider: excalidraw` und
+`representation: excalidraw_scene`; Markdown und reine Textdateien bleiben
+unveraendert beim Yjs-/Hocuspocus-Pfad aus Aufgabe `48`.
 
-Der Forschungs- und Architekturstand fuer Aufgabe `52` ist damit
-abgeschlossen, die Produktimplementierung aber noch nicht begonnen. Task `52`
-bleibt `planned`, solange die vorgelagerte Lizenzaufgabe `51` nicht
-verantwortlich freigegeben ist. Insbesondere existieren noch kein
-Excalidraw-WebSocket-Provider, kein Postgres-Szenenrepository und keine
-Mehrclient-Presence fuer `.excalidraw`.
+Der produktive Pfad umfasst:
+
+- den getrennten WebSocket-Endpunkt `/ws/collaboration/excalidraw` auf dem
+  bestehenden App-Port mit kurzlebigem, session-, workspace-, permission-,
+  provider- und generation-gebundenem Ticket,
+- einen Postgres-Szenenstand mit monotoner Sequence, idempotenten Operations,
+  deterministischem `version`-/`versionNonce`-Merge, Tombstones, Fractional
+  Indices, ACK und Full-Resync,
+- die offizielle Client-Reconciliation aus `@excalidraw/excalidraw@0.18.1`
+  und `CaptureUpdateAction.NEVER` fuer Remote-Aenderungen,
+- 40-ms-Patch-Coalescing, 33-ms-Pointer-/Selection-Throttling und einen
+  periodischen 20-Sekunden-Vollabgleich,
+- workspace-scoped Assets mit Authentifizierung, MIME-/Signaturpruefung,
+  20-MiB-Limit, inhaltsadressierter physischer Deduplizierung und portablem
+  Datei-Checkpoint,
+- Presence fuer Excalidraw-Cursor/Selections und den gemeinsamen Canvas-
+  Presence-Bus sowie UI-Zustaende fuer Connecting, Live, Persisting, Saved,
+  Reconnecting, Offline, Read-only und Degraded,
+- serverseitige Checkpoints und File Revisions sowie Lifecycle-Verhalten fuer
+  Move, Copy, Delete, Restore und kontrollierten Shutdown,
+- einen eigenen Agent-Toolpfad `edit_excalidraw_scene` mit
+  `observedSceneSequence`, Element-CAS, Same-Element-Review, erneutem Review
+  nach menschlicher Intervention und idempotentem Accept/Reject/Cancel,
+- einen Whole-File-Write-Guard; der Drei-Sekunden-Autosave und externe
+  Voll-Reload werden im aktiven Excalidraw-Room nicht parallel ausgefuehrt.
+
+Der autoritative Initial-Snapshot bleibt im Editor pro Workspace/Datei stabil;
+eingehende Patches unmounten den Canvas nicht. Gueltige Excalidraw-Elemente mit
+`boundElements: null` werden akzeptiert. Das Agent-Review-Panel liegt auch im
+responsiven 900×650-Layout ueber dem Chat-Overlay und bleibt bedienbar.
+
+Canvas verarbeitet die Szene serverseitig und behauptet deshalb fuer diesen
+Pfad keine Excalidraw-E2EE. Es wurde kein `excalidraw-room`-,
+`excalidraw-app/collab`- oder anderer Upstream-Code kopiert und keine neue
+Runtime-Abhaengigkeit aufgenommen; die bestehende inventarisierte npm-Version
+`@excalidraw/excalidraw@0.18.1` wird ueber ihre oeffentliche API verwendet. Der
+kommerzielle Gesamt-Release bleibt unabhaengig davon am strikten Lizenz-Gate
+aus Aufgabe `51` bis zur dokumentierten verantwortlichen/rechtlichen Freigabe
+blockiert.
 
 ## Offizieller Excalidraw-Befund
 
@@ -611,10 +647,35 @@ die Phasen nach Abschluss der jeweils vorherigen Phase:
 | Performance | definierte grosse Szene, p95-Latenz, Initial Load, Speicher, Delta-/Full-Sync und DB-Zeit |
 | Upgrade | dieselbe Matrix gegen jede neue `@excalidraw/excalidraw`-Version vor Freigabe |
 
-Nach Implementierung werden die Service-/Integrationstests sowie ein echter
-UI-/E2E-Multi-User-Test mit getrennten Browser-Kontexten ausgefuehrt. Der
-E2E-Test prueft nicht nur sichtbare Cursor, sondern den nach Reload,
-Reconnect und Server-Restart persistierten kanonischen Szenenstand.
+Zur Abnahme wurden Service-/Integrationstests sowie ein echter UI-/E2E-
+Multi-User-Test mit getrennten Browser-Kontexten ausgefuehrt. Der E2E-Test
+prueft nicht nur Presence, sondern den nach Reload persistierten kanonischen
+Szenenstand; Reconnect, Resync und persistenter Neustart werden zusaetzlich in
+den nativen Repository-/Transporttests abgedeckt.
+
+### Ausgefuehrte Verifikation am 17. Juli 2026
+
+Die Implementierung wurde ohne lokalen Docker-Neubau gegen einen einzelnen
+nativen, temporaeren Postgres-Testprozess und einen einzelnen Dev-Server auf
+`localhost:3000` geprueft. Beide Prozesse wurden anschliessend beendet und die
+Testdaten entfernt.
+
+| Pruefung | Ergebnis |
+| --- | --- |
+| `npm run test:collaboration:excalidraw:spike` | gruen; `0.18.1`, kein Fork erforderlich, 20.000 Elemente in 47,8 ms gemerged |
+| `npm run test:collaboration:excalidraw:live` | gruen; zwei Clients, Sequence 34, Postgres-Apply p95 1,1 ms |
+| `npm run test:collaboration:excalidraw:assets` | gruen; Hash-Deduplizierung und zwei Assets im portablen Checkpoint |
+| `npm run test:collaboration:excalidraw:security` | gruen; Ticket-, Element-, Referenz- und Limit-Negativfaelle einschliesslich gueltigem `boundElements: null` |
+| `npm run test:collaboration:excalidraw:agent` | gruen; konfliktfreies Apply, Review und erneute User-Intervention jeweils angewendet |
+| `tests/excalidraw-live-collaboration.spec.ts` | gruen in 27,4 s gegen einen frisch initialisierten Teststand; zwei isolierte Benutzer, Presence, Zeichnen, Remote-Move, Reload, Whole-File-Block, Agent-Review, Intervention, Accept, Reject und 900×650-UI |
+| `npx tsc --noEmit` | gruen |
+| `npm run build` | gruen; das nicht-strikte Lizenzinventar lief mit, der kommerzielle Release bleibt am separaten strikten Gate blockiert |
+
+Die gemessene Server-Apply-Latenz liegt deutlich unter dem 50-ms-Ziel. Der
+20.000-Elemente-Kompatibilitaetstest bleibt unter 50 ms. Der komplette
+Browser-E2E-Lauf benoetigte 27,4 Sekunden inklusive Login, Workspace-/Datei-
+Setup, zweier Browserkontexte, Agent-Subprozesse, Reload und Cleanup; er ist
+kein Mass fuer die Realtime-Patchlatenz.
 
 ## Abnahmebedingungen
 
@@ -633,7 +694,7 @@ Reconnect und Server-Restart persistierten kanonischen Szenenstand.
   dokumentierte Anpassung.
 - Upstream-Upgrades besitzen Reconciliation-/Schema-Kompatibilitaetstests und aktualisierte Third-Party Notices.
 
-UI-/E2E-Multi-User-Tests mit Playwright oder Chrome DevTools erfolgen gemaess Repository-Regel erst nach expliziter Freigabe.
+Der UI-/E2E-Multi-User-Test wurde nach expliziter Freigabe mit Playwright ausgefuehrt.
 
 ## Nicht-Ziele fuer die erste Version
 

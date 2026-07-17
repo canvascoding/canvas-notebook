@@ -207,3 +207,8 @@ export async function openDb(): Promise<SqlConnection> {
     },
   };
 }
+
+/** Releases the shared runtime pool after isolated scripts and graceful shutdowns. */
+export async function closeDatabaseConnections(): Promise<void> {
+  await postgresPool?.end();
+}

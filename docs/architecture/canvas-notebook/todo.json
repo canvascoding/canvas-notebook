@@ -1473,7 +1473,7 @@
     {
       "id": 52,
       "title": "Excalidraw-Live-Collaboration als separaten Canvas Scene Provider mit Multi-User-Presence, Persistenz und Datei-Checkpoints umsetzen",
-      "status": "planned",
+      "status": "completed",
       "repo": "canvasstudios-notebook",
       "dependsOn": [
         42,
@@ -1509,7 +1509,9 @@
         "scripts/excalidraw-collaboration-spike.ts",
         "scripts/excalidraw-live-collaboration-test.ts",
         "scripts/excalidraw-asset-collaboration-test.ts",
-        "scripts/excalidraw-collaboration-security-test.ts"
+        "scripts/excalidraw-collaboration-security-test.ts",
+        "scripts/excalidraw-agent-collaboration-test.ts",
+        "tests/excalidraw-live-collaboration.spec.ts"
       ],
       "acceptanceCriteria": [
         "Ein vorgeschalteter Zwei-Client-Spike prueft npm-API-Grenzen, offizielle Reconciliation, Undo/Redo, Bindings, Gruppen, Frames, Reihenfolge, Assets, Reconnect und den Aufwand eines Forks",
@@ -1537,11 +1539,11 @@
         "Initial Load, Realtime-Latenz, Speicher, Delta-/Full-Sync-Groesse und Reconnect werden gegen die dokumentierten Performancebudgets gemessen"
       ],
       "progress": {
-        "updatedAt": "2026-07-16",
+        "updatedAt": "2026-07-17",
         "architectureResearch": "completed",
         "selectedApproach": "canvas_native_excalidraw_scene_provider",
-        "implementation": "not_started",
-        "blockedBy": "Task 51 bleibt bis zur dokumentierten verantwortlichen oder rechtlichen Lizenzfreigabe in_progress",
+        "implementation": "completed",
+        "commercialReleaseGate": "blocked_by_task_51_pending_responsible_or_legal_review",
         "verifiedFacts": [
           "@excalidraw/excalidraw 0.18.1 ist installiert und exportiert reconcileElements, CaptureUpdateAction.NEVER, updateScene, onPointerUpdate, collaborators, getSceneElementsIncludingDeleted, getFiles und addFiles",
           "isCollaborating aktiviert nur den Collaboration-Modus der UI und startet keinen Room, Transport oder Persistenz",
@@ -1561,20 +1563,23 @@
           "Agenten verwenden elementbasierte validierte Patches und einen Review-Flow bei Same-Element-Userintervention",
           "Ein Package-Fork ist nur bei einem im Zwei-Client-Spike reproduzierten oeffentlichen API-Blocker zulaessig"
         ],
-        "remaining": [
-          "Task 51 rechtlich/verantwortlich abschliessen",
-          "Zwei-Client-Architecture-Spike gegen die exakte npm-Version ausfuehren",
-          "Postgres-Szenen-, Operations- und Asset-Schema implementieren",
-          "Excalidraw-WebSocket-Provider, Tickets, ACK/Resync und Presence implementieren",
-          "Editor, Whole-File-Write-Guards, Checkpoints, Lifecycle und Agent-Review integrieren",
-          "Integration-, Security-, Last-, UI- und E2E-Multi-User-Tests ausfuehren"
-        ]
+        "completionEvidence": [
+          "Canvas-nativer Provider auf /ws/collaboration/excalidraw mit Ticket-, Permission-, Origin-, Rate-Limit-, Heartbeat-, ACK- und Resync-Pruefung implementiert",
+          "Postgres-Szenen-, Operations-, Asset- und Agent-Review-Persistenz sowie portable .excalidraw-Checkpoints und Lifecycle-Integration implementiert",
+          "Editor verwendet offizielle reconcileElements-Semantik, Remote-Updates ohne Undo-Capture, 40-ms-Patch-Coalescing, 33-ms-Presence-Throttling und 20-s-Full-Resync",
+          "Whole-File-Autosave/-Reload/-Writes sind fuer aktive Scene-Rooms gesperrt; Agenten verwenden edit_excalidraw_scene mit CAS und Review nach User-Intervention",
+          "Kein Excalidraw-App-/excalidraw-room-Code kopiert, kein Package-Fork und keine neue Runtime-Abhaengigkeit eingefuehrt",
+          "Native Matrix gruen: Spike 20.000 Elemente 47,8 ms, zwei Clients Sequence 34, Postgres-Apply p95 1,1 ms, Assets, Security und Agent-Intervention",
+          "Playwright-E2E gruen in 27,4 s gegen einen frisch initialisierten Teststand mit zwei Usern, Presence, Konvergenz, Reload, Whole-File-Block, Agent Accept/Reject/Intervention und 900x650-UI"
+        ],
+        "remaining": []
       },
       "verification": [
         "tsx --conditions react-server scripts/excalidraw-collaboration-spike.ts",
         "tsx --conditions react-server scripts/excalidraw-live-collaboration-test.ts",
         "tsx --conditions react-server scripts/excalidraw-asset-collaboration-test.ts",
         "tsx --conditions react-server scripts/excalidraw-collaboration-security-test.ts",
+        "tsx --conditions react-server scripts/excalidraw-agent-collaboration-test.ts",
         "Zwei-/Drei-Client-Konvergenztest fuer verschiedene und gleichzeitig dasselbe Element",
         "Loesch-, Undo/Redo-, Binding-, Group-, Frame- und Fractional-Index-Test",
         "Offline-, Duplicate-Message-, Out-of-order-, ACK/Resync- und Server-Restart-Test",
@@ -1589,7 +1594,7 @@
         "npx tsc --noEmit --pretty false",
         "npm run lint",
         "npm run build",
-        "UI-/E2E-Multi-User-Test mit Playwright oder Chrome DevTools nach expliziter Freigabe"
+        "COLLABORATION_E2E=1 E2E_EXTERNAL_SERVER=1 playwright test tests/excalidraw-live-collaboration.spec.ts"
       ]
     }
   ]

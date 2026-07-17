@@ -305,6 +305,90 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_backup_expiry ON collaboration_yjs_state_backups (expires_at)');
 
   await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_excalidraw_states (
+      document_id text PRIMARY KEY,
+      workspace_id text NOT NULL,
+      organization_id text,
+      path text NOT NULL,
+      lifecycle_generation bigint NOT NULL DEFAULT 1,
+      excalidraw_version text NOT NULL,
+      scene_schema_version bigint NOT NULL DEFAULT 1,
+      elements_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+      shared_app_state_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+      assets_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+      scene_sequence bigint NOT NULL DEFAULT 0,
+      checkpoint_sequence bigint NOT NULL DEFAULT 0,
+      checkpoint_revision_id text,
+      canonical_hash text NOT NULL,
+      persisted_at bigint NOT NULL,
+      checkpointed_at bigint,
+      degraded_reason text,
+      status text NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'archived'))
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_workspace_path ON collaboration_excalidraw_states (workspace_id, path)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_persisted ON collaboration_excalidraw_states (persisted_at)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_excalidraw_operations (
+      document_id text NOT NULL,
+      message_id text NOT NULL,
+      lifecycle_generation bigint NOT NULL,
+      base_sequence bigint NOT NULL,
+      applied_sequence bigint NOT NULL,
+      actor_type text NOT NULL CHECK (actor_type IN ('user', 'agent', 'system')),
+      actor_id text,
+      initiated_by_user_id text,
+      accepted_delta_json jsonb NOT NULL DEFAULT '[]'::jsonb,
+      accepted_app_state_json jsonb NOT NULL DEFAULT '{}'::jsonb,
+      accepted_delta_hash text NOT NULL,
+      result_json jsonb NOT NULL,
+      created_at bigint NOT NULL,
+      PRIMARY KEY (document_id, message_id)
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_operation_sequence ON collaboration_excalidraw_operations (document_id, applied_sequence)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_excalidraw_assets (
+      workspace_id text NOT NULL,
+      file_id text NOT NULL,
+      content_sha256 text NOT NULL,
+      mime_type text NOT NULL,
+      size_bytes bigint NOT NULL,
+      storage_key text NOT NULL,
+      version bigint NOT NULL DEFAULT 1,
+      status text NOT NULL DEFAULT 'available' CHECK (status IN ('uploading', 'available', 'quarantined', 'orphaned')),
+      created_at bigint NOT NULL,
+      last_referenced_at bigint NOT NULL,
+      PRIMARY KEY (workspace_id, file_id)
+    )
+  `);
+  await pool.query('ALTER TABLE collaboration_excalidraw_assets DROP CONSTRAINT IF EXISTS collaboration_excalidraw_assets_workspace_id_content_sha256_key');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_asset_content ON collaboration_excalidraw_assets (workspace_id, content_sha256)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_asset_retention ON collaboration_excalidraw_assets (workspace_id, status, last_referenced_at)');
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS collaboration_excalidraw_agent_operations (
+      operation_id text PRIMARY KEY,
+      document_id text NOT NULL,
+      workspace_id text NOT NULL,
+      lifecycle_generation bigint NOT NULL,
+      observed_scene_sequence bigint NOT NULL,
+      initiated_by_user_id text NOT NULL,
+      actor_id text NOT NULL,
+      idempotency_key text NOT NULL,
+      status text NOT NULL,
+      patch_json jsonb NOT NULL,
+      result_json jsonb,
+      review_reason text,
+      cas_version bigint NOT NULL DEFAULT 0,
+      created_at bigint NOT NULL,
+      updated_at bigint NOT NULL,
+      UNIQUE (document_id, initiated_by_user_id, idempotency_key)
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_excalidraw_agent_status ON collaboration_excalidraw_agent_operations (document_id, status, updated_at)');
+
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_agent_operations (
       operation_id text PRIMARY KEY,
       document_id text NOT NULL,

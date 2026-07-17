@@ -53,6 +53,7 @@ const TOOL_DISPLAY: Record<string, ToolDisplayEntry> = {
   write: { label: 'Updated a file', labelDe: 'Datei aktualisiert', tone: 'file' },
   edit: { label: 'Updated a file', labelDe: 'Datei aktualisiert', tone: 'file' },
   edit_file: { label: 'Updated a file safely', labelDe: 'Datei sicher aktualisiert', tone: 'file' },
+  edit_excalidraw_scene: { label: 'Updated an Excalidraw scene', labelDe: 'Excalidraw-Szene aktualisiert', tone: 'file' },
   apply_patch: { label: 'Updated files', labelDe: 'Dateien aktualisiert', tone: 'file' },
   copy_path: { label: 'Copied files', labelDe: 'Dateien kopiert', tone: 'file' },
   move_path: { label: 'Moved files', labelDe: 'Dateien verschoben', tone: 'file' },

@@ -558,6 +558,7 @@ const server = http.createServer((req, res) => {
 
 let shutdownInProgress = false;
 let flushCollaborationDocuments = async () => {};
+let flushExcalidrawCollaborationDocuments = async () => {};
 
 function exitCodeForSignal(signal) {
   if (signal === 'SIGINT') return 130;
@@ -579,7 +580,10 @@ async function shutdownServer(signal) {
   forceExitTimer.unref?.();
 
   try {
-    await flushCollaborationDocuments();
+    await Promise.all([
+      flushCollaborationDocuments(),
+      flushExcalidrawCollaborationDocuments(),
+    ]);
   } catch (error) {
     console.error('[Startup] Error while flushing collaboration documents:', error);
   }
@@ -683,11 +687,16 @@ async function startServer() {
     const collaborationModule = require('./server/collaboration-server.ts');
     collaborationModule.createCollaborationServer(server);
     flushCollaborationDocuments = collaborationModule.flushCollaborationDocuments;
+    const excalidrawCollaborationModule = require('./server/excalidraw-collaboration/server.ts');
+    excalidrawCollaborationModule.createExcalidrawCollaborationServer(server);
+    flushExcalidrawCollaborationDocuments = excalidrawCollaborationModule.flushExcalidrawCollaborationDocuments;
     isCanvasWebSocketRequest = (requestUrl) => (
       websocketServer.isChatWebSocketRequest(requestUrl)
       || collaborationModule.isCollaborationWebSocketRequest(requestUrl)
+      || excalidrawCollaborationModule.isExcalidrawCollaborationWebSocketRequest(requestUrl)
     );
     console.log('[Startup] Collaboration WebSocket ready on ws://localhost:' + port + '/ws/collaboration');
+    console.log('[Startup] Excalidraw Collaboration WebSocket ready on ws://localhost:' + port + '/ws/collaboration/excalidraw');
     const { preloadAgentRuntimeModules } = await import('./server/agent-runtime-loader.ts');
     agentRuntimeWarmupPromise = preloadAgentRuntimeModules().then((result) => {
       console.log('[Startup] Agent runtime modules preloaded', result);

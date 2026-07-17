@@ -4,7 +4,7 @@ import crypto from 'node:crypto';
 import type * as YTypes from 'yjs';
 
 import { getDatabaseProvider, openDb } from '@/app/lib/db';
-import type { CollaborationRepresentation } from './types';
+import type { TextCollaborationRepresentation } from './types';
 import {
   createPlainTextYDoc,
   createRichMarkdownYDoc,
@@ -13,13 +13,18 @@ import {
 } from './markdown-state';
 import { getCollaborationRoomConnectionCount } from './runtime-state';
 import { Y } from './server-runtime';
+import {
+  archiveExcalidrawScenePaths,
+  moveExcalidrawScenePaths,
+  reactivateExcalidrawScenePath,
+} from '@/app/lib/excalidraw-collaboration/repository';
 
 export interface PersistedCollaborationState {
   documentId: string;
   workspaceId: string;
   organizationId: string | null;
   path: string;
-  representation: CollaborationRepresentation;
+  representation: TextCollaborationRepresentation;
   lifecycleGeneration: number;
   schemaVersion: number;
   yjsState: Uint8Array;
@@ -41,7 +46,7 @@ type StateRow = {
   workspace_id: string;
   organization_id: string | null;
   path: string;
-  representation: CollaborationRepresentation;
+  representation: TextCollaborationRepresentation;
   lifecycle_generation: number;
   schema_version: number;
   yjs_state: Buffer | Uint8Array;
@@ -140,7 +145,7 @@ export async function ensureCollaborationState(input: {
   workspaceId: string;
   organizationId: string | null;
   path: string;
-  representation: CollaborationRepresentation;
+  representation: TextCollaborationRepresentation;
   initialContent: string;
 }): Promise<PersistedCollaborationState> {
   assertPostgres();
@@ -309,7 +314,7 @@ function canonicalContentFromState(state: PersistedCollaborationState): string {
   }
 }
 
-function createValidatedFreshDocument(representation: CollaborationRepresentation, canonicalContent: string): YTypes.Doc {
+function createValidatedFreshDocument(representation: TextCollaborationRepresentation, canonicalContent: string): YTypes.Doc {
   const fresh = representation === 'plain_text'
     ? createPlainTextYDoc(canonicalContent)
     : createRichMarkdownYDoc(canonicalContent);
@@ -430,7 +435,7 @@ export async function compactCollaborationState(input: {
 export async function changeCollaborationRepresentation(input: {
   documentId: string;
   expectedLifecycleGeneration: number;
-  representation: CollaborationRepresentation;
+  representation: TextCollaborationRepresentation;
   schemaVersion: number;
 }): Promise<PersistedCollaborationState> {
   assertPostgres();
@@ -514,6 +519,7 @@ export async function movePersistedCollaborationPath(input: {
   newPath: string;
 }): Promise<void> {
   if (getDatabaseProvider() !== 'postgres') return;
+  await moveExcalidrawScenePaths(input);
   const database = await openDb();
   try {
     const oldPrefix = `${input.oldPath}/`;
@@ -547,6 +553,7 @@ export async function archivePersistedCollaborationPaths(input: {
   paths: string[];
 }): Promise<void> {
   if (getDatabaseProvider() !== 'postgres' || input.paths.length === 0) return;
+  await archiveExcalidrawScenePaths(input);
   const database = await openDb();
   try {
     await database.run('BEGIN');
@@ -583,6 +590,7 @@ export async function reactivatePersistedCollaborationPath(input: {
   path: string;
 }): Promise<void> {
   if (getDatabaseProvider() !== 'postgres') return;
+  await reactivateExcalidrawScenePath(input);
   const database = await openDb();
   try {
     await database.run(

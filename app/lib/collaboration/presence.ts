@@ -56,7 +56,7 @@ function publish(workspaceId: string, documentId: string): void {
   for (const listener of store.listeners.get(workspaceId) ?? []) listener(message);
 }
 
-/** Replaces one document's awareness projection and deduplicates a user across browser tabs. */
+/** Replaces one document's human awareness projection without deleting agent presence. */
 export function replaceDocumentPresence(
   workspaceId: string,
   documentId: string,
@@ -65,7 +65,7 @@ export function replaceDocumentPresence(
   const entries = store.entries.get(workspaceId) ?? new Map<string, FilePresenceEntry>();
   store.entries.set(workspaceId, entries);
   for (const [key, entry] of entries) {
-    if (entry.documentId === documentId) entries.delete(key);
+    if (entry.documentId === documentId && entry.actorType === 'user') entries.delete(key);
   }
   for (const entry of nextEntries) {
     const key = entryKey(entry);

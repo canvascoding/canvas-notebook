@@ -7,7 +7,7 @@ import type Database from 'better-sqlite3';
 import { openOrganizationBootstrapDatabase } from '@/app/lib/organization/bootstrap';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
-export type FileCollaborationStrategy = 'crdt_text' | 'revision_check' | 'exclusive_lock';
+export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
 export type FileActorType = 'user' | 'agent' | 'automation' | 'system';
 export type FileLockType = 'edit' | 'upload' | 'agent_write';
 export type FileLockStatus = 'active' | 'released' | 'expired' | 'force_released';
@@ -56,7 +56,7 @@ export interface CollaborationDocumentRecord {
   workspaceId: string;
   workspaceType: WorkspaceContext['workspaceType'];
   path: string;
-  provider: 'yjs';
+  provider: 'yjs' | 'excalidraw';
   stateVersion: number;
   snapshotRevisionId: string | null;
   status: 'active' | 'archived';
@@ -68,6 +68,7 @@ export interface FileCollaborationState {
   path: string;
   strategy: FileCollaborationStrategy;
   crdtCapable: boolean;
+  sceneCapable: boolean;
   lockRequired: boolean;
   requiresRevisionCheck: boolean;
   latestRevision: FileRevisionRecord | null;
@@ -110,6 +111,7 @@ export class FileCollaborationPolicyError extends Error {
 }
 
 const CRDT_TEXT_EXTENSIONS = new Set(['md', 'markdown', 'txt']);
+const EXCALIDRAW_EXTENSIONS = new Set(['excalidraw']);
 const EXCLUSIVE_LOCK_EXTENSIONS = new Set([
   'doc',
   'docx',
@@ -214,7 +216,7 @@ type CollaborationDocumentRow = {
   workspace_id: string;
   workspace_type: WorkspaceContext['workspaceType'];
   path: string;
-  provider: 'yjs';
+  provider: 'yjs' | 'excalidraw';
   state_version: number;
   snapshot_revision_id: string | null;
   status: 'active' | 'archived';
@@ -239,6 +241,7 @@ function fileExtension(filePath: string): string {
 export function detectFileCollaborationStrategy(filePath: string): FileCollaborationStrategy {
   const extension = fileExtension(filePath);
   if (CRDT_TEXT_EXTENSIONS.has(extension)) return 'crdt_text';
+  if (EXCALIDRAW_EXTENSIONS.has(extension)) return 'excalidraw_scene';
   if (EXCLUSIVE_LOCK_EXTENSIONS.has(extension)) return 'exclusive_lock';
   return 'revision_check';
 }
@@ -513,16 +516,17 @@ function getCollaborationDocument(
   sqlite: Sqlite,
   workspaceId: string,
   filePath: string,
+  provider: CollaborationDocumentRecord['provider'],
 ): CollaborationDocumentRecord | null {
   const row = sqlite.prepare(`
     SELECT *
     FROM collaboration_documents
     WHERE workspace_id = ?
       AND path = ?
-      AND provider = 'yjs'
+      AND provider = ?
       AND status = 'active'
     LIMIT 1
-  `).get(workspaceId, filePath) as CollaborationDocumentRow | undefined;
+  `).get(workspaceId, filePath, provider) as CollaborationDocumentRow | undefined;
   return mapDocument(row);
 }
 
@@ -530,10 +534,11 @@ function ensureCollaborationDocument(
   sqlite: Sqlite,
   workspace: WorkspaceContext,
   filePath: string,
+  provider: CollaborationDocumentRecord['provider'],
   snapshotRevisionId: string | null,
   nowMs: number,
 ): CollaborationDocumentRecord {
-  const existing = getCollaborationDocument(sqlite, workspace.workspaceId, filePath);
+  const existing = getCollaborationDocument(sqlite, workspace.workspaceId, filePath, provider);
   if (existing) return existing;
 
   const id = `collab-doc-${randomUUID()}`;
@@ -542,7 +547,7 @@ function ensureCollaborationDocument(
       id, organization_id, customer_id, project_id, workspace_id, workspace_type, path,
       provider, state_version, snapshot_revision_id, status, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'yjs', 0, ?, 'active', ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, 'active', ?, ?)
   `).run(
     id,
     workspace.organizationId ?? null,
@@ -551,12 +556,13 @@ function ensureCollaborationDocument(
     workspace.workspaceId,
     workspace.workspaceType,
     filePath,
+    provider,
     snapshotRevisionId,
     nowMs,
     nowMs,
   );
 
-  const created = getCollaborationDocument(sqlite, workspace.workspaceId, filePath);
+  const created = getCollaborationDocument(sqlite, workspace.workspaceId, filePath, provider);
   if (!created) {
     throw new Error(`Failed to create collaboration document for ${filePath}.`);
   }
@@ -576,16 +582,19 @@ function buildState(params: {
   const latestRevision = params.latestRevision ?? getLatestRevision(params.sqlite, params.workspace.workspaceId, params.path);
   const activeLock = requiresPolicy ? getActiveLock(params.sqlite, params.workspace.workspaceId, params.path, params.nowMs) : null;
   const crdtCapable = requiresPolicy && strategy === 'crdt_text';
-  const document = crdtCapable
+  const sceneCapable = requiresPolicy && strategy === 'excalidraw_scene';
+  const provider = sceneCapable ? 'excalidraw' : 'yjs';
+  const document = crdtCapable || sceneCapable
     ? params.ensureDocument
-      ? ensureCollaborationDocument(params.sqlite, params.workspace, params.path, latestRevision?.id ?? null, params.nowMs)
-      : getCollaborationDocument(params.sqlite, params.workspace.workspaceId, params.path)
+      ? ensureCollaborationDocument(params.sqlite, params.workspace, params.path, provider, latestRevision?.id ?? null, params.nowMs)
+      : getCollaborationDocument(params.sqlite, params.workspace.workspaceId, params.path, provider)
     : null;
 
   return {
     path: params.path,
     strategy,
     crdtCapable,
+    sceneCapable,
     lockRequired: requiresPolicy && strategy === 'exclusive_lock',
     requiresRevisionCheck: requiresPolicy,
     latestRevision,
@@ -669,8 +678,16 @@ export function ensureFileRevisionForCurrentContent(params: {
       throw new Error(`Failed to create file revision for ${normalizedPath}.`);
     }
 
-    if (detectFileCollaborationStrategy(normalizedPath) === 'crdt_text' && workspaceRequiresCollaborationPolicy(params.workspace)) {
-      ensureCollaborationDocument(sqlite, params.workspace, normalizedPath, created.id, nowMs);
+    const strategy = detectFileCollaborationStrategy(normalizedPath);
+    if ((strategy === 'crdt_text' || strategy === 'excalidraw_scene') && workspaceRequiresCollaborationPolicy(params.workspace)) {
+      ensureCollaborationDocument(
+        sqlite,
+        params.workspace,
+        normalizedPath,
+        strategy === 'excalidraw_scene' ? 'excalidraw' : 'yjs',
+        created.id,
+        nowMs,
+      );
     }
 
     return created;
@@ -850,7 +867,7 @@ export function assertFileCollaborationWriteAllowed(params: {
       });
     }
 
-    if (state.crdtCapable && state.document) {
+    if ((state.crdtCapable || state.sceneCapable) && state.document) {
       throw new FileCollaborationPolicyError({
         code: 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED',
         status: 409,

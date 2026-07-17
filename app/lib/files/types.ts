@@ -29,7 +29,7 @@ export interface FileStats {
   sha256?: string;
 }
 
-export type FileCollaborationStrategy = 'crdt_text' | 'revision_check' | 'exclusive_lock';
+export type FileCollaborationStrategy = 'crdt_text' | 'excalidraw_scene' | 'revision_check' | 'exclusive_lock';
 
 export interface FileRevisionRecord {
   id: string;
@@ -52,7 +52,7 @@ export interface FileLockState {
 
 export interface CollaborationDocumentState {
   id: string;
-  provider: 'yjs';
+  provider: 'yjs' | 'excalidraw';
   stateVersion: number;
   snapshotRevisionId: string | null;
   status: string;
@@ -62,6 +62,7 @@ export interface FileCollaborationState {
   path: string;
   strategy: FileCollaborationStrategy;
   crdtCapable: boolean;
+  sceneCapable: boolean;
   lockRequired: boolean;
   requiresRevisionCheck: boolean;
   latestRevision: FileRevisionRecord | null;

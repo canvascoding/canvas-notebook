@@ -1,6 +1,6 @@
 # Collaboration und File Conflict Policy
 
-Stand: 2026-07-15
+Stand: 2026-07-17
 
 ## Zweck
 
@@ -8,14 +8,14 @@ Dieses Dokument ist der verbindliche Detailplan fuer echte Zusammenarbeit an Tea
 
 - bereits vorhandene Revision-, Lock- und Konfliktschutz-Grundlagen,
 - noch zu implementierende Yjs-basierte Real-Time Collaboration fuer Markdown und Text,
-- separat geplante Excalidraw-Scene-Collaboration ausserhalb des Yjs-Textmodells,
+- separat implementierte Excalidraw-Scene-Collaboration ausserhalb des Yjs-Textmodells,
 - Workspace-weite Presence im File Tree vor dem Oeffnen einer Datei,
 - sichere Agent-, Automation- und externe Dateiaenderungen,
 - Lock-/Check-out-Verhalten fuer nicht merge-faehige Dateiarten.
 
 Es konkretisiert die Aufgaben `34`, `43` und `44` und ist die Grundlage fuer Aufgabe `48` im Aufgabenindex.
 
-Excalidraw-Live-Collaboration ist als eigene Aufgabe `52` in `22-excalidraw-live-collaboration-policy.md` geplant und erweitert den Scope von Aufgabe `48` nicht.
+Excalidraw-Live-Collaboration ist als eigene Aufgabe `52` gemaess `22-excalidraw-live-collaboration-policy.md` implementiert und erweitert den Scope von Aufgabe `48` nicht.
 
 ## Verbindliche Statusabgrenzung
 
@@ -45,7 +45,11 @@ Noch nicht vorhanden und Teil der spaeteren Aufgabe `48`:
 
 Todo `44` gilt deshalb nur fuer die abgeschlossene Foundation aus Revisionen, Locks, Metadaten und Guards. Echte Live-Collaboration bleibt eine eigene geplante Aufgabe.
 
-Ebenfalls noch nicht vorhanden und bewusst nicht Teil von Aufgabe `48` ist eine Excalidraw-spezifische Scene-Collaboration. Der bestehende `.excalidraw`-Editor nutzt Whole-File-JSON-Autosave und `isCollaborating=false`; Aufgabe `52` beginnt deshalb mit einem eigenen Architektur-Spike.
+Bewusst nicht Teil von Aufgabe `48` ist die inzwischen in Aufgabe `52`
+implementierte Excalidraw-spezifische Scene-Collaboration. Sie verwendet einen
+eigenen Canvas-Provider, `/ws/collaboration/excalidraw`, Postgres-Szenenstate,
+separate Assets und portable Datei-Checkpoints; aktive Rooms verwenden keinen
+parallelen Whole-File-JSON-Autosave.
 
 ## Produktentscheidung
 
@@ -56,7 +60,7 @@ V1-Ziel:
 - Markdown und reine Textdateien (`.md`, `.markdown`, `.txt`) erhalten echte Yjs-basierte Real-Time Collaboration, soweit die Datei innerhalb der definierten Format- und Groessenlimits liegt.
 - Nutzer sehen bereits im File Tree oder File Explorer, welche Teammitglieder eine Datei gerade ansehen oder aktiv bearbeiten, ohne selbst den Dokument-Room zu oeffnen.
 - QMD-, MDX-, JSON-, YAML- und Code-Dateien bleiben in V1 revision- und konfliktgeschuetzt, aber nicht live kollaborativ.
-- `.excalidraw` bleibt bis Aufgabe `52` revision- und konfliktgeschuetzt und erhaelt danach nur ueber einen separaten Scene-Provider echte Live-Collaboration; die Datei wird nicht als JSON-String in `Y.Text` gespeichert.
+- `.excalidraw` besitzt ueber den separaten Scene-Provider aus Aufgabe `52` echte Live-Collaboration; die Datei wird nicht als JSON-String in `Y.Text` gespeichert.
 - Office-Dateien, PDFs, Bilder, Videos, Audio und andere binaere Assets verwenden Lock-/Check-out-, Revision- und Konfliktlogik.
 - Agenten, Automations und externe File Writes duerfen keine aktive menschliche Bearbeitung ueberschreiben.
 - Alle Speicher-, Presence- und Transportpfade bleiben workspace-aware, permission-geprueft und auditierbar.
@@ -69,7 +73,7 @@ V1-Ziel:
 | `.md`, `.markdown`, rich-faehig | strukturierte Live-Collaboration | `Y.XmlFragment` | Tiptap Collaboration |
 | `.md`, `.markdown`, source-only | Raw-Text-Live-Collaboration | `Y.Text` | CodeMirror-Yjs-Binding |
 | `.txt` | Raw-Text-Live-Collaboration | `Y.Text` | CodeMirror-Yjs-Binding |
-| `.excalidraw` | separate elementbasierte Scene-Collaboration in Aufgabe `52` | keiner; eigener Excalidraw Provider | vorhandener Excalidraw npm-Editor |
+| `.excalidraw` | separate elementbasierte Scene-Collaboration, implementiert in Aufgabe `52` | keiner; eigener Excalidraw Provider | vorhandener Excalidraw npm-Editor |
 | `.mdx`, `.qmd` | Revision Check und Konfliktanzeige | keiner | vorhandener Source Editor |
 | JSON/YAML/Code | Revision Check und Konfliktanzeige | keiner | vorhandener Code Editor |
 | Word/Excel/PowerPoint | exklusiver Lock/Check-out plus Revision | keiner | vorhandene Office-Flows |

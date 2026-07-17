@@ -9,7 +9,7 @@ import type * as Y from 'yjs';
 import { workspaceHeaders } from '@/app/lib/files/client';
 import type {
   CollaborationConnectionStatus,
-  CollaborationRepresentation,
+  TextCollaborationRepresentation,
   CollaborationSessionResponse,
 } from './types';
 
@@ -43,7 +43,7 @@ function emit(entry: RegistryEntry): void {
   for (const listener of entry.listeners) listener();
 }
 
-async function requestSession(path: string, representation: CollaborationRepresentation): Promise<CollaborationSessionResponse> {
+async function requestSession(path: string, representation: TextCollaborationRepresentation): Promise<CollaborationSessionResponse> {
   const response = await fetch('/api/files/collaboration/session', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...workspaceHeaders() },
@@ -60,7 +60,7 @@ function websocketUrl(relative: string): string {
   return url.toString();
 }
 
-function createEntry(key: string, path: string, representation: CollaborationRepresentation): RegistryEntry {
+function createEntry(key: string, path: string, representation: TextCollaborationRepresentation): RegistryEntry {
   const entry: RegistryEntry = {
     key,
     refs: 0,
@@ -183,7 +183,7 @@ export function useCollaborationDocument(input: {
   enabled: boolean;
   workspaceId: string | null;
   path: string | undefined;
-  representation: CollaborationRepresentation;
+  representation: TextCollaborationRepresentation;
 }): CollaborationDocument | null {
   const key = input.enabled && input.workspaceId && input.path
     ? `${input.workspaceId}\0${input.path}\0${input.representation}`

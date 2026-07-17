@@ -65,7 +65,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Agent Skill Creation und Install Policy fuer user-scoped lokale Skills ist dokumentiert.
 - Organization Agent Provisioning und ein eigenes Progressive-Disclosure-Agent-Management-Toolset mit vollstaendiger UI-/API-Paritaet sind dokumentiert und in den Aufgaben `49` und `50` erfasst.
 - Die Drittanbieter-/MIT-Lizenzinventur und eine verpflichtend mitausgelieferte Notice-Liste sind als eigene Aufgabe `51` geplant.
-- Excalidraw-Live-Collaboration ist bewusst nicht Teil von Aufgabe `48`; sie ist mit einem vorgeschalteten Architektur-Spike und eigenem Scene-Provider als Aufgabe `52` geplant.
+- Excalidraw-Live-Collaboration ist bewusst nicht Teil von Aufgabe `48`; der Architektur-Spike und der eigene Scene-Provider sind in Aufgabe `52` implementiert und UI-/E2E-verifiziert.
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
 - Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
 - Workspace-Modell, Workspace-Service, Bootstrap-Erzeugung und `/api/workspaces` in Canvas Notebook sind eingefuehrt.

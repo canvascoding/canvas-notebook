@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { AlertCircle, Code2, RefreshCw, Workflow } from 'lucide-react';
+import { AlertCircle, Check, Cloud, CloudOff, Code2, LoaderCircle, RefreshCw, UsersRound, Workflow } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 import {
   CaptureUpdateAction,
@@ -10,13 +10,16 @@ import {
   Footer,
   MainMenu,
   WelcomeScreen,
+  reconcileElements,
   serializeAsJSON,
 } from '@excalidraw/excalidraw';
 import type {
   AppState,
   BinaryFiles,
+  Collaborator,
   ExcalidrawInitialDataState,
   ExcalidrawImperativeAPI,
+  SocketId,
 } from '@excalidraw/excalidraw/types';
 import type { OrderedExcalidrawElement } from '@excalidraw/excalidraw/element/types';
 import type { ExcalidrawElementSkeleton } from '@excalidraw/excalidraw/data/transform';
@@ -33,12 +36,16 @@ import { Textarea } from '@/components/ui/textarea';
 import { useTheme } from '@/app/components/ThemeProvider';
 import { EXCALIDRAW_FILE_SOURCE, createEmptyExcalidrawFileContent } from '@/app/lib/excalidraw-file';
 import { parseExcalidrawContent } from '@/app/lib/excalidraw-scene';
+import { useExcalidrawCollaboration } from '@/app/lib/excalidraw-collaboration/client';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { CodeEditor } from './CodeEditorClient';
+import { ExcalidrawAgentOperations } from './ExcalidrawAgentOperations';
 
 interface ExcalidrawEditorProps {
   path: string;
   value: string;
   onChange: (content: string) => void;
+  collaborationEnabled?: boolean;
 }
 
 interface SceneBounds {
@@ -167,11 +174,18 @@ function offsetElements(
   })) as OrderedExcalidrawElement[];
 }
 
-export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProps) {
+export function ExcalidrawEditor({ path, value, onChange, collaborationEnabled = false }: ExcalidrawEditorProps) {
   const t = useTranslations('notebook');
   const locale = useLocale();
   const { resolvedTheme } = useTheme();
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const collaboration = useExcalidrawCollaboration({
+    enabled: collaborationEnabled,
+    workspaceId: activeWorkspaceId,
+    path,
+  });
   const apiRef = useRef<ExcalidrawImperativeAPI | null>(null);
+  const loadingAssetsRef = useRef(new Set<string>());
   const lastSerializedRef = useRef(value);
   const activePathRef = useRef(path);
   const [textModePath, setTextModePath] = useState<string | null>(null);
@@ -203,7 +217,7 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
 
     lastSerializedRef.current = effectiveContent;
 
-    if (isTextMode || session.invalid || !session.initialData) {
+    if (collaborationEnabled || isTextMode || session.invalid || !session.initialData) {
       return;
     }
 
@@ -221,7 +235,63 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
       appState: toUpdateSceneAppState(session.initialData.appState),
       captureUpdate: CaptureUpdateAction.NEVER,
     });
-  }, [effectiveContent, isTextMode, path, session.initialData, session.invalid]);
+  }, [collaborationEnabled, effectiveContent, isTextMode, path, session.initialData, session.invalid]);
+
+  const collaboratorMap = useMemo(() => new Map<SocketId, Collaborator>(
+    (collaboration?.collaborators ?? []).map((collaborator) => {
+      const socketId = collaborator.connectionId as SocketId;
+      return [socketId, {
+        id: collaborator.user.id,
+        socketId,
+        username: collaborator.user.name,
+        color: {
+          background: collaborator.user.colorLight,
+          stroke: collaborator.user.color,
+        },
+        pointer: collaborator.payload.pointer,
+        button: collaborator.payload.button,
+        selectedElementIds: collaborator.payload.selectedElementIds,
+      } satisfies Collaborator];
+    }),
+  ), [collaboration?.collaborators]);
+  const remoteSceneRevision = collaboration?.remoteUpdate?.revision ?? 0;
+
+  useEffect(() => {
+    if (!collaborationEnabled || !collaboration?.remoteUpdate) return;
+    const api = apiRef.current;
+    if (!api) return;
+    const remote = collaboration.remoteUpdate;
+    const reconciled = reconcileElements(
+      api.getSceneElementsIncludingDeleted(),
+      remote.elements as unknown as Parameters<typeof reconcileElements>[1],
+      api.getAppState(),
+    );
+    api.updateScene({
+      elements: reconciled,
+      appState: toUpdateSceneAppState(remote.appState as unknown as ExcalidrawInitialDataState['appState']),
+      captureUpdate: CaptureUpdateAction.NEVER,
+    });
+    const localFiles = api.getFiles();
+    for (const asset of remote.assets) {
+      if (localFiles[asset.fileId as keyof BinaryFiles] || loadingAssetsRef.current.has(asset.fileId)) continue;
+      loadingAssetsRef.current.add(asset.fileId);
+      void collaboration.loadAsset(asset)
+        .then((file) => api.addFiles([file]))
+        .catch((error) => api.setToast({
+          message: error instanceof Error ? error.message : t('collaboration.degraded'),
+          duration: 4000,
+        }))
+        .finally(() => loadingAssetsRef.current.delete(asset.fileId));
+    }
+    // Presence emits independently at pointer frequency. Only a new scene
+    // revision may trigger the comparatively expensive element reconciliation.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [collaborationEnabled, remoteSceneRevision, t]);
+
+  useEffect(() => {
+    if (!collaborationEnabled) return;
+    apiRef.current?.updateScene({ collaborators: collaboratorMap, captureUpdate: CaptureUpdateAction.NEVER });
+  }, [collaborationEnabled, collaboratorMap]);
 
   const langCode = useMemo(() => (
     locale.toLowerCase().startsWith('de') ? 'de-DE' : 'en'
@@ -232,12 +302,47 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
     appState: AppState,
     files: BinaryFiles
   ) => {
+    if (collaborationEnabled && collaboration) {
+      collaboration.submitLocalScene(elements, appState, files);
+      collaboration.sendSelection(appState.selectedElementIds as Record<string, true>);
+      return;
+    }
     const serialized = serializeCanvasNotebookScene(elements, appState, files);
 
     if (serialized === lastSerializedRef.current) return;
     lastSerializedRef.current = serialized;
     onChange(serialized);
-  }, [onChange]);
+  }, [collaboration, collaborationEnabled, onChange]);
+
+  const collaborationInitialData = useMemo<ExcalidrawInitialDataState | null>(() => {
+    if (!collaborationEnabled) return session.initialData;
+    const initial = collaboration?.initialSnapshot;
+    if (!initial) return null;
+    return {
+      elements: initial.elements as unknown as ExcalidrawInitialDataState['elements'],
+      appState: initial.appState as ExcalidrawInitialDataState['appState'],
+      files: {},
+      scrollToContent: true,
+    };
+  }, [collaboration?.initialSnapshot, collaborationEnabled, session.initialData]);
+
+  const collaborationStatus = collaboration?.status ?? 'connecting';
+  const collaborationStatusLabel = collaborationStatus === 'connecting'
+    ? t('collaboration.connecting')
+    : collaborationStatus === 'reconnecting' || collaborationStatus === 'offline'
+      ? t('collaboration.offline')
+      : collaborationStatus === 'persisting'
+        ? t('collaboration.persisting')
+        : collaborationStatus === 'degraded'
+          ? t('collaboration.degraded')
+          : collaborationStatus === 'read_only'
+            ? t('collaboration.readOnly')
+            : t('collaboration.live');
+  const collaborationReadOnly = collaborationEnabled && (
+    !collaboration?.session
+    || collaboration.session.permission !== 'write'
+    || collaborationStatus === 'degraded'
+  );
 
   const handleInitializeDrawing = useCallback(() => {
     const nextContent = createEmptyExcalidrawFileContent();
@@ -327,7 +432,7 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
     return <CodeEditor value={value} onChange={onChange} readOnly={false} path={path} />;
   }
 
-  if (session.invalid) {
+  if (session.invalid && !collaborationEnabled) {
     return (
       <div className="flex h-full min-h-0 flex-col items-center justify-center gap-4 bg-background p-6 text-center">
         <div className="flex max-w-md flex-col items-center gap-2">
@@ -349,18 +454,68 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
     );
   }
 
+  if (collaborationEnabled && !collaborationInitialData) {
+    return (
+      <div className="flex h-full min-h-0 flex-col items-center justify-center gap-3 bg-background p-6 text-center">
+        {collaborationStatus === 'degraded' ? (
+          <AlertCircle className="h-8 w-8 text-destructive" />
+        ) : (
+          <LoaderCircle className="h-8 w-8 animate-spin text-primary" />
+        )}
+        <div className="max-w-md space-y-1">
+          <p className="text-sm font-medium text-foreground">{collaborationStatusLabel}</p>
+          {collaboration?.error ? <p className="text-xs text-muted-foreground">{collaboration.error}</p> : null}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <>
-      <div className="h-full min-h-0 bg-background">
+      <div className="relative h-full min-h-0 bg-background">
         <Excalidraw
           key={`${path}:${resetNonce}`}
           excalidrawAPI={(api) => { apiRef.current = api; }}
-          initialData={session.initialData}
+          initialData={collaborationInitialData}
           onChange={handleExcalidrawChange}
+          onPointerUpdate={(payload) => collaboration?.sendPointer(payload)}
           langCode={langCode}
           theme={resolvedTheme}
           name={path.split('/').pop() ?? path}
-          isCollaborating={false}
+          isCollaborating={collaborationEnabled && Boolean(collaboration?.session)}
+          viewModeEnabled={collaborationReadOnly}
+          renderTopRightUI={() => collaborationEnabled ? (
+            <div
+              data-testid="excalidraw-collaboration-status"
+              data-collaborator-count={collaboration?.collaborators.length ?? 0}
+              className="pointer-events-auto flex max-w-[min(420px,55vw)] items-center gap-2 rounded-full border border-border/70 bg-background/90 px-2.5 py-1.5 text-xs text-foreground shadow-lg backdrop-blur-md"
+              title={collaboration?.error || collaborationStatusLabel}
+              aria-label={collaborationStatusLabel}
+            >
+              <span className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full ${
+                collaborationStatus === 'degraded' || collaborationStatus === 'offline' || collaborationStatus === 'reconnecting'
+                  ? 'bg-destructive/10 text-destructive'
+                  : 'bg-primary/10 text-primary'
+              }`}>
+                {collaborationStatus === 'connecting' || collaborationStatus === 'persisting' || collaborationStatus === 'reconnecting' ? (
+                  <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+                ) : collaborationStatus === 'degraded' || collaborationStatus === 'offline' ? (
+                  <CloudOff className="h-3.5 w-3.5" />
+                ) : collaborationStatus === 'saved' ? (
+                  <Check className="h-3.5 w-3.5" />
+                ) : (
+                  <Cloud className="h-3.5 w-3.5" />
+                )}
+              </span>
+              <span className="truncate font-medium">{collaborationStatusLabel}</span>
+              {(collaboration?.collaborators.length ?? 0) > 0 ? (
+                <span className="flex shrink-0 items-center gap-1 rounded-full bg-muted px-2 py-1 text-muted-foreground">
+                  <UsersRound className="h-3.5 w-3.5" />
+                  {collaboration?.collaborators.length}
+                </span>
+              ) : null}
+            </div>
+          ) : null}
           aiEnabled={false}
           autoFocus
           UIOptions={{
@@ -408,10 +563,14 @@ export function ExcalidrawEditor({ path, value, onChange }: ExcalidrawEditorProp
           </WelcomeScreen>
           <Footer>
             <div className="pointer-events-none select-none rounded-md bg-background/80 px-2 py-1 text-[11px] text-muted-foreground shadow-sm backdrop-blur">
-              {t('excalidrawFooter')}
+              {collaborationEnabled ? collaborationStatusLabel : t('excalidrawFooter')}
             </div>
           </Footer>
         </Excalidraw>
+        <ExcalidrawAgentOperations
+          documentId={collaboration?.session?.documentId ?? null}
+          readOnly={collaborationReadOnly}
+        />
       </div>
       <Dialog open={mermaidDialogOpen} onOpenChange={handleMermaidDialogOpenChange}>
         <DialogContent className="sm:max-w-2xl">

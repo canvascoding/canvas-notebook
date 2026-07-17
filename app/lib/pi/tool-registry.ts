@@ -165,11 +165,14 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots', 'transcribe_audio'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
-  if (['write', 'edit', 'edit_file', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['write', 'edit', 'edit_file', 'edit_excalidraw_scene', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
   }
   if (['write', 'edit_file', 'apply_patch', 'restore_file_snapshot'].includes(tool.name)) {
     notes.push('Creates an undo snapshot and returns a diff when it changes a file.');
+  }
+  if (tool.name === 'edit_excalidraw_scene') {
+    notes.push('Mutates authoritative Excalidraw elements with optimistic version checks; conflicts require human review.');
   }
   if (['copy_path', 'move_path', 'delete_path'].includes(tool.name)) {
     notes.push('Does not snapshot file contents; intended for bulk path operations with clear UI reporting.');

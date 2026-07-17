@@ -5,7 +5,7 @@ import { runWithAgentExecutionContext } from '../app/lib/pi/agent-execution-cont
 import { piTools } from '../app/lib/pi/core-tools';
 
 type DriverInput = {
-  toolName: 'read' | 'edit_file' | 'apply_patch';
+  toolName: 'read' | 'edit_file' | 'apply_patch' | 'edit_excalidraw_scene';
   toolCallId: string;
   params: Record<string, unknown>;
   context: AgentExecutionContext;

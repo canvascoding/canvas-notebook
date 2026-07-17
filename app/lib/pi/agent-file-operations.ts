@@ -13,6 +13,7 @@ import {
   assertFileCollaborationWriteAllowed,
   ensureFileRevisionForCurrentContent,
   getFileCollaborationState,
+  initializeCopiedFileCollaborationPaths,
   moveFileCollaborationPath,
 } from '@/app/lib/files/collaboration-policy';
 import {
@@ -38,6 +39,12 @@ import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/
 import { ensureAgentRuntimeTempDir, resolveAgentRuntimeTempDir } from '@/app/lib/pi/agent-runtime-temp';
 import { getStudioRoot, getStudioWorkspaceRoot } from '@/app/lib/integrations/studio-workspace';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import {
+  createExcalidrawAgentOperation,
+  type ExcalidrawAgentOperation,
+  type ExcalidrawAgentSceneAction,
+} from '@/app/lib/excalidraw-collaboration/agent-operations';
+import { loadExcalidrawScene } from '@/app/lib/excalidraw-collaboration/repository';
 
 const SNAPSHOT_DIR_NAME = 'agent-file-snapshots';
 const MAX_DIFF_CHARS = 24_000;
@@ -519,6 +526,30 @@ function collaborativeAgentFileContext(fullPath: string): {
   };
 }
 
+function collaborativeAgentExcalidrawContext(fullPath: string): {
+  workspace: WorkspaceContext;
+  executionContext: AgentExecutionContext;
+  relativePath: string;
+  documentId: string;
+} | null {
+  const workspace = getAgentWorkspaceContext();
+  const executionContext = getAgentExecutionContext();
+  if (!workspace || !executionContext || !isPathWithin(fullPath, workspace.rootPath)) return null;
+  const relativePath = workspaceRelativeAgentPath(workspace, fullPath);
+  const collaboration = getFileCollaborationState({
+    workspace,
+    path: relativePath,
+    ensureDocument: false,
+  });
+  if (!collaboration.sceneCapable || collaboration.document?.provider !== 'excalidraw') return null;
+  return {
+    workspace,
+    executionContext,
+    relativePath,
+    documentId: collaboration.document.id,
+  };
+}
+
 function collaborationAgentIdentity(executionContext: AgentExecutionContext) {
   return {
     initiatedByUserId: executionContext.userId,
@@ -537,6 +568,63 @@ export async function readAgentCollaborativeTextFile(
   return readCurrentCollaborationTextSnapshot({
     documentId: collaboration.documentId,
     workspace: collaboration.workspace,
+  });
+}
+
+export async function readAgentCollaborativeExcalidrawFile(fullPath: string): Promise<{
+  content: string;
+  canonicalHash: string;
+  documentId: string;
+  sceneSequence: number;
+  lifecycleGeneration: number;
+} | null> {
+  if (getDatabaseProvider() !== 'postgres') return null;
+  const collaboration = collaborativeAgentExcalidrawContext(fullPath);
+  if (!collaboration) return null;
+  const state = await loadExcalidrawScene(collaboration.documentId);
+  if (!state || state.workspaceId !== collaboration.workspace.workspaceId || state.status !== 'active') return null;
+  return {
+    content: JSON.stringify({
+      type: 'excalidraw-live-scene',
+      version: 1,
+      documentId: state.documentId,
+      sceneSequence: state.sceneSequence,
+      lifecycleGeneration: state.lifecycleGeneration,
+      canonicalHash: state.canonicalHash,
+      elements: state.elements,
+      appState: state.appState,
+      assets: state.assets,
+    }, null, 2),
+    canonicalHash: state.canonicalHash,
+    documentId: state.documentId,
+    sceneSequence: state.sceneSequence,
+    lifecycleGeneration: state.lifecycleGeneration,
+  };
+}
+
+export async function editAgentExcalidrawScene(params: {
+  path: string;
+  observedSceneSequence: number;
+  actions: ExcalidrawAgentSceneAction[];
+  idempotencyKey: string;
+}): Promise<ExcalidrawAgentOperation> {
+  const fullPath = resolveAgentPath(params.path);
+  await assertAgentPathAllowed(fullPath);
+  const collaboration = collaborativeAgentExcalidrawContext(fullPath);
+  if (!collaboration) {
+    throw new Error('edit_excalidraw_scene requires an active shared .excalidraw document. Read the file first to obtain its live scene sequence and element versions.');
+  }
+  if (!collaboration.workspace.permissions.canWrite || !collaboration.executionContext.canWrite) {
+    throw new Error('Workspace write access is required for Excalidraw scene edits.');
+  }
+  return createExcalidrawAgentOperation({
+    workspace: collaboration.workspace,
+    documentId: collaboration.documentId,
+    observedSceneSequence: params.observedSceneSequence,
+    actions: params.actions,
+    initiatedByUserId: collaboration.executionContext.userId,
+    actorId: collaboration.executionContext.agentId || 'canvas-agent',
+    idempotencyKey: params.idempotencyKey,
   });
 }
 
@@ -1794,6 +1882,15 @@ export async function copyAgentPaths(params: {
       recursive: entry.type === 'directory',
       force: params.overwrite === true,
       errorOnExist: params.overwrite !== true,
+    });
+  }
+  if (copyWorkspace) {
+    initializeCopiedFileCollaborationPaths({
+      workspace: copyWorkspace,
+      paths: entries
+        .map((entry) => entry.destinationResolvedPath)
+        .filter((value): value is string => Boolean(value))
+        .map((destination) => workspaceRelativeAgentPath(copyWorkspace, destination)),
     });
   }
   await syncPublicSharesAfterWrite(entries.map((entry) => entry.destinationResolvedPath).filter((value): value is string => Boolean(value)));

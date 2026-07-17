@@ -26,6 +26,7 @@ import {
   DEFAULT_READ_TEXT_LIMIT,
   deleteAgentPaths,
   editAgentFile,
+  editAgentExcalidrawScene,
   execAsync,
   extractPdfTextForRead,
   formatImageReadText,
@@ -39,6 +40,7 @@ import {
   listAgentFileSnapshots,
   moveAgentPaths,
   readAgentCollaborativeTextFile,
+  readAgentCollaborativeExcalidrawFile,
   resolveAgentPath,
   resolveReadToolPath,
   restoreAgentFileSnapshot,
@@ -117,7 +119,7 @@ export const piTools: AgentTool[] = [
   {
     name: 'read',
     label: 'Reading file',
-    description: 'Reads the content of a file. For active Markdown/text live-collaboration documents, returns the current authoritative Yjs content and SHA-256 instead of a potentially older file checkpoint. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
+    description: 'Reads the content of a file. For active Markdown/text or Excalidraw live-collaboration documents, returns the current authoritative collaboration state instead of a potentially older file checkpoint. Excalidraw reads include sceneSequence and per-element version/versionNonce values required by edit_excalidraw_scene. After reading Markdown, use inspect_document_relations when direct links, backlinks, unresolved targets, or nearby notes would improve the task. Prefer workspace-relative paths. Trusted absolute Studio or upload paths returned by tools are validated server-side. For PDFs, extracts text and can include limited rendered page images for vision-capable models.',
     parameters: Type.Object({
       path: Type.String({ description: 'Absolute path or workspace-relative path.' }),
       maxChars: Type.Optional(Type.Number({ description: `Maximum text characters to return. Default ${DEFAULT_READ_TEXT_LIMIT}, max ${MAX_READ_TEXT_LIMIT}.` })),
@@ -208,14 +210,17 @@ export const piTools: AgentTool[] = [
             details: { filePath, size: buffer.length, type: 'binary' },
           };
         }
-        const collaborative = await readAgentCollaborativeTextFile(fullPath);
-        const text = collaborative?.content ?? buffer.toString('utf8');
-        const textSha256 = collaborative?.sha256 ?? sha256;
+        const collaborativeScene = await readAgentCollaborativeExcalidrawFile(fullPath);
+        const collaborative = collaborativeScene ? null : await readAgentCollaborativeTextFile(fullPath);
+        const text = collaborativeScene?.content ?? collaborative?.content ?? buffer.toString('utf8');
+        const textSha256 = collaborativeScene
+          ? sha256Buffer(Buffer.from(collaborativeScene.content, 'utf8'))
+          : collaborative?.sha256 ?? sha256;
         const truncated = truncateReadText(text, readTextLimit);
         return {
           content: [{
             type: 'text',
-            text: `SHA-256: ${textSha256}${collaborative ? '\nSource: live Yjs collaboration state' : ''}\n\n${truncated.text}`,
+            text: `SHA-256: ${textSha256}${collaborativeScene ? '\nSource: live Excalidraw collaboration scene' : collaborative ? '\nSource: live Yjs collaboration state' : ''}\n\n${truncated.text}`,
           }],
           details: {
             filePath,
@@ -224,7 +229,16 @@ export const piTools: AgentTool[] = [
             type: 'text',
             textLength: text.length,
             truncated: truncated.truncated,
-            collaboration: collaborative
+            collaboration: collaborativeScene
+              ? {
+                  documentId: collaborativeScene.documentId,
+                  representation: 'excalidraw_scene',
+                  sceneSequence: collaborativeScene.sceneSequence,
+                  lifecycleGeneration: collaborativeScene.lifecycleGeneration,
+                  canonicalHash: collaborativeScene.canonicalHash,
+                  source: 'live_excalidraw',
+                }
+              : collaborative
               ? {
                   documentId: collaborative.documentId,
                   representation: collaborative.representation,
@@ -339,6 +353,53 @@ export const piTools: AgentTool[] = [
         return {
           content: [{ type: 'text', text: formatFileChangeResults(results) }],
           details: { results },
+        };
+      } catch (error: unknown) {
+        const message = getErrorMessage(error);
+        return {
+          content: [{ type: 'text', text: `Error: ${message}` }],
+          details: { error: message },
+        };
+      }
+    },
+  },
+  {
+    name: 'edit_excalidraw_scene',
+    label: 'Editing Excalidraw scene safely',
+    description: 'Creates, updates, or deletes elements in an active shared Excalidraw scene. Read the .excalidraw file immediately before calling this tool and pass its sceneSequence plus exact expectedVersion/expectedVersionNonce values for updates and deletes. Non-conflicting element changes apply live; a concurrently changed target becomes a persisted human Accept/Reject review instead of overwriting user work.',
+    parameters: Type.Object({
+      path: Type.String({ description: 'Workspace-relative path to the active .excalidraw file.' }),
+      observedSceneSequence: Type.Number({ description: 'Authoritative sceneSequence returned by the latest read.' }),
+      actions: Type.Array(Type.Union([
+        Type.Object({
+          type: Type.Literal('create'),
+          element: Type.Record(Type.String(), Type.Unknown(), { description: 'Complete Excalidraw element JSON with a unique id.' }),
+        }),
+        Type.Object({
+          type: Type.Literal('update'),
+          elementId: Type.String(),
+          expectedVersion: Type.Number(),
+          expectedVersionNonce: Type.Number(),
+          element: Type.Record(Type.String(), Type.Unknown(), { description: 'Complete replacement element JSON using the same id.' }),
+        }),
+        Type.Object({
+          type: Type.Literal('delete'),
+          elementId: Type.String(),
+          expectedVersion: Type.Number(),
+          expectedVersionNonce: Type.Number(),
+        }),
+      ]), { minItems: 1, maxItems: 500 }),
+    }),
+    execute: async (toolCallId, params) => {
+      try {
+        const input = params as Omit<Parameters<typeof editAgentExcalidrawScene>[0], 'idempotencyKey'>;
+        const operation = await editAgentExcalidrawScene({
+          ...input,
+          idempotencyKey: toolCallId,
+        });
+        return {
+          content: [{ type: 'text', text: JSON.stringify(operation, null, 2) }],
+          details: operation,
         };
       } catch (error: unknown) {
         const message = getErrorMessage(error);

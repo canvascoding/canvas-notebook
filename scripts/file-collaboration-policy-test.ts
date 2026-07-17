@@ -67,6 +67,7 @@ async function main() {
 
     assert.equal(detectFileCollaborationStrategy('notes.md'), 'crdt_text');
     assert.equal(detectFileCollaborationStrategy('notes.txt'), 'crdt_text');
+    assert.equal(detectFileCollaborationStrategy('board.excalidraw'), 'excalidraw_scene');
     assert.equal(detectFileCollaborationStrategy('data.json'), 'revision_check');
     assert.equal(detectFileCollaborationStrategy('brief.pdf'), 'exclusive_lock');
     assert.equal(detectFileCollaborationStrategy('slides.pptx'), 'exclusive_lock');
@@ -94,6 +95,40 @@ async function main() {
     assert.equal(markdownState.requiresRevisionCheck, true);
     assert.equal(markdownState.document?.provider, 'yjs');
     assert.equal(markdownState.document?.snapshotRevisionId, initialRevision.id);
+
+    const drawingContent = '{"type":"excalidraw","version":2,"elements":[],"appState":{},"files":{}}';
+    await writeFile('board.excalidraw', drawingContent, { workspace });
+    const drawingBuffer = Buffer.from(drawingContent);
+    const drawingRevision = ensureFileRevisionForCurrentContent({
+      workspace,
+      path: 'board.excalidraw',
+      contentHash: sha256Buffer(drawingBuffer),
+      sizeBytes: drawingBuffer.length,
+      actorUserId: 'user-a',
+      actorType: 'user',
+      nowMs: 10_001,
+    });
+    const drawingState = getFileCollaborationState({
+      workspace,
+      path: 'board.excalidraw',
+      ensureDocument: true,
+      nowMs: 10_002,
+    });
+    assert.equal(drawingState.sceneCapable, true);
+    assert.equal(drawingState.crdtCapable, false);
+    assert.equal(drawingState.document?.provider, 'excalidraw');
+    assert.equal(drawingState.document?.snapshotRevisionId, drawingRevision.id);
+    assert.throws(
+      () => assertFileCollaborationWriteAllowed({
+        workspace,
+        path: 'board.excalidraw',
+        actorUserId: 'user-a',
+        baseRevisionId: drawingRevision.id,
+        nowMs: 10_003,
+      }),
+      (error) => error instanceof FileCollaborationPolicyError
+        && error.code === 'COLLABORATION_ACTIVE_WHOLE_FILE_WRITE_BLOCKED',
+    );
 
     assert.throws(
       () => assertFileCollaborationWriteAllowed({

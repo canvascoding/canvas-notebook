@@ -316,6 +316,7 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
         organizationId: state.organizationId,
         documentId: state.documentId,
         path: state.path,
+        provider: 'yjs',
         representation: state.representation,
         permission: 'write',
         lifecycleGeneration: state.lifecycleGeneration,

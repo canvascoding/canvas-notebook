@@ -34,7 +34,16 @@ function isClaims(value: unknown): value is CollaborationTicketClaims {
     && (claims.organizationId === null || typeof claims.organizationId === 'string')
     && typeof claims.documentId === 'string'
     && typeof claims.path === 'string'
-    && (claims.representation === 'plain_text' || claims.representation === 'tiptap_xml')
+    && (claims.provider === 'yjs' || claims.provider === 'excalidraw')
+    && (
+      claims.representation === 'plain_text'
+      || claims.representation === 'tiptap_xml'
+      || claims.representation === 'excalidraw_scene'
+    )
+    && (
+      (claims.provider === 'yjs' && claims.representation !== 'excalidraw_scene')
+      || (claims.provider === 'excalidraw' && claims.representation === 'excalidraw_scene')
+    )
     && (claims.permission === 'read' || claims.permission === 'write')
     && typeof claims.lifecycleGeneration === 'number';
 }

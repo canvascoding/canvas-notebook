@@ -28,7 +28,7 @@ assert.equal(serializeCanonicalText('a\nb\n', { newlineStyle: 'crlf', hasBom: tr
 
 const issued = issueCollaborationTicket({
   userId: 'user-a', sessionId: 'session-a', workspaceId: 'workspace-a', organizationId: 'org-a',
-  documentId: 'doc-a', path: 'notes.md', representation: 'plain_text', permission: 'write', lifecycleGeneration: 1,
+  documentId: 'doc-a', path: 'notes.md', provider: 'yjs', representation: 'plain_text', permission: 'write', lifecycleGeneration: 1,
 }, 10_000);
 assert.equal(verifyCollaborationTicket(issued.token, 10_001).documentId, 'doc-a');
 

@@ -562,6 +562,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
       currentFile.path === editorState.activePath
       && !editorState.isDirty
       && !currentFile.collaboration?.crdtCapable
+      && !currentFile.collaboration?.sceneCapable
     ) {
       // If the content from the server is different from the draft, update the editor.
       if (currentFile.content !== editorState.draft) {
@@ -571,7 +572,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile, clear, setActiveFile]);
 
   useEffect(() => {
-    if (currentFile?.collaboration?.crdtCapable) {
+    if (currentFile?.collaboration?.crdtCapable || currentFile?.collaboration?.sceneCapable) {
       if (saveTimeoutRef.current) window.clearTimeout(saveTimeoutRef.current);
       return;
     }
@@ -614,7 +615,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         window.clearTimeout(saveTimeoutRef.current);
       }
     };
-  }, [activeExternalTextChangePath, activePath, currentFile?.collaboration?.crdtCapable, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
+  }, [activeExternalTextChangePath, activePath, currentFile?.collaboration?.crdtCapable, currentFile?.collaboration?.sceneCapable, draft, handleSaveError, isDirty, markSaved, markSaving, saveTrackedFile, setSaveError]);
 
   const extension = useMemo(() => {
     if (!currentFile) return '';
@@ -633,6 +634,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
   const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isExcalidraw && !isAudio && !isVideo && !isOffice;
   const collaboration = currentFile?.collaboration ?? null;
+  const isSceneCollaboration = Boolean(collaboration?.sceneCapable);
   const updateCollaborativeDraft = useCallback((value: string) => {
     updateDraft(value);
     if (collaboration?.crdtCapable) markSaved();
@@ -854,7 +856,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         saveTimeoutRef.current = null;
       }
 
-      if (pathToSave && hasUnsavedChanges) {
+      if (pathToSave && hasUnsavedChanges && !isSceneCollaboration) {
         if (activeExternalTextChangePath === pathToSave) {
           const message = t('externalChangeSaveBlocked');
           setSaveError(message);
@@ -885,7 +887,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
     } finally {
       setIsClosingPreview(false);
     }
-  }, [activeExternalTextChangePath, getSaveErrorMessage, handleSaveError, isClosingPreview, markSaved, markSaving, onClosePreview, saveTrackedFile, setSaveError, t]);
+  }, [activeExternalTextChangePath, getSaveErrorMessage, handleSaveError, isClosingPreview, isSceneCollaboration, markSaved, markSaving, onClosePreview, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     const handleShortcut = (event: KeyboardEvent) => {
@@ -894,6 +896,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         const { activePath: pathToSave, draft: contentToSave } =
           useEditorStore.getState();
         if (!pathToSave) return;
+        if (isSceneCollaboration && currentFilePath === pathToSave) return;
         if (activeExternalTextChangePath === pathToSave) {
           const message = t('externalChangeSaveBlocked');
           setSaveError(message);
@@ -919,7 +922,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
 
     window.addEventListener('keydown', handleShortcut);
     return () => window.removeEventListener('keydown', handleShortcut);
-  }, [activeExternalTextChangePath, handleSaveError, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
+  }, [activeExternalTextChangePath, currentFilePath, handleSaveError, isSceneCollaboration, markSaved, markSaving, saveTrackedFile, setSaveError, t]);
 
   useEffect(() => {
     if (!isImage) return;
@@ -995,7 +998,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   }, [currentFile?.collaboration?.crdtCapable, currentFile?.path, isExcalidraw, isText, loadExternalTextChange, refreshCurrentFileContent]);
 
   useEffect(() => {
-    if (!currentFile?.path || !isExcalidraw) return;
+    if (!currentFile?.path || !isExcalidraw || currentFile.collaboration?.sceneCapable) return;
 
     const watchedFilePath = currentFile.path;
     const client = getFileWatcherClient();
@@ -1033,7 +1036,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         externalReloadTimeoutRef.current = null;
       }
     };
-  }, [currentFile?.path, isExcalidraw, refreshCurrentFileContent]);
+  }, [currentFile?.collaboration?.sceneCapable, currentFile?.path, isExcalidraw, refreshCurrentFileContent]);
 
   useEffect(() => {
     if (!currentFile?.path || !isText || isExcalidraw || currentFile.collaboration?.crdtCapable) return;
@@ -1407,7 +1410,12 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           ) : isHtml ? (
             <HtmlViewer path={currentFile.path} value={draft} onChange={updateDraft} viewMode={htmlViewMode} refreshKey={htmlRefreshKey} lastSavedAt={lastSavedAt} />
           ) : isExcalidraw ? (
-            <ExcalidrawEditor path={currentFile.path} value={draft} onChange={updateDraft} />
+            <ExcalidrawEditor
+              path={currentFile.path}
+              value={draft}
+              onChange={updateDraft}
+              collaborationEnabled={Boolean(collaboration?.sceneCapable)}
+            />
           ) : isMarkdown ? (
             isMarpMarkdownFile && markdownViewMode === 'slides' ? (
               <MarpPreview path={currentFile.path} content={draft} refreshKey={marpRefreshKey} />
