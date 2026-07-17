@@ -35,7 +35,7 @@ test.describe('Automationen UI', () => {
     await context.close();
   });
 
-  test('creates an automation, starts a run immediately, and links its chat session', async ({ page }) => {
+  test('creates an automation, starts a run immediately, and opens its session in the notebook', async ({ page }) => {
     const uniqueName = `PW Automation ${Date.now()} mit langem Titel für Overflow-Test`;
     const targetDir = `test-output/playwright-target-${Date.now()}`;
 
@@ -87,17 +87,17 @@ test.describe('Automationen UI', () => {
     await expect(page.getByTestId('automation-workspace-target')).toHaveText(targetDir);
     await expect(page.getByTestId('automation-result-text')).toBeVisible();
     await page.getByText('Run-Chat', { exact: true }).click();
-    await expect(page.getByTestId('automation-open-chat-session')).toBeVisible({ timeout: 30000 });
+    await expect(page.getByTestId('automation-open-notebook-session')).toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId('automation-session-scroll')).toBeVisible({ timeout: 30000 });
     await expect
       .poll(async () => page.getByTestId('automation-session-message').count(), { timeout: 30000 })
       .toBeGreaterThanOrEqual(2);
 
-    const chatHref = await page.getByTestId('automation-open-chat-session').getAttribute('href');
-    expect(chatHref).toContain('/chat?session=auto-');
+    const notebookHref = await page.getByTestId('automation-open-notebook-session').getAttribute('href');
+    expect(notebookHref).toContain('/notebook?session=auto-');
 
-    await page.getByTestId('automation-open-chat-session').click();
-    await expect(page).toHaveURL(/\/chat\?session=auto-/);
+    await page.getByTestId('automation-open-notebook-session').click();
+    await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?notebook(?:\?.*)?$/);
     await expect(page.getByTestId('chat-session-id')).toBeVisible({ timeout: 15000 });
 
     const targetDirectoryExists = await page.evaluate(async (path) => {

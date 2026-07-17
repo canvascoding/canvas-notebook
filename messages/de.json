@@ -5100,6 +5100,7 @@
       "title": "Run-Chat",
       "description": "Read-only Verlauf der verknüpften Session. Du kannst die Session jederzeit im Chat weiterführen.",
       "openChat": "Im Chat öffnen",
+      "openNotebook": "Im Canvas Notebook öffnen",
       "continueChat": "Session fortsetzen",
       "loading": "Lade Chatverlauf...",
       "empty": "Noch keine Chat-Nachrichten vorhanden.",

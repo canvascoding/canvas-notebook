@@ -5101,6 +5101,7 @@
       "title": "Run chat",
       "description": "Read-only history of the linked session. You can continue the same session in chat at any time.",
       "openChat": "Open in chat",
+      "openNotebook": "Open in Canvas Notebook",
       "continueChat": "Continue session",
       "loading": "Loading chat history...",
       "empty": "No chat messages available yet.",

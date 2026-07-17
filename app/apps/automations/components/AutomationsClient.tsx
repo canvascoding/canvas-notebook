@@ -19,6 +19,7 @@ import {
   Folder,
   Loader2,
   MessageSquare,
+  NotebookPen,
   PauseCircle,
   Play,
   Plug,
@@ -765,8 +766,8 @@ function workspaceOptionLabel(workspace: ClientWorkspaceSummary, translate: (key
   return `${workspace.name} · ${workspaceScopeLabel(workspace, translate)}`;
 }
 
-function toChatUrl(sessionId: string) {
-  return `/chat?session=${encodeURIComponent(sessionId)}`;
+function toNotebookUrl(sessionId: string) {
+  return `/notebook?session=${encodeURIComponent(sessionId)}`;
 }
 
 function isTextContentPart(part: unknown): part is { type: 'text'; text: string } {
@@ -2769,9 +2770,9 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               </div>
               {selectedRun?.piSessionId ? (
                 <Button asChild variant="outline" size="sm">
-                  <Link href={toChatUrl(selectedRun.piSessionId)} data-testid="automation-open-chat-session">
-                    <MessageSquare className="mr-2 h-4 w-4" />
-                    {t('session.openChat')}
+                  <Link href={toNotebookUrl(selectedRun.piSessionId)} data-testid="automation-open-notebook-session">
+                    <NotebookPen className="mr-2 h-4 w-4" />
+                    {t('session.openNotebook')}
                   </Link>
                 </Button>
               ) : null}
