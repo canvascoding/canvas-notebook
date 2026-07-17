@@ -32,10 +32,22 @@ aufgeloest:
   erfolgreichem amd64-/arm64-Abgleich und archiviert die native Evidenz.
 
 Ein lokaler Docker-Build wurde fuer diesen Stand auf ausdrueckliche
-Owner-Vorgabe nicht ausgefuehrt. Deshalb ist die Implementierung statisch
-releasefaehig, waehrend die erste konkrete kandidatenbezogene Image-Evidenz
-erst durch den naechsten Tag-Workflow entsteht. Ein fehlgeschlagener
-Plattformbuild blockiert Manifest und Release.
+Owner-Vorgabe nicht ausgefuehrt. Die erste konkrete kandidatenbezogene
+Image-Evidenz entstand stattdessen im erfolgreichen Tag-Workflow `29571886433`
+fuer `v2026.7.17.5` auf Commit
+`0be9b703e34155472378806339672a51e59169f6`. Beide Plattforminventare und
+Sharp-Linkage-Belege bestanden die Einzel- und Vergleichspruefung. Der
+veroeffentlichte Multi-Arch-Digest lautet
+`sha256:7cb8d2c02ec08369925d54d1f669bc22fb4f5e9040193df385d35292da2198e2`;
+die gepruefte Release-Evidenz ist
+`canvas-native-compliance-2026.7.17.5.tar.gz`. Damit ist Task 51 technisch und
+organisatorisch abgeschlossen. Fuer jeden neuen Release bleibt dasselbe Gate
+verbindlich; ein fehlgeschlagener Plattformbuild blockiert Manifest und
+Release. Der Portable-CLI-Workflow ist nur noch Artefaktproduzent. Der native
+Merge-Job stellt Portable CLI, Host CLI und Compliance-Bundle erst nach dem
+Multi-Arch-Gate als gemeinsames Actions-Artefakt bereit. Die GitHub-Release-
+Seite darf ausschliesslich der Release-Publisher nach vollstaendig gruenem
+Remote-Workflow erzeugen.
 
 ## Umsetzungsstand
 

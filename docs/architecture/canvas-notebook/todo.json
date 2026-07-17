@@ -1343,7 +1343,7 @@
     {
       "id": 51,
       "title": "Alle integrierten Drittanbieter- und MIT-Lizenzen inventarisieren und vollstaendige Third-Party Notices als Release-Gate ausliefern",
-    "status": "in_progress",
+    "status": "completed",
       "repo": "canvasstudios-notebook",
       "dependsOn": [],
       "planningArtifacts": [
@@ -1390,8 +1390,8 @@
       ],
       "progress": {
         "updatedAt": "2026-07-17",
-      "engineeringImplementation": "implemented_pending_first_remote_multiarch_evidence",
-      "commercialReleaseGate": "static_gate_approved_remote_artifact_gate_required",
+      "engineeringImplementation": "completed_with_remote_multiarch_evidence",
+      "commercialReleaseGate": "approved_for_v2026.7.17.5_revalidate_each_release",
       "inventory": {
         "totalComponents": 2054,
         "runtimeComponents": 1492,
@@ -1444,7 +1444,11 @@
       "CA-Zertifikate aus demselben signierten Debian-Snapshot gebootstrapped, danach APT auf HTTPS umgestellt und redundantes Debian-libvips42 aus dem Runtime-Lieferumfang entfernt",
       "Vollstaendigen libvips-Development-Header-Satz fuer beide Sharp-Builds auf den isolierten deps-Stage begrenzt, ohne Development-Pakete in das Runtime-Image zu uebernehmen",
       "Python-PEP-639-Erfassung auf .dist-info/licenses begrenzt und architekturspezifischen Bytecode aus Python-Modulen namens licenses aus dem Multi-Arch-Lizenzvergleich ausgeschlossen",
-      "Statisches kommerzielles Lizenz-Gate auf null Release-Blocker geschlossen"
+      "Statisches kommerzielles Lizenz-Gate auf null Release-Blocker geschlossen",
+      "Tag-Workflow 29571886433 fuer v2026.7.17.5 auf Commit 0be9b703e34155472378806339672a51e59169f6 vollstaendig erfolgreich; beide Architekturimages, Native-Compliance, Multi-Arch-Vergleich, Manifest, Release-Artefakte und Control-Plane-Webhook gruen",
+      "Multi-Arch-Image unter sha256:7cb8d2c02ec08369925d54d1f669bc22fb4f5e9040193df385d35292da2198e2 veroeffentlicht und canvas-native-compliance-2026.7.17.5.tar.gz samt SHA-256-Pruefdatei im GitHub Release archiviert",
+      "Reihenfolge-Luecke dokumentiert, durch die der damalige Portable-CLI-Workflow die v2026.7.17.5-Release-Seite vor Matrixabschluss angelegt hatte; die spaeter erfolgreich erzeugten nativen Artefakte wurden vollstaendig nachgeprueft",
+      "Portable-CLI-Workflow auf reinen Artefaktbau begrenzt, den nativen Merge-Job auf ein gemeinsames gegatetes Release-Bundle beschraenkt und die GitHub-Release-Veroeffentlichung ausschliesslich dem Release-Publisher nach vollstaendig gruenem Remote-Workflow zugeordnet"
         ],
         "verified": [
           "npm run test:licenses",
@@ -1463,11 +1467,12 @@
       "YAML-, Node-Syntax- und statische Docker-/Workflow-/Policy-/Python-Hashlock-Pruefungen ohne lokalen Docker-Build",
       "Alle zehn PGDG-Binaer-/Source-Artefakte direkt von apt.postgresql.org heruntergeladen und gegen die Policy-SHA-256-Werte verifiziert",
       "pip --dry-run fuer CPython 3.11 mit manylinux_2_28 plus manylinux2014 auf amd64 und arm64; exakt 45 Pakete und alle Wheel-Hashes akzeptiert",
-      "npm run verify:release mit null Lizenzblockern, ESLint, TypeScript und vollstaendig erfolgreichem Next.js-Produktionsbuild"
+      "npm run verify:release mit null Lizenzblockern, ESLint, TypeScript und vollstaendig erfolgreichem Next.js-Produktionsbuild",
+      "Remote-Workflow 29571886433: source, safety-tests, linux/amd64, linux/arm64 und merge vollstaendig erfolgreich",
+      "Release-Evidenz nach Download gegen ihre SHA-256-Datei geprueft; 418 amd64- und 414 arm64-Debian-Binaries, je 48 Python- und 153 globale npm-Pakete, keine vorgebauten @img/sharp-* Payloads",
+      "packaging@26.2 auf beiden Plattformen mit drei byte-identischen Dateien unter .dist-info/licenses und ohne .pyc- oder __pycache__-Fehlbelege verifiziert"
     ],
-    "remainingExternalReview": [
-      "Ersten taggebundenen Remote-Workflow fuer linux/amd64 und linux/arm64 erfolgreich abschliessen und das erzeugte canvas-native-compliance-<version>.tar.gz samt Image-Digests archivieren"
-    ],
+    "remainingExternalReview": [],
     "reviewedButStillBlocked": []
       }
     },
@@ -1544,7 +1549,7 @@
         "architectureResearch": "completed",
         "selectedApproach": "canvas_native_excalidraw_scene_provider",
         "implementation": "completed",
-    "commercialReleaseGate": "task_51_static_gate_approved_pending_first_remote_multiarch_evidence",
+    "commercialReleaseGate": "task_51_completed_with_v2026.7.17.5_remote_multiarch_evidence",
         "verifiedFacts": [
           "@excalidraw/excalidraw 0.18.1 ist installiert und exportiert reconcileElements, CaptureUpdateAction.NEVER, updateScene, onPointerUpdate, collaborators, getSceneElementsIncludingDeleted, getFiles und addFiles",
           "isCollaborating aktiviert nur den Collaboration-Modus der UI und startet keinen Room, Transport oder Persistenz",

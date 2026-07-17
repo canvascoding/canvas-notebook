@@ -44,9 +44,8 @@ uebernommen.
 Der Remote-Lauf `29569016479` fuer `v2026.7.17.3` bestaetigte den korrigierten
 Snapshot-/CA- und libvips-Source-Build auf amd64 und arm64, stoppte danach aber
 vor jeder Veroeffentlichung beim Sharp-Compile, weil dem `deps`-Stage die
-transitiven libvips-Development-Header fehlten. `v2026.7.17.4` nimmt genau
-diese nur in den Build-Stage auf; der Tag bleibt bis zum vollstaendigen
-Multi-Arch-Nachweis ein unveroeffentlichter Kandidat.
+transitiven libvips-Development-Header fehlten. `v2026.7.17.4` nahm genau
+diese nur in den Build-Stage auf.
 
 Der Folgelauf `29570228102` fuer `v2026.7.17.4` baute und pruefte beide
 Architekturimages samt Sharp-Linkage erfolgreich. Der gemeinsame Vergleich
@@ -57,10 +56,29 @@ Ab `v2026.7.17.5` gelten fuer PEP-639-Verzeichnisse nur Pfade innerhalb von
 `.dist-info/licenses`; echte Lizenztexte und ihre Hashes bleiben Teil des
 plattformuebergreifenden Vergleichs.
 
-Der lokale Arbeitslauf vom 17. Juli 2026 hat absichtlich keinen Container
-gebaut. Bis ein konkreter Release-Tag den Remote-Matrixlauf bestanden hat,
-liegt daher eine implementierte und statisch gepruefte Releasebedingung, aber
-noch kein neuer kandidatenbezogener Image-Digest vor.
+Der abschliessende Tag-Workflow `29571886433` fuer `v2026.7.17.5` ist auf dem
+unveraenderlichen Commit `0be9b703e34155472378806339672a51e59169f6`
+vollstaendig erfolgreich. Er baute und pruefte beide finalen Plattformimages,
+verglich Notices, Hauptinventar, libvips-Quellarchiv, Python-Lizenzdateien und
+Sharp-Linkage und veroeffentlichte erst danach den Multi-Arch-Digest
+`sha256:7cb8d2c02ec08369925d54d1f669bc22fb4f5e9040193df385d35292da2198e2`
+auf GHCR und Docker Hub. Das amd64-Inventar enthaelt 418 Debian-Binaries aus
+283 Source-Paaren, das arm64-Inventar 414 aus 281; beide enthalten jeweils 48
+Python- und 153 globale npm-Pakete. Die beiden Sharp-Versionen sind gegen die
+gemeinsam ausgelieferte libvips-Shared-Library 8.18.3 verlinkt; vorgebaute
+`@img/sharp-*`-Pakete sind auf beiden Plattformen leer.
+
+Die Release-Evidenz `canvas-native-compliance-2026.7.17.5.tar.gz` ist im
+GitHub Release veroeffentlicht. Ihre mitgelieferte SHA-256-Datei wurde nach dem
+Download erfolgreich geprueft. Die drei `packaging@26.2`-Lizenzdateien liegen
+auf beiden Plattformen ausschliesslich unter `.dist-info/licenses`, sind
+byte-identisch und enthalten keine `.pyc`- oder `__pycache__`-Fehlbelege. Der
+Control-Plane-Webhook akzeptierte denselben Commit, Tag und Image-Digest.
+
+Der lokale Arbeitslauf vom 17. Juli 2026 hat auf ausdrueckliche Owner-Vorgabe
+keinen Container gebaut. Die notwendige reale Container- und
+Multi-Arch-Pruefung erfolgte stattdessen vollstaendig im taggebundenen
+Remote-Workflow.
 
 Ohne Containerbau wurden alle in der Policy referenzierten PGDG-Binaer- und
 Source-URLs erneut heruntergeladen und gegen ihre zehn hinterlegten SHA-256-

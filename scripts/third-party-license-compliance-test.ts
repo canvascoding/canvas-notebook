@@ -73,6 +73,7 @@ const nativeDistributionPolicy = JSON.parse(fs.readFileSync(
 };
 const dockerfile = fs.readFileSync('Dockerfile', 'utf8');
 const nativeBuildWorkflow = fs.readFileSync('.github/workflows/build-both.yml', 'utf8');
+const portableCliWorkflow = fs.readFileSync('.github/workflows/portable-cli.yml', 'utf8');
 const runtimePythonRequirements = fs.readFileSync(
   nativeDistributionPolicy.pythonRequirements,
   'utf8',
@@ -193,12 +194,41 @@ for (const requiredWorkflowFragment of [
   'vips-8.18.3.tar.xz',
   'Package native compliance evidence',
   'canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz',
+  'Package portable CLI release asset',
+  'dist-portable-cli/canvas-notebook-cli.tar.gz',
+  'Upload gated release bundle',
+  'release-bundle-${{ needs.source.outputs.release_version }}',
 ]) {
   assert(
     nativeBuildWorkflow.includes(requiredWorkflowFragment),
     `multi-architecture release workflow must retain: ${requiredWorkflowFragment}`,
   );
 }
+assert.equal(
+  portableCliWorkflow.includes('action-gh-release'),
+  false,
+  'the portable CLI workflow must not publish a GitHub Release before native compliance succeeds',
+);
+assert.equal(
+  portableCliWorkflow.includes('gh release create'),
+  false,
+  'the portable CLI workflow must remain an artifact producer instead of a release publisher',
+);
+assert.equal(
+  nativeBuildWorkflow.includes('action-gh-release'),
+  false,
+  'the native workflow must not publish a GitHub Release before the complete workflow succeeds',
+);
+assert.equal(
+  nativeBuildWorkflow.includes('gh release create'),
+  false,
+  'GitHub Release creation belongs to the release publisher after the remote workflow succeeds',
+);
+assert(
+  nativeBuildWorkflow.indexOf('Upload gated release bundle')
+    > nativeBuildWorkflow.indexOf('Verify multi-architecture native compliance'),
+  'the release bundle must be uploaded only after multi-architecture native compliance succeeds',
+);
 assert.equal(
   (dockerfile.match(/find node_modules -type d -path '\*\/@img\/sharp-\*'/gu) || []).length,
   2,

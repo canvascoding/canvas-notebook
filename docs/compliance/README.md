@@ -82,13 +82,41 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
 `npm run test:licenses:release` ist damit statisch gruen. `npm run
 verify:release` prueft ausserdem vor Lint und Produktions-Build mit einem
 skriptfreien `npm ci --dry-run`, dass `package.json` und Lockfile auch in einer
-frischen CI-Umgebung vollstaendig synchron sind. Ein Docker-Release
-darf trotzdem erst publiziert werden, wenn der Tag-Workflow die finalen
-linux/amd64- und linux/arm64-Images erfolgreich gebaut, ihre Inventare und
-Sharp-Verlinkung einzeln geprueft und den Multi-Arch-Abgleich vor dem Manifest
-bestanden hat. Diese kandidatenbezogenen Evidenzen werden als
-`canvas-native-compliance-<version>.tar.gz` archiviert. In diesem lokalen Lauf
-wurde entsprechend der Owner-Vorgabe kein Docker-Container gebaut.
+frischen CI-Umgebung vollstaendig synchron sind.
+
+Der erste reale Abschlussnachweis ist der erfolgreiche Tag-Workflow
+`29571886433` fuer `v2026.7.17.5` und Commit
+`0be9b703e34155472378806339672a51e59169f6`. Er pruefte die finalen
+linux/amd64- und linux/arm64-Images einzeln und gemeinsam, veroeffentlichte den
+Multi-Arch-Digest
+`sha256:7cb8d2c02ec08369925d54d1f669bc22fb4f5e9040193df385d35292da2198e2`
+und stellte `canvas-native-compliance-2026.7.17.5.tar.gz` samt SHA-256-Datei im
+GitHub Release bereit. Der nachtraegliche Download- und Inhaltscheck war gruen:
+418 beziehungsweise 414 Debian-Binaries, je 48 Python-Pakete, je 153 globale
+npm-Pakete, zwei lokal gebaute Sharp-Versionen pro Plattform, keine
+vorgebauten `@img/sharp-*`-Pakete und kein Python-Bytecode als Lizenzbeleg.
+Der lokale Lauf baute entsprechend der Owner-Vorgabe keinen Container.
+
+Audit-Hinweis: Beim Kandidaten `v2026.7.17.5` hatte der damalige separate
+Portable-CLI-Workflow die GitHub-Release-Seite bereits vor Abschluss der
+Matrix angelegt. Native Images, Compliance-Bundle und Control-Plane-Meldung
+wurden erst nach dem erfolgreichen Gate veroeffentlicht und anschliessend
+nochmals heruntergeladen und geprueft; der Kandidat ist daher vollstaendig
+belegt. Die nachfolgend beschriebene Workflow-Trennung beseitigt diese
+Reihenfolge-Luecke fuer kuenftige Tags.
+
+Diese Freigabe gilt fuer genau diesen Kandidaten. Jeder spaetere Docker-Release
+darf weiterhin erst publiziert werden, wenn sein Tag-Workflow dieselben
+per-Arch- und Multi-Arch-Gates bestanden hat. Die kandidatenbezogenen
+Evidenzen werden jeweils als `canvas-native-compliance-<version>.tar.gz`
+archiviert. Der separate Portable-CLI-Workflow erzeugt und archiviert nur noch
+sein Build-Artefakt. Der nachgelagerte Merge-Job des nativen Workflows erzeugt
+nach dem Multi-Arch-Gate ein gemeinsames Actions-Artefakt aus Portable CLI,
+Host CLI und Compliance-Bundle, veroeffentlicht aber selbst keine GitHub-
+Release-Seite. Erst der Release-Publisher darf dieses Bundle nach dem gruenen
+Gesamtworkflow pruefen und als GitHub Release veroeffentlichen. Dadurch kann
+weder ein schneller CLI-Build noch ein spaeter fehlschlagender Webhook das
+Release-Gate zeitlich ueberholen.
 
 Die Copyright-Extraktion verwirft dabei auch README-Anleitungen zum Erhalten,
 Platzieren oder Filtern von Copyright-Kommentaren. Solche Bedienhinweise gelten
