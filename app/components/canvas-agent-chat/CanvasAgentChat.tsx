@@ -7,6 +7,7 @@ import {
   ArrowDown,
 } from 'lucide-react';
 import { ChatComposer } from '@/app/components/canvas-agent-chat/ChatComposer';
+import { ChatDelegationPanel } from '@/app/components/canvas-agent-chat/ChatDelegationPanel';
 import { ChatHeader } from '@/app/components/canvas-agent-chat/ChatHeader';
 import { ChatHistoryPanel, type ChatHistoryPanelProps } from '@/app/components/canvas-agent-chat/ChatHistoryPanel';
 import { ChatMessageList } from '@/app/components/canvas-agent-chat/ChatMessageList';
@@ -1275,6 +1276,7 @@ export default function CanvasAgentChat({
         onClearUploadError={() => setUploadError(null)}
         isWebSocketUnavailable={isWebSocketUnavailable}
         showModelRequiredNotice={showModelRequiredNotice}
+        delegationPanel={sessionId ? <ChatDelegationPanel key={sessionId} sourceSessionId={sessionId} /> : null}
         attachments={attachments}
         onRemoveAttachment={removeAttachment}
         onAttachmentOpen={handleAttachmentPreviewOpen}

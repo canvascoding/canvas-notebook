@@ -5,6 +5,7 @@ import {
   type ChangeEvent,
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
   type RefObject,
 } from 'react';
 import { CircleHelp, Loader2, Paperclip, Settings, Square, Upload, X } from 'lucide-react';
@@ -69,6 +70,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   onClearUploadError: () => void;
   isWebSocketUnavailable: boolean;
   showModelRequiredNotice: boolean;
+  delegationPanel?: ReactNode;
   attachments: Attachment[];
   onRemoveAttachment: (index: number) => void;
   onAttachmentOpen: AttachmentOpenHandler;
@@ -128,6 +130,7 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
   onClearUploadError,
   isWebSocketUnavailable,
   showModelRequiredNotice,
+  delegationPanel,
   attachments,
   onRemoveAttachment,
   onAttachmentOpen,
@@ -229,6 +232,8 @@ export const ChatComposer = forwardRef<HTMLDivElement, {
           </Link>
         </div>
       )}
+
+      {delegationPanel}
 
       {attachments.length > 0 && (
         <div

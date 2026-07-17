@@ -17,6 +17,7 @@ import {
   flushThinkingFilter,
 } from '@/app/lib/pi/thinking-filter';
 import type { ThinkingFilterState } from '@/app/lib/pi/thinking-filter';
+import { isDelegationCompletionMessage } from '@/app/lib/pi/delegation-completion-message';
 import {
   dedupeAttachments,
   extractImageAttachments,
@@ -635,7 +636,11 @@ export function useChatRuntimeEvents({
       return;
     }
 
-    if (event.type === 'message_start' && event.message?.role === 'user') {
+    if (
+      event.type === 'message_start'
+      && event.message?.role === 'user'
+      && !isDelegationCompletionMessage(event.message)
+    ) {
       upsertUserMessageFromPiMessage(event.message);
       return;
     }
@@ -662,6 +667,7 @@ export function useChatRuntimeEvents({
       if (event.messages?.length) {
         for (const finalMessage of event.messages) {
           if (finalMessage.role === 'user') {
+            if (isDelegationCompletionMessage(finalMessage)) continue;
             upsertUserMessageFromPiMessage(finalMessage);
             continue;
           }

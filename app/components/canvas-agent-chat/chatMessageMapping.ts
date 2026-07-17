@@ -23,6 +23,7 @@ import {
   isRuntimeContinuationMessage,
   type ComposioAuthRequiredMessage,
 } from '@/app/lib/pi/custom-messages';
+import { isDelegationCompletionMessage } from '@/app/lib/pi/delegation-completion-message';
 
 export function mapPersistedChatMessage(
   rawMessage: PersistedChatMessage,
@@ -122,6 +123,9 @@ export function mapPersistedChatMessages(
   }
 
   return rawMessages
-    .filter((rawMessage) => !isRuntimeContinuationMessage(rawMessage))
+    .filter((rawMessage) => (
+      !isRuntimeContinuationMessage(rawMessage)
+      && !isDelegationCompletionMessage(rawMessage)
+    ))
     .map((rawMessage) => mapPersistedChatMessage(rawMessage, runStoppedLabel, toolCallsById));
 }
