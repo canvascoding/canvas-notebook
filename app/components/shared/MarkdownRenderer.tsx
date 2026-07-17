@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useRef } from 'react';
+import React, { useMemo, useRef } from 'react';
 import ReactMarkdown from 'react-markdown';
 import { isColorCode, ColorSwatch } from '@/app/lib/markdown/color-swatch';
 import {
@@ -44,6 +44,11 @@ const DEFAULT_TEXT_CLASSES: Record<string, string> = {
   muted: 'text-xs leading-5',
 };
 
+function extractColorCode(props: Record<string, unknown>): string | null {
+  const colorCode = props['data-color-code'] ?? props.dataColorCode ?? props.datacolorcode;
+  return typeof colorCode === 'string' ? colorCode : null;
+}
+
 export function MarkdownRenderer({
   content,
   variant = 'default',
@@ -52,14 +57,12 @@ export function MarkdownRenderer({
   sourcePath,
 }: MarkdownRendererProps) {
   const rootRef = useRef<HTMLDivElement>(null);
-  const ancestorPaths = embedAncestorPaths ?? (sourcePath ? [sourcePath] : []);
-  const extractColorCode = (props: Record<string, unknown>): string | null => {
-    const colorCode =
-      props['data-color-code'] ?? props.dataColorCode ?? props.datacolorcode;
-    return typeof colorCode === 'string' ? colorCode : null;
-  };
+  const ancestorPaths = useMemo(
+    () => embedAncestorPaths ?? (sourcePath ? [sourcePath] : []),
+    [embedAncestorPaths, sourcePath],
+  );
 
-  const components = {
+  const components = useMemo(() => ({
     span: ({
       className: spanClassName,
       ...props
@@ -218,7 +221,7 @@ export function MarkdownRenderer({
         </code>
       );
     },
-  };
+  }), [ancestorPaths, sourcePath]);
 
   return (
     <div
