@@ -58,6 +58,9 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
 - Der Node-Image-Index bleibt digestgepinnt. Canvas-eigene apt-Aufloesungen
   verwenden den Debian-Snapshot `20260716T000000Z`; PostgreSQL-Binaerpakete
   und die 45 pip-Pakete sind versions- und hashgebunden.
+- Der CA-Store wird aus demselben signierten Snapshot ueber einen einmaligen
+  HTTP-Bootstrap bezogen; alle folgenden APT-Zugriffe verwenden HTTPS. Eine
+  zweite Debian-libvips-Binaerinstallation wird nicht ausgeliefert.
 - Das Image erzeugt ein Schema-4-Inventar mit exakten Debian-Source-Paaren,
   Lizenzdatei-Hashes, Python-Wheel-Belegen, globalem npm, Dockerfile- und
   Policy-Hash.
@@ -84,6 +87,13 @@ Die Copyright-Extraktion verwirft dabei auch README-Anleitungen zum Erhalten,
 Platzieren oder Filtern von Copyright-Kommentaren. Solche Bedienhinweise gelten
 nicht als Rechteinhaber; fuer `terser@5.49.0` ist dies durch einen exakten
 Regressionstest gegen den tatsaechlichen Urheberhinweis abgesichert.
+
+Der Lizenzcache ist ab Schema 6 pro Paketpfad, Version, Registry-URL und
+Integrity-Hash gebunden. Ein reiner Canvas-Versionswechsel uebernimmt dadurch
+bereits verifizierte immutable Upstream-Belege; neue Versionen, geaenderte
+Tarball-Hashes oder geaenderte Source-Overrides erzwingen weiterhin eine neue
+Aufloesung. Release-Freigaben haengen damit nicht von einer erneuten,
+kurzfristig fehlschlagenden GitHub-Abfrage fuer unveraenderte Pakete ab.
 
 ## Verbindliche Quellen
 

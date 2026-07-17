@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.7.17.2",
-  "lockfileSha256": "5a5053a234cbbd154b8237b149b7d1a6f5d380c6d23e6dc834fd0858c5a66fb3",
+  "packageVersion": "2026.7.17.3",
+  "lockfileSha256": "b6e0f7c273a8058996b1991b36e19cdd20a1e9571d7572788058ad4041da8e75",
   "summary": {
     "totalComponents": 2054,
     "npmComponents": 2031,
@@ -2131,7 +2131,7 @@
     {
       "name": "@sentry/cli-darwin",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
       "packagePathOrArtifact": "node_modules/@sentry/cli-darwin",
       "usage": "development-only",
       "distributedIn": [
@@ -2139,19 +2139,17 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-darwin@2.58.6",
-      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
-      "copyrightNotices": [
-        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@sentry/cli-linux-arm",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
       "packagePathOrArtifact": "node_modules/@sentry/cli-linux-arm",
       "usage": "development-only",
       "distributedIn": [
@@ -2159,19 +2157,17 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-linux-arm@2.58.6",
-      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
-      "copyrightNotices": [
-        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@sentry/cli-linux-arm64",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
       "packagePathOrArtifact": "node_modules/@sentry/cli-linux-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -2179,19 +2175,17 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-linux-arm64@2.58.6",
-      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
-      "copyrightNotices": [
-        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@sentry/cli-linux-i686",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
       "packagePathOrArtifact": "node_modules/@sentry/cli-linux-i686",
       "usage": "development-only",
       "distributedIn": [
@@ -2199,19 +2193,17 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-linux-i686@2.58.6",
-      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
-      "copyrightNotices": [
-        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@sentry/cli-linux-x64",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
       "packagePathOrArtifact": "node_modules/@sentry/cli-linux-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -2219,19 +2211,17 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-linux-x64@2.58.6",
-      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
-      "copyrightNotices": [
-        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@sentry/cli-win32-arm64",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
       "packagePathOrArtifact": "node_modules/@sentry/cli-win32-arm64",
       "usage": "development-only",
       "distributedIn": [
@@ -2239,19 +2229,17 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-win32-arm64@2.58.6",
-      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
-      "copyrightNotices": [
-        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@sentry/cli-win32-i686",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
       "packagePathOrArtifact": "node_modules/@sentry/cli-win32-i686",
       "usage": "development-only",
       "distributedIn": [
@@ -2259,19 +2247,17 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-win32-i686@2.58.6",
-      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
-      "copyrightNotices": [
-        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@sentry/cli-win32-x64",
       "versionOrCommit": "2.58.6",
-      "sourceUrl": "https://github.com/getsentry/sentry-cli/tree/0cb99231424480d304d10c8cb95f9549ad5ab9b7",
+      "sourceUrl": "https://github.com/getsentry/sentry-cli",
       "packagePathOrArtifact": "node_modules/@sentry/cli-win32-x64",
       "usage": "development-only",
       "distributedIn": [
@@ -2279,14 +2265,12 @@
       ],
       "declaredLicense": "FSL-1.1-MIT",
       "verifiedLicense": "FSL-1.1-MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@sentry/cli-win32-x64@2.58.6",
-      "licenseTextSha256": "f8171b7a645bca1eff1e69f911dc4c1fa93bf92a2f7d4d7fa24b4b7660c33041",
-      "copyrightNotices": [
-        "Copyright 2008-2025 Functional Software, Inc. dba Sentry"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "review_required",
-      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. License text source: https://raw.githubusercontent.com/getsentry/sentry-cli/0cb99231424480d304d10c8cb95f9549ad5ab9b7/LICENSE Published source revision: 0cb99231424480d304d10c8cb95f9549ad5ab9b7"
+      "reviewNotes": "Sentry CLI is a source-map/build tool and is excluded from the production runtime payload. No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@sentry/cli",
@@ -2548,7 +2532,7 @@
     {
       "name": "@tailwindcss/oxide-wasm32-wasi",
       "versionOrCommit": "4.3.2",
-      "sourceUrl": "https://github.com/tailwindlabs/tailwindcss/tree/056a1550721d4bf79ff732d5ab9414fa83f7064f",
+      "sourceUrl": "https://github.com/tailwindlabs/tailwindcss",
       "packagePathOrArtifact": "node_modules/@tailwindcss/oxide-wasm32-wasi",
       "usage": "development-only",
       "distributedIn": [
@@ -2556,14 +2540,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@tailwindcss/oxide-wasm32-wasi@4.3.2",
-      "licenseTextSha256": "60e0b68c0f35c078eef3a5d29419d0b03ff84ec1df9c3f9d6e39a519a5ae7985",
-      "copyrightNotices": [
-        "Copyright (c) Tailwind Labs, Inc."
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/tailwindlabs/tailwindcss/056a1550721d4bf79ff732d5ab9414fa83f7064f/LICENSE Published source revision: 056a1550721d4bf79ff732d5ab9414fa83f7064f"
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "@tailwindcss/oxide-win32-arm64-msvc",
@@ -5683,7 +5665,7 @@
     {
       "name": "eslint-config-next",
       "versionOrCommit": "16.2.10",
-      "sourceUrl": "https://github.com/vercel/next.js/tree/9dadfd693c5d26bb3c85d1c17802f49dde244b3e",
+      "sourceUrl": "vercel/next.js",
       "packagePathOrArtifact": "node_modules/eslint-config-next",
       "usage": "development-only",
       "distributedIn": [
@@ -5691,14 +5673,12 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/eslint-config-next@16.2.10",
-      "licenseTextSha256": "ee765244e2d59f5234d474f62e0766fa0c8b99af967fdd4c0cb8dcb0c76ea224",
-      "copyrightNotices": [
-        "Copyright (c) 2025 Vercel, Inc."
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/9dadfd693c5d26bb3c85d1c17802f49dde244b3e/license.md Published source revision: 9dadfd693c5d26bb3c85d1c17802f49dde244b3e"
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "eslint-import-resolver-node",
@@ -6076,7 +6056,7 @@
     {
       "name": "filelist",
       "versionOrCommit": "1.0.6",
-      "sourceUrl": "https://github.com/mde/filelist/tree/7032f94d04ad905b4f32b92d2278785859e1d55f",
+      "sourceUrl": "https://github.com/mde/filelist",
       "packagePathOrArtifact": "node_modules/filelist",
       "usage": "development-only",
       "distributedIn": [
@@ -6084,15 +6064,12 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/filelist@1.0.6",
-      "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/mde/filelist/7032f94d04ad905b4f32b92d2278785859e1d55f/LICENSE Published source revision: 7032f94d04ad905b4f32b92d2278785859e1d55f"
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "find-yarn-workspace-root",
@@ -6898,7 +6875,7 @@
     {
       "name": "imurmurhash",
       "versionOrCommit": "0.1.4",
-      "sourceUrl": "https://github.com/jensyt/imurmurhash-js/tree/9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2",
+      "sourceUrl": "https://github.com/jensyt/imurmurhash-js",
       "packagePathOrArtifact": "node_modules/imurmurhash",
       "usage": "development-only",
       "distributedIn": [
@@ -6906,14 +6883,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/imurmurhash@0.1.4",
-      "licenseTextSha256": "fa0943ddcaa857d901a9eb92254d89876297ecdfbc884d294a927df08ebcbbe8",
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
       "copyrightNotices": [
         "Copyright (c) 2013 Gary Court, Jens Taylor"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/jensyt/imurmurhash-js/9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2/LICENSE Published source revision: 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2"
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "inflight",
@@ -7590,7 +7567,7 @@
     {
       "name": "jake",
       "versionOrCommit": "10.9.4",
-      "sourceUrl": "https://github.com/jakejs/jake/tree/28a9960b506d3259dd2f708ea9bc82f615be91b5",
+      "sourceUrl": "https://github.com/jakejs/jake",
       "packagePathOrArtifact": "node_modules/jake",
       "usage": "development-only",
       "distributedIn": [
@@ -7598,15 +7575,12 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/jake@10.9.4",
-      "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
+      "licenseTextRef": null,
+      "licenseTextSha256": null,
+      "copyrightNotices": [],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/jakejs/jake/28a9960b506d3259dd2f708ea9bc82f615be91b5/LICENSE Published source revision: 28a9960b506d3259dd2f708ea9bc82f615be91b5"
+      "reviewNotes": "No verified license text was found in the installed package or a versioned override."
     },
     {
       "name": "jiti",
@@ -16719,7 +16693,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/9dadfd693c5d26bb3c85d1c17802f49dde244b3e/license.md Published source revision: 9dadfd693c5d26bb3c85d1c17802f49dde244b3e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/9dadfd693c5d26bb3c85d1c17802f49dde244b3e/license.md Published source revision: 9dadfd693c5d26bb3c85d1c17802f49dde244b3e The exact npm binary package omits gitHead and LICENSE. The immutable upstream v16.2.10 tag resolves to this commit and carries the repository MIT license."
     },
     {
       "name": "@next/swc-win32-x64-msvc",
@@ -16742,7 +16716,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/9dadfd693c5d26bb3c85d1c17802f49dde244b3e/license.md Published source revision: 9dadfd693c5d26bb3c85d1c17802f49dde244b3e"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/vercel/next.js/9dadfd693c5d26bb3c85d1c17802f49dde244b3e/license.md Published source revision: 9dadfd693c5d26bb3c85d1c17802f49dde244b3e The exact npm binary package omits gitHead and LICENSE. The immutable upstream v16.2.10 tag resolves to this commit and carries the repository MIT license."
     },
     {
       "name": "@noble/ciphers",
@@ -21470,7 +21444,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/getsentry/sentry-javascript/c66a81515c775de9df9427d1583d086dbf680188/LICENSE Published source revision: c66a81515c775de9df9427d1583d086dbf680188"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/getsentry/sentry-javascript/c66a81515c775de9df9427d1583d086dbf680188/LICENSE Published source revision: c66a81515c775de9df9427d1583d086dbf680188 The exact npm package omits gitHead and LICENSE. The immutable upstream 10.65.0 tag resolves to this commit, whose packages/server-utils/package.json has version 10.65.0 and whose root contains the MIT license."
     },
     {
       "name": "@sentry/vercel-edge",
@@ -29664,7 +29638,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/drizzle-team/drizzle-orm/273c78071d4841b497f5144734b38294df7ec64b/LICENSE Published source revision: 273c78071d4841b497f5144734b38294df7ec64b"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/drizzle-team/drizzle-orm/273c78071d4841b497f5144734b38294df7ec64b/LICENSE Published source revision: 273c78071d4841b497f5144734b38294df7ec64b The exact npm package omits gitHead and LICENSE. The immutable upstream 0.45.2 tag resolves to this commit, whose drizzle-orm/package.json has version 0.45.2 and whose root contains the Apache-2.0 license."
     },
     {
       "name": "duck",
@@ -43772,7 +43746,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/FormidableLabs/victory/d9d9ca2d5038d6ef9de91f2cef39e6fb2733baa6/LICENSE.txt Published source revision: d9d9ca2d5038d6ef9de91f2cef39e6fb2733baa6"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/FormidableLabs/victory/d9d9ca2d5038d6ef9de91f2cef39e6fb2733baa6/LICENSE.txt Published source revision: d9d9ca2d5038d6ef9de91f2cef39e6fb2733baa6 The exact npm package omits gitHead and LICENSE. The signed upstream v37.3.6 tag peels to this commit, whose packages/victory-vendor/package.json has version 37.3.6 and whose root contains the BSD-3-Clause license bundle."
     },
     {
       "name": "vscode-jsonrpc",

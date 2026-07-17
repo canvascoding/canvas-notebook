@@ -18,6 +18,9 @@ aufgeloest:
   entfernt. Die problematischen Lockfile-Positionen bleiben sichtbar.
 - libvips 8.18.3 wird unveraendert aus dem exakt gehashten Source-Archiv als
   Shared Library gebaut; Sharp 0.34.5 und 0.35.3 werden lokal dagegen gebaut.
+- Das CA-Bootstrap stammt aus demselben APT-signierten Debian-Snapshot; danach
+  nutzt APT HTTPS. Der Laufzeitstage installiert nur die benoetigten
+  Abhaengigkeiten und kein zweites Debian-`libvips42`-Binaerpaket.
 - LGPL-2.1-or-later, Quellarchiv, Buildrezept, Austauschanleitung, per-Arch-
   Inventare und Linkage-/Convert-Belege werden ausgeliefert.
 - Der Release-Workflow erzeugt das Multi-Arch-Manifest erst nach
@@ -45,6 +48,9 @@ umgesetzt und liegt reproduzierbar im Repository:
   in Markdown-READMEs werden inklusive ATX- und Setext-Ueberschriften erkannt.
   Quelle, Commit, Begruendung und Lockfile-Hash liegen reproduzierbar unter
   `docs/compliance/`; Pakete ohne belastbaren Text bleiben reviewpflichtig.
+  Schema 6 bindet wiederverwendete Belege zusaetzlich an Paketpfad, Version,
+  Registry-URL und Integrity-Hash. Nur unveraenderte Artefakte duerfen einen
+  vorhandenen Beleg ohne erneute Netzabfrage uebernehmen.
 - Die Copyright-Extraktion trennt echte Attributionen von Lizenzboilerplate.
   Saetze ueber `copyright holder`, Haftungsausschluesse oder abstrakte
   Copyright-Pflichten sowie das Wort `COPYRIGHT` in einer reinen URL werden

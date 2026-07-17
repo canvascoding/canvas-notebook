@@ -10,13 +10,19 @@ FROM ${NODE_BASE_IMAGE} AS canvas-base
 ARG DEBIAN_SNAPSHOT
 
 # Every apt operation in Canvas-owned layers resolves against one immutable
-# Debian archive state. The base-image packages themselves remain bound by the
-# immutable NODE_BASE_IMAGE digest.
+# Debian archive state. Bootstrap ca-certificates from the same signed snapshot
+# over HTTP because the slim base does not yet contain a CA store, then use
+# HTTPS for every later apt operation. The base-image packages themselves
+# remain bound by the immutable NODE_BASE_IMAGE digest.
 RUN set -eux; \
-  printf 'Types: deb deb-src\nURIs: https://snapshot.debian.org/archive/debian/%s/\nSuites: bookworm bookworm-updates\nComponents: main\nCheck-Valid-Until: no\n\nTypes: deb deb-src\nURIs: https://snapshot.debian.org/archive/debian-security/%s/\nSuites: bookworm-security\nComponents: main\nCheck-Valid-Until: no\n' \
+  printf 'Types: deb deb-src\nURIs: http://snapshot.debian.org/archive/debian/%s/\nSuites: bookworm bookworm-updates\nComponents: main\nCheck-Valid-Until: no\n\nTypes: deb deb-src\nURIs: http://snapshot.debian.org/archive/debian-security/%s/\nSuites: bookworm-security\nComponents: main\nCheck-Valid-Until: no\n' \
     "${DEBIAN_SNAPSHOT}" "${DEBIAN_SNAPSHOT}" \
     > /etc/apt/sources.list.d/debian.sources; \
-  rm -f /etc/apt/sources.list
+  rm -f /etc/apt/sources.list; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends ca-certificates; \
+  rm -rf /var/lib/apt/lists/*; \
+  sed -i 's#URIs: http://#URIs: https://#g' /etc/apt/sources.list.d/debian.sources
 
 FROM canvas-base AS libvips-build
 ARG LIBVIPS_VERSION
@@ -57,7 +63,10 @@ FROM canvas-base AS app-base
 
 RUN set -eux; \
   apt-get update; \
-  apt-get install -y --no-install-recommends libvips42; \
+  apt-get install -y --no-install-recommends \
+    libarchive13 libexif12 libexpat1 libfontconfig1 libglib2.0-0 libheif1 \
+    libjpeg62-turbo liblcms2-2 libpango-1.0-0 libpangocairo-1.0-0 \
+    libpng16-16 librsvg2-2 libtiff6 libwebp7 libwebpdemux2 libwebpmux3 zlib1g; \
   rm -rf /var/lib/apt/lists/*
 COPY --from=libvips-build /opt/libvips-root/usr/local/ /usr/local/
 COPY --from=libvips-build /tmp/vips-8.18.3.tar.xz /usr/share/canvas-notebook/corresponding-source/vips-8.18.3.tar.xz

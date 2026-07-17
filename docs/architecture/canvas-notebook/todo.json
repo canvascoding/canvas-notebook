@@ -1409,6 +1409,7 @@
           "Vollstaendige Lizenztexte aus Markdown-README-Abschnitten inklusive ATX- und Setext-Ueberschriften",
           "Korrekte Vererbung von development-only auf verschachtelte Build-Abhaengigkeiten",
           "Copyright-Attributionen von Lizenzboilerplate getrennt und bestehende Cache-Eintraege deterministisch migriert",
+          "Lizenzcache Schema 6 an Paketpfad, Version, Registry-URL und Integrity-Hash gebunden, damit unveraenderte verifizierte Belege netzunabhaengig wiederverwendet werden",
           "Menschenlesbare Third-Party Notices und maschinenlesbares Komponentenmanifest",
           "Versionierte Lizenzpolicy und Overrides fuer fehlende npm-Metadaten",
           "Excalidraw-Paket und selbst gehostete Excalidraw-Font-Assets inventarisiert",
@@ -1440,6 +1441,7 @@
       "LGPL-2.1-or-later-Text, Quellarchiv, vollstaendiges Docker-Buildrezept und Relinking-/Austauschanleitung in Image und Native-Compliance-Release-Artefakt aufgenommen",
       "Debian auf Snapshot 20260716T000000Z, PGDG-Binaries und -Sources versions-/hashgebunden sowie 45 Python-Pakete fuer amd64/arm64 gemeinsam versions-/wheel-gehasht",
       "Schema-4-Runtime-Inventar und verpflichtenden zweistufigen amd64-/arm64-CI-Abgleich vor Erzeugung des Multi-Arch-Manifests implementiert",
+      "CA-Zertifikate aus demselben signierten Debian-Snapshot gebootstrapped, danach APT auf HTTPS umgestellt und redundantes Debian-libvips42 aus dem Runtime-Lieferumfang entfernt",
       "Statisches kommerzielles Lizenz-Gate auf null Release-Blocker geschlossen"
         ],
         "verified": [

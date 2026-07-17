@@ -15,6 +15,7 @@ const lockfile = JSON.parse(fs.readFileSync('package-lock.json', 'utf8')) as {
   packages: Record<string, {
     version?: string;
     resolved?: string;
+    integrity?: string;
     optional?: boolean;
   }>;
 };
@@ -24,6 +25,9 @@ const licenseCache = JSON.parse(fs.readFileSync(
 )) as {
   schemaVersion?: number;
   entries?: Record<string, {
+    packageResolved?: string | null;
+    packageIntegrity?: string | null;
+    lookupCompleted?: boolean;
     sourceRevision?: string | null;
     licenseText?: string | null;
     verificationNote?: string | null;
@@ -134,7 +138,10 @@ for (const requiredDockerFragment of [
   `ARG LIBVIPS_VERSION=${nativeDistributionPolicy.libvips.version}`,
   `ARG LIBVIPS_SHA256=${nativeDistributionPolicy.libvips.sourceSha256}`,
   'Types: deb deb-src',
+  'URIs: http://snapshot.debian.org/archive/debian/',
+  "sed -i 's#URIs: http://#URIs: https://#g'",
   'FROM canvas-base AS libvips-build',
+  'libarchive13 libexif12 libexpat1 libfontconfig1 libglib2.0-0 libheif1',
   '--libdir=lib --buildtype=release',
   'SHARP_FORCE_GLOBAL_LIBVIPS=1',
   'npm --prefix node_modules/sharp run build',
@@ -150,6 +157,11 @@ for (const requiredDockerFragment of [
     `Dockerfile must retain native compliance control: ${requiredDockerFragment}`,
   );
 }
+assert.doesNotMatch(
+  dockerfile,
+  /\blibvips42\b/u,
+  'the runtime image must not add a second Debian libvips binary beside the source-built shared library',
+);
 for (const requiredWorkflowFragment of [
   'Verify amd64 native compliance payload',
   'Verify arm64 native compliance payload',
@@ -441,7 +453,15 @@ assert(webworkify.copyrightNotices.includes(
 assert.match(webworkify.sourceUrl, /baf2884256768aea6c36be1ea6e1efb2144fcfbc/u);
 assert.match(webworkify.reviewNotes || '', /embedded in pica's distributed browser bundles/u);
 
-assert.equal(licenseCache.schemaVersion, 5);
+assert.equal(licenseCache.schemaVersion, 6);
+for (const [cacheKey, entry] of Object.entries(licenseCache.entries || {})) {
+  const packagePath = cacheKey.slice(0, cacheKey.lastIndexOf('@'));
+  const lockPackage = lockfile.packages[packagePath];
+  assert(lockPackage, `${cacheKey} must still resolve to a package-lock entry`);
+  assert.equal(entry.lookupCompleted, true, `${cacheKey} must record a completed evidence lookup`);
+  assert.equal(entry.packageResolved, lockPackage.resolved || null);
+  assert.equal(entry.packageIntegrity, lockPackage.integrity || null);
+}
 const sharpLibvipsComponents = inventory.components.filter((component) => (
   component.name.startsWith('@img/sharp-libvips-')
 ));

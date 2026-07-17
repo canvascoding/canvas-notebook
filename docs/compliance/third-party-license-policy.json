@@ -86,6 +86,36 @@
       "licensePath": "LICENSE",
       "reason": "The npm release omits gitHead and LICENSE. The AWS SDK publish commit contains packages-internal/nested-clients/package.json at version 3.997.31 and the repository Apache-2.0 license."
     },
+    "@next/swc-win32-arm64-msvc@16.2.10": {
+      "repositoryUrl": "https://github.com/vercel/next.js",
+      "revision": "9dadfd693c5d26bb3c85d1c17802f49dde244b3e",
+      "licensePath": "license.md",
+      "reason": "The exact npm binary package omits gitHead and LICENSE. The immutable upstream v16.2.10 tag resolves to this commit and carries the repository MIT license."
+    },
+    "@next/swc-win32-x64-msvc@16.2.10": {
+      "repositoryUrl": "https://github.com/vercel/next.js",
+      "revision": "9dadfd693c5d26bb3c85d1c17802f49dde244b3e",
+      "licensePath": "license.md",
+      "reason": "The exact npm binary package omits gitHead and LICENSE. The immutable upstream v16.2.10 tag resolves to this commit and carries the repository MIT license."
+    },
+    "@sentry/server-utils@10.65.0": {
+      "repositoryUrl": "https://github.com/getsentry/sentry-javascript",
+      "revision": "c66a81515c775de9df9427d1583d086dbf680188",
+      "licensePath": "LICENSE",
+      "reason": "The exact npm package omits gitHead and LICENSE. The immutable upstream 10.65.0 tag resolves to this commit, whose packages/server-utils/package.json has version 10.65.0 and whose root contains the MIT license."
+    },
+    "drizzle-orm@0.45.2": {
+      "repositoryUrl": "https://github.com/drizzle-team/drizzle-orm",
+      "revision": "273c78071d4841b497f5144734b38294df7ec64b",
+      "licensePath": "LICENSE",
+      "reason": "The exact npm package omits gitHead and LICENSE. The immutable upstream 0.45.2 tag resolves to this commit, whose drizzle-orm/package.json has version 0.45.2 and whose root contains the Apache-2.0 license."
+    },
+    "victory-vendor@37.3.6": {
+      "repositoryUrl": "https://github.com/FormidableLabs/victory",
+      "revision": "d9d9ca2d5038d6ef9de91f2cef39e6fb2733baa6",
+      "licensePath": "LICENSE.txt",
+      "reason": "The exact npm package omits gitHead and LICENSE. The signed upstream v37.3.6 tag peels to this commit, whose packages/victory-vendor/package.json has version 37.3.6 and whose root contains the BSD-3-Clause license bundle."
+    },
     "@radix-ui/primitive@1.0.0": {
       "repositoryUrl": "https://github.com/radix-ui/primitives",
       "revision": "3e5644edadcded918db177368c3fe9654ce9885f",

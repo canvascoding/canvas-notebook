@@ -30,6 +30,14 @@ erfolgreich verglichen wurden. Die Evidenzen werden als
 `canvas-native-compliance-<version>.tar.gz` aufbewahrt. Exakte Parameter und
 Hashes stehen in `docker-native-distribution-policy.json`.
 
+Das minimale Node-Basisimage besitzt anfangs keinen CA-Store. Deshalb wird
+`ca-certificates` einmal ueber HTTP aus genau demselben, APT-signierten
+Snapshot installiert; danach werden die unveraenderten Snapshot-Quellen auf
+HTTPS umgestellt. Der libvips-Laufzeitstage installiert nur die expliziten
+Codec-/GLib-/Pango-Laufzeitbibliotheken. Das Debian-Paket `libvips42` wird
+nicht zusaetzlich ausgeliefert, sodass `/usr/local/lib/libvips*.so*` eindeutig
+aus dem gehashten Canvas-Source-Build stammt.
+
 Der lokale Arbeitslauf vom 17. Juli 2026 hat absichtlich keinen Container
 gebaut. Bis ein konkreter Release-Tag den Remote-Matrixlauf bestanden hat,
 liegt daher eine implementierte und statisch gepruefte Releasebedingung, aber

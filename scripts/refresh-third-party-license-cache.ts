@@ -13,6 +13,7 @@ import {
 type LockPackage = {
   version?: string;
   resolved?: string;
+  integrity?: string;
   optional?: boolean;
   license?: string;
 };
@@ -21,6 +22,9 @@ type CacheEntry = {
   packagePath: string;
   name: string;
   version: string;
+  packageResolved: string | null;
+  packageIntegrity: string | null;
+  lookupCompleted: boolean;
   sourceUrl: string | null;
   sourceRevision: string | null;
   verificationSource: string | null;
@@ -314,6 +318,9 @@ async function extractPackageLicense(
       packagePath,
       name,
       version,
+      packageResolved: lockPackage.resolved || null,
+      packageIntegrity: lockPackage.integrity || null,
+      lookupCompleted: true,
       sourceUrl: null,
       sourceRevision: null,
       verificationSource: null,
@@ -418,6 +425,9 @@ async function extractPackageLicense(
       packagePath,
       name,
       version,
+      packageResolved: lockPackage.resolved || null,
+      packageIntegrity: lockPackage.integrity || null,
+      lookupCompleted: true,
       sourceUrl: upstreamLicense?.sourceUrl
         || publishedSourceUrl
         || repositoryUrl(packageJson?.repository)
@@ -475,9 +485,13 @@ async function main() {
     lockfileSha256?: string;
     entries?: Record<string, CacheEntry>;
   }>(thirdPartyCompliancePaths.licenseCache);
-  const previousEntries = previousCache?.lockfileSha256 === lockfileSha256
-    ? previousCache.entries || {}
-    : {};
+  // Cache entries are bound to an exact package path, version, registry URL
+  // and integrity hash. A root package-version bump changes the full lockfile
+  // hash without changing those immutable package artifacts, so keep their
+  // already verified evidence instead of making releases depend on a fresh
+  // GitHub lookup. Changed artifacts and changed source overrides still force
+  // a refresh below.
+  const previousEntries = previousCache?.entries || {};
   const candidates = await Promise.all(
     Object.entries(lockfile.packages)
       .filter(([packagePath, lockPackage]) => (
@@ -502,10 +516,22 @@ async function main() {
           Boolean(lockPackage.optional)
           || !await hasLocalLicenseFile(packagePath)
         );
-        const needsRefresh = !existing?.licenseText
-          && !existing?.verificationNote
+        const previousSchema = previousCache?.schemaVersion || 0;
+        const existingLookupCompleted = Boolean(existing) && (
+          previousSchema < 6 || existing.lookupCompleted === true
+        );
+        const artifactChanged = Boolean(
+          existing
+          && previousSchema >= 6
+          && (
+            existing.packageResolved !== (lockPackage.resolved || null)
+            || existing.packageIntegrity !== (lockPackage.integrity || null)
+          ),
+        );
+        const needsRefresh = !existingLookupCompleted
+          || artifactChanged
           || Boolean(
-            (previousCache?.schemaVersion || 0) < 5
+            previousSchema < 5
             && name.startsWith('@img/sharp'),
           )
           || Boolean(sourceRevisionOverride && existing.sourceRevision !== sourceRevisionOverride.revision);
@@ -542,6 +568,9 @@ async function main() {
         packagePath: entry.packagePath,
         name,
         version,
+        packageResolved: entry.lockPackage.resolved || null,
+        packageIntegrity: entry.lockPackage.integrity || null,
+        lookupCompleted: true,
         sourceUrl: entry.lockPackage.resolved || null,
         sourceRevision: null,
         verificationSource: null,
@@ -556,7 +585,7 @@ async function main() {
     return result;
   });
   const cache = {
-    schemaVersion: 5,
+    schemaVersion: 6,
     lockfileSha256,
     entries: {
       ...Object.fromEntries(
@@ -574,6 +603,9 @@ async function main() {
               entry.cacheKey,
               {
                 ...previous,
+                packageResolved: entry.lockPackage.resolved || null,
+                packageIntegrity: entry.lockPackage.integrity || null,
+                lookupCompleted: true,
                 licenseText: migratedLicenseText,
                 copyrightNotices: extractCopyrightNotices(
                   migratedLicenseText || '',
