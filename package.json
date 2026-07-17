@@ -92,6 +92,7 @@
     "test:editor:mobile-toolbar": "tsx scripts/mobile-toolbar-gesture-test.ts",
     "test:markdown:rendering": "tsx scripts/canvas-markdown-rendering-test.ts",
     "test:markdown:preview-stability": "tsx scripts/markdown-document-preview-stability-test.tsx",
+    "test:markdown:navigation-client": "tsx scripts/workspace-markdown-navigation-client-test.ts",
     "test:markdown:obsidian": "tsx scripts/obsidian-flavored-markdown-test.ts",
     "test:markdown:links": "tsx scripts/workspace-link-index-test.ts",
     "test:knowledge-graph": "tsx scripts/knowledge-graph-model-test.ts",

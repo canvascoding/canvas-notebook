@@ -16,14 +16,48 @@ export type WorkspaceMarkdownOpenResult = {
   status: 'ambiguous' | 'failed' | 'missing' | 'opened' | 'superseded';
 };
 
+export function buildWorkspaceMarkdownNotebookHref(input: {
+  path: string;
+  workspaceId: string | null;
+}): string {
+  const params = new URLSearchParams({ path: input.path });
+  if (input.workspaceId?.trim()) params.set('workspaceId', input.workspaceId.trim());
+  return `/notebook?${params.toString()}`;
+}
+
+export function isNotebookWorkspaceEditorPath(pathname: string): boolean {
+  return pathname.split('/').filter(Boolean).at(-1)?.toLowerCase() === 'notebook';
+}
+
 export async function openWorkspaceMarkdownPath(input: {
   blockId?: string | null;
+  currentPathname?: string | null;
   heading?: string | null;
+  navigateToNotebook?: (href: string) => void;
   path: string;
   workspaceId: string | null;
 }): Promise<WorkspaceMarkdownOpenResult> {
   if (!input.workspaceId) {
     return { status: 'failed', error: 'Workspace context is not ready', path: input.path };
+  }
+
+  if (
+    input.currentPathname
+    && input.navigateToNotebook
+    && !isNotebookWorkspaceEditorPath(input.currentPathname)
+  ) {
+    if (input.blockId || input.heading) {
+      requestWorkspaceMarkdownLocation({
+        blockId: input.blockId ?? null,
+        heading: input.heading ?? null,
+        path: input.path,
+      });
+    }
+    input.navigateToNotebook(buildWorkspaceMarkdownNotebookHref({
+      path: input.path,
+      workspaceId: input.workspaceId,
+    }));
+    return { status: 'opened', path: input.path };
   }
 
   const result = await useFileStore.getState().revealAndLoadFile(input.path, {

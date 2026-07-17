@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
 import { openWorkspaceMarkdownPath } from '@/app/lib/markdown/workspace-markdown-navigation-client';
+import { usePathname, useRouter } from '@/i18n/navigation';
 import {
   buildWorkspaceDocumentPreviewTarget,
   createWorkspaceDocumentPreviewContent,
@@ -45,6 +46,8 @@ export function WorkspaceDocumentPreviewDialog({
   reference,
 }: WorkspaceDocumentPreviewDialogProps) {
   const t = useTranslations('notebook');
+  const pathname = usePathname();
+  const router = useRouter();
   const workspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [state, setState] = useState<PreviewState | null>(null);
   const [openingDocument, setOpeningDocument] = useState(false);
@@ -99,7 +102,9 @@ export function WorkspaceDocumentPreviewDialog({
       } else {
         const result = await openWorkspaceMarkdownPath({
           blockId: reference.blockId,
+          currentPathname: pathname,
           heading: reference.heading,
+          navigateToNotebook: (href) => router.push(href),
           path: reference.path,
           workspaceId,
         });

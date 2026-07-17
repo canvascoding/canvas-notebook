@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
 import { JSDOM } from 'jsdom';
 import { NextIntlClientProvider } from 'next-intl';
+import { AppRouterContext } from 'next/dist/shared/lib/app-router-context.shared-runtime';
+import { PathnameContext } from 'next/dist/shared/lib/hooks-client-context.shared-runtime';
 import { act } from 'react';
 import { createRoot } from 'react-dom/client';
 
@@ -56,6 +58,19 @@ const linkIndex = {
   omittedDocuments: [],
 };
 
+let pushedHref: string | null = null;
+const router = {
+  back: () => {},
+  forward: () => {},
+  refresh: () => {},
+  hmrRefresh: () => {},
+  push: (href: string) => {
+    pushedHref = href;
+  },
+  replace: () => {},
+  prefetch: async () => {},
+};
+
 Object.defineProperty(globalThis, 'fetch', {
   configurable: true,
   value: async (input: string | URL | Request) => {
@@ -105,9 +120,13 @@ async function main() {
   const markdown = `[Social Posts](${documentPath})`;
 
   const renderMarkdown = (version: number) => (
-    <NextIntlClientProvider locale="en" timeZone="Europe/Berlin" messages={messages}>
-      <MarkdownRenderer content={markdown} className={`render-${version}`} />
-    </NextIntlClientProvider>
+    <AppRouterContext.Provider value={router}>
+      <PathnameContext.Provider value="/automations/job-1">
+        <NextIntlClientProvider locale="en" timeZone="Europe/Berlin" messages={messages}>
+          <MarkdownRenderer content={markdown} className={`render-${version}`} />
+        </NextIntlClientProvider>
+      </PathnameContext.Provider>
+    </AppRouterContext.Provider>
   );
 
   await act(async () => {
@@ -130,6 +149,21 @@ async function main() {
   assert.ok(
     document.querySelector('[role="dialog"]'),
     'an unrelated MarkdownRenderer rerender must not close an open document preview',
+  );
+
+  const openButton = Array.from(document.querySelectorAll('button')).find(
+    (button) => button.textContent?.includes('Open in editor'),
+  );
+  assert.ok(openButton, 'document preview should expose the editor action');
+  await act(async () => {
+    openButton.click();
+  });
+  await waitFor(() => {
+    assert.ok(pushedHref);
+  }, 'editor action should navigate to the notebook');
+  assert.match(
+    pushedHref,
+    /\/notebook\?path=03_releases%2Fv2026\.7\.17\.7%2Fsocial-posts\.md&workspaceId=workspace-a/u,
   );
 
   await act(async () => {
