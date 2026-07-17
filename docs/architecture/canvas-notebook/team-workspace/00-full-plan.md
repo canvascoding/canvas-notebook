@@ -181,7 +181,7 @@ Scope-Matrix fuer bestehende Funktionen:
 |---|---|---|
 | Workspace-Dateien | ein globaler Workspace | `personal workspace` pro User plus `team workspace` pro Organization |
 | Agent-Runtime-Einstellungen | tendenziell instanzweit | Defaults auf Organization-/Instanz-Ebene, konkrete Overrides pro User, Agent, Session oder Workspace |
-| Composio | eine Composio-ID fuer die VM | Composio Connections pro User; optionale Organization-Connections nur fuer explizit geteilte Integrationen |
+| Composio | eine Composio-ID fuer die VM | Persoenliche Connection-Profile pro User; genau ein Standardprofil und optionale per-user Workspace-Overrides; Organization-Connections nicht in V1 |
 | E-Mail-OAuth | ein Credential-/OAuth-Kontext | E-Mail-Accounts und OAuth-Credentials pro User; Team-Mailboxen optional als Organization-Ressource |
 | Notifications | instanzweite Einstellungen | Notification Preferences pro User; Team-/Admin-Alerts optional auf Organization-Ebene |
 | Notification Channels | aktuell nur ein Telegram Channel | Channels pro User und optional Organization-Channels fuer Team-Alerts |
@@ -267,9 +267,20 @@ Plugins und Skills:
 Composio-Management:
 
 - Eine einzelne Composio-ID fuer die komplette VM reicht fuer Team-Instanzen nicht.
-- OAuth-Connections und Tool-Berechtigungen muessen pro User trennbar sein.
-- Wenn eine Integration teamweit geteilt werden soll, braucht sie einen expliziten Organization-Scope mit Admin-Freigabe.
-- Jede Composio-Ausfuehrung muss auditierbar sein mit `userId`, `connectionId`, `tool`, `sessionId` und `workspaceId`.
+- Jeder User besitzt ein persoenliches Standardprofil und kann weitere
+  Connection-Profile anlegen.
+- Pro Workspace kann jeder User nur fuer sich selbst ein anderes eigenes Profil
+  waehlen; ohne Override gilt das Standardprofil.
+- Workspace-Ersteller und Admins waehlen keine Accounts fuer andere User und
+  sehen deren Connection-Details nicht.
+- Der zentrale API-Key bleibt einmalig; die Profile werden als getrennte
+  Composio User IDs innerhalb desselben Projekts abgebildet.
+- Organization-Connections sind nicht Teil von V1 und muessen spaeter als eigene
+  geteilte Ressource mit Rollen, Freigabe und Audit modelliert werden.
+- Jede Composio-Ausfuehrung muss auditierbar sein mit `userId`, `profileId`,
+  `connectionId`, `tool`, `sessionId` und `workspaceId`.
+- Der Detailplan steht in
+  `docs/architecture/canvas-notebook/team-workspace/23-composio-user-workspace-profiles.md`.
 
 E-Mail-OAuth:
 

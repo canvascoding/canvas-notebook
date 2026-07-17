@@ -1595,6 +1595,46 @@
         "npm run build",
         "COLLABORATION_E2E=1 E2E_EXTERNAL_SERVER=1 playwright test tests/excalidraw-live-collaboration.spec.ts"
       ]
+    },
+    {
+      "id": 53,
+      "title": "Composio mit persoenlichen Connection-Profilen und per-user Workspace-Overrides umsetzen",
+      "status": "in_progress",
+      "repo": "canvasstudios-notebook",
+      "planningArtifacts": [
+        "docs/architecture/canvas-notebook/team-workspace/23-composio-user-workspace-profiles.md",
+        "docs/architecture/canvas-notebook/team-workspace/03-scope-matrix.md"
+      ],
+      "implementationTargets": [
+        "app/lib/db/schema.ts",
+        "app/lib/db/postgres.ts",
+        "app/lib/composio/*",
+        "app/api/composio/*",
+        "app/lib/pi/tool-registry.ts",
+        "app/components/settings/ConnectedAppsPanel.tsx",
+        "app/lib/automations/*",
+        "app/api/automations/*",
+        "scripts/composio-user-workspace-profiles-test.ts"
+      ],
+      "acceptanceCriteria": [
+        "Jeder User besitzt genau ein persoenliches Standardprofil und kann weitere eigene Connection-Profile anlegen",
+        "Ohne Override verwendet jeder neue Workspace automatisch das Standardprofil des jeweiligen Users und startet keinen OAuth-Flow",
+        "Jeder User kann pro Workspace nur eines seiner eigenen Profile waehlen; Admins koennen keine Profile anderer User sehen oder setzen",
+        "Ein Profil kann fuer mehrere Workspaces desselben Users wiederverwendet werden",
+        "Status, Connect, Callback, Refresh, Disconnect und Agent Runtime verwenden denselben serverseitigen Effective-Profile-Resolver",
+        "Profile-scoped Caches verhindern Connection-Status-Leaks zwischen Usern und Profilen",
+        "Bestehende user-scoped Composio IDs werden ohne Reconnect als Standardprofile uebernommen",
+        "Scheduled Automations verwenden responsibleUserId plus workspaceId und Webhook-Trigger werden bei Profilwechsel migriert oder sichtbar pausiert",
+        "Workspace-Erstellung enthaelt keine Composio-Auswahl und Instagram bleibt nur ein Toolkit-Beispiel",
+        "Der zentrale COMPOSIO_API_KEY bleibt die einzige Provider-Projekt-Konfiguration"
+      ],
+      "verification": [
+        "npm run test:composio:user-scope",
+        "npx tsx --conditions react-server scripts/composio-user-workspace-profiles-test.ts",
+        "npm run lint",
+        "npm run build",
+        "Browser-E2E nach expliziter Freigabe"
+      ]
     }
   ]
 }

@@ -1,6 +1,6 @@
 # Canvas Notebook Team Workspace
 
-Stand: 2026-07-15
+Stand: 2026-07-17
 
 Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau in Canvas Notebook.
 
@@ -29,6 +29,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `20-organization-agent-provisioning-and-management-tools.md`: Personal-/Organization-Agenten, Mitarbeiter-/Workspace-Zuweisung, scope-aware Skill-/Plugin-Abhaengigkeiten und vollwertige Agent-Erstellung/-Bearbeitung durch den Standardagenten ueber Progressive Disclosure.
 - `21-third-party-license-inventory-and-notices-policy.md`: vollstaendiger Drittanbieter-/MIT-Lizenz-Audit, maschinenlesbares Inventar, ausgelieferte Notices und blockierender CI-Drift-Check.
 - `22-excalidraw-live-collaboration-policy.md`: eigene Excalidraw-Scene-Collaboration ausserhalb von Aufgabe 48, inklusive Variantenvergleich, Canvas-native Empfehlung, Auth/Persistenz/Assets/Presence und Entscheidungstor.
+- `23-composio-user-workspace-profiles.md`: persoenliche Composio-Standard-/Zusatzprofile, per-user Workspace-Overrides, Effective-Profile-Resolver, UI-, OAuth-, Cache- und Automation-Regeln.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -66,6 +67,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Organization Agent Provisioning und ein eigenes Progressive-Disclosure-Agent-Management-Toolset mit vollstaendiger UI-/API-Paritaet sind dokumentiert und in den Aufgaben `49` und `50` erfasst.
 - Die Drittanbieter-/MIT-Lizenzinventur und eine verpflichtend mitausgelieferte Notice-Liste sind als eigene Aufgabe `51` geplant.
 - Excalidraw-Live-Collaboration ist bewusst nicht Teil von Aufgabe `48`; der Architektur-Spike und der eigene Scene-Provider sind in Aufgabe `52` implementiert und UI-/E2E-verifiziert.
+- Composio-Connection-Profile und per-user Workspace-Overrides sind als Aufgabe `53` spezifiziert und in Umsetzung.
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
 - Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
 - Workspace-Modell, Workspace-Service, Bootstrap-Erzeugung und `/api/workspaces` in Canvas Notebook sind eingefuehrt.

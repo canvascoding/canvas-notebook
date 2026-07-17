@@ -63,7 +63,7 @@ Dieses Dokument schliesst Umsetzungsschritt 2 ab: bestehende Canvas Notebook Fun
 | Todo File Links | `user` plus `workspacePath` | `workspace` plus path, optional Revision | `workspaceId` hinzufuegen | P6 |
 | E-Mail Accounts/OAuth | bereits `user` | `user`, optional Organization Team-Mailbox spaeter | User-Scope beibehalten, Managed/Gateway-Mail user-bound halten, Organization-Mailbox separat modellieren | P6 |
 | E-Mail Drafts/Attachments | `user`, Account | `user`, optional `workspace` fuer Attachments | Attachment-Referenzen workspace-aware machen | P6 |
-| Composio Identity/Connections | gemischt, teils User-ID/Fallbacks | `user` Connections, optional `organization` Connections | Connection-Scope und Audit erzwingen | P6 |
+| Composio Identity/Connections | user-scoped Identity, aber nur ein Connection-Satz pro User | `user`-owned Standard-/Zusatzprofile plus per-user `workspace` Override; keine Organization-Connections in V1 | Effective-Profile-Resolver, Ownership, UI, OAuth-State, Cache- und Automation-Scope erzwingen | P6 |
 | MCP Config | instanzweite Settings-Datei | `user` Tool Stack plus `organization` erlaubte Defaults/Templates | Config-Schichtung einfuehren; Manager-Key um `organizationId` und `userId` erweitern | P6 |
 | MCP Runtime/Transport State | geteilte Manager-Verbindungen nach Servername/Hash | `user` isolierte Verbindung, Cache, Logs und Tokens | Connection Pool und Env-Aufloesung user-aware machen | P6 |
 | Skills | globales `data/skills` und globale Runtime Config | installierter Stack unter `/data/users/{userId}/skills`, `organization` Registry/Templates | Installationspfade/Registry nach Scope trennen | P6 |
