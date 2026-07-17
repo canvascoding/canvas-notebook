@@ -72,6 +72,16 @@ moduleInternals._load = (request, parent, isMain) => {
 };
 
 async function main() {
+  const profileSource = await fs.readFile(
+    path.join(process.cwd(), 'app/lib/composio/composio-profiles.ts'),
+    'utf8',
+  );
+  assert.match(
+    profileSource,
+    /SELECT id FROM "user" WHERE id = \? LIMIT 1/u,
+    'Composio profile creation must quote the reserved Postgres user table name',
+  );
+
   const tmpRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-composio-profiles-'));
   process.env.DATA = tmpRoot;
   process.env.CANVAS_DATA_ROOT = tmpRoot;
