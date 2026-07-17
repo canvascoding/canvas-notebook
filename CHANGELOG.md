@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.17.3] - 2026-07-17
+## [2026.7.17.4] - 2026-07-17
 
 ### Added
 
@@ -30,6 +30,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Fixed workspace upload retries and finalization, repeated bulk folder moves, knowledge-graph document search, Markdown editor state alignment, and Marp export memory handling.
 - Synchronized all transitive peer and optional dependencies in `package-lock.json` and added a clean-install dry-run to the permanent release gate.
 - Bootstrapped CA certificates from the same signed Debian snapshot before switching APT to HTTPS, and replaced the redundant Debian libvips binary with explicit runtime dependencies for the source-built shared libvips.
+- Kept the complete libvips development-header set in the isolated dependency stage so both Sharp versions compile against that shared library without adding development packages to the runtime image.
 
 ### Verification
 

@@ -21,6 +21,8 @@ aufgeloest:
 - Das CA-Bootstrap stammt aus demselben APT-signierten Debian-Snapshot; danach
   nutzt APT HTTPS. Der Laufzeitstage installiert nur die benoetigten
   Abhaengigkeiten und kein zweites Debian-`libvips42`-Binaerpaket.
+- Die fuer den Sharp-Compile benoetigten libvips-Development-Header verbleiben
+  im isolierten `deps`-Stage und sind kein Bestandteil des Runtime-Images.
 - LGPL-2.1-or-later, Quellarchiv, Buildrezept, Austauschanleitung, per-Arch-
   Inventare und Linkage-/Convert-Belege werden ausgeliefert.
 - Der Release-Workflow erzeugt das Multi-Arch-Manifest erst nach

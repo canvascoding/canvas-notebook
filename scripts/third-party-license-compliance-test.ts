@@ -162,6 +162,27 @@ assert.doesNotMatch(
   /\blibvips42\b/u,
   'the runtime image must not add a second Debian libvips binary beside the source-built shared library',
 );
+const depsStage = dockerfile.match(/FROM app-base AS deps([\s\S]*?)FROM app-base AS builder/u)?.[1];
+assert(depsStage, 'Dockerfile must retain an isolated native dependency build stage');
+for (const developmentPackage of [
+  'libarchive-dev',
+  'libexif-dev',
+  'libexpat1-dev',
+  'libglib2.0-dev',
+  'libheif-dev',
+  'libjpeg62-turbo-dev',
+  'liblcms2-dev',
+  'libpango1.0-dev',
+  'libpng-dev',
+  'librsvg2-dev',
+  'libtiff-dev',
+  'libwebp-dev',
+]) {
+  assert(
+    depsStage.includes(developmentPackage),
+    `the deps stage must provide ${developmentPackage} while compiling Sharp against shared libvips`,
+  );
+}
 for (const requiredWorkflowFragment of [
   'Verify amd64 native compliance payload',
   'Verify arm64 native compliance payload',

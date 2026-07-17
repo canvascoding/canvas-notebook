@@ -36,7 +36,17 @@ Snapshot installiert; danach werden die unveraenderten Snapshot-Quellen auf
 HTTPS umgestellt. Der libvips-Laufzeitstage installiert nur die expliziten
 Codec-/GLib-/Pango-Laufzeitbibliotheken. Das Debian-Paket `libvips42` wird
 nicht zusaetzlich ausgeliefert, sodass `/usr/local/lib/libvips*.so*` eindeutig
-aus dem gehashten Canvas-Source-Build stammt.
+aus dem gehashten Canvas-Source-Build stammt. Die korrespondierenden
+Development-Header werden ausschliesslich im isolierten `deps`-Stage fuer den
+Build beider Sharp-Versionen installiert und nicht in das Runtime-Image
+uebernommen.
+
+Der Remote-Lauf `29569016479` fuer `v2026.7.17.3` bestaetigte den korrigierten
+Snapshot-/CA- und libvips-Source-Build auf amd64 und arm64, stoppte danach aber
+vor jeder Veroeffentlichung beim Sharp-Compile, weil dem `deps`-Stage die
+transitiven libvips-Development-Header fehlten. `v2026.7.17.4` nimmt genau
+diese nur in den Build-Stage auf; der Tag bleibt bis zum vollstaendigen
+Multi-Arch-Nachweis ein unveroeffentlichter Kandidat.
 
 Der lokale Arbeitslauf vom 17. Juli 2026 hat absichtlich keinen Container
 gebaut. Bis ein konkreter Release-Tag den Remote-Matrixlauf bestanden hat,

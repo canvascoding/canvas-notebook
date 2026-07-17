@@ -80,9 +80,15 @@ ENV PKG_CONFIG_PATH=/usr/local/lib/pkgconfig \
     NODE_PATH=/usr/local/lib/node_modules \
     SHARP_FORCE_GLOBAL_LIBVIPS=1
 
-# Required for native modules (node-pty, better-sqlite3)
+# Required for native modules (node-pty, better-sqlite3) and for compiling both
+# Sharp versions against the source-built shared libvips. These development
+# headers remain in the deps stage and are not copied into the runtime image.
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends python3 make g++ pkg-config libglib2.0-dev \
+  && apt-get install -y --no-install-recommends \
+    python3 make g++ pkg-config \
+    libarchive-dev libexif-dev libexpat1-dev libglib2.0-dev libheif-dev \
+    libjpeg62-turbo-dev liblcms2-dev libpango1.0-dev libpng-dev \
+    librsvg2-dev libtiff-dev libwebp-dev \
   && rm -rf /var/lib/apt/lists/*
 RUN npm install -g npm@${NPM_VERSION} node-addon-api@8.9.0 node-gyp@12.4.0
 

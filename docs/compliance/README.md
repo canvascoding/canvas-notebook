@@ -61,6 +61,9 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
 - Der CA-Store wird aus demselben signierten Snapshot ueber einen einmaligen
   HTTP-Bootstrap bezogen; alle folgenden APT-Zugriffe verwenden HTTPS. Eine
   zweite Debian-libvips-Binaerinstallation wird nicht ausgeliefert.
+- Die vollstaendigen libvips-Development-Header stehen nur im isolierten
+  `deps`-Stage zum lokalen Build beider Sharp-Versionen bereit und werden
+  nicht in das Runtime-Image kopiert.
 - Das Image erzeugt ein Schema-4-Inventar mit exakten Debian-Source-Paaren,
   Lizenzdatei-Hashes, Python-Wheel-Belegen, globalem npm, Dockerfile- und
   Policy-Hash.
