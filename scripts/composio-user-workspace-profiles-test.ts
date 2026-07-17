@@ -87,6 +87,7 @@ async function main() {
   process.env.CANVAS_DATA_ROOT = tmpRoot;
   process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
   process.env.CANVAS_MANAGED_SERVICES_ENABLED = 'false';
+  process.env.CANVAS_INSTANCE_ID = 'vm-123';
 
   const { openDb, closeDatabaseConnections } = await import('../app/lib/db');
   const { replaceScopedEnvEntries } = await import('../app/lib/integrations/env-config');
@@ -180,6 +181,7 @@ async function main() {
   assert.equal(companyA.name, 'Company A');
   assert.equal(companyA.isDefault, false);
   assert.notEqual(companyA.composioUserId, defaultA.composioUserId);
+  assert.match(companyA.composioUserId, /^canvas-notebook-vm-123-profile-[0-9a-f-]{36}$/u);
 
   const renamed = await renameComposioProfile({
     ownerUserId: 'user-a',

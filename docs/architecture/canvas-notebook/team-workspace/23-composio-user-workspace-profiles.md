@@ -109,6 +109,9 @@ Invarianten:
 - Pro User existiert genau ein aktives Standardprofil.
 - `composio_user_id` ist global eindeutig und nicht aus E-Mail, Name oder
   Workspace-Name ableitbar.
+- Auf Managed-Instanzen beginnt eine neu erzeugte Profil-Identity mit
+  `canvas-notebook-<vmId>-profile-`. Die Control Plane akzeptiert nur Profile,
+  deren Prefix zur authentifizierten VM passt.
 - Profile duerfen nur durch den Owner gelesen, umbenannt, gewaehlt oder
   archiviert werden.
 - Das Standardprofil kann nicht archiviert werden.

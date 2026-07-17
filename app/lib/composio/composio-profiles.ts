@@ -11,7 +11,7 @@ import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-worksp
 const DEFAULT_PROFILE_NAME = 'Meine Verbindungen';
 const PROFILE_NAME_MAX_LENGTH = 80;
 const PROFILE_ID_PREFIX = 'cmp_profile_';
-const COMPOSIO_USER_ID_PREFIX = 'canvas-profile-';
+const LOCAL_COMPOSIO_USER_ID_PREFIX = 'canvas-profile-';
 
 type ProfileRow = {
   id: string;
@@ -187,7 +187,11 @@ function createProfileId(): string {
 }
 
 function createComposioUserId(): string {
-  return `${COMPOSIO_USER_ID_PREFIX}${randomUUID()}`;
+  const profileId = randomUUID();
+  const instanceId = process.env.CANVAS_INSTANCE_ID?.trim();
+  return instanceId
+    ? `canvas-notebook-${instanceId}-profile-${profileId}`
+    : `${LOCAL_COMPOSIO_USER_ID_PREFIX}${profileId}`;
 }
 
 async function insertProfile(input: {
