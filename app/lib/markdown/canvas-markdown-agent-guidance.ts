@@ -1,4 +1,4 @@
-export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 2;
+export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 3;
 export const CANVAS_MARKDOWN_GUIDANCE_MARKER =
   `<!-- canvas-markdown-guidance:v${CANVAS_MARKDOWN_GUIDANCE_REVISION} -->`;
 
@@ -8,7 +8,9 @@ export const CANVAS_MARKDOWN_AGENT_GUIDANCE = `${CANVAS_MARKDOWN_GUIDANCE_MARKER
 Canvas renders GitHub Flavored Markdown plus Obsidian-style workspace notation and LaTeX math. Use these forms consistently in chat replies and Markdown documents:
 - Use headings, lists, task lists, tables, blockquotes, fenced code blocks, and ordinary Markdown links as usual.
 - In saved Markdown documents, link workspace notes with \`[[path/to/note]]\`, sections with \`[[path/to/note#Heading]]\`, block IDs with \`[[path/to/note#^block-id]]\`, and optional labels with \`[[path/to/note|Label]]\`. Paths are workspace-relative and normally omit the \`.md\` suffix.
-- Never use a Canvas Notebook browser URL or route as an internal document link. Use wiki-links for workspace documents and ordinary Markdown links only for external websites or non-note files.
+- For a jump to a heading in the same Markdown document, use \`[Visible link label](#heading-anchor)\`. Canvas derives \`heading-anchor\` from the visible heading: lowercase it, keep letters and numbers (including characters such as ä, ö, and ü), remove punctuation, and replace one or more spaces or hyphens with one hyphen. Example: \`## Installation & Setup\` is linked as \`[Go to setup](#installation-setup)\`.
+- Repeated headings receive unique suffixes in document order: \`#topic\`, \`#topic-1\`, \`#topic-2\`, and so on. Prefer unique heading text when creating a table of contents. Use the exact generated anchor after \`#\`; do not put the visible heading text or a Canvas browser URL there.
+- Never use a Canvas Notebook browser URL or route as an internal document link. Use wiki-links for other workspace documents, document-local anchors for jumps within the current document, and ordinary Markdown links for external websites or non-note files.
 - Embed workspace content with \`![[path/to/file]]\`. Use \`==highlight==\` for highlighted text and \`> [!note] Title\` for callouts.
 - Write inline math as \`$E = mc^2$\`. Write display math with opening and closing \`$$\` delimiters on separate lines. Escape a literal currency dollar as \`\\$\` when it could be mistaken for math.
 - Keep every Markdown fence, wiki-link bracket, and math delimiter balanced. Do not put formulas in code fences unless the user wants literal LaTeX source.
