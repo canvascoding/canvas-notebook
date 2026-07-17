@@ -276,7 +276,12 @@ for distribution in importlib.metadata.distributions():
         relative_path = str(entry)
         basename = os.path.basename(relative_path)
         path_parts = [part.lower() for part in relative_path.replace("\\\\", "/").split("/")]
-        is_pep639_license = any(part in ("license", "licenses", "licence", "licences") for part in path_parts[:-1])
+        is_pep639_license = any(
+            part.endswith(".dist-info")
+            and index + 1 < len(path_parts)
+            and path_parts[index + 1] in ("license", "licenses", "licence", "licences")
+            for index, part in enumerate(path_parts[:-1])
+        )
         if not is_pep639_license and not basename.lower().startswith(("license", "licence", "copying", "copyright", "notice")):
             continue
         absolute_path = os.fspath(distribution.locate_file(entry))

@@ -48,6 +48,15 @@ transitiven libvips-Development-Header fehlten. `v2026.7.17.4` nimmt genau
 diese nur in den Build-Stage auf; der Tag bleibt bis zum vollstaendigen
 Multi-Arch-Nachweis ein unveroeffentlichter Kandidat.
 
+Der Folgelauf `29570228102` fuer `v2026.7.17.4` baute und pruefte beide
+Architekturimages samt Sharp-Linkage erfolgreich. Der gemeinsame Vergleich
+blockierte die Veroeffentlichung anschliessend korrekt, weil der Python-
+Collector Dateien unter dem Python-Modulpfad `packaging/licenses/` inklusive
+architekturspezifischer `.pyc`-Dateien faelschlich als Lizenztexte einstufte.
+Ab `v2026.7.17.5` gelten fuer PEP-639-Verzeichnisse nur Pfade innerhalb von
+`.dist-info/licenses`; echte Lizenztexte und ihre Hashes bleiben Teil des
+plattformuebergreifenden Vergleichs.
+
 Der lokale Arbeitslauf vom 17. Juli 2026 hat absichtlich keinen Container
 gebaut. Bis ein konkreter Release-Tag den Remote-Matrixlauf bestanden hat,
 liegt daher eine implementierte und statisch gepruefte Releasebedingung, aber

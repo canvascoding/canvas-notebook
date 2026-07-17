@@ -1443,6 +1443,7 @@
       "Schema-4-Runtime-Inventar und verpflichtenden zweistufigen amd64-/arm64-CI-Abgleich vor Erzeugung des Multi-Arch-Manifests implementiert",
       "CA-Zertifikate aus demselben signierten Debian-Snapshot gebootstrapped, danach APT auf HTTPS umgestellt und redundantes Debian-libvips42 aus dem Runtime-Lieferumfang entfernt",
       "Vollstaendigen libvips-Development-Header-Satz fuer beide Sharp-Builds auf den isolierten deps-Stage begrenzt, ohne Development-Pakete in das Runtime-Image zu uebernehmen",
+      "Python-PEP-639-Erfassung auf .dist-info/licenses begrenzt und architekturspezifischen Bytecode aus Python-Modulen namens licenses aus dem Multi-Arch-Lizenzvergleich ausgeschlossen",
       "Statisches kommerzielles Lizenz-Gate auf null Release-Blocker geschlossen"
         ],
         "verified": [

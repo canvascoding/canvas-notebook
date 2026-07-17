@@ -64,6 +64,10 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
 - Die vollstaendigen libvips-Development-Header stehen nur im isolierten
   `deps`-Stage zum lokalen Build beider Sharp-Versionen bereit und werden
   nicht in das Runtime-Image kopiert.
+- Python-PEP-639-Lizenzdateien werden nur aus `.dist-info/licenses` erfasst;
+  gleichnamige Python-Modulverzeichnisse und architekturspezifische
+  Bytecode-Dateien sind keine Lizenzbelege und erzeugen keinen falschen
+  Multi-Arch-Drift.
 - Das Image erzeugt ein Schema-4-Inventar mit exakten Debian-Source-Paaren,
   Lizenzdatei-Hashes, Python-Wheel-Belegen, globalem npm, Dockerfile- und
   Policy-Hash.

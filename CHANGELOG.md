@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.7.17.4] - 2026-07-17
+## [2026.7.17.5] - 2026-07-17
 
 ### Added
 
@@ -31,6 +31,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Synchronized all transitive peer and optional dependencies in `package-lock.json` and added a clean-install dry-run to the permanent release gate.
 - Bootstrapped CA certificates from the same signed Debian snapshot before switching APT to HTTPS, and replaced the redundant Debian libvips binary with explicit runtime dependencies for the source-built shared libvips.
 - Kept the complete libvips development-header set in the isolated dependency stage so both Sharp versions compile against that shared library without adding development packages to the runtime image.
+- Restricted Python PEP 639 license discovery to `.dist-info/licenses`, preventing architecture-specific bytecode in packages named `licenses` from creating false multi-architecture compliance drift.
 
 ### Verification
 

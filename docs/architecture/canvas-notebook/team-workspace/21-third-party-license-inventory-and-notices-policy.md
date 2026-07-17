@@ -23,6 +23,9 @@ aufgeloest:
   Abhaengigkeiten und kein zweites Debian-`libvips42`-Binaerpaket.
 - Die fuer den Sharp-Compile benoetigten libvips-Development-Header verbleiben
   im isolierten `deps`-Stage und sind kein Bestandteil des Runtime-Images.
+- PEP-639-Belege werden ausschliesslich aus `.dist-info/licenses` gelesen;
+  Python-Code und architekturspezifischer Bytecode aus Modulen namens
+  `licenses` werden nicht als Lizenztext inventarisiert.
 - LGPL-2.1-or-later, Quellarchiv, Buildrezept, Austauschanleitung, per-Arch-
   Inventare und Linkage-/Convert-Belege werden ausgeliefert.
 - Der Release-Workflow erzeugt das Multi-Arch-Manifest erst nach

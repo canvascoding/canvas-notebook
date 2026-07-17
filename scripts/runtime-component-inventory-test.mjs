@@ -105,6 +105,11 @@ for (const component of inventory.pythonPackages) {
   assert(['deb', 'pip'].includes(component.managedBy));
   for (const licenseFile of component.licenseFiles) {
     assert(licenseFile.path);
+    assert.doesNotMatch(
+      licenseFile.path,
+      /(?:\/__pycache__\/|\.pyc$)/u,
+      `${component.name}@${component.version} must not classify architecture-specific Python bytecode as license evidence`,
+    );
     assert.match(
       licenseFile.sha256 || '',
       /^[a-f0-9]{64}$/u,
@@ -123,6 +128,15 @@ for (const component of inventory.pythonPackages) {
     `${component.name}@${component.version} needs license metadata or a packaged license file`,
   );
 }
+
+const packagingComponent = inventory.pythonPackages.find((component) => (
+  normalizePythonName(component.name) === 'packaging'
+));
+assert(packagingComponent, 'the locked Python packaging distribution must be inventoried');
+assert(
+  packagingComponent.licenseFiles.every((entry) => entry.path.includes('.dist-info/licenses/')),
+  'the packaging module directory named licenses must not be mistaken for PEP 639 license evidence',
+);
 
 
 assert(requirementsPath, 'the runtime Python lock path must be available');
