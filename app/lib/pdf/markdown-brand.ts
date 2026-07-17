@@ -183,26 +183,58 @@ function validLogoDataUri(value: string | null | undefined): string | null {
   return value;
 }
 
+function escapePdfHeaderText(value: string): string {
+  return value
+    .replace(/&/gu, '&amp;')
+    .replace(/</gu, '&lt;')
+    .replace(/>/gu, '&gt;')
+    .replace(/"/gu, '&quot;')
+    .replace(/'/gu, '&#039;');
+}
+
+export function resolveWorkspaceBrandPdfHeaderName(
+  profile: WorkspaceBrandProfile,
+  workspaceDisplayName?: string | null,
+): string {
+  return profile.brandName.trim() || workspaceDisplayName?.trim() || '';
+}
+
 export function createWorkspaceBrandPdfHeaderTemplate(
   profile: WorkspaceBrandProfile,
   logoDataUri: string | null | undefined,
+  workspaceDisplayName?: string | null,
 ): string {
   const logo = hasRepeatingLogo(profile) ? validLogoDataUri(logoDataUri) : null;
   if (!logo) return '';
 
+  const brandName = resolveWorkspaceBrandPdfHeaderName(profile, workspaceDisplayName);
   const justifyContent = profile.logoPosition === 'left' ? 'flex-start' : 'flex-end';
-  return `<div style="align-items:flex-start;box-sizing:border-box;display:flex;font-size:0;height:11mm;justify-content:${justifyContent};padding:1.5mm ${profile.page.horizontalMarginMm}mm 0;width:100%;"><img alt="" src="${logo}" style="display:block;height:auto;max-height:9mm;max-width:28mm;object-fit:contain;width:auto;"></div>`;
+  const logoHtml = `<img alt="" src="${logo}" style="display:block;flex-shrink:0;height:auto;max-height:9mm;max-width:28mm;object-fit:contain;width:auto;">`;
+  const nameHtml = brandName
+    ? `<span style="color:${profile.colors.heading};display:block;font-family:${workspaceBrandFontStack(profile.typography.headingFont)};font-size:8.5pt;font-weight:${profile.typography.headingWeight};letter-spacing:0.06em;line-height:1.15;max-width:105mm;min-width:0;overflow:hidden;text-overflow:ellipsis;text-transform:uppercase;white-space:nowrap;">${escapePdfHeaderText(brandName)}</span>`
+    : '';
+  const content = profile.logoPosition === 'left'
+    ? `${logoHtml}${nameHtml}`
+    : `${nameHtml}${logoHtml}`;
+  const gap = nameHtml ? 'gap:3mm;' : '';
+  return `<div style="align-items:center;box-sizing:border-box;display:flex;${gap}font-size:0;height:11mm;justify-content:${justifyContent};padding:1.5mm ${profile.page.horizontalMarginMm}mm 0;width:100%;">${content}</div>`;
+}
+
+export function hideBodyBrandHeaderForRepeatingPdfHeader(html: string): string {
+  const style = '<style>body > .canvas-brand-header{display:none!important;}</style>';
+  return html.includes('</head>') ? html.replace('</head>', `${style}</head>`) : html;
 }
 
 export function getMarkdownPdfRenderOptions(
   profile: WorkspaceBrandProfile,
   logoDataUri?: string | null,
+  workspaceDisplayName?: string | null,
 ): MarkdownPdfRenderOptions {
   const options: MarkdownPdfRenderOptions = {
     format: profile.page.size,
     preferCssPageSize: true,
   };
-  const headerTemplate = createWorkspaceBrandPdfHeaderTemplate(profile, logoDataUri);
+  const headerTemplate = createWorkspaceBrandPdfHeaderTemplate(profile, logoDataUri, workspaceDisplayName);
   if (!headerTemplate) return options;
 
   return {

@@ -1,4 +1,6 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
+import path from 'node:path';
 
 import {
   WORKSPACE_BRAND_PRESETS,
@@ -9,6 +11,8 @@ import {
   createWorkspaceBrandHeaderHtml,
   createWorkspaceBrandPdfHeaderTemplate,
   getMarkdownPdfRenderOptions,
+  hideBodyBrandHeaderForRepeatingPdfHeader,
+  resolveWorkspaceBrandPdfHeaderName,
 } from '../app/lib/pdf/markdown-brand';
 import {
   workspaceBrandFontStack,
@@ -57,7 +61,49 @@ assert.match(pdfHeader, /justify-content:flex-start/u);
 assert.match(pdfHeader, /max-height:9mm/u);
 assert.match(pdfHeader, /max-width:28mm/u);
 assert.match(pdfHeader, /data:image\/png;base64,AAAA/u);
+assert.match(pdfHeader, /&lt;Canvas &amp; Studios&gt;/u);
+assert.ok(
+  pdfHeader.indexOf('<img') < pdfHeader.indexOf('<span'),
+  'left-positioned PDF branding should render the name to the right of the logo',
+);
 assert.equal(createWorkspaceBrandPdfHeaderTemplate(corporate, 'javascript:alert(1)'), '');
+
+const rightAligned = cloneWorkspaceBrandProfile(corporate);
+rightAligned.logoPosition = 'right';
+const rightPdfHeader = createWorkspaceBrandPdfHeaderTemplate(rightAligned, logoDataUri);
+assert.match(rightPdfHeader, /justify-content:flex-end/u);
+assert.ok(
+  rightPdfHeader.indexOf('<span') < rightPdfHeader.indexOf('<img'),
+  'right-positioned PDF branding should render the name to the left of the logo',
+);
+
+const workspaceFallback = cloneWorkspaceBrandProfile(rightAligned);
+workspaceFallback.brandName = '';
+assert.equal(resolveWorkspaceBrandPdfHeaderName(workspaceFallback, ' Product Workspace '), 'Product Workspace');
+assert.match(
+  createWorkspaceBrandPdfHeaderTemplate(workspaceFallback, logoDataUri, 'Product Workspace'),
+  />Product Workspace<\/span>/u,
+);
+
+const bodyHeaderHtml = '<html><head></head><body><header class="canvas-brand-header">Duplicate</header></body></html>';
+const preparedPdfHtml = hideBodyBrandHeaderForRepeatingPdfHeader(bodyHeaderHtml);
+assert.match(preparedPdfHtml, /body > \.canvas-brand-header\{display:none!important;\}/u);
+assert.equal(preparedPdfHtml.match(/Duplicate/gu)?.length, 1);
+
+const brandSettingsPanelSource = readFileSync(
+  path.join(process.cwd(), 'app/components/settings/BrandSettingsPanel.tsx'),
+  'utf8',
+);
+assert.match(
+  brandSettingsPanelSource,
+  /hasBrandLogo && profile\.logoPosition === 'right' && 'flex-row-reverse'/u,
+  'The PDF preview must mirror the logo/name order for right-aligned branding.',
+);
+assert.match(
+  brandSettingsPanelSource,
+  /brandName=\{profile\.brandName\.trim\(\) \|\| selectedWorkspace\.name\}/u,
+  'The PDF preview must fall back to the configured workspace name.',
+);
 
 const disabled = cloneWorkspaceBrandProfile(corporate);
 disabled.enabled = false;

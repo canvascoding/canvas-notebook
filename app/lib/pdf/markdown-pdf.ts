@@ -12,7 +12,11 @@ import {
   getCachedMarkdownHtmlDocument,
   resolveMarkdownExportBrandState,
 } from '@/app/lib/pdf/markdown-export-cache';
-import { getMarkdownPdfRenderOptions } from '@/app/lib/pdf/markdown-brand';
+import {
+  getMarkdownPdfRenderOptions,
+  hideBodyBrandHeaderForRepeatingPdfHeader,
+  resolveWorkspaceBrandPdfHeaderName,
+} from '@/app/lib/pdf/markdown-brand';
 import { readWorkspaceBrandLogoDataUri } from '@/app/lib/workspaces/brand-logo-service';
 import type { WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 
@@ -39,8 +43,13 @@ export async function renderMarkdownWorkspaceFileToPdf(
     brandState.profile,
     fileOptions ?? {},
   );
+  const workspaceDisplayName = fileOptions?.workspace?.displayName;
+  const headerName = resolveWorkspaceBrandPdfHeaderName(brandState.profile, workspaceDisplayName);
+  const pdfHtml = brandLogoDataUri && headerName
+    ? hideBodyBrandHeaderForRepeatingPdfHeader(html)
+    : html;
   return generatePdfFromHtml(
-    html,
-    getMarkdownPdfRenderOptions(brandState.profile, brandLogoDataUri),
+    pdfHtml,
+    getMarkdownPdfRenderOptions(brandState.profile, brandLogoDataUri, workspaceDisplayName),
   );
 }

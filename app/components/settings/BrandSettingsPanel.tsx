@@ -381,13 +381,16 @@ function headingPreviewStyle(
 function BrandDocumentPreview({
   profile,
   logoUrl,
+  brandName,
 }: {
   profile: WorkspaceBrandProfile;
   logoUrl: string | null;
+  brandName: string;
 }) {
   const t = useTranslations('settings.brandDesign.preview');
   const pageRatio = profile.page.size === 'Letter' ? 'aspect-[8.5/11]' : 'aspect-[210/297]';
   const previewPadding = `${Math.max(18, profile.page.verticalMarginMm * 1.1)}px ${Math.max(16, profile.page.horizontalMarginMm * 1.1)}px`;
+  const hasBrandLogo = Boolean(profile.logoPath && logoUrl);
 
   return (
     <div className="relative overflow-hidden rounded-xl border border-border/80 bg-[radial-gradient(circle_at_top_left,hsl(var(--muted))_0,transparent_52%)] p-3 sm:p-5">
@@ -412,35 +415,35 @@ function BrandDocumentPreview({
           padding: previewPadding,
         }}
       >
-        {profile.logoPath && logoUrl ? (
+        {hasBrandLogo || brandName ? (
           <div
-            className={cn('mb-5 flex h-7 items-start', profile.logoPosition === 'left' ? 'justify-start' : 'justify-end')}
-          >
-            <Image
-              src={logoUrl}
-              alt=""
-              width={112}
-              height={36}
-              unoptimized
-              className="h-full w-auto max-w-28 object-contain"
-            />
-          </div>
-        ) : null}
-
-        {profile.brandName ? (
-          <div
-            className="mb-7 flex items-center border-b pb-3"
+            className={cn(
+              'mb-7 flex h-7 items-center justify-start gap-2 border-b pb-3',
+              hasBrandLogo && profile.logoPosition === 'right' && 'flex-row-reverse',
+            )}
             style={{ borderColor: profile.colors.border }}
           >
-            <span
-              className="text-[8px] font-semibold uppercase tracking-[0.16em]"
-              style={{
-                color: profile.colors.heading,
-                fontFamily: workspaceBrandFontStack(profile.typography.headingFont),
-              }}
-            >
-              {profile.brandName}
-            </span>
+            {hasBrandLogo && logoUrl ? (
+              <Image
+                src={logoUrl}
+                alt=""
+                width={112}
+                height={36}
+                unoptimized
+                className="h-full w-auto max-w-28 shrink-0 object-contain"
+              />
+            ) : null}
+            {brandName ? (
+              <span
+                className="min-w-0 truncate text-[8px] font-semibold uppercase tracking-[0.16em]"
+                style={{
+                  color: profile.colors.heading,
+                  fontFamily: workspaceBrandFontStack(profile.typography.headingFont),
+                }}
+              >
+                {brandName}
+              </span>
+            ) : null}
           </div>
         ) : null}
 
@@ -1474,7 +1477,11 @@ export function BrandSettingsPanel({
         </div>
 
         <div className="xl:sticky xl:top-6">
-          <BrandDocumentPreview profile={profile} logoUrl={logoUrl} />
+          <BrandDocumentPreview
+            profile={profile}
+            logoUrl={logoUrl}
+            brandName={profile.brandName.trim() || selectedWorkspace.name}
+          />
         </div>
       </div>
       </SettingsAccordionCard>
