@@ -872,7 +872,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const [runs, setRuns] = useState<AutomationRunRecord[]>([]);
   const [runDetailsById, setRunDetailsById] = useState<Record<string, AutomationRunRecord>>({});
   const [selectedRunId, setSelectedRunId] = useState<string | null>(null);
-  const [logContent, setLogContent] = useState('');
   const [sessionMessages, setSessionMessages] = useState<PersistedAutomationSessionMessage[]>([]);
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
@@ -1068,7 +1067,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       setRuns([]);
       setRunDetailsById({});
       setSelectedRunId(null);
-      setLogContent('');
       toast.error(error instanceof Error ? error.message : t('errors.loadRuns'));
     } finally {
       setIsRefreshingRuns(false);
@@ -1084,18 +1082,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       setRunDetailsById((current) => ({ ...current, [run.id]: run }));
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.loadRuns'));
-    }
-  }
-
-  async function loadLogs(runId: string) {
-    try {
-      const response = await fetch(`/api/automations/runs/${runId}/logs`, { cache: 'no-store', credentials: 'include' });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadLogs'));
-      setLogContent(payload.data.content || '');
-    } catch (error) {
-      setLogContent('');
-      toast.error(error instanceof Error ? error.message : t('errors.loadLogs'));
     }
   }
 
@@ -1292,7 +1278,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       setRuns([]);
       setRunDetailsById({});
       setSelectedRunId(null);
-      setLogContent('');
       /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
@@ -1303,14 +1288,12 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   useEffect(() => {
     if (!selectedRunId || !isRunSheetOpen) {
       /* eslint-disable react-hooks/set-state-in-effect */
-      setLogContent('');
       setSessionMessages([]);
       setIsLoadingSessionMessages(false);
       /* eslint-enable react-hooks/set-state-in-effect */
       return;
     }
     void loadRunDetails(selectedRunId);
-    void loadLogs(selectedRunId);
     // eslint-disable-next-line react-hooks/exhaustive-deps -- loaders take the run id as an argument
   }, [selectedRunId, isRunSheetOpen]);
 
@@ -1660,7 +1643,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       setDraft(defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId));
       setRuns([]);
       setSelectedRunId(null);
-      setLogContent('');
       await loadJobs();
       router.push('/automations');
     } catch (error) {
@@ -1674,7 +1656,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     setSelectedJobId(null);
     setRuns([]);
     setSelectedRunId(null);
-    setLogContent('');
     setDraft(defaultDraft(defaultTimeZone, defaultAutomationWorkspaceId));
     setTriggerDraft(defaultTriggerDraft(defaultAutomationWorkspaceId));
     setCustomWebhookDraft(defaultCustomWebhookDraft(defaultAutomationWorkspaceId));
@@ -2742,9 +2723,8 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
             <SheetDescription>{selectedRun ? formatDateTime(selectedRun.finishedAt || selectedRun.scheduledFor, locale, t('scheduleSummary.notScheduled')) : t('runs.description')}</SheetDescription>
           </SheetHeader>
           <Tabs defaultValue="summary" className="min-h-0 flex-1 overflow-hidden px-4 pb-4">
-            <TabsList className="grid w-full grid-cols-3">
+            <TabsList className="grid w-full grid-cols-2">
               <TabsTrigger value="summary"><FileText className="mr-2 h-4 w-4" />{t('runDetails.summary')}</TabsTrigger>
-              <TabsTrigger value="logs"><Clock3 className="mr-2 h-4 w-4" />{t('logs.title')}</TabsTrigger>
               <TabsTrigger value="session"><MessageSquare className="mr-2 h-4 w-4" />{t('session.title')}</TabsTrigger>
             </TabsList>
             <TabsContent value="summary" className="mt-4 min-w-0 space-y-4 overflow-y-auto pb-2">
@@ -2796,11 +2776,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                 </Button>
               ) : null}
               {selectedRun?.errorMessage ? <p className="rounded-md border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">{selectedRun.errorMessage}</p> : null}
-            </TabsContent>
-            <TabsContent value="logs" className="mt-4 min-w-0">
-              <ScrollArea className="h-[calc(100dvh-15rem)] rounded-md border bg-background" data-testid="automation-log-scroll">
-                <pre className="min-h-full min-w-0 whitespace-pre-wrap break-words p-3 text-xs" data-testid="automation-log-content">{logContent || t('logs.empty')}</pre>
-              </ScrollArea>
             </TabsContent>
             <TabsContent value="session" className="mt-4 min-w-0">
               {!selectedRun?.piSessionId ? (

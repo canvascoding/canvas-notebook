@@ -83,11 +83,9 @@ test.describe('Automationen UI', () => {
       .toMatch(/running|success|failed|retry_scheduled/);
 
     await page.getByTestId('automation-run-list').locator('button[data-testid^="automation-run-"]').first().click();
-    await expect(page.getByText('Logs', { exact: true })).toBeVisible();
+    await expect(page.getByText('Logs', { exact: true })).toHaveCount(0);
     await expect(page.getByTestId('automation-workspace-target')).toHaveText(targetDir);
     await expect(page.getByTestId('automation-result-text')).toBeVisible();
-    await page.getByText('Logs', { exact: true }).click();
-    await expect(page.getByTestId('automation-log-scroll')).toBeVisible();
     await page.getByText('Run-Chat', { exact: true }).click();
     await expect(page.getByTestId('automation-open-chat-session')).toBeVisible({ timeout: 30000 });
     await expect(page.getByTestId('automation-session-scroll')).toBeVisible({ timeout: 30000 });
