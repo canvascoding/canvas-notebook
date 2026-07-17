@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { and, asc, desc, eq, inArray, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { piDelegations } from '@/app/lib/db/schema';
@@ -17,6 +17,7 @@ export type CreatePiDelegationInput = {
   sourceSessionId: string;
   sourceAgentId: string;
   workerSessionId: string;
+  requestedSessionId?: string;
   targetAgentId?: string;
   workerType: PiDelegationWorkerType;
   goal: string;
@@ -48,6 +49,7 @@ export async function createPiDelegation(input: CreatePiDelegationInput): Promis
     sourceSessionId: input.sourceSessionId,
     sourceAgentId: input.sourceAgentId,
     workerSessionId: input.workerSessionId,
+    requestedSessionId: input.requestedSessionId ?? null,
     targetAgentId: input.targetAgentId ?? null,
     workerType: input.workerType,
     goal: input.goal,
@@ -242,6 +244,36 @@ export async function updatePiDelegationDelivery(input: {
   return updated ?? null;
 }
 
+export async function listDeliverablePiDelegations(limit: number): Promise<PiDelegationRecord[]> {
+  return db.query.piDelegations.findMany({
+    where: and(
+      inArray(piDelegations.status, ['completed', 'failed']),
+      inArray(piDelegations.deliveryStatus, ['pending', 'failed']),
+    ),
+    orderBy: [asc(piDelegations.completedAt), asc(piDelegations.id)],
+    limit: Math.max(1, limit),
+  });
+}
+
+export async function claimPiDelegationDelivery(id: string): Promise<PiDelegationRecord | null> {
+  const [claimed] = await db.update(piDelegations)
+    .set({
+      deliveryStatus: 'delivering',
+      deliveryErrorText: null,
+      updatedAt: new Date(),
+    })
+    .where(and(
+      eq(piDelegations.id, id),
+      inArray(piDelegations.status, ['completed', 'failed']),
+      or(
+        eq(piDelegations.deliveryStatus, 'pending'),
+        eq(piDelegations.deliveryStatus, 'failed'),
+      ),
+    ))
+    .returning();
+  return claimed ?? null;
+}
+
 export async function requeueInterruptedPiDelegations(): Promise<number> {
   const interrupted = await db.query.piDelegations.findMany({
     where: eq(piDelegations.status, 'running'),
@@ -253,6 +285,23 @@ export async function requeueInterruptedPiDelegations(): Promise<number> {
     .set({
       status: 'queued',
       startedAt: null,
+      updatedAt: new Date(),
+    })
+    .where(inArray(piDelegations.id, interrupted.map((record) => record.id)));
+  return interrupted.length;
+}
+
+export async function recoverInterruptedPiDelegationDeliveries(): Promise<number> {
+  const interrupted = await db.query.piDelegations.findMany({
+    where: eq(piDelegations.deliveryStatus, 'delivering'),
+    columns: { id: true },
+  });
+  if (interrupted.length === 0) return 0;
+
+  await db.update(piDelegations)
+    .set({
+      deliveryStatus: 'failed',
+      deliveryErrorText: 'Completion delivery was interrupted and will be retried.',
       updatedAt: new Date(),
     })
     .where(inArray(piDelegations.id, interrupted.map((record) => record.id)));

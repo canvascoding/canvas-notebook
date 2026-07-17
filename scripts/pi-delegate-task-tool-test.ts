@@ -123,17 +123,18 @@ async function main() {
     assert.deepEqual(calls[0].toolsets, ['web', 'file']);
     assert.equal(calls[0].waitForResult, false);
     assert.equal(calls[0].context, 'Look only at the docs folder');
-    assert.equal(calls[0].timeoutSeconds, 120);
+    assert.equal(calls[0].timeoutSeconds, 0);
 
-    const completed = await tool.execute('delegate-wait', {
+    const compatibilityDispatch = await tool.execute('delegate-wait', {
       goal: 'Summarize the deployment notes',
+      wait_for_result: true,
       timeout_seconds: 5,
     });
-    assert.match(getText(completed), /research reply/);
-    assert.equal(calls[1].waitForResult, true);
-    assert.equal(calls[1].timeoutSeconds, 5);
+    assert.match(getText(compatibilityDispatch), /accepted by ephemeral worker/);
+    assert.equal(calls[1].waitForResult, false);
+    assert.equal(calls[1].timeoutSeconds, 0);
     assert.deepEqual(calls[1].toolsets, ['file', 'terminal', 'web', 'session_search']);
-    assert.equal(getDetails<{ status: string }>(completed).status, 'ok');
+    assert.equal(getDetails<{ status: string }>(compatibilityDispatch).status, 'accepted');
 
     const managed = await tool.execute('delegate-managed', {
       target_agent_id: 'Research-Agent',

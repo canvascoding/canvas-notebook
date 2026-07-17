@@ -22,12 +22,14 @@ async function main() {
     const { piDelegations, user } = await import('../app/lib/db/schema');
     const {
       cancelRunningPiDelegation,
+      claimPiDelegationDelivery,
       claimQueuedPiDelegation,
       completeRunningPiDelegation,
       createPiDelegation,
       getOwnedPiDelegation,
       listOwnedPiDelegations,
       piDelegationToolsets,
+      recoverInterruptedPiDelegationDeliveries,
       requeueInterruptedPiDelegations,
       requestPiDelegationCancellation,
       updatePiDelegationDelivery,
@@ -159,8 +161,30 @@ async function main() {
     assert.equal(recovered?.status, 'running');
     assert.equal(recovered?.attemptCount, 2);
 
+    const interruptedDelivery = await createPiDelegation({
+      id: 'delegation-interrupted-delivery',
+      userId: 'delegation-user-1',
+      sourceSessionId: 'source-session-1',
+      sourceAgentId: 'canvas-agent',
+      workerSessionId: 'worker-session-interrupted-delivery',
+      workerType: 'ephemeral',
+      goal: 'Recover completion delivery',
+      toolsets: ['file'],
+    });
+    await claimQueuedPiDelegation(interruptedDelivery.id);
+    await completeRunningPiDelegation({
+      id: interruptedDelivery.id,
+      resultStatus: 'ok',
+      resultText: 'Ready for delivery.',
+    });
+    assert.equal((await claimPiDelegationDelivery(interruptedDelivery.id))?.deliveryStatus, 'delivering');
+    assert.equal(await recoverInterruptedPiDelegationDeliveries(), 1);
+    const recoveredDelivery = await getOwnedPiDelegation(interruptedDelivery.id, 'delegation-user-1');
+    assert.equal(recoveredDelivery?.deliveryStatus, 'failed');
+    assert.match(recoveredDelivery?.deliveryErrorText ?? '', /will be retried/);
+
     const rows = await db.select().from(piDelegations);
-    assert.equal(rows.length, 4);
+    assert.equal(rows.length, 5);
 
     console.log('pi-delegation-store-test: ok');
   } finally {

@@ -527,6 +527,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       source_session_id TEXT NOT NULL,
       source_agent_id TEXT NOT NULL,
       worker_session_id TEXT NOT NULL,
+      requested_session_id TEXT,
       target_agent_id TEXT,
       worker_type TEXT NOT NULL CHECK (worker_type IN ('ephemeral', 'managed')),
       goal TEXT NOT NULL,
@@ -1389,6 +1390,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   addColumns(sqlite, 'studio_personas', { workspace_id: 'TEXT' });
   addColumns(sqlite, 'studio_styles', { workspace_id: 'TEXT' });
   addColumns(sqlite, 'studio_presets', { workspace_id: 'TEXT' });
+
+  addColumns(sqlite, 'pi_delegations', {
+    requested_session_id: 'TEXT',
+  });
 
   addColumns(sqlite, 'canvas_workspaces', {
     customer_id: 'TEXT',

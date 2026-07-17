@@ -7,6 +7,12 @@ import {
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
     await import("./sentry.server.config");
+    if (process.env.NEXT_PHASE !== "phase-production-build") {
+      const { initializeDelegationDispatcher } = await import("./app/lib/pi/delegation-dispatcher");
+      void initializeDelegationDispatcher().catch((error) => {
+        console.error("[Instrumentation] Delegation dispatcher initialization failed:", error);
+      });
+    }
   }
 
   if (process.env.NEXT_RUNTIME === "edge") {

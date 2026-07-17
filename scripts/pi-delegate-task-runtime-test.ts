@@ -4,6 +4,8 @@ import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import type { DelegateTaskResult } from '../app/lib/pi/delegate-task-tool';
+
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-pi-delegate-runtime-'));
 process.env.DATA = dataDir;
 process.env.CANVAS_DATA_ROOT = dataDir;
@@ -740,6 +742,68 @@ async function main() {
       /pre-aborted delegation/,
     );
     assert.equal(legacyResolverLoads, 0);
+
+    let resolveEphemeralCompletion!: (result: DelegateTaskResult) => void;
+    const ephemeralCompletion = new Promise<DelegateTaskResult>((resolve) => {
+      resolveEphemeralCompletion = resolve;
+    });
+    const backgroundEphemeral = await startDelegatedRun({
+      delegationId: 'delegation-background-ephemeral',
+      userId,
+      sourceAgentId,
+      sourceSessionId,
+      workerSessionId: 'sess-delegation-background-ephemeral',
+      goal: 'Complete in the background',
+      toolsets: ['file'],
+      waitForResult: false,
+      timeoutSeconds: 0,
+      onCompletion: resolveEphemeralCompletion,
+    });
+    assert.equal(backgroundEphemeral.status, 'accepted');
+    assert.equal(backgroundEphemeral.delegation_id, 'delegation-background-ephemeral');
+    const backgroundEphemeralResult = await ephemeralCompletion;
+    assert.equal(backgroundEphemeralResult.status, 'ok');
+    assert.equal(backgroundEphemeralResult.reply, 'Ephemeral delegation finished.');
+
+    const backgroundManagedSessionId = 'sess-delegation-background-managed';
+    await insertSession({
+      sessionId: backgroundManagedSessionId,
+      agentId: targetAgentId,
+      workspace: sourceWorkspace,
+    });
+    sessionContexts.set(
+      sessionContextKey(backgroundManagedSessionId, targetAgentId),
+      executionContext({
+        sessionId: backgroundManagedSessionId,
+        agentId: targetAgentId,
+        workspace: sourceWorkspace,
+      }),
+    );
+    const backgroundManagedRuntime = new FakeManagedRuntime(targetAgentId);
+    managedRuntimes.set(backgroundManagedSessionId, backgroundManagedRuntime);
+    let resolveManagedCompletion!: (result: DelegateTaskResult) => void;
+    const managedCompletion = new Promise<DelegateTaskResult>((resolve) => {
+      resolveManagedCompletion = resolve;
+    });
+    const backgroundManaged = await startDelegatedRun({
+      delegationId: 'delegation-background-managed',
+      userId,
+      sourceAgentId,
+      sourceSessionId,
+      targetAgentId,
+      sessionId: backgroundManagedSessionId,
+      goal: 'Complete a managed run in the background',
+      toolsets: [],
+      waitForResult: false,
+      timeoutSeconds: 0,
+      onCompletion: resolveManagedCompletion,
+    });
+    assert.equal(backgroundManaged.status, 'accepted');
+    await backgroundManagedRuntime.started.promise;
+    backgroundManagedRuntime.finish('Managed background delegation finished.');
+    const backgroundManagedResult = await managedCompletion;
+    assert.equal(backgroundManagedResult.status, 'ok');
+    assert.equal(backgroundManagedResult.reply, 'Managed background delegation finished.');
 
     console.log('pi-delegate-task-runtime-test: ok');
   } finally {

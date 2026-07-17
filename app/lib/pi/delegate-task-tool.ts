@@ -48,6 +48,7 @@ type DelegateTaskArgs = {
 };
 
 export type DelegateTaskRequest = {
+  delegationId?: string;
   userId: string;
   sourceAgentId: string;
   sourceSessionId: string;
@@ -60,9 +61,12 @@ export type DelegateTaskRequest = {
   toolsets: string[];
   waitForResult: boolean;
   timeoutSeconds: number;
+  workerSessionId?: string;
+  onCompletion?: (result: DelegateTaskResult) => void | Promise<void>;
 };
 
 export type DelegateTaskResult = {
+  delegation_id?: string;
   status: 'accepted' | 'ok' | 'timeout' | 'error';
   worker_type: 'ephemeral' | 'managed';
   source_agent_id: string;
@@ -86,8 +90,6 @@ type RuntimeInstance = {
   startPrompt: (message: Extract<AgentMessage, { role: 'user' }>) => void;
 };
 
-const DEFAULT_TIMEOUT_SECONDS = 120;
-const MAX_TIMEOUT_SECONDS = 600;
 const MAX_REPLY_CHARS = 8000;
 const DEFAULT_EPHEMERAL_TOOLSETS = ['file', 'terminal', 'web', 'session_search'];
 const BLOCKED_CHILD_TOOL_NAMES = new Set(['delegate_task']);
@@ -166,7 +168,7 @@ function bindManagedRuntimeAbort(runtime: RuntimeInstance, signal?: AbortSignal)
   return dispose;
 }
 
-function buildDelegatedSessionId(): string {
+export function buildDelegatedSessionId(): string {
   return `sess-${Date.now()}-${randomUUID()}`;
 }
 
@@ -237,13 +239,6 @@ function delegationToolPermissionsChanged(
   return expected.canWrite !== actual.canWrite
     || expected.canDelete !== actual.canDelete
     || expected.canShare !== actual.canShare;
-}
-
-function clampTimeoutSeconds(value: unknown): number {
-  if (typeof value !== 'number' || !Number.isFinite(value)) {
-    return DEFAULT_TIMEOUT_SECONDS;
-  }
-  return Math.max(0, Math.min(Math.trunc(value), MAX_TIMEOUT_SECONDS));
 }
 
 function truncate(value: string, maxLength: number): string {
@@ -345,6 +340,7 @@ function normalizeWorkerRole(value: unknown): string | undefined {
 function buildDelegationPrompt(request: DelegateTaskRequest): Extract<AgentMessage, { role: 'user' }> {
   const lines = [
     `Delegated task from agent "${request.sourceAgentId}".`,
+    request.delegationId ? `Delegation task ID: ${request.delegationId}` : null,
     request.workerRole ? `Worker role: ${request.workerRole}` : null,
     '',
     'Goal:',
@@ -488,6 +484,7 @@ async function runEphemeralWorker(params: {
     await persistFinalMessages();
 
     return {
+      delegation_id: params.request.delegationId,
       status: 'ok',
       worker_type: 'ephemeral',
       source_agent_id: params.request.sourceAgentId,
@@ -504,6 +501,7 @@ async function runEphemeralWorker(params: {
       console.error('[delegate_task] Failed to persist ephemeral worker error state:', persistError);
     });
     return {
+      delegation_id: params.request.delegationId,
       status: 'error',
       worker_type: 'ephemeral',
       source_agent_id: params.request.sourceAgentId,
@@ -519,6 +517,7 @@ async function runEphemeralWorker(params: {
 
 function timeoutResult(request: DelegateTaskRequest, sessionId: string): DelegateTaskResult {
   return {
+    delegation_id: request.delegationId,
     status: 'timeout',
     worker_type: 'ephemeral',
     source_agent_id: request.sourceAgentId,
@@ -571,7 +570,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
 
   throwIfDelegationAborted(request.abortSignal);
   const execution = createLinkedExecutionController(request.abortSignal);
-  const sessionId = buildDelegatedSessionId();
+  const sessionId = request.workerSessionId?.trim() || buildDelegatedSessionId();
   const promptMessage = buildDelegationPrompt(request);
   let runPromise: Promise<DelegateTaskResult> | null = null;
 
@@ -787,6 +786,26 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
       }),
     });
     void runPromise.then(execution.dispose, execution.dispose);
+    if (request.onCompletion) {
+      const notifyCompletion = request.onCompletion;
+      void runPromise.then(
+        (result) => notifyCompletion(result),
+        (error) => notifyCompletion({
+          delegation_id: request.delegationId,
+          status: 'error',
+          worker_type: 'ephemeral',
+          source_agent_id: request.sourceAgentId,
+          session_id: sessionId,
+          role: request.workerRole,
+          toolsets: request.toolsets,
+          wait_for_result: false,
+          timeout_seconds: request.timeoutSeconds,
+          error: error instanceof Error ? error.message : 'Unknown delegated worker error',
+        }),
+      ).catch((error) => {
+        console.error('[delegate_task] Failed to report ephemeral worker completion:', error);
+      });
+    }
     void runPromise.catch(markReservationFailed);
     await reservationStarted;
 
@@ -795,6 +814,7 @@ async function startEphemeralDelegatedRun(request: DelegateTaskRequest): Promise
         console.error('[delegate_task] Ephemeral worker failed after accepted result:', error);
       });
       return {
+        delegation_id: request.delegationId,
         status: 'accepted',
         worker_type: 'ephemeral',
         source_agent_id: request.sourceAgentId,
@@ -829,7 +849,7 @@ async function ensureManagedDelegatedSession(
   const targetAgentId = request.targetAgentId;
 
   const requestedSessionId = request.sessionId?.trim();
-  const sessionId = requestedSessionId || buildDelegatedSessionId();
+  const sessionId = requestedSessionId || request.workerSessionId?.trim() || buildDelegatedSessionId();
   return withPiSessionOperationLock(sessionId, request.userId, async () => {
     const collidingSessions = await db.query.piSessions.findMany({
       where: and(
@@ -923,25 +943,27 @@ type RuntimeIdleResult = { status: 'ok' | 'timeout' | 'error'; error?: string };
 
 function waitForRuntimeIdle(
   runtime: RuntimeInstance,
-  timeoutSeconds: number,
+  timeoutSeconds: number | null,
 ): { promise: Promise<RuntimeIdleResult>; cancel: () => void } {
-  const timeoutMs = timeoutSeconds * 1000;
   let cancel: () => void = () => {};
   const promise = new Promise<RuntimeIdleResult>((resolve) => {
     let settled = false;
     let unsubscribe: () => void = () => {};
+    let timer: ReturnType<typeof setTimeout> | null = null;
     const finish = (result: RuntimeIdleResult) => {
       if (settled) {
         return;
       }
       settled = true;
-      clearTimeout(timer);
+      if (timer) clearTimeout(timer);
       unsubscribe();
       resolve(result);
     };
 
-    const timer = setTimeout(() => finish({ status: 'timeout' }), timeoutMs);
-    timer.unref?.();
+    if (timeoutSeconds !== null) {
+      timer = setTimeout(() => finish({ status: 'timeout' }), timeoutSeconds * 1000);
+      timer.unref?.();
+    }
 
     unsubscribe = runtime.subscribe((event) => {
       if (event.type === 'error') {
@@ -1033,8 +1055,10 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
 
     const baselineMessageCount = runtime.agent.state.messages.length;
     const promptMessage = buildDelegationPrompt(request);
-    const waitHandle = request.waitForResult && request.timeoutSeconds > 0
-      ? waitForRuntimeIdle(runtime, request.timeoutSeconds)
+    const waitHandle = request.onCompletion
+      ? waitForRuntimeIdle(runtime, null)
+      : request.waitForResult && request.timeoutSeconds > 0
+        ? waitForRuntimeIdle(runtime, request.timeoutSeconds)
       : null;
     const releaseAbortBinding = bindManagedRuntimeAbort(runtime, request.abortSignal);
     try {
@@ -1053,8 +1077,43 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
     };
   });
 
-  if (!started.completionPromise) {
+  if (request.onCompletion && started.completionPromise) {
+    const notifyCompletion = request.onCompletion;
+    void started.completionPromise.then((completion) => {
+      const result: DelegateTaskResult = completion.status === 'ok'
+        ? {
+          delegation_id: request.delegationId,
+          status: 'ok',
+          worker_type: 'managed',
+          source_agent_id: request.sourceAgentId,
+          target_agent_id: request.targetAgentId,
+          session_id: sessionId,
+          role: request.workerRole,
+          wait_for_result: false,
+          timeout_seconds: request.timeoutSeconds,
+          reply: delegatedAssistantReply(started.runtime, started.baselineMessageCount, started.promptMessage),
+        }
+        : {
+          delegation_id: request.delegationId,
+          status: completion.status,
+          worker_type: 'managed',
+          source_agent_id: request.sourceAgentId,
+          target_agent_id: request.targetAgentId,
+          session_id: sessionId,
+          role: request.workerRole,
+          wait_for_result: false,
+          timeout_seconds: request.timeoutSeconds,
+          error: completion.error || 'Delegated task failed before producing a result.',
+        };
+      return notifyCompletion(result);
+    }).catch((error) => {
+      console.error('[delegate_task] Failed to report managed worker completion:', error);
+    });
+  }
+
+  if (!request.waitForResult || !started.completionPromise) {
     return {
+      delegation_id: request.delegationId,
       status: 'accepted',
       worker_type: 'managed',
       source_agent_id: request.sourceAgentId,
@@ -1069,6 +1128,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
   const completion = await started.completionPromise;
   if (completion.status === 'ok') {
     return {
+      delegation_id: request.delegationId,
       status: 'ok',
       worker_type: 'managed',
       source_agent_id: request.sourceAgentId,
@@ -1082,6 +1142,7 @@ async function startManagedDelegatedRun(request: DelegateTaskRequest): Promise<D
   }
 
   return {
+    delegation_id: request.delegationId,
     status: completion.status,
     worker_type: 'managed',
     source_agent_id: request.sourceAgentId,
@@ -1107,7 +1168,10 @@ function formatDelegateTaskResult(result: DelegateTaskResult): string {
     ? result.target_agent_id || 'managed agent'
     : `ephemeral ${result.role || 'worker'}`;
   if (result.status === 'accepted') {
-    return `Delegated task accepted by ${workerLabel} in session ${result.session_id}.`;
+    return [
+      `Delegated task accepted by ${workerLabel} in session ${result.session_id}.`,
+      result.delegation_id ? `Task handle: ${result.delegation_id}. The result will be delivered automatically.` : null,
+    ].filter(Boolean).join('\n');
   }
   if (result.status === 'ok') {
     return [
@@ -1128,8 +1192,9 @@ export function createDelegateTaskTool(deps: {
     name: 'delegate_task',
     label: 'Delegating task',
     description:
-      'Spawn a short-lived subagent for a focused task. By default this creates an ephemeral worker from goal/context/toolsets, ' +
-      'with no parent history and no recursive delegate_task access. Optionally set target_agent_id to send the task to an existing managed Canvas Agent.',
+      'Dispatch a focused task to a background subagent and return immediately with a persistent task handle. ' +
+      'The result is delivered automatically in a later turn. By default this creates an ephemeral worker with no parent history or recursive delegation. ' +
+      'Optionally set target_agent_id to use an existing managed Canvas Agent.',
     parameters: Type.Object({
       target_agent_id: Type.Optional(Type.String({ description: 'Optional managed target agent ID. Omit to spawn an ephemeral worker.' })),
       goal: Type.String({ description: 'The concrete task the worker should complete.' }),
@@ -1137,8 +1202,8 @@ export function createDelegateTaskTool(deps: {
       role: Type.Optional(Type.String({ description: 'Short worker role hint, e.g. researcher, coder, reviewer, planner. Ephemeral workers only.' })),
       toolsets: Type.Optional(Type.Array(Type.String(), { description: `Ephemeral worker toolsets. Defaults to ${DEFAULT_EPHEMERAL_TOOLSETS.join(', ')}.` })),
       session_id: Type.Optional(Type.String({ description: 'Optional existing session ID. Only supported together with target_agent_id.' })),
-      wait_for_result: Type.Optional(Type.Boolean({ description: 'Wait for the worker final reply. Default true. Set false for background fire-and-forget.' })),
-      timeout_seconds: Type.Optional(Type.Number({ description: 'Max seconds to wait when wait_for_result is true. Default 120, max 600. Use 0 to start in background.' })),
+      wait_for_result: Type.Optional(Type.Boolean({ description: 'Deprecated compatibility field. Top-level delegation always runs in the background.' })),
+      timeout_seconds: Type.Optional(Type.Number({ description: 'Deprecated compatibility field. Background delegation does not block this tool call.' })),
     }),
     execute: async (_toolCallId, params, signal) => {
       try {
@@ -1184,8 +1249,6 @@ export function createDelegateTaskTool(deps: {
           });
         }
 
-        const timeoutSeconds = clampTimeoutSeconds(args.timeout_seconds);
-        const waitForResult = args.wait_for_result === false || timeoutSeconds === 0 ? false : true;
         const request: DelegateTaskRequest = {
           userId: deps.userId,
           sourceAgentId,
@@ -1197,11 +1260,15 @@ export function createDelegateTaskTool(deps: {
           sessionId: args.session_id?.trim() || undefined,
           workerRole: normalizeWorkerRole(args.role),
           toolsets: normalizeToolsets(args.toolsets),
-          waitForResult,
-          timeoutSeconds,
+          waitForResult: false,
+          timeoutSeconds: 0,
         };
 
-        const result = await (deps.startDelegatedRunFn || startDelegatedRun)(request);
+        const dispatch = deps.startDelegatedRunFn || (async (delegatedRequest: DelegateTaskRequest) => {
+          const { enqueueDelegatedTask } = await import('@/app/lib/pi/delegation-dispatcher');
+          return enqueueDelegatedTask(delegatedRequest);
+        });
+        const result = await dispatch(request);
         return {
           content: [{ type: 'text', text: formatDelegateTaskResult(result) }],
           details: result,

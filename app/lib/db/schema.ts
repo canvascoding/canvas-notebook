@@ -574,6 +574,7 @@ export const piDelegations = sqliteTable("pi_delegations", {
   sourceSessionId: text("source_session_id").notNull(),
   sourceAgentId: text("source_agent_id").notNull(),
   workerSessionId: text("worker_session_id").notNull(),
+  requestedSessionId: text("requested_session_id"),
   targetAgentId: text("target_agent_id"),
   workerType: text("worker_type").notNull(),
   goal: text("goal").notNull(),
