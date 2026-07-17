@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { getDatabaseProvider, openDb } from '@/app/lib/db';
+import { openDb } from '@/app/lib/db';
 
 export type OrganizationPolicyTargetCatalog = {
   users: Array<{
@@ -41,9 +41,9 @@ export async function listOrganizationPolicyTargets(
        JOIN "user" u ON u.id = p.user_id
        WHERE p.organization_id = ?
          AND p.status = 'active'
-         AND (u.banned IS NULL OR u.banned = ?)
+         AND COALESCE(u.banned, 0) = 0
        ORDER BY lower(u.name) ASC, lower(u.email) ASC, p.user_id ASC`,
-      [organizationId, getDatabaseProvider() === 'postgres' ? false : 0],
+      [organizationId],
     ) as Array<{
       user_id: string;
       name: string | null;

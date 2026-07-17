@@ -9,6 +9,7 @@ const agentGrants = read('app/components/agents/AgentGrantsEditor.tsx');
 const capabilityPolicies = read('app/components/settings/SkillsPanel.tsx');
 const policyRoute = read('app/api/skills/policies/route.ts');
 const agentGrantService = read('app/lib/agents/grants.ts');
+const policyTargets = read('app/lib/organization/policy-targets.ts');
 const sharedPicker = read('app/components/organization/SearchablePolicyTargetPicker.tsx');
 
 assert.match(agentGrants, /SearchablePolicyTargetPicker/u);
@@ -23,5 +24,8 @@ assert.match(sharedPicker, /option\.description \|\| ''\} \$\{option\.id\}/u);
 assert.match(policyRoute, /listOrganizationPolicyTargets/u);
 assert.match(policyRoute, /success: true, policies, targets/u);
 assert.match(agentGrantService, /listAgentGrantTargets = listOrganizationPolicyTargets/u);
+assert.match(policyTargets, /COALESCE\(u\.banned, 0\) = 0/u);
+assert.doesNotMatch(policyTargets, /getDatabaseProvider/u);
+assert.doesNotMatch(policyTargets, /\? false : 0/u);
 
 console.log('organization-policy-target-picker-ui-test: ok');
