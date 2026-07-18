@@ -161,6 +161,7 @@ async function main() {
   await waitFor(() => {
     assert.ok(pushedHref);
   }, 'editor action should navigate to the notebook');
+  assert.ok(pushedHref, 'editor action should preserve the pushed notebook URL');
   assert.match(
     pushedHref,
     /\/notebook\?path=03_releases%2Fv2026\.7\.17\.7%2Fsocial-posts\.md&workspaceId=workspace-a/u,
