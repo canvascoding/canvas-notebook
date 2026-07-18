@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { getGatewayStatus, getGatewayToolkits } from '@/app/lib/composio/composio-gateway';
 import { requireComposioRequestContext } from '@/app/lib/composio/composio-request';
+import { resolveComposioToolkitAccess } from '@/app/lib/composio/composio-toolkit-access';
 
 function asRecord(value: unknown): Record<string, unknown> {
   return value && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
@@ -19,12 +20,24 @@ function toToolkitSummary(value: unknown) {
   const slug = stringValue(record.slug);
   const name = stringValue(record.name) || slug;
   const toolsCount = numberValue(record.toolsCount) ?? numberValue(record.toolCount);
+  const access = resolveComposioToolkitAccess(record, Boolean(record.connected));
   return {
     slug,
     name,
     logo: stringValue(record.logo),
-    connected: Boolean(record.connected),
+    noAuth: access.noAuth,
+    connected: access.ready,
     toolsCount: toolsCount ?? (Array.isArray(record.tools) ? record.tools.length : 0),
+  };
+}
+
+function toPublicToolkit(value: unknown) {
+  const record = asRecord(value);
+  const access = resolveComposioToolkitAccess(record, Boolean(record.connected));
+  return {
+    ...record,
+    noAuth: access.noAuth,
+    connected: access.ready,
   };
 }
 
@@ -69,14 +82,17 @@ export async function GET(request: NextRequest) {
     }
 
     const result = await getGatewayToolkits(composioContext);
-    if (summaryOnly && Array.isArray(result.toolkits)) {
+    const toolkits = Array.isArray(result.toolkits)
+      ? result.toolkits.map(toPublicToolkit)
+      : [];
+    if (summaryOnly) {
       return NextResponse.json({
         ...result,
-        toolkits: result.toolkits.map(toToolkitSummary),
+        toolkits: toolkits.map(toToolkitSummary),
       });
     }
 
-    return NextResponse.json(result);
+    return NextResponse.json({ ...result, toolkits });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Unknown error';
     return NextResponse.json({ toolkits: [], error: message }, { status: 500 });

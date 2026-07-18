@@ -43,6 +43,7 @@ type ToolkitInfo = {
   description: string;
   toolsCount: number;
   triggerCount?: number;
+  noAuth: boolean;
   connected: boolean;
   connectedAccountId?: string;
   connectedAccountStatus?: string;
@@ -259,7 +260,17 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
   const connectToolkit = async (toolkitSlug: string) => {
     setActionInProgress(`connect-${toolkitSlug}`);
     setError(null);
+    let authWindow: Window | null = null;
     try {
+      authWindow = window.open('about:blank', '_blank');
+      if (authWindow) {
+        try {
+          authWindow.opener = null;
+        } catch {
+          // Some browsers expose opener as read-only after window creation.
+        }
+      }
+
       const response = await fetch(`/api/composio/connect/${encodeURIComponent(toolkitSlug)}`, {
         method: 'POST',
         credentials: 'include',
@@ -268,15 +279,24 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
       const data = await response.json();
       if (!response.ok) throw new Error(data.error || t('connectError'));
       if (data.noAuth) {
+        authWindow?.close();
         void loadStatus();
         void loadToolkits();
         void loadTriggerCounts();
         return;
       }
-      if (data.redirectUrl) {
-        window.open(data.redirectUrl, '_blank', 'noopener,noreferrer');
+      if (typeof data.redirectUrl === 'string' && data.redirectUrl) {
+        if (authWindow && !authWindow.closed) {
+          authWindow.location.href = data.redirectUrl;
+        } else {
+          window.location.assign(data.redirectUrl);
+        }
+        return;
       }
+      authWindow?.close();
+      throw new Error(t('connectError'));
     } catch (err) {
+      authWindow?.close();
       setError(err instanceof Error ? err.message : t('connectError'));
     } finally {
       setActionInProgress(null);
@@ -362,7 +382,7 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
 
   const connectedToolkits = toolkits
     .map((tk) => ({ ...tk, triggerCount: triggerCountsByToolkit[tk.slug] }))
-    .filter((tk) => tk.connected)
+    .filter((tk) => tk.connected && !tk.noAuth)
     .sort((a, b) => a.name.localeCompare(b.name));
   const filteredConnected = connectedSearchQuery
     ? connectedToolkits.filter(
@@ -374,16 +394,20 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
   const pagedConnected = connectedSearchQuery ? filteredConnected : filteredConnected.slice(0, connectedPage * CONNECTED_PAGE_SIZE);
   const hasMoreConnected = !connectedSearchQuery && filteredConnected.length > pagedConnected.length;
   const effectiveAvailableOpen = availableOpen ?? (connectedToolkits.length === 0);
-  const availableToolkits = toolkits
+  const browsableToolkits = toolkits
     .map((tk) => ({ ...tk, triggerCount: triggerCountsByToolkit[tk.slug] }))
-    .filter((tk) => !tk.connected);
+    .filter((tk) => tk.noAuth || !tk.connected)
+    .sort((a, b) => {
+      if (a.noAuth !== b.noAuth) return a.noAuth ? -1 : 1;
+      return a.name.localeCompare(b.name);
+    });
   const filteredAvailable = searchQuery
-    ? availableToolkits.filter(
+    ? browsableToolkits.filter(
         (tk) =>
           tk.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
           tk.slug.toLowerCase().includes(searchQuery.toLowerCase())
       )
-    : availableToolkits;
+    : browsableToolkits;
   const pagedAvailable = searchQuery ? filteredAvailable : filteredAvailable.slice(0, availablePage * AVAILABlE_PAGE_SIZE);
   const hasMoreAvailable = !searchQuery && filteredAvailable.length > pagedAvailable.length;
 
@@ -398,7 +422,7 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
     }
   };
   const summaryItems = [
-    isManagedMode ? t('modeManaged') : needsApiKey ? t('notConfiguredShort') : t('summary', { connected: connectedToolkits.length, available: availableToolkits.length }),
+    isManagedMode ? t('modeManaged') : needsApiKey ? t('notConfiguredShort') : t('summary', { connected: connectedToolkits.length, available: browsableToolkits.length }),
     status?.effectiveProfile?.name ? t('profiles.summaryProfile', { name: status.effectiveProfile.name }) : null,
     error ? t('errorSummary') : null,
   ].filter((item): item is string => Boolean(item));
@@ -596,8 +620,8 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
             <CollapsibleTrigger className="flex w-full items-center justify-between rounded border border-border bg-muted/30 p-3 text-sm transition-colors hover:bg-muted/50">
               <span className="font-semibold">{t('availableApps')}</span>
               <div className="flex items-center gap-2">
-                {availableToolkits.length > 0 && (
-                  <Badge variant="outline" className="text-xs">{availableToolkits.length}</Badge>
+                {browsableToolkits.length > 0 && (
+                  <Badge variant="outline" className="text-xs">{browsableToolkits.length}</Badge>
                 )}
                 <ChevronRight className={`h-4 w-4 text-muted-foreground transition-transform ${availableOpen ? 'rotate-90' : ''}`} />
               </div>
@@ -646,19 +670,23 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
                             )}
                           </div>
                         </div>
-                        <Button
-                          variant="outline"
-                          size="sm"
-                          onClick={(e) => { e.stopPropagation(); handleConnect(tk); }}
-                          disabled={actionInProgress === `connect-${tk.slug}`}
-                        >
-                          {actionInProgress === `connect-${tk.slug}` ? (
-                            <Loader2 className="mr-1 h-3 w-3 animate-spin" />
-                          ) : (
-                            <Link2 className="mr-1 h-3 w-3" />
-                          )}
-                          {t('connect')}
-                        </Button>
+                        {tk.noAuth ? (
+                          <Badge variant="secondary" className="shrink-0 text-xs">{t('noAuthBadge')}</Badge>
+                        ) : (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={(e) => { e.stopPropagation(); handleConnect(tk); }}
+                            disabled={actionInProgress === `connect-${tk.slug}`}
+                          >
+                            {actionInProgress === `connect-${tk.slug}` ? (
+                              <Loader2 className="mr-1 h-3 w-3 animate-spin" />
+                            ) : (
+                              <Link2 className="mr-1 h-3 w-3" />
+                            )}
+                            {t('connect')}
+                          </Button>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -680,17 +708,18 @@ export function ConnectedAppsPanel({ isOpen, onOpenChange, isAdmin = false }: Co
           slug={dialogToolkit.slug}
           name={dialogToolkit.name}
           logo={dialogToolkit.logo}
-          connected={dialogToolkit.connected}
+          connected={dialogToolkit.connected || dialogToolkit.noAuth}
+          noAuth={dialogToolkit.noAuth}
           toolsCount={dialogToolkit.toolsCount}
           hasTriggers={Boolean(triggerCountsByToolkit[dialogToolkit.slug] && triggerCountsByToolkit[dialogToolkit.slug] > 0)}
           workspaceId={status?.workspace?.id || activeWorkspaceId}
           onClose={() => setDialogToolkit(null)}
-          onConnect={dialogToolkit.connected ? undefined : () => {
+          onConnect={dialogToolkit.connected || dialogToolkit.noAuth ? undefined : () => {
             const toolkit = dialogToolkit;
             setDialogToolkit(null);
             handleConnect(toolkit);
           }}
-          onDisconnect={(slug) => { setDialogToolkit(null); void handleDisconnect(slug); }}
+          onDisconnect={dialogToolkit.noAuth ? undefined : (slug) => { setDialogToolkit(null); void handleDisconnect(slug); }}
         />
       )}
       <Dialog open={Boolean(pendingConnectToolkit)} onOpenChange={(open) => {

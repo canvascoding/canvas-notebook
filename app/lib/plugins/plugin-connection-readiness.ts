@@ -138,6 +138,7 @@ async function resolvePluginConnectionReadinessUncached(input: {
   if (composio.length > 0) {
     const { resolveComposioContext } = await import('@/app/lib/composio/composio-context');
     const { getGatewayStatus, getGatewayToolkits } = await import('@/app/lib/composio/composio-gateway');
+    const { resolveComposioToolkitAccess } = await import('@/app/lib/composio/composio-toolkit-access');
     const composioContext = await resolveComposioContext({
       userId: input.userId,
       workspaceId: input.workspaceId,
@@ -152,16 +153,24 @@ async function resolvePluginConnectionReadinessUncached(input: {
         .map((account) => account.toolkit?.slug)
         .filter((slug): slug is string => Boolean(slug)),
     );
-    let toolkitBySlug = new Map<string, { name?: string; logo?: string }>();
+    let toolkitBySlug = new Map<string, { name?: string; logo?: string; ready: boolean }>();
     if (status.configured && status.apiKeyValid) {
       const toolkitResult = await getGatewayToolkits(composioContext).catch(() => ({ toolkits: [] }));
       if (Array.isArray(toolkitResult.toolkits)) {
         toolkitBySlug = new Map(toolkitResult.toolkits
           .map((toolkit) => toolkit && typeof toolkit === 'object' ? toolkit as Record<string, unknown> : {})
-          .map((toolkit) => [stringValue(toolkit.slug) || '', {
-            name: stringValue(toolkit.name),
-            logo: stringValue(toolkit.logo),
-          }] as const)
+          .map((toolkit) => {
+            const slug = stringValue(toolkit.slug) || '';
+            const access = resolveComposioToolkitAccess(
+              toolkit,
+              Boolean(toolkit.connected) || connectedBySlug.has(slug),
+            );
+            return [slug, {
+              name: stringValue(toolkit.name),
+              logo: stringValue(toolkit.logo),
+              ready: access.ready,
+            }] as const;
+          })
           .filter(([slug]) => Boolean(slug)));
       }
     }
@@ -169,7 +178,7 @@ async function resolvePluginConnectionReadinessUncached(input: {
       const toolkit = toolkitBySlug.get(connector.toolkit);
       const configured = Boolean(status.configured && status.apiKeyValid);
       const available = configured && Boolean(toolkit);
-      const connected = connectedBySlug.has(connector.toolkit);
+      const connected = Boolean(toolkit?.ready);
       items.push({
         type: 'composio',
         key: connector.toolkit,

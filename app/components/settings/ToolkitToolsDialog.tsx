@@ -31,6 +31,7 @@ type ToolkitToolsDialogProps = {
   name: string;
   logo: string;
   connected: boolean;
+  noAuth?: boolean;
   toolsCount: number;
   hasTriggers: boolean;
   workspaceId: string;
@@ -115,6 +116,7 @@ export function ToolkitToolsDialog({
   name,
   logo,
   connected,
+  noAuth = false,
   toolsCount,
   hasTriggers,
   workspaceId,
@@ -323,9 +325,11 @@ export function ToolkitToolsDialog({
 
   const totalCount = toolsCount > 0 ? toolsCount : tools.length;
 
-  const statusText = connected
-    ? t('toolsAvailableConnected')
-    : t('toolsAvailableNotConnected');
+  const statusText = noAuth
+    ? t('directlyAvailable')
+    : connected
+      ? t('toolsAvailableConnected')
+      : t('toolsAvailableNotConnected');
   const visibleTab = hasTriggers ? activeTab : 'tools';
   const selectedTrigger = useMemo(
     () => triggerTypes.find((trigger) => trigger.slug === selectedTriggerSlug) || null,

@@ -3,6 +3,7 @@ import 'server-only';
 import { getComposio } from './composio-client';
 import { getConnectedAccounts } from './composio-auth';
 import { composioContextCacheKey, type ResolvedComposioContext } from './composio-context';
+import { resolveComposioToolkitAccess } from './composio-toolkit-access';
 
 export interface ToolkitInfo {
   slug: string;
@@ -10,6 +11,7 @@ export interface ToolkitInfo {
   logo: string;
   description: string;
   toolsCount: number;
+  noAuth: boolean;
   connected: boolean;
   connectedAccountId?: string;
   connectedAccountStatus?: string;
@@ -134,7 +136,7 @@ export async function getAvailableToolkits(context: ResolvedComposioContext): Pr
         const slug = String(t.slug ?? '');
         const account = connectedBySlug.get(slug);
 
-        const hasActiveConnection = account?.status === 'ACTIVE';
+        const access = resolveComposioToolkitAccess(t, account?.status === 'ACTIVE');
 
         return {
           slug,
@@ -142,7 +144,8 @@ export async function getAvailableToolkits(context: ResolvedComposioContext): Pr
           logo: String(meta.logo ?? t.logo ?? ''),
           description: String(meta.description ?? t.description ?? ''),
           toolsCount: Number(meta.toolsCount ?? 0),
-          connected: hasActiveConnection,
+          noAuth: access.noAuth,
+          connected: access.ready,
           connectedAccountId: typeof account?.id === 'string' ? account.id : undefined,
           connectedAccountStatus: typeof account?.status === 'string' ? account.status : undefined,
         };

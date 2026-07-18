@@ -83,10 +83,11 @@ async function run() {
       assert(typeof firstToolkit.slug === 'string', 'Toolkit has slug');
       assert(typeof firstToolkit.name === 'string', 'Toolkit has name');
       assert(typeof firstToolkit.connected === 'boolean', 'Toolkit has connected status');
+      assert(typeof firstToolkit.noAuth === 'boolean', 'Toolkit has no-auth status');
     }
 
     // Test 3: Connect flow — pick an unconnected toolkit
-    const unconnected = toolkitsBody.toolkits.find((tk) => !tk.connected && !tk.isNoAuth);
+    const unconnected = toolkitsBody.toolkits.find((tk) => !tk.connected && !tk.noAuth);
     if (unconnected) {
       console.log(`\n4. Testing POST /api/composio/connect/${unconnected.slug}`);
       const { body: connectBody, response: connectResponse } = await apiCall(

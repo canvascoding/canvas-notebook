@@ -37,8 +37,13 @@ async function main() {
   assert.match(connectedApps, /data-testid="composio-connect-context-dialog"/u);
   assert.match(connectedApps, /connectContext\.createProfile/u);
   assert.match(connectedApps, /profileCreateRequest/u);
+  assert.match(connectedApps, /window\.open\('about:blank', '_blank'\)/u);
+  assert.match(connectedApps, /window\.location\.assign\(data\.redirectUrl\)/u);
+  assert.match(connectedApps, /tk\.noAuth/u);
+  assert.match(connectedApps, /noAuthBadge/u);
   assert.match(toolkitDialog, /workspaceId/u);
   assert.match(toolkitDialog, /WORKSPACE_ID_HEADER/u);
+  assert.match(toolkitDialog, /directlyAvailable/u);
 
   assert.match(automations, /effectiveProfile/u);
   assert.match(automations, /composioConnectionManagedByViewer/u);
