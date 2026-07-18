@@ -1,7 +1,7 @@
 # Browser Lab und Live-Browser-Plan
 
-Stand: 2026-07-13
-Status: Architektur- und Umsetzungsplan, noch nicht implementiert
+Stand: 2026-07-18
+Status: Phase 0 bis 3 implementiert; sichtbare UI-Pruefung und Phase 4 bis 6 ausstehend
 
 ## 1. Entscheidung und Zielbild
 
@@ -204,6 +204,19 @@ Bei knappen Ressourcen degradiert das System in dieser Reihenfolge:
 Ein kritischer Speicherdruck beendet zuerst neue oder inaktive Views, nicht unkontrolliert die gesamte Node-App.
 
 ## 9. Umsetzungsphasen
+
+### Implementierungsstand vom 2026-07-18
+
+- Die geschuetzte Route `app/[locale]/(routes)/browser/lab/page.tsx` und die Lab-Oberflaeche unter `app/components/browser-lab/` sind umgesetzt.
+- Kurzlebige signierte View-Tickets werden ueber `POST /api/browser/view` ausgegeben und im separaten WebSocket-Pfad `/ws/browser` zusaetzlich zur normalen Session-Cookie-Authentifizierung geprueft.
+- Bildframes besitzen Sequenznummern und Client-Bestaetigungen; bei einem nicht bestaetigten Frame oder WebSocket-Rueckstau wird kein weiterer Frame angehaeuft.
+- Agenten- und Nutzereingaben verwenden denselben Browser-Action-Lock. Waehrend der Nutzersteuerung werden mutierende Agenten-Browseraktionen abgewiesen.
+- Tabs, Pop-ups, Navigation, Maus, Tastatur, Scrollen und JavaScript-Dialoge sind an die bestehende persistente Browser-Runtime angebunden.
+- Das Ressourcenbudget blockiert interaktive Views unter 1,5 GiB effektivem Speicher und reduziert Framerate, Viewport und Parallelitaet auf kleineren Systemen.
+- Kontrollwechsel, Navigation, Tabwechsel, Dialogaktionen sowie Connect/Disconnect werden ohne Tastaturtext, Screenshotdaten, Cookies oder URL-Querydaten auditiert.
+- Da die Agent-Runtime noch keinen fortsetzbaren Pause-Zustand besitzt, bricht die Nutzeruebernahme einen aktiven Agentenlauf in dieser ersten Version kontrolliert ab. Eine echte Pause-/Resume-Semantik bleibt ein separates Runtime-To-do.
+- Workspace-vermittelte Uploads und Downloads aus Phase 4 sind noch nicht freigeschaltet.
+- TypeScript, ESLint, fokussierte Browser-/Ticket-/Lock-/URL-/WebSocket-Tests und `npm run build` sind erfolgreich. Die gemaess Repository-Regel zustimmungspflichtige sichtbare UI-/E2E-Pruefung steht noch aus.
 
 ### Phase 0 – Verträge und Testspike
 

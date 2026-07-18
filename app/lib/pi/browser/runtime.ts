@@ -3,14 +3,21 @@ import 'server-only';
 import { existsSync, promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import puppeteer, { type Browser, type Dialog, type HTTPRequest, type Page } from 'puppeteer-core';
+import puppeteer, { type Browser, type Dialog, type HTTPRequest, type Page, type Target } from 'puppeteer-core';
 
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 
 import { buildBrowserLaunchSpec, resolveBrowserUserDataDir } from './chromium';
 import { BrowserTargetStore } from './targets';
 import { isBrowserRequestUrlAllowed } from './url-policy';
-import type { BrowserDialogDetails, BrowserProfileDetails, BrowserProfileScope, BrowserStatusDetails, ConsoleEntry } from './types';
+import type {
+  BrowserDialogDetails,
+  BrowserProfileDetails,
+  BrowserProfileScope,
+  BrowserRuntimeTab,
+  BrowserStatusDetails,
+  ConsoleEntry,
+} from './types';
 
 const DEFAULT_TIMEOUT_MS = 15_000;
 export const IDLE_CLOSE_MS = 5 * 60 * 1000;
@@ -34,6 +41,8 @@ type BrowserProfileState = {
 
 type BrowserSessionState = {
   activePage: Page | null;
+  pages: Map<string, Page>;
+  nextTabId: number;
   idleTimer: NodeJS.Timeout | null;
   consoleEntries: ConsoleEntry[];
   targetStore: BrowserTargetStore;
@@ -45,6 +54,7 @@ type BrowserSessionState = {
 };
 
 const browserProfiles = new Map<string, BrowserProfileState>();
+const requestPolicyPages = new WeakSet<Page>();
 const CHROME_PROFILE_STARTUP_ARTIFACTS = [
   'SingletonLock',
   'SingletonSocket',
@@ -157,6 +167,8 @@ export function getBrowserProfileContextKey(context: BrowserRuntimeContext = {})
 function createSessionState(): BrowserSessionState {
   return {
     activePage: null,
+    pages: new Map(),
+    nextTabId: 1,
     idleTimer: null,
     consoleEntries: [],
     targetStore: new BrowserTargetStore(),
@@ -352,6 +364,55 @@ function recordConsoleMessage(session: BrowserSessionState, message: ConsoleMess
   }
 }
 
+function findSessionTabId(session: BrowserSessionState, page: Page): string | null {
+  for (const [tabId, candidate] of session.pages) {
+    if (candidate === page) return tabId;
+  }
+  return null;
+}
+
+function bindSessionPage(session: BrowserSessionState, page: Page): string {
+  const existingTabId = findSessionTabId(session, page);
+  if (existingTabId) return existingTabId;
+
+  const tabId = `tab-${session.nextTabId++}`;
+  session.pages.set(tabId, page);
+  page.on('console', (message: ConsoleMessageLike) => {
+    recordConsoleMessage(session, message);
+  });
+  page.on('dialog', (dialog: Dialog) => {
+    session.pendingDialog = {
+      dialog,
+      details: {
+        type: dialog.type(),
+        message: dialog.message(),
+        defaultValue: dialog.defaultValue(),
+        openedAt: new Date().toISOString(),
+      },
+    };
+  });
+  page.on('popup', (popup: Page | null) => {
+    if (!popup) return;
+    void configureRequestPolicy(popup).then(() => {
+      popup.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+      popup.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
+      bindSessionPage(session, popup);
+      session.activePage = popup;
+    }).catch(() => {
+      void popup.close().catch(() => undefined);
+    });
+  });
+  page.on('close', () => {
+    session.pages.delete(tabId);
+    if (session.activePage === page) {
+      session.activePage = Array.from(session.pages.values()).find((candidate) => !candidate.isClosed()) ?? null;
+    }
+    session.targetStore.clear();
+    session.pendingDialog = null;
+  });
+  return tabId;
+}
+
 async function closeProfileIfUnused(profileKey: string, profile: BrowserProfileState): Promise<void> {
   if (profile.sessions.size > 0) {
     return;
@@ -368,6 +429,8 @@ async function closeProfileIfUnused(profileKey: string, profile: BrowserProfileS
 }
 
 async function configureRequestPolicy(page: Page): Promise<void> {
+  if (requestPolicyPages.has(page)) return;
+  requestPolicyPages.add(page);
   await page.setRequestInterception(true).catch(() => undefined);
   page.on('request', (request: HTTPRequest) => {
     void (async () => {
@@ -392,6 +455,24 @@ async function configureRequestPolicy(page: Page): Promise<void> {
       await request.continue().catch(() => undefined);
     })();
   });
+}
+
+function bindCreatedTargetToSession(profile: BrowserProfileState, target: Target): void {
+  const opener = target.opener();
+  if (!opener || target.type() !== 'page') return;
+  const session = Array.from(profile.sessions.values()).find((candidate) => (
+    Array.from(candidate.pages.values()).some((page) => page.target() === opener)
+  ));
+  if (!session) return;
+
+  void target.page().then(async (page) => {
+    if (!page) return;
+    await configureRequestPolicy(page);
+    page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+    page.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
+    bindSessionPage(session, page);
+    session.activePage = page;
+  }).catch(() => undefined);
 }
 
 async function ensureBrowser(context: BrowserRuntimeContext = {}): Promise<Browser> {
@@ -424,10 +505,12 @@ async function ensureBrowser(context: BrowserRuntimeContext = {}): Promise<Brows
     defaultViewport: { width: 1280, height: 800 },
   }).then((launchedBrowser) => {
     profile.browser = launchedBrowser;
+    profile.browser.on('targetcreated', (target) => bindCreatedTargetToSession(profile, target));
     profile.browser.on('disconnected', () => {
       profile.browser = null;
       for (const session of profile.sessions.values()) {
         session.activePage = null;
+        session.pages.clear();
         session.targetStore.clear();
       }
     });
@@ -451,29 +534,50 @@ export async function ensurePage(context: BrowserRuntimeContext = {}): Promise<P
   await configureRequestPolicy(session.activePage);
   session.activePage.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
   session.activePage.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
-  session.activePage.on('console', (message: ConsoleMessageLike) => {
-    recordConsoleMessage(session, message);
-  });
-  session.activePage.on('dialog', (dialog: Dialog) => {
-    session.pendingDialog = {
-      dialog,
-      details: {
-        type: dialog.type(),
-        message: dialog.message(),
-        defaultValue: dialog.defaultValue(),
-        openedAt: new Date().toISOString(),
-      },
-    };
-  });
-  session.activePage.on('close', () => {
-    if (session.activePage?.isClosed()) {
-      session.activePage = null;
-      session.targetStore.clear();
-      session.pendingDialog = null;
-    }
-  });
+  bindSessionPage(session, session.activePage);
 
   return session.activePage;
+}
+
+export async function getBrowserRuntimeTabs(
+  context: BrowserRuntimeContext = {},
+): Promise<BrowserRuntimeTab[]> {
+  const profile = browserProfiles.get(getProfileKey(context));
+  const session = profile?.sessions.get(getSessionKey(context));
+  if (!session) return [];
+
+  const tabs = await Promise.all(Array.from(session.pages.entries()).map(async ([id, page]) => {
+    if (page.isClosed()) return null;
+    return {
+      id,
+      title: await page.title().catch(() => ''),
+      url: page.url(),
+      active: session.activePage === page,
+    } satisfies BrowserRuntimeTab;
+  }));
+  return tabs.filter((tab): tab is BrowserRuntimeTab => Boolean(tab));
+}
+
+export function getActiveBrowserRuntimeTabId(context: BrowserRuntimeContext = {}): string | null {
+  const profile = browserProfiles.get(getProfileKey(context));
+  const session = profile?.sessions.get(getSessionKey(context));
+  if (!session?.activePage) return null;
+  return findSessionTabId(session, session.activePage);
+}
+
+export async function activateBrowserRuntimeTab(
+  context: BrowserRuntimeContext = {},
+  tabId: string,
+): Promise<Page> {
+  const session = getOrCreateSessionState(context);
+  const page = session.pages.get(tabId);
+  if (!page || page.isClosed()) {
+    throw new Error('Browser tab is no longer available.');
+  }
+  session.activePage = page;
+  session.targetStore.clear();
+  scheduleIdleClose(context);
+  return page;
 }
 
 export async function closeBrowserRuntime(
@@ -493,13 +597,16 @@ export async function closeBrowserRuntime(
     session.idleTimer = null;
   }
 
-  const currentPage = session.activePage;
+  const pages = Array.from(session.pages.values());
   session.activePage = null;
+  session.pages.clear();
   session.targetStore.clear();
   session.pendingDialog = null;
 
-  if (currentPage && !currentPage.isClosed()) {
-    await currentPage.close().catch(() => undefined);
+  for (const page of pages) {
+    if (!page.isClosed()) {
+      await page.close().catch(() => undefined);
+    }
   }
 
   if (reason !== 'idle timeout') {
@@ -521,6 +628,8 @@ export async function resetBrowserSessionPage(
   }
 
   session.activePage = null;
+  const activeTabId = findSessionTabId(session, currentPage);
+  if (activeTabId) session.pages.delete(activeTabId);
   session.targetStore.clear();
   session.pendingDialog = null;
 
@@ -606,10 +715,13 @@ export async function deleteBrowserProfile(context: BrowserRuntimeContext = {}):
       session.targetStore.clear();
       session.consoleEntries.length = 0;
       session.pendingDialog = null;
-      const page = session.activePage;
+      const pages = Array.from(session.pages.values());
       session.activePage = null;
-      if (page && !page.isClosed()) {
-        await page.close().catch(() => undefined);
+      session.pages.clear();
+      for (const page of pages) {
+        if (!page.isClosed()) {
+          await page.close().catch(() => undefined);
+        }
       }
     }
 

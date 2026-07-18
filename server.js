@@ -682,6 +682,19 @@ async function startServer() {
     }
     websocketServer.createWebSocketServer(server);
     console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
+    const browserViewModule = await import('./server/browser-view-server.ts');
+    const browserViewServer = browserViewModule.createBrowserViewServer
+      ? browserViewModule
+      : browserViewModule.default || browserViewModule['module.exports'];
+    if (
+      !browserViewServer
+      || typeof browserViewServer.createBrowserViewServer !== 'function'
+      || typeof browserViewServer.isBrowserViewWebSocketRequest !== 'function'
+    ) {
+      throw new Error('Browser view server module did not expose expected functions');
+    }
+    browserViewServer.createBrowserViewServer(server);
+    console.log('[Startup] Browser View WebSocket ready on ws://localhost:' + port + '/ws/browser');
     // Keep the custom server and Next server externals on the CommonJS Yjs
     // entry so the long-lived Node process has exactly one constructor set.
     const collaborationModule = require('./server/collaboration-server.ts');
@@ -692,6 +705,7 @@ async function startServer() {
     flushExcalidrawCollaborationDocuments = excalidrawCollaborationModule.flushExcalidrawCollaborationDocuments;
     isCanvasWebSocketRequest = (requestUrl) => (
       websocketServer.isChatWebSocketRequest(requestUrl)
+      || browserViewServer.isBrowserViewWebSocketRequest(requestUrl)
       || collaborationModule.isCollaborationWebSocketRequest(requestUrl)
       || excalidrawCollaborationModule.isExcalidrawCollaborationWebSocketRequest(requestUrl)
     );

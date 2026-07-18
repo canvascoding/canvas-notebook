@@ -35,6 +35,7 @@ import type {
 } from './types';
 import { getBrowserRequirementStatus } from './requirements';
 import { assertBrowserNavigationUrlAllowed } from './url-policy';
+import { assertAgentBrowserControl } from './view-control';
 
 export type {
   BrowserAction,
@@ -93,6 +94,19 @@ function normalizeAction(value: unknown): BrowserAction {
     return action as BrowserAction;
   }
   throw new Error(`Unsupported browser action "${action || '(empty)'}". Use action "help" for available actions.`);
+}
+
+function isMutatingBrowserAction(action: BrowserAction, input: BrowserGatewayInput): boolean {
+  return action === 'start'
+    || action === 'navigate'
+    || action === 'click'
+    || action === 'type'
+    || action === 'keypress'
+    || action === 'scroll'
+    || action === 'accept_dialog'
+    || action === 'dismiss_dialog'
+    || action === 'close'
+    || (action === 'evaluate' && input.mutates === true);
 }
 
 async function validateBrowserUrl(rawUrl: string | undefined): Promise<string> {
@@ -550,6 +564,9 @@ export async function runBrowserGatewayAction(
 
   return withBrowserRuntimeLock(context, async () => {
     const targetStore = getContextTargetStore(context);
+    if (isMutatingBrowserAction(action, input)) {
+      assertAgentBrowserControl(context);
+    }
 
     if (action === 'close') {
       await closeBrowserRuntime(context, 'requested');

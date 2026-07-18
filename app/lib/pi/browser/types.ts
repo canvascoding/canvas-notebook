@@ -93,6 +93,43 @@ export type BrowserStatusDetails = {
   pendingDialog?: BrowserDialogDetails | null;
 };
 
+export type BrowserRuntimeTab = {
+  id: string;
+  title: string;
+  url: string;
+  active: boolean;
+};
+
+export type BrowserViewControlMode = 'view' | 'agent' | 'user';
+
+export type BrowserViewResourceBudget = {
+  allowed: boolean;
+  effectiveMemoryMb: number;
+  availableMemoryMb: number;
+  fps: number;
+  viewport: { width: number; height: number };
+  jpegQuality: number;
+  maxConcurrentViews: number;
+  reason: string | null;
+};
+
+export type BrowserViewState = {
+  viewId: string;
+  agentId: string;
+  agentSessionId: string;
+  workspaceId: string;
+  mode: BrowserViewControlMode;
+  controlOwnerViewId: string | null;
+  leaseExpiresAt: string | null;
+  activeTabId: string | null;
+  title: string;
+  url: string;
+  tabs: BrowserRuntimeTab[];
+  pendingDialog: BrowserDialogDetails | null;
+  viewport: { width: number; height: number };
+  resourceBudget: BrowserViewResourceBudget;
+};
+
 export type BrowserDialogDetails = {
   type: string;
   message: string;

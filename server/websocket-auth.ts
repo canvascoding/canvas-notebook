@@ -10,8 +10,10 @@ import { auth } from '@/app/lib/auth';
 export interface WebSocketAuthResult {
   isAuthenticated: boolean;
   userId?: string;
+  sessionId?: string;
   userEmail?: string;
   userName?: string;
+  userRole?: string | null;
   error?: string;
 }
 
@@ -47,8 +49,10 @@ export async function authenticateWebSocketConnection(
     return {
       isAuthenticated: true,
       userId: session.user.id,
+      sessionId: String((session.session as { id?: string }).id || ''),
       userEmail: session.user.email,
       userName: session.user.name,
+      userRole: session.user.role,
     };
   } catch (error) {
     console.error('[WebSocket Auth] Error:', error);
