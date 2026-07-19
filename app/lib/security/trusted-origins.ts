@@ -1,6 +1,20 @@
+export const CANVAS_MOBILE_AUTH_ORIGINS = [
+  'canvasnotebook://',
+  'canvasnotebook-preview://',
+  'canvasnotebook-dev://',
+] as const;
+
 function normalizeOrigin(value: string | undefined): string | null {
   const trimmed = value?.trim();
   if (!trimmed) return null;
+
+  const mobileProtocol = trimmed.match(/^([a-z][a-z0-9+.-]*):\/\//iu)?.[1]?.toLowerCase();
+  if (mobileProtocol) {
+    const mobileOrigin = `${mobileProtocol}://`;
+    if ((CANVAS_MOBILE_AUTH_ORIGINS as readonly string[]).includes(mobileOrigin)) {
+      return mobileOrigin;
+    }
+  }
 
   try {
     const url = new URL(trimmed);
@@ -32,6 +46,10 @@ export function getConfiguredTrustedOrigins(): string[] {
     const port = process.env.PORT?.trim() || '3000';
     origins.add(`http://localhost:${port}`);
     origins.add(`http://127.0.0.1:${port}`);
+  }
+
+  for (const mobileOrigin of CANVAS_MOBILE_AUTH_ORIGINS) {
+    origins.add(mobileOrigin);
   }
 
   return [...origins];

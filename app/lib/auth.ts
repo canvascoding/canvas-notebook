@@ -4,6 +4,7 @@ import { db } from "@/app/lib/db";
 import { getDatabaseProvider } from "@/app/lib/db/provider";
 import { nextCookies } from "better-auth/next-js";
 import { admin, bearer } from "better-auth/plugins";
+import { expo } from '@better-auth/expo';
 import { getConfiguredTrustedOrigins } from '@/app/lib/security/trusted-origins';
 
 const authBaseURL =
@@ -35,6 +36,7 @@ export const auth = betterAuth({
   plugins: [
     admin(),
     bearer(),
+    expo(),
     nextCookies(),
   ],
   session: {
