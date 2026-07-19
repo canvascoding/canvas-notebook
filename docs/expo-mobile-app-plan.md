@@ -7,6 +7,8 @@
 > Zielplattformen: iOS und Android
 >
 > Produktziel: Native Companion-App für Canvas-Notebook-Instanzen, keine WebView-Hülle und keine lokale Agent-Runtime
+>
+> Mobile-Repository: separates privates Git-Repository `canvas-notebook-mobile`; kein Unterordner dieses öffentlichen Server-Repositorys
 
 ## 1. Kurzentscheidung
 
@@ -188,36 +190,37 @@ Nicht im ersten Release: vollständiger Tiptap-WYSIWYG-Editor, MARP-Bearbeitung,
 
 ### 5.1 Repository-Struktur
 
-Die Expo-App wird analog zum Electron-Client im selben Repository, aber mit isoliertem Dependency- und Release-Lifecycle angelegt:
+Server und Mobile-App werden bewusst getrennt versioniert. Das öffentliche Repository enthält die
+Serverimplementierung und den kanonischen Mobile-API-Vertrag. App-Quellcode, EAS-Konfiguration,
+Store-Metadaten und Release-Workflows liegen ausschließlich im privaten Nachbar-Repository.
 
 ```text
-mobile/
-  app/                       # Expo-Router-Routen
-    (auth)/
-    (tabs)/
-    chat/[sessionId].tsx
-    studio/generations/[id].tsx
-    files/view.tsx
-    todos/[id].tsx
-  src/
-    api/
-    auth/
-    components/
-    features/
-    notifications/
-    storage/
-    theme/
+canvasstudios-notebook/       # öffentliches Server-Repository
+  app/api/mobile/v1/
+  packages/mobile-contracts/ # kanonische Request-, Response- und WS-Schemas
+  docs/expo-mobile-app-plan.md
+
+canvas-notebook-mobile/      # separates privates Git-Repository
+  src/app/                   # Expo-Router-Routen
+  src/api/
+    generated/               # eingecheckte, versionierte Contract-Artefakte
+  src/auth/
+  src/components/
+  src/features/
+  src/notifications/
+  src/storage/
   assets/
   app.config.ts
   eas.json
   package.json
   package-lock.json
-
-packages/
-  mobile-contracts/          # dependency-arme Request-, Response- und WS-Schemas
 ```
 
-`mobile/` wird zunächst kein npm-Workspace des Serverpakets. Dadurch installiert `npm ci` für den Notebook-Container keine nativen Mobile-Abhängigkeiten. Mobile-Kommandos laufen explizit mit `npm --prefix mobile ...`. API- und App-Änderungen können trotzdem atomar in einem Commit bleiben.
+Zwischen den Repositories gibt es keine Workspace-, Git-Submodule-, Symlink- oder lokale
+Dateisystem-Abhängigkeit. Der Server exportiert versionierte OpenAPI-/JSON-Schema-Artefakte; die
+Mobile-App generiert daraus ihren Client und Runtime-Validatoren und checkt das Ergebnis ein. Eine
+Mobile-Version deklariert die minimal unterstützte Mobile-API-Version. Zusammengehörige Änderungen
+werden über API-Version und Release-Notizen koordiniert, nicht über einen atomaren Commit.
 
 ### 5.2 Client-Stack
 
@@ -315,7 +318,7 @@ Die Handler sind Adapter über bestehende Services. Wo aktuelle Routen noch Logi
 
 ### 7.2 Gemeinsame Verträge
 
-`packages/mobile-contracts` enthält:
+`packages/mobile-contracts` im öffentlichen Server-Repository enthält:
 
 - API-Versionen und Capability-Namen.
 - Request-/Response-Schemas.
@@ -331,6 +334,10 @@ Anforderungen:
 - Abwärtskompatible additive Änderungen innerhalb `v1`.
 - Breaking Changes nur über `v2` und mit definierter Übergangszeit.
 - Contract-Tests vergleichen Mobile-Handler und Schemas.
+- Ein reproduzierbarer Export erzeugt OpenAPI-/JSON-Schema-Artefakte für das private Mobile-Repo.
+- Das Mobile-Repo prüft in CI, dass generierter Client, Runtime-Validatoren und eingecheckte Fixtures
+  zum referenzierten Contract-Release passen.
+- Die App importiert niemals TypeScript-Quellcode direkt aus dem Server-Repository.
 
 ### 7.3 Better-Auth-Expo-Integration
 
@@ -461,7 +468,7 @@ Jede Phase wird abgeschlossen und abgenommen, bevor die nächste beginnt.
 
 Aufgaben:
 
-1. `mobile/` mit explizit gepinntem Expo-SDK-57-Template anlegen.
+1. separates privates Repository `canvas-notebook-mobile` mit explizit gepinntem Expo-SDK-57-Template anlegen.
 2. Development Build für iOS und Android erzeugen.
 3. Better-Auth-Expo-Login gegen eine lokale Testinstanz beweisen.
 4. SecureStore-Session nach App-Neustart beweisen.
@@ -479,11 +486,11 @@ Gate:
 
 Aufgaben:
 
-1. `packages/mobile-contracts` anlegen.
+1. `packages/mobile-contracts` im Server-Repository und den reproduzierbaren Contract-Export anlegen.
 2. `/api/mobile/v1/compatibility` und `/bootstrap` implementieren.
 3. bestehende Auth-Konfiguration um das Expo-Plugin erweitern.
 4. WS-Ticket-Service und Contract-Tests implementieren.
-5. Mobile API Client, Fehlernormalisierung und Query-Schicht aufbauen.
+5. generierten Mobile API Client, Runtime-Validierung, Fehlernormalisierung und Query-Schicht aufbauen.
 6. Expo Router, Theme, i18n, geschützte Routen und Workspace-Switcher implementieren.
 7. Logout-/Cache-Wipe-Flow implementieren.
 
@@ -645,6 +652,8 @@ Diese Reihenfolge ist verbindlich; kein Block beginnt, bevor sein Vorgänger abg
 
 Vor Phase 0 müssen nur folgende organisatorische Punkte bestätigt werden:
 
+- Owner und Name des privaten Git-Hosting-Repositorys.
+- Expo-Account oder -Organisation für das EAS-Projekt.
 - Apple Developer Team und Google Play Console Owner.
 - gewünschter öffentlicher App-Name im Store.
 - kanonische Canvas-Cloud-Domain für Universal Links.
