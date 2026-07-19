@@ -35,6 +35,7 @@ type SessionSummary = {
   engine?: string | null;
   sessionId: string;
   title?: string | null;
+  workspace?: { workspaceId: string } | null;
 };
 
 type RuntimeCatalogProvider = {
@@ -50,12 +51,20 @@ type RuntimeCatalogProvider = {
   status: string;
 };
 
+let cachedAuthCookies: Awaited<ReturnType<ReturnType<Page['context']>['cookies']>> | null = null;
+
 async function login(page: Page): Promise<void> {
+  if (cachedAuthCookies) {
+    await page.context().addCookies(cachedAuthCookies);
+    await page.goto('/');
+    return;
+  }
   await page.goto('/login');
   await page.locator('input[type="email"]').fill(TEST_EMAIL);
   await page.locator('input[type="password"]').fill(TEST_PASSWORD);
   await page.locator('button[type="submit"]').click();
   await page.waitForURL((url) => !url.pathname.includes('/login'), { timeout: 30_000 });
+  cachedAuthCookies = await page.context().cookies();
 }
 
 async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
@@ -140,6 +149,7 @@ async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
     createdByTest: true,
     engine: createPayload.session?.engine || 'pi',
     sessionId: createPayload.session!.sessionId,
+    workspace: createPayload.session?.workspace ?? null,
   };
 }
 
@@ -299,6 +309,97 @@ test.describe('Browser Lab', () => {
       await page.getByTitle(labels.disconnect).click();
       expect(pageErrors).toEqual([]);
     } finally {
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
+  test('moves browser uploads and downloads through the session workspace', async ({ page }) => {
+    const fixtureName = `browser-lab-upload-${Date.now()}.txt`;
+    const fixtureContent = 'Canvas Browser Lab upload fixture.';
+    let downloadedWorkspacePath = '';
+
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await login(page);
+    const session = await findBrowserLabSession(page);
+    const workspaceId = session.workspace?.workspaceId;
+    expect(workspaceId, 'Browser Lab transfer E2E requires a session workspace.').toBeTruthy();
+    const workspaceQuery = `workspaceId=${encodeURIComponent(workspaceId!)}`;
+
+    const writeResponse = await page.request.post(`/api/files/write?${workspaceQuery}`, {
+      data: { path: fixtureName, content: fixtureContent },
+    });
+    expect(writeResponse.ok(), await writeResponse.text()).toBeTruthy();
+    const fixtureAccessResponse = await page.request.post('/api/browser/view/fixture-access');
+    const fixtureAccessPayload = await fixtureAccessResponse.json() as {
+      data?: { access?: string };
+    };
+    expect(fixtureAccessResponse.ok(), JSON.stringify(fixtureAccessPayload)).toBeTruthy();
+    const fixtureAccess = fixtureAccessPayload.data?.access;
+    expect(fixtureAccess).toBeTruthy();
+
+    try {
+      await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
+      await page.getByRole('button', { name: labels.connect }).click();
+      await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
+      await page.getByRole('button', { name: labels.takeControl }).click();
+      await expect(page.getByText(labels.userControls)).toBeVisible();
+
+      const address = page.getByLabel(labels.address);
+      const frame = page.locator('img[tabindex]');
+      await address.fill(
+        `http://localhost:3000/api/browser/view/fixture-page?access=${encodeURIComponent(fixtureAccess!)}`,
+      );
+      await page.getByRole('button', { name: labels.navigate }).click();
+      await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
+      await expect(page.getByText('Browser transfer fixture', { exact: true })).toBeVisible({ timeout: 30_000 });
+
+      await frame.focus();
+      await frame.press('Tab');
+      await frame.press('Space');
+      await expect(page.getByText(/^(Workspace-Datei auswählen|Choose a workspace file)$/)).toBeVisible({ timeout: 15_000 });
+      await page.getByText(/^(Workspace-Dateien durchsuchen|Search workspace files)$/).locator('..').getByRole('textbox').fill(fixtureName);
+      const fileSelect = page.getByLabel(/^(Datei auswählen|Choose file)$/);
+      await expect(fileSelect.locator(`option[value="${fixtureName}"]`)).toHaveCount(1, { timeout: 15_000 });
+      await fileSelect.selectOption(fixtureName);
+      await page.getByRole('button', { name: /^(Ausgewählte Datei verwenden|Use selected file)$/ }).click();
+      await expect(page.getByText(/^(Workspace-Datei auswählen|Choose a workspace file)$/)).toHaveCount(0, { timeout: 15_000 });
+      await expect(page.getByText(`Uploaded: ${fixtureName}`, { exact: true })).toBeVisible({ timeout: 30_000 });
+      await page.screenshot({ path: 'test-results/browser-lab-file-transfer-ready.png', fullPage: false });
+
+      const fixtureBounds = await frame.boundingBox();
+      expect(fixtureBounds, 'The transfer fixture has no interactive bounds.').toBeTruthy();
+      await frame.click({
+        position: {
+          x: fixtureBounds!.width * 0.6,
+          y: fixtureBounds!.height * 0.58,
+        },
+      });
+      const canvasDownloadLink = page.getByRole('link', { name: /^(Über Canvas herunterladen|Download through Canvas)/ });
+      await expect(canvasDownloadLink).toBeVisible({ timeout: 30_000 });
+      const downloadHref = await canvasDownloadLink.getAttribute('href');
+      expect(downloadHref).toBeTruthy();
+      downloadedWorkspacePath = new URL(downloadHref!, 'http://localhost:3456').searchParams.get('path') || '';
+      expect(downloadedWorkspacePath).toMatch(/^Browser Downloads\/browser-lab-download(?: \(\d+\))?\.txt$/u);
+
+      const downloadPromise = page.waitForEvent('download');
+      await canvasDownloadLink.click();
+      const download = await downloadPromise;
+      expect(download.suggestedFilename()).toBe(downloadedWorkspacePath.split('/').at(-1));
+
+      const readResponse = await page.request.get(
+        `/api/files/read?${workspaceQuery}&path=${encodeURIComponent(downloadedWorkspacePath)}`,
+      );
+      const readPayload = await readResponse.json() as { data?: { content?: string } };
+      expect(readResponse.ok(), JSON.stringify(readPayload)).toBeTruthy();
+      expect(readPayload.data?.content).toBe('Canvas Browser Lab controlled download fixture.\n');
+
+      await page.screenshot({ path: 'test-results/browser-lab-file-transfers.png', fullPage: false });
+      await page.getByTitle(labels.disconnect).click();
+    } finally {
+      const ownedPaths = [fixtureName, downloadedWorkspacePath].filter(Boolean);
+      if (ownedPaths.length > 0) {
+        await page.request.delete(`/api/files/delete?${workspaceQuery}`, { data: { path: ownedPaths } });
+      }
       await deleteBrowserLabTestSession(page, session);
     }
   });

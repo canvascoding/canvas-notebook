@@ -30,6 +30,8 @@ type ClientMessage =
   | { type: 'input_key'; key?: string; text?: string; modifiers?: string[] }
   | { type: 'input_scroll'; deltaX?: number; deltaY?: number }
   | { type: 'dialog_resolve'; accept?: boolean; promptText?: string }
+  | { type: 'file_upload'; paths?: string[] }
+  | { type: 'file_cancel' }
   | { type: 'frame_ack'; sequence?: number }
   | { type: 'heartbeat' };
 
@@ -193,6 +195,12 @@ async function handleMessage(connection: BrowserConnection, message: ClientMessa
       break;
     case 'dialog_resolve':
       await service.resolveDialog(message.accept === true, message.promptText);
+      break;
+    case 'file_upload':
+      await service.uploadFiles(message.paths);
+      break;
+    case 'file_cancel':
+      await service.cancelFileChooser();
       break;
     case 'frame_ack':
       if (typeof message.sequence === 'number') service.acknowledgeFrame(message.sequence);

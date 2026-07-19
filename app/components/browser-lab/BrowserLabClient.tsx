@@ -4,10 +4,13 @@ import {
   ArrowLeftRight,
   Bot,
   CircleDot,
+  Download,
   ExternalLink,
+  FileUp,
   Globe2,
   Hand,
   Loader2,
+  LockKeyhole,
   MonitorUp,
   RefreshCw,
   ShieldAlert,
@@ -67,6 +70,13 @@ type BrowserSocketMessage =
 
 type ConnectionStatus = 'connecting' | 'failed' | 'idle' | 'live';
 
+type WorkspaceBrowserFile = {
+  name: string;
+  path: string;
+  size: number;
+  selectable: boolean;
+};
+
 const copy = {
   de: {
     eyebrow: 'Entwicklungswerkzeug',
@@ -108,6 +118,20 @@ const copy = {
     availableMemory: 'Freier Speicher',
     tabs: 'Tabs',
     dialog: 'Die Webseite zeigt einen Dialog.',
+    uploadTitle: 'Workspace-Datei auswählen',
+    uploadDescription: 'Die Webseite wartet auf eine Datei. Nur Dateien aus diesem Session-Workspace sind verfügbar.',
+    searchWorkspace: 'Workspace-Dateien durchsuchen',
+    chooseFile: 'Datei auswählen',
+    uploadSelected: 'Ausgewählte Datei verwenden',
+    cancelFileChooser: 'Dateiauswahl abbrechen',
+    noFiles: 'Keine passenden Workspace-Dateien gefunden.',
+    loadingFiles: 'Workspace-Dateien werden geladen …',
+    downloads: 'Browser-Downloads',
+    downloadInProgress: 'Wird in den Workspace gespeichert',
+    downloadReady: 'Über Canvas herunterladen',
+    downloadFailed: 'Download fehlgeschlagen',
+    sensitiveTitle: 'Privates Eingabefeld aktiv',
+    sensitiveDescription: 'Passwort-, Einmalcode- und Zahlungsdaten werden nur an Chromium gesendet und nicht protokolliert.',
     accept: 'Bestätigen',
     dismiss: 'Abbrechen',
     privateNotice: 'Eingaben werden live an Chromium gesendet und nicht protokolliert.',
@@ -118,6 +142,11 @@ const copy = {
       CONNECTION_LOST: 'Die Verbindung zum Live-Browser wurde unerwartet getrennt.',
       CONNECTION_TIMEOUT: 'Der Live-Browser hat nicht rechtzeitig geantwortet.',
       CONTROL_CONFLICT: 'Die Browsersteuerung wird gerade von einer anderen Ansicht verwendet.',
+      DOWNLOAD_FAILED: 'Der Browser-Download konnte nicht im Workspace gespeichert werden.',
+      DOWNLOAD_TOO_LARGE: 'Der Browser-Download überschreitet die erlaubte Größe.',
+      FILE_ACCESS_DENIED: 'Die ausgewählte Datei ist in diesem Session-Workspace nicht verfügbar.',
+      FILE_CHOOSER_REQUIRED: 'Wähle zuerst ein Dateifeld auf der Webseite aus.',
+      FILE_UPLOAD_FAILED: 'Die ausgewählte Workspace-Datei konnte nicht hochgeladen werden.',
       FORBIDDEN: 'Du hast keinen Zugriff auf diese Browseransicht.',
       INVALID_MESSAGE: 'Die Browseransicht hat eine ungültige Nachricht erhalten.',
       MESSAGE_TOO_LARGE: 'Eine Browsernachricht war zu groß und wurde abgewiesen.',
@@ -173,6 +202,20 @@ const copy = {
     availableMemory: 'Available memory',
     tabs: 'Tabs',
     dialog: 'The webpage opened a dialog.',
+    uploadTitle: 'Choose a workspace file',
+    uploadDescription: 'The webpage is waiting for a file. Only files from this session workspace are available.',
+    searchWorkspace: 'Search workspace files',
+    chooseFile: 'Choose file',
+    uploadSelected: 'Use selected file',
+    cancelFileChooser: 'Cancel file selection',
+    noFiles: 'No matching workspace files were found.',
+    loadingFiles: 'Loading workspace files…',
+    downloads: 'Browser downloads',
+    downloadInProgress: 'Saving to the workspace',
+    downloadReady: 'Download through Canvas',
+    downloadFailed: 'Download failed',
+    sensitiveTitle: 'Private input is active',
+    sensitiveDescription: 'Password, one-time-code, and payment data is sent only to Chromium and is not logged.',
     accept: 'Accept',
     dismiss: 'Dismiss',
     privateNotice: 'Input is sent live to Chromium and is not logged.',
@@ -183,6 +226,11 @@ const copy = {
       CONNECTION_LOST: 'The live-browser connection closed unexpectedly.',
       CONNECTION_TIMEOUT: 'The live browser did not respond in time.',
       CONTROL_CONFLICT: 'Browser control is currently held by another view.',
+      DOWNLOAD_FAILED: 'The browser download could not be saved to the workspace.',
+      DOWNLOAD_TOO_LARGE: 'The browser download exceeds the allowed size.',
+      FILE_ACCESS_DENIED: 'The selected file is not available in this session workspace.',
+      FILE_CHOOSER_REQUIRED: 'Choose a file field in the webpage first.',
+      FILE_UPLOAD_FAILED: 'The selected workspace file could not be uploaded.',
       FORBIDDEN: 'You do not have access to this browser view.',
       INVALID_MESSAGE: 'The browser view received an invalid message.',
       MESSAGE_TOO_LARGE: 'A browser message was too large and was rejected.',
@@ -227,6 +275,13 @@ function mouseButton(button: number): 'left' | 'middle' | 'right' {
   return 'left';
 }
 
+function formatBytes(value: number): string {
+  if (!Number.isFinite(value) || value <= 0) return '0 B';
+  if (value < 1024) return `${Math.round(value)} B`;
+  if (value < 1024 * 1024) return `${(value / 1024).toFixed(1)} KiB`;
+  return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
+}
+
 export function BrowserLabClient({ locale }: BrowserLabClientProps) {
   const t = locale === 'en' ? copy.en : copy.de;
   const searchParams = useSearchParams();
@@ -243,6 +298,10 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
   const [frameSequence, setFrameSequence] = useState(0);
   const [address, setAddress] = useState('about:blank');
   const [failure, setFailure] = useState<BrowserViewFailure | null>(null);
+  const [workspaceFiles, setWorkspaceFiles] = useState<WorkspaceBrowserFile[]>([]);
+  const [fileSearch, setFileSearch] = useState('');
+  const [selectedUploadPath, setSelectedUploadPath] = useState('');
+  const [filesLoading, setFilesLoading] = useState(false);
   const socketRef = useRef<WebSocket | null>(null);
   const connectTimeoutRef = useRef<number | null>(null);
   const intentionalCloseRef = useRef(false);
@@ -331,6 +390,53 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
     })();
     return () => { cancelled = true; };
   }, [initialAgentId, initialSessionId, t.errors.CONNECTION_FAILED]);
+
+  const fileChooserOpenedAt = viewState?.pendingFileChooser?.openedAt ?? null;
+  useEffect(() => {
+    if (!fileChooserOpenedAt || !selectedSessionId || !selectedAgentId) {
+      return;
+    }
+    const controller = new AbortController();
+    const timer = window.setTimeout(() => {
+      void (async () => {
+        setWorkspaceFiles([]);
+        setSelectedUploadPath('');
+        setFilesLoading(true);
+        try {
+          const query = new URLSearchParams({
+            agentId: selectedAgentId,
+            sessionId: selectedSessionId,
+            q: fileSearch,
+          });
+          const response = await fetch(`/api/browser/view/files?${query}`, {
+            credentials: 'include',
+            signal: controller.signal,
+          });
+          const payload = await response.json() as {
+            success?: boolean;
+            data?: { files?: WorkspaceBrowserFile[] };
+          };
+          if (!response.ok || !payload.success) throw new Error('Workspace files are unavailable.');
+          const files = payload.data?.files ?? [];
+          setWorkspaceFiles(files);
+          setSelectedUploadPath((current) => (
+            files.some((file) => file.selectable && file.path === current)
+              ? current
+              : files.find((file) => file.selectable)?.path ?? ''
+          ));
+        } catch (error) {
+          if (error instanceof DOMException && error.name === 'AbortError') return;
+          setFailure(clientFailure(t, 'FILE_ACCESS_DENIED', false, false));
+        } finally {
+          if (!controller.signal.aborted) setFilesLoading(false);
+        }
+      })();
+    }, 180);
+    return () => {
+      window.clearTimeout(timer);
+      controller.abort();
+    };
+  }, [fileChooserOpenedAt, fileSearch, selectedAgentId, selectedSessionId, t]);
 
   const send = useCallback((message: Record<string, unknown>) => {
     const socket = socketRef.current;
@@ -645,6 +751,74 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
             </div>
           ) : null}
 
+          {viewState?.pendingFileChooser ? (
+            <div className="shrink-0 border-b border-primary/25 bg-primary/5 px-3 py-3">
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-end">
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center gap-2 text-xs font-semibold text-foreground">
+                    <FileUp className="h-4 w-4 text-primary" />
+                    {t.uploadTitle}
+                  </div>
+                  <p className="mt-1 text-xs leading-5 text-muted-foreground">{t.uploadDescription}</p>
+                </div>
+                <label className="min-w-0 space-y-1 text-xs text-muted-foreground lg:w-56">
+                  <span>{t.searchWorkspace}</span>
+                  <Input
+                    value={fileSearch}
+                    onChange={(event) => setFileSearch(event.target.value)}
+                    className="h-8 bg-background"
+                  />
+                </label>
+                <label className="min-w-0 space-y-1 text-xs text-muted-foreground lg:w-72">
+                  <span>{filesLoading ? t.loadingFiles : t.chooseFile}</span>
+                  <select
+                    aria-label={t.chooseFile}
+                    value={selectedUploadPath}
+                    disabled={filesLoading || workspaceFiles.length === 0}
+                    onChange={(event) => setSelectedUploadPath(event.target.value)}
+                    className="h-8 w-full rounded-md border border-input bg-background px-2 text-xs text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                  >
+                    {workspaceFiles.length === 0 ? <option value="">{t.noFiles}</option> : null}
+                    {workspaceFiles.map((file) => (
+                      <option key={file.path} value={file.path} disabled={!file.selectable}>
+                        {file.path} · {formatBytes(file.size)}{file.selectable ? '' : ' · max 100 MiB'}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <div className="flex gap-2">
+                  <Button
+                    size="sm"
+                    variant="ghost"
+                    className="h-8"
+                    onClick={() => send({ type: 'file_cancel' })}
+                  >
+                    {t.cancelFileChooser}
+                  </Button>
+                  <Button
+                    size="sm"
+                    className="h-8 gap-1.5"
+                    disabled={!selectedUploadPath || filesLoading}
+                    onClick={() => send({ type: 'file_upload', paths: [selectedUploadPath] })}
+                  >
+                    <FileUp className="h-3.5 w-3.5" />
+                    {t.uploadSelected}
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+
+          {viewState?.sensitiveInputFocused ? (
+            <div className="flex shrink-0 items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs">
+              <LockKeyhole className="mt-0.5 h-4 w-4 shrink-0 text-amber-600" />
+              <div>
+                <p className="font-medium text-foreground">{t.sensitiveTitle}</p>
+                <p className="mt-0.5 leading-5 text-muted-foreground">{t.sensitiveDescription}</p>
+              </div>
+            </div>
+          ) : null}
+
           <div className="relative flex min-h-0 flex-1 items-center justify-center overflow-hidden bg-[#11130f] p-3 md:p-5">
             <div className="pointer-events-none absolute inset-0 opacity-30 [background-image:linear-gradient(rgba(255,255,255,.025)_1px,transparent_1px),linear-gradient(90deg,rgba(255,255,255,.025)_1px,transparent_1px)] [background-size:24px_24px]" />
             {frameUrl ? (
@@ -751,6 +925,35 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
               <span>{t.privateNotice}</span>
             </div>
           </div>
+          {(viewState?.downloads.length ?? 0) > 0 ? (
+            <div className="mt-3 rounded-lg border border-border/70 bg-background/65 p-3">
+              <div className="mb-2 flex items-center gap-2 text-xs font-medium text-foreground">
+                <Download className="h-3.5 w-3.5 text-primary" />
+                {t.downloads}
+              </div>
+              <div className="space-y-2">
+                {viewState?.downloads.map((download) => (
+                  <div key={download.id} className="min-w-0 border-t border-border/60 pt-2 first:border-0 first:pt-0">
+                    <div className="truncate text-xs font-medium text-foreground">{download.fileName}</div>
+                    <div className="mt-0.5 text-[11px] text-muted-foreground">
+                      {download.status === 'completed' && download.workspacePath
+                        ? (
+                          <a
+                            className="text-primary underline-offset-2 hover:underline"
+                            href={`/api/files/download?workspaceId=${encodeURIComponent(viewState.workspaceId)}&path=${encodeURIComponent(download.workspacePath)}`}
+                          >
+                            {t.downloadReady} · {formatBytes(download.receivedBytes)}
+                          </a>
+                        )
+                        : download.status === 'in_progress'
+                          ? `${t.downloadInProgress} · ${formatBytes(download.receivedBytes)}${download.totalBytes > 0 ? ` / ${formatBytes(download.totalBytes)}` : ''}`
+                          : t.downloadFailed}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {viewState?.mode !== 'user' ? (
             <div className="mt-3 rounded-lg border border-border/70 p-3 text-xs leading-5 text-muted-foreground">
               <div className="mb-1.5 flex items-center gap-2 font-medium text-foreground"><ArrowLeftRight className="h-3.5 w-3.5" />{t.takeControl}</div>

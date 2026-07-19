@@ -49,6 +49,26 @@ export function browserViewFailure(
   if (normalized.includes('rate limit')) {
     return failure('RATE_LIMITED', 'Too many browser commands were sent. Wait briefly and try again.', true, false);
   }
+  if (normalized.includes('file chooser')) {
+    return failure('FILE_CHOOSER_REQUIRED', 'Choose a file field in the webpage before selecting a workspace file.', false, false);
+  }
+  if (
+    normalized.includes('workspace permission')
+    || normalized.includes('workspace path')
+    || normalized.includes('outside workspace')
+    || normalized.includes('workspace file selection')
+  ) {
+    return failure('FILE_ACCESS_DENIED', 'The selected file is not available in this browser session workspace.', false, false);
+  }
+  if (normalized.includes('upload file is too large') || normalized.includes('uploads require regular')) {
+    return failure('FILE_UPLOAD_FAILED', 'The selected workspace file cannot be uploaded.', false, false);
+  }
+  if (normalized.includes('download file is too large')) {
+    return failure('DOWNLOAD_TOO_LARGE', 'The browser download exceeds the allowed size.', false, false);
+  }
+  if (normalized.includes('browser download')) {
+    return failure('DOWNLOAD_FAILED', 'The browser download could not be saved to the workspace.', true, false);
+  }
   if (normalized.includes('another browser view') || normalized.includes('browser control')) {
     return failure('CONTROL_CONFLICT', 'Browser control is currently held by another participant.', false, false);
   }

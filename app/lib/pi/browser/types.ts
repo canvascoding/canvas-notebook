@@ -109,6 +109,11 @@ export type BrowserViewErrorCode =
   | 'CONNECTION_LOST'
   | 'CONNECTION_TIMEOUT'
   | 'CONTROL_CONFLICT'
+  | 'DOWNLOAD_FAILED'
+  | 'DOWNLOAD_TOO_LARGE'
+  | 'FILE_ACCESS_DENIED'
+  | 'FILE_CHOOSER_REQUIRED'
+  | 'FILE_UPLOAD_FAILED'
   | 'FORBIDDEN'
   | 'INVALID_MESSAGE'
   | 'MESSAGE_TOO_LARGE'
@@ -128,6 +133,20 @@ export type BrowserViewFailure = {
   error: string;
   retryable: boolean;
   fatal: boolean;
+};
+
+export type BrowserViewFileChooser = {
+  multiple: boolean;
+  openedAt: string;
+};
+
+export type BrowserViewDownload = {
+  id: string;
+  fileName: string;
+  status: 'in_progress' | 'completed' | 'canceled' | 'failed';
+  receivedBytes: number;
+  totalBytes: number;
+  workspacePath: string | null;
 };
 
 export type BrowserViewResourceBudget = {
@@ -154,6 +173,9 @@ export type BrowserViewState = {
   url: string;
   tabs: BrowserRuntimeTab[];
   pendingDialog: BrowserDialogDetails | null;
+  pendingFileChooser: BrowserViewFileChooser | null;
+  downloads: BrowserViewDownload[];
+  sensitiveInputFocused: boolean;
   viewport: { width: number; height: number };
   resourceBudget: BrowserViewResourceBudget;
 };

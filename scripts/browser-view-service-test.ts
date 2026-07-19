@@ -10,6 +10,11 @@ import {
 } from '../app/lib/pi/browser/view-control';
 import { resolveBrowserViewResourceBudget } from '../app/lib/pi/browser/view-resource-budget';
 import { browserViewFailure } from '../app/lib/pi/browser/view-errors';
+import { issueBrowserFixtureTicket, verifyBrowserFixtureTicket } from '../app/lib/pi/browser/view-fixture-ticket';
+import {
+  normalizeBrowserUploadPaths,
+  sanitizeBrowserDownloadFileName,
+} from '../app/lib/pi/browser/view-transfers';
 import { issueBrowserViewTicket, verifyBrowserViewTicket } from '../app/lib/pi/browser/view-ticket';
 
 function ticketInput() {
@@ -30,6 +35,13 @@ function testTickets() {
   assert.deepEqual(verifyBrowserViewTicket(issued.token, 2_000), issued.claims);
   assert.throws(() => verifyBrowserViewTicket(`${issued.token}x`, 2_000), /signature/u);
   assert.throws(() => verifyBrowserViewTicket(issued.token, issued.claims.expiresAt), /expired/u);
+}
+
+function testFixtureTickets() {
+  const token = issueBrowserFixtureTicket('user-1', 1_000);
+  assert.equal(verifyBrowserFixtureTicket(token, 2_000).userId, 'user-1');
+  assert.throws(() => verifyBrowserFixtureTicket(`${token}x`, 2_000), /signature/u);
+  assert.throws(() => verifyBrowserFixtureTicket(token, 301_000), /expired/u);
 }
 
 function testExclusiveControl() {
@@ -90,6 +102,16 @@ function testSafeFailures() {
   assert.doesNotMatch(secretFailure.error, /secret-value/u);
 }
 
+function testSafeTransfers() {
+  assert.equal(sanitizeBrowserDownloadFileName('../../private/report.pdf'), 'report.pdf');
+  assert.equal(sanitizeBrowserDownloadFileName('..'), 'download.bin');
+  assert.equal(sanitizeBrowserDownloadFileName('invoice\u0000?.pdf'), 'invoice-.pdf');
+  assert.deepEqual(normalizeBrowserUploadPaths(['notes/report.pdf'], false), ['notes/report.pdf']);
+  assert.throws(() => normalizeBrowserUploadPaths(['/etc/passwd'], false));
+  assert.throws(() => normalizeBrowserUploadPaths(['notes/../secret.txt'], false));
+  assert.throws(() => normalizeBrowserUploadPaths(['one.txt', 'two.txt'], false));
+}
+
 async function testResourceBudget() {
   const budget = await resolveBrowserViewResourceBudget();
   assert.ok(budget.effectiveMemoryMb > 0);
@@ -104,8 +126,10 @@ async function main() {
   process.env.CANVAS_BROWSER_VIEW_TICKET_SECRET = 'browser-view-test-secret-at-least-32-characters';
   try {
     testTickets();
+    testFixtureTickets();
     testExclusiveControl();
     testSafeFailures();
+    testSafeTransfers();
     await testResourceBudget();
   } finally {
     if (previousSecret === undefined) delete process.env.CANVAS_BROWSER_VIEW_TICKET_SECRET;

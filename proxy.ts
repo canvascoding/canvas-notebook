@@ -9,7 +9,13 @@ const LICENSE_GATE_COOKIE = 'canvas_license_gate';
 
 // Public routes that don't require authentication
 const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/setup', '/api/auth', '/api/license', '/api/setup', '/api/automations/execute', '/api/automations/scheduler'];
-const PUBLIC_EXACT_ROUTES = ['/', '/api/health', '/manifest.webmanifest'];
+const PUBLIC_EXACT_ROUTES = [
+  '/',
+  '/api/browser/view/fixture-download',
+  '/api/browser/view/fixture-page',
+  '/api/health',
+  '/manifest.webmanifest',
+];
 const PUBLIC_SHARE_PREFIX_ROUTES = [
   '/p/',
   '/public/files/',
