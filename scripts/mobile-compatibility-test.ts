@@ -36,6 +36,8 @@ assert.deepEqual(compatibility, {
       'workspace.bootstrap',
       'chat.sessions',
       'chat.realtime_ticket',
+      'push.devices',
+      'push.agent_response_ready',
     ],
   },
   auth: {

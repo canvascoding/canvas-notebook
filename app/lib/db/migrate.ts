@@ -43,6 +43,31 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS mobile_push_devices (
+      id TEXT PRIMARY KEY NOT NULL,
+      installation_id TEXT NOT NULL UNIQUE,
+      user_id TEXT NOT NULL,
+      auth_session_id TEXT NOT NULL,
+      expo_push_token TEXT NOT NULL UNIQUE,
+      platform TEXT NOT NULL,
+      app_variant TEXT NOT NULL DEFAULT 'production',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      agent_response_ready INTEGER NOT NULL DEFAULT 1,
+      preview_enabled INTEGER NOT NULL DEFAULT 0,
+      last_registered_at INTEGER NOT NULL,
+      last_delivery_at INTEGER,
+      last_error_code TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (auth_session_id) REFERENCES session(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mobile_push_devices_user_enabled
+      ON mobile_push_devices (user_id, enabled);
+    CREATE INDEX IF NOT EXISTS idx_mobile_push_devices_auth_session
+      ON mobile_push_devices (auth_session_id);
+
     CREATE TABLE IF NOT EXISTS account (
       id TEXT PRIMARY KEY NOT NULL,
       account_id TEXT NOT NULL,

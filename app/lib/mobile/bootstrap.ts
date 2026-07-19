@@ -85,6 +85,8 @@ export function createMobileBootstrap(input: {
     'chat.sessions',
     'chat.messages',
     'chat.realtime',
+    'push.devices',
+    'push.agent_response_ready',
   ];
   if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
 

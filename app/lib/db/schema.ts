@@ -27,6 +27,27 @@ export const session = sqliteTable("session", {
   userId: text("user_id").notNull().references(() => user.id)
 });
 
+export const mobilePushDevices = sqliteTable("mobile_push_devices", {
+  id: text("id").primaryKey(),
+  installationId: text("installation_id").notNull().unique(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  authSessionId: text("auth_session_id").notNull().references(() => session.id, { onDelete: "cascade" }),
+  expoPushToken: text("expo_push_token").notNull().unique(),
+  platform: text("platform").notNull(),
+  appVariant: text("app_variant").notNull().default("production"),
+  enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
+  agentResponseReady: integer("agent_response_ready", { mode: "boolean" }).notNull().default(true),
+  previewEnabled: integer("preview_enabled", { mode: "boolean" }).notNull().default(false),
+  lastRegisteredAt: integer("last_registered_at", { mode: "timestamp" }).notNull(),
+  lastDeliveryAt: integer("last_delivery_at", { mode: "timestamp" }),
+  lastErrorCode: text("last_error_code"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  userEnabledIdx: index("idx_mobile_push_devices_user_enabled").on(table.userId, table.enabled),
+  authSessionIdx: index("idx_mobile_push_devices_auth_session").on(table.authSessionId),
+}));
+
 export const account = sqliteTable("account", {
   id: text("id").primaryKey(),
   accountId: text("account_id").notNull(),

@@ -130,6 +130,7 @@
     "test:mobile:compatibility": "tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-compatibility-route-test.ts",
     "test:mobile:bootstrap": "tsx --conditions react-server scripts/mobile-bootstrap-test.ts && tsx --conditions react-server scripts/mobile-bootstrap-route-test.ts",
     "test:mobile:chat": "tsx --conditions react-server scripts/mobile-chat-ticket-test.ts",
+    "test:mobile:push": "tsx --conditions react-server scripts/mobile-push-devices-test.ts",
     "test:account:credentials": "tsx --conditions react-server scripts/account-credentials-route-test.ts",
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",

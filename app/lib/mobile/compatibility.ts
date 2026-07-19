@@ -22,6 +22,8 @@ export type MobileCompatibility = {
       'workspace.bootstrap',
       'chat.sessions',
       'chat.realtime_ticket',
+      'push.devices',
+      'push.agent_response_ready',
     ];
   };
   auth: {
@@ -65,6 +67,8 @@ export function createMobileCompatibility(input: {
         'workspace.bootstrap',
         'chat.sessions',
         'chat.realtime_ticket',
+        'push.devices',
+        'push.agent_response_ready',
       ],
     },
     auth: {
