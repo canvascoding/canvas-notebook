@@ -31,7 +31,7 @@ assert.deepEqual(compatibility, {
   mobileApi: {
     version: 'v1',
     minimumClientVersion: '0.1.0',
-    capabilities: ['auth.email_password'],
+    capabilities: ['auth.email_password', 'workspace.bootstrap'],
   },
   auth: {
     provider: 'better-auth',
