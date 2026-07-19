@@ -1,7 +1,7 @@
 import 'server-only';
 
 import { randomUUID } from 'node:crypto';
-import { and, desc, eq, inArray, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from 'drizzle-orm';
 
 import { listManagedAgents } from '@/app/lib/agents/management-actions';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
@@ -12,8 +12,16 @@ import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { db } from '@/app/lib/db';
-import { piMessages, piSessions } from '@/app/lib/db/schema';
-import { getActiveRuntimeStatusSummaries } from '@/app/lib/pi/runtime-service';
+import { piMessages, piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
+import {
+  contentToString,
+  extractMessageAttachments,
+  extractPiMessageText,
+  extractToolResultImageAttachments,
+  isToolCallPart,
+  stripAttachmentBlocks,
+} from '@/app/lib/chat/message-content';
+import { getActiveRuntimeStatusSummaries, getStatus } from '@/app/lib/pi/runtime-service';
 import { parsePersistedPiMessage } from '@/app/lib/pi/message-projection';
 import { createPiSessionWithRuntimeSnapshot } from '@/app/lib/pi/session-store';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
@@ -61,7 +69,18 @@ export type MobileChatMessage = {
   kind: 'message' | 'tool' | 'error';
   text: string;
   toolName: string | null;
+  attachments: MobileChatAttachment[];
   createdAt: string;
+};
+
+export type MobileChatAttachment = {
+  id: string;
+  name: string;
+  contentKind: 'image' | 'document';
+  mimeType: string | null;
+  size: number | null;
+  previewUrl: string | null;
+  mediaUrl: string | null;
 };
 
 type ChatActor = {
@@ -130,17 +149,26 @@ function serializeAgent(agent: Awaited<ReturnType<typeof listManagedAgents>>[num
   };
 }
 
-function messageText(message: Record<string, unknown>): string {
-  const content = message.content;
-  if (typeof content === 'string') return content;
-  if (!Array.isArray(content)) return '';
-  return content.flatMap((part) => {
-    if (!part || typeof part !== 'object') return [];
-    const record = part as Record<string, unknown>;
-    if (record.type === 'text' && typeof record.text === 'string') return [record.text];
-    if (typeof record.content === 'string') return [record.content];
-    return [];
-  }).join('\n');
+function serializeMessageAttachment(input: NonNullable<ReturnType<typeof extractMessageAttachments>>[number]): MobileChatAttachment {
+  const safeRelativeUrl = (value: string | undefined): string | null => (
+    value?.startsWith('/') && !value.startsWith('//') ? value : null
+  );
+  return {
+    id: input.id.slice(0, 500),
+    name: input.name.slice(0, 240),
+    contentKind: input.contentKind,
+    mimeType: input.mimeType?.slice(0, 160) || null,
+    size: typeof input.size === 'number' && Number.isSafeInteger(input.size) && input.size >= 0 ? input.size : null,
+    previewUrl: safeRelativeUrl(input.previewUrl),
+    mediaUrl: safeRelativeUrl(input.mediaUrl),
+  };
+}
+
+function messageToolName(message: Record<string, unknown>): string | null {
+  if (typeof message.toolName === 'string' && message.toolName.trim()) return message.toolName.trim().slice(0, 160);
+  if (!Array.isArray(message.content)) return null;
+  const names = message.content.flatMap((part) => isToolCallPart(part) ? [part.name.trim()] : []).filter(Boolean);
+  return names.length > 0 ? Array.from(new Set(names)).join(', ').slice(0, 160) : null;
 }
 
 export function serializeMobileChatMessage(input: {
@@ -149,25 +177,38 @@ export function serializeMobileChatMessage(input: {
   timestamp: number;
   content: string;
 }): MobileChatMessage {
-  const parsed = parsePersistedPiMessage(input.content, 'display') as unknown as Record<string, unknown>;
+  const piMessage = parsePersistedPiMessage(input.content, 'display');
+  const parsed = piMessage as unknown as Record<string, unknown>;
   const rawRole = typeof parsed.role === 'string' ? parsed.role : 'system';
   const role: MobileChatMessage['role'] = rawRole === 'user' || rawRole === 'assistant' || rawRole === 'system'
     ? rawRole
     : 'tool';
   const isError = parsed.isError === true || parsed.error === true;
+  const metadataAttachments = extractMessageAttachments(parsed.content) || [];
+  const attachments = [
+    ...metadataAttachments,
+    ...extractToolResultImageAttachments(piMessage),
+  ].filter((attachment, index, all) => all.findIndex((candidate) => (
+    candidate.id === attachment.id && candidate.contentKind === attachment.contentKind
+  )) === index);
+  const visibleText = extractPiMessageText(piMessage, { hideAttachmentMetadata: true })
+    || stripAttachmentBlocks(contentToString(parsed.content));
   return {
     id: String(input.id),
     sequence: input.sequence,
     role,
     kind: isError ? 'error' : role === 'tool' ? 'tool' : 'message',
-    text: messageText(parsed),
-    toolName: typeof parsed.toolName === 'string' ? parsed.toolName : null,
+    text: visibleText,
+    toolName: messageToolName(parsed),
+    attachments: attachments.map(serializeMessageAttachment),
     createdAt: new Date(input.timestamp).toISOString(),
   };
 }
 
 export async function listMobileChat(input: ChatActor & {
   cursor?: string | null;
+  query?: string | null;
+  archived?: boolean;
   limit?: number;
 }) {
   const workspace = await resolveChatWorkspace(input);
@@ -187,7 +228,13 @@ export async function listMobileChat(input: ChatActor & {
     eq(piSessions.userId, input.userId),
     workspaceSessionCondition(workspace.workspaceId, workspace.workspaceType),
     inArray(piSessions.agentId, agentIds),
+    input.archived ? isNotNull(piSessions.archivedAt) : isNull(piSessions.archivedAt),
   ];
+  const query = input.query?.replace(/\s+/gu, ' ').trim().slice(0, 120) || '';
+  if (query) {
+    const pattern = `%${query.toLocaleLowerCase('en-US').replace(/[\\%_]/gu, '\\$&')}%`;
+    conditions.push(sql`lower(coalesce(${piSessions.title}, '')) LIKE ${pattern} ESCAPE '\\'`);
+  }
   if (cursor) {
     const activityAt = new Date(cursor.activityAt);
     conditions.push(or(
@@ -237,6 +284,85 @@ export async function listMobileChat(input: ChatActor & {
           id: last.id,
         })
       : null,
+  };
+}
+
+export async function requireMobileChatSession(input: ChatActor & { sessionId: string }) {
+  const workspace = await resolveChatWorkspace(input);
+  const session = await db.query.piSessions.findFirst({
+    where: and(
+      eq(piSessions.sessionId, input.sessionId),
+      eq(piSessions.userId, input.userId),
+      workspaceSessionCondition(workspace.workspaceId, workspace.workspaceType),
+    ),
+    columns: {
+      id: true,
+      sessionId: true,
+      title: true,
+      agentId: true,
+      createdAt: true,
+      updatedAt: true,
+      lastMessageAt: true,
+      lastViewedAt: true,
+      archivedAt: true,
+    },
+  });
+  if (!session) throw new MobileChatError('SESSION_NOT_FOUND', 'The chat session was not found.', 404);
+  try {
+    await requireAgentAccess(input.userId, session.agentId, 'canUse', {
+      organizationId: workspace.organizationId,
+      workspaceId: workspace.workspaceId,
+      projectId: workspace.projectId,
+    });
+  } catch {
+    throw new MobileChatError('AGENT_ACCESS_DENIED', 'The chat session is unavailable.', 403);
+  }
+  return { session, workspace };
+}
+
+export async function updateMobileChatSession(input: ChatActor & {
+  sessionId: string;
+  title?: string;
+  markAsRead?: boolean;
+  archived?: boolean;
+}) {
+  const { session } = await requireMobileChatSession(input);
+  if (input.title === undefined && input.markAsRead === undefined && input.archived === undefined) {
+    throw new MobileChatError('INVALID_SESSION_UPDATE', 'A session update is required.', 400);
+  }
+  const title = input.title === undefined ? undefined : input.title.replace(/\s+/gu, ' ').trim();
+  if (title !== undefined && !title) {
+    throw new MobileChatError('INVALID_SESSION_TITLE', 'The session title cannot be empty.', 400);
+  }
+  if (input.archived === true) {
+    const status = await getStatus(session.sessionId, input.userId);
+    if (status && status.phase !== 'idle') {
+      throw new MobileChatError('SESSION_ACTIVE', 'Stop the active agent before archiving this conversation.', 409);
+    }
+  }
+  const now = new Date();
+  await db.update(piSessions).set({
+    ...(title === undefined ? {} : { title: title.slice(0, 120), titleGenerationState: 'manual' }),
+    ...(input.markAsRead === true ? { lastViewedAt: now } : {}),
+    ...(input.archived === undefined ? {} : { archivedAt: input.archived ? now : null }),
+    updatedAt: now,
+  }).where(eq(piSessions.id, session.id));
+  if (title !== undefined) {
+    await db.update(sessionChannelLinks)
+      .set({ displayName: title.slice(0, 120), updatedAt: now })
+      .where(and(
+        eq(sessionChannelLinks.sessionId, session.sessionId),
+        eq(sessionChannelLinks.userId, input.userId),
+      ));
+  }
+  return {
+    id: session.sessionId,
+    title: title === undefined ? session.title?.trim() || DEFAULT_SESSION_TITLE : title.slice(0, 120),
+    agentId: session.agentId,
+    createdAt: session.createdAt.toISOString(),
+    lastMessageAt: session.lastMessageAt?.toISOString() || null,
+    hasUnread: input.markAsRead === true ? false : hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt),
+    archived: input.archived ?? Boolean(session.archivedAt),
   };
 }
 
@@ -320,25 +446,7 @@ export async function listMobileChatMessages(input: ChatActor & {
   beforeSequence?: number | null;
   limit?: number;
 }) {
-  const workspace = await resolveChatWorkspace(input);
-  const session = await db.query.piSessions.findFirst({
-    where: and(
-      eq(piSessions.sessionId, input.sessionId),
-      eq(piSessions.userId, input.userId),
-      workspaceSessionCondition(workspace.workspaceId, workspace.workspaceType),
-    ),
-    columns: { id: true, agentId: true },
-  });
-  if (!session) throw new MobileChatError('SESSION_NOT_FOUND', 'The chat session was not found.', 404);
-  try {
-    await requireAgentAccess(input.userId, session.agentId, 'canUse', {
-      organizationId: workspace.organizationId,
-      workspaceId: workspace.workspaceId,
-      projectId: workspace.projectId,
-    });
-  } catch {
-    throw new MobileChatError('AGENT_ACCESS_DENIED', 'The chat session is unavailable.', 403);
-  }
+  const { session } = await requireMobileChatSession(input);
   const limit = normalizeLimit(input.limit, 50, 100);
   const conditions: SQL[] = [eq(piMessages.piSessionDbId, session.id)];
   if (input.beforeSequence !== null && input.beforeSequence !== undefined) {

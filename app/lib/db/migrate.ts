@@ -610,6 +610,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       system_prompt_snapshot_created_at INTEGER,
       last_message_at INTEGER,
       last_viewed_at INTEGER,
+      archived_at INTEGER,
       channel_id TEXT NOT NULL DEFAULT 'app',
       channel_session_key TEXT,
       organization_id TEXT,
@@ -2001,6 +2002,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     title_generation_state: 'TEXT',
     last_message_at: 'INTEGER',
     last_viewed_at: 'INTEGER',
+    archived_at: 'INTEGER',
     thinking_level: 'TEXT',
     summary_through_sequence: 'INTEGER',
     runtime_provider_installation_id: 'TEXT',
@@ -2392,6 +2394,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_workspace ON pi_sessions (workspace_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_project ON pi_sessions (project_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_created ON pi_sessions (user_id, workspace_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_archived ON pi_sessions (user_id, workspace_id, archived_at);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_org_workspace ON pi_usage_events (organization_id, workspace_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_project ON pi_usage_events (project_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_user_workspace ON pi_usage_events (user_id, workspace_id, assistant_timestamp);
