@@ -38,6 +38,8 @@ assert.deepEqual(compatibility, {
       'chat.realtime_ticket',
       'push.devices',
       'push.agent_response_ready',
+      'notebook.documents',
+      'notebook.revision_write',
     ],
   },
   auth: {

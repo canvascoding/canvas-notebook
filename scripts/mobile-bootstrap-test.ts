@@ -66,6 +66,8 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'chat.realtime',
   'push.devices',
   'push.agent_response_ready',
+  'notebook.documents',
+  'notebook.revision_write',
   'workspace.create',
 ]);
 assert.equal(bootstrap.user.role, 'admin');
