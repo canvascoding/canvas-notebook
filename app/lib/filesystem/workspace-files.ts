@@ -243,6 +243,36 @@ export async function writeFileIfAbsent(
   await fs.writeFile(fullPath, buffer, { flag: 'wx' });
 }
 
+export async function writeWorkspaceFileFromPathIfAbsent(
+  sourcePath: string,
+  filePath: string,
+  options?: WorkspaceFileOperationOptions,
+): Promise<void> {
+  const sourceStats = await fs.stat(sourcePath);
+  if (!sourceStats.isFile()) throw new Error('Upload source must be a file.');
+  const parentDir = path.posix.dirname(filePath);
+  if (parentDir !== '.' && parentDir !== '/') await createDirectory(parentDir, options);
+  const fullPath = await resolveWritableWorkspacePath(filePath, options);
+  let created = false;
+  try {
+    try {
+      await fs.link(sourcePath, fullPath);
+      created = true;
+    } catch (error) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') throw error;
+      const canCopy = Boolean(error && typeof error === 'object' && 'code' in error
+        && ['EXDEV', 'EPERM', 'EACCES', 'ENOTSUP', 'EMLINK'].includes(String(error.code)));
+      if (!canCopy) throw error;
+      await pipeline(createLocalReadStream(sourcePath), createLocalWriteStream(fullPath, { flags: 'wx', mode: 0o644 }));
+      created = true;
+    }
+    await fs.chmod(fullPath, 0o644);
+  } catch (error) {
+    if (created) await fs.rm(fullPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
 export async function writeDataFile(filePath: string, content: Buffer | string): Promise<void> {
   const fullPath = path.resolve(/*turbopackIgnore: true*/ getDataDir(), filePath);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
@@ -256,6 +286,19 @@ export async function createDirectory(dirPath: string, options?: WorkspaceFileOp
   const realBase = await getWorkspaceRealBase(options);
   const realCreatedPath = await fs.realpath(fullPath);
   if (realCreatedPath !== realBase && !realCreatedPath.startsWith(`${realBase}${path.sep}`)) {
+    throw new Error('Invalid path: directory traversal attempt detected');
+  }
+}
+
+export async function createDirectoryIfAbsent(dirPath: string, options?: WorkspaceFileOperationOptions): Promise<void> {
+  const parentDir = path.posix.dirname(dirPath);
+  if (parentDir && parentDir !== '.') await createDirectory(parentDir, options);
+  const fullPath = await resolveDirectoryCreationPath(dirPath, options);
+  await fs.mkdir(fullPath);
+  const realBase = await getWorkspaceRealBase(options);
+  const realCreatedPath = await fs.realpath(fullPath);
+  if (realCreatedPath !== realBase && !realCreatedPath.startsWith(`${realBase}${path.sep}`)) {
+    await fs.rmdir(fullPath).catch(() => undefined);
     throw new Error('Invalid path: directory traversal attempt detected');
   }
 }
