@@ -79,6 +79,10 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'todos.read',
   'todos.write',
   'todos.follow_up',
+  'studio.quick_create',
+  'studio.generations',
+  'studio.references',
+  'studio.outputs',
   'workspace.create',
 ]);
 assert.equal(bootstrap.user.role, 'admin');

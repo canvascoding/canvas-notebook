@@ -100,6 +100,10 @@ export function createMobileBootstrap(input: {
     'todos.read',
     'todos.write',
     'todos.follow_up',
+    'studio.quick_create',
+    'studio.generations',
+    'studio.references',
+    'studio.outputs',
   ];
   if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
 

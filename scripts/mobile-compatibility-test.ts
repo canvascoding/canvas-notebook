@@ -51,6 +51,10 @@ assert.deepEqual(compatibility, {
       'todos.read',
       'todos.write',
       'todos.follow_up',
+      'studio.quick_create',
+      'studio.generations',
+      'studio.references',
+      'studio.outputs',
     ],
   },
   auth: {
