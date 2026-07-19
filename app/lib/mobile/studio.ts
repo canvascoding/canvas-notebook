@@ -293,8 +293,8 @@ export async function getMobileStudioCatalog(input: {
     presets: presets.map((preset) => ({
       id: preset.id,
       name: preset.name,
-      description: preset.description,
-      category: preset.category,
+      description: preset.description || '',
+      category: preset.category || 'custom',
       tags: preset.tags,
       isDefault: preset.isDefault,
       hasPreview: Boolean(preset.previewImagePath),
