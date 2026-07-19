@@ -7,10 +7,11 @@ import { assertUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { assertBrowserRuntimeAvailable } from '@/app/lib/pi/browser/settings-service';
 import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
+import { browserViewFailure } from '@/app/lib/pi/browser/view-errors';
 import { resolveBrowserViewResourceBudget } from '@/app/lib/pi/browser/view-resource-budget';
 import { BrowserViewService, type BrowserViewServerMessage } from '@/app/lib/pi/browser/view-service';
 import { verifyBrowserViewTicket } from '@/app/lib/pi/browser/view-ticket';
-import type { BrowserViewControlMode } from '@/app/lib/pi/browser/types';
+import type { BrowserViewControlMode, BrowserViewFailure } from '@/app/lib/pi/browser/types';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 
 import { authenticateWebSocketConnection } from './websocket-auth';
@@ -74,8 +75,8 @@ function sendJson(ws: WebSocket, message: BrowserViewServerMessage | { type: 'au
   return true;
 }
 
-function sendError(ws: WebSocket, code: string, error: string): void {
-  sendJson(ws, { type: 'error', code, error });
+function sendError(ws: WebSocket, failure: BrowserViewFailure): void {
+  sendJson(ws, { type: 'error', ...failure });
 }
 
 function isInputMessage(message: ClientMessage): boolean {
@@ -206,12 +207,12 @@ async function handleMessage(connection: BrowserConnection, message: ClientMessa
 async function handleConnection(ws: WebSocket, request: http.IncomingMessage): Promise<void> {
   const authResult = await authenticateWebSocketConnection(request.headers);
   if (!authResult.isAuthenticated || !authResult.userId || !authResult.sessionId) {
-    sendError(ws, 'UNAUTHORIZED', 'Authentication required.');
+    sendError(ws, { code: 'UNAUTHORIZED', error: 'Authentication required.', retryable: false, fatal: true });
     ws.close(4001, 'Unauthorized');
     return;
   }
   if (!isBrowserLabAllowed({ role: authResult.userRole, email: authResult.userEmail })) {
-    sendError(ws, 'FORBIDDEN', 'Browser Lab is restricted to development and administrators.');
+    sendError(ws, { code: 'FORBIDDEN', error: 'Browser Lab is restricted to development and administrators.', retryable: false, fatal: true });
     ws.close(4003, 'Forbidden');
     return;
   }
@@ -238,7 +239,7 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
   ws.on('message', (raw) => {
     const bytes = Buffer.isBuffer(raw) ? raw : Buffer.from(raw as ArrayBuffer);
     if (bytes.length > MAX_INBOUND_BYTES) {
-      sendError(ws, 'MESSAGE_TOO_LARGE', 'Browser view message is too large.');
+      sendError(ws, { code: 'MESSAGE_TOO_LARGE', error: 'Browser view message is too large.', retryable: false, fatal: true });
       ws.close(1009, 'Message too large');
       return;
     }
@@ -246,14 +247,20 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
     try {
       message = JSON.parse(bytes.toString('utf8')) as ClientMessage;
     } catch {
-      sendError(ws, 'INVALID_MESSAGE', 'Invalid browser view message.');
+      sendError(ws, { code: 'INVALID_MESSAGE', error: 'Invalid browser view message.', retryable: false, fatal: false });
       return;
     }
     connection.operationQueue = connection.operationQueue
       .then(() => handleMessage(connection, message))
       .catch((error) => {
-        const text = error instanceof Error ? error.message : 'Browser view operation failed.';
-        sendError(ws, 'OPERATION_FAILED', text.slice(0, 240));
+        const context = message.type === 'view_subscribe'
+          ? 'subscribe'
+          : message.type === 'navigate'
+            ? 'navigate'
+            : 'operation';
+        const failure = browserViewFailure(error, context);
+        sendError(ws, failure);
+        if (failure.fatal && ws.readyState === WebSocket.OPEN) ws.close(1011, failure.code);
       });
   });
   const cleanup = () => {

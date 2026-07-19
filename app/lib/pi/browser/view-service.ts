@@ -25,8 +25,10 @@ import {
   setBrowserControlMode,
 } from './view-control';
 import { assertBrowserNavigationUrlAllowed } from './url-policy';
+import { browserViewFailure } from './view-errors';
 import type {
   BrowserViewControlMode,
+  BrowserViewFailure,
   BrowserViewResourceBudget,
   BrowserViewState,
 } from './types';
@@ -36,7 +38,7 @@ export type BrowserViewServerMessage =
   | { type: 'ready'; viewId: string }
   | { type: 'frame'; sequence: number; mimeType: 'image/jpeg'; data: string; width: number; height: number }
   | { type: 'state'; state: BrowserViewState }
-  | { type: 'error'; code: string; error: string };
+  | ({ type: 'error' } & BrowserViewFailure);
 
 type BrowserViewSender = (message: BrowserViewServerMessage) => boolean;
 
@@ -48,15 +50,6 @@ function finiteNumber(value: unknown, fallback = 0): number {
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
-}
-
-function safeErrorMessage(error: unknown): string {
-  if (!(error instanceof Error)) return 'Browser view operation failed.';
-  if (error.message.includes('Browser control')) return error.message;
-  if (error.message.includes('browser view')) return error.message;
-  if (error.message.includes('tab is no longer')) return error.message;
-  if (error.message.includes('Take over browser control')) return error.message;
-  return 'Browser view operation failed.';
 }
 
 export class BrowserViewService {
@@ -150,10 +143,11 @@ export class BrowserViewService {
     }
   }
 
-  private publishError(code: string, error: unknown): void {
-    if (this.closed || this.lastErrorCode === code) return;
-    this.lastErrorCode = code;
-    this.send({ type: 'error', code, error: safeErrorMessage(error) });
+  private publishError(_code: string, error: unknown): void {
+    const failure = browserViewFailure(error, 'capture');
+    if (this.closed || this.lastErrorCode === failure.code) return;
+    this.lastErrorCode = failure.code;
+    this.send({ type: 'error', ...failure });
   }
 
   async getState(): Promise<BrowserViewState> {

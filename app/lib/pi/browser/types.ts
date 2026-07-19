@@ -102,6 +102,34 @@ export type BrowserRuntimeTab = {
 
 export type BrowserViewControlMode = 'view' | 'agent' | 'user';
 
+export type BrowserViewErrorCode =
+  | 'CAPACITY_EXHAUSTED'
+  | 'CAPTURE_FAILED'
+  | 'CONNECTION_FAILED'
+  | 'CONNECTION_LOST'
+  | 'CONNECTION_TIMEOUT'
+  | 'CONTROL_CONFLICT'
+  | 'FORBIDDEN'
+  | 'INVALID_MESSAGE'
+  | 'MESSAGE_TOO_LARGE'
+  | 'NAVIGATION_BLOCKED'
+  | 'NAVIGATION_FAILED'
+  | 'OPERATION_FAILED'
+  | 'PAGE_CRASHED'
+  | 'RATE_LIMITED'
+  | 'RESOURCE_UNAVAILABLE'
+  | 'SESSION_SCOPE_CHANGED'
+  | 'TICKET_EXPIRED'
+  | 'UNAUTHORIZED'
+  | 'VIEW_CONFLICT';
+
+export type BrowserViewFailure = {
+  code: BrowserViewErrorCode;
+  error: string;
+  retryable: boolean;
+  fatal: boolean;
+};
+
 export type BrowserViewResourceBudget = {
   allowed: boolean;
   effectiveMemoryMb: number;

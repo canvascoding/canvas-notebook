@@ -9,6 +9,7 @@ import {
   setBrowserControlMode,
 } from '../app/lib/pi/browser/view-control';
 import { resolveBrowserViewResourceBudget } from '../app/lib/pi/browser/view-resource-budget';
+import { browserViewFailure } from '../app/lib/pi/browser/view-errors';
 import { issueBrowserViewTicket, verifyBrowserViewTicket } from '../app/lib/pi/browser/view-ticket';
 
 function ticketInput() {
@@ -62,6 +63,33 @@ function testExclusiveControl() {
   assert.equal(getBrowserControlState(context, now + 80_001).mode, 'view');
 }
 
+function testSafeFailures() {
+  assert.deepEqual(
+    browserViewFailure(new Error('Browser view ticket expired.'), 'subscribe'),
+    {
+      code: 'TICKET_EXPIRED',
+      error: 'The browser view ticket expired.',
+      retryable: true,
+      fatal: true,
+    },
+  );
+  assert.equal(
+    browserViewFailure(new Error('Blocked cloud metadata endpoint.'), 'navigate').code,
+    'NAVIGATION_BLOCKED',
+  );
+  assert.equal(
+    browserViewFailure(new Error('net::ERR_NAME_NOT_RESOLVED'), 'navigate').code,
+    'NAVIGATION_FAILED',
+  );
+  assert.equal(
+    browserViewFailure(new Error('Protocol error (Page.captureScreenshot): Target closed'), 'capture').code,
+    'PAGE_CRASHED',
+  );
+  const secretFailure = browserViewFailure(new Error('provider token sk-secret-value rejected request'));
+  assert.equal(secretFailure.code, 'OPERATION_FAILED');
+  assert.doesNotMatch(secretFailure.error, /secret-value/u);
+}
+
 async function testResourceBudget() {
   const budget = await resolveBrowserViewResourceBudget();
   assert.ok(budget.effectiveMemoryMb > 0);
@@ -77,6 +105,7 @@ async function main() {
   try {
     testTickets();
     testExclusiveControl();
+    testSafeFailures();
     await testResourceBudget();
   } finally {
     if (previousSecret === undefined) delete process.env.CANVAS_BROWSER_VIEW_TICKET_SECRET;

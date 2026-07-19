@@ -8,6 +8,7 @@ import { assertUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { buildBrowserRuntimeStatus } from '@/app/lib/pi/browser/status-service';
 import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
+import { browserViewFailure } from '@/app/lib/pi/browser/view-errors';
 import { resolveBrowserViewResourceBudget } from '@/app/lib/pi/browser/view-resource-budget';
 import { issueBrowserViewTicket } from '@/app/lib/pi/browser/view-ticket';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -20,10 +21,22 @@ type BrowserViewRequest = {
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
-    return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+    return NextResponse.json({
+      success: false,
+      code: 'UNAUTHORIZED',
+      error: 'Authentication required.',
+      retryable: false,
+      fatal: true,
+    }, { status: 401 });
   }
   if (!isBrowserLabAllowed(session.user)) {
-    return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
+    return NextResponse.json({
+      success: false,
+      code: 'FORBIDDEN',
+      error: 'Browser Lab is restricted to development and administrators.',
+      retryable: false,
+      fatal: true,
+    }, { status: 404 });
   }
 
   const limited = rateLimit(request, {
@@ -31,13 +44,30 @@ export async function POST(request: NextRequest) {
     windowMs: 60_000,
     keyPrefix: 'browser-view-ticket',
   });
-  if (!limited.ok) return limited.response;
+  if (!limited.ok) {
+    return NextResponse.json({
+      success: false,
+      code: 'RATE_LIMITED',
+      error: 'Too many browser view requests. Wait briefly and try again.',
+      retryable: true,
+      fatal: false,
+    }, {
+      status: 429,
+      headers: { 'Retry-After': limited.response.headers.get('Retry-After') || '1' },
+    });
+  }
 
   try {
     const payload = (await request.json().catch(() => ({}))) as BrowserViewRequest;
     const rawSessionId = typeof payload.sessionId === 'string' ? payload.sessionId.trim() : '';
     if (!rawSessionId) {
-      return NextResponse.json({ success: false, error: 'sessionId is required.' }, { status: 400 });
+      return NextResponse.json({
+        success: false,
+        code: 'INVALID_MESSAGE',
+        error: 'A browser session is required.',
+        retryable: false,
+        fatal: false,
+      }, { status: 400 });
     }
     const agentId = normalizeManagedAgentId(typeof payload.agentId === 'string' ? payload.agentId : null);
     const agentSession = await assertUnambiguousOwnedPiSessionForRuntime({
@@ -57,7 +87,10 @@ export async function POST(request: NextRequest) {
     if (!status.toolAvailable) {
       return NextResponse.json({
         success: false,
+        code: 'RESOURCE_UNAVAILABLE',
         error: 'The browser tool is disabled or Chromium is unavailable for this agent.',
+        retryable: true,
+        fatal: true,
         details: {
           toolEnabled: status.toolEnabled,
           blockers: status.capability.blockers,
@@ -67,7 +100,10 @@ export async function POST(request: NextRequest) {
     if (!resourceBudget.allowed) {
       return NextResponse.json({
         success: false,
-        error: resourceBudget.reason,
+        code: 'RESOURCE_UNAVAILABLE',
+        error: 'The interactive browser is unavailable on this system.',
+        retryable: true,
+        fatal: true,
         details: { resourceBudget },
       }, { status: 409 });
     }
@@ -96,8 +132,8 @@ export async function POST(request: NextRequest) {
       },
     }, { headers: { 'Cache-Control': 'no-store' } });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Could not create browser view.';
-    const status = message.toLowerCase().includes('not found') ? 404 : 500;
-    return NextResponse.json({ success: false, error: message }, { status });
+    const failure = browserViewFailure(error, 'connection');
+    const status = failure.code === 'SESSION_SCOPE_CHANGED' ? 404 : 500;
+    return NextResponse.json({ success: false, ...failure }, { status });
   }
 }

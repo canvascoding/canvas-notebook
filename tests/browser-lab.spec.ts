@@ -9,9 +9,15 @@ const labels = {
   connect: /^(Live-Ansicht starten|Start live view)$/,
   disconnect: /^(Trennen|Disconnect)$/,
   disconnected: /^(Nicht verbunden|Disconnected)$/,
+  dismissError: /^(Meldung schließen|Dismiss message)$/,
+  failureTitle: /^(Die Live-Ansicht braucht Aufmerksamkeit|The live view needs attention)$/,
   giveAgent: /^(An Agenten geben|Give to agent)$/,
   live: /^(Live verbunden|Live connected)$/,
   navigate: /^(Öffnen|Open)$/,
+  navigationBlocked: /(Diese Adresse wurde durch die Browser-Sicherheitsrichtlinie blockiert\.|This address was blocked by the browser security policy\.)/,
+  pageCrashed: /(Die verwaltete Browserseite wurde unerwartet beendet\.|The managed browser page stopped unexpectedly\.)/,
+  resourceUnavailable: /(Auf diesem System stehen nicht genug Ressourcen für die Live-Ansicht bereit\.|This system does not have enough resources for the live view\.)/,
+  retry: /^(Erneut versuchen|Try again)$/,
   session: /^(Chat-Session|Chat session)$/,
   takeControl: /^(Übernehmen|Take control)$/,
   userControls: /^(Nutzer steuert|User controls)$/,
@@ -159,6 +165,51 @@ test.describe('Browser Lab', () => {
     await expect(page.getByText(/^(Entwicklungswerkzeug|Development tool)$/)).toBeVisible();
   });
 
+  test('shows a recoverable connection failure and retries the live view', async ({ page }) => {
+    await page.setViewportSize({ width: 1600, height: 900 });
+    await login(page);
+    const session = await findBrowserLabSession(page);
+    try {
+      await page.route('**/api/browser/view', async (route) => {
+        await route.fulfill({
+          status: 409,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: false,
+            code: 'RESOURCE_UNAVAILABLE',
+            error: 'Internal resource detail that must not be displayed.',
+            retryable: true,
+            fatal: true,
+          }),
+        });
+      }, { times: 1 });
+      await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
+
+      const connectButton = page.getByRole('button', { name: labels.connect });
+      await expect(connectButton).toBeEnabled({ timeout: 15_000 });
+      await connectButton.click();
+      await expect(page.getByText(labels.failureTitle)).toBeVisible();
+      await expect(page.getByRole('alert').filter({ hasText: labels.resourceUnavailable })).toBeVisible();
+      await expect(page.getByText('Internal resource detail that must not be displayed.')).toHaveCount(0);
+      await page.screenshot({ path: 'test-results/browser-lab-recoverable-error.png', fullPage: false });
+
+      const failureTitle = page.getByText(labels.failureTitle);
+      const liveStatus = page.getByText(labels.live);
+      await page.getByRole('button', { name: labels.retry }).click();
+      await expect(failureTitle).toBeHidden();
+      await expect(liveStatus.or(failureTitle)).toBeVisible({ timeout: 60_000 });
+      if (await failureTitle.isVisible()) {
+        await expect(page.getByRole('alert').filter({ hasText: labels.pageCrashed })).toBeVisible();
+        await page.getByRole('button', { name: labels.retry }).click();
+      }
+      await expect(liveStatus).toBeVisible({ timeout: 60_000 });
+      await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
+      await page.getByTitle(labels.disconnect).click();
+    } finally {
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
   test('connects to the managed browser and completes the control handoff flow', async ({ page }) => {
     const pageErrors: Error[] = [];
     page.on('pageerror', (error) => pageErrors.push(error));
@@ -187,6 +238,16 @@ test.describe('Browser Lab', () => {
       await page.getByRole('button', { name: labels.takeControl }).click();
       await expect(page.getByText(labels.userControls)).toBeVisible();
       await expect(address).toBeEnabled();
+
+      await address.fill('http://169.254.169.254/latest/meta-data');
+      await page.getByRole('button', { name: labels.navigate }).click();
+      const navigationAlert = page.getByRole('alert').filter({ hasText: labels.navigationBlocked });
+      await expect(navigationAlert).toBeVisible();
+      await expect(page.getByText(labels.live)).toBeVisible();
+      await expect(address).toBeEnabled();
+      await page.screenshot({ path: 'test-results/browser-lab-navigation-blocked.png', fullPage: false });
+      await page.getByRole('button', { name: labels.dismissError }).click();
+      await expect(navigationAlert).toHaveCount(0);
 
       const frameBeforeNavigation = await frame.getAttribute('src');
       await address.fill('http://localhost:3000/login');
@@ -222,6 +283,7 @@ test.describe('Browser Lab', () => {
       const mobileMetrics = await page.evaluate(() => ({
         innerWidth: window.innerWidth,
         scrollWidth: document.documentElement.scrollWidth,
+        browserFrameHeight: document.querySelector<HTMLImageElement>('img[tabindex]')?.getBoundingClientRect().height ?? 0,
         visibleButtons: [...document.querySelectorAll('button')].filter((button) => {
           const bounds = button.getBoundingClientRect();
           return bounds.width > 0 && bounds.height > 0 && bounds.right > 0 && bounds.left < window.innerWidth;
@@ -231,6 +293,7 @@ test.describe('Browser Lab', () => {
         }),
       }));
       expect(mobileMetrics.scrollWidth).toBeLessThanOrEqual(mobileMetrics.innerWidth + 1);
+      expect(mobileMetrics.browserFrameHeight).toBeGreaterThanOrEqual(180);
       expect(mobileMetrics.visibleButtons.every((button) => button.left >= -1 && button.right <= mobileMetrics.innerWidth + 1)).toBeTruthy();
 
       await page.getByTitle(labels.disconnect).click();

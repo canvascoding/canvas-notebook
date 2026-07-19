@@ -29,7 +29,12 @@ import {
 } from 'react';
 
 import type { AgentProfile, AISession } from '@/app/lib/chat/types';
-import type { BrowserViewControlMode, BrowserViewState } from '@/app/lib/pi/browser/types';
+import type {
+  BrowserViewControlMode,
+  BrowserViewErrorCode,
+  BrowserViewFailure,
+  BrowserViewState,
+} from '@/app/lib/pi/browser/types';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,7 +46,10 @@ type BrowserLabClientProps = {
 
 type ViewTicketResponse = {
   success?: boolean;
+  code?: BrowserViewErrorCode;
   error?: string;
+  retryable?: boolean;
+  fatal?: boolean;
   data?: {
     ticket: string;
     viewId: string;
@@ -55,7 +63,9 @@ type BrowserSocketMessage =
   | { type: 'ready'; viewId: string }
   | { type: 'frame'; sequence: number; mimeType: string; data: string; width: number; height: number }
   | { type: 'state'; state: BrowserViewState }
-  | { type: 'error'; code: string; error: string };
+  | ({ type: 'error' } & BrowserViewFailure);
+
+type ConnectionStatus = 'connecting' | 'failed' | 'idle' | 'live';
 
 const copy = {
   de: {
@@ -68,11 +78,16 @@ const copy = {
     noSessions: 'Keine PI-Chat-Session für diesen Agenten vorhanden.',
     connect: 'Live-Ansicht starten',
     reconnect: 'Neu verbinden',
+    retry: 'Erneut versuchen',
     disconnect: 'Trennen',
+    dismissError: 'Meldung schließen',
     loading: 'Browser-Ansicht wird vorbereitet …',
     disconnected: 'Nicht verbunden',
+    failed: 'Verbindung unterbrochen',
     connecting: 'Verbindung wird aufgebaut',
     live: 'Live verbunden',
+    failureTitle: 'Die Live-Ansicht braucht Aufmerksamkeit',
+    failureDescription: 'Das letzte Browserbild bleibt zur Orientierung sichtbar. Eingaben sind bis zur erneuten Verbindung gesperrt.',
     address: 'Adresse',
     navigate: 'Öffnen',
     takeControl: 'Übernehmen',
@@ -96,6 +111,27 @@ const copy = {
     accept: 'Bestätigen',
     dismiss: 'Abbrechen',
     privateNotice: 'Eingaben werden live an Chromium gesendet und nicht protokolliert.',
+    errors: {
+      CAPACITY_EXHAUSTED: 'Alle verfügbaren Live-Browser-Plätze sind derzeit belegt.',
+      CAPTURE_FAILED: 'Das aktuelle Browserbild konnte nicht übertragen werden.',
+      CONNECTION_FAILED: 'Die Live-Browser-Verbindung konnte nicht aufgebaut werden.',
+      CONNECTION_LOST: 'Die Verbindung zum Live-Browser wurde unerwartet getrennt.',
+      CONNECTION_TIMEOUT: 'Der Live-Browser hat nicht rechtzeitig geantwortet.',
+      CONTROL_CONFLICT: 'Die Browsersteuerung wird gerade von einer anderen Ansicht verwendet.',
+      FORBIDDEN: 'Du hast keinen Zugriff auf diese Browseransicht.',
+      INVALID_MESSAGE: 'Die Browseransicht hat eine ungültige Nachricht erhalten.',
+      MESSAGE_TOO_LARGE: 'Eine Browsernachricht war zu groß und wurde abgewiesen.',
+      NAVIGATION_BLOCKED: 'Diese Adresse wurde durch die Browser-Sicherheitsrichtlinie blockiert.',
+      NAVIGATION_FAILED: 'Die Webseite konnte nicht geöffnet werden.',
+      OPERATION_FAILED: 'Die Browseraktion konnte nicht abgeschlossen werden.',
+      PAGE_CRASHED: 'Die verwaltete Browserseite wurde unerwartet beendet.',
+      RATE_LIMITED: 'Zu viele Browseraktionen. Warte kurz und versuche es erneut.',
+      RESOURCE_UNAVAILABLE: 'Auf diesem System stehen nicht genug Ressourcen für die Live-Ansicht bereit.',
+      SESSION_SCOPE_CHANGED: 'Die Chat- oder Workspace-Zuordnung hat sich geändert. Öffne die Ansicht erneut.',
+      TICKET_EXPIRED: 'Die kurzlebige Zugriffsberechtigung ist abgelaufen.',
+      UNAUTHORIZED: 'Deine Anmeldung ist für diese Browseransicht nicht mehr gültig.',
+      VIEW_CONFLICT: 'Diese Browseransicht ist bereits mit einer anderen Verbindung geöffnet.',
+    },
   },
   en: {
     eyebrow: 'Development tool',
@@ -107,11 +143,16 @@ const copy = {
     noSessions: 'No PI chat session exists for this agent.',
     connect: 'Start live view',
     reconnect: 'Reconnect',
+    retry: 'Try again',
     disconnect: 'Disconnect',
+    dismissError: 'Dismiss message',
     loading: 'Preparing browser view…',
     disconnected: 'Disconnected',
+    failed: 'Connection interrupted',
     connecting: 'Connecting',
     live: 'Live connected',
+    failureTitle: 'The live view needs attention',
+    failureDescription: 'The last browser frame remains visible for context. Input stays locked until you reconnect.',
     address: 'Address',
     navigate: 'Open',
     takeControl: 'Take control',
@@ -135,8 +176,44 @@ const copy = {
     accept: 'Accept',
     dismiss: 'Dismiss',
     privateNotice: 'Input is sent live to Chromium and is not logged.',
+    errors: {
+      CAPACITY_EXHAUSTED: 'All available live-browser slots are currently in use.',
+      CAPTURE_FAILED: 'The current browser frame could not be delivered.',
+      CONNECTION_FAILED: 'The live-browser connection could not be established.',
+      CONNECTION_LOST: 'The live-browser connection closed unexpectedly.',
+      CONNECTION_TIMEOUT: 'The live browser did not respond in time.',
+      CONTROL_CONFLICT: 'Browser control is currently held by another view.',
+      FORBIDDEN: 'You do not have access to this browser view.',
+      INVALID_MESSAGE: 'The browser view received an invalid message.',
+      MESSAGE_TOO_LARGE: 'A browser message was too large and was rejected.',
+      NAVIGATION_BLOCKED: 'This address was blocked by the browser security policy.',
+      NAVIGATION_FAILED: 'The webpage could not be opened.',
+      OPERATION_FAILED: 'The browser action could not be completed.',
+      PAGE_CRASHED: 'The managed browser page stopped unexpectedly.',
+      RATE_LIMITED: 'Too many browser actions. Wait briefly and try again.',
+      RESOURCE_UNAVAILABLE: 'This system does not have enough resources for the live view.',
+      SESSION_SCOPE_CHANGED: 'The chat or workspace scope changed. Open the view again.',
+      TICKET_EXPIRED: 'The short-lived browser permission expired.',
+      UNAUTHORIZED: 'Your sign-in is no longer valid for this browser view.',
+      VIEW_CONFLICT: 'This browser view is already open in another connection.',
+    },
   },
 } as const;
+
+type BrowserLabCopy = (typeof copy)[keyof typeof copy];
+
+function localizedFailure(t: BrowserLabCopy, failure: BrowserViewFailure): BrowserViewFailure {
+  return { ...failure, error: t.errors[failure.code] || failure.error };
+}
+
+function clientFailure(
+  t: BrowserLabCopy,
+  code: BrowserViewErrorCode,
+  retryable: boolean,
+  fatal: boolean,
+): BrowserViewFailure {
+  return { code, error: t.errors[code], retryable, fatal };
+}
 
 function socketUrl(pathname: string): string {
   const url = new URL(pathname, window.location.href);
@@ -160,13 +237,15 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
   const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId);
   const [selectedSessionId, setSelectedSessionId] = useState(initialSessionId);
   const [catalogLoading, setCatalogLoading] = useState(true);
-  const [connectionStatus, setConnectionStatus] = useState<'idle' | 'connecting' | 'live'>('idle');
+  const [connectionStatus, setConnectionStatus] = useState<ConnectionStatus>('idle');
   const [viewState, setViewState] = useState<BrowserViewState | null>(null);
   const [frameUrl, setFrameUrl] = useState<string | null>(null);
   const [frameSequence, setFrameSequence] = useState(0);
   const [address, setAddress] = useState('about:blank');
-  const [error, setError] = useState<string | null>(null);
+  const [failure, setFailure] = useState<BrowserViewFailure | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
+  const connectTimeoutRef = useRef<number | null>(null);
+  const intentionalCloseRef = useRef(false);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const lastPointerMoveAtRef = useRef(0);
 
@@ -174,16 +253,26 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
     () => sessions.filter((session) => session.engine !== 'legacy' && session.agentId === selectedAgentId),
     [selectedAgentId, sessions],
   );
-  const userControls = viewState?.mode === 'user' && viewState.controlOwnerViewId === viewState.viewId;
+  const userControls = connectionStatus === 'live'
+    && viewState?.mode === 'user'
+    && viewState.controlOwnerViewId === viewState.viewId;
 
-  const disconnect = useCallback(() => {
+  const disconnect = useCallback((options: { preserveFailure?: boolean; preserveFrame?: boolean } = {}) => {
+    intentionalCloseRef.current = true;
+    if (connectTimeoutRef.current !== null) {
+      window.clearTimeout(connectTimeoutRef.current);
+      connectTimeoutRef.current = null;
+    }
     const socket = socketRef.current;
     socketRef.current = null;
     if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'View closed');
     setConnectionStatus('idle');
-    setViewState(null);
-    setFrameUrl(null);
-    setFrameSequence(0);
+    if (!options.preserveFrame) {
+      setViewState(null);
+      setFrameUrl(null);
+      setFrameSequence(0);
+    }
+    if (!options.preserveFailure) setFailure(null);
   }, []);
 
   useEffect(() => () => disconnect(), [disconnect]);
@@ -192,7 +281,7 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
     let cancelled = false;
     void (async () => {
       setCatalogLoading(true);
-      setError(null);
+      setFailure(null);
       try {
         const [agentsResponse, sessionsResponse] = await Promise.all([
           fetch('/api/agents', { credentials: 'include' }),
@@ -228,13 +317,20 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
         setSelectedAgentId(resolvedAgentId);
         setSelectedSessionId(resolvedSessionId);
       } catch (loadError) {
-        if (!cancelled) setError(loadError instanceof Error ? loadError.message : 'Could not load Browser Lab.');
+        if (!cancelled) {
+          setFailure({
+            code: 'CONNECTION_FAILED',
+            error: loadError instanceof Error ? loadError.message : t.errors.CONNECTION_FAILED,
+            retryable: true,
+            fatal: false,
+          });
+        }
       } finally {
         if (!cancelled) setCatalogLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [initialAgentId, initialSessionId]);
+  }, [initialAgentId, initialSessionId, t.errors.CONNECTION_FAILED]);
 
   const send = useCallback((message: Record<string, unknown>) => {
     const socket = socketRef.current;
@@ -247,9 +343,11 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
 
   const connect = useCallback(async () => {
     if (!selectedAgentId || !selectedSessionId) return;
-    disconnect();
+    const preserveFrame = connectionStatus === 'failed' && Boolean(frameUrl);
+    disconnect({ preserveFailure: true, preserveFrame });
+    intentionalCloseRef.current = false;
     setConnectionStatus('connecting');
-    setError(null);
+    setFailure(null);
     try {
       const response = await fetch('/api/browser/view', {
         method: 'POST',
@@ -259,15 +357,36 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
       });
       const payload = await response.json() as ViewTicketResponse;
       if (!response.ok || !payload.success || !payload.data) {
-        throw new Error(payload.error || 'Could not start browser view.');
+        const code = payload.code || 'CONNECTION_FAILED';
+        setFailure(localizedFailure(t, {
+          code,
+          error: payload.error || t.errors[code],
+          retryable: payload.retryable ?? true,
+          fatal: payload.fatal ?? true,
+        }));
+        setConnectionStatus('failed');
+        return;
       }
       const socket = new WebSocket(socketUrl(payload.data.websocketUrl));
       socketRef.current = socket;
       socket.addEventListener('message', (event) => {
-        const message = JSON.parse(String(event.data)) as BrowserSocketMessage;
+        let message: BrowserSocketMessage;
+        try {
+          message = JSON.parse(String(event.data)) as BrowserSocketMessage;
+        } catch {
+          setFailure(clientFailure(t, 'INVALID_MESSAGE', false, true));
+          setConnectionStatus('failed');
+          socket.close(1002, 'Invalid browser message');
+          return;
+        }
         if (message.type === 'auth_success') {
           socket.send(JSON.stringify({ type: 'view_subscribe', ticket: payload.data!.ticket }));
         } else if (message.type === 'ready') {
+          if (connectTimeoutRef.current !== null) {
+            window.clearTimeout(connectTimeoutRef.current);
+            connectTimeoutRef.current = null;
+          }
+          setFailure(null);
           setConnectionStatus('live');
         } else if (message.type === 'frame') {
           setFrameUrl(`data:${message.mimeType};base64,${message.data}`);
@@ -275,22 +394,47 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
         } else if (message.type === 'state') {
           setViewState(message.state);
           if (message.state.url) setAddress(message.state.url);
+          setFailure((current) => current?.fatal ? current : null);
         } else if (message.type === 'error') {
-          setError(message.error);
+          setFailure(localizedFailure(t, message));
+          if (message.fatal) {
+            setConnectionStatus('failed');
+            socket.close(1011, message.code);
+          }
         }
       });
       socket.addEventListener('close', () => {
         if (socketRef.current === socket) {
           socketRef.current = null;
-          setConnectionStatus('idle');
+          if (connectTimeoutRef.current !== null) {
+            window.clearTimeout(connectTimeoutRef.current);
+            connectTimeoutRef.current = null;
+          }
+          if (intentionalCloseRef.current) {
+            setConnectionStatus('idle');
+          } else {
+            setFailure((current) => current ?? clientFailure(t, 'CONNECTION_LOST', true, true));
+            setConnectionStatus('failed');
+          }
         }
       });
-      socket.addEventListener('error', () => setError('Browser WebSocket connection failed.'));
+      socket.addEventListener('error', () => {
+        setFailure(clientFailure(t, 'CONNECTION_FAILED', true, true));
+      });
+      connectTimeoutRef.current = window.setTimeout(() => {
+        if (socketRef.current !== socket) return;
+        setFailure(clientFailure(t, 'CONNECTION_TIMEOUT', true, true));
+        setConnectionStatus('failed');
+        socket.close(4000, 'Connection timeout');
+      }, 15_000);
     } catch (connectError) {
-      setConnectionStatus('idle');
-      setError(connectError instanceof Error ? connectError.message : 'Could not start browser view.');
+      setConnectionStatus('failed');
+      setFailure({
+        ...clientFailure(t, 'CONNECTION_FAILED', true, true),
+        error: connectError instanceof Error ? connectError.message : t.errors.CONNECTION_FAILED,
+      });
     }
-  }, [disconnect, selectedAgentId, selectedSessionId]);
+  }, [connectionStatus, disconnect, frameUrl, selectedAgentId, selectedSessionId, t]);
 
   useEffect(() => {
     if (connectionStatus !== 'live') return;
@@ -382,8 +526,9 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
               <span>{t.agent}</span>
               <select
                 value={selectedAgentId}
-                disabled={catalogLoading || connectionStatus !== 'idle'}
+                disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live'}
                 onChange={(event) => {
+                  disconnect();
                   const nextAgentId = event.target.value;
                   setSelectedAgentId(nextAgentId);
                   setSelectedSessionId(
@@ -399,8 +544,11 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
               <span>{t.session}</span>
               <select
                 value={selectedSessionId}
-                disabled={catalogLoading || connectionStatus !== 'idle' || availableSessions.length === 0}
-                onChange={(event) => setSelectedSessionId(event.target.value)}
+                disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live' || availableSessions.length === 0}
+                onChange={(event) => {
+                  disconnect();
+                  setSelectedSessionId(event.target.value);
+                }}
                 className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
               >
                 <option value="">{availableSessions.length ? t.chooseSession : t.noSessions}</option>
@@ -416,10 +564,10 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
                 onClick={() => void connect()}
               >
                 {connectionStatus === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
-                {connectionStatus === 'live' ? t.reconnect : t.connect}
+                {connectionStatus === 'live' || connectionStatus === 'failed' ? t.reconnect : t.connect}
               </Button>
               {connectionStatus === 'live' ? (
-                <Button variant="outline" size="icon" className="h-10 w-10" onClick={disconnect} title={t.disconnect}>
+                <Button variant="outline" size="icon" className="h-10 w-10" onClick={() => disconnect()} title={t.disconnect}>
                   <Unplug className="h-4 w-4" />
                 </Button>
               ) : null}
@@ -428,8 +576,8 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
         </div>
       </section>
 
-      <div className="mx-auto grid min-h-0 w-full max-w-[1600px] flex-1 gap-0 xl:grid-cols-[minmax(0,1fr)_300px]">
-        <main className="flex min-h-0 min-w-0 flex-col border-border/70 xl:border-r">
+      <div className="mx-auto grid min-h-0 w-full max-w-[1600px] flex-1 grid-rows-[minmax(430px,1fr)_auto] gap-0 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_300px] xl:grid-rows-1 xl:overflow-hidden">
+        <main className="flex min-h-[430px] min-w-0 flex-col border-border/70 xl:min-h-0 xl:border-r">
           <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-border/70 bg-muted/25 px-3">
             <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto py-1.5">
               {(viewState?.tabs ?? []).map((tab) => (
@@ -520,11 +668,30 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
               />
             ) : (
               <div className="relative max-w-sm text-center text-white/80">
-                {connectionStatus === 'connecting' ? <Loader2 className="mx-auto mb-5 h-9 w-9 animate-spin text-primary" /> : <Globe2 className="mx-auto mb-5 h-9 w-9 text-white/35" />}
-                <h3 className="text-lg font-semibold">{connectionStatus === 'connecting' ? t.loading : t.emptyTitle}</h3>
-                <p className="mt-2 text-sm leading-6 text-white/45">{connectionStatus === 'connecting' ? t.connecting : t.emptyDescription}</p>
+                {connectionStatus === 'connecting'
+                  ? <Loader2 className="mx-auto mb-5 h-9 w-9 animate-spin text-primary" />
+                  : connectionStatus === 'failed'
+                    ? <ShieldAlert className="mx-auto mb-5 h-9 w-9 text-amber-400" />
+                    : <Globe2 className="mx-auto mb-5 h-9 w-9 text-white/35" />}
+                <h3 className="text-lg font-semibold">
+                  {connectionStatus === 'connecting' ? t.loading : connectionStatus === 'failed' ? t.failureTitle : t.emptyTitle}
+                </h3>
+                <p className="mt-2 text-sm leading-6 text-white/45">
+                  {connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failureDescription : t.emptyDescription}
+                </p>
               </div>
             )}
+            {frameUrl && connectionStatus === 'failed' ? (
+              <div className="absolute inset-x-3 bottom-3 z-10 rounded-lg border border-amber-300/20 bg-[#171912]/90 p-3 text-left text-xs text-white/80 shadow-2xl backdrop-blur md:inset-x-5 md:bottom-5">
+                <div className="flex items-start gap-2">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-amber-300" />
+                  <div>
+                    <p className="font-medium text-white">{t.failureTitle}</p>
+                    <p className="mt-1 leading-5 text-white/55">{t.failureDescription}</p>
+                  </div>
+                </div>
+              </div>
+            ) : null}
             {frameUrl && userControls ? (
               <div className="absolute bottom-5 left-1/2 flex -translate-x-1/2 items-center gap-2 rounded-full border border-white/10 bg-black/70 px-3 py-1.5 text-[11px] text-white/70 backdrop-blur">
                 <SquareMousePointer className="h-3.5 w-3.5" /> {t.inputHint}
@@ -532,11 +699,22 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
             ) : null}
           </div>
 
-          {error ? (
-            <div role="alert" className="flex shrink-0 items-center gap-2 border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
+          {failure ? (
+            <div role="alert" aria-live="polite" className="flex shrink-0 flex-wrap items-center gap-2 border-t border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
               <ShieldAlert className="h-4 w-4 shrink-0" />
-              <span className="min-w-0 flex-1">{error}</span>
-              <Button size="icon" variant="ghost" className="h-7 w-7" onClick={() => setError(null)}><RefreshCw className="h-3.5 w-3.5" /></Button>
+              <span className="min-w-[220px] flex-1">{failure.error}</span>
+              <Button
+                size="sm"
+                variant="ghost"
+                className="h-7 gap-1.5 px-2"
+                onClick={() => {
+                  if (connectionStatus === 'failed' && failure.retryable) void connect();
+                  else setFailure(null);
+                }}
+              >
+                {connectionStatus === 'failed' && failure.retryable ? <RefreshCw className="h-3.5 w-3.5" /> : null}
+                {connectionStatus === 'failed' && failure.retryable ? t.retry : t.dismissError}
+              </Button>
             </div>
           ) : null}
         </main>
@@ -544,10 +722,19 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
         <aside className="min-h-0 overflow-y-auto bg-muted/15 p-4">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t.diagnostics}</h3>
-            <span className={cn('h-2 w-2 rounded-full', connectionStatus === 'live' ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,.8)]' : connectionStatus === 'connecting' ? 'animate-pulse bg-amber-500' : 'bg-muted-foreground/40')} />
+            <span className={cn(
+              'h-2 w-2 rounded-full',
+              connectionStatus === 'live'
+                ? 'bg-emerald-500 shadow-[0_0_12px_rgba(16,185,129,.8)]'
+                : connectionStatus === 'connecting'
+                  ? 'animate-pulse bg-amber-500'
+                  : connectionStatus === 'failed'
+                    ? 'bg-destructive shadow-[0_0_12px_hsl(var(--destructive)/.6)]'
+                    : 'bg-muted-foreground/40',
+            )} />
           </div>
           <dl className="space-y-3 text-xs">
-            <DiagnosticRow label="Status" value={connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : t.disconnected} />
+            <DiagnosticRow label="Status" value={connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected} />
             <DiagnosticRow label={t.agent} value={viewState?.agentId || selectedAgentId || '—'} mono />
             <DiagnosticRow label={t.session} value={viewState?.agentSessionId || selectedSessionId || '—'} mono />
             <DiagnosticRow label={t.workspace} value={viewState?.workspaceId || '—'} mono />
