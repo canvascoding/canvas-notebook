@@ -285,6 +285,8 @@ export async function listMobileFiles(input: {
       canCreate: input.workspace.permissions.canWrite,
       canUpload: input.workspace.permissions.canWrite,
       canMove: input.workspace.permissions.canWrite && input.workspace.permissions.canDelete,
+      canCopy: input.workspace.permissions.canRead,
+      canExport: input.workspace.permissions.canRead,
       canDelete: input.workspace.permissions.canDelete,
       canCreatePublicLinks: input.workspace.permissions.canCreatePublicLinks,
     },
