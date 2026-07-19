@@ -129,6 +129,7 @@
     "test:email:chat-context": "tsx scripts/email-chat-context-test.ts",
     "test:composio:user-scope": "tsx scripts/composio-user-scope-test.ts",
     "test:auth:setup": "tsx --conditions react-server scripts/auth-setup-test.ts",
+    "test:mobile:compatibility": "tsx --conditions react-server scripts/mobile-compatibility-test.ts && tsx --conditions react-server scripts/mobile-compatibility-route-test.ts",
     "test:account:credentials": "tsx --conditions react-server scripts/account-credentials-route-test.ts",
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",
@@ -221,6 +222,7 @@
     "container:rebuild": "node scripts/setup.mjs"
   },
   "dependencies": {
+    "@better-auth/expo": "^1.6.23",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/lang-cpp": "^6.0.3",
     "@codemirror/lang-css": "^6.3.1",
