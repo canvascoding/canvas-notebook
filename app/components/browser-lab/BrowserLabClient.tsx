@@ -241,6 +241,10 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
     if (socket?.readyState === WebSocket.OPEN) socket.send(JSON.stringify(message));
   }, []);
 
+  useEffect(() => {
+    if (frameSequence > 0) send({ type: 'frame_ack', sequence: frameSequence });
+  }, [frameSequence, send]);
+
   const connect = useCallback(async () => {
     if (!selectedAgentId || !selectedSessionId) return;
     disconnect();
@@ -509,7 +513,6 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
                 onPointerUp={handlePointerUp}
                 onKeyDown={handleKeyDown}
                 onWheel={handleWheel}
-                onLoad={() => send({ type: 'frame_ack', sequence: frameSequence })}
                 className={cn(
                   'relative max-h-full max-w-full select-none rounded-lg border border-white/10 bg-white shadow-[0_32px_100px_-28px_rgba(0,0,0,.9)] outline-none',
                   userControls ? 'cursor-default focus:ring-2 focus:ring-primary focus:ring-offset-2 focus:ring-offset-[#11130f]' : 'cursor-not-allowed',
