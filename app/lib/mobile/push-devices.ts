@@ -15,6 +15,17 @@ const MAX_EXPO_RECEIPT_BATCH_SIZE = 1_000;
 const EXPO_REQUEST_ATTEMPTS = 3;
 const FIRST_RECEIPT_CHECK_DELAY_MS = 15 * 60_000;
 const MAX_RECEIPT_ATTEMPTS = 5;
+const AGENT_RESPONSE_PUSH_DELAY_MS = 5_000;
+
+type AgentResponsePushReadState = {
+  lastMessageAt: number;
+  lastViewedAt: number | null;
+  lastAssistantMessageId: number;
+};
+
+type AgentResponsePushSuppressionReason = 'missing' | 'read' | 'superseded';
+
+const pendingAgentResponsePushes = new Map<string, Promise<{ attempted: number; accepted: number }>>();
 
 export type MobilePushPlatform = 'ios' | 'android';
 export type MobileAppVariant = 'development' | 'preview' | 'production';
@@ -248,6 +259,69 @@ async function withConnection<T>(callback: (connection: SqlConnection) => Promis
   } finally {
     await connection.close();
   }
+}
+
+function timestampMilliseconds(value: unknown): number | null {
+  if (value instanceof Date) {
+    const milliseconds = value.getTime();
+    return Number.isFinite(milliseconds) ? milliseconds : null;
+  }
+  if (typeof value === 'number') return Number.isFinite(value) ? value : null;
+  if (typeof value !== 'string' || !value.trim()) return null;
+  const numeric = Number(value);
+  if (Number.isFinite(numeric)) return numeric;
+  const parsed = Date.parse(value);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+async function loadAgentResponsePushReadState(input: {
+  userId: string;
+  workspaceId: string;
+  sessionId: string;
+}): Promise<AgentResponsePushReadState | null> {
+  return withConnection(async (connection) => {
+    const row = await connection.get(
+      `SELECT last_message_at, last_viewed_at,
+        (SELECT pi_messages.id
+         FROM pi_messages
+         WHERE pi_messages.pi_session_db_id = pi_sessions.id
+           AND pi_messages.role = 'assistant'
+         ORDER BY pi_messages.sequence DESC, pi_messages.id DESC
+         LIMIT 1) AS last_assistant_message_id
+       FROM pi_sessions
+       WHERE user_id = ? AND session_id = ? AND workspace_id = ?
+       LIMIT 1`,
+      [input.userId, input.sessionId, input.workspaceId],
+    ) as {
+      last_message_at?: unknown;
+      last_viewed_at?: unknown;
+      last_assistant_message_id?: unknown;
+    } | undefined;
+    const lastMessageAt = timestampMilliseconds(row?.last_message_at);
+    const lastViewedAt = row?.last_viewed_at === null || row?.last_viewed_at === undefined
+      ? null
+      : timestampMilliseconds(row.last_viewed_at);
+    const lastAssistantMessageId = Number(row?.last_assistant_message_id);
+    if (lastMessageAt === null || !Number.isSafeInteger(lastAssistantMessageId) || lastAssistantMessageId < 1) {
+      return null;
+    }
+    return { lastMessageAt, lastViewedAt, lastAssistantMessageId };
+  });
+}
+
+export function agentResponsePushSuppressionReason(
+  expected: AgentResponsePushReadState | null,
+  current: AgentResponsePushReadState | null,
+): AgentResponsePushSuppressionReason | null {
+  if (!expected || !current) return 'missing';
+  if (
+    current.lastAssistantMessageId !== expected.lastAssistantMessageId
+    || current.lastMessageAt !== expected.lastMessageAt
+  ) {
+    return 'superseded';
+  }
+  if (current.lastViewedAt !== null && current.lastViewedAt >= current.lastMessageAt) return 'read';
+  return null;
 }
 
 const DEVICE_SELECT = `id, expo_push_token, platform, app_variant, enabled,
@@ -640,15 +714,47 @@ export async function sendAgentResponseReadyPush(input: {
   sessionId: string;
   instanceId?: string;
   fetcher?: typeof fetch;
+  delayMs?: number;
 }): Promise<{ attempted: number; accepted: number }> {
-  return sendMobileAttentionPush({
-    ...input,
-    target: {
-      type: 'agent.response_ready',
-      workspaceId: input.workspaceId,
-      sessionId: input.sessionId,
-    },
-  });
+  const expected = await loadAgentResponsePushReadState(input);
+  if (!expected) {
+    console.log(`[Mobile Push] Agent response suppressed (missing): sessionId=${input.sessionId}`);
+    return { attempted: 0, accepted: 0 };
+  }
+  const initialSuppression = agentResponsePushSuppressionReason(expected, expected);
+  if (initialSuppression) {
+    console.log(`[Mobile Push] Agent response suppressed (${initialSuppression}): sessionId=${input.sessionId}`);
+    return { attempted: 0, accepted: 0 };
+  }
+  const key = `${input.userId}\u001f${input.workspaceId}\u001f${input.sessionId}\u001f${expected.lastAssistantMessageId}`;
+  const pending = pendingAgentResponsePushes.get(key);
+  if (pending) return pending;
+
+  const delivery = (async () => {
+    await wait(Math.max(0, input.delayMs ?? AGENT_RESPONSE_PUSH_DELAY_MS));
+    const current = await loadAgentResponsePushReadState(input);
+    const suppression = agentResponsePushSuppressionReason(expected, current);
+    if (suppression) {
+      console.log(`[Mobile Push] Agent response suppressed (${suppression}): sessionId=${input.sessionId}`);
+      return { attempted: 0, accepted: 0 };
+    }
+    return sendMobileAttentionPush({
+      userId: input.userId,
+      instanceId: input.instanceId,
+      fetcher: input.fetcher,
+      target: {
+        type: 'agent.response_ready',
+        workspaceId: input.workspaceId,
+        sessionId: input.sessionId,
+      },
+    });
+  })();
+  pendingAgentResponsePushes.set(key, delivery);
+  try {
+    return await delivery;
+  } finally {
+    if (pendingAgentResponsePushes.get(key) === delivery) pendingAgentResponsePushes.delete(key);
+  }
 }
 
 export async function sendTodoAttentionPush(input: {
