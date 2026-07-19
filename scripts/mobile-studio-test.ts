@@ -72,10 +72,20 @@ async function main() {
         'studio/outputs/private/server/path.png', 'path.png', 'image/png', 1234, 1024, 1024, 0,
         '{"providerSecret":"hidden"}', ?)
     `).run(bootstrap.organizationId, workspace.id, now);
+    sqlite.prepare(`
+      INSERT INTO studio_presets (
+        id, user_id, organization_id, workspace_id, created_by_user_id, visibility,
+        is_default, name, description, category, blocks, tags, created_at, updated_at
+      ) VALUES (
+        'preset-nullable', 'studio-user', ?, ?, 'studio-user', 'workspace',
+        0, 'Legacy preset', NULL, NULL, '[]', '[]', ?, ?
+      )
+    `).run(bootstrap.organizationId, workspace.id, now, now);
     sqlite.close();
 
     const {
       getMobileStudioGeneration,
+      getMobileStudioCatalog,
       listMobileStudioGenerations,
       parseMobileStudioGenerationRequest,
     } = await import('../app/lib/mobile/studio');
@@ -86,6 +96,11 @@ async function main() {
       organizationId: bootstrap.organizationId,
       workspaceId: workspace.id,
     });
+
+    const catalog = await getMobileStudioCatalog({ scope, userId: 'studio-user', canWrite: true });
+    const nullablePreset = catalog.presets.find((preset) => preset.id === 'preset-nullable');
+    assert.equal(nullablePreset?.description, '');
+    assert.equal(nullablePreset?.category, 'custom');
 
     const parsed = parseMobileStudioGenerationRequest({
       mode: 'video',
