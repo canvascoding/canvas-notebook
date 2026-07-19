@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import {
@@ -118,6 +118,9 @@ export type ListTodosOptions = {
   workspaceId?: string | null;
   assigneeUserId?: string | 'me' | 'unassigned' | null;
   due?: 'overdue' | 'today' | 'upcoming';
+  query?: string;
+  beforeUpdatedAt?: Date;
+  beforeId?: string;
   limit?: number;
 };
 
@@ -844,12 +847,26 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       conditions.push(sql`${todoItems.dueAt} IS NOT NULL AND ${todoItems.dueAt} >= ${startOfTomorrow}`);
     }
   }
+  if (options.query?.trim()) {
+    const escaped = options.query.trim().toLocaleLowerCase().replace(/[\\%_]/gu, '\\$&');
+    const pattern = `%${escaped}%`;
+    conditions.push(sql`(
+      lower(${todoItems.title}) LIKE ${pattern} ESCAPE '\'
+      OR lower(COALESCE(${todoItems.description}, '')) LIKE ${pattern} ESCAPE '\'
+    )`);
+  }
+  if (options.beforeUpdatedAt && options.beforeId) {
+    conditions.push(or(
+      lt(todoItems.updatedAt, options.beforeUpdatedAt),
+      and(eq(todoItems.updatedAt, options.beforeUpdatedAt), lt(todoItems.id, options.beforeId)),
+    )!);
+  }
 
   const rows = await db
     .select()
     .from(todoItems)
     .where(and(...conditions))
-    .orderBy(desc(todoItems.updatedAt))
+    .orderBy(desc(todoItems.updatedAt), desc(todoItems.id))
     .limit(limit);
 
   return hydrateTodos(rows);

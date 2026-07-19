@@ -72,6 +72,11 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'files.mutate',
   'files.upload',
   'files.public_share',
+  'inbox.feed',
+  'inbox.read_state',
+  'todos.read',
+  'todos.write',
+  'todos.follow_up',
   'workspace.create',
 ]);
 assert.equal(bootstrap.user.role, 'admin');
