@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page, type WebSocketRoute } from '@playwright/test';
 
 const TEST_EMAIL = process.env.TEST_LOGIN_EMAIL || process.env.BOOTSTRAP_ADMIN_EMAIL || 'admin@example.com';
 const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_ADMIN_PASSWORD || 'change-me';
@@ -242,6 +242,60 @@ test.describe('Browser Lab', () => {
       await expect(liveStatus).toBeVisible({ timeout: 60_000 });
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
       await page.getByTitle(labels.disconnect).click();
+    } finally {
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
+  test('handles fatal browser errors without an invalid WebSocket close code', async ({ page }) => {
+    const pageErrors: Error[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error));
+
+    await login(page);
+    const session = await findBrowserLabSession(page);
+    try {
+      await page.route('**/api/browser/view', async (route) => {
+        await route.fulfill({
+          status: 200,
+          contentType: 'application/json',
+          body: JSON.stringify({
+            success: true,
+            data: {
+              ticket: 'fatal-error-regression-ticket',
+              viewId: 'fatal-error-regression-view',
+              expiresAt: new Date(Date.now() + 60_000).toISOString(),
+              websocketUrl: '/ws/browser',
+            },
+          }),
+        });
+      }, { times: 1 });
+      await page.routeWebSocket('**/ws/browser', (ws: WebSocketRoute) => {
+        ws.send(JSON.stringify({ type: 'auth_success' }));
+        ws.onMessage((rawMessage) => {
+          const message = JSON.parse(String(rawMessage)) as { type?: string };
+          if (message.type !== 'view_subscribe') return;
+          ws.send(JSON.stringify({
+            type: 'error',
+            code: 'RESOURCE_UNAVAILABLE',
+            error: 'Internal resource detail that must not be displayed.',
+            retryable: false,
+            fatal: true,
+          }));
+        });
+      });
+
+      await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
+      const connectButton = page.getByRole('button', { name: labels.connect });
+      await expect(connectButton).toBeEnabled({ timeout: 15_000 });
+      await connectButton.click();
+      await expect(page.getByText(labels.failureTitle)).toBeVisible();
+      await expect(page.getByRole('alert').filter({ hasText: labels.resourceUnavailable })).toBeVisible();
+      await expect(page.getByText('Internal resource detail that must not be displayed.')).toHaveCount(0);
+      await page.waitForTimeout(100);
+
+      expect(pageErrors.map((error) => error.message)).not.toContainEqual(
+        expect.stringContaining("Failed to execute 'close' on 'WebSocket'"),
+      );
     } finally {
       await deleteBrowserLabTestSession(page, session);
     }

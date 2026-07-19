@@ -39,6 +39,7 @@ import type {
   BrowserViewFailure,
   BrowserViewState,
 } from '@/app/lib/pi/browser/types';
+import { closeBrowserWebSocket } from '@/app/lib/pi/browser/client-websocket';
 import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -364,7 +365,7 @@ export function BrowserLabClient({
     }
     const socket = socketRef.current;
     socketRef.current = null;
-    if (socket && socket.readyState < WebSocket.CLOSING) socket.close(1000, 'View closed');
+    if (socket && socket.readyState < WebSocket.CLOSING) closeBrowserWebSocket(socket, 1000, 'View closed');
     setConnectionStatus('idle');
     if (!options.preserveFrame) {
       setViewState(null);
@@ -524,7 +525,7 @@ export function BrowserLabClient({
         } catch {
           setFailure(clientFailure(t, 'INVALID_MESSAGE', false, true));
           setConnectionStatus('failed');
-          socket.close(1002, 'Invalid browser message');
+          closeBrowserWebSocket(socket, 1002, 'Invalid browser message');
           return;
         }
         if (message.type === 'auth_success') {
@@ -547,7 +548,7 @@ export function BrowserLabClient({
           setFailure(localizedFailure(t, message));
           if (message.fatal) {
             setConnectionStatus('failed');
-            socket.close(1011, message.code);
+            closeBrowserWebSocket(socket, 1011, message.code);
           }
         }
       });
@@ -573,7 +574,7 @@ export function BrowserLabClient({
         if (socketRef.current !== socket) return;
         setFailure(clientFailure(t, 'CONNECTION_TIMEOUT', true, true));
         setConnectionStatus('failed');
-        socket.close(4000, 'Connection timeout');
+        closeBrowserWebSocket(socket, 4000, 'Connection timeout');
       }, 15_000);
     } catch (connectError) {
       setConnectionStatus('failed');
