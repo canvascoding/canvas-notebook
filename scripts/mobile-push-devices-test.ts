@@ -9,6 +9,7 @@ process.env.DATA = testRoot;
 async function main() {
   try {
   const {
+    agentResponsePushSuppressionReason,
     createAgentResponseReadyMessages,
     createMobilePushMessages,
     getMobilePushDeviceStatus,
@@ -32,7 +33,29 @@ async function main() {
      VALUES (?, ?, ?, ?, ?, ?)`,
     ['auth-session', now + 60_000, 'session-token', now, now, 'push-user'],
   );
+  const responseAt = now + 1_000;
+  await database.run(
+    `INSERT INTO pi_sessions (
+       session_id, user_id, provider, model, title, created_at, updated_at,
+       last_message_at, last_viewed_at, workspace_id, workspace_type
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
+    ['session-1', 'push-user', 'openai', 'test-model', 'Push session', now, now, responseAt, 'workspace-1', 'personal'],
+  );
+  const insertedSession = await database.get(
+    'SELECT id FROM pi_sessions WHERE user_id = ? AND session_id = ?',
+    ['push-user', 'session-1'],
+  ) as { id: number };
+  await database.run(
+    `INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+     VALUES (?, 'assistant', ?, ?, 1)`,
+    [insertedSession.id, JSON.stringify({ role: 'assistant', content: 'Done', timestamp: responseAt }), responseAt],
+  );
   await database.close();
+
+  const unreadState = { lastMessageAt: responseAt, lastViewedAt: null, lastAssistantMessageId: 1 };
+  assert.equal(agentResponsePushSuppressionReason(unreadState, unreadState), null);
+  assert.equal(agentResponsePushSuppressionReason(unreadState, { ...unreadState, lastViewedAt: responseAt }), 'read');
+  assert.equal(agentResponsePushSuppressionReason(unreadState, { ...unreadState, lastAssistantMessageId: 2 }), 'superseded');
 
   const registration = parseMobilePushRegistration({
     installationId: 'installation-1',
@@ -103,6 +126,7 @@ async function main() {
     instanceId: 'cni_0123456789abcdef01234567',
     workspaceId: 'workspace-1',
     sessionId: 'session-1',
+    delayMs: 0,
     fetcher: async (_url, init) => {
       sentPayload = JSON.parse(String(init?.body));
       return Response.json({ data: [{ status: 'ok', id: 'ticket-1' }] });
@@ -110,6 +134,110 @@ async function main() {
   });
   assert.deepEqual(delivery, { attempted: 1, accepted: 1 });
   assert.deepEqual(sentPayload, messages);
+
+  let duplicatePushAttempts = 0;
+  const duplicateFetcher = async () => {
+    duplicatePushAttempts += 1;
+    return Response.json({
+      data: [{ status: 'error', details: { error: 'MessageTooBig' } }],
+    });
+  };
+  const duplicateDeliveries = await Promise.all([
+    sendAgentResponseReadyPush({
+      userId: 'push-user',
+      instanceId: 'cni_0123456789abcdef01234567',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      delayMs: 30,
+      fetcher: duplicateFetcher,
+    }),
+    sendAgentResponseReadyPush({
+      userId: 'push-user',
+      instanceId: 'cni_0123456789abcdef01234567',
+      workspaceId: 'workspace-1',
+      sessionId: 'session-1',
+      delayMs: 30,
+      fetcher: duplicateFetcher,
+    }),
+  ]);
+  assert.equal(duplicatePushAttempts, 1);
+  assert.deepEqual(duplicateDeliveries, [
+    { attempted: 1, accepted: 0 },
+    { attempted: 1, accepted: 0 },
+  ]);
+
+  const readDatabase = await openDb();
+  await readDatabase.run(
+    'UPDATE pi_sessions SET last_viewed_at = last_message_at WHERE user_id = ? AND session_id = ?',
+    ['push-user', 'session-1'],
+  );
+  await readDatabase.close();
+  const readSuppressed = await sendAgentResponseReadyPush({
+    userId: 'push-user',
+    instanceId: 'cni_0123456789abcdef01234567',
+    workspaceId: 'workspace-1',
+    sessionId: 'session-1',
+    delayMs: 0,
+    fetcher: async () => {
+      throw new Error('A read agent response must not contact Expo.');
+    },
+  });
+  assert.deepEqual(readSuppressed, { attempted: 0, accepted: 0 });
+
+  const raceDatabase = await openDb();
+  await raceDatabase.run(
+    'UPDATE pi_sessions SET last_viewed_at = NULL WHERE user_id = ? AND session_id = ?',
+    ['push-user', 'session-1'],
+  );
+  await raceDatabase.close();
+  const readDuringDelayPromise = sendAgentResponseReadyPush({
+    userId: 'push-user',
+    instanceId: 'cni_0123456789abcdef01234567',
+    workspaceId: 'workspace-1',
+    sessionId: 'session-1',
+    delayMs: 30,
+    fetcher: async () => {
+      throw new Error('A response read during the grace period must not contact Expo.');
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const readDuringDelayDatabase = await openDb();
+  await readDuringDelayDatabase.run(
+    'UPDATE pi_sessions SET last_viewed_at = last_message_at WHERE user_id = ? AND session_id = ?',
+    ['push-user', 'session-1'],
+  );
+  await readDuringDelayDatabase.close();
+  assert.deepEqual(await readDuringDelayPromise, { attempted: 0, accepted: 0 });
+
+  const beforeSupersededDatabase = await openDb();
+  await beforeSupersededDatabase.run(
+    'UPDATE pi_sessions SET last_viewed_at = NULL WHERE user_id = ? AND session_id = ?',
+    ['push-user', 'session-1'],
+  );
+  await beforeSupersededDatabase.close();
+  const supersededPromise = sendAgentResponseReadyPush({
+    userId: 'push-user',
+    instanceId: 'cni_0123456789abcdef01234567',
+    workspaceId: 'workspace-1',
+    sessionId: 'session-1',
+    delayMs: 30,
+    fetcher: async () => {
+      throw new Error('A superseded agent response must not contact Expo.');
+    },
+  });
+  await new Promise((resolve) => setTimeout(resolve, 5));
+  const supersedingDatabase = await openDb();
+  await supersedingDatabase.run(
+    `INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
+     VALUES (?, 'assistant', ?, ?, 2)`,
+    [insertedSession.id, JSON.stringify({ role: 'assistant', content: 'Newer', timestamp: responseAt + 1_000 }), responseAt + 1_000],
+  );
+  await supersedingDatabase.run(
+    'UPDATE pi_sessions SET last_message_at = ? WHERE user_id = ? AND session_id = ?',
+    [responseAt + 1_000, 'push-user', 'session-1'],
+  );
+  await supersedingDatabase.close();
+  assert.deepEqual(await supersededPromise, { attempted: 0, accepted: 0 });
 
   const afterTicketDatabase = await openDb();
   const ticketDelivery = await afterTicketDatabase.get(
