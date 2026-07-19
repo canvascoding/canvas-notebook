@@ -52,6 +52,8 @@ export async function GET(request: NextRequest) {
       sessionId: session.session.id,
       workspaceId: workspaceIdFrom(request),
       cursor: url.searchParams.get('cursor'),
+      query: url.searchParams.get('query'),
+      archived: url.searchParams.get('archived') === 'true',
       limit: limitValue === null ? undefined : Number(limitValue),
     });
     return NextResponse.json({ success: true, ...data }, { headers: responseHeaders });

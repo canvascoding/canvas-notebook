@@ -641,6 +641,7 @@ export const piSessions = sqliteTable("pi_sessions", {
   systemPromptSnapshotCreatedAt: integer("system_prompt_snapshot_created_at", { mode: "timestamp" }),
   lastMessageAt: integer("last_message_at", { mode: "timestamp" }),
   lastViewedAt: integer("last_viewed_at", { mode: "timestamp" }),
+  archivedAt: integer("archived_at", { mode: "timestamp" }),
   channelId: text("channel_id").notNull().default('app'),
   channelSessionKey: text("channel_session_key"),
   organizationId: text("organization_id"),
@@ -663,6 +664,7 @@ export const piSessions = sqliteTable("pi_sessions", {
   workspaceIdx: index("idx_pi_sessions_workspace").on(table.workspaceId),
   projectIdx: index("idx_pi_sessions_project").on(table.projectId, table.lastMessageAt),
   userWorkspaceCreatedIdx: index("idx_pi_sessions_user_workspace_created").on(table.userId, table.workspaceId, table.createdAt),
+  userWorkspaceArchivedIdx: index("idx_pi_sessions_user_workspace_archived").on(table.userId, table.workspaceId, table.archivedAt),
 }));
 
 export const piDelegations = sqliteTable("pi_delegations", {
