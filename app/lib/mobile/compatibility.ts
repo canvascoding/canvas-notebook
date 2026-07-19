@@ -37,6 +37,10 @@ export type MobileCompatibility = {
       'todos.read',
       'todos.write',
       'todos.follow_up',
+      'studio.quick_create',
+      'studio.generations',
+      'studio.references',
+      'studio.outputs',
     ];
   };
   auth: {
@@ -95,6 +99,10 @@ export function createMobileCompatibility(input: {
         'todos.read',
         'todos.write',
         'todos.follow_up',
+        'studio.quick_create',
+        'studio.generations',
+        'studio.references',
+        'studio.outputs',
       ],
     },
     auth: {
