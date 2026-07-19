@@ -9,7 +9,6 @@ import {
   resolveAgentExecutionContextForSession,
   resolveAgentSessionWorkspaceForUser,
 } from '@/app/lib/pi/session-workspace-context';
-import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
 import { MAX_BROWSER_UPLOAD_FILE_BYTES } from '@/app/lib/pi/browser/view-transfers';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { workspaceFileOptions } from '@/app/lib/workspaces/request';
@@ -19,9 +18,6 @@ const MAX_RESULTS = 100;
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
-  if (!isBrowserLabAllowed(session.user)) {
-    return NextResponse.json({ success: false, error: 'Not found' }, { status: 404 });
-  }
 
   const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'browser-view-files' });
   if (!limited.ok) return limited.response;

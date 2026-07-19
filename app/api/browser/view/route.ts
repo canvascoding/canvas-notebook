@@ -7,7 +7,6 @@ import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { assertUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { buildBrowserRuntimeStatus } from '@/app/lib/pi/browser/status-service';
-import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
 import { browserViewFailure } from '@/app/lib/pi/browser/view-errors';
 import { resolveBrowserViewResourceBudget } from '@/app/lib/pi/browser/view-resource-budget';
 import { issueBrowserViewTicket } from '@/app/lib/pi/browser/view-ticket';
@@ -29,16 +28,6 @@ export async function POST(request: NextRequest) {
       fatal: true,
     }, { status: 401 });
   }
-  if (!isBrowserLabAllowed(session.user)) {
-    return NextResponse.json({
-      success: false,
-      code: 'FORBIDDEN',
-      error: 'Browser Lab is restricted to development and administrators.',
-      retryable: false,
-      fatal: true,
-    }, { status: 404 });
-  }
-
   const limited = rateLimit(request, {
     limit: 20,
     windowMs: 60_000,

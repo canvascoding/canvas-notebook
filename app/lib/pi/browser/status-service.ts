@@ -34,9 +34,13 @@ export function makeBrowserRuntimeContext(userId: string, rawAgentId?: string | 
 export async function buildBrowserRuntimeStatus(input: {
   userId: string;
   agentId?: string | null;
+  runtimeContext?: Omit<BrowserRuntimeContext, 'userId' | 'agentId'>;
 }): Promise<BrowserRuntimeStatus> {
   const agentId = normalizeManagedAgentId(input.agentId);
-  const context = makeBrowserRuntimeContext(input.userId, agentId);
+  const context = {
+    ...makeBrowserRuntimeContext(input.userId, agentId),
+    ...input.runtimeContext,
+  };
   const [effectiveConfig, capability, profile] = await Promise.all([
     resolveAgentRuntimeSettings(agentId),
     resolveBrowserRuntimeCapability(),

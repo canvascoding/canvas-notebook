@@ -1,6 +1,7 @@
 'use client';
 
 import {
+  ArrowLeft,
   ArrowLeftRight,
   Bot,
   CircleDot,
@@ -38,13 +39,17 @@ import type {
   BrowserViewFailure,
   BrowserViewState,
 } from '@/app/lib/pi/browser/types';
+import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { cn } from '@/lib/utils';
 
 type BrowserLabClientProps = {
+  agentId?: string;
   locale: string;
+  sessionId?: string;
+  variant?: 'lab' | 'live';
 };
 
 type ViewTicketResponse = {
@@ -82,6 +87,14 @@ const copy = {
     eyebrow: 'Entwicklungswerkzeug',
     title: 'Browser Lab',
     description: 'Dieselbe Chromium-Seite beobachten und steuern, die der Agent in seiner Session verwendet.',
+    liveEyebrow: 'Aktueller Chat',
+    liveTitle: 'Live-Browser',
+    liveDescription: 'Verfolge die Browserarbeit des Agenten live oder übernimm die Steuerung, wenn du selbst eingreifen möchtest.',
+    backToChat: 'Zurück zum Chat',
+    currentChat: 'Aktueller Chat',
+    context: 'Kontext',
+    status: 'Status',
+    contextUnavailable: 'Dieser Chat ist für die Live-Browser-Ansicht nicht mehr verfügbar.',
     agent: 'Agent',
     session: 'Chat-Session',
     chooseSession: 'Session auswählen',
@@ -166,6 +179,14 @@ const copy = {
     eyebrow: 'Development tool',
     title: 'Browser Lab',
     description: 'Observe and control the same Chromium page used by the agent in its session.',
+    liveEyebrow: 'Current chat',
+    liveTitle: 'Live Browser',
+    liveDescription: 'Follow the agent’s browser work live or take control when you want to step in yourself.',
+    backToChat: 'Back to chat',
+    currentChat: 'Current chat',
+    context: 'Context',
+    status: 'Status',
+    contextUnavailable: 'This chat is no longer available for the live-browser view.',
     agent: 'Agent',
     session: 'Chat session',
     chooseSession: 'Choose a session',
@@ -282,11 +303,17 @@ function formatBytes(value: number): string {
   return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
-export function BrowserLabClient({ locale }: BrowserLabClientProps) {
+export function BrowserLabClient({
+  agentId,
+  locale,
+  sessionId,
+  variant = 'lab',
+}: BrowserLabClientProps) {
   const t = locale === 'en' ? copy.en : copy.de;
   const searchParams = useSearchParams();
-  const initialAgentId = searchParams.get('agentId')?.trim() || '';
-  const initialSessionId = searchParams.get('sessionId')?.trim() || '';
+  const isLiveView = variant === 'live';
+  const initialAgentId = isLiveView ? agentId?.trim() || '' : searchParams.get('agentId')?.trim() || '';
+  const initialSessionId = isLiveView ? sessionId?.trim() || '' : searchParams.get('sessionId')?.trim() || '';
   const [agents, setAgents] = useState<AgentProfile[]>([]);
   const [sessions, setSessions] = useState<AISession[]>([]);
   const [selectedAgentId, setSelectedAgentId] = useState(initialAgentId);
@@ -307,11 +334,24 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
   const intentionalCloseRef = useRef(false);
   const imageRef = useRef<HTMLImageElement | null>(null);
   const lastPointerMoveAtRef = useRef(0);
+  const autoConnectedContextRef = useRef<string | null>(null);
 
   const availableSessions = useMemo(
     () => sessions.filter((session) => session.engine !== 'legacy' && session.agentId === selectedAgentId),
     [selectedAgentId, sessions],
   );
+  const selectedAgent = useMemo(
+    () => agents.find((candidate) => candidate.agentId === selectedAgentId) ?? null,
+    [agents, selectedAgentId],
+  );
+  const selectedSession = useMemo(
+    () => sessions.find((candidate) => candidate.sessionId === selectedSessionId && candidate.agentId === selectedAgentId) ?? null,
+    [selectedAgentId, selectedSessionId, sessions],
+  );
+  const chatHref = useMemo(() => {
+    const query = new URLSearchParams({ chat: 'open', session: selectedSessionId });
+    return `/chat?${query.toString()}`;
+  }, [selectedSessionId]);
   const userControls = connectionStatus === 'live'
     && viewState?.mode === 'user'
     && viewState.controlOwnerViewId === viewState.viewId;
@@ -361,14 +401,16 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
         if (cancelled) return;
         const nextAgents = agentsPayload.data?.agents ?? [];
         const nextSessions = sessionsPayload.sessions ?? [];
-        const resolvedAgentId = initialAgentId && nextAgents.some((agent) => agent.agentId === initialAgentId)
-          ? initialAgentId
-          : nextAgents[0]?.agentId ?? '';
+        const exactAgentAvailable = initialAgentId && nextAgents.some((candidate) => candidate.agentId === initialAgentId);
+        if (isLiveView && !exactAgentAvailable) throw new Error(t.contextUnavailable);
+        const resolvedAgentId = exactAgentAvailable ? initialAgentId : nextAgents[0]?.agentId ?? '';
         const matchingSessions = nextSessions.filter(
           (candidate) => candidate.engine !== 'legacy' && candidate.agentId === resolvedAgentId,
         );
-        const resolvedSessionId = initialSessionId
-          && matchingSessions.some((candidate) => candidate.sessionId === initialSessionId)
+        const exactSessionAvailable = initialSessionId
+          && matchingSessions.some((candidate) => candidate.sessionId === initialSessionId);
+        if (isLiveView && !exactSessionAvailable) throw new Error(t.contextUnavailable);
+        const resolvedSessionId = exactSessionAvailable
           ? initialSessionId
           : matchingSessions[0]?.sessionId ?? '';
         setAgents(nextAgents);
@@ -389,7 +431,7 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
       }
     })();
     return () => { cancelled = true; };
-  }, [initialAgentId, initialSessionId, t.errors.CONNECTION_FAILED]);
+  }, [initialAgentId, initialSessionId, isLiveView, t.contextUnavailable, t.errors.CONNECTION_FAILED]);
 
   const fileChooserOpenedAt = viewState?.pendingFileChooser?.openedAt ?? null;
   useEffect(() => {
@@ -543,6 +585,14 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
   }, [connectionStatus, disconnect, frameUrl, selectedAgentId, selectedSessionId, t]);
 
   useEffect(() => {
+    if (!isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
+    const contextKey = `${selectedAgentId}:${selectedSessionId}`;
+    if (autoConnectedContextRef.current === contextKey) return;
+    autoConnectedContextRef.current = contextKey;
+    void connect();
+  }, [catalogLoading, connect, isLiveView, selectedAgentId, selectedSessionId]);
+
+  useEffect(() => {
     if (connectionStatus !== 'live') return;
     const timer = window.setInterval(() => send({ type: 'heartbeat' }), 10_000);
     return () => window.clearInterval(timer);
@@ -621,64 +671,100 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
           <div className="max-w-2xl">
             <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
               <CircleDot className="h-3.5 w-3.5" />
-              {t.eyebrow}
+              {isLiveView ? t.liveEyebrow : t.eyebrow}
             </div>
-            <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{t.title}</h2>
-            <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">{t.description}</p>
+            <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{isLiveView ? t.liveTitle : t.title}</h2>
+            <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">
+              {isLiveView ? t.liveDescription : t.description}
+            </p>
           </div>
 
-          <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(180px,240px)_minmax(240px,360px)_auto]">
-            <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
-              <span>{t.agent}</span>
-              <select
-                value={selectedAgentId}
-                disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live'}
-                onChange={(event) => {
-                  disconnect();
-                  const nextAgentId = event.target.value;
-                  setSelectedAgentId(nextAgentId);
-                  setSelectedSessionId(
-                    sessions.find((candidate) => candidate.engine !== 'legacy' && candidate.agentId === nextAgentId)?.sessionId ?? '',
-                  );
-                }}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                {agents.map((agent) => <option key={agent.agentId} value={agent.agentId}>{agent.name}</option>)}
-              </select>
-            </label>
-            <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
-              <span>{t.session}</span>
-              <select
-                value={selectedSessionId}
-                disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live' || availableSessions.length === 0}
-                onChange={(event) => {
-                  disconnect();
-                  setSelectedSessionId(event.target.value);
-                }}
-                className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
-              >
-                <option value="">{availableSessions.length ? t.chooseSession : t.noSessions}</option>
-                {availableSessions.map((session) => (
-                  <option key={session.sessionId} value={session.sessionId}>{session.title || session.sessionId}</option>
-                ))}
-              </select>
-            </label>
-            <div className="flex items-end gap-2">
-              <Button
-                className="h-10 gap-2"
-                disabled={!selectedSessionId || catalogLoading || connectionStatus === 'connecting'}
-                onClick={() => void connect()}
-              >
-                {connectionStatus === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
-                {connectionStatus === 'live' || connectionStatus === 'failed' ? t.reconnect : t.connect}
-              </Button>
-              {connectionStatus === 'live' ? (
-                <Button variant="outline" size="icon" className="h-10 w-10" onClick={() => disconnect()} title={t.disconnect}>
-                  <Unplug className="h-4 w-4" />
+          {isLiveView ? (
+            <div className="flex min-w-0 flex-col gap-3 sm:items-end">
+              <div className="flex min-w-0 flex-wrap items-center gap-2 text-xs">
+                <span className="inline-flex min-w-0 items-center gap-2 rounded-md border border-border/70 bg-background/70 px-3 py-2 text-foreground">
+                  <Bot className="h-4 w-4 shrink-0 text-primary" />
+                  <span className="max-w-40 truncate font-medium">{selectedAgent?.name || t.agent}</span>
+                  <span className="text-muted-foreground">·</span>
+                  <span className="max-w-64 truncate text-muted-foreground">{selectedSession?.title || t.currentChat}</span>
+                </span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <Button asChild variant="outline" className="h-10 gap-2">
+                  <Link href={chatHref}>
+                    <ArrowLeft className="h-4 w-4" />
+                    {t.backToChat}
+                  </Link>
                 </Button>
-              ) : null}
+                <Button
+                  className="h-10 gap-2"
+                  disabled={!selectedSessionId || catalogLoading || connectionStatus === 'connecting'}
+                  onClick={() => void connect()}
+                >
+                  {connectionStatus === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
+                  {connectionStatus === 'live' || connectionStatus === 'failed' ? t.reconnect : t.connect}
+                </Button>
+                {connectionStatus === 'live' ? (
+                  <Button variant="outline" size="icon" className="h-10 w-10" onClick={() => disconnect()} title={t.disconnect}>
+                    <Unplug className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(180px,240px)_minmax(240px,360px)_auto]">
+              <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
+                <span>{t.agent}</span>
+                <select
+                  value={selectedAgentId}
+                  disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live'}
+                  onChange={(event) => {
+                    disconnect();
+                    const nextAgentId = event.target.value;
+                    setSelectedAgentId(nextAgentId);
+                    setSelectedSessionId(
+                      sessions.find((candidate) => candidate.engine !== 'legacy' && candidate.agentId === nextAgentId)?.sessionId ?? '',
+                    );
+                  }}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                >
+                  {agents.map((candidate) => <option key={candidate.agentId} value={candidate.agentId}>{candidate.name}</option>)}
+                </select>
+              </label>
+              <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
+                <span>{t.session}</span>
+                <select
+                  value={selectedSessionId}
+                  disabled={catalogLoading || connectionStatus === 'connecting' || connectionStatus === 'live' || availableSessions.length === 0}
+                  onChange={(event) => {
+                    disconnect();
+                    setSelectedSessionId(event.target.value);
+                  }}
+                  className="h-10 w-full rounded-md border border-input bg-background px-3 text-sm text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-50"
+                >
+                  <option value="">{availableSessions.length ? t.chooseSession : t.noSessions}</option>
+                  {availableSessions.map((candidate) => (
+                    <option key={candidate.sessionId} value={candidate.sessionId}>{candidate.title || candidate.sessionId}</option>
+                  ))}
+                </select>
+              </label>
+              <div className="flex items-end gap-2">
+                <Button
+                  className="h-10 gap-2"
+                  disabled={!selectedSessionId || catalogLoading || connectionStatus === 'connecting'}
+                  onClick={() => void connect()}
+                >
+                  {connectionStatus === 'connecting' ? <Loader2 className="h-4 w-4 animate-spin" /> : <MonitorUp className="h-4 w-4" />}
+                  {connectionStatus === 'live' || connectionStatus === 'failed' ? t.reconnect : t.connect}
+                </Button>
+                {connectionStatus === 'live' ? (
+                  <Button variant="outline" size="icon" className="h-10 w-10" onClick={() => disconnect()} title={t.disconnect}>
+                    <Unplug className="h-4 w-4" />
+                  </Button>
+                ) : null}
+              </div>
+            </div>
+          )}
         </div>
       </section>
 
@@ -895,7 +981,9 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
 
         <aside className="min-h-0 overflow-y-auto bg-muted/15 p-4">
           <div className="mb-4 flex items-center justify-between">
-            <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">{t.diagnostics}</h3>
+            <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {isLiveView ? t.context : t.diagnostics}
+            </h3>
             <span className={cn(
               'h-2 w-2 rounded-full',
               connectionStatus === 'live'
@@ -907,17 +995,41 @@ export function BrowserLabClient({ locale }: BrowserLabClientProps) {
                     : 'bg-muted-foreground/40',
             )} />
           </div>
-          <dl className="space-y-3 text-xs">
-            <DiagnosticRow label="Status" value={connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected} />
-            <DiagnosticRow label={t.agent} value={viewState?.agentId || selectedAgentId || '—'} mono />
-            <DiagnosticRow label={t.session} value={viewState?.agentSessionId || selectedSessionId || '—'} mono />
-            <DiagnosticRow label={t.workspace} value={viewState?.workspaceId || '—'} mono />
-            <DiagnosticRow label={t.viewport} value={viewState ? `${viewState.viewport.width} × ${viewState.viewport.height}` : '—'} />
-            <DiagnosticRow label={t.frameRate} value={viewState ? `${viewState.resourceBudget.fps} FPS` : '—'} />
-            <DiagnosticRow label={t.memory} value={viewState ? `${viewState.resourceBudget.effectiveMemoryMb} MiB` : '—'} />
-            <DiagnosticRow label={t.availableMemory} value={viewState ? `${viewState.resourceBudget.availableMemoryMb} MiB` : '—'} />
-            <DiagnosticRow label={t.tabs} value={String(viewState?.tabs.length ?? 0)} />
-          </dl>
+          {isLiveView ? (
+            <div className="space-y-2 text-xs">
+              <div className="rounded-lg border border-border/70 bg-background/65 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t.status}</div>
+                <div className="mt-1.5 font-medium text-foreground" aria-live="polite">
+                  {connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected}
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-background/65 p-3">
+                <div className="flex items-center gap-2">
+                  <Bot className="h-4 w-4 shrink-0 text-primary" />
+                  <div className="min-w-0">
+                    <div className="truncate font-medium text-foreground">{selectedAgent?.name || t.agent}</div>
+                    <div className="mt-0.5 truncate text-muted-foreground">{selectedSession?.title || t.currentChat}</div>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-lg border border-border/70 bg-background/65 p-3">
+                <div className="text-[10px] font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t.tabs}</div>
+                <div className="mt-1.5 font-medium text-foreground">{String(viewState?.tabs.length ?? 0)}</div>
+              </div>
+            </div>
+          ) : (
+            <dl className="space-y-3 text-xs">
+              <DiagnosticRow label={t.status} value={connectionStatus === 'live' ? t.live : connectionStatus === 'connecting' ? t.connecting : connectionStatus === 'failed' ? t.failed : t.disconnected} />
+              <DiagnosticRow label={t.agent} value={viewState?.agentId || selectedAgentId || '—'} mono />
+              <DiagnosticRow label={t.session} value={viewState?.agentSessionId || selectedSessionId || '—'} mono />
+              <DiagnosticRow label={t.workspace} value={viewState?.workspaceId || '—'} mono />
+              <DiagnosticRow label={t.viewport} value={viewState ? `${viewState.viewport.width} × ${viewState.viewport.height}` : '—'} />
+              <DiagnosticRow label={t.frameRate} value={viewState ? `${viewState.resourceBudget.fps} FPS` : '—'} />
+              <DiagnosticRow label={t.memory} value={viewState ? `${viewState.resourceBudget.effectiveMemoryMb} MiB` : '—'} />
+              <DiagnosticRow label={t.availableMemory} value={viewState ? `${viewState.resourceBudget.availableMemoryMb} MiB` : '—'} />
+              <DiagnosticRow label={t.tabs} value={String(viewState?.tabs.length ?? 0)} />
+            </dl>
+          )}
 
           <div className="mt-6 rounded-lg border border-border/70 bg-background/65 p-3">
             <div className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">

@@ -6,6 +6,7 @@ const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_A
 const labels = {
   address: /^(Adresse|Address)$/,
   agentControls: /^(Agent steuert|Agent controls)$/,
+  backToChat: /^(Zurück zum Chat|Back to chat)$/,
   connect: /^(Live-Ansicht starten|Start live view)$/,
   disconnect: /^(Trennen|Disconnect)$/,
   disconnected: /^(Nicht verbunden|Disconnected)$/,
@@ -13,6 +14,8 @@ const labels = {
   failureTitle: /^(Die Live-Ansicht braucht Aufmerksamkeit|The live view needs attention)$/,
   giveAgent: /^(An Agenten geben|Give to agent)$/,
   live: /^(Live verbunden|Live connected)$/,
+  liveBrowser: /^(Live-Browser|Live Browser)$/,
+  openLiveBrowser: /^(Live-Browser öffnen|Open live browser)$/,
   navigate: /^(Öffnen|Open)$/,
   navigationBlocked: /(Diese Adresse wurde durch die Browser-Sicherheitsrichtlinie blockiert\.|This address was blocked by the browser security policy\.)/,
   pageCrashed: /(Die verwaltete Browserseite wurde unerwartet beendet\.|The managed browser page stopped unexpectedly\.)/,
@@ -172,6 +175,9 @@ test.describe('Browser Lab', () => {
   test.setTimeout(180_000);
 
   test('requires an authenticated user', async ({ page }) => {
+    await page.goto('/browser/live?agentId=canvas-agent&sessionId=unavailable');
+    await expect(page).toHaveURL(/\/login(?:\?.*)?$/, { timeout: 15_000 });
+
     await page.goto('/browser/lab');
     await expect(page).toHaveURL(/\/login(?:\?.*)?$/, { timeout: 15_000 });
 
@@ -336,6 +342,60 @@ test.describe('Browser Lab', () => {
       expect(mobileMetrics.visibleButtons.every((button) => button.left >= -1 && button.right <= mobileMetrics.innerWidth + 1)).toBeTruthy();
 
       await page.getByTitle(labels.disconnect).click();
+      expect(pageErrors).toEqual([]);
+    } finally {
+      await deleteBrowserLabTestSession(page, session);
+    }
+  });
+
+  test('opens the running browser from its chat without exposing lab diagnostics', async ({ page }) => {
+    const pageErrors: Error[] = [];
+    page.on('pageerror', (error) => pageErrors.push(error));
+
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await login(page);
+    const session = await findBrowserLabSession(page);
+    try {
+      await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
+      await expect(page.getByRole('button', { name: labels.connect })).toBeEnabled({ timeout: 15_000 });
+      await page.getByRole('button', { name: labels.connect }).click();
+      await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
+      await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
+
+      await page.goto('/chat?chat=open');
+      await page.getByTestId('chat-open-latest-session').click();
+      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
+
+      const browserStatusResponse = await page.request.get(
+        `/api/agents/browser?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`,
+      );
+      const browserStatus = await browserStatusResponse.json() as {
+        success?: boolean;
+        data?: { profile?: { sessionRunning?: boolean } };
+        error?: string;
+      };
+      expect(browserStatusResponse.ok(), JSON.stringify(browserStatus)).toBeTruthy();
+      expect(browserStatus.data?.profile?.sessionRunning, JSON.stringify(browserStatus)).toBeTruthy();
+
+      const liveBrowserLink = page.getByTestId('chat-live-browser-link');
+      await expect(liveBrowserLink).toBeVisible({ timeout: 30_000 });
+      await expect(liveBrowserLink).toHaveAttribute('aria-label', labels.openLiveBrowser);
+      await liveBrowserLink.click();
+
+      await expect(page).toHaveURL(new RegExp(
+        `/browser/live\\?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}$`,
+      ));
+      await expect(page.getByRole('heading', { name: labels.liveBrowser, level: 2 })).toBeVisible();
+      await expect(page.getByRole('combobox')).toHaveCount(0);
+      await expect(page.getByText(/^(Diagnose|Diagnostics)$/)).toHaveCount(0);
+      await expect(page.getByText(session.sessionId, { exact: true })).toHaveCount(0);
+      await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
+      await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
+      await page.screenshot({ path: 'test-results/live-browser-from-chat.png', fullPage: false });
+
+      await page.getByRole('link', { name: labels.backToChat }).click();
+      await expect(page).toHaveURL(/\/chat\?/);
+      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
       expect(pageErrors).toEqual([]);
     } finally {
       await deleteBrowserLabTestSession(page, session);

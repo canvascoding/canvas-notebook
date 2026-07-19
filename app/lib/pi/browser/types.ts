@@ -199,6 +199,7 @@ export type BrowserProfileDetails = {
   organizationId?: string | null;
   profileDirExists: boolean;
   running: boolean;
+  sessionRunning: boolean;
   activeSessionCount: number;
   pageCount?: number;
   activeUrl?: string | null;

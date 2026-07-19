@@ -6,7 +6,6 @@ import WebSocket, { WebSocketServer } from 'ws';
 import { assertUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { assertBrowserRuntimeAvailable } from '@/app/lib/pi/browser/settings-service';
-import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
 import { browserViewFailure } from '@/app/lib/pi/browser/view-errors';
 import { resolveBrowserViewResourceBudget } from '@/app/lib/pi/browser/view-resource-budget';
 import {
@@ -24,6 +23,8 @@ import { authenticateWebSocketConnection } from './websocket-auth';
 const BROWSER_VIEW_PATH = '/ws/browser';
 const MAX_INBOUND_BYTES = 16 * 1024;
 const MAX_BUFFERED_FRAME_BYTES = 2 * 1024 * 1024;
+const MAX_CONNECTIONS_PER_USER = 4;
+const SUBSCRIBE_TIMEOUT_MS = 15_000;
 const HEARTBEAT_INTERVAL_MS = 30_000;
 
 type ClientMessage =
@@ -48,6 +49,7 @@ type BrowserConnection = {
   isAlive: boolean;
   rateLimit: BrowserViewRateLimitState;
   operationQueue: Promise<void>;
+  subscribeTimeout: ReturnType<typeof setTimeout> | null;
 };
 
 const activeServices = new Set<BrowserViewService>();
@@ -95,6 +97,10 @@ async function subscribe(connection: BrowserConnection, token: string): Promise<
   }
   if (activeViewIds.has(claims.viewId)) {
     throw new Error('Browser view ticket is already connected.');
+  }
+  if (connection.subscribeTimeout) {
+    clearTimeout(connection.subscribeTimeout);
+    connection.subscribeTimeout = null;
   }
 
   const session = await assertUnambiguousOwnedPiSessionForRuntime({
@@ -204,9 +210,10 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
     ws.close(4001, 'Unauthorized');
     return;
   }
-  if (!isBrowserLabAllowed({ role: authResult.userRole, email: authResult.userEmail })) {
-    sendError(ws, { code: 'FORBIDDEN', error: 'Browser Lab is restricted to development and administrators.', retryable: false, fatal: true });
-    ws.close(4003, 'Forbidden');
+  const openConnectionsForUser = [...connections].filter((candidate) => candidate.userId === authResult.userId).length;
+  if (openConnectionsForUser >= MAX_CONNECTIONS_PER_USER) {
+    sendError(ws, { code: 'CAPACITY_EXHAUSTED', error: 'Too many browser views are open for this user.', retryable: true, fatal: true });
+    ws.close(4008, 'Too many browser views');
     return;
   }
 
@@ -218,7 +225,14 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
     isAlive: true,
     rateLimit: createBrowserViewRateLimitState(),
     operationQueue: Promise.resolve(),
+    subscribeTimeout: null,
   };
+  connection.subscribeTimeout = setTimeout(() => {
+    if (!connection.service && ws.readyState === WebSocket.OPEN) {
+      sendError(ws, { code: 'TICKET_EXPIRED', error: 'Browser view subscription timed out.', retryable: true, fatal: true });
+      ws.close(4008, 'Subscription timeout');
+    }
+  }, SUBSCRIBE_TIMEOUT_MS);
   connections.add(connection);
 
   sendJson(ws, { type: 'auth_success' });
@@ -255,6 +269,10 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
   });
   const cleanup = () => {
     connections.delete(connection);
+    if (connection.subscribeTimeout) {
+      clearTimeout(connection.subscribeTimeout);
+      connection.subscribeTimeout = null;
+    }
     if (connection.service) {
       connection.service.close();
       activeServices.delete(connection.service);

@@ -15,6 +15,7 @@ import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { ChatAgentSelector } from '@/app/components/canvas-agent-chat/ChatAgentSelector';
+import { ChatLiveBrowserLink } from '@/app/components/canvas-agent-chat/ChatLiveBrowserLink';
 import { ChatRuntimeActivityBadge } from '@/app/components/canvas-agent-chat/ChatRuntimeActivityBadge';
 import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
@@ -175,6 +176,11 @@ export function ChatHeader({
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-1 md:ml-auto">
+            <ChatLiveBrowserLink
+              agentId={activeSessionAgentId}
+              runtimeStatus={runtimeStatus}
+              sessionId={sessionId}
+            />
             <WorkspaceSwitcher
               source="chat"
               variant={compactSelectors ? 'chat-compact' : 'compact'}

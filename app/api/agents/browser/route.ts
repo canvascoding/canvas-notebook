@@ -4,6 +4,11 @@ import { auth } from '@/app/lib/auth';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { AgentAccessError, requireAgentAccess } from '@/app/lib/agents/access';
+import {
+  PiSessionRuntimeAccessError,
+  assertUnambiguousOwnedPiSessionForRuntime,
+} from '@/app/lib/pi/session-runtime-access';
+import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { runBrowserLaunchProbe } from '@/app/lib/pi/browser/requirements';
 import {
   assertBrowserRuntimeAvailable,
@@ -63,12 +68,38 @@ export async function GET(request: NextRequest) {
   try {
     const agentId = normalizeManagedAgentId(request.nextUrl.searchParams.get('agentId'));
     await requireAgentAccess(session.user.id, agentId, 'canUse');
+    const sessionId = request.nextUrl.searchParams.get('sessionId')?.trim() || '';
+    let runtimeContext;
+    if (sessionId) {
+      const agentSession = await assertUnambiguousOwnedPiSessionForRuntime({
+        sessionId,
+        userId: session.user.id,
+        agentId,
+      });
+      const executionContext = await resolveAgentExecutionContextForSession({
+        sessionId: agentSession.sessionId,
+        userId: session.user.id,
+        agentId: agentSession.agentId,
+      });
+      runtimeContext = {
+        sessionId: agentSession.sessionId,
+        workspaceId: executionContext.workspaceId,
+        workspaceType: executionContext.workspaceType,
+        organizationId: executionContext.organizationId,
+      };
+    }
     const status = await buildBrowserRuntimeStatus({
       userId: session.user.id,
       agentId,
+      runtimeContext,
     });
-    return NextResponse.json({ success: true, data: status });
+    return NextResponse.json({ success: true, data: status }, {
+      headers: { 'Cache-Control': 'no-store' },
+    });
   } catch (error) {
+    if (error instanceof PiSessionRuntimeAccessError) {
+      return NextResponse.json({ success: false, error: 'Browser session not found.' }, { status: 404 });
+    }
     const message = error instanceof Error ? error.message : 'Failed to load browser status.';
     return NextResponse.json({ success: false, error: message }, { status: error instanceof AgentAccessError ? error.status : 500 });
   }

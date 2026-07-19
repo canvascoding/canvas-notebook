@@ -14,6 +14,7 @@ import {
   getActiveBrowserRuntimeTabId,
   getBrowserRuntimeTabs,
   getPendingDialogDetails,
+  resetBrowserSessionPage,
   scheduleIdleClose,
   withBrowserRuntimeLock,
   type BrowserRuntimeContext,
@@ -113,12 +114,19 @@ export class BrowserViewService {
     if (!this.resourceBudget.allowed) {
       throw new Error(this.resourceBudget.reason || 'Interactive browser view is unavailable.');
     }
-    await withBrowserRuntimeLock(this.context, async () => {
+    const preparePage = async () => withBrowserRuntimeLock(this.context, async () => {
       const page = await ensurePage(this.context);
       await this.applyViewport(page);
       await this.ensurePageTransfers(page);
       scheduleIdleClose(this.context);
     });
+    try {
+      await preparePage();
+    } catch (error) {
+      if (browserViewFailure(error, 'subscribe').code !== 'PAGE_CRASHED') throw error;
+      await resetBrowserSessionPage(this.context);
+      await preparePage();
+    }
     this.send({ type: 'ready', viewId: this.claims.viewId });
     await this.audit('browser_view.connect', { mode: getBrowserControlState(this.context).mode });
     await this.publishState(true);

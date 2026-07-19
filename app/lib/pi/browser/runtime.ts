@@ -53,7 +53,16 @@ type BrowserSessionState = {
   } | null;
 };
 
-const browserProfiles = new Map<string, BrowserProfileState>();
+type BrowserRuntimeGlobal = typeof globalThis & {
+  __canvasBrowserProfilesV1?: Map<string, BrowserProfileState>;
+};
+
+// The custom WebSocket server and Next.js route handlers can load this module
+// through separate bundle graphs in the same Node.js process. Keep the runtime
+// registry process-global so status APIs and browser controls observe one state.
+const runtimeGlobal = globalThis as BrowserRuntimeGlobal;
+const browserProfiles = runtimeGlobal.__canvasBrowserProfilesV1 ?? new Map<string, BrowserProfileState>();
+runtimeGlobal.__canvasBrowserProfilesV1 = browserProfiles;
 const requestPolicyPages = new WeakSet<Page>();
 const CHROME_PROFILE_STARTUP_ARTIFACTS = [
   'SingletonLock',
@@ -692,6 +701,7 @@ export async function getBrowserProfileDetails(context: BrowserRuntimeContext = 
     organizationId: context.organizationId ?? null,
     profileDirExists: existsSync(userDataDir),
     running,
+    sessionRunning: Boolean(running && page),
     activeSessionCount: profile?.sessions.size ?? 0,
     pageCount: running ? pages.length : undefined,
     activeUrl: page?.url() || null,
