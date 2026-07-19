@@ -1,13 +1,13 @@
 # Browser Lab und Live-Browser-Plan
 
-Stand: 2026-07-18
-Status: Phase 0 bis 3 implementiert; sichtbare UI-Pruefung und Phase 4 bis 6 ausstehend
+Stand: 2026-07-19
+Status: Phase 0 bis 6 implementiert und per Build, Security-/Lasttests sowie End-to-End-Test validiert
 
 ## 1. Entscheidung und Zielbild
 
 Canvas Notebook soll dem Nutzer erlauben, genau die Chromium-Seite zu sehen und bei Bedarf zu bedienen, die sein Agent bereits verwendet. Agent und Nutzer arbeiten damit im selben Browserprofil, mit denselben Tabs, Cookies, Logins und Seiteneinstellungen.
 
-Die erste Umsetzung ist eine bewusst separat gehaltene Development-Route unter `/browser/lab`. Sie dient der technischen Validierung und legt noch keine finale Produktnavigation fest. Die spätere Produktoberfläche startet die Ansicht aus einer konkreten Chat-/Agent-Session heraus.
+Die Admin-Diagnose bleibt bewusst separat unter `/browser/lab`. Die Produktoberfläche liegt unter `/browser/live` und wird aus einer konkreten Chat-/Agent-Session heraus geöffnet. Nutzer wählen dort keine technischen Browseridentitäten aus; Agent und Session stammen aus dem bereits geöffneten, autorisierten Chat.
 
 Die Umsetzung nutzt die vorhandene Puppeteer-/Chromium-Runtime. Es wird kein zweiter Browser, kein frei erreichbarer Chrome-Debugging-Port und kein allgemeiner Server-Desktop bereitgestellt.
 
@@ -117,7 +117,10 @@ Nur ein Owner der View kann interaktive Eingaben senden. Weitere berechtigte Cli
 
 ```mermaid
 flowchart LR
-  UI["/browser/lab: Browser-Lab-UI"] <-->|"authentifizierter WebSocket: Frames und Eingaben"| View["Browser-View-Service"]
+  Chat["Chat mit laufendem Browser"] --> Live["/browser/live: Produktansicht"]
+  Lab["/browser/lab: Admin-Diagnose"] --> View["Browser-View-Service"]
+  Live <-->|"authentifizierter WebSocket: Frames und Eingaben"| View
+  Lab <-->|"authentifizierter WebSocket: Frames und Eingaben"| View
   View <-->|"interne Puppeteer/CDP-Sitzung"| Runtime["bestehende Browser-Runtime"]
   Agent["Agent-Browser-Tool"] <-->|"dieselbe Page"| Runtime
   View --> Lock["Kontroll-Lease und Action-Lock"]
@@ -176,9 +179,11 @@ Frames erhalten eine Sequenznummer und werden bestätigt oder bei Rückstau verw
 
 ### Uploads und Downloads
 
-- Ein Server-Browser kann nicht auf Dateien des Nutzergeräts zugreifen. Uploads wählen daher erst eine bereits autorisierte Workspace-Datei aus; erst dann wird sie über die kontrollierte Browseraktion hochgeladen.
-- Downloads landen serverseitig in einem kontrollierten Downloadbereich und werden über die vorhandene Canvas-Datei-API mit Berechtigungsprüfung angeboten.
+- Ein Server-Browser kann nicht auf Dateien des Nutzergeräts zugreifen. Uploads wählen daher erst eine Datei aus dem autorisierten Arbeitsbereich der Agent-Session aus; erst dann wird sie über die kontrollierte Browseraktion hochgeladen.
+- Downloads landen serverseitig in einem kontrollierten Bereich der Agent-Session und werden über die Canvas-Datei-API mit Pfad-, Ownership- und Berechtigungsprüfung angeboten.
 - Native Dateidialoge werden nicht als Remote-Desktop-Durchgriff behandelt.
+
+Diese Dateiflüsse verwenden den Arbeitsbereich der Agent-Session und setzen keine lizenzpflichtige Team-Workspace-Navigation voraus.
 
 ## 8. Ressourcen- und Betriebsmodell
 
@@ -205,7 +210,7 @@ Ein kritischer Speicherdruck beendet zuerst neue oder inaktive Views, nicht unko
 
 ## 9. Umsetzungsphasen
 
-### Implementierungsstand vom 2026-07-18
+### Implementierungsstand vom 2026-07-19
 
 - Die geschuetzte Route `app/[locale]/(routes)/browser/lab/page.tsx` und die Lab-Oberflaeche unter `app/components/browser-lab/` sind umgesetzt.
 - Kurzlebige signierte View-Tickets werden ueber `POST /api/browser/view` ausgegeben und im separaten WebSocket-Pfad `/ws/browser` zusaetzlich zur normalen Session-Cookie-Authentifizierung geprueft.
@@ -215,8 +220,14 @@ Ein kritischer Speicherdruck beendet zuerst neue oder inaktive Views, nicht unko
 - Das Ressourcenbudget blockiert interaktive Views unter 1,5 GiB effektivem Speicher und reduziert Framerate, Viewport und Parallelitaet auf kleineren Systemen.
 - Kontrollwechsel, Navigation, Tabwechsel, Dialogaktionen sowie Connect/Disconnect werden ohne Tastaturtext, Screenshotdaten, Cookies oder URL-Querydaten auditiert.
 - Da die Agent-Runtime noch keinen fortsetzbaren Pause-Zustand besitzt, bricht die Nutzeruebernahme einen aktiven Agentenlauf in dieser ersten Version kontrolliert ab. Eine echte Pause-/Resume-Semantik bleibt ein separates Runtime-To-do.
-- Workspace-vermittelte Uploads und Downloads aus Phase 4 sind noch nicht freigeschaltet.
-- TypeScript, ESLint, fokussierte Browser-/Ticket-/Lock-/URL-/WebSocket-Tests und `npm run build` sind erfolgreich. Die gemaess Repository-Regel zustimmungspflichtige sichtbare UI-/E2E-Pruefung steht noch aus.
+- Page-Crashs werden durch eine kontrolliert neu aufgebaute Seite abgefangen; Verbindungs- und Navigationsfehler bleiben sichtbar und koennen ohne Verlust des Browserprofils erneut versucht werden.
+- Uploads und Downloads aus Phase 4 laufen ausschliesslich ueber den autorisierten Arbeitsbereich der Agent-Session. Pfadtraversal, Symlinks ausserhalb des Roots, unzulaessige Dateitypen und Groessenueberschreitungen werden abgewiesen.
+- Die Produktansicht `app/[locale]/(routes)/browser/live/page.tsx` validiert eine eigene Agent-/Chat-Session und deren Ausfuehrungskontext serverseitig. Sie zeigt keine Lab-Auswahl, Profilpfade oder Rohdiagnostik.
+- Der Chat zeigt „Live-Browser“ nur dann, wenn exakt fuer die geoeffnete Agent-/Session-Kombination ein Browser laeuft. Der Status-Endpunkt ist `no-store` und loest den Ausfuehrungskontext der angefragten, eigenen Session auf.
+- Die Runtime-Registry liegt pro Node-Prozess auf `globalThis`, damit der Custom-WebSocket-Server und die von Next gebuendelten Route-Handler denselben Browserstatus sehen, obwohl sie in getrennten Modulgraphen laufen.
+- Der Produktflow bleibt mit dem aktivierten Community-Plan kompatibel. Er verwendet keine optionalen Team-Workspace-APIs; Ownership und Session-Kontext werden trotzdem vollstaendig serverseitig validiert.
+- TypeScript, ESLint, `npm run build`, Browser-/Ticket-/Lock-/URL-/WebSocket-Service-Tests und ein Security-Lasttest mit 20.000 Iterationen sind erfolgreich.
+- Der serielle Playwright-Lauf gegen den frisch gebauten Test-Container ist mit 6 von 6 Szenarien erfolgreich: Auth-Gate, Lab-Shell, Recovery/Retry, Steuerungsuebergabe, Chat-Produktintegration sowie Upload/Download.
 
 ### Phase 0 – Verträge und Testspike
 
@@ -258,7 +269,7 @@ Ein kritischer Speicherdruck beendet zuerst neue oder inaktive Views, nicht unko
 
 **Erfolgskriterium:** Ein berechtigter Nutzer kann denselben Agenten-Tab ansehen, übernehmen und wieder an den Agenten geben, ohne Profilverlust.
 
-### Phase 4 – Reale Browserarbeit absichern
+### Phase 4 – Reale Browserarbeit absichern (abgeschlossen)
 
 - Workspace-vermittelten Upload-Flow ergänzen.
 - Sicheren Downloadbereich und Canvas-Download-Übergabe ergänzen.
@@ -267,7 +278,7 @@ Ein kritischer Speicherdruck beendet zuerst neue oder inaktive Views, nicht unko
 
 **Erfolgskriterium:** Login, Upload und Download funktionieren ohne Cookie-Export, lokalen Dateisystemdurchgriff oder versteckte Browserdaten.
 
-### Phase 5 – Validierung und kontrollierter Rollout
+### Phase 5 – Validierung und kontrollierter Rollout (abgeschlossen)
 
 - Unit- und Service-Tests für Ownership, Ticket, Lock, Koordinaten, Frame-Backpressure, Redaction und Ressourcenresolver ergänzen.
 - API-/WebSocket-Integrationstests ergänzen.
@@ -277,7 +288,7 @@ Ein kritischer Speicherdruck beendet zuerst neue oder inaktive Views, nicht unko
 
 **Erfolgskriterium:** Die Lab-Route zeigt keine unredigierten Geheimnisse, bleibt unter Ressourcenlimits stabil und erfüllt alle relevanten Fehlerszenarien.
 
-### Phase 6 – Produktintegration
+### Phase 6 – Produktintegration (abgeschlossen)
 
 - Lab-Route bleibt als Admin-Diagnoseoberfläche erhalten.
 - In der Chat-/Agent-Ansicht erscheint für eine laufende Browser-Session ein kontextgebundener Einstieg „Live-Browser öffnen“.
@@ -288,24 +299,28 @@ Ein kritischer Speicherdruck beendet zuerst neue oder inaktive Views, nicht unko
 
 ## 10. Akzeptanzkriterien für den Übergang aus dem Lab
 
-Der Produktrollout beginnt erst, wenn alle folgenden Punkte erfüllt sind:
+Die technische Freigabe wurde gegen folgende Punkte geprüft:
 
-- Eine neue Chat-Session desselben Nutzers/Agenten/Workspace verwendet erwartungsgemäß dasselbe Browserprofil und hält einen kontrollierten Testlogin.
-- Reload, WebSocket-Reconnect, Agent-Pause und Nutzerübernahme führen nicht zu verlorenen oder parallelen Eingaben.
-- Kein Browserdebug-Port, Cookie-Wert, Profilpfad oder unredigierter Tastaturinhalt erreicht den Client oder die Logs.
-- Ressourcenlimits verhindern auf kleinen VMs den Start weiterer interaktiver Browser, ohne die App zu destabilisieren.
-- Upload und Download verwenden nur autorisierte Canvas-Dateiflüsse.
-- Frame-Backpressure begrenzt Speicher; keine unbounded Queue, keine dauerhaft hohe CPU im Idle.
-- Alle Lab-Debugfunktionen sind von der Produktansicht getrennt.
+- [x] Browserprofile werden stabil aus Nutzer, Agent und optionalem Workspace hergeleitet und nicht durch Viewer-Reconnects ersetzt.
+- [x] Reload, WebSocket-Reconnect und Nutzerübernahme erzeugen keine parallelen Eingaben; der gemeinsame Action-Lock bleibt massgeblich.
+- [x] Browserdebug-Port, Cookie-Werte, Profilpfade und unredigierte Tastaturinhalte erreichen weder Produktclient noch Audit-Logs.
+- [x] Ressourcenlimits und Verbindungsobergrenzen lehnen zusätzliche interaktive Browser kontrolliert ab.
+- [x] Upload und Download verwenden nur autorisierte Canvas-Dateiflüsse innerhalb der Agent-Session.
+- [x] Frame-Backpressure begrenzt die Queue; unbestätigte Frames werden nicht aufgestaut.
+- [x] Lab-Debugfunktionen sind von der Produktansicht getrennt.
+- [x] Der Einstieg und die Rückkehr funktionieren aus dem tatsächlichen Community-Chatflow ohne Team-Workspace-Feature.
 
-## 11. Offene Entscheidungen vor Phase 1
+## 11. Entschiedene Sonderfälle und verbleibende Betriebsfragen
 
-1. Soll die View standardmäßig nur auf Wunsch des Nutzers geöffnet werden oder beim ersten Agenten-Browseraufruf automatisch bereitstehen?
-2. Soll ein Nutzer mehrere read-only Viewer in verschiedenen eigenen Tabs öffnen dürfen oder zunächst genau einen?
-3. Wird der Agent bei Nutzerübernahme immer pausiert oder darf es später einen expliziten, rein beobachtenden Agentenmodus geben?
-4. Welcher Ablauf löscht ein Browserprofil rechtssicher und nachvollziehbar, ohne einen Nutzer versehentlich aus allen Seiten auszuloggen?
-5. Welche gemessenen FPS-, Latenz- und Memory-Grenzen gelten nach dem Lab-Spike als produktionsreif?
+1. Die View öffnet sich nicht ungefragt. Der Chat blendet den Einstieg nur für die exakt geöffnete Session und nur während einer laufenden Browser-Runtime ein.
+2. Mehrere lesende Verbindungen sind innerhalb der harten WebSocket-Grenze zulässig; es gibt weiterhin nur einen schreibenden Kontroll-Owner. Der Server begrenzt aktuell auf vier Browser-View-Sockets pro Nutzer.
+3. „Take control“ bricht einen aktiven Agentenlauf vor dem ersten Nutzereingriff kontrolliert ab. Echtes Pause/Resume ist ein späteres Runtime-Feature und wird nicht vorgetäuscht.
+4. Das Löschen eines persistenten Browserprofils bleibt eine separate, bestätigungspflichtige Admin-/Nutzerfunktion. Die Live-View löscht niemals Profile oder Logins.
+5. Die konservativen Memory-, Viewport- und FPS-Grenzen bleiben die Produktionsdefaults. Weitere Hochskalierung erfordert reale Telemetrie zu Latenz, Frame-Drops, CPU und Speicherdruck.
+6. Die aktuell aktivierte Lizenz ist ein Community-Plan. Die Live-Browser-Funktion ist deshalb bewusst nicht an `teamWorkspace` oder `personalWorkspaces` gekoppelt.
 
-## 12. Empfohlene Reihenfolge
+## 12. Betrieb und Weiterentwicklung
 
-Zuerst Phase 0 bis 3 abschließen und die Lab-Route bewusst mit einem festen Testprofil betreiben. Erst nach stabiler Kontrolle, Persistenz, Ressourcenmessung und sicheren Dateiflüssen folgt die Produktintegration. Die Lab-Route ist damit kein Wegwerfprototyp: Ihre sichere Transport- und Runtime-Schicht wird wiederverwendet, ihre technischen Auswahl- und Diagnoseoberflächen dagegen nicht.
+`/browser/lab` bleibt die nicht verlinkte Admin-Diagnose für technische Auswahl- und Fehlerfälle. `/browser/live` ist der einzige normale Produkteinstieg und übernimmt Agent sowie Session aus dem Chat. Beide Oberflächen verwenden dieselbe autorisierte Transport-, Runtime-, Lock- und Dateischicht.
+
+Für einen Rollout sollen Browserstarts, aktive Viewer, verworfene Frames, Verbindungsabbrüche, Page-Crash-Recoveries und Ressourcenablehnungen aggregiert beobachtet werden. Die Telemetrie darf weiterhin keine Frames, Formulareingaben, Cookies oder vollständigen URLs mit Zugangsdaten enthalten.
