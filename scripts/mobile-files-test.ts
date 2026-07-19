@@ -44,6 +44,8 @@ async function main() {
     assert.equal(root.items[0]?.category, 'folder');
     assert.equal(root.items.some((entry) => entry.path === 'Readme.txt'), true);
     assert.equal(root.actions.canUpload, true);
+    assert.equal(root.actions.canCopy, true);
+    assert.equal(root.actions.canExport, true);
     assert.deepEqual(root.breadcrumbs, [{ name: 'Workspace', path: '.' }]);
 
     const imageOnly = await listMobileFiles({ workspace, fileOptions, filter: 'image', limit: 20 });
@@ -82,8 +84,18 @@ async function main() {
     }), (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'INVALID_CURSOR'));
 
     const blobAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/blob/route.ts'), 'utf8');
+    const copyAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/copy/route.ts'), 'utf8');
+    const markdownPdfAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/export/markdown-pdf/route.ts'), 'utf8');
+    const marpDetectAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/export/marp-detect/route.ts'), 'utf8');
+    const marpPdfAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/export/marp-pdf/route.ts'), 'utf8');
+    const marpImagesAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/export/marp-images/route.ts'), 'utf8');
     const uploadAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/uploads/[id]/route.ts'), 'utf8');
     assert.match(blobAlias, /api\/files\/download\/route/u);
+    assert.match(copyAlias, /api\/files\/copy\/route/u);
+    assert.match(markdownPdfAlias, /api\/files\/markdown-pdf\/route/u);
+    assert.match(marpDetectAlias, /api\/files\/marp-detect\/route/u);
+    assert.match(marpPdfAlias, /api\/files\/marp-pdf\/route/u);
+    assert.match(marpImagesAlias, /api\/files\/marp-images\/route/u);
     assert.match(uploadAlias, /DELETE, GET, PUT/u);
 
     await closeDatabaseConnections();

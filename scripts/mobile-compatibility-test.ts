@@ -47,6 +47,8 @@ assert.deepEqual(compatibility, {
       'notebook.revision_write',
       'files.browse',
       'files.mutate',
+      'files.copy',
+      'files.export',
       'files.upload',
       'files.public_share',
       'inbox.feed',

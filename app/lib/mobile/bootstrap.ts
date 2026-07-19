@@ -98,6 +98,8 @@ export function createMobileBootstrap(input: {
     'notebook.revision_write',
     'files.browse',
     'files.mutate',
+    'files.copy',
+    'files.export',
     'files.upload',
     'files.public_share',
     'inbox.feed',
