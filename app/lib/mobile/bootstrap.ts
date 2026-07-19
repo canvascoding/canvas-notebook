@@ -78,7 +78,14 @@ export function createMobileBootstrap(input: {
   };
   listing: WorkspaceListing;
 }): MobileBootstrap {
-  const capabilities = ['workspace.read', 'workspace.switch'];
+  const capabilities = [
+    'workspace.read',
+    'workspace.switch',
+    'chat.agents',
+    'chat.sessions',
+    'chat.messages',
+    'chat.realtime',
+  ];
   if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
 
   return {
