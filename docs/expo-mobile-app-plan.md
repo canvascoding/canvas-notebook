@@ -2,13 +2,27 @@
 
 > Stand: 2026-07-19
 >
-> Status: Entwurf zur Freigabe
+> Status: In Umsetzung – Foundation und Auth-Integration begonnen
 >
 > Zielplattformen: iOS und Android
 >
 > Produktziel: Native Companion-App für Canvas-Notebook-Instanzen, keine WebView-Hülle und keine lokale Agent-Runtime
 >
 > Mobile-Repository: separates privates Git-Repository `canvas-notebook-mobile`; kein Unterordner dieses öffentlichen Server-Repositorys
+
+## Umsetzungsstand 19.07.2026
+
+| Bereich | Status | Noch offen für die Abnahme |
+|---|---|---|
+| Privates Expo-Repository und SDK-57-Fundament | Implementiert und auf GitHub angelegt | EAS-Projekt mit Expo-Owner verknüpfen |
+| Mobile-Kompatibilitäts-Handshake | `GET /api/mobile/v1/compatibility` implementiert und getestet | Vertrag später um `/bootstrap` und weitere Capabilities ergänzen |
+| Better Auth für Expo | Server-Plugin, App-Schemes und dynamischer Mobile-Client implementiert | Login auf signierten iOS-/Android-Development-Builds beweisen |
+| SecureStore-Lifecycle | Instanz-Namespace, Login, Restart-Restore, Logout, Disconnect und Cache-Wipe implementiert | Verhalten auf realen iOS-/Android-Geräten abnehmen |
+| Transport-Sicherheit | HTTP nur in Development; Preview/Production erzwingen HTTPS und native Cleartext-Sperren | Zertifikats-/Proxy-Szenarien im Device-Test prüfen |
+| WS-Ticket und Push-Spike | Noch nicht begonnen | Verbleibende Phase-0-Gates umsetzen |
+
+Damit ist der Auth-Codeblock aus Phase 0/1 abgeschlossen, aber Phase 0 bleibt bis zum Development-Build-,
+WebSocket-, Push- und Realgeräte-Nachweis offen.
 
 ## 1. Kurzentscheidung
 
@@ -279,7 +293,7 @@ Viele benötigte Funktionen existieren bereits und müssen nicht fachlich neu ge
 | Mobile-Funktion | Vorhandene Basis | Bewertung |
 |---|---|---|
 | Health | `GET /api/health` | vorhanden, aber ohne Mobile-API-/App-Kompatibilität |
-| Auth | Better Auth unter `/api/auth/*`, Bearer-Plugin bereits aktiv | Expo-Plugin und Mobile-Scheme fehlen |
+| Auth | Better Auth unter `/api/auth/*`, Bearer- und Expo-Plugin aktiv; drei Mobile-Schemes als Trusted Origins | nativer iOS-/Android-Nachweis steht aus |
 | Workspaces | `/api/workspaces` | fachlich gut wiederverwendbar |
 | Agenten | `/api/agents` | vorhanden |
 | Sessions | `/api/sessions`, `/api/sessions/messages` | vorhanden |
@@ -299,6 +313,9 @@ Das zentrale Risiko ist nicht fehlende Business-Logik, sondern dass die aktuelle
 ### 7.1 Versionierte Mobile API
 
 Neue Basis: `/api/mobile/v1`.
+
+Implementiert ist zunächst der öffentliche, cache-freie Kompatibilitätsendpunkt. Die übrigen Gruppen werden
+entsprechend der Phasenreihenfolge ergänzt.
 
 Mindestens erforderlich:
 
