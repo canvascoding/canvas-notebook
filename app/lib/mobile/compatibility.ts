@@ -17,7 +17,7 @@ export type MobileCompatibility = {
   mobileApi: {
     version: typeof MOBILE_API_VERSION;
     minimumClientVersion: typeof MINIMUM_MOBILE_CLIENT_VERSION;
-    capabilities: ['auth.email_password'];
+    capabilities: ['auth.email_password', 'workspace.bootstrap'];
   };
   auth: {
     provider: 'better-auth';
@@ -55,7 +55,7 @@ export function createMobileCompatibility(input: {
     mobileApi: {
       version: MOBILE_API_VERSION,
       minimumClientVersion: MINIMUM_MOBILE_CLIENT_VERSION,
-      capabilities: ['auth.email_password'],
+      capabilities: ['auth.email_password', 'workspace.bootstrap'],
     },
     auth: {
       provider: 'better-auth',
