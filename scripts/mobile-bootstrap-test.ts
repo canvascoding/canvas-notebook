@@ -60,6 +60,8 @@ assert.equal(bootstrap.product, 'canvas-notebook');
 assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'workspace.read',
   'workspace.switch',
+  'workspace.update',
+  'workspace.members.read',
   'chat.agents',
   'chat.sessions',
   'chat.messages',
