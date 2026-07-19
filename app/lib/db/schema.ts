@@ -48,6 +48,18 @@ export const mobilePushDevices = sqliteTable("mobile_push_devices", {
   authSessionIdx: index("idx_mobile_push_devices_auth_session").on(table.authSessionId),
 }));
 
+export const mobileInboxReadStates = sqliteTable("mobile_inbox_read_states", {
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  workspaceId: text("workspace_id").notNull(),
+  itemKey: text("item_key").notNull(),
+  readAt: integer("read_at", { mode: "timestamp" }).notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  pk: primaryKey({ columns: [table.userId, table.workspaceId, table.itemKey] }),
+  workspaceReadIdx: index("idx_mobile_inbox_read_workspace").on(table.userId, table.workspaceId, table.readAt),
+}));
+
 export const account = sqliteTable("account", {
   id: text("id").primaryKey(),
   accountId: text("account_id").notNull(),
