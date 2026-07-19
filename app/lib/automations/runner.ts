@@ -73,6 +73,7 @@ import {
 } from './store';
 import { resolveAutomationRunWorkspace } from './policy';
 import { type AutomationJobRecord, type AutomationRunRecord } from './types';
+import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
@@ -99,6 +100,25 @@ class AutomationRunClaimLostError extends Error {
   constructor() {
     super('Automation run claim was lost while waiting for its session.');
     this.name = 'AutomationRunClaimLostError';
+  }
+}
+
+async function sendAutomationFailurePush(input: {
+  userId: string;
+  workspaceId: string | null;
+  runId: string;
+}): Promise<void> {
+  try {
+    const { sendFailureAttentionPush } = await import('@/app/lib/mobile/push-devices');
+    await sendFailureAttentionPush({
+      userId: input.userId,
+      workspaceId: input.workspaceId || LEGACY_PERSONAL_WORKSPACE_ID,
+      entityKind: 'automation',
+      entityId: input.runId,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to send automation push notification.';
+    console.warn('[Automationen] Push notification failed:', message);
   }
 }
 
@@ -794,6 +814,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           console.warn(`[Automationen] Run ${runId} could not be marked failed because its status or attempt changed`);
           return;
         }
+        await sendAutomationFailurePush({
+          userId: automationUserId,
+          workspaceId: job.workspaceId,
+          runId: run.id,
+        });
         if (pauseJobAfterFailure) {
           await updateAutomationJob(job.id, { status: 'paused' });
           console.warn(`[Automationen] Paused job ${job.id} because delivery channel is unavailable (${dispatchResult?.skippedReason ?? 'unknown'})`);
@@ -838,6 +863,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         console.warn(`[Automationen] Run ${runId} timeout lost the run CAS; leaving the current terminal state unchanged`);
         return;
       }
+      await sendAutomationFailurePush({
+        userId: automationUserId,
+        workspaceId: job.workspaceId,
+        runId: run.id,
+      });
       console.error(`[Automationen] Run ${runId} exceeded its execution deadline (quiescent=${loopQuiescent}): ${message}`);
       return;
     }
@@ -878,6 +908,11 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       console.warn(`[Automationen] Run ${runId} preparation failure lost the run CAS; leaving the current state unchanged`);
       return;
     }
+    await sendAutomationFailurePush({
+      userId: automationUserId,
+      workspaceId: job.workspaceId,
+      runId: run.id,
+    });
     const duration = Date.now() - runStartTime;
     console.error(`[Automationen] Run ${runId} failed during preparation (duration=${duration}ms): ${message}`);
   }

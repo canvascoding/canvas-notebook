@@ -37,6 +37,9 @@ export const mobilePushDevices = sqliteTable("mobile_push_devices", {
   appVariant: text("app_variant").notNull().default("production"),
   enabled: integer("enabled", { mode: "boolean" }).notNull().default(true),
   agentResponseReady: integer("agent_response_ready", { mode: "boolean" }).notNull().default(true),
+  todoAttention: integer("todo_attention", { mode: "boolean" }).notNull().default(true),
+  studioCompleted: integer("studio_completed", { mode: "boolean" }).notNull().default(true),
+  failureAttention: integer("failure_attention", { mode: "boolean" }).notNull().default(true),
   previewEnabled: integer("preview_enabled", { mode: "boolean" }).notNull().default(false),
   lastRegisteredAt: integer("last_registered_at", { mode: "timestamp" }).notNull(),
   lastDeliveryAt: integer("last_delivery_at", { mode: "timestamp" }),
@@ -46,6 +49,25 @@ export const mobilePushDevices = sqliteTable("mobile_push_devices", {
 }, (table) => ({
   userEnabledIdx: index("idx_mobile_push_devices_user_enabled").on(table.userId, table.enabled),
   authSessionIdx: index("idx_mobile_push_devices_auth_session").on(table.authSessionId),
+}));
+
+export const mobilePushDeliveries = sqliteTable("mobile_push_deliveries", {
+  id: text("id").primaryKey(),
+  deviceId: text("device_id").notNull().references(() => mobilePushDevices.id, { onDelete: "cascade" }),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: "cascade" }),
+  category: text("category").notNull(),
+  entityId: text("entity_id").notNull(),
+  expoTicketId: text("expo_ticket_id").unique(),
+  status: text("status").notNull(),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextReceiptCheckAt: integer("next_receipt_check_at", { mode: "timestamp" }),
+  receiptAt: integer("receipt_at", { mode: "timestamp" }),
+  lastErrorCode: text("last_error_code"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  receiptPollIdx: index("idx_mobile_push_deliveries_receipt_poll").on(table.status, table.nextReceiptCheckAt),
+  userIdx: index("idx_mobile_push_deliveries_user").on(table.userId, table.createdAt),
 }));
 
 export const mobileInboxReadStates = sqliteTable("mobile_inbox_read_states", {
