@@ -1,18 +1,28 @@
 'use client';
 
 import React, { useState } from 'react';
-import { useTranslations } from 'next-intl';
-import { Inbox, Network, NotebookPen, Workflow, Sparkles, Settings, ListTodo, ShieldCheck } from 'lucide-react';
+import { useLocale, useTranslations } from 'next-intl';
+import { Inbox, Network, NotebookPen, Workflow, Sparkles, Settings, ListTodo, ShieldCheck, MonitorUp } from 'lucide-react';
 import { PromptHero } from './PromptHero';
 import { CategoryPills, type CategoryId } from './CategoryPills';
 import { InspirationPanel } from './InspirationPanel';
 import { ToolCard } from './ToolCard';
 import { MoreToolsSection } from './MoreToolsSection';
 
-export function HomeWorkspaceView({ licenseLocked = false }: { licenseLocked?: boolean }) {
+export function HomeWorkspaceView({
+  licenseLocked = false,
+  showBrowserLab = false,
+}: {
+  licenseLocked?: boolean;
+  showBrowserLab?: boolean;
+}) {
+  const locale = useLocale();
   const t = useTranslations('home');
   const tApps = useTranslations('home.apps');
   const [activeCategory, setActiveCategory] = useState<CategoryId | null>(null);
+  const browserLabDescription = locale === 'de'
+    ? 'Den Browser des Agenten live beobachten, übernehmen und Verbindungen prüfen.'
+    : 'Watch the agent browser live, take control, and inspect connections.';
 
   const handleCategoryClick = (id: CategoryId) => {
     setActiveCategory((prev) => (prev === id ? null : id));
@@ -133,6 +143,16 @@ export function HomeWorkspaceView({ licenseLocked = false }: { licenseLocked?: b
               href="/security/public-shares"
             />
           </div>
+          {showBrowserLab && (
+            <div data-testid="home-browser-lab-card" className="min-w-[260px] max-w-[320px] flex-1">
+              <ToolCard
+                icon={MonitorUp}
+                title="Browser Lab"
+                description={browserLabDescription}
+                href="/browser/lab"
+              />
+            </div>
+          )}
         </div>
       </section>
 

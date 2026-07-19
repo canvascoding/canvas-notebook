@@ -202,6 +202,25 @@ test.describe('Browser Lab', () => {
     await expect(page.getByText(/^(Entwicklungswerkzeug|Development tool)$/)).toBeVisible();
   });
 
+  test('opens Browser Lab from the admin home page', async ({ page }) => {
+    await login(page);
+    await page.setViewportSize({ width: 1440, height: 1200 });
+    await page.goto('/');
+
+    const browserLabCard = page.getByTestId('home-browser-lab-card');
+    await expect(browserLabCard).toBeVisible();
+    const browserLabLink = browserLabCard.getByRole('link');
+    await expect(browserLabLink).toHaveAttribute('href', /\/browser\/lab$/);
+    await page.screenshot({
+      path: 'test-results/home-browser-lab-card.png',
+      fullPage: false,
+    });
+    await browserLabLink.click();
+
+    await expect(page).toHaveURL(/\/browser\/lab$/);
+    await expect(page.getByRole('heading', { name: 'Browser Lab', level: 2 })).toBeVisible();
+  });
+
   test('shows a recoverable connection failure and retries the live view', async ({ page }) => {
     await page.setViewportSize({ width: 1600, height: 900 });
     await login(page);

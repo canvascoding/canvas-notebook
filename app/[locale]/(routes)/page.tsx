@@ -17,6 +17,7 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { VersionUpdateIndicator } from '@/app/components/VersionUpdateIndicator';
 import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import { WorkspaceBrandLogo } from '@/app/components/workspaces/WorkspaceBrandLogo';
+import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
 
 const repositoryUrl = 'https://github.com/canvascoding/canvas-notebook';
 const releaseVersion = packageJson.version;
@@ -73,7 +74,10 @@ export default async function Home() {
 
               {showPersonalTour && <GettingStartedCard />}
 
-              <HomeWorkspaceView licenseLocked={!licenseStatus.licensed} />
+              <HomeWorkspaceView
+                licenseLocked={!licenseStatus.licensed}
+                showBrowserLab={Boolean(session && isBrowserLabAllowed(session.user))}
+              />
             </div>
           </main>
 
