@@ -434,11 +434,11 @@ async function main() {
     };
     assert.equal(organization.deploymentMode, 'production');
     assert.equal(organization.teamFeaturesEnabled, 1);
-    assert.equal(existsSync(path.join(genericTeamBootstrapDir, 'workspaces', 'organization', organization.organizationId, 'files')), true);
+    assert.equal(existsSync(path.join(genericTeamBootstrapDir, 'workspaces', 'organization', organization.organizationId, 'files')), false);
     const workspaceTypes = genericTeamBootstrap.prepare(`
       SELECT type FROM canvas_workspaces ORDER BY type ASC
     `).all() as Array<{ type: string }>;
-    assert.deepEqual(workspaceTypes.map((workspace) => workspace.type), ['organization', 'personal']);
+    assert.deepEqual(workspaceTypes.map((workspace) => workspace.type), ['personal']);
     genericTeamBootstrap.close();
   } finally {
     rmSync(genericTeamBootstrapDir, { recursive: true, force: true });
