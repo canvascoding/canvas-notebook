@@ -13,6 +13,7 @@ import {
   user,
 } from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
+import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 import {
   DEFAULT_TODO_CATEGORIES,
   DEFAULT_TODO_CATEGORY_NAME,
@@ -151,6 +152,22 @@ async function sendTodoCreatedEmailNotificationIfNeeded(userId: string, todo: To
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send todo email notification.';
     console.warn('[Todos] Failed to run todo email notification:', message);
+  }
+}
+
+async function sendTodoCreatedPushNotificationIfNeeded(userId: string, todo: TodoWithRelations): Promise<void> {
+  if (todo.sourceType !== 'agent') return;
+
+  try {
+    const { sendTodoAttentionPush } = await import('@/app/lib/mobile/push-devices');
+    await sendTodoAttentionPush({
+      userId: todo.assigneeUserId || userId,
+      workspaceId: todo.workspaceId || LEGACY_PERSONAL_WORKSPACE_ID,
+      todoId: todo.id,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to send todo push notification.';
+    console.warn('[Todos] Failed to run todo push notification:', message);
   }
 }
 
@@ -709,6 +726,7 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     throw new TodoStoreError('Todo not found after creation', 'TODO_NOT_FOUND');
   }
   await sendTodoCreatedEmailNotificationIfNeeded(userId, hydrated);
+  await sendTodoCreatedPushNotificationIfNeeded(userId, hydrated);
   return (await getTodo(userId, created.id)) ?? hydrated;
 }
 

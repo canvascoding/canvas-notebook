@@ -8,20 +8,30 @@ import { getLicenseInstanceId } from '@/app/lib/license/instance';
 import { createPublicMobileInstanceId } from './compatibility';
 
 const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
+const EXPO_RECEIPTS_ENDPOINT = 'https://exp.host/--/api/v2/push/getReceipts';
 const MAX_DEVICES_PER_USER = 10;
 const MAX_EXPO_BATCH_SIZE = 100;
+const MAX_EXPO_RECEIPT_BATCH_SIZE = 1_000;
+const EXPO_REQUEST_ATTEMPTS = 3;
+const FIRST_RECEIPT_CHECK_DELAY_MS = 15 * 60_000;
+const MAX_RECEIPT_ATTEMPTS = 5;
 
 export type MobilePushPlatform = 'ios' | 'android';
 export type MobileAppVariant = 'development' | 'preview' | 'production';
+
+export type MobilePushPreferences = {
+  agentResponseReady: boolean;
+  todoAttention: boolean;
+  studioCompleted: boolean;
+  failureAttention: boolean;
+};
 
 export type MobilePushRegistration = {
   installationId: string;
   expoPushToken: string;
   platform: MobilePushPlatform;
   appVariant: MobileAppVariant;
-  preferences: {
-    agentResponseReady: boolean;
-  };
+  preferences: MobilePushPreferences;
 };
 
 export type MobilePushDeviceStatus = {
@@ -29,14 +39,36 @@ export type MobilePushDeviceStatus = {
   enabled: boolean;
   platform: MobilePushPlatform | null;
   appVariant: MobileAppVariant | null;
-  preferences: {
-    agentResponseReady: boolean;
+  preferences: MobilePushPreferences & {
     previews: false;
   };
   registeredAt: string | null;
   lastDeliveryAt: string | null;
   lastErrorCode: string | null;
 };
+
+export type MobilePushTarget =
+  | {
+      type: 'agent.response_ready';
+      workspaceId: string;
+      sessionId: string;
+    }
+  | {
+      type: 'todo.attention';
+      workspaceId: string;
+      todoId: string;
+    }
+  | {
+      type: 'studio.completed';
+      workspaceId: string;
+      generationId: string;
+    }
+  | {
+      type: 'attention.failure';
+      workspaceId: string;
+      entityKind: 'studio' | 'automation';
+      entityId: string;
+    };
 
 type MobilePushDeviceRow = {
   id: string;
@@ -45,24 +77,26 @@ type MobilePushDeviceRow = {
   app_variant: MobileAppVariant;
   enabled: number | boolean;
   agent_response_ready: number | boolean;
+  todo_attention: number | boolean;
+  studio_completed: number | boolean;
+  failure_attention: number | boolean;
   last_registered_at: number | string;
   last_delivery_at: number | string | null;
   last_error_code: string | null;
 };
 
-type ExpoPushMessage = {
+type MobilePushData = MobilePushTarget & {
+  instanceId: string;
+};
+
+export type ExpoPushMessage = {
   to: string;
-  title: string;
+  title: 'Canvas Notebook';
   body: string;
   sound: 'default';
   priority: 'default';
   channelId: 'canvas-activity';
-  data: {
-    type: 'agent.response_ready';
-    instanceId: string;
-    workspaceId: string;
-    sessionId: string;
-  };
+  data: MobilePushData;
 };
 
 type ExpoPushTicket = {
@@ -72,6 +106,21 @@ type ExpoPushTicket = {
   details?: {
     error?: unknown;
   };
+};
+
+type ExpoPushReceipt = {
+  status?: unknown;
+  message?: unknown;
+  details?: {
+    error?: unknown;
+  };
+};
+
+type MobilePushDeliveryRow = {
+  id: string;
+  device_id: string;
+  expo_ticket_id: string;
+  attempt_count: number | string;
 };
 
 export class MobilePushDeviceError extends Error {
@@ -89,11 +138,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-function requiredString(
-  value: unknown,
-  field: string,
-  maximumLength: number,
-): string {
+function requiredString(value: unknown, field: string, maximumLength: number): string {
   if (typeof value !== 'string') {
     throw new MobilePushDeviceError(`${field} is required.`, 400, 'INVALID_DEVICE');
   }
@@ -102,6 +147,17 @@ function requiredString(
     throw new MobilePushDeviceError(`${field} is invalid.`, 400, 'INVALID_DEVICE');
   }
   return normalized;
+}
+
+function parseBooleanPreference(
+  preferences: Record<string, unknown>,
+  key: keyof MobilePushPreferences,
+): boolean {
+  const value = preferences[key];
+  if (value !== undefined && typeof value !== 'boolean') {
+    throw new MobilePushDeviceError('preferences are invalid.', 400, 'INVALID_DEVICE');
+  }
+  return value !== false;
 }
 
 export function parseMobilePushRegistration(value: unknown): MobilePushRegistration {
@@ -120,16 +176,17 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
     throw new MobilePushDeviceError('appVariant is invalid.', 400, 'INVALID_DEVICE');
   }
   const preferences = isRecord(value.preferences) ? value.preferences : {};
-  const agentResponseReady = preferences.agentResponseReady;
-  if (agentResponseReady !== undefined && typeof agentResponseReady !== 'boolean') {
-    throw new MobilePushDeviceError('preferences are invalid.', 400, 'INVALID_DEVICE');
-  }
   return {
     installationId,
     expoPushToken,
     platform: value.platform,
     appVariant: value.appVariant as MobileAppVariant,
-    preferences: { agentResponseReady: agentResponseReady !== false },
+    preferences: {
+      agentResponseReady: parseBooleanPreference(preferences, 'agentResponseReady'),
+      todoAttention: parseBooleanPreference(preferences, 'todoAttention'),
+      studioCompleted: parseBooleanPreference(preferences, 'studioCompleted'),
+      failureAttention: parseBooleanPreference(preferences, 'failureAttention'),
+    },
   };
 }
 
@@ -144,6 +201,15 @@ function timestamp(value: number | string | null): string | null {
   return new Date(numeric).toISOString();
 }
 
+function defaultPreferences(value: boolean): MobilePushPreferences {
+  return {
+    agentResponseReady: value,
+    todoAttention: value,
+    studioCompleted: value,
+    failureAttention: value,
+  };
+}
+
 function deviceStatus(row: MobilePushDeviceRow | undefined): MobilePushDeviceStatus {
   if (!row) {
     return {
@@ -151,7 +217,7 @@ function deviceStatus(row: MobilePushDeviceRow | undefined): MobilePushDeviceSta
       enabled: false,
       platform: null,
       appVariant: null,
-      preferences: { agentResponseReady: false, previews: false },
+      preferences: { ...defaultPreferences(false), previews: false },
       registeredAt: null,
       lastDeliveryAt: null,
       lastErrorCode: null,
@@ -164,6 +230,9 @@ function deviceStatus(row: MobilePushDeviceRow | undefined): MobilePushDeviceSta
     appVariant: row.app_variant,
     preferences: {
       agentResponseReady: Boolean(row.agent_response_ready),
+      todoAttention: Boolean(row.todo_attention),
+      studioCompleted: Boolean(row.studio_completed),
+      failureAttention: Boolean(row.failure_attention),
       previews: false,
     },
     registeredAt: timestamp(row.last_registered_at),
@@ -181,14 +250,17 @@ async function withConnection<T>(callback: (connection: SqlConnection) => Promis
   }
 }
 
+const DEVICE_SELECT = `id, expo_push_token, platform, app_variant, enabled,
+  agent_response_ready, todo_attention, studio_completed, failure_attention,
+  last_registered_at, last_delivery_at, last_error_code`;
+
 export async function getMobilePushDeviceStatus(input: {
   userId: string;
   installationId: string;
 }): Promise<MobilePushDeviceStatus> {
   return withConnection(async (connection) => {
     const row = await connection.get(
-      `SELECT id, expo_push_token, platform, app_variant, enabled, agent_response_ready,
-        last_registered_at, last_delivery_at, last_error_code
+      `SELECT ${DEVICE_SELECT}
        FROM mobile_push_devices
        WHERE user_id = ? AND installation_id = ?`,
       [input.userId, input.installationId],
@@ -240,9 +312,10 @@ export async function registerMobilePushDevice(input: {
       await connection.run(
         `INSERT INTO mobile_push_devices (
           id, installation_id, user_id, auth_session_id, expo_push_token, platform,
-          app_variant, enabled, agent_response_ready, preview_enabled,
-          last_registered_at, last_delivery_at, last_error_code, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, 0, ?, NULL, NULL, ?, ?)
+          app_variant, enabled, agent_response_ready, todo_attention, studio_completed,
+          failure_attention, preview_enabled, last_registered_at, last_delivery_at,
+          last_error_code, created_at, updated_at
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?)
         ON CONFLICT(installation_id) DO UPDATE SET
           user_id = excluded.user_id,
           auth_session_id = excluded.auth_session_id,
@@ -251,6 +324,9 @@ export async function registerMobilePushDevice(input: {
           app_variant = excluded.app_variant,
           enabled = 1,
           agent_response_ready = excluded.agent_response_ready,
+          todo_attention = excluded.todo_attention,
+          studio_completed = excluded.studio_completed,
+          failure_attention = excluded.failure_attention,
           preview_enabled = 0,
           last_registered_at = excluded.last_registered_at,
           last_error_code = NULL,
@@ -264,6 +340,9 @@ export async function registerMobilePushDevice(input: {
           input.registration.platform,
           input.registration.appVariant,
           input.registration.preferences.agentResponseReady ? 1 : 0,
+          input.registration.preferences.todoAttention ? 1 : 0,
+          input.registration.preferences.studioCompleted ? 1 : 0,
+          input.registration.preferences.failureAttention ? 1 : 0,
           now,
           now,
           now,
@@ -276,8 +355,7 @@ export async function registerMobilePushDevice(input: {
     }
 
     const row = await connection.get(
-      `SELECT id, expo_push_token, platform, app_variant, enabled, agent_response_ready,
-        last_registered_at, last_delivery_at, last_error_code
+      `SELECT ${DEVICE_SELECT}
        FROM mobile_push_devices
        WHERE user_id = ? AND installation_id = ?`,
       [input.userId, input.registration.installationId],
@@ -298,52 +376,262 @@ export async function unregisterMobilePushDevice(input: {
   });
 }
 
+function notificationBody(target: MobilePushTarget): string {
+  switch (target.type) {
+    case 'agent.response_ready':
+      return 'Your agent has finished a response.';
+    case 'todo.attention':
+      return 'A Canvas To-do needs your attention.';
+    case 'studio.completed':
+      return 'Your Studio result is ready.';
+    case 'attention.failure':
+      return 'Canvas work needs your attention.';
+  }
+}
+
+export function createMobilePushMessages(input: {
+  tokens: string[];
+  instanceId: string;
+  target: MobilePushTarget;
+}): ExpoPushMessage[] {
+  return input.tokens.map((token) => ({
+    to: token,
+    title: 'Canvas Notebook',
+    body: notificationBody(input.target),
+    sound: 'default',
+    priority: 'default',
+    channelId: 'canvas-activity',
+    data: {
+      instanceId: input.instanceId,
+      ...input.target,
+    } as MobilePushData,
+  }));
+}
+
 export function createAgentResponseReadyMessages(input: {
   tokens: string[];
   instanceId: string;
   workspaceId: string;
   sessionId: string;
 }): ExpoPushMessage[] {
-  return input.tokens.map((token) => ({
-    to: token,
-    title: 'Canvas Notebook',
-    body: 'Your agent has finished a response.',
-    sound: 'default',
-    priority: 'default',
-    channelId: 'canvas-activity',
-    data: {
+  return createMobilePushMessages({
+    tokens: input.tokens,
+    instanceId: input.instanceId,
+    target: {
       type: 'agent.response_ready',
-      instanceId: input.instanceId,
       workspaceId: input.workspaceId,
       sessionId: input.sessionId,
     },
-  }));
+  });
 }
 
-async function updateDeliveryResult(
-  connection: SqlConnection,
-  row: MobilePushDeviceRow,
-  ticket: ExpoPushTicket,
-): Promise<void> {
-  const now = Date.now();
-  if (ticket.status === 'ok') {
-    await connection.run(
-      `UPDATE mobile_push_devices
-       SET last_delivery_at = ?, last_error_code = NULL, updated_at = ?
-       WHERE id = ?`,
-      [now, now, row.id],
-    );
-    return;
+function expoHeaders(): Record<string, string> {
+  const headers: Record<string, string> = {
+    Accept: 'application/json',
+    'Accept-Encoding': 'gzip, deflate',
+    'Content-Type': 'application/json',
+  };
+  const accessToken = process.env.EXPO_ACCESS_TOKEN?.trim();
+  if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
+  return headers;
+}
+
+function retryDelay(attempt: number): number {
+  return Math.min(250 * (2 ** attempt), 2_000);
+}
+
+function receiptRetryDelay(attempt: number): number {
+  return Math.min(FIRST_RECEIPT_CHECK_DELAY_MS * (2 ** Math.max(attempt - 1, 0)), 4 * 60 * 60_000);
+}
+
+async function wait(milliseconds: number): Promise<void> {
+  await new Promise((resolve) => setTimeout(resolve, milliseconds));
+}
+
+async function postExpoWithRetry(input: {
+  endpoint: string;
+  body: unknown;
+  fetcher: typeof fetch;
+}): Promise<Response> {
+  let lastError: unknown = null;
+  for (let attempt = 0; attempt < EXPO_REQUEST_ATTEMPTS; attempt += 1) {
+    try {
+      const response = await input.fetcher(input.endpoint, {
+        method: 'POST',
+        headers: expoHeaders(),
+        body: JSON.stringify(input.body),
+        signal: AbortSignal.timeout(12_000),
+      });
+      if (response.ok) return response;
+      if (response.status !== 429 && response.status < 500) {
+        throw new Error(`Expo push service returned HTTP ${response.status}.`);
+      }
+      lastError = new Error(`Expo push service returned HTTP ${response.status}.`);
+    } catch (error) {
+      lastError = error;
+      if (error instanceof Error && /^Expo push service returned HTTP 4\d\d\.$/u.test(error.message)) {
+        throw error;
+      }
+    }
+    if (attempt + 1 < EXPO_REQUEST_ATTEMPTS) await wait(retryDelay(attempt));
   }
-  const errorCode = typeof ticket.details?.error === 'string'
+  throw lastError instanceof Error ? lastError : new Error('Expo push service is unavailable.');
+}
+
+function pushPreferenceColumn(target: MobilePushTarget): string {
+  switch (target.type) {
+    case 'agent.response_ready':
+      return 'agent_response_ready';
+    case 'todo.attention':
+      return 'todo_attention';
+    case 'studio.completed':
+      return 'studio_completed';
+    case 'attention.failure':
+      return 'failure_attention';
+  }
+}
+
+function pushEntityId(target: MobilePushTarget): string {
+  switch (target.type) {
+    case 'agent.response_ready':
+      return target.sessionId;
+    case 'todo.attention':
+      return target.todoId;
+    case 'studio.completed':
+      return target.generationId;
+    case 'attention.failure':
+      return target.entityId;
+  }
+}
+
+function ticketErrorCode(ticket: ExpoPushTicket | ExpoPushReceipt): string {
+  return typeof ticket.details?.error === 'string'
     ? ticket.details.error.slice(0, 120)
     : 'EXPO_PUSH_ERROR';
+}
+
+async function recordTicketResult(input: {
+  connection: SqlConnection;
+  row: MobilePushDeviceRow;
+  ticket: ExpoPushTicket;
+  userId: string;
+  target: MobilePushTarget;
+  now: number;
+}): Promise<boolean> {
+  const { connection, row, ticket, userId, target, now } = input;
+  const ticketId = typeof ticket.id === 'string' && ticket.id.trim()
+    ? ticket.id.trim().slice(0, 256)
+    : null;
+  if (ticket.status === 'ok' && ticketId) {
+    await connection.run(
+      `INSERT INTO mobile_push_deliveries (
+        id, device_id, user_id, category, entity_id, expo_ticket_id, status,
+        attempt_count, next_receipt_check_at, receipt_at, last_error_code, created_at, updated_at
+      ) VALUES (?, ?, ?, ?, ?, ?, 'ticket_accepted', 0, ?, NULL, NULL, ?, ?)`,
+      [
+        `mpdl_${randomUUID()}`,
+        row.id,
+        userId,
+        target.type,
+        pushEntityId(target),
+        ticketId,
+        now + FIRST_RECEIPT_CHECK_DELAY_MS,
+        now,
+        now,
+      ],
+    );
+    await connection.run(
+      `UPDATE mobile_push_devices
+       SET last_error_code = NULL, updated_at = ?
+       WHERE id = ?`,
+      [now, row.id],
+    );
+    return true;
+  }
+
+  const errorCode = ticket.status === 'ok' ? 'MISSING_TICKET_ID' : ticketErrorCode(ticket);
+  await connection.run(
+    `INSERT INTO mobile_push_deliveries (
+      id, device_id, user_id, category, entity_id, expo_ticket_id, status,
+      attempt_count, next_receipt_check_at, receipt_at, last_error_code, created_at, updated_at
+    ) VALUES (?, ?, ?, ?, ?, NULL, 'ticket_error', 0, NULL, ?, ?, ?, ?)`,
+    [
+      `mpdl_${randomUUID()}`,
+      row.id,
+      userId,
+      target.type,
+      pushEntityId(target),
+      now,
+      errorCode,
+      now,
+      now,
+    ],
+  );
   await connection.run(
     `UPDATE mobile_push_devices
      SET enabled = ?, last_error_code = ?, updated_at = ?
      WHERE id = ?`,
     [errorCode === 'DeviceNotRegistered' ? 0 : 1, errorCode, now, row.id],
   );
+  return false;
+}
+
+export async function sendMobileAttentionPush(input: {
+  userId: string;
+  target: MobilePushTarget;
+  instanceId?: string;
+  fetcher?: typeof fetch;
+  now?: number;
+}): Promise<{ attempted: number; accepted: number }> {
+  const fetcher = input.fetcher || fetch;
+  const preferenceColumn = pushPreferenceColumn(input.target);
+  const now = input.now ?? Date.now();
+  return withConnection(async (connection) => {
+    const rows = await connection.all(
+      `SELECT mobile_push_devices.${DEVICE_SELECT.replaceAll(', ', ', mobile_push_devices.')}
+       FROM mobile_push_devices
+       INNER JOIN session ON session.id = mobile_push_devices.auth_session_id
+       WHERE mobile_push_devices.user_id = ?
+         AND mobile_push_devices.enabled = 1
+         AND mobile_push_devices.${preferenceColumn} = 1
+         AND session.user_id = mobile_push_devices.user_id
+         AND session.expires_at > ?`,
+      [input.userId, now],
+    ) as MobilePushDeviceRow[];
+    let accepted = 0;
+
+    for (let offset = 0; offset < rows.length; offset += MAX_EXPO_BATCH_SIZE) {
+      const batch = rows.slice(offset, offset + MAX_EXPO_BATCH_SIZE);
+      const messages = createMobilePushMessages({
+        tokens: batch.map((row) => row.expo_push_token),
+        instanceId: input.instanceId || createPublicMobileInstanceId(getLicenseInstanceId()),
+        target: input.target,
+      });
+      const response = await postExpoWithRetry({
+        endpoint: EXPO_PUSH_ENDPOINT,
+        body: messages,
+        fetcher,
+      });
+      const payload = await response.json() as { data?: ExpoPushTicket[] | ExpoPushTicket };
+      const tickets = Array.isArray(payload.data) ? payload.data : payload.data ? [payload.data] : [];
+      if (tickets.length !== batch.length) {
+        throw new Error('Expo push service returned an unexpected ticket count.');
+      }
+      for (let index = 0; index < batch.length; index += 1) {
+        if (await recordTicketResult({
+          connection,
+          row: batch[index],
+          ticket: tickets[index] || {},
+          userId: input.userId,
+          target: input.target,
+          now,
+        })) {
+          accepted += 1;
+        }
+      }
+    }
+    return { attempted: rows.length, accepted };
+  });
 }
 
 export async function sendAgentResponseReadyPush(input: {
@@ -353,60 +641,149 @@ export async function sendAgentResponseReadyPush(input: {
   instanceId?: string;
   fetcher?: typeof fetch;
 }): Promise<{ attempted: number; accepted: number }> {
+  return sendMobileAttentionPush({
+    ...input,
+    target: {
+      type: 'agent.response_ready',
+      workspaceId: input.workspaceId,
+      sessionId: input.sessionId,
+    },
+  });
+}
+
+export async function sendTodoAttentionPush(input: {
+  userId: string;
+  workspaceId: string;
+  todoId: string;
+}): Promise<{ attempted: number; accepted: number }> {
+  return sendMobileAttentionPush({
+    userId: input.userId,
+    target: { type: 'todo.attention', workspaceId: input.workspaceId, todoId: input.todoId },
+  });
+}
+
+export async function sendStudioCompletedPush(input: {
+  userId: string;
+  workspaceId: string;
+  generationId: string;
+}): Promise<{ attempted: number; accepted: number }> {
+  return sendMobileAttentionPush({
+    userId: input.userId,
+    target: { type: 'studio.completed', workspaceId: input.workspaceId, generationId: input.generationId },
+  });
+}
+
+export async function sendFailureAttentionPush(input: {
+  userId: string;
+  workspaceId: string;
+  entityKind: 'studio' | 'automation';
+  entityId: string;
+}): Promise<{ attempted: number; accepted: number }> {
+  return sendMobileAttentionPush({
+    userId: input.userId,
+    target: {
+      type: 'attention.failure',
+      workspaceId: input.workspaceId,
+      entityKind: input.entityKind,
+      entityId: input.entityId,
+    },
+  });
+}
+
+export async function pollMobilePushReceipts(input: {
+  userId: string;
+  fetcher?: typeof fetch;
+  now?: number;
+  limit?: number;
+}): Promise<{ checked: number; delivered: number; failed: number; pending: number }> {
   const fetcher = input.fetcher || fetch;
+  const now = input.now ?? Date.now();
+  const limit = Math.min(Math.max(input.limit ?? MAX_EXPO_RECEIPT_BATCH_SIZE, 1), MAX_EXPO_RECEIPT_BATCH_SIZE);
   return withConnection(async (connection) => {
     const rows = await connection.all(
-      `SELECT mobile_push_devices.id, mobile_push_devices.expo_push_token,
-        mobile_push_devices.platform, mobile_push_devices.app_variant,
-        mobile_push_devices.enabled, mobile_push_devices.agent_response_ready,
-        mobile_push_devices.last_registered_at, mobile_push_devices.last_delivery_at,
-        mobile_push_devices.last_error_code
-       FROM mobile_push_devices
-       INNER JOIN session ON session.id = mobile_push_devices.auth_session_id
-       WHERE mobile_push_devices.user_id = ?
-         AND mobile_push_devices.enabled = 1
-         AND mobile_push_devices.agent_response_ready = 1
-         AND session.user_id = mobile_push_devices.user_id
-         AND session.expires_at > ?`,
-      [input.userId, Date.now()],
-    ) as MobilePushDeviceRow[];
-    let accepted = 0;
+      `SELECT id, device_id, expo_ticket_id, attempt_count
+       FROM mobile_push_deliveries
+       WHERE user_id = ?
+         AND status = 'ticket_accepted'
+         AND next_receipt_check_at IS NOT NULL
+         AND next_receipt_check_at <= ?
+       ORDER BY next_receipt_check_at ASC, id ASC
+       LIMIT ?`,
+      [input.userId, now, limit],
+    ) as MobilePushDeliveryRow[];
+    if (rows.length === 0) return { checked: 0, delivered: 0, failed: 0, pending: 0 };
 
-    for (let offset = 0; offset < rows.length; offset += MAX_EXPO_BATCH_SIZE) {
-      const batch = rows.slice(offset, offset + MAX_EXPO_BATCH_SIZE);
-      const messages = createAgentResponseReadyMessages({
-        tokens: batch.map((row) => row.expo_push_token),
-        instanceId: input.instanceId || createPublicMobileInstanceId(getLicenseInstanceId()),
-        workspaceId: input.workspaceId,
-        sessionId: input.sessionId,
-      });
-      const headers: Record<string, string> = {
-        Accept: 'application/json',
-        'Accept-Encoding': 'gzip, deflate',
-        'Content-Type': 'application/json',
-      };
-      const accessToken = process.env.EXPO_ACCESS_TOKEN?.trim();
-      if (accessToken) headers.Authorization = `Bearer ${accessToken}`;
-      const response = await fetcher(EXPO_PUSH_ENDPOINT, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(messages),
-        signal: AbortSignal.timeout(12_000),
-      });
-      if (!response.ok) {
-        throw new Error(`Expo push service returned HTTP ${response.status}.`);
+    const response = await postExpoWithRetry({
+      endpoint: EXPO_RECEIPTS_ENDPOINT,
+      body: { ids: rows.map((row) => row.expo_ticket_id) },
+      fetcher,
+    });
+    const payload = await response.json() as { data?: Record<string, ExpoPushReceipt> };
+    const receipts = isRecord(payload.data) ? payload.data as Record<string, ExpoPushReceipt> : {};
+    let delivered = 0;
+    let failed = 0;
+    let pending = 0;
+
+    for (const row of rows) {
+      const receipt = receipts[row.expo_ticket_id];
+      if (!receipt) {
+        const attemptCount = Number(row.attempt_count || 0) + 1;
+        if (attemptCount >= MAX_RECEIPT_ATTEMPTS) {
+          await connection.run(
+            `UPDATE mobile_push_deliveries
+             SET status = 'receipt_timeout', attempt_count = ?, next_receipt_check_at = NULL,
+               last_error_code = 'RECEIPT_TIMEOUT', updated_at = ?
+             WHERE id = ?`,
+            [attemptCount, now, row.id],
+          );
+          failed += 1;
+        } else {
+          await connection.run(
+            `UPDATE mobile_push_deliveries
+             SET attempt_count = ?, next_receipt_check_at = ?, updated_at = ?
+             WHERE id = ?`,
+            [attemptCount, now + receiptRetryDelay(attemptCount), now, row.id],
+          );
+          pending += 1;
+        }
+        continue;
       }
-      const payload = await response.json() as { data?: ExpoPushTicket[] | ExpoPushTicket };
-      const tickets = Array.isArray(payload.data) ? payload.data : payload.data ? [payload.data] : [];
-      if (tickets.length !== batch.length) {
-        throw new Error('Expo push service returned an unexpected ticket count.');
+
+      if (receipt.status === 'ok') {
+        await connection.run(
+          `UPDATE mobile_push_deliveries
+           SET status = 'receipt_ok', next_receipt_check_at = NULL, receipt_at = ?,
+             last_error_code = NULL, updated_at = ?
+           WHERE id = ?`,
+          [now, now, row.id],
+        );
+        await connection.run(
+          `UPDATE mobile_push_devices
+           SET last_delivery_at = ?, last_error_code = NULL, updated_at = ?
+           WHERE id = ?`,
+          [now, now, row.device_id],
+        );
+        delivered += 1;
+        continue;
       }
-      for (let index = 0; index < batch.length; index += 1) {
-        const ticket = tickets[index];
-        if (ticket?.status === 'ok') accepted += 1;
-        await updateDeliveryResult(connection, batch[index], ticket || {});
-      }
+
+      const errorCode = ticketErrorCode(receipt);
+      await connection.run(
+        `UPDATE mobile_push_deliveries
+         SET status = 'receipt_error', next_receipt_check_at = NULL, receipt_at = ?,
+           last_error_code = ?, updated_at = ?
+         WHERE id = ?`,
+        [now, errorCode, now, row.id],
+      );
+      await connection.run(
+        `UPDATE mobile_push_devices
+         SET enabled = ?, last_error_code = ?, updated_at = ?
+         WHERE id = ?`,
+        [errorCode === 'DeviceNotRegistered' ? 0 : 1, errorCode, now, row.device_id],
+      );
+      failed += 1;
     }
-    return { attempted: rows.length, accepted };
+
+    return { checked: rows.length, delivered, failed, pending };
   });
 }

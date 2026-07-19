@@ -66,6 +66,8 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'chat.realtime',
   'push.devices',
   'push.agent_response_ready',
+  'push.attention_categories',
+  'push.receipts',
   'notebook.documents',
   'notebook.revision_write',
   'files.browse',

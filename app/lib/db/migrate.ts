@@ -53,6 +53,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       app_variant TEXT NOT NULL DEFAULT 'production',
       enabled INTEGER NOT NULL DEFAULT 1,
       agent_response_ready INTEGER NOT NULL DEFAULT 1,
+      todo_attention INTEGER NOT NULL DEFAULT 1,
+      studio_completed INTEGER NOT NULL DEFAULT 1,
+      failure_attention INTEGER NOT NULL DEFAULT 1,
       preview_enabled INTEGER NOT NULL DEFAULT 0,
       last_registered_at INTEGER NOT NULL,
       last_delivery_at INTEGER,
@@ -67,6 +70,29 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       ON mobile_push_devices (user_id, enabled);
     CREATE INDEX IF NOT EXISTS idx_mobile_push_devices_auth_session
       ON mobile_push_devices (auth_session_id);
+
+    CREATE TABLE IF NOT EXISTS mobile_push_deliveries (
+      id TEXT PRIMARY KEY NOT NULL,
+      device_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      expo_ticket_id TEXT UNIQUE,
+      status TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_receipt_check_at INTEGER,
+      receipt_at INTEGER,
+      last_error_code TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (device_id) REFERENCES mobile_push_devices(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mobile_push_deliveries_receipt_poll
+      ON mobile_push_deliveries (status, next_receipt_check_at);
+    CREATE INDEX IF NOT EXISTS idx_mobile_push_deliveries_user
+      ON mobile_push_deliveries (user_id, created_at);
 
     CREATE TABLE IF NOT EXISTS mobile_inbox_read_states (
       user_id TEXT NOT NULL,
@@ -1456,6 +1482,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   // from older Canvas versions without failing halfway through startup.
   addColumns(sqlite, 'automation_jobs', {
     next_run_at: 'INTEGER',
+  });
+
+  addColumns(sqlite, 'mobile_push_devices', {
+    todo_attention: 'INTEGER NOT NULL DEFAULT 1',
+    studio_completed: 'INTEGER NOT NULL DEFAULT 1',
+    failure_attention: 'INTEGER NOT NULL DEFAULT 1',
   });
 
   addColumns(sqlite, 'organization_user_permissions', {
