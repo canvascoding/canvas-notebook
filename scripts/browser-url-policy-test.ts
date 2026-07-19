@@ -16,16 +16,30 @@ async function main() {
   const { checkBrowserUrlPolicy } = await import('../app/lib/pi/browser/url-policy');
 
   const localhost = await checkBrowserUrlPolicy('http://localhost:3000', { lookupDns: false });
-  assert.equal(localhost.allowed, true);
+  assert.equal(localhost.allowed, false);
   assert.equal(localhost.category, 'loopback');
 
   const loopback = await checkBrowserUrlPolicy('http://127.0.0.1:3000', { lookupDns: false });
-  assert.equal(loopback.allowed, true);
+  assert.equal(loopback.allowed, false);
   assert.equal(loopback.category, 'loopback');
 
   const metadata = await checkBrowserUrlPolicy('http://169.254.169.254/latest/meta-data', { lookupDns: false });
   assert.equal(metadata.allowed, false);
   assert.equal(metadata.category, 'metadata');
+
+  const metadataAllowlistAttempt = await checkBrowserUrlPolicy('http://169.254.169.254/latest/meta-data', {
+    env: { CANVAS_BROWSER_ALLOWED_HOSTS: '169.254.169.254' } as unknown as NodeJS.ProcessEnv,
+    lookupDns: false,
+  });
+  assert.equal(metadataAllowlistAttempt.allowed, false);
+  assert.equal(metadataAllowlistAttempt.category, 'metadata');
+
+  const configuredLoopback = await checkBrowserUrlPolicy('http://localhost:3000', {
+    env: { CANVAS_BROWSER_ALLOWED_HOSTS: 'localhost' } as unknown as NodeJS.ProcessEnv,
+    lookupDns: false,
+  });
+  assert.equal(configuredLoopback.allowed, true);
+  assert.equal(configuredLoopback.category, 'allowed-host');
 
   const privateNetwork = await checkBrowserUrlPolicy('http://10.0.0.2', { lookupDns: false });
   assert.equal(privateNetwork.allowed, false);
@@ -40,6 +54,10 @@ async function main() {
 
   const fileUrl = await checkBrowserUrlPolicy('file:///etc/passwd', { lookupDns: false });
   assert.equal(fileUrl.allowed, false);
+
+  const credentialUrl = await checkBrowserUrlPolicy('https://user:password@example.com', { lookupDns: false });
+  assert.equal(credentialUrl.allowed, false);
+  assert.equal(credentialUrl.category, 'credentials');
 
   const publicUrl = await checkBrowserUrlPolicy('https://example.com', { lookupDns: false });
   assert.equal(publicUrl.allowed, true);

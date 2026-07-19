@@ -67,6 +67,14 @@ async function login(page: Page): Promise<void> {
   cachedAuthCookies = await page.context().cookies();
 }
 
+async function issueBrowserFixtureAccess(page: Page): Promise<string> {
+  const response = await page.request.post('/api/browser/view/fixture-access');
+  const payload = await response.json() as { data?: { access?: string } };
+  expect(response.ok(), JSON.stringify(payload)).toBeTruthy();
+  expect(payload.data?.access).toBeTruthy();
+  return payload.data!.access!;
+}
+
 async function findBrowserLabSession(page: Page): Promise<SessionSummary> {
   const [agentsResponse, sessionsResponse] = await Promise.all([
     page.request.get('/api/agents'),
@@ -166,6 +174,19 @@ test.describe('Browser Lab', () => {
   test('requires an authenticated user', async ({ page }) => {
     await page.goto('/browser/lab');
     await expect(page).toHaveURL(/\/login(?:\?.*)?$/, { timeout: 15_000 });
+
+    const [ticket, files, fixtureAccess, fixturePage, fixtureDownload] = await Promise.all([
+      page.request.post('/api/browser/view', { data: {} }),
+      page.request.get('/api/browser/view/files'),
+      page.request.post('/api/browser/view/fixture-access'),
+      page.request.get('/api/browser/view/fixture-page'),
+      page.request.get('/api/browser/view/fixture-download'),
+    ]);
+    expect(ticket.status()).toBe(401);
+    expect(files.status()).toBe(401);
+    expect(fixtureAccess.status()).toBe(401);
+    expect(fixturePage.status()).toBe(404);
+    expect(fixtureDownload.status()).toBe(404);
   });
 
   test('shows the Browser Lab shell to the bootstrap admin', async ({ page }) => {
@@ -226,6 +247,8 @@ test.describe('Browser Lab', () => {
 
     await page.setViewportSize({ width: 1600, height: 900 });
     await login(page);
+    const fixtureAccess = await issueBrowserFixtureAccess(page);
+    const fixtureUrl = `http://localhost:3000/api/browser/view/fixture-page?access=${encodeURIComponent(fixtureAccess)}`;
     const session = await findBrowserLabSession(page);
     try {
       await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
@@ -259,10 +282,16 @@ test.describe('Browser Lab', () => {
       await page.getByRole('button', { name: labels.dismissError }).click();
       await expect(navigationAlert).toHaveCount(0);
 
-      const frameBeforeNavigation = await frame.getAttribute('src');
-      await address.fill('http://localhost:3000/login');
+      await address.fill('http://localhost:3000/api/health');
       await page.getByRole('button', { name: labels.navigate }).click();
-      await expect(address).toHaveValue(/http:\/\/localhost:3000\/.*login/, { timeout: 30_000 });
+      await expect(navigationAlert).toBeVisible();
+      await page.getByRole('button', { name: labels.dismissError }).click();
+      await expect(navigationAlert).toHaveCount(0);
+
+      const frameBeforeNavigation = await frame.getAttribute('src');
+      await address.fill(fixtureUrl);
+      await page.getByRole('button', { name: labels.navigate }).click();
+      await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
       await expect.poll(() => frame.getAttribute('src'), { timeout: 30_000 }).not.toBe(frameBeforeNavigation);
 
       await page.getByRole('button', { name: labels.viewOnly }).click();
@@ -285,7 +314,7 @@ test.describe('Browser Lab', () => {
 
       await page.getByRole('button', { name: labels.connect }).click();
       await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
-      await expect(address).toHaveValue(/http:\/\/localhost:3000\/.*login/);
+      await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/);
 
       await page.setViewportSize({ width: 390, height: 844 });
       await expect(page.getByRole('heading', { name: 'Browser Lab', level: 2 })).toBeVisible();
@@ -329,13 +358,7 @@ test.describe('Browser Lab', () => {
       data: { path: fixtureName, content: fixtureContent },
     });
     expect(writeResponse.ok(), await writeResponse.text()).toBeTruthy();
-    const fixtureAccessResponse = await page.request.post('/api/browser/view/fixture-access');
-    const fixtureAccessPayload = await fixtureAccessResponse.json() as {
-      data?: { access?: string };
-    };
-    expect(fixtureAccessResponse.ok(), JSON.stringify(fixtureAccessPayload)).toBeTruthy();
-    const fixtureAccess = fixtureAccessPayload.data?.access;
-    expect(fixtureAccess).toBeTruthy();
+    const fixtureAccess = await issueBrowserFixtureAccess(page);
 
     try {
       await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);

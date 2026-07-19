@@ -128,17 +128,33 @@ export async function cleanupBrowserDownloadStagingFile(directory: string, guid:
   }));
 }
 
-async function uniqueWorkspaceDownloadPath(workspace: WorkspaceContext, fileName: string): Promise<string> {
+async function moveDownloadWithoutOverwrite(
+  workspace: WorkspaceContext,
+  sourcePath: string,
+  fileName: string,
+): Promise<string> {
   const extension = path.extname(fileName);
   const stem = path.basename(fileName, extension);
   for (let index = 0; index < 1000; index += 1) {
     const candidateName = index === 0 ? fileName : `${stem} (${index})${extension}`;
     const relativePath = path.posix.join(BROWSER_DOWNLOAD_WORKSPACE_DIRECTORY, candidateName);
-    const absolutePath = await resolveWritableWorkspacePath(workspace, relativePath);
+    const destinationPath = await resolveWritableWorkspacePath(workspace, relativePath);
     try {
-      await fs.access(absolutePath);
-    } catch (error) {
-      if (error && typeof error === 'object' && 'code' in error && error.code === 'ENOENT') return relativePath;
+      await fs.link(sourcePath, destinationPath);
+      await fs.unlink(sourcePath);
+      return relativePath;
+    } catch (error: unknown) {
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'EEXIST') continue;
+      if (error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV') {
+        try {
+          await fs.copyFile(sourcePath, destinationPath, fsConstants.COPYFILE_EXCL);
+          await fs.unlink(sourcePath);
+          return relativePath;
+        } catch (copyError: unknown) {
+          if (copyError && typeof copyError === 'object' && 'code' in copyError && copyError.code === 'EEXIST') continue;
+          throw copyError;
+        }
+      }
       throw error;
     }
   }
@@ -182,15 +198,7 @@ export async function moveBrowserDownloadIntoWorkspace(input: {
   const directoryPath = await resolveDirectoryCreationPath(workspace, BROWSER_DOWNLOAD_WORKSPACE_DIRECTORY);
   await fs.mkdir(directoryPath, { recursive: true });
   await ensureWorkspaceRoot(workspace);
-  const workspacePath = await uniqueWorkspaceDownloadPath(workspace, fileName);
-  const destinationPath = await resolveWritableWorkspacePath(workspace, workspacePath);
-  try {
-    await fs.rename(sourceRealPath, destinationPath);
-  } catch (error) {
-    if (!(error && typeof error === 'object' && 'code' in error && error.code === 'EXDEV')) throw error;
-    await fs.copyFile(sourceRealPath, destinationPath, fsConstants.COPYFILE_EXCL);
-    await fs.unlink(sourceRealPath);
-  }
+  const workspacePath = await moveDownloadWithoutOverwrite(workspace, sourceRealPath, fileName);
   invalidateFileReferenceCache({ workspace });
   return { fileName: path.posix.basename(workspacePath), workspacePath, size: stats.size };
 }

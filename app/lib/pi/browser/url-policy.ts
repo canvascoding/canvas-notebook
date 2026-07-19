@@ -3,6 +3,8 @@ import 'server-only';
 import { lookup } from 'node:dns/promises';
 import { isIP } from 'node:net';
 
+import { verifyBrowserFixtureTicket } from './view-fixture-ticket';
+
 const DNS_LOOKUP_TIMEOUT_MS = 2_000;
 
 const ALWAYS_BLOCKED_HOSTS = new Set([
@@ -12,6 +14,10 @@ const ALWAYS_BLOCKED_HOSTS = new Set([
 ]);
 
 const REQUEST_SAFE_PROTOCOLS = new Set(['about:', 'blob:', 'data:', 'http:', 'https:']);
+const SIGNED_LOCAL_FIXTURE_PATHS = new Set([
+  '/api/browser/view/fixture-page',
+  '/api/browser/view/fixture-download',
+]);
 
 export type BrowserUrlPolicyDecision = {
   allowed: boolean;
@@ -65,7 +71,7 @@ function classifyIpv4(address: string): { allowed: boolean; category: string; re
     };
   }
   if (a === 127) {
-    return { allowed: true, category: 'loopback' };
+    return { allowed: false, category: 'loopback', reason: 'Blocked loopback network address.' };
   }
   if (a === 0) {
     return { allowed: false, category: 'unspecified', reason: 'Blocked unspecified IPv4 range.' };
@@ -116,7 +122,7 @@ function classifyIpAddress(address: string): { allowed: boolean; category: strin
 
   const normalized = address.toLowerCase();
   if (normalized === '::1' || normalized === '0:0:0:0:0:0:0:1') {
-    return { allowed: true, category: 'loopback' };
+    return { allowed: false, category: 'loopback', reason: 'Blocked loopback network address.' };
   }
   if (normalized === '::' || normalized === '0:0:0:0:0:0:0:0') {
     return { allowed: false, category: 'unspecified', reason: 'Blocked unspecified IPv6 address.' };
@@ -136,6 +142,20 @@ function classifyIpAddress(address: string): { allowed: boolean; category: strin
 
 function allowPrivateNetworks(env: NodeJS.ProcessEnv): boolean {
   return envFlag(env.CANVAS_BROWSER_ALLOW_PRIVATE_NETWORKS);
+}
+
+function isSignedLocalFixtureUrl(parsed: URL, env: NodeJS.ProcessEnv): boolean {
+  if (normalizeHostname(parsed.hostname) !== 'localhost') return false;
+  const expectedPort = (env.PORT || '3000').trim();
+  const effectivePort = parsed.port || (parsed.protocol === 'https:' ? '443' : '80');
+  if (effectivePort !== expectedPort) return false;
+  if (!SIGNED_LOCAL_FIXTURE_PATHS.has(parsed.pathname)) return false;
+  try {
+    verifyBrowserFixtureTicket(parsed.searchParams.get('access') || '');
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function applyPrivateNetworkOverride(
@@ -197,19 +217,27 @@ export async function checkBrowserUrlPolicy(
   if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
     return decision(parsed.toString(), false, 'Only http and https URLs are allowed in the managed browser.', null, null);
   }
+  if (parsed.username || parsed.password) {
+    return decision(parsed.toString(), false, 'URLs containing credentials are not allowed.', null, 'credentials');
+  }
 
   const hostname = normalizeHostname(parsed.hostname);
   const allowedHosts = getAllowedHosts(env);
-  if (allowedHosts.has(hostname)) {
-    return decision(parsed.toString(), true, null, hostname, 'allowed-host');
-  }
 
   if (ALWAYS_BLOCKED_HOSTS.has(hostname)) {
     return decision(parsed.toString(), false, 'Blocked browser access to a metadata or reserved host.', hostname, 'metadata');
   }
 
+  if (isSignedLocalFixtureUrl(parsed, env)) {
+    return decision(parsed.toString(), true, null, hostname, 'signed-local-fixture');
+  }
+
+  if (allowedHosts.has(hostname)) {
+    return decision(parsed.toString(), true, null, hostname, 'allowed-host');
+  }
+
   if (hostname === 'localhost') {
-    return decision(parsed.toString(), true, null, hostname, 'loopback');
+    return decision(parsed.toString(), false, 'Blocked loopback network address.', hostname, 'loopback');
   }
 
   const literalIpDecision = classifyIpAddress(hostname);

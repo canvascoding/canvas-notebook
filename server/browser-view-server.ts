@@ -9,6 +9,11 @@ import { assertBrowserRuntimeAvailable } from '@/app/lib/pi/browser/settings-ser
 import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
 import { browserViewFailure } from '@/app/lib/pi/browser/view-errors';
 import { resolveBrowserViewResourceBudget } from '@/app/lib/pi/browser/view-resource-budget';
+import {
+  allowBrowserViewMessage,
+  createBrowserViewRateLimitState,
+  type BrowserViewRateLimitState,
+} from '@/app/lib/pi/browser/view-rate-limit';
 import { BrowserViewService, type BrowserViewServerMessage } from '@/app/lib/pi/browser/view-service';
 import { verifyBrowserViewTicket } from '@/app/lib/pi/browser/view-ticket';
 import type { BrowserViewControlMode, BrowserViewFailure } from '@/app/lib/pi/browser/types';
@@ -41,10 +46,7 @@ type BrowserConnection = {
   authSessionId: string;
   service: BrowserViewService | null;
   isAlive: boolean;
-  inputWindowStartedAt: number;
-  inputCount: number;
-  commandWindowStartedAt: number;
-  commandCount: number;
+  rateLimit: BrowserViewRateLimitState;
   operationQueue: Promise<void>;
 };
 
@@ -83,23 +85,6 @@ function sendError(ws: WebSocket, failure: BrowserViewFailure): void {
 
 function isInputMessage(message: ClientMessage): boolean {
   return message.type === 'input_mouse' || message.type === 'input_key' || message.type === 'input_scroll';
-}
-
-function withinRateLimit(connection: BrowserConnection, input: boolean, now = Date.now()): boolean {
-  if (input) {
-    if (now - connection.inputWindowStartedAt >= 1000) {
-      connection.inputWindowStartedAt = now;
-      connection.inputCount = 0;
-    }
-    connection.inputCount += 1;
-    return connection.inputCount <= 120;
-  }
-  if (now - connection.commandWindowStartedAt >= 60_000) {
-    connection.commandWindowStartedAt = now;
-    connection.commandCount = 0;
-  }
-  connection.commandCount += 1;
-  return connection.commandCount <= 60;
 }
 
 async function subscribe(connection: BrowserConnection, token: string): Promise<void> {
@@ -154,7 +139,7 @@ async function subscribe(connection: BrowserConnection, token: string): Promise<
 
 async function handleMessage(connection: BrowserConnection, message: ClientMessage): Promise<void> {
   const rateLimitedMessage = message.type !== 'frame_ack' && message.type !== 'heartbeat';
-  if (rateLimitedMessage && !withinRateLimit(connection, isInputMessage(message))) {
+  if (rateLimitedMessage && !allowBrowserViewMessage(connection.rateLimit, isInputMessage(message))) {
     throw new Error('Browser view rate limit exceeded.');
   }
   if (message.type === 'view_subscribe') {
@@ -231,10 +216,7 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
     authSessionId: authResult.sessionId,
     service: null,
     isAlive: true,
-    inputWindowStartedAt: Date.now(),
-    inputCount: 0,
-    commandWindowStartedAt: Date.now(),
-    commandCount: 0,
+    rateLimit: createBrowserViewRateLimitState(),
     operationQueue: Promise.resolve(),
   };
   connections.add(connection);
