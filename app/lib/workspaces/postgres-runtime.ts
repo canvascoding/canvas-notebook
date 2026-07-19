@@ -1853,6 +1853,7 @@ export async function changePostgresWorkspaceTypeForActor(
 export async function listPostgresWorkspaceMembersForActor(
   actor: WorkspaceActor,
   workspaceId: string,
+  options: { requireManage?: boolean; includeCandidates?: boolean } = {},
 ): Promise<{ workspace: WorkspaceContext; members: WorkspaceMemberRecord[]; candidates: WorkspaceMemberCandidate[] }> {
   const database = await openDb();
   try {
@@ -1862,7 +1863,8 @@ export async function listPostgresWorkspaceMembersForActor(
     if (!workspace) {
       throw new WorkspaceOperationError('WORKSPACE_NOT_FOUND', 'Workspace not found.', 404);
     }
-    if (!workspace.permissions.canManageWorkspace) {
+    const requireManage = options.requireManage !== false;
+    if (requireManage ? !workspace.permissions.canManageWorkspace : !workspace.permissions.canRead) {
       throw new WorkspaceOperationError('WORKSPACE_PERMISSION_DENIED', 'Workspace permission denied.', 403);
     }
     if (workspace.workspaceType === 'personal') {
@@ -1925,7 +1927,7 @@ export async function listPostgresWorkspaceMembersForActor(
           `,
           [workspaceId],
         ) as WorkspaceMemberRow[];
-    const candidateRows = await database.all(
+    const candidateRows = options.includeCandidates === false ? [] : await database.all(
       `
         SELECT
           u.id AS user_id,

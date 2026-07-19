@@ -48,7 +48,7 @@ function workspaceAccess(workspace: WorkspaceContext): MobileWorkspaceAccess {
   return 'read';
 }
 
-function serializeMobileWorkspace(workspace: WorkspaceContext): MobileWorkspaceSummary {
+export function serializeMobileWorkspace(workspace: WorkspaceContext): MobileWorkspaceSummary {
   return {
     id: workspace.workspaceId,
     type: workspace.workspaceType,
@@ -81,6 +81,8 @@ export function createMobileBootstrap(input: {
   const capabilities = [
     'workspace.read',
     'workspace.switch',
+    'workspace.update',
+    'workspace.members.read',
     'chat.agents',
     'chat.sessions',
     'chat.messages',
