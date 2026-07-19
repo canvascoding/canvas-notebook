@@ -26,6 +26,10 @@ export type MobileCompatibility = {
       'push.agent_response_ready',
       'notebook.documents',
       'notebook.revision_write',
+      'files.browse',
+      'files.mutate',
+      'files.upload',
+      'files.public_share',
     ];
   };
   auth: {
@@ -73,6 +77,10 @@ export function createMobileCompatibility(input: {
         'push.agent_response_ready',
         'notebook.documents',
         'notebook.revision_write',
+        'files.browse',
+        'files.mutate',
+        'files.upload',
+        'files.public_share',
       ],
     },
     auth: {

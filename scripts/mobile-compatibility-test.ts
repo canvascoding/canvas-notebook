@@ -40,6 +40,10 @@ assert.deepEqual(compatibility, {
       'push.agent_response_ready',
       'notebook.documents',
       'notebook.revision_write',
+      'files.browse',
+      'files.mutate',
+      'files.upload',
+      'files.public_share',
     ],
   },
   auth: {

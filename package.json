@@ -132,6 +132,7 @@
     "test:mobile:chat": "tsx --conditions react-server scripts/mobile-chat-ticket-test.ts",
     "test:mobile:push": "tsx --conditions react-server scripts/mobile-push-devices-test.ts",
     "test:mobile:notebook": "tsx --conditions react-server scripts/mobile-notebook-test.ts",
+    "test:mobile:files": "tsx --conditions react-server scripts/mobile-files-test.ts",
     "test:account:credentials": "tsx --conditions react-server scripts/account-credentials-route-test.ts",
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",

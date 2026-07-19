@@ -89,6 +89,10 @@ export function createMobileBootstrap(input: {
     'push.agent_response_ready',
     'notebook.documents',
     'notebook.revision_write',
+    'files.browse',
+    'files.mutate',
+    'files.upload',
+    'files.public_share',
   ];
   if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
 
