@@ -45,6 +45,7 @@ assert.deepEqual(compatibility, {
       'push.receipts',
       'notebook.documents',
       'notebook.revision_write',
+      'notebook.image_import',
       'files.browse',
       'files.mutate',
       'files.copy',

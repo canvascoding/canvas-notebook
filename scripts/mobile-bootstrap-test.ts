@@ -75,6 +75,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'push.receipts',
   'notebook.documents',
   'notebook.revision_write',
+  'notebook.image_import',
   'files.browse',
   'files.mutate',
   'files.copy',
