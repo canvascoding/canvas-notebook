@@ -112,6 +112,9 @@ export function createMobileBootstrap(input: {
     'studio.generations',
     'studio.references',
     'studio.outputs',
+    'studio.advanced_options',
+    'studio.library',
+    'studio.output_actions',
   ];
   if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
 

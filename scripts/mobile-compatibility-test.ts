@@ -61,6 +61,9 @@ assert.deepEqual(compatibility, {
       'studio.generations',
       'studio.references',
       'studio.outputs',
+      'studio.advanced_options',
+      'studio.library',
+      'studio.output_actions',
     ],
   },
   auth: {

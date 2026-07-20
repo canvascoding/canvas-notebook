@@ -97,7 +97,7 @@ async function main() {
       workspaceId: workspace.id,
     });
 
-    const catalog = await getMobileStudioCatalog({ scope, userId: 'studio-user', canWrite: true });
+    const catalog = await getMobileStudioCatalog({ scope, userId: 'studio-user', canWrite: true, canDeleteAssets: true });
     const nullablePreset = catalog.presets.find((preset) => preset.id === 'preset-nullable');
     assert.equal(nullablePreset?.description, '');
     assert.equal(nullablePreset?.category, 'custom');
@@ -110,12 +110,24 @@ async function main() {
       aspectRatio: '9:16',
       videoResolution: '720p',
       videoDuration: 6,
+      productIds: ['product-1'],
+      personaIds: ['persona-1'],
+      styleIds: ['style-1'],
+      videoGenerateAudio: false,
+      videoWebSearch: true,
+      videoNsfwChecker: false,
       references: [
         { kind: 'image', path: 'studio/assets/workspaces/workspace/reference.png' },
         { kind: 'video', path: 'studio/assets/workspaces/workspace/reference.mp4' },
       ],
     });
     assert.equal(parsed.mode, 'video');
+    assert.deepEqual(parsed.product_ids, ['product-1']);
+    assert.deepEqual(parsed.persona_ids, ['persona-1']);
+    assert.deepEqual(parsed.style_ids, ['style-1']);
+    assert.equal(parsed.video_generate_audio, false);
+    assert.equal(parsed.video_web_search, true);
+    assert.equal(parsed.video_nsfw_checker, false);
     assert.deepEqual(parsed.extra_reference_urls, ['studio/assets/workspaces/workspace/reference.png']);
     assert.deepEqual(parsed.video_reference_urls, ['studio/assets/workspaces/workspace/reference.mp4']);
     assert.throws(() => parseMobileStudioGenerationRequest({
@@ -126,6 +138,7 @@ async function main() {
     }), /image references only/u);
     assert.throws(() => parseMobileStudioGenerationRequest({ mode: 'sound', prompt: '' }), /requires a prompt/u);
     assert.throws(() => parseMobileStudioGenerationRequest({ mode: 'image', prompt: 'Image', model: 'unknown-model' }), /not supported/u);
+    assert.throws(() => parseMobileStudioGenerationRequest({ mode: 'video', provider: 'bytedance', prompt: 'Video', isLooping: true }), /require Google Veo/u);
 
     const firstPage = await listMobileStudioGenerations({ scope, limit: 1 });
     assert.equal(firstPage.generations.length, 1);
@@ -138,6 +151,8 @@ async function main() {
     assert.equal('mediaUrl' in output, false);
     assert.equal(firstPage.generations[0].error?.includes('secretvalue'), false);
     assert.equal(firstPage.generations[0].error?.includes('[redacted]'), true);
+    assert.equal(firstPage.generations[0].settings.quality, 'auto');
+    assert.deepEqual(firstPage.generations[0].references.productIds, []);
 
     const secondPage = await listMobileStudioGenerations({ scope, limit: 1, cursor: firstPage.nextCursor });
     assert.equal(secondPage.generations[0].id, 'generation-old');

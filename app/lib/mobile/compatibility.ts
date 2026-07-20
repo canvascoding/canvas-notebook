@@ -47,6 +47,9 @@ export type MobileCompatibility = {
       'studio.generations',
       'studio.references',
       'studio.outputs',
+      'studio.advanced_options',
+      'studio.library',
+      'studio.output_actions',
     ];
   };
   auth: {
@@ -115,6 +118,9 @@ export function createMobileCompatibility(input: {
         'studio.generations',
         'studio.references',
         'studio.outputs',
+        'studio.advanced_options',
+        'studio.library',
+        'studio.output_actions',
       ],
     },
     auth: {

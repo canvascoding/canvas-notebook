@@ -1877,6 +1877,26 @@ export async function getStudioGeneration(generationId: string, scope: StudioSco
   };
 }
 
+export async function setStudioOutputFavorite(
+  generationId: string,
+  outputId: string,
+  isFavorite: boolean,
+  scope: StudioScope,
+) {
+  const existing = await getStudioOutputForUser(outputId, scope);
+  if (!existing || existing.generationId !== generationId) {
+    throw new StudioServiceError('Output not found', 'Output nicht gefunden', 'NOT_FOUND');
+  }
+
+  const [updated] = await db
+    .update(studioGenerationOutputs)
+    .set({ isFavorite })
+    .where(eq(studioGenerationOutputs.id, outputId))
+    .returning();
+
+  return updated;
+}
+
 export async function deleteStudioOutput(outputId: string, scope: StudioScope): Promise<{ success: boolean; generationDeleted: boolean }> {
   const [outputRow] = await db.select({
     id: studioGenerationOutputs.id,
