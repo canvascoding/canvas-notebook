@@ -102,6 +102,13 @@ async function main() {
     assert.equal(created.path, 'Alpha (2).md');
     assert.throws(() => normalizeMobileNotebookPath('../outside.md'));
 
+    const imageRoute = await fs.readFile(
+      path.join(process.cwd(), 'app/api/mobile/v1/notebook/images/import/route.ts'),
+      'utf8',
+    );
+    assert.match(imageRoute, /app\/api\/markdown\/images\/import\/route/u);
+    assert.match(imageRoute, /export const runtime = 'nodejs'/u);
+
     await closeDatabaseConnections();
     console.log('mobile-notebook-test: ok');
   } finally {
