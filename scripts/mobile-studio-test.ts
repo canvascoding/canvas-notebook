@@ -90,12 +90,20 @@ async function main() {
       parseMobileStudioGenerationRequest,
     } = await import('../app/lib/mobile/studio');
     const { createPersistedStudioScope } = await import('../app/lib/integrations/studio-scope');
+    const { parseMobileStudioLibraryKind } = await import('../app/lib/mobile/studio-management');
+    const { parseMobileStudioPresetInput } = await import('../app/lib/mobile/studio-presets');
     const { closeDatabaseConnections } = await import('../app/lib/db');
     const scope = createPersistedStudioScope({
       actorUserId: 'studio-user',
       organizationId: bootstrap.organizationId,
       workspaceId: workspace.id,
     });
+    assert.equal(parseMobileStudioLibraryKind('products'), 'products');
+    assert.throws(() => parseMobileStudioLibraryKind('secrets'), /kind is invalid/u);
+    assert.deepEqual(parseMobileStudioPresetInput({
+      name: 'Mobile campaign', category: 'product', blocks: [{ type: 'lighting', label: 'Soft', promptFragment: 'soft light' }],
+    }).blocks.map((block) => block.type), ['lighting']);
+    assert.throws(() => parseMobileStudioPresetInput({ name: 'Empty', category: 'product', blocks: [] }), /at least one block/u);
 
     const catalog = await getMobileStudioCatalog({ scope, userId: 'studio-user', canWrite: true, canDeleteAssets: true });
     const nullablePreset = catalog.presets.find((preset) => preset.id === 'preset-nullable');

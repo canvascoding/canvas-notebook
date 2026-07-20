@@ -64,6 +64,10 @@ assert.deepEqual(compatibility, {
       'studio.advanced_options',
       'studio.library',
       'studio.output_actions',
+      'studio.library_manage',
+      'studio.presets_manage',
+      'studio.bulk',
+      'studio.aspect_ratio',
     ],
   },
   auth: {
