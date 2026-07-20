@@ -26,9 +26,12 @@ import {
   listStudioGenerations,
   type StudioGenerateRequest,
 } from '@/app/lib/integrations/studio-generation-service';
+import { listPersonas } from '@/app/lib/integrations/studio-persona-service';
 import { listPresets } from '@/app/lib/integrations/studio-preset-service';
+import { listProducts } from '@/app/lib/integrations/studio-product-service';
 import type { StudioScope } from '@/app/lib/integrations/studio-scope';
 import { STUDIO_STARTING_POINTS } from '@/app/lib/integrations/studio-starting-points';
+import { listStyles } from '@/app/lib/integrations/studio-style-service';
 import {
   generateStudioReferencePath,
   writeAssetFile,
@@ -112,6 +115,18 @@ function integerValue(value: unknown, fallback: number, minimum: number, maximum
   return Number(value);
 }
 
+function identifierArray(value: unknown, field: string, maximumItems: number): string[] {
+  if (value === undefined || value === null) return [];
+  if (!Array.isArray(value) || value.length > maximumItems) {
+    throw new MobileStudioError(`${field} is invalid.`, 400, 'INVALID_STUDIO_REQUEST');
+  }
+  const identifiers = value.map((entry) => optionalString(entry, field, 180));
+  if (identifiers.some((entry) => !entry) || new Set(identifiers).size !== identifiers.length) {
+    throw new MobileStudioError(`${field} is invalid.`, 400, 'INVALID_STUDIO_REQUEST');
+  }
+  return identifiers as string[];
+}
+
 function normalizeReferencePath(value: unknown): string {
   const referencePath = optionalString(value, 'Reference path', 1_000);
   if (
@@ -176,10 +191,30 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     : enumValue(value.aspectRatio, aspectRatios, aspectRatios[0] || '1:1', 'Aspect ratio');
   const prompt = optionalString(value.prompt, 'Prompt', 4_000) || '';
   const references = parseReferences(value.references, mode, provider);
+  const productIds = identifierArray(value.productIds, 'Products', 5);
+  const personaIds = identifierArray(value.personaIds, 'Personas', 3);
+  const styleIds = identifierArray(value.styleIds, 'Styles', 3);
+  const videoExtendSourcePath = value.videoExtendSourcePath === undefined || value.videoExtendSourcePath === null
+    ? null
+    : normalizeReferencePath(value.videoExtendSourcePath);
+  const startFramePath = value.startFramePath === undefined || value.startFramePath === null
+    ? null
+    : normalizeReferencePath(value.startFramePath);
+  const endFramePath = value.endFramePath === undefined || value.endFramePath === null
+    ? null
+    : normalizeReferencePath(value.endFramePath);
   if (mode === 'sound' && !prompt) {
     throw new MobileStudioError('Sound generation requires a prompt.', 400, 'PROMPT_REQUIRED');
   }
-  if (!prompt && references.length === 0 && !value.sourceOutputId) {
+  if (
+    !prompt
+    && references.length === 0
+    && productIds.length === 0
+    && personaIds.length === 0
+    && styleIds.length === 0
+    && !value.sourceOutputId
+    && !videoExtendSourcePath
+  ) {
     throw new MobileStudioError('Add a prompt or at least one reference.', 400, 'PROMPT_OR_REFERENCE_REQUIRED');
   }
   const presetId = optionalString(value.presetId, 'Preset', 180);
@@ -208,10 +243,28 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
   if (mode === 'video' && !videoDurations.includes(videoDuration as never)) {
     throw new MobileStudioError('Video duration is not supported by this model.', 400, 'UNSUPPORTED_STUDIO_OPTION');
   }
+  const isLooping = mode === 'video' ? booleanValue(value.isLooping, false) : undefined;
+  const personGeneration = mode === 'video'
+    ? enumValue(value.personGeneration, ['allow_all', 'allow_adult', 'dont_allow'] as const, 'allow_all', 'Person generation')
+    : undefined;
+  const videoWebSearch = mode === 'video' ? booleanValue(value.videoWebSearch, false) : undefined;
+  const videoNsfwChecker = mode === 'video' ? booleanValue(value.videoNsfwChecker, true) : undefined;
+  if (mode !== 'video' && (videoExtendSourcePath || startFramePath || endFramePath)) {
+    throw new MobileStudioError('Video frame options require video mode.', 400, 'UNSUPPORTED_STUDIO_OPTION');
+  }
+  if (provider !== 'veo' && (videoExtendSourcePath || startFramePath || endFramePath || isLooping || value.personGeneration !== undefined)) {
+    throw new MobileStudioError('Frame, loop, extension, and person options require Google Veo.', 400, 'UNSUPPORTED_STUDIO_OPTION');
+  }
+  if (provider !== 'bytedance' && (videoWebSearch || value.videoNsfwChecker !== undefined)) {
+    throw new MobileStudioError('Web search and NSFW checking require Seedance.', 400, 'UNSUPPORTED_STUDIO_OPTION');
+  }
 
   return {
     prompt,
     mode,
+    product_ids: productIds,
+    persona_ids: personaIds,
+    style_ids: styleIds,
     provider,
     model,
     aspect_ratio: aspectRatio,
@@ -225,6 +278,13 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     video_resolution: videoResolution,
     video_duration: videoDuration,
     video_generate_audio: mode === 'video' ? booleanValue(value.videoGenerateAudio, true) : undefined,
+    video_extend_source_path: videoExtendSourcePath,
+    start_frame_path: startFramePath || undefined,
+    end_frame_path: endFramePath || undefined,
+    is_looping: isLooping,
+    person_generation: personGeneration,
+    video_web_search: videoWebSearch,
+    video_nsfw_checker: videoNsfwChecker,
     extra_reference_urls: references.filter((reference) => reference.kind === 'image').map((reference) => reference.path),
     video_reference_urls: references.filter((reference) => reference.kind === 'video').map((reference) => reference.path),
     audio_reference_urls: references.filter((reference) => reference.kind === 'audio').map((reference) => reference.path),
@@ -261,10 +321,14 @@ export async function getMobileStudioCatalog(input: {
   scope: StudioScope;
   userId: string;
   canWrite: boolean;
+  canDeleteAssets: boolean;
 }) {
-  const [config, presets] = await Promise.all([
+  const [config, presets, products, personas, styles] = await Promise.all([
     getStudioProviderConfig({ userId: input.userId }),
     listPresets(input.scope),
+    listProducts(input.scope),
+    listPersonas(input.scope),
+    listStyles(input.scope),
   ]);
   const modes = (Object.keys(MODE_PROVIDERS) as MobileStudioMode[]).map((mode) => ({
     id: mode,
@@ -287,6 +351,15 @@ export async function getMobileStudioCatalog(input: {
       canCreate: input.canWrite,
       canImportReferences: input.canWrite,
       canSaveToWorkspace: input.canWrite,
+      canManageLibrary: input.canWrite,
+      canDeleteAssets: input.canDeleteAssets,
+    },
+    options: {
+      qualities: [...QUALITY_OPTIONS],
+      backgrounds: [...BACKGROUND_OPTIONS],
+      imageOutputFormats: ['png', 'jpeg', 'webp'],
+      soundOutputFormats: ['mp3', 'wav'],
+      personGeneration: ['allow_all', 'allow_adult', 'dont_allow'],
     },
     modes,
     startingPoints: STUDIO_STARTING_POINTS,
@@ -299,6 +372,29 @@ export async function getMobileStudioCatalog(input: {
       isDefault: preset.isDefault,
       hasPreview: Boolean(preset.previewImagePath),
     })),
+    library: {
+      products: products.slice(0, 250).map(serializeLibraryEntity),
+      personas: personas.slice(0, 250).map(serializeLibraryEntity),
+      styles: styles.slice(0, 250).map(serializeLibraryEntity),
+    },
+  };
+}
+
+function serializeLibraryEntity(entity: {
+  id: string;
+  name: string;
+  description?: string | null;
+  imageCount: number;
+  thumbnailPath?: string | null;
+  updatedAt: Date | number | string;
+}) {
+  return {
+    id: entity.id,
+    name: entity.name,
+    description: entity.description || '',
+    imageCount: entity.imageCount,
+    hasPreview: Boolean(entity.thumbnailPath),
+    updatedAt: isoDate(entity.updatedAt),
   };
 }
 
@@ -325,6 +421,40 @@ function generationError(metadata: unknown): string | null {
   }
 }
 
+function generationMetadata(metadata: unknown): Record<string, unknown> {
+  if (typeof metadata !== 'string' || !metadata) return {};
+  try {
+    const parsed = JSON.parse(metadata) as unknown;
+    return isRecord(parsed) ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+
+function metadataString(metadata: Record<string, unknown>, key: string, maximumLength = 1_000): string | null {
+  const value = metadata[key];
+  return typeof value === 'string' && value.length <= maximumLength ? value : null;
+}
+
+function metadataBoolean(metadata: Record<string, unknown>, key: string, fallback: boolean): boolean {
+  return typeof metadata[key] === 'boolean' ? metadata[key] : fallback;
+}
+
+function metadataInteger(metadata: Record<string, unknown>, key: string, fallback: number): number {
+  return Number.isSafeInteger(metadata[key]) && Number(metadata[key]) > 0 ? Number(metadata[key]) : fallback;
+}
+
+function metadataPaths(metadata: Record<string, unknown>, key: string): string[] {
+  const values = metadata[key];
+  if (!Array.isArray(values)) return [];
+  return values.filter((value): value is string => (
+    typeof value === 'string'
+    && value.length <= 1_000
+    && value.startsWith('studio/')
+    && !value.split('/').some((part) => !part || part === '.' || part === '..')
+  )).slice(0, MAX_REFERENCE_COUNT);
+}
+
 function outputType(value: unknown, mimeType: unknown): MobileStudioMode {
   if (value === 'video' || (typeof mimeType === 'string' && mimeType.startsWith('video/'))) return 'video';
   if (value === 'sound' || (typeof mimeType === 'string' && mimeType.startsWith('audio/'))) return 'sound';
@@ -334,6 +464,7 @@ function outputType(value: unknown, mimeType: unknown): MobileStudioMode {
 type StudioGenerationValue = NonNullable<Awaited<ReturnType<typeof getStudioGeneration>>>;
 
 export function serializeMobileStudioGeneration(generation: StudioGenerationValue) {
+  const metadata = generationMetadata(generation.metadata);
   return {
     id: generation.id,
     mode: generation.mode,
@@ -347,6 +478,34 @@ export function serializeMobileStudioGeneration(generation: StudioGenerationValu
     model: generation.model,
     status: generation.status,
     error: generationError(generation.metadata),
+    settings: {
+      count: metadataInteger(metadata, 'count', Math.max(1, generation.outputs.length)),
+      quality: metadataString(metadata, 'quality', 20) || 'auto',
+      outputFormat: metadataString(metadata, 'outputFormat', 20) || (generation.mode === 'sound' ? 'mp3' : 'png'),
+      background: metadataString(metadata, 'background', 20) || 'auto',
+      imageSize: metadataString(metadata, 'imageSize', 40),
+      videoResolution: metadataString(metadata, 'videoResolution', 40),
+      videoDuration: Number.isSafeInteger(metadata.videoDuration) ? Number(metadata.videoDuration) : null,
+      videoGenerateAudio: metadataBoolean(metadata, 'videoGenerateAudio', true),
+      isLooping: metadataBoolean(metadata, 'isLooping', false),
+      personGeneration: metadataString(metadata, 'personGeneration', 40) || 'allow_all',
+      videoWebSearch: metadataBoolean(metadata, 'videoWebSearch', false),
+      videoNsfwChecker: metadataBoolean(metadata, 'videoNsfwChecker', true),
+    },
+    references: {
+      productIds: generation.product_ids,
+      personaIds: generation.persona_ids,
+      styleIds: generation.style_ids,
+      files: [
+        ...metadataPaths(metadata, 'extraReferenceUrls').map((referencePath) => ({ kind: 'image' as const, path: referencePath })),
+        ...metadataPaths(metadata, 'videoReferenceUrls').map((referencePath) => ({ kind: 'video' as const, path: referencePath })),
+        ...metadataPaths(metadata, 'audioReferenceUrls').map((referencePath) => ({ kind: 'audio' as const, path: referencePath })),
+      ],
+      sourceOutputId: metadataString(metadata, 'sourceOutputId', 180),
+      videoExtendSourcePath: metadataString(metadata, 'videoExtendSourcePath'),
+      startFramePath: metadataString(metadata, 'startFramePath'),
+      endFramePath: metadataString(metadata, 'endFramePath'),
+    },
     outputs: generation.outputs.map((output) => ({
       id: output.id,
       type: outputType(output.type, output.mimeType),

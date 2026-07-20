@@ -1,10 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { eq } from 'drizzle-orm';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
-import { db } from '@/app/lib/db';
-import { studioGenerationOutputs } from '@/app/lib/db/schema';
-import { deleteStudioOutput, getStudioOutputForUser } from '@/app/lib/integrations/studio-generation-service';
+import {
+  deleteStudioOutput,
+  getStudioOutputForUser,
+  setStudioOutputFavorite,
+} from '@/app/lib/integrations/studio-generation-service';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
@@ -76,17 +77,7 @@ export async function PATCH(
   }
 
   try {
-    const existing = await getStudioOutputForUser(outId, studioRequest.scope);
-
-    if (!existing || existing.generationId !== id) {
-      return NextResponse.json({ success: false, error: 'Output not found' }, { status: 404 });
-    }
-
-    const [updated] = await db
-      .update(studioGenerationOutputs)
-      .set({ isFavorite: body.isFavorite })
-      .where(eq(studioGenerationOutputs.id, outId))
-      .returning();
+    const updated = await setStudioOutputFavorite(id, outId, body.isFavorite, studioRequest.scope);
     await recordAuditEvent({
       organizationId: updated.organizationId,
       workspaceId: updated.workspaceId,

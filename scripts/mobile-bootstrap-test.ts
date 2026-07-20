@@ -91,6 +91,9 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'studio.generations',
   'studio.references',
   'studio.outputs',
+  'studio.advanced_options',
+  'studio.library',
+  'studio.output_actions',
   'workspace.create',
 ]);
 assert.equal(bootstrap.user.role, 'admin');
