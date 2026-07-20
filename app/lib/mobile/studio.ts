@@ -214,6 +214,7 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     && styleIds.length === 0
     && !value.sourceOutputId
     && !videoExtendSourcePath
+    && !value.videoExtendSourceOutputId
   ) {
     throw new MobileStudioError('Add a prompt or at least one reference.', 400, 'PROMPT_OR_REFERENCE_REQUIRED');
   }
@@ -289,6 +290,26 @@ export function parseMobileStudioGenerationRequest(value: unknown): StudioGenera
     video_reference_urls: references.filter((reference) => reference.kind === 'video').map((reference) => reference.path),
     audio_reference_urls: references.filter((reference) => reference.kind === 'audio').map((reference) => reference.path),
   };
+}
+
+export async function resolveMobileStudioGenerationRequest(
+  value: unknown,
+  scope: StudioScope,
+): Promise<StudioGenerateRequest> {
+  const request = parseMobileStudioGenerationRequest(value);
+  if (!isRecord(value) || value.videoExtendSourceOutputId === undefined || value.videoExtendSourceOutputId === null) {
+    return request;
+  }
+  if (request.mode !== 'video' || request.provider !== 'veo') {
+    throw new MobileStudioError('Video extension requires Google Veo.', 400, 'UNSUPPORTED_STUDIO_OPTION');
+  }
+  const outputId = optionalString(value.videoExtendSourceOutputId, 'Video extension output', 180);
+  if (!outputId) throw new MobileStudioError('Video extension output is invalid.', 400, 'INVALID_OUTPUT');
+  const output = await getStudioOutputForUser(outputId, scope);
+  if (!output || output.type !== 'video') {
+    throw new MobileStudioError('The Veo video output was not found.', 404, 'OUTPUT_NOT_FOUND');
+  }
+  return { ...request, video_extend_source_path: output.filePath };
 }
 
 function modelLabel(modelId: string): string {

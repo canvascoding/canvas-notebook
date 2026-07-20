@@ -13,7 +13,7 @@ import {
 import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 import {
   listMobileStudioGenerations,
-  parseMobileStudioGenerationRequest,
+  resolveMobileStudioGenerationRequest,
 } from '@/app/lib/mobile/studio';
 import { mobileStudioErrorResponse, mobileStudioResponseHeaders } from '@/app/lib/mobile/studio-route';
 
@@ -53,7 +53,7 @@ export async function POST(request: NextRequest) {
   const limited = applyRateLimit(request, { limit: 15, windowMs: 60_000, keyPrefix: 'mobile-studio-create' });
   if (limited) return limited;
   try {
-    const input = parseMobileStudioGenerationRequest(await request.json().catch(() => null));
+    const input = await resolveMobileStudioGenerationRequest(await request.json().catch(() => null), studioRequest.scope);
     await assertStudioGenerationQueueCapacity(session.user.id);
     const generation = await createStudioGeneration(studioRequest.scope, input);
     const queue = enqueueStudioGeneration(generation.generationId);
