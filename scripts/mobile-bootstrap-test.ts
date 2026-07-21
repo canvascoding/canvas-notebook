@@ -98,6 +98,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'studio.presets_manage',
   'studio.bulk',
   'studio.aspect_ratio',
+  'studio.aspect_ratio.positioned_crop',
   'workspace.create',
 ]);
 assert.equal(bootstrap.user.role, 'admin');
