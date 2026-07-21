@@ -11,6 +11,42 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.21.1] - 2026-07-21
+
+### Added
+
+- Added a versioned mobile API for compatibility and bootstrap discovery, workspaces, real-time chat, Notebook files, Inbox and To-dos, Studio, automations, and push-device delivery.
+- Added the interactive Browser Lab with secure live-browser chat integration, recovery controls, file transfers, and an admin home entry point.
+- Added comprehensive agent profile management for models, tools, capabilities, managed files, access grants, and safe deletion.
+- Added resource-specific skill documentation, positioned mobile Studio crops, and Canvas Notebook promotion on public file shares.
+
+### Changed
+
+- Made chat, notification, automation, To-do, email, and WebSocket session links workspace-aware across Notebook and docked-chat surfaces.
+- Improved Composio profile scoping and deterministic toolkit discovery, Markdown preview continuity, branded page margins, and Markdown export spacing.
+- Added unread-aware push delivery for successful web automations while preserving silent delivery and no-op heartbeat behavior.
+
+### Fixed
+
+- Fixed Browser Lab WebSocket close codes, frame recovery, transfer security boundaries, and invalid navigation fallbacks.
+- Fixed PostgreSQL Composio profiles, no-auth connection handling, lazy file thumbnails, and Markdown preview stability.
+- Prevented no-op heartbeats and already-read agent responses from producing duplicate notifications or persisted response noise.
+
+### Security
+
+- Hardened Browser Lab URL policy, ticketing, resource budgets, file access, and trusted-origin enforcement.
+- Kept mobile workspace, file, Studio, chat, and automation actions behind authenticated workspace-aware permission checks.
+
+### Verification
+
+- `npm run verify:release`
+- `npm run test:mobile:compatibility`
+- `npm run test:mobile:bootstrap`
+- `npm run test:mobile:studio`
+- `npm run test:mobile:automations`
+- `npm run test:automation:runner`
+- `npm run test:chat:navigation`
+
 ## [2026.7.17.7] - 2026-07-17
 
 ### Added
