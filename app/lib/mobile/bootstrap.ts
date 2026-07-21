@@ -120,6 +120,12 @@ export function createMobileBootstrap(input: {
     'studio.bulk',
     'studio.aspect_ratio',
     'studio.aspect_ratio.positioned_crop',
+    'automations.jobs',
+    'automations.run_control',
+    'automations.run_history',
+    'automations.heartbeat',
+    'automations.webhooks',
+    'automations.composio_triggers',
   ];
   if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
 
