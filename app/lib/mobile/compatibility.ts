@@ -54,6 +54,7 @@ export type MobileCompatibility = {
       'studio.presets_manage',
       'studio.bulk',
       'studio.aspect_ratio',
+      'studio.aspect_ratio.positioned_crop',
     ];
   };
   auth: {
@@ -129,6 +130,7 @@ export function createMobileCompatibility(input: {
         'studio.presets_manage',
         'studio.bulk',
         'studio.aspect_ratio',
+        'studio.aspect_ratio.positioned_crop',
       ],
     },
     auth: {

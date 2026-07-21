@@ -68,6 +68,7 @@ assert.deepEqual(compatibility, {
       'studio.presets_manage',
       'studio.bulk',
       'studio.aspect_ratio',
+      'studio.aspect_ratio.positioned_crop',
     ],
   },
   auth: {
