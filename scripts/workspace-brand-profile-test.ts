@@ -72,6 +72,8 @@ async function main() {
     const defaults = await readWorkspaceBrandProfile('brand-workspace');
     assert.equal(defaults.configured, false);
     assert.deepEqual(defaults.profile, DEFAULT_WORKSPACE_BRAND_PROFILE);
+    assert.equal(DEFAULT_WORKSPACE_BRAND_PROFILE.page.verticalMarginMm, 20);
+    assert.equal(DEFAULT_WORKSPACE_BRAND_PROFILE.page.horizontalMarginMm, 16);
     assert.equal(workspaceBrandProfileCacheKey(defaults), 'brand:default');
     const resolvedDefaults = await resolveWorkspaceBrandProfile('brand-workspace');
     assert.equal(resolvedDefaults.source, 'default');
@@ -97,6 +99,10 @@ async function main() {
     assert.equal(WORKSPACE_BRAND_PRESETS.editorial.appearance.radiusPx, 8);
     assert.equal(WORKSPACE_BRAND_PRESETS.corporate.appearance.radiusPx, 4);
     assert.equal(WORKSPACE_BRAND_PRESETS.minimal.appearance.radiusPx, 0);
+    for (const preset of Object.values(WORKSPACE_BRAND_PRESETS)) {
+      assert.equal(preset.page.verticalMarginMm, 20);
+      assert.equal(preset.page.horizontalMarginMm, 16);
+    }
     assert.equal(
       normalizeWorkspaceBrandProfile({ appearance: { radiusPx: Number.NaN } }).appearance.radiusPx,
       0,

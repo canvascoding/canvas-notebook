@@ -108,8 +108,8 @@ export const DEFAULT_WORKSPACE_BRAND_PROFILE: WorkspaceBrandProfile = {
   page: {
     size: 'A4',
     backgroundColor: '#ffffff',
-    verticalMarginMm: 25,
-    horizontalMarginMm: 20,
+    verticalMarginMm: 20,
+    horizontalMarginMm: 16,
   },
   typography: {
     bodyFont: 'canvas-sans',
@@ -148,8 +148,6 @@ export const WORKSPACE_BRAND_PRESETS = {
     page: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.page,
       backgroundColor: '#fbf8f1',
-      verticalMarginMm: 24,
-      horizontalMarginMm: 22,
     },
     typography: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.typography,
@@ -210,11 +208,6 @@ export const WORKSPACE_BRAND_PRESETS = {
     appearance: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.appearance,
       radiusPx: 0,
-    },
-    page: {
-      ...DEFAULT_WORKSPACE_BRAND_PROFILE.page,
-      verticalMarginMm: 26,
-      horizontalMarginMm: 24,
     },
     typography: {
       ...DEFAULT_WORKSPACE_BRAND_PROFILE.typography,
