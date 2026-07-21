@@ -89,6 +89,10 @@ async function main() {
       listMobileStudioGenerations,
       parseMobileStudioGenerationRequest,
     } = await import('../app/lib/mobile/studio');
+    const {
+      centeredMobileStudioReframeFrame,
+      resolveMobileStudioReframeFrame,
+    } = await import('../app/lib/mobile/studio-reframe');
     const { createPersistedStudioScope } = await import('../app/lib/integrations/studio-scope');
     const { parseMobileStudioLibraryKind } = await import('../app/lib/mobile/studio-management');
     const { parseMobileStudioPresetInput } = await import('../app/lib/mobile/studio-presets');
@@ -104,6 +108,31 @@ async function main() {
       name: 'Mobile campaign', category: 'product', blocks: [{ type: 'lighting', label: 'Soft', promptFragment: 'soft light' }],
     }).blocks.map((block) => block.type), ['lighting']);
     assert.throws(() => parseMobileStudioPresetInput({ name: 'Empty', category: 'product', blocks: [] }), /at least one block/u);
+    assert.deepEqual(
+      centeredMobileStudioReframeFrame(1_600, 1_200, 4 / 5, 'crop'),
+      { x: 320, y: 0, width: 960, height: 1_200 },
+    );
+    assert.deepEqual(resolveMobileStudioReframeFrame({
+      frame: { x: 120, y: 100, width: 800, height: 1_000 },
+      mode: 'crop',
+      sourceWidth: 1_600,
+      sourceHeight: 1_200,
+      targetRatio: 4 / 5,
+    }), { x: 120, y: 100, width: 800, height: 1_000 });
+    assert.throws(() => resolveMobileStudioReframeFrame({
+      frame: { x: -1, y: 0, width: 800, height: 1_000 },
+      mode: 'crop',
+      sourceWidth: 1_600,
+      sourceHeight: 1_200,
+      targetRatio: 4 / 5,
+    }), /crop frame is invalid/u);
+    assert.throws(() => resolveMobileStudioReframeFrame({
+      frame: { x: 120, y: 100, width: 900, height: 1_000 },
+      mode: 'crop',
+      sourceWidth: 1_600,
+      sourceHeight: 1_200,
+      targetRatio: 4 / 5,
+    }), /crop frame is invalid/u);
 
     const catalog = await getMobileStudioCatalog({ scope, userId: 'studio-user', canWrite: true, canDeleteAssets: true });
     const nullablePreset = catalog.presets.find((preset) => preset.id === 'preset-nullable');
