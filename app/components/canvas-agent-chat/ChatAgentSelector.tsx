@@ -117,6 +117,15 @@ export function ChatAgentSelector({
     await onReloadAgents?.();
   }, [onReloadAgents]);
 
+  const handleAgentDeleted = useCallback(async (agentId: string) => {
+    setEditTarget(null);
+    await onReloadAgents?.();
+    if (activeAgentId === agentId) {
+      const fallbackAgent = agents.find((candidate) => candidate.agentId !== agentId);
+      if (fallbackAgent) onSelectAgent(fallbackAgent.agentId);
+    }
+  }, [activeAgentId, agents, onReloadAgents, onSelectAgent]);
+
   const isMobileSelector = variant === 'mobile';
   const shouldAdaptMobileLabel = adaptiveMobileLabel && isMobileSelector;
 
@@ -262,10 +271,12 @@ export function ChatAgentSelector({
     <EditAgentProfileDialog
       open={Boolean(editTarget)}
       agent={editTarget}
+      canManageAgentDefaults={canManageAgentDefaults}
       onOpenChange={(open) => {
         if (!open) setEditTarget(null);
       }}
       onChanged={handleAgentChanged}
+      onDeleted={handleAgentDeleted}
     />
     </>
   );

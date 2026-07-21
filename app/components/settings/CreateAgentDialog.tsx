@@ -1,11 +1,16 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { Brain, ChevronDown, FileText, Loader2, Menu, Plug, Search, Sparkles, Wrench, type LucideIcon } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Brain, ChevronDown, FileText, Loader2, Menu, Plug, Search, Sparkles, Wrench } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import { AgentAvatar } from '@/app/components/agents/AgentAvatar';
+import { AgentFormSection } from '@/app/components/agents/AgentFormSection';
 import { AgentIconPickerDialog } from '@/app/components/agents/AgentIconPickerDialog';
+import {
+  fetchAgentFormJson,
+  getExplicitEnabledToolsFromConfig,
+} from '@/app/components/agents/agent-form-client';
 import { AgentGrantsEditor } from '@/app/components/agents/AgentGrantsEditor';
 import { AgentManagedFilesEditor, type ManagedFileName } from './AgentManagedFilesCard';
 import {
@@ -45,7 +50,6 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { ScrollArea } from '@/components/ui/scroll-area';
-import { Switch } from '@/components/ui/switch';
 import { cn } from '@/lib/utils';
 
 const CREATE_AGENT_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const satisfies readonly ManagedFileName[];
@@ -223,100 +227,6 @@ function TemplateList({ selectedTemplate, onSelectTemplate, compact = false }: T
   );
 }
 
-type CreateAgentSectionProps = {
-  title: string;
-  description: string;
-  icon: LucideIcon;
-  open: boolean;
-  onOpenChange: (open: boolean) => void;
-  enabled?: boolean;
-  showWhenDisabled?: boolean;
-  onEnabledChange?: (enabled: boolean) => void;
-  children: ReactNode;
-};
-
-function CreateAgentSection({
-  title,
-  description,
-  icon: Icon,
-  open,
-  onOpenChange,
-  enabled = true,
-  showWhenDisabled = false,
-  onEnabledChange,
-  children,
-}: CreateAgentSectionProps) {
-  const contentAvailable = enabled || showWhenDisabled;
-
-  return (
-    <section className="min-w-0 overflow-hidden rounded-md border bg-muted/10">
-      <div className="flex min-w-0 items-start gap-3 px-3 py-3 transition-colors hover:bg-muted/30 sm:gap-4 sm:px-4">
-        <button
-          type="button"
-          onClick={() => contentAvailable && onOpenChange(!open)}
-          className="flex min-w-0 flex-1 items-start justify-between gap-3 text-left disabled:cursor-default"
-          aria-expanded={contentAvailable && open}
-          disabled={!contentAvailable}
-        >
-          <span className="flex min-w-0 flex-1 gap-3">
-            <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
-              <Icon className="h-4 w-4" />
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block break-words text-base font-semibold">{title}</span>
-              <span className="line-clamp-2 text-sm text-muted-foreground">{description}</span>
-            </span>
-          </span>
-          {contentAvailable && (
-            <ChevronDown className={cn('mt-1 h-4 w-4 shrink-0 text-muted-foreground transition-transform', open && 'rotate-180')} />
-          )}
-        </button>
-        {onEnabledChange && (
-          <Switch
-            checked={enabled}
-            onCheckedChange={(checked) => {
-              onEnabledChange(checked);
-              if (checked) onOpenChange(true);
-            }}
-            aria-label={title}
-            className="mt-1 shrink-0"
-          />
-        )}
-      </div>
-      {contentAvailable && open && (
-        <div className="min-w-0 border-t px-3 py-3 sm:px-4">
-          {children}
-        </div>
-      )}
-    </section>
-  );
-}
-
-async function fetchCreateAgentJson<T>(input: string): Promise<T> {
-  const response = await fetch(input, {
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  const payload = (await response.json().catch(() => ({}))) as {
-    success?: boolean;
-    error?: string;
-    data?: T;
-  };
-  if (!response.ok || !payload.success) {
-    throw new Error(payload.error || `Request failed (${response.status})`);
-  }
-  return payload.data as T;
-}
-
-function getExplicitEnabledToolsFromConfig(tools: ToolMetadata[], configuredTools: string[] | null): string[] | null {
-  if (!configuredTools) return null;
-  const allNames = tools.map((tool) => tool.name);
-  const enabledSet = isDefaultToolsConfig(configuredTools)
-    ? getDefaultEnabledToolNames(allNames)
-    : resolveEnabledToolNames(allNames, configuredTools);
-  return serializeEnabledToolNames(enabledSet, allNames);
-}
-
 export function CreateAgentDialog({
   open,
   creating,
@@ -395,7 +305,7 @@ export function CreateAgentDialog({
     setToolsLoading(true);
     setToolsError(null);
     try {
-      const toolsPayload = await fetchCreateAgentJson<{
+      const toolsPayload = await fetchAgentFormJson<{
         tools: ToolMetadata[];
         config: { enabledTools: string[] };
       }>(`/api/agents/tools?${new URLSearchParams({ agentId: DEFAULT_AGENT_ID }).toString()}`);
@@ -722,7 +632,7 @@ export function CreateAgentDialog({
                   </section>
 
                   {canManageAgentDefaults ? (
-                    <CreateAgentSection
+                    <AgentFormSection
                       title={t('model.title')}
                       description={t('model.description')}
                       icon={Brain}
@@ -746,7 +656,7 @@ export function CreateAgentDialog({
                         onSelectionChange={setModelDraft}
                         onRetry={loadModelOptions}
                       />
-                    </CreateAgentSection>
+                    </AgentFormSection>
                   ) : (
                     <section className="flex min-w-0 items-start gap-3 rounded-md border bg-muted/10 p-3 sm:gap-4 sm:p-4">
                       <span className="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border bg-background text-muted-foreground">
@@ -761,7 +671,7 @@ export function CreateAgentDialog({
                     </section>
                   )}
 
-                  <CreateAgentSection
+                  <AgentFormSection
                     title={t('tools.title')}
                     description={t('tools.description')}
                     icon={Wrench}
@@ -790,9 +700,9 @@ export function CreateAgentDialog({
                       onDisableAll={handleDisableAllTools}
                       compact
                     />
-                  </CreateAgentSection>
+                  </AgentFormSection>
 
-                  <CreateAgentSection
+                  <AgentFormSection
                     title={t('connections.title')}
                     description={t('connections.description')}
                     icon={Plug}
@@ -807,9 +717,9 @@ export function CreateAgentDialog({
                       onSelectedConnectionIdsChange={setSelectedConnections}
                       pageSize={6}
                     />
-                  </CreateAgentSection>
+                  </AgentFormSection>
 
-                  <CreateAgentSection
+                  <AgentFormSection
                     title={t('plugins.title')}
                     description={t('plugins.description')}
                     icon={Sparkles}
@@ -824,9 +734,9 @@ export function CreateAgentDialog({
                       selectedPlugins={selectedPlugins}
                       onSelectedPluginsChange={setSelectedPlugins}
                     />
-                  </CreateAgentSection>
+                  </AgentFormSection>
 
-                  <CreateAgentSection
+                  <AgentFormSection
                     title={t('skills.title')}
                     description={t('skills.description')}
                     icon={Search}
@@ -840,9 +750,9 @@ export function CreateAgentDialog({
                       selectedSkillNames={selectedSkills}
                       onSelectedSkillNamesChange={setSelectedSkills}
                     />
-                  </CreateAgentSection>
+                  </AgentFormSection>
 
-                  <CreateAgentSection
+                  <AgentFormSection
                     title={t('files.title')}
                     description={t('files.description')}
                     icon={FileText}
@@ -863,7 +773,7 @@ export function CreateAgentDialog({
                         editorClassName="h-[clamp(220px,34dvh,360px)]"
                       />
                     </div>
-                  </CreateAgentSection>
+                  </AgentFormSection>
 
                   {error && <p className="text-sm text-destructive">{error}</p>}
                 </div>
