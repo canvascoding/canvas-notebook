@@ -14,6 +14,7 @@ import { MediaViewer } from '@/app/components/editor/MediaViewer';
 import { PdfViewer } from '@/app/components/editor/PdfViewer';
 import { ShareMarkdownDialog } from '@/app/components/file-browser/ShareMarkdownDialog';
 import { PublicMarpPreview } from '@/app/components/public-sharing/PublicMarpPreview';
+import { PublicSharePromotion } from '@/app/components/public-sharing/PublicSharePromotion';
 import type { PublicPreviewKind } from '@/app/lib/public-sharing/public-preview-types';
 import type { PublicShareSecurityMode } from '@/app/lib/public-sharing/public-share-security';
 
@@ -220,6 +221,7 @@ export function PublicFilePreview({
       <section className="min-h-0 flex-1 overflow-hidden">
         {body}
       </section>
+      <PublicSharePromotion />
       {canShareMarkdown ? (
         <ShareMarkdownDialog
           open={shareOpen}

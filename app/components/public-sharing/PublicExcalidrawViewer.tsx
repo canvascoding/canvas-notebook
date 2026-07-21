@@ -6,6 +6,7 @@ import { AlertCircle, Download, Loader2 } from 'lucide-react';
 
 import { Button } from '@/components/ui/button';
 import { parseExcalidrawContent } from '@/app/lib/excalidraw-scene';
+import { PublicSharePromotion } from '@/app/components/public-sharing/PublicSharePromotion';
 
 const PublicExcalidrawCanvas = dynamic(
   () => import('./PublicExcalidrawCanvas').then(mod => mod.PublicExcalidrawCanvas),
@@ -44,6 +45,7 @@ export function PublicExcalidrawViewer({ fileName, content, downloadUrl }: Publi
             </p>
           </div>
         </section>
+        <PublicSharePromotion />
       </main>
     );
   }
@@ -72,6 +74,7 @@ export function PublicExcalidrawViewer({ fileName, content, downloadUrl }: Publi
       <section className="min-h-0 flex-1 overflow-hidden">
         <PublicExcalidrawCanvas initialData={session.initialData} fileName={fileName} />
       </section>
+      <PublicSharePromotion />
     </main>
   );
 }
