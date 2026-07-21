@@ -14,6 +14,7 @@ const PUBLIC_EXACT_ROUTES = [
   '/api/browser/view/fixture-download',
   '/api/browser/view/fixture-page',
   '/api/health',
+  '/api/mobile/v1/compatibility',
   '/manifest.webmanifest',
 ];
 const PUBLIC_SHARE_PREFIX_ROUTES = [

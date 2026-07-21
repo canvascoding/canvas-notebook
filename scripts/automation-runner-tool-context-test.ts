@@ -38,6 +38,7 @@ const runtimeResolutionCalls: Array<{
 }> = [];
 const quarantinedSettlements: Promise<unknown>[] = [];
 let releaseDetachedTimeoutOperation: (() => void) | null = null;
+const agentResponsePushCalls: Array<{ userId: string; workspaceId: string; sessionId: string }> = [];
 
 const testModel = {
   id: 'test-model',
@@ -83,6 +84,16 @@ class TestAutomationLoopShutdownError extends Error {
 moduleInternals._load = (request, parent, isMain) => {
   if (request === 'server-only') {
     return {};
+  }
+
+  if (request === '@/app/lib/mobile/push-devices' || request.endsWith('/mobile/push-devices')) {
+    return {
+      sendAgentResponseReadyPush: async (input: { userId: string; workspaceId: string; sessionId: string }) => {
+        agentResponsePushCalls.push(input);
+        return { attempted: 1, accepted: 1 };
+      },
+      sendFailureAttentionPush: async () => ({ attempted: 1, accepted: 1 }),
+    };
   }
 
   if (request === '@earendil-works/pi-ai' || request === '@earendil-works/pi-ai/compat' || request === '@earendil-works/pi-ai/oauth') {
@@ -427,6 +438,7 @@ async function main() {
   assert.ok(run);
 
   await executeAutomationRun(run.id);
+  await new Promise<void>((resolve) => setImmediate(resolve));
 
   assert.deepEqual(toolCalls, [{ userId, agentId, sessionId: `auto-${run.id.replace(/^run-/, '')}` }]);
   assert.deepEqual(agentLoopToolNames, ['studio_generate_image']);
@@ -447,6 +459,7 @@ async function main() {
   const finishedRun = await getAutomationRun(run.id);
   assert.equal(finishedRun?.status, 'success');
   assert.equal(finishedRun?.errorMessage, null);
+  assert.deepEqual(agentResponsePushCalls, [{ userId, workspaceId: job.workspaceId, sessionId: `auto-${run.id.replace(/^run-/, '')}` }]);
   assert.deepEqual(finishedRun?.metadataJson?.runtime, {
     providerInstallationId: testSelection.selection.providerInstallationId,
     providerId: testSelection.selection.providerId,
@@ -461,9 +474,11 @@ async function main() {
   const completedLoopCount = agentLoopStreamFns.length;
   const completedRuntimeResolutionCount = runtimeResolutionCalls.length;
   await executeAutomationRun(run.id);
+  await new Promise<void>((resolve) => setImmediate(resolve));
   assert.equal((await getAutomationRun(run.id))?.status, 'success');
   assert.equal(agentLoopStreamFns.length, completedLoopCount);
   assert.equal(runtimeResolutionCalls.length, completedRuntimeResolutionCount);
+  assert.equal(agentResponsePushCalls.length, 1, 'a terminal run must not emit a duplicate response push');
 
   const staleRetry = await markAutomationRunRetryScheduled(
     run.id,
@@ -544,6 +559,7 @@ async function main() {
   });
   assert.equal(heartbeatSessionAfter?.title, heartbeatSessionBefore.title);
   assert.equal(heartbeatSessionAfter?.lastMessageAt?.getTime(), heartbeatSessionBefore.lastMessageAt?.getTime());
+  assert.equal(agentResponsePushCalls.length, 1, 'a no-op heartbeat must not emit a response push');
 
   const heartbeatMessageRun = await scheduleAutomationJobRun(heartbeatJob.id, 'manual', now);
   assert.ok(heartbeatMessageRun);
@@ -572,6 +588,7 @@ async function main() {
     where: eq(piSessions.id, session.id),
   });
   assert.ok((heartbeatMessageSession?.lastMessageAt?.getTime() || 0) >= (heartbeatSessionBefore.lastMessageAt?.getTime() || 0));
+  assert.equal(agentResponsePushCalls.length, 2, 'a heartbeat with a relevant message must emit a response push');
 
   const newSessionHeartbeatJob = await upsertHeartbeatJob({
     userId,
@@ -600,6 +617,7 @@ async function main() {
   assert.equal(await db.query.sessionChannelLinks.findFirst({
     where: eq(sessionChannelLinks.sessionId, newHeartbeatSessionId),
   }), undefined);
+  assert.equal(agentResponsePushCalls.length, 2, 'a new-session no-op heartbeat must not emit a response push');
 
   const busyJob = await createAutomationJob(
     {
@@ -788,6 +806,7 @@ async function main() {
   const runtimeCallsBeforeRetry = runtimeResolutionCalls.length;
   agentLoopMode = 'success';
   await executeAutomationRun(failingRun.id);
+  await new Promise<void>((resolve) => setImmediate(resolve));
   const completedRetry = await getAutomationRun(failingRun.id);
   assert.equal(completedRetry?.status, 'success');
   assert.deepEqual(
@@ -799,6 +818,7 @@ async function main() {
   });
   assert.equal(retrySessions.length, 1);
   assert.equal(agentLoopStreamFns.at(-1), testStreamFn);
+  assert.equal(agentResponsePushCalls.length, 3, 'a successful retry must emit one unread-aware response push');
 
   const organization = await db.query.canvasOrganizationSettings.findFirst();
   assert.ok(organization);

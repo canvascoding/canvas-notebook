@@ -119,6 +119,7 @@ export function createMobileBootstrap(input: {
     'studio.presets_manage',
     'studio.bulk',
     'studio.aspect_ratio',
+    'studio.aspect_ratio.positioned_crop',
   ];
   if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
 

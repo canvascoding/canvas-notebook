@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 
 const keys = ['CANVAS_DEPLOYMENT_MODE', 'CANVAS_INSTANCE_ID', 'CANVAS_INSTANCE_NAME'] as const;
 const original = new Map<string, string | undefined>(keys.map((key) => [key, process.env[key]]));
@@ -24,6 +25,12 @@ async function main() {
     cookiePrefix: 'better-auth',
     expoPlugin: true,
   });
+  const proxySource = readFileSync(new URL('../proxy.ts', import.meta.url), 'utf8');
+  assert.match(
+    proxySource,
+    /PUBLIC_EXACT_ROUTES\s*=\s*\[[\s\S]*['"]\/api\/mobile\/v1\/compatibility['"][\s\S]*\]/u,
+    'The pre-authentication compatibility handshake must remain public in proxy.ts',
+  );
 }
 
 main()

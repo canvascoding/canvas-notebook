@@ -217,6 +217,16 @@ export function initializeWebSocketBridge(): void {
           });
         }
 
+        if (session.workspaceId) {
+          void sendAgentResponseReadyPush({
+            userId,
+            workspaceId: session.workspaceId,
+            sessionId,
+          }).catch((pushError) => {
+            console.warn('[WebSocket Bridge] Mobile push delivery failed:', pushError);
+          });
+        }
+
         console.log(
           `[WebSocket Bridge] AI response in session ${sessionId}: notification + session_updated dispatched`
         );

@@ -5,10 +5,10 @@ import {
   createAspectRatioPreview,
   getAspectRatioModelOptions,
   saveAspectRatioEdit,
-  type AspectRatioFrame,
   type AspectRatioMode,
   type AspectRatioProvider,
 } from '@/app/lib/integrations/studio-aspect-ratio-service';
+import { resolveMobileStudioReframeFrame } from '@/app/lib/mobile/studio-reframe';
 import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 import { MobileStudioError, resolveMobileStudioOutput } from '@/app/lib/mobile/studio';
 import { mobileStudioErrorResponse, mobileStudioResponseHeaders } from '@/app/lib/mobile/studio-route';
@@ -19,24 +19,6 @@ function ratioValue(value: unknown): { label: typeof RATIOS[number]; value: numb
   if (typeof value !== 'string' || !RATIOS.includes(value as typeof RATIOS[number])) throw new MobileStudioError('Aspect ratio is not supported.', 400, 'INVALID_ASPECT_RATIO');
   const [width, height] = value.split(':').map(Number);
   return { label: value as typeof RATIOS[number], value: width / height };
-}
-
-function frameFor(width: number, height: number, targetRatio: number, mode: AspectRatioMode): AspectRatioFrame {
-  const sourceRatio = width / height;
-  if (mode === 'crop') {
-    if (sourceRatio > targetRatio) {
-      const frameWidth = height * targetRatio;
-      return { x: (width - frameWidth) / 2, y: 0, width: frameWidth, height };
-    }
-    const frameHeight = width / targetRatio;
-    return { x: 0, y: (height - frameHeight) / 2, width, height: frameHeight };
-  }
-  if (sourceRatio > targetRatio) {
-    const frameHeight = width / targetRatio;
-    return { x: 0, y: (height - frameHeight) / 2, width, height: frameHeight };
-  }
-  const frameWidth = height * targetRatio;
-  return { x: (width - frameWidth) / 2, y: 0, width: frameWidth, height };
 }
 
 function targetSize(targetRatio: number) {
@@ -63,7 +45,13 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ge
     if (mode === 'ai_extend' && !model) throw new MobileStudioError('Image extension provider is unavailable.', 409, 'PROVIDER_UNAVAILABLE');
     const preview = await createAspectRatioPreview({
       sourcePath: output.filePath,
-      frame: frameFor(output.width, output.height, ratio.value, mode),
+      frame: resolveMobileStudioReframeFrame({
+        frame: body?.frame,
+        mode,
+        sourceWidth: output.width,
+        sourceHeight: output.height,
+        targetRatio: ratio.value,
+      }),
       mode,
       aspectRatio: ratio.label,
       ...targetSize(ratio.value),
