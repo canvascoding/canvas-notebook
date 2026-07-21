@@ -234,6 +234,11 @@ export type AgentProfile = {
   ownerUserId?: string | null;
   createdByUserId?: string | null;
   revision?: number;
+  defaultProviderInstallationId?: string | null;
+  defaultProvider?: string | null;
+  defaultModel?: string | null;
+  defaultThinking?: PiThinkingLevel | null;
+  enabledTools?: string[] | null;
   relevantSkills?: string[] | null;
   relevantConnections?: string[] | null;
   access?: {
