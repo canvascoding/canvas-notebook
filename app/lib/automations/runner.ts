@@ -36,6 +36,7 @@ import {
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
 import { findOwnedPiSessionForRuntime, isPiSessionInWorkspace } from '@/app/lib/pi/session-runtime-access';
+import { sendAgentResponseReadyPush } from '@/app/lib/mobile/push-devices';
 import {
   PiSessionBusyError,
   withExclusivePiSessionExecution,
@@ -118,6 +119,25 @@ async function sendAutomationFailurePush(input: {
     const message = error instanceof Error ? error.message : 'Failed to send automation push notification.';
     console.warn('[Automationen] Push notification failed:', message);
   }
+}
+
+function queueAutomationResponsePush(input: {
+  userId: string;
+  workspaceId: string;
+  sessionId: string;
+  job: AutomationJobRecord;
+  resolution: AutomationDeliveryResolution;
+}): void {
+  if (input.job.deliveryMode === 'silent' || input.resolution.channelId !== 'web') return;
+  void sendAgentResponseReadyPush({
+    userId: input.userId,
+    workspaceId: input.workspaceId,
+    sessionId: input.sessionId,
+  })
+    .catch((error) => {
+      const message = error instanceof Error ? error.message : 'Failed to send automation response push notification.';
+      console.warn('[Automationen] Response push notification failed:', message);
+    });
 }
 
 function assertAutomationExecutionActive(signal: AbortSignal): void {
@@ -688,6 +708,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           console.warn(`[Automationen] Run ${runId} completed but its terminal transition lost the run CAS`);
           return;
         }
+        queueAutomationResponsePush({
+          userId: automationUserId,
+          workspaceId: automationWorkspace.workspaceId,
+          sessionId: piSessionId,
+          job,
+          resolution: deliveryResolution,
+        });
         const duration = Date.now() - runStartTime;
         console.log(`[Automationen] Run ${runId} completed successfully (duration=${duration}ms)`);
       } catch (error) {
