@@ -281,7 +281,7 @@ export async function markdownFileToHtmlDocument(
 
     @page {
       size: A4;
-      margin: 25mm 20mm;
+      margin: ${DEFAULT_WORKSPACE_BRAND_PROFILE.page.verticalMarginMm}mm ${DEFAULT_WORKSPACE_BRAND_PROFILE.page.horizontalMarginMm}mm;
     }
 
     @page markdown-wide-table {
@@ -300,7 +300,12 @@ export async function markdownFileToHtmlDocument(
       color: #222;
       max-width: 100%;
       margin: 0;
-      padding: 20px;
+      padding: 0;
+    }
+
+    body > :first-child,
+    .canvas-brand-header + * {
+      margin-top: 0;
     }
 
     h1, h2, h3, h4, h5, h6 {

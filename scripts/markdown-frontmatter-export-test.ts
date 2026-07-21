@@ -71,6 +71,12 @@ Only this document body belongs in the export.
       /Hidden report metadata|type\/report|status\/final|Internal report alias/,
     );
     assert.equal(document.querySelector('body > hr'), null);
+    assert.equal(document.body.firstElementChild?.tagName, 'H1');
+    assert.match(html, /body\s*\{[\s\S]*?padding:\s*0;/u);
+    assert.match(
+      html,
+      /body\s*>\s*:first-child,[\s\S]*?\.canvas-brand-header\s*\+\s*\*\s*\{[\s\S]*?margin-top:\s*0;/u,
+    );
   } finally {
     await fs.rm(rootPath, { recursive: true, force: true });
   }
