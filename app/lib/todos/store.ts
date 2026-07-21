@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { and, asc, desc, eq, inArray, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import {
@@ -13,6 +13,7 @@ import {
   user,
 } from '@/app/lib/db/schema';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
+import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 import {
   DEFAULT_TODO_CATEGORIES,
   DEFAULT_TODO_CATEGORY_NAME,
@@ -118,6 +119,9 @@ export type ListTodosOptions = {
   workspaceId?: string | null;
   assigneeUserId?: string | 'me' | 'unassigned' | null;
   due?: 'overdue' | 'today' | 'upcoming';
+  query?: string;
+  beforeUpdatedAt?: Date;
+  beforeId?: string;
   limit?: number;
 };
 
@@ -148,6 +152,22 @@ async function sendTodoCreatedEmailNotificationIfNeeded(userId: string, todo: To
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send todo email notification.';
     console.warn('[Todos] Failed to run todo email notification:', message);
+  }
+}
+
+async function sendTodoCreatedPushNotificationIfNeeded(userId: string, todo: TodoWithRelations): Promise<void> {
+  if (todo.sourceType !== 'agent') return;
+
+  try {
+    const { sendTodoAttentionPush } = await import('@/app/lib/mobile/push-devices');
+    await sendTodoAttentionPush({
+      userId: todo.assigneeUserId || userId,
+      workspaceId: todo.workspaceId || LEGACY_PERSONAL_WORKSPACE_ID,
+      todoId: todo.id,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to send todo push notification.';
+    console.warn('[Todos] Failed to run todo push notification:', message);
   }
 }
 
@@ -706,6 +726,7 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     throw new TodoStoreError('Todo not found after creation', 'TODO_NOT_FOUND');
   }
   await sendTodoCreatedEmailNotificationIfNeeded(userId, hydrated);
+  await sendTodoCreatedPushNotificationIfNeeded(userId, hydrated);
   return (await getTodo(userId, created.id)) ?? hydrated;
 }
 
@@ -844,12 +865,26 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       conditions.push(sql`${todoItems.dueAt} IS NOT NULL AND ${todoItems.dueAt} >= ${startOfTomorrow}`);
     }
   }
+  if (options.query?.trim()) {
+    const escaped = options.query.trim().toLocaleLowerCase().replace(/[\\%_]/gu, '\\$&');
+    const pattern = `%${escaped}%`;
+    conditions.push(sql`(
+      lower(${todoItems.title}) LIKE ${pattern} ESCAPE '\'
+      OR lower(COALESCE(${todoItems.description}, '')) LIKE ${pattern} ESCAPE '\'
+    )`);
+  }
+  if (options.beforeUpdatedAt && options.beforeId) {
+    conditions.push(or(
+      lt(todoItems.updatedAt, options.beforeUpdatedAt),
+      and(eq(todoItems.updatedAt, options.beforeUpdatedAt), lt(todoItems.id, options.beforeId)),
+    )!);
+  }
 
   const rows = await db
     .select()
     .from(todoItems)
     .where(and(...conditions))
-    .orderBy(desc(todoItems.updatedAt))
+    .orderBy(desc(todoItems.updatedAt), desc(todoItems.id))
     .limit(limit);
 
   return hydrateTodos(rows);

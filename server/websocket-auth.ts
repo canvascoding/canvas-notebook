@@ -6,12 +6,17 @@
 
 import type { IncomingHttpHeaders } from 'http';
 import { auth } from '@/app/lib/auth';
+import { consumeMobileChatTicket } from '@/app/lib/mobile/ws-ticket';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
 
 export interface WebSocketAuthResult {
   isAuthenticated: boolean;
   userId?: string;
   userEmail?: string;
   userName?: string;
+  userRole?: string | null;
+  workspace?: NonNullable<ChatRequestContext['workspace']>;
+  authKind?: 'cookie' | 'mobile_ticket';
   error?: string;
 }
 
@@ -22,6 +27,19 @@ export async function authenticateWebSocketConnection(
   headers: IncomingHttpHeaders
 ): Promise<WebSocketAuthResult> {
   try {
+    const mobileIdentity = consumeMobileChatTicket(headers);
+    if (mobileIdentity) {
+      return {
+        isAuthenticated: true,
+        userId: mobileIdentity.userId,
+        userEmail: mobileIdentity.userEmail,
+        userName: mobileIdentity.userName,
+        userRole: mobileIdentity.userRole,
+        workspace: mobileIdentity.workspace,
+        authKind: 'mobile_ticket',
+      };
+    }
+
     // Convert Node.js headers to Web Headers API
     const webHeaders = new Headers();
     for (const [key, value] of Object.entries(headers)) {
@@ -49,6 +67,8 @@ export async function authenticateWebSocketConnection(
       userId: session.user.id,
       userEmail: session.user.email,
       userName: session.user.name,
+      userRole: session.user.role,
+      authKind: 'cookie',
     };
   } catch (error) {
     console.error('[WebSocket Auth] Error:', error);

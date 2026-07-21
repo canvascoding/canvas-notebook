@@ -16,6 +16,7 @@ import { deliverToLastActiveExternalChannel, sendTypingToLastActiveExternalChann
 import { normalizeNotificationPreview } from '@/app/lib/chat/notification-preview';
 import { db } from '@/app/lib/db';
 import { piSessions, piMessages } from '@/app/lib/db/schema';
+import { sendAgentResponseReadyPush } from '@/app/lib/mobile/push-devices';
 import { eq, and, desc } from 'drizzle-orm';
 
 const CHANNEL_TYPING_THROTTLE_MS = 4_000;
@@ -149,7 +150,7 @@ export function initializeWebSocketBridge(): void {
             eq(piSessions.sessionId, sessionId),
             eq(piSessions.userId, userId)
           ),
-          columns: { title: true, id: true, lastMessageAt: true }
+          columns: { title: true, id: true, lastMessageAt: true, workspaceId: true }
         });
 
         if (!session) {
@@ -191,6 +192,16 @@ export function initializeWebSocketBridge(): void {
 
         console.log(`[WebSocket Bridge] Sending session_updated: userId=${userId}, sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${session.title ?? '(none)'}"`);
         broadcastSessionUpdateToUser(userId, sessionId, lastMessageAt, session.title ?? undefined);
+
+        if (session.workspaceId) {
+          void sendAgentResponseReadyPush({
+            userId,
+            workspaceId: session.workspaceId,
+            sessionId,
+          }).catch((pushError) => {
+            console.warn('[WebSocket Bridge] Mobile push delivery failed:', pushError);
+          });
+        }
 
         console.log(
           `[WebSocket Bridge] AI response in session ${sessionId}: notification + session_updated dispatched`

@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.7.17.7
-- Lockfile SHA-256: `ef7c30e9f8a4f7eea6fde22731d3ba4f3d083078d582309e74088f4fdb7ddc7d`
-- Distributed components: 1492
+- Lockfile SHA-256: `3fc75ebebf47f845550eddeaaa35f70c758978083064a5b01910bcd3ecf5a723`
+- Distributed components: 1493
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -91,6 +91,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @babel/types | 7.29.7 | runtime | MIT | allowed |
 | @better-auth/core | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/drizzle-adapter | 1.6.23 | runtime | MIT | allowed |
+| @better-auth/expo | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/kysely-adapter | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/memory-adapter | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/mongo-adapter | 1.6.23 | runtime | MIT | allowed |
@@ -3332,10 +3333,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ### License text 0e74697a68ce
 
 Applies to estraverse@4.3.0, estraverse@5.3.0, esutils@2.0.3.
-
-Copyright notices:
-
-- Copyright (C) 2012-2016 [Yusuke Suzuki](http://github.com/Constellation)
 
 ```text
 Redistribution and use in source and binary forms, with or without
@@ -12666,7 +12663,6 @@ Applies to @xtuc/ieee754@1.2.0.
 
 Copyright notices:
 
-- BSD 3 Clause. Copyright (c) 2008, Fair Oaks Labs, Inc.
 - Copyright (c) 2008, Fair Oaks Labs, Inc.
 
 ```text
@@ -13802,7 +13798,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 7a07f7d9085c
 
-Applies to @better-auth/core@1.6.23, @better-auth/drizzle-adapter@1.6.23, @better-auth/kysely-adapter@1.6.23, @better-auth/memory-adapter@1.6.23, @better-auth/mongo-adapter@1.6.23, @better-auth/prisma-adapter@1.6.23, @better-auth/telemetry@1.6.23, better-auth@1.6.23.
+Applies to @better-auth/core@1.6.23, @better-auth/drizzle-adapter@1.6.23, @better-auth/expo@1.6.23, @better-auth/kysely-adapter@1.6.23, @better-auth/memory-adapter@1.6.23, @better-auth/mongo-adapter@1.6.23, @better-auth/prisma-adapter@1.6.23, @better-auth/telemetry@1.6.23, better-auth@1.6.23.
 
 Copyright notices:
 
@@ -16588,8 +16584,6 @@ Applies to enhanced-resolve@5.24.2, minimizer-webpack-plugin@5.6.1, schema-utils
 
 Copyright notices:
 
-- > The `extractComments` option is not supported, and all legal comments (i.e. copyright, licenses and etc) will be preserved.
-- Copyright (c) 2012-2019 JS Foundation and other contributors
 - Copyright JS Foundation and other contributors
 
 ```text
@@ -24960,7 +24954,6 @@ Applies to aria-query@5.3.0.
 Copyright notices:
 
 - (c) You must retain, in the Source form of any Derivative Works
-- Copyright (c) 2021 A11yance
 - Copyright 2020 A11yance
 - that You distribute, all copyright, patent, trademark, and
 

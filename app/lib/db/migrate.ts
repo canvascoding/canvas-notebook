@@ -43,6 +43,71 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS mobile_push_devices (
+      id TEXT PRIMARY KEY NOT NULL,
+      installation_id TEXT NOT NULL UNIQUE,
+      user_id TEXT NOT NULL,
+      auth_session_id TEXT NOT NULL,
+      expo_push_token TEXT NOT NULL UNIQUE,
+      platform TEXT NOT NULL,
+      app_variant TEXT NOT NULL DEFAULT 'production',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      agent_response_ready INTEGER NOT NULL DEFAULT 1,
+      todo_attention INTEGER NOT NULL DEFAULT 1,
+      studio_completed INTEGER NOT NULL DEFAULT 1,
+      failure_attention INTEGER NOT NULL DEFAULT 1,
+      preview_enabled INTEGER NOT NULL DEFAULT 0,
+      last_registered_at INTEGER NOT NULL,
+      last_delivery_at INTEGER,
+      last_error_code TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (auth_session_id) REFERENCES session(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mobile_push_devices_user_enabled
+      ON mobile_push_devices (user_id, enabled);
+    CREATE INDEX IF NOT EXISTS idx_mobile_push_devices_auth_session
+      ON mobile_push_devices (auth_session_id);
+
+    CREATE TABLE IF NOT EXISTS mobile_push_deliveries (
+      id TEXT PRIMARY KEY NOT NULL,
+      device_id TEXT NOT NULL,
+      user_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      entity_id TEXT NOT NULL,
+      expo_ticket_id TEXT UNIQUE,
+      status TEXT NOT NULL,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_receipt_check_at INTEGER,
+      receipt_at INTEGER,
+      last_error_code TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (device_id) REFERENCES mobile_push_devices(id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mobile_push_deliveries_receipt_poll
+      ON mobile_push_deliveries (status, next_receipt_check_at);
+    CREATE INDEX IF NOT EXISTS idx_mobile_push_deliveries_user
+      ON mobile_push_deliveries (user_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS mobile_inbox_read_states (
+      user_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      item_key TEXT NOT NULL,
+      read_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (user_id, workspace_id, item_key),
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_mobile_inbox_read_workspace
+      ON mobile_inbox_read_states (user_id, workspace_id, read_at);
+
     CREATE TABLE IF NOT EXISTS account (
       id TEXT PRIMARY KEY NOT NULL,
       account_id TEXT NOT NULL,
@@ -545,6 +610,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       system_prompt_snapshot_created_at INTEGER,
       last_message_at INTEGER,
       last_viewed_at INTEGER,
+      archived_at INTEGER,
       channel_id TEXT NOT NULL DEFAULT 'app',
       channel_session_key TEXT,
       organization_id TEXT,
@@ -1419,6 +1485,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     next_run_at: 'INTEGER',
   });
 
+  addColumns(sqlite, 'mobile_push_devices', {
+    todo_attention: 'INTEGER NOT NULL DEFAULT 1',
+    studio_completed: 'INTEGER NOT NULL DEFAULT 1',
+    failure_attention: 'INTEGER NOT NULL DEFAULT 1',
+  });
+
   addColumns(sqlite, 'organization_user_permissions', {
     status: "TEXT NOT NULL DEFAULT 'active'",
     disabled_at: 'INTEGER',
@@ -1930,6 +2002,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     title_generation_state: 'TEXT',
     last_message_at: 'INTEGER',
     last_viewed_at: 'INTEGER',
+    archived_at: 'INTEGER',
     thinking_level: 'TEXT',
     summary_through_sequence: 'INTEGER',
     runtime_provider_installation_id: 'TEXT',
@@ -2321,6 +2394,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_workspace ON pi_sessions (workspace_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_project ON pi_sessions (project_id, last_message_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_created ON pi_sessions (user_id, workspace_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_workspace_archived ON pi_sessions (user_id, workspace_id, archived_at);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_org_workspace ON pi_usage_events (organization_id, workspace_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_project ON pi_usage_events (project_id, assistant_timestamp);
     CREATE INDEX IF NOT EXISTS idx_pi_usage_events_user_workspace ON pi_usage_events (user_id, workspace_id, assistant_timestamp);

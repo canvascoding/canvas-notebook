@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 
 import {
+  CANVAS_MOBILE_AUTH_ORIGINS,
   getConfiguredTrustedOrigins,
   isConfiguredTrustedOrigin,
 } from '../app/lib/security/trusted-origins';
@@ -23,14 +24,18 @@ try {
   assert.deepEqual(
     getConfiguredTrustedOrigins().sort(),
     [
+      ...CANVAS_MOBILE_AUTH_ORIGINS,
       'https://admin.canvas.example.com',
       'https://auth.canvas.example.com',
       'https://canvas.example.com',
-    ],
+    ].sort(),
   );
   assert.equal(isConfiguredTrustedOrigin('https://canvas.example.com'), true);
   assert.equal(isConfiguredTrustedOrigin('https://admin.canvas.example.com/path'), true);
   assert.equal(isConfiguredTrustedOrigin('https://attacker.example.com'), false);
+  assert.equal(isConfiguredTrustedOrigin('canvasnotebook://'), true);
+  assert.equal(isConfiguredTrustedOrigin('canvasnotebook-preview://auth/callback'), true);
+  assert.equal(isConfiguredTrustedOrigin('attacker-app://'), false);
   assert.equal(isConfiguredTrustedOrigin(undefined), false);
 
   delete process.env.BASE_URL;

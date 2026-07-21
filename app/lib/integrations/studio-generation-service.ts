@@ -1019,6 +1019,33 @@ interface GenerationRow {
   metadata: string | null;
 }
 
+async function sendStudioResultPush(input: {
+  scope: StudioScope;
+  generationId: string;
+  status: 'completed' | 'failed';
+}): Promise<void> {
+  try {
+    const { sendFailureAttentionPush, sendStudioCompletedPush } = await import('@/app/lib/mobile/push-devices');
+    if (input.status === 'completed') {
+      await sendStudioCompletedPush({
+        userId: input.scope.actorUserId,
+        workspaceId: input.scope.workspaceId,
+        generationId: input.generationId,
+      });
+      return;
+    }
+    await sendFailureAttentionPush({
+      userId: input.scope.actorUserId,
+      workspaceId: input.scope.workspaceId,
+      entityKind: 'studio',
+      entityId: input.generationId,
+    });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Failed to send Studio push notification.';
+    console.warn('[Studio Generation] Push notification failed:', message);
+  }
+}
+
 type StudioOutputInsert = typeof studioGenerationOutputs.$inferInsert;
 
 async function insertStudioGenerationOutput(
@@ -1185,6 +1212,8 @@ async function executeStudioGenerationProcessing(
       .set({ status: 'completed', prompt: composedPrompt, updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
 
+    await sendStudioResultPush({ scope, generationId, status: 'completed' });
+
     console.log(`[Studio Generation] Completed: id=${generationId}, mode=${mode}, outputs=${outputs.length}`);
   } catch (error) {
     const errorMessage = error instanceof Error ? error.message : 'Unknown error';
@@ -1199,6 +1228,7 @@ async function executeStudioGenerationProcessing(
     await db.update(studioGenerations)
       .set({ status: 'failed', metadata: JSON.stringify({ ...existingMetadata, error: errorMessage }), updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
+    await sendStudioResultPush({ scope, generationId, status: 'failed' });
   }
 }
 
@@ -1845,6 +1875,26 @@ export async function getStudioGeneration(generationId: string, scope: StudioSco
     persona_ids: personaRefs.map((r) => r.personaId),
     style_ids: styleRefs.map((r) => r.styleId),
   };
+}
+
+export async function setStudioOutputFavorite(
+  generationId: string,
+  outputId: string,
+  isFavorite: boolean,
+  scope: StudioScope,
+) {
+  const existing = await getStudioOutputForUser(outputId, scope);
+  if (!existing || existing.generationId !== generationId) {
+    throw new StudioServiceError('Output not found', 'Output nicht gefunden', 'NOT_FOUND');
+  }
+
+  const [updated] = await db
+    .update(studioGenerationOutputs)
+    .set({ isFavorite })
+    .where(eq(studioGenerationOutputs.id, outputId))
+    .returning();
+
+  return updated;
 }
 
 export async function deleteStudioOutput(outputId: string, scope: StudioScope): Promise<{ success: boolean; generationDeleted: boolean }> {

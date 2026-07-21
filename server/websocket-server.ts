@@ -27,13 +27,17 @@ import { runWebSocketSessionAction } from './websocket-session-queue';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
-import { and, eq } from 'drizzle-orm';
+import { and, eq, isNull, or } from 'drizzle-orm';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { createOperationTiming } from '@/app/lib/observability/operation-timing';
 import { getChannelRouter, getRuntimeService } from './agent-runtime-loader';
+import {
+  hasPendingMobileChatTicket,
+  MOBILE_CHAT_WEBSOCKET_PROTOCOL,
+} from '@/app/lib/mobile/ws-ticket';
 
 type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
 type PiRuntimeStatus = Record<string, unknown>;
@@ -207,19 +211,29 @@ function sendWs(ws: WebSocket, msg: ServerMessage): void {
 async function findSessionIdentity(sessionId: string): Promise<{
   userId: string;
   agentId: string;
+  workspaceId: string | null;
 } | null> {
   const session = await db.query.piSessions.findFirst({
     where: eq(piSessions.sessionId, sessionId),
-    columns: { userId: true, agentId: true },
+    columns: { userId: true, agentId: true, workspaceId: true },
   });
   return session ?? null;
 }
 
-async function userOwnsSession(sessionId: string, userId: string): Promise<boolean> {
+async function userOwnsSession(
+  sessionId: string,
+  userId: string,
+  workspace?: NonNullable<ChatRequestContext['workspace']>,
+): Promise<boolean> {
   const ownedSession = await db.query.piSessions.findFirst({
     where: and(
       eq(piSessions.sessionId, sessionId),
-      eq(piSessions.userId, userId)
+      eq(piSessions.userId, userId),
+      workspace
+        ? workspace.workspaceType === 'personal'
+          ? or(eq(piSessions.workspaceId, workspace.workspaceId), isNull(piSessions.workspaceId))
+          : eq(piSessions.workspaceId, workspace.workspaceId)
+        : undefined,
     ),
     columns: { id: true },
   });
@@ -240,6 +254,7 @@ interface WebSocketConnection {
   id: string;
   ws: WebSocket;
   userId: string;
+  workspace?: NonNullable<ChatRequestContext['workspace']>;
   sessionId?: string;
   isAlive: boolean;
   lastActivity: number;
@@ -285,6 +300,11 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({
     noServer: true,
     path: CHAT_WEBSOCKET_PATH,
+    handleProtocols: (protocols) => (
+      protocols.has(MOBILE_CHAT_WEBSOCKET_PROTOCOL)
+        ? MOBILE_CHAT_WEBSOCKET_PROTOCOL
+        : protocols.values().next().value || false
+    ),
   });
 
   wss.on('connection', handleConnection);
@@ -296,7 +316,8 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
 
     if (normalizedUrl) {
       const origin = getHeaderValue(request.headers, 'origin');
-      if (!isConfiguredTrustedOrigin(origin)) {
+      const hasMobileTicket = hasPendingMobileChatTicket(request.headers);
+      if (!isConfiguredTrustedOrigin(origin) && !hasMobileTicket) {
         console.warn('[WebSocket] upgrade rejected untrusted_origin', {
           origin: truncateForLog(origin),
         });
@@ -508,6 +529,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     id: connectionId,
     ws,
     userId: authResult.userId!,
+    workspace: authResult.workspace,
     isAlive: true,
     lastActivity: Date.now(),
     connectedAt,
@@ -576,7 +598,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      if (!(await userOwnsSession(message.sessionId, userId))) {
+      if (!(await userOwnsSession(message.sessionId, userId, connection.workspace))) {
         console.warn('[WebSocket] subscribe rejected unauthorized', {
           connectionId: connection.id,
           userId,
@@ -698,6 +720,23 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Session not found' });
         return;
       }
+      if (
+        connection.workspace &&
+        (!existingSession || (
+          existingSession.workspaceId !== connection.workspace.workspaceId &&
+          !(connection.workspace.workspaceType === 'personal' && existingSession.workspaceId === null)
+        ))
+      ) {
+        console.warn('[WebSocket] send_message rejected workspace_mismatch', {
+          connectionId: connection.id,
+          userId,
+          requestId: message.requestId,
+          sessionId: message.sessionId,
+        });
+        sendWs(ws, { type: 'error', error: 'Session not found', code: 'UNAUTHORIZED' });
+        sendWs(ws, { type: 'send_message_result', requestId: message.requestId, success: false, error: 'Session not found' });
+        return;
+      }
       const requestedAgentId = typeof message.agentId === 'string'
         ? message.agentId.trim() || undefined
         : undefined;
@@ -713,7 +752,14 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         });
       }
 
-      const context = message.context;
+      const context = connection.workspace
+        ? {
+            ...message.context,
+            channelId: 'mobile',
+            currentPage: '/chat',
+            workspace: connection.workspace,
+          }
+        : message.context;
       const agentMessageTimestamp = typeof (message.message as { timestamp?: unknown }).timestamp === 'number'
         ? (message.message as { timestamp: number }).timestamp
         : undefined;
@@ -815,7 +861,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      if (!(await userOwnsSession(message.sessionId, userId))) {
+      if (!(await userOwnsSession(message.sessionId, userId, connection.workspace))) {
         console.warn('[WebSocket] control rejected unauthorized', {
           connectionId: connection.id,
           userId,
@@ -897,7 +943,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
         return;
       }
 
-      if (!(await userOwnsSession(message.sessionId, userId))) {
+      if (!(await userOwnsSession(message.sessionId, userId, connection.workspace))) {
         console.warn('[WebSocket] get_status rejected unauthorized', {
           connectionId: connection.id,
           userId,
