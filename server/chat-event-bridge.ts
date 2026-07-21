@@ -188,10 +188,24 @@ export function initializeWebSocketBridge(): void {
         const sessionTitle = session.title || `Session ${sessionId.slice(0, 8)}`;
 
         console.log(`[WebSocket Bridge] Sending notification: userId=${userId}, sessionId=${sessionId}, title="${sessionTitle}", preview="${messagePreview}", lastMessageAt=${lastMessageAt}`);
-        broadcastNotification(userId, sessionId, sessionTitle, 'new_response', messagePreview, lastMessageAt);
+        broadcastNotification(
+          userId,
+          sessionId,
+          sessionTitle,
+          'new_response',
+          messagePreview,
+          lastMessageAt,
+          session.workspaceId ?? undefined,
+        );
 
         console.log(`[WebSocket Bridge] Sending session_updated: userId=${userId}, sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${session.title ?? '(none)'}"`);
-        broadcastSessionUpdateToUser(userId, sessionId, lastMessageAt, session.title ?? undefined);
+        broadcastSessionUpdateToUser(
+          userId,
+          sessionId,
+          lastMessageAt,
+          session.title ?? undefined,
+          session.workspaceId ?? undefined,
+        );
 
         if (session.workspaceId) {
           void sendAgentResponseReadyPush({

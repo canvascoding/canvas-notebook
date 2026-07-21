@@ -55,8 +55,7 @@ import {
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
-  getOpenChatSessionEventSessionId,
-  markOpenChatSessionEventHandled,
+  handleOpenChatSessionEvent,
   OPEN_CHAT_SESSION_EVENT,
 } from '@/app/lib/chat/open-chat-session-event';
 import { getNotebookNavigationIntent } from '@/app/lib/chat/chat-navigation-intent';
@@ -458,10 +457,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   useEffect(() => {
     const handleOpenChatSession = (event: Event) => {
-      const sessionId = getOpenChatSessionEventSessionId(event);
-      if (!sessionId) return;
-      markOpenChatSessionEventHandled(event);
-      applyForcedChatSession(sessionId);
+      const workspaceState = useWorkspaceStore.getState();
+      handleOpenChatSessionEvent(event, {
+        activeWorkspaceId: workspaceState.activeWorkspaceId,
+        switchWorkspace: (workspaceId) => workspaceState.setActiveWorkspace(workspaceId, 'chat'),
+        openSession: applyForcedChatSession,
+      });
     };
 
     window.addEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);

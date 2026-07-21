@@ -15,6 +15,7 @@ import { usePathname, useRouter } from '@/i18n/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
+import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 
 interface WebSocketProviderProps {
   children: React.ReactNode;
@@ -24,6 +25,7 @@ interface WebSocketProviderProps {
 type NotificationDetail = {
   sessionId: string;
   sessionTitle: string;
+  workspaceId?: string;
   notificationType: string;
   messagePreview?: string;
   lastMessageAt?: string;
@@ -33,6 +35,7 @@ type NotificationDetail = {
 type DesktopChatNotificationPayload = {
   sessionId: string;
   sessionTitle: string;
+  workspaceId?: string;
   notificationType: string;
   messagePreview?: string;
   lastMessageAt?: string;
@@ -78,17 +81,17 @@ function truncateText(value: string | null | undefined, maxLength: number): stri
   return `${normalized.slice(0, maxLength - 1).trimEnd()}…`;
 }
 
-function pushCurrentChatSessionState(sessionId: string) {
+function pushCurrentChatSessionState(sessionId: string, workspaceId?: string) {
   if (typeof window === 'undefined') return;
 
-  const url = new URL(window.location.href);
-  url.searchParams.set('session', sessionId);
-  url.searchParams.set('chat', 'open');
-
-  const nextPath = `${url.pathname}?${url.searchParams.toString()}${url.hash}`;
+  const nextPath = buildChatSessionHref(
+    `${window.location.pathname}${window.location.search}${window.location.hash}`,
+    sessionId,
+    workspaceId,
+  );
   const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (nextPath !== currentPath) {
-    window.history.pushState({ sessionId, chat: 'open' }, '', nextPath);
+    window.history.pushState({ sessionId, workspaceId, chat: 'open' }, '', nextPath);
   }
 }
 
@@ -137,8 +140,9 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
   const pathname = usePathname();
   const t = useTranslations('chat');
   const clientRef = useRef<WebSocketClient | null>(null);
-  const activeSessionRef = useRef<{ sessionId: string | null; isVisible: boolean }>({
+  const activeSessionRef = useRef<{ sessionId: string | null; workspaceId: string | null; isVisible: boolean }>({
     sessionId: null,
+    workspaceId: null,
     isVisible: false,
   });
   const fallbackNotificationTimersRef = useRef<Map<string, number>>(new Map());
@@ -146,8 +150,8 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
   const [, setConnected] = useState(false);
   const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
 
-  const getSessionTargetPath = useCallback((sessionId: string) => {
-    return `${sessionBasePath}?session=${encodeURIComponent(sessionId)}`;
+  const getSessionTargetPath = useCallback((sessionId: string, workspaceId?: string) => {
+    return buildChatSessionHref(sessionBasePath, sessionId, workspaceId);
   }, [sessionBasePath]);
 
   const clearFallbackNotificationTimer = useCallback((sessionId: string) => {
@@ -172,9 +176,11 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
     }, 5000);
   }, []);
 
-  const isActiveVisibleSession = useCallback((sessionId: string) => {
+  const isActiveVisibleSession = useCallback((sessionId: string, workspaceId?: string) => {
     const activeSession = activeSessionRef.current;
-    return activeSession.isVisible && activeSession.sessionId === sessionId;
+    return activeSession.isVisible
+      && activeSession.sessionId === sessionId
+      && (!workspaceId || !activeSession.workspaceId || activeSession.workspaceId === workspaceId);
   }, []);
 
   const connectIfAuthenticated = useCallback(() => {
@@ -253,10 +259,11 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
   }, [connectIfAuthenticated, enabled]);
 
   useEffect(() => {
-    const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; isVisible: boolean }>) => {
+    const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; workspaceId?: string | null; isVisible: boolean }>) => {
       console.log(`[WebSocketProvider] Active session changed: sessionId=${event.detail.sessionId}, isVisible=${event.detail.isVisible}`);
       activeSessionRef.current = {
         sessionId: event.detail.sessionId,
+        workspaceId: event.detail.workspaceId ?? null,
         isVisible: event.detail.isVisible,
       };
     };
@@ -272,10 +279,10 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
     const fallbackTimers = fallbackNotificationTimersRef.current;
 
     const showSessionNotification = (detail: NotificationDetail) => {
-      const { sessionId, sessionTitle, notificationType, messagePreview, lastMessageAt } = detail;
+      const { sessionId, sessionTitle, workspaceId, notificationType, messagePreview, lastMessageAt } = detail;
       const activeSession = activeSessionRef.current;
       console.log(`[WebSocketProvider] showSessionNotification called: sessionId=${sessionId}, type=${notificationType}, title="${sessionTitle}", activeSession=${activeSession.sessionId}, isVisible=${activeSession.isVisible}`);
-      if (isActiveVisibleSession(sessionId)) {
+      if (isActiveVisibleSession(sessionId, workspaceId)) {
         console.log(`[WebSocketProvider] SUPPRESSED: session ${sessionId} is active+visible, not showing toast`);
         clearFallbackNotificationTimer(sessionId);
         return;
@@ -283,7 +290,7 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
 
       const toastTitle = truncateText(sessionTitle, 60) || t('newChatTitle');
       const toastDescription = messagePreview || t('newResponseReady');
-      const targetPath = getSessionTargetPath(sessionId);
+      const targetPath = getSessionTargetPath(sessionId, workspaceId);
       rememberDeliveredNotification(sessionId, lastMessageAt);
       clearFallbackNotificationTimer(sessionId);
 
@@ -298,6 +305,7 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
         void desktopBridge.showChatNotification({
           sessionId,
           sessionTitle: toastTitle,
+          workspaceId,
           notificationType,
           messagePreview: toastDescription,
           lastMessageAt,
@@ -314,8 +322,8 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
             action: {
               label: t('openSession'),
               onClick: () => {
-                if (dispatchOpenChatSession(sessionId, 'notification')) {
-                  pushCurrentChatSessionState(sessionId);
+                pushCurrentChatSessionState(sessionId, workspaceId);
+                if (dispatchOpenChatSession(sessionId, 'notification', workspaceId)) {
                   return;
                 }
                 router.push(targetPath);
@@ -349,12 +357,12 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
       showSessionNotification(event.detail);
     };
 
-    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
-      const { sessionId, lastMessageAt, title } = event.detail;
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; workspaceId?: string; lastMessageAt: string; title?: string }>) => {
+      const { sessionId, workspaceId, lastMessageAt, title } = event.detail;
       const activeSession = activeSessionRef.current;
       console.log(`[WebSocketProvider] handleSessionUpdated: sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title}", activeSession=${activeSession.sessionId}, isVisible=${activeSession.isVisible}`);
 
-      if (isActiveVisibleSession(sessionId)) {
+      if (isActiveVisibleSession(sessionId, workspaceId)) {
         console.log(`[WebSocketProvider] handleSessionUpdated SUPPRESSED: session ${sessionId} is active+visible`);
         clearFallbackNotificationTimer(sessionId);
         return;
@@ -372,6 +380,7 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
         showSessionNotification({
           sessionId,
           sessionTitle: title || t('newChatTitle'),
+          workspaceId,
           notificationType: 'new_response',
           lastMessageAt,
         });

@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import { Suspense } from 'react';
 
 import { Geist, Geist_Mono } from "next/font/google";
 import "@xterm/xterm/css/xterm.css";
@@ -7,6 +8,7 @@ import "../globals.css";
 import { Toaster } from "@/components/ui/sonner";
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
 import { WorkspaceAppearanceProvider } from '@/app/components/WorkspaceAppearanceProvider';
+import { WorkspaceNavigationSync } from '@/app/components/workspaces/WorkspaceNavigationSync';
 import { WebSocketProvider } from '@/app/components/websocket-provider';
 import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
@@ -108,6 +110,9 @@ export default async function LocaleLayout({
         <NextIntlClientProvider messages={messages}>
           <AppThemeProvider>
             <WorkspaceAppearanceProvider>
+              <Suspense fallback={null}>
+                <WorkspaceNavigationSync />
+              </Suspense>
               <WebSocketProvider enabled={websocketEnabled}>
                 <LicenseGatePrimer enabled={Boolean(licenseStatus?.licensed)} />
                 {children}

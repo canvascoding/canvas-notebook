@@ -8,6 +8,7 @@ import {
 } from '@/app/lib/pi/session-runtime-access';
 import { applyTodoRateLimit, requireTodoSession, todoErrorResponse } from '@/app/lib/todos/api';
 import { getTodo, updateTodo } from '@/app/lib/todos/store';
+import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -132,7 +133,11 @@ export async function POST(request: NextRequest, context: RouteContext) {
         data: {
           todo: updated ?? preparedTodo,
           sessionId: todo.sourceSessionId,
-          chatHref: `/todos?todo=${encodeURIComponent(todo.id)}&session=${encodeURIComponent(todo.sourceSessionId)}&chat=open`,
+          chatHref: buildChatSessionHref(
+            `/todos?todo=${encodeURIComponent(todo.id)}`,
+            todo.sourceSessionId,
+            todo.workspaceId,
+          ),
           runtimeStatus: status,
         },
       });

@@ -115,6 +115,9 @@ function todoHref(todo: TodoWithRelations, locale: TodoNotificationLocale): stri
     url.searchParams.set('session', todo.sourceSessionId);
     url.searchParams.set('chat', 'open');
   }
+  if (todo.workspaceId) {
+    url.searchParams.set('workspaceId', todo.workspaceId);
+  }
   return url.toString();
 }
 

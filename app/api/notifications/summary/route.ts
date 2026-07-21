@@ -49,6 +49,7 @@ export async function GET(request: NextRequest) {
           sessionId: piSessions.sessionId,
           title: piSessions.title,
           agentId: piSessions.agentId,
+          workspaceId: piSessions.workspaceId,
           lastMessageAt: piSessions.lastMessageAt,
           lastViewedAt: piSessions.lastViewedAt,
         })
@@ -82,6 +83,7 @@ export async function GET(request: NextRequest) {
             sessionId: item.sessionId,
             title: item.title || DEFAULT_SESSION_TITLE,
             agentId: item.agentId,
+            workspaceId: item.workspaceId,
             lastMessageAt: item.lastMessageAt,
           })),
         },
@@ -96,6 +98,7 @@ export async function GET(request: NextRequest) {
             seenAt: todo.seenAt,
             categoryName: todo.category?.name ?? null,
             categoryKey: getDefaultTodoCategoryKey(todo.category),
+            workspaceId: todo.workspaceId,
             isDue: dueTodos.some((dueTodo) => dueTodo.id === todo.id),
           })),
         },

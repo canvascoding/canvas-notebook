@@ -10,6 +10,8 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import type { DefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
+import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 
 type NotificationSummary = {
   unreadCount: number;
@@ -19,6 +21,7 @@ type NotificationSummary = {
       sessionId: string;
       title: string;
       agentId: string;
+      workspaceId: string | null;
       lastMessageAt: string | null;
     }>;
   };
@@ -33,6 +36,7 @@ type NotificationSummary = {
       seenAt: string | null;
       categoryName: string | null;
       categoryKey: DefaultTodoCategoryKey | null;
+      workspaceId: string | null;
       isDue: boolean;
     }>;
   };
@@ -234,9 +238,24 @@ export function NotificationBell() {
                     asChild
                     variant="ghost"
                     className="h-auto w-full justify-start px-2 py-2 text-left"
-                    onClick={() => setOpen(false)}
                   >
-                    <Link href={`/notebook?chat=open&session=${encodeURIComponent(session.sessionId)}`}>
+                    <Link
+                      href={buildChatSessionHref('/notebook', session.sessionId, session.workspaceId)}
+                      onClick={(event) => {
+                        setOpen(false);
+                        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+                        const nextHref = buildChatSessionHref(currentHref, session.sessionId, session.workspaceId);
+                        if (nextHref !== currentHref) {
+                          window.history.pushState(
+                            { sessionId: session.sessionId, workspaceId: session.workspaceId, chat: 'open' },
+                            '',
+                            nextHref,
+                          );
+                        }
+                        if (!dispatchOpenChatSession(session.sessionId, 'notification', session.workspaceId)) return;
+                        event.preventDefault();
+                      }}
+                    >
                       <MessageSquare className="h-4 w-4 shrink-0" />
                       <span className="min-w-0 flex-1">
                         <span className="block truncate text-sm font-medium">{session.title}</span>
@@ -272,7 +291,7 @@ export function NotificationBell() {
                   <div key={todo.id} className="flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">
                     <Circle className={cn('mt-1 h-2.5 w-2.5 shrink-0', todo.seenAt ? 'text-muted-foreground' : 'fill-primary text-primary')} />
                     <Link
-                      href={`/todos?todo=${encodeURIComponent(todo.id)}`}
+                      href={`/todos?todo=${encodeURIComponent(todo.id)}${todo.workspaceId ? `&workspaceId=${encodeURIComponent(todo.workspaceId)}` : ''}`}
                       className="min-w-0 flex-1"
                       onClick={() => setOpen(false)}
                     >

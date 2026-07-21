@@ -39,6 +39,7 @@ import { toast } from 'sonner';
 import { WorkspaceDirectoryPickerDialog } from '@/app/apps/automations/components/WorkspaceDirectoryPickerDialog';
 import { AgentAvatar, AgentIcon } from '@/app/components/agents/AgentAvatar';
 import { buildAutomationMutationPayload } from '@/app/lib/automations/client-payload';
+import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { getEffectiveAutomationTargetOutputPath } from '@/app/lib/automations/paths';
 import { formatTimeZoneLabel, getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
 import type { CanvasSkillIconSource } from '@/app/lib/skills/skill-icons';
@@ -766,8 +767,8 @@ function workspaceOptionLabel(workspace: ClientWorkspaceSummary, translate: (key
   return `${workspace.name} · ${workspaceScopeLabel(workspace, translate)}`;
 }
 
-function toNotebookUrl(sessionId: string) {
-  return `/notebook?session=${encodeURIComponent(sessionId)}`;
+function toNotebookUrl(sessionId: string, workspaceId?: string | null) {
+  return buildChatSessionHref('/notebook', sessionId, workspaceId);
 }
 
 function isTextContentPart(part: unknown): part is { type: 'text'; text: string } {
@@ -2770,7 +2771,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               </div>
               {selectedRun?.piSessionId ? (
                 <Button asChild variant="outline" size="sm">
-                  <Link href={toNotebookUrl(selectedRun.piSessionId)} data-testid="automation-open-notebook-session">
+                  <Link href={toNotebookUrl(selectedRun.piSessionId, selectedRun.workspaceId)} data-testid="automation-open-notebook-session">
                     <NotebookPen className="mr-2 h-4 w-4" />
                     {t('session.openNotebook')}
                   </Link>

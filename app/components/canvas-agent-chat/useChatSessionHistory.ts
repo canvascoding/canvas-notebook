@@ -273,8 +273,11 @@ export function useChatSessionHistory({
   }, [activeWorkspaceId, selectedAgentId]);
 
   useEffect(() => {
-    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>) => {
-      const { sessionId: updatedSessionId, lastMessageAt, title } = event.detail;
+    const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; workspaceId?: string; lastMessageAt: string; title?: string }>) => {
+      const { sessionId: updatedSessionId, workspaceId, lastMessageAt, title } = event.detail;
+      if (workspaceId && workspaceId !== activeWorkspaceIdRef.current) {
+        return;
+      }
       const currentSessionId = sessionIdRef.current;
       const currentVisible = surfaceVisibleRef.current;
       const isCurrentVisibleSession = updatedSessionId === currentSessionId && currentVisible;

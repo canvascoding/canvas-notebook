@@ -93,13 +93,14 @@ type ServerMessage =
   | { type: 'control_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'status_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
   | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
-  | { type: 'session_updated'; sessionId: string; lastMessageAt: string; title?: string }
+  | { type: 'session_updated'; sessionId: string; workspaceId?: string; lastMessageAt: string; title?: string }
   | { type: 'session_title_updated'; sessionId: string; title: string; titleGenerationState?: string | null }
   | { type: 'session_read'; sessionId: string; timestamp: number }
   | {
       type: 'notification';
       sessionId: string;
       sessionTitle: string;
+      workspaceId?: string;
       notificationType: 'new_response' | 'tool_complete' | 'error';
       messagePreview?: string;
       lastMessageAt?: string;
@@ -1124,13 +1125,15 @@ export function broadcastNotification(
   sessionTitle: string,
   notificationType: 'new_response' | 'tool_complete' | 'error',
   messagePreview?: string,
-  lastMessageAt?: string
+  lastMessageAt?: string,
+  workspaceId?: string,
 ): void {
   console.log(`[WS Server] broadcastNotification: userId=${userId}, sessionId=${sessionId}, type=${notificationType}, title="${sessionTitle}", preview="${messagePreview?.slice(0, 50) ?? '(none)'}"`);
   broadcastToUser(userId, {
     type: 'notification',
     sessionId,
     sessionTitle,
+    workspaceId,
     notificationType,
     messagePreview,
     lastMessageAt,
@@ -1159,12 +1162,14 @@ export function broadcastSessionUpdateToUser(
   userId: string,
   sessionId: string,
   lastMessageAt: string,
-  title?: string
+  title?: string,
+  workspaceId?: string,
 ): void {
   console.log(`[WS Server] broadcastSessionUpdateToUser: userId=${userId}, sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title ?? '(none)'}"`);
   broadcastToUser(userId, {
     type: 'session_updated',
     sessionId,
+    workspaceId,
     lastMessageAt,
     title,
   });

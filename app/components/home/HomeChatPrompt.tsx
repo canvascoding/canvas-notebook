@@ -7,6 +7,7 @@ import { MessageSquare, Send, Paperclip, Megaphone, WandSparkles, Clapperboard, 
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
+import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
 import { BUSINESS_STARTER_PROMPTS, type StarterPromptDefinition, type StarterPromptIcon } from '@/app/lib/chat/starter-prompts';
 import { getSessionDisplayTitle } from '@/app/lib/pi/session-titles';
@@ -115,8 +116,13 @@ export function HomeChatPrompt() {
     let isActive = true;
 
     const loadLatestSession = async () => {
+      if (!activeWorkspaceId) {
+        setLatestSession(null);
+        return;
+      }
       try {
-        const res = await fetch('/api/sessions');
+        const params = new URLSearchParams({ workspaceId: activeWorkspaceId });
+        const res = await fetch(`/api/sessions?${params.toString()}`);
         const data = await res.json();
         if (!isActive) return;
 
@@ -144,7 +150,7 @@ export function HomeChatPrompt() {
     return () => {
       isActive = false;
     };
-  }, [tChat]);
+  }, [activeWorkspaceId, tChat]);
 
   const [pendingUploads, setPendingUploads] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
@@ -492,7 +498,7 @@ export function HomeChatPrompt() {
           <div className="flex w-full flex-wrap items-center gap-2 sm:w-auto sm:justify-end">
             {latestSession ? (
               <Button asChild variant="outline" size="sm" className="flex-1 sm:flex-none">
-                <Link href={`/notebook?session=${encodeURIComponent(latestSession.sessionId)}`}>
+                <Link href={buildChatSessionHref('/notebook', latestSession.sessionId, activeWorkspaceId)}>
                   {tHome('chatPrompt.latestSessionButton')}
                 </Link>
               </Button>

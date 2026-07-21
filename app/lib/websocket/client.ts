@@ -744,13 +744,14 @@ export class WebSocketClient extends EventTarget {
         const notificationEvent = {
           sessionId: message.sessionId as string,
           sessionTitle: message.sessionTitle as string,
+          workspaceId: message.workspaceId as string | undefined,
           notificationType: message.notificationType as string,
           messagePreview: message.messagePreview as string | undefined,
           lastMessageAt: message.lastMessageAt as string | undefined,
           timestamp: message.timestamp as number | undefined,
         };
         console.log('[WebSocket Client] Received notification:', notificationEvent.notificationType, 'session:', notificationEvent.sessionId, 'title:', notificationEvent.sessionTitle, 'preview:', notificationEvent.messagePreview?.slice(0, 60));
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; sessionTitle: string; notificationType: string; messagePreview?: string; lastMessageAt?: string; timestamp?: number }>('notification', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; sessionTitle: string; workspaceId?: string; notificationType: string; messagePreview?: string; lastMessageAt?: string; timestamp?: number }>('notification', {
           detail: notificationEvent,
         }));
         if (typeof window !== 'undefined') {
@@ -762,11 +763,12 @@ export class WebSocketClient extends EventTarget {
       case 'session_updated': {
         const sessionUpdate = {
           sessionId: message.sessionId as string,
+          workspaceId: message.workspaceId as string | undefined,
           lastMessageAt: message.lastMessageAt as string,
           title: message.title as string | undefined,
         };
         console.log('[WebSocket Client] Received session_updated:', 'session:', sessionUpdate.sessionId, 'lastMessageAt:', sessionUpdate.lastMessageAt, 'title:', sessionUpdate.title);
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; lastMessageAt: string; title?: string }>('session_updated', {
+        this.dispatchEvent(new CustomEvent<{ sessionId: string; workspaceId?: string; lastMessageAt: string; title?: string }>('session_updated', {
           detail: sessionUpdate,
         }));
         if (typeof window !== 'undefined') {

@@ -21,13 +21,13 @@ import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { HintProvider } from '@/app/components/onboarding/HintProvider';
 import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
 import {
-  getOpenChatSessionEventSessionId,
-  markOpenChatSessionEventHandled,
+  handleOpenChatSessionEvent,
   OPEN_CHAT_SESSION_EVENT,
 } from '@/app/lib/chat/open-chat-session-event';
 import { getChatNavigationIntent } from '@/app/lib/chat/chat-navigation-intent';
 import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForcedChatSession';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
@@ -54,11 +54,11 @@ function ChatNavigationIntentObserver({
   onChange: (intent: ReturnType<typeof getChatNavigationIntent>) => void;
 }) {
   const searchParams = useSearchParams();
-  const { sessionId, shouldOpenChat } = getChatNavigationIntent(searchParams);
+  const { sessionId, workspaceId, shouldOpenChat } = getChatNavigationIntent(searchParams);
 
   useEffect(() => {
-    onChange({ sessionId, shouldOpenChat });
-  }, [onChange, sessionId, shouldOpenChat]);
+    onChange({ sessionId, workspaceId, shouldOpenChat });
+  }, [onChange, sessionId, shouldOpenChat, workspaceId]);
 
   return null;
 }
@@ -123,6 +123,7 @@ export function ChatDockShell({
   const tChat = useTranslations('chat');
   const [navigationIntent, setNavigationIntent] = useState<ReturnType<typeof getChatNavigationIntent>>(() => ({
     sessionId: null,
+    workspaceId: null,
     shouldOpenChat: false,
   }));
   const routeSessionId = navigationIntent.sessionId;
@@ -239,12 +240,14 @@ export function ChatDockShell({
 
   useEffect(() => {
     const handleOpenChatSession = (event: Event) => {
-      const sessionId = getOpenChatSessionEventSessionId(event);
-      if (!sessionId) return;
-      markOpenChatSessionEventHandled(event);
+      const workspaceState = useWorkspaceStore.getState();
+      handleOpenChatSessionEvent(event, {
+        activeWorkspaceId: workspaceState.activeWorkspaceId,
+        switchWorkspace: (workspaceId) => workspaceState.setActiveWorkspace(workspaceId, 'chat'),
+        openSession: forceSession,
+      });
       // A native custom event can arrive before Next.js observes the matching
       // pushState call, so this path intentionally supplies the session directly.
-      forceSession(sessionId);
     };
 
     window.addEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);

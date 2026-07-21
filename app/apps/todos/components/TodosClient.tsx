@@ -32,6 +32,8 @@ import {
 
 import { Link } from '@/i18n/navigation';
 import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
+import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -229,26 +231,25 @@ function formatTodoUser(user: TodoUserSummary | null | undefined, fallback: stri
   return user?.name || user?.email || user?.id || fallback;
 }
 
-function pushTodoChatState(todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) {
+function pushTodoChatState(todo: Pick<TodoItem, 'id' | 'sourceSessionId' | 'workspaceId'>) {
   if (!todo.sourceSessionId || typeof window === 'undefined') return;
 
   const url = new URL(window.location.href);
   url.searchParams.set('todo', todo.id);
-  url.searchParams.set('session', todo.sourceSessionId);
-  url.searchParams.set('chat', 'open');
-
-  const nextPath = `${url.pathname}?${url.searchParams.toString()}${url.hash}`;
+  const nextPath = buildChatSessionHref(
+    `${url.pathname}?${url.searchParams.toString()}${url.hash}`,
+    todo.sourceSessionId,
+    todo.workspaceId,
+  );
   const currentPath = `${window.location.pathname}${window.location.search}${window.location.hash}`;
   if (nextPath !== currentPath) {
-    window.history.pushState({ todoId: todo.id, sessionId: todo.sourceSessionId }, '', nextPath);
+    window.history.pushState({ todoId: todo.id, sessionId: todo.sourceSessionId, workspaceId: todo.workspaceId }, '', nextPath);
   }
 }
 
-function openDockChatSession(sessionId: string | null) {
+function openDockChatSession(sessionId: string | null, workspaceId?: string | null) {
   if (!sessionId || typeof window === 'undefined') return;
-  window.dispatchEvent(new CustomEvent('canvas:open-chat-session', {
-    detail: { sessionId },
-  }));
+  dispatchOpenChatSession(sessionId, 'todo', workspaceId);
 }
 
 type TodoDetailPanelProps = {
@@ -263,7 +264,7 @@ type TodoDetailPanelProps = {
   onRestore: (todo: TodoItem) => void | Promise<void>;
   onToggleDone: (todo: TodoItem) => void | Promise<void>;
   onMarkSeen: (todoId: string) => void | Promise<unknown>;
-  onOpenSession: (todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) => void;
+  onOpenSession: (todo: Pick<TodoItem, 'id' | 'sourceSessionId' | 'workspaceId'>) => void;
   onUpdateFollowUpComment: (value: string) => void;
   onSendFollowUp: (todo: TodoItem) => void | Promise<void>;
 };
@@ -557,9 +558,9 @@ export function TodosClient({ title }: { title: string }) {
     return () => mediaQuery.removeEventListener('change', updateViewport);
   }, []);
 
-  const openTodoSession = useCallback((todo: Pick<TodoItem, 'id' | 'sourceSessionId'>) => {
-    openDockChatSession(todo.sourceSessionId);
+  const openTodoSession = useCallback((todo: Pick<TodoItem, 'id' | 'sourceSessionId' | 'workspaceId'>) => {
     pushTodoChatState(todo);
+    openDockChatSession(todo.sourceSessionId, todo.workspaceId);
   }, []);
 
   const visibleUnreadCount = useMemo(
@@ -962,8 +963,8 @@ export function TodosClient({ title }: { title: string }) {
       setSelectedTodoId(data.todo.id);
       window.dispatchEvent(new CustomEvent('todo_updated'));
       toast.success(t('toasts.followUpSent'));
-      openDockChatSession(data.sessionId);
       pushTodoChatState(data.todo);
+      openDockChatSession(data.sessionId, data.todo.workspaceId);
     } catch (error) {
       toast.error(error instanceof Error ? error.message : t('errors.followUpFailed'));
     } finally {

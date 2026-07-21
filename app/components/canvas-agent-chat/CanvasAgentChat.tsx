@@ -148,14 +148,21 @@ export default function CanvasAgentChat({
   const router = useRouter();
   const searchParams = useSearchParams();
   const requestedSessionId = searchParams.get('session');
+  const requestedWorkspaceId = searchParams.get('workspaceId')?.trim() || null;
   const pathname = useLocalePathname();
-  const resolvedRequestedSessionId = forcedSessionId ?? requestedSessionId;
   const isMobile = useIsMobile();
   const currentFile = useFileStore((s) => s.currentFile);
   const { planningMode, togglePlanningMode } = usePlanModeStore();
   const toolVerbosity = useToolVerbosityStore((s) => s.toolVerbosity);
   const activeWorkspace = useWorkspaceStore(selectActiveWorkspace);
+  const workspaceInitialized = useWorkspaceStore((state) => state.initialized);
   const activeWorkspaceId = activeWorkspace?.id ?? null;
+  const isWorkspaceNavigationPending = Boolean(
+    requestedWorkspaceId
+    && (!workspaceInitialized || requestedWorkspaceId !== activeWorkspaceId),
+  );
+  const resolvedRequestedSessionId = forcedSessionId
+    ?? (isWorkspaceNavigationPending ? null : requestedSessionId);
 
   // Container width detection for history layout
   const containerRef = useRef<HTMLDivElement>(null);
@@ -567,6 +574,7 @@ export default function CanvasAgentChat({
     window.dispatchEvent(new CustomEvent('chat-active-session-changed', {
       detail: {
         sessionId: isSurfaceVisible ? sessionId : null,
+        workspaceId: isSurfaceVisible ? activeWorkspaceId : null,
         isVisible: isSurfaceVisible,
       },
     }));
@@ -575,11 +583,12 @@ export default function CanvasAgentChat({
       window.dispatchEvent(new CustomEvent('chat-active-session-changed', {
         detail: {
           sessionId: null,
+          workspaceId: null,
           isVisible: false,
         },
       }));
     };
-  }, [isSurfaceVisible, sessionId]);
+  }, [activeWorkspaceId, isSurfaceVisible, sessionId]);
 
   const refreshRuntimeStatus = useCallback(async (targetSessionId: string) => {
     try {
@@ -786,8 +795,15 @@ export default function CanvasAgentChat({
   useEffect(() => {
     const handleWorkspaceChange = (event: Event) => {
       const detail = (event as CustomEvent<WorkspaceChangedDetail>).detail;
+      const routeParams = new URLSearchParams(window.location.search);
+      const preservesWorkspaceSession = (
+        routeParams.get('workspaceId')?.trim() === detail.activeWorkspaceId
+        && Boolean(routeParams.get('session')?.trim())
+      );
       closeReferencePicker();
-      clearSessionParamFromUrl();
+      if (!preservesWorkspaceSession) {
+        clearSessionParamFromUrl();
+      }
       clearCanvasChatActiveSessionStorage(detail.activeWorkspaceId);
       startNewChat(undefined, {
         clearActiveSessionStorage: false,
@@ -912,6 +928,7 @@ export default function CanvasAgentChat({
     isLoadingHistory,
     isResolvingInitialChatState,
     isRuntimeSelectionLoading,
+    isWorkspaceNavigationPending,
     loadSession,
     loadSessionList,
     requestedSessionCleanupRef,

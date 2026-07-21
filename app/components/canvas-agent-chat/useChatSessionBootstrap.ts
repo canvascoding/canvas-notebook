@@ -46,6 +46,7 @@ type UseChatSessionBootstrapParams = {
   isLoadingHistory: boolean;
   isResolvingInitialChatState: boolean;
   isRuntimeSelectionLoading: boolean;
+  isWorkspaceNavigationPending: boolean;
   loadSession: (session: AISession) => Promise<void>;
   loadSessionList: () => Promise<AISession[]>;
   requestedSessionCleanupRef: MutableRefObject<string | null>;
@@ -154,6 +155,7 @@ export function useChatSessionBootstrap({
   isLoadingHistory,
   isResolvingInitialChatState,
   isRuntimeSelectionLoading,
+  isWorkspaceNavigationPending,
   loadSession,
   loadSessionList,
   requestedSessionCleanupRef,
@@ -174,6 +176,7 @@ export function useChatSessionBootstrap({
   const restoredSessionLoadIdRef = useRef(0);
 
   useEffect(() => {
+    if (isWorkspaceNavigationPending) return;
     if (initialPromptConsumedRef.current) return;
     if (isRuntimeSelectionLoading) return;
 
@@ -217,24 +220,27 @@ export function useChatSessionBootstrap({
     }
 
     void queueInitialPrompt(parsed.prompt, parsed.attachments, initialPromptStorageKey);
-  }, [appendSystemMessage, handleControlAction, initialPrompt, initialPromptConsumedRef, initialPromptStorageKey, isRuntimeSelectionLoading, selectedAgentId, sessionAgentIdRef, setHistoryAgentFilter, setIsResolvingInitialChatState, setSelectedAgentId, t]);
+  }, [appendSystemMessage, handleControlAction, initialPrompt, initialPromptConsumedRef, initialPromptStorageKey, isRuntimeSelectionLoading, isWorkspaceNavigationPending, selectedAgentId, sessionAgentIdRef, setHistoryAgentFilter, setIsResolvingInitialChatState, setSelectedAgentId, t]);
 
   useEffect(() => {
+    if (isWorkspaceNavigationPending) return;
     if (initialPrompt?.trim()) return;
     if (resolvedRequestedSessionId) return;
     if (isResolvingInitialChatState) return;
     if (hasLoadedSessionListRef.current) return;
     if (userStartedNewChatRef.current) return;
     void fetchHistory();
-  }, [fetchHistory, hasLoadedSessionListRef, initialPrompt, isResolvingInitialChatState, resolvedRequestedSessionId, userStartedNewChatRef]);
+  }, [fetchHistory, hasLoadedSessionListRef, initialPrompt, isResolvingInitialChatState, isWorkspaceNavigationPending, resolvedRequestedSessionId, userStartedNewChatRef]);
 
   useEffect(() => {
+    if (isWorkspaceNavigationPending) return;
     if (showHistory && historyLength === 0 && !isLoadingHistory) {
       void fetchHistory();
     }
-  }, [showHistory, historyLength, fetchHistory, isLoadingHistory]);
+  }, [showHistory, historyLength, fetchHistory, isLoadingHistory, isWorkspaceNavigationPending]);
 
   useEffect(() => {
+    if (isWorkspaceNavigationPending) return;
     if (initialPrompt?.trim()) return;
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
       return;
@@ -299,9 +305,10 @@ export function useChatSessionBootstrap({
     return () => {
       cancelled = true;
     };
-  }, [activeWorkspaceId, addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, loadSession, loadSessionList, requestedSessionCleanupRef, resolvedRequestedSessionId, setHistoryAndLatest, setIsResolvingInitialChatState, userStartedNewChatRef]);
+  }, [activeWorkspaceId, addSessionToHistory, clearSessionParamFromUrl, forcedSessionId, initialPrompt, initialPromptStorageKey, isWorkspaceNavigationPending, loadSession, loadSessionList, requestedSessionCleanupRef, resolvedRequestedSessionId, setHistoryAndLatest, setIsResolvingInitialChatState, userStartedNewChatRef]);
 
   useEffect(() => {
+    if (isWorkspaceNavigationPending) return;
     if (initialPrompt?.trim()) return;
     if (initialPromptStorageKey && typeof window !== 'undefined' && window.sessionStorage.getItem(initialPromptStorageKey)) {
       return;
@@ -371,6 +378,7 @@ export function useChatSessionBootstrap({
     initialPrompt,
     initialPromptConsumedRef,
     initialPromptStorageKey,
+    isWorkspaceNavigationPending,
     loadSession,
     loadSessionList,
     resolvedRequestedSessionId,
