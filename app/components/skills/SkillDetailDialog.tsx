@@ -34,6 +34,12 @@ interface SkillDetailDialogProps {
   onDeleted?: () => void;
 }
 
+function skillDocumentationUrl(skill: CanvasSkill): string {
+  const url = `/api/skills/${encodeURIComponent(skill.name)}/readme`;
+  if (!skill.resourceId) return url;
+  return `${url}?resourceId=${encodeURIComponent(skill.resourceId)}`;
+}
+
 export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: SkillDetailDialogProps) {
   const t = useTranslations('skills');
   const [skillContent, setSkillContent] = useState<string>('');
@@ -46,13 +52,13 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
   const saveTimeoutRef = useRef<number | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
 
-  async function loadSkillContent(skillName: string) {
+  async function loadSkillContent(selectedSkill: CanvasSkill) {
     setLoading(true);
     setError(null);
     setSaveError(null);
     setDraft('');
     try {
-      const response = await fetch(`/api/skills/${skillName}/readme`);
+      const response = await fetch(skillDocumentationUrl(selectedSkill));
       const data = await response.json();
       if (data.success) {
         setSkillContent(data.content);
@@ -69,12 +75,18 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
 
   useEffect(() => {
     if (open && skill) {
-      startTransition(() => { loadSkillContent(skill.name); });
+      startTransition(() => { loadSkillContent(skill); });
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSkillContent takes skill.name as argument; skill is in deps
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadSkillContent takes the selected skill as an argument
   }, [open, skill]);
 
-  const isReadOnly = Boolean(skill?.core || skill?.plugin);
+  const isReadOnly = Boolean(
+    skill?.core
+    || skill?.plugin
+    || skill?.sourceType === 'core'
+    || skill?.sourceType === 'plugin'
+    || (skill?.scopeType && skill.scopeType !== 'user')
+  );
 
   useEffect(() => {
     if (!draft || !skill || isReadOnly) return;
@@ -92,7 +104,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
       setSaveError(null);
 
       try {
-        const response = await fetch(`/api/skills/${skill.name}/readme`, {
+        const response = await fetch(skillDocumentationUrl(skill), {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ content: draft }),
@@ -285,7 +297,7 @@ export function SkillDetailDialog({ skill, open, onOpenChange, onDeleted }: Skil
               ) : (
                 <div className="h-[400px] border rounded-lg overflow-hidden">
                   <MarkdownEditor
-                    key={skill.name}
+                    key={skill.resourceId || skill.name}
                     value={draft}
                     onChange={setDraft}
                     readOnly={isReadOnly}

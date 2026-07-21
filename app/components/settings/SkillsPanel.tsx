@@ -3526,7 +3526,7 @@ export function SkillsPanel() {
                         )}
 
                         <div className="flex flex-wrap gap-2">
-                          {managementScope === 'user' ? <Button
+                          <Button
                             variant="outline"
                             size="sm"
                             onClick={() => {
@@ -3537,7 +3537,7 @@ export function SkillsPanel() {
                           >
                             <Info className="h-4 w-4" />
                             {t('detail.viewDocumentation')}
-                          </Button> : null}
+                          </Button>
                           {managementScope === 'user' && !selectedSkillData.plugin && !selectedSkillData.core ? (
                             <Button
                               variant="outline"

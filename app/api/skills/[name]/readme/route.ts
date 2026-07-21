@@ -3,10 +3,15 @@ import { auth } from '@/app/lib/auth';
 import { promises as fs } from 'fs';
 import path from 'path';
 import { headers } from 'next/headers';
-import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
-import { getSkillsDir } from '@/app/lib/skills/canvas-skill-manifest';
+import { loadCapabilityCandidates } from '@/app/lib/capabilities/catalog';
+import {
+  readOrganizationPermissionForUser,
+  requireOrganizationPermission,
+} from '@/app/lib/organization/permissions';
+import { getSkillsDir, type CanvasSkill } from '@/app/lib/skills/canvas-skill-manifest';
 import { coreSkillInstallError, isCoreSkillName } from '@/app/lib/skills/core-skills';
 import { adoptLegacyStandaloneSkillsForScope } from '@/app/lib/skills/legacy-skill-adoption';
+import { loadCapabilitySkillByReference } from '@/app/lib/skills/skill-documentation';
 import { loadSkillByName } from '@/app/lib/skills/skill-loader';
 
 function sanitizeSkillName(name: string): string {
@@ -24,7 +29,26 @@ export async function GET(
     }
 
     const { name } = await params;
-    const skill = await loadSkillByName(name, { userId: session.user.id });
+    const resourceId = new URL(request.url).searchParams.get('resourceId')?.trim();
+    let skill: CanvasSkill | null = null;
+
+    if (resourceId) {
+      const organizationState = await readOrganizationPermissionForUser(session.user.id);
+      if (
+        organizationState.organizationId
+        && organizationState.permission?.status === 'active'
+      ) {
+        const candidates = await loadCapabilityCandidates({
+          organizationId: organizationState.organizationId,
+          userId: session.user.id,
+          role: organizationState.permission.role,
+        }, { resolveConnections: false });
+        skill = await loadCapabilitySkillByReference(candidates, { name, resourceId });
+      }
+    } else {
+      skill = await loadSkillByName(name, { userId: session.user.id });
+    }
+
     if (!skill) {
       return NextResponse.json(
         { success: false, error: 'Skill not found' },

@@ -38,11 +38,16 @@ export async function GET(request: NextRequest) {
         userId: session.user.id,
         role: organizationState.permission?.role,
       }, { resolveConnections: false });
+      const pluginNames = new Map(candidates
+        .filter((candidate) => candidate.ref.resourceType === 'plugin')
+        .map((candidate) => [candidate.ref.resourceId, candidate.ref]));
       skills = (await Promise.all(candidates
         .filter((candidate) => candidate.ref.resourceType === 'skill' && candidate.ref.scopeType === 'organization' && candidate.runtimePath)
         .map(async (candidate) => {
           const skill = await parseSkillFile(candidate.runtimePath!);
-          return skill ? {
+          if (!skill) return null;
+          const plugin = candidate.pluginResourceId ? pluginNames.get(candidate.pluginResourceId) : null;
+          return {
             ...skill,
             enabled: candidate.enabled,
             resourceId: candidate.ref.resourceId,
@@ -50,7 +55,11 @@ export async function GET(request: NextRequest) {
             sourceType: candidate.ref.sourceType,
             revision: candidate.ref.revision,
             checksum: candidate.ref.checksum,
-          } : null;
+            plugin: plugin ? {
+              name: plugin.name,
+              version: plugin.version,
+            } : skill.plugin,
+          };
         }))).filter((skill): skill is NonNullable<typeof skill> => Boolean(skill));
     } else if (organizationState.organizationId && organizationState.permission?.status === 'active') {
       const capabilityContext = await resolveCapabilityExecutionContextForUser({
