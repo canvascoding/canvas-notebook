@@ -38,7 +38,7 @@ export function mobileLicenseStatus(input: {
     activation: {
       mode: input.managedConfigured ? 'managed' : 'community',
       canManage: input.canManage,
-      canRequestKey: input.canManage && !input.managedConfigured,
+      canRequestKey: input.canManage && !input.managedConfigured && !input.status.licensed,
       canActivateKey: input.canManage,
     },
   };
