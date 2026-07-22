@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { promises as fs, readFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
@@ -56,6 +56,9 @@ function signLicense(privateKey: crypto.KeyObject, instanceId: string) {
 }
 
 async function main() {
+  const proxySource = readFileSync(path.join(process.cwd(), 'proxy.ts'), 'utf8');
+  assert.match(proxySource, /LICENSE_ALLOWED_API_PREFIXES[\s\S]*'\/api\/mobile\/v1\/license'/u);
+
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mobile-license-'));
   const dataRoot = path.join(temporaryRoot, 'data');
   const instanceId = 'mobile-license-private-instance';
