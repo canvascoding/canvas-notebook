@@ -65,7 +65,7 @@ async function publicKeyUnavailableError(): Promise<LicenseStatus['error'] | und
   return 'public_key_unavailable';
 }
 
-function isManagedLicenseAvailable(): boolean {
+export function isManagedLicenseConfigured(): boolean {
   return (
     process.env.CANVAS_MANAGED_SERVICES_ENABLED === 'true' ||
     Boolean(process.env.CANVAS_INSTANCE_TOKEN?.trim())
@@ -125,7 +125,7 @@ async function fetchManagedLicenseCert(instanceId: string): Promise<string | nul
 }
 
 async function getManagedLicenseStatus(instanceId: string): Promise<LicenseStatus | null> {
-  if (!isManagedLicenseAvailable()) return null;
+  if (!isManagedLicenseConfigured()) return null;
   const cert = await fetchManagedLicenseCert(instanceId);
   if (!cert) return null;
   const payload = await verifyLicenseJwt(cert, instanceId);
@@ -154,13 +154,13 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
         instanceId,
         plan: payload.plan,
         expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
-        managedConfigured: isManagedLicenseAvailable(),
+        managedConfigured: isManagedLicenseConfigured(),
       });
       return statusFromPayload(payload, instanceId, 'env');
     }
     console.warn(`${LOG_PREFIX} env certificate did not verify`, {
       ...certLogContext(envCert, instanceId),
-      managedConfigured: isManagedLicenseAvailable(),
+      managedConfigured: isManagedLicenseConfigured(),
     });
   }
 
@@ -172,13 +172,13 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
         instanceId,
         plan: payload.plan,
         expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
-        managedConfigured: isManagedLicenseAvailable(),
+        managedConfigured: isManagedLicenseConfigured(),
       });
       return statusFromPayload(payload, instanceId, 'stored');
     }
     console.warn(`${LOG_PREFIX} stored certificate did not verify`, {
       ...certLogContext(stored, instanceId),
-      managedConfigured: isManagedLicenseAvailable(),
+      managedConfigured: isManagedLicenseConfigured(),
     });
   }
 
@@ -190,7 +190,7 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
   console.warn(`${LOG_PREFIX} unresolved license status`, {
     instanceId,
     error,
-    managedConfigured: isManagedLicenseAvailable(),
+    managedConfigured: isManagedLicenseConfigured(),
     hasEnvCert: Boolean(envCert),
     hasStoredCert: Boolean(stored),
     controlPlaneHost: getControlPlaneHost(),

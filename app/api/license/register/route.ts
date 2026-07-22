@@ -1,7 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { getLicenseControlPlaneUrl } from '@/app/lib/license';
-import { getLicenseInstanceId, getRequestOrigin } from '@/app/lib/license/instance';
+import {
+  LicenseControlPlaneError,
+  requestCommunityLicenseRegistration,
+} from '@/app/lib/license/control-plane';
+import { getRequestOrigin } from '@/app/lib/license/instance';
 
 const LOG_PREFIX = '[license/register]';
 
@@ -20,38 +23,26 @@ export async function POST(request: NextRequest) {
   }
 
   try {
-    const controlPlaneUrl = getLicenseControlPlaneUrl();
-    const instanceId = getLicenseInstanceId();
     const activationPath = body.activationPath?.trim();
     const safeActivationPath = activationPath && activationPath.startsWith('/') && !activationPath.startsWith('//')
       ? activationPath
       : '/settings?tab=license';
     const activationUrl = `${getRequestOrigin(request)}${safeActivationPath}`;
     const marketingOptIn = body.marketingOptIn === true;
-    const response = await fetch(`${controlPlaneUrl}/v1/license/register`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email, instanceId, activationUrl, marketingOptIn }),
-    });
-    const payload = await response.json().catch(() => ({}));
-    if (!response.ok) {
+    const registration = await requestCommunityLicenseRegistration({ email, activationUrl, marketingOptIn });
+    console.info(`${LOG_PREFIX} registration requested`);
+    return NextResponse.json({ success: true, email, ...registration });
+  } catch (error) {
+    if (error instanceof LicenseControlPlaneError) {
       console.warn(`${LOG_PREFIX} control plane rejected registration`, {
-        status: response.status,
-        code: typeof payload.code === 'string' ? payload.code : 'LICENSE_REGISTRATION_FAILED',
-        instanceId,
+        status: error.status,
+        code: error.code,
       });
       return NextResponse.json(
-        {
-          success: false,
-          error: payload.error || 'License registration failed',
-          code: typeof payload.code === 'string' ? payload.code : 'LICENSE_REGISTRATION_FAILED',
-        },
-        { status: response.status },
+        { success: false, error: error.message, code: error.code },
+        { status: error.status },
       );
     }
-    console.info(`${LOG_PREFIX} registration requested`, { instanceId });
-    return NextResponse.json({ success: true, email, ...payload });
-  } catch (error) {
     console.error(`${LOG_PREFIX} control plane request failed`, {
       error: error instanceof Error ? error.message : String(error),
     });

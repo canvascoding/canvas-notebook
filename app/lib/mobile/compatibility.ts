@@ -20,6 +20,9 @@ export type MobileCompatibility = {
     capabilities: [
       'auth.email_password',
       'workspace.bootstrap',
+      'license.status',
+      'license.register',
+      'license.activate',
       'chat.sessions',
       'chat.realtime_ticket',
       'chat.session_manage',
@@ -102,6 +105,9 @@ export function createMobileCompatibility(input: {
       capabilities: [
         'auth.email_password',
         'workspace.bootstrap',
+        'license.status',
+        'license.register',
+        'license.activate',
         'chat.sessions',
         'chat.realtime_ticket',
         'chat.session_manage',
