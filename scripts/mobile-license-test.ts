@@ -1,10 +1,11 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { promises as fs, readFileSync } from 'node:fs';
+import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
 import Database from 'better-sqlite3';
+import { NextRequest } from 'next/server';
 
 const environmentKeys = [
   'BOOTSTRAP_ADMIN_EMAIL',
@@ -56,8 +57,17 @@ function signLicense(privateKey: crypto.KeyObject, instanceId: string) {
 }
 
 async function main() {
-  const proxySource = readFileSync(path.join(process.cwd(), 'proxy.ts'), 'utf8');
-  assert.match(proxySource, /LICENSE_ALLOWED_API_PREFIXES[\s\S]*'\/api\/mobile\/v1\/license'/u);
+  const proxyModule = await import('../proxy');
+  const defaultExport = proxyModule.default as unknown;
+  const middleware = typeof defaultExport === 'function'
+    ? defaultExport
+    : (defaultExport as { default: (request: NextRequest) => Promise<Response> }).default;
+  const gateResponse = await middleware(new NextRequest(
+    'http://localhost/api/mobile/v1/license/status',
+    { headers: { cookie: 'better-auth.session_token=middleware-test' } },
+  ));
+  assert.equal(gateResponse.status, 200);
+  assert.equal(gateResponse.headers.get('x-middleware-next'), '1');
 
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mobile-license-'));
   const dataRoot = path.join(temporaryRoot, 'data');
