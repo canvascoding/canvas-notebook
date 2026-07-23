@@ -11,6 +11,29 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.23.1] - 2026-07-23
+
+### Added
+
+- Added mobile license status, community registration, and key activation endpoints, advertised through the compatibility and bootstrap APIs.
+- Exposed mobile automation job, run-control, run-history, heartbeat, webhook, and Composio-trigger capabilities in authenticated bootstrap responses.
+
+### Changed
+
+- Consolidated control-plane license registration and activation so web and mobile flows share consistent error handling and certificate activation.
+
+### Fixed
+
+- Restored access to mobile license recovery before a Notebook instance is activated and hid community registration after activation.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run verify:release`
+- `npm run test:mobile:compatibility`
+- `npm run test:mobile:bootstrap`
+- `npm run test:mobile:license`
+
 ## [2026.7.21.1] - 2026-07-21
 
 ### Added
