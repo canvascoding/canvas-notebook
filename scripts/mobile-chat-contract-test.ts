@@ -25,6 +25,8 @@ const attachmentRoute = readFileSync(path.join(root, 'app/api/mobile/v1/sessions
 const service = readFileSync(path.join(root, 'app/lib/mobile/chat.ts'), 'utf8');
 assert.match(listRoute, /query:\s*url\.searchParams\.get\('query'\)/u);
 assert.match(listRoute, /archived:\s*url\.searchParams\.get\('archived'\) === 'true'/u);
+assert.match(listRoute, /error instanceof AiRuntimePolicyError/u);
+assert.match(listRoute, /\{ success: false, code: error\.code, error: error\.message \}/u);
 assert.match(sessionRoute, /updateMobileChatSession/u);
 assert.match(attachmentRoute, /requireMobileChatSession/u);
 assert.match(attachmentRoute, /MAX_ATTACHMENT_BYTES/u);

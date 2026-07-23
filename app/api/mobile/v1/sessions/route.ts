@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 
+import { AiRuntimePolicyError } from '@/app/lib/agent-runtime-policy/runtime-resolver';
 import { auth } from '@/app/lib/auth';
 import {
   createMobileChatSession,
@@ -18,6 +19,12 @@ const responseHeaders = {
 
 function errorResponse(error: unknown): NextResponse {
   if (error instanceof MobileChatError) {
+    return NextResponse.json(
+      { success: false, code: error.code, error: error.message },
+      { status: error.status, headers: responseHeaders },
+    );
+  }
+  if (error instanceof AiRuntimePolicyError) {
     return NextResponse.json(
       { success: false, code: error.code, error: error.message },
       { status: error.status, headers: responseHeaders },
