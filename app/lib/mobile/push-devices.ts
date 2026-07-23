@@ -3,6 +3,7 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
 
 import { createPublicMobileInstanceId } from './compatibility';
@@ -42,6 +43,7 @@ export type MobilePushRegistration = {
   expoPushToken: string;
   platform: MobilePushPlatform;
   appVariant: MobileAppVariant;
+  reactivate: boolean;
   preferences: MobilePushPreferences;
 };
 
@@ -124,6 +126,9 @@ type ExpoPushReceipt = {
   message?: unknown;
   details?: {
     error?: unknown;
+    apns?: {
+      reason?: unknown;
+    };
   };
 };
 
@@ -186,12 +191,16 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
   if (!['development', 'preview', 'production'].includes(String(value.appVariant))) {
     throw new MobilePushDeviceError('appVariant is invalid.', 400, 'INVALID_DEVICE');
   }
+  if (value.reactivate !== undefined && typeof value.reactivate !== 'boolean') {
+    throw new MobilePushDeviceError('reactivate is invalid.', 400, 'INVALID_DEVICE');
+  }
   const preferences = isRecord(value.preferences) ? value.preferences : {};
   return {
     installationId,
     expoPushToken,
     platform: value.platform,
     appVariant: value.appVariant as MobileAppVariant,
+    reactivate: value.reactivate === true,
     preferences: {
       agentResponseReady: parseBooleanPreference(preferences, 'agentResponseReady'),
       todoAttention: parseBooleanPreference(preferences, 'todoAttention'),
@@ -350,6 +359,7 @@ export async function registerMobilePushDevice(input: {
 }): Promise<MobilePushDeviceStatus> {
   return withConnection(async (connection) => {
     const now = Date.now();
+    const authNow = toDatabaseTimestamp(new Date(now));
     await connection.run('BEGIN');
     try {
       await connection.run(
@@ -361,12 +371,19 @@ export async function registerMobilePushDevice(input: {
                AND session.user_id = mobile_push_devices.user_id
                AND session.expires_at > ?
            )`,
-        [input.userId, now],
+        [input.userId, authNow],
       );
       const existing = await connection.get(
-        'SELECT id FROM mobile_push_devices WHERE user_id = ? AND installation_id = ?',
+        `SELECT id, expo_push_token, enabled, last_error_code
+         FROM mobile_push_devices
+         WHERE user_id = ? AND installation_id = ?`,
         [input.userId, input.registration.installationId],
-      );
+      ) as {
+        id: string;
+        expo_push_token: string;
+        enabled: number | boolean;
+        last_error_code: string | null;
+      } | undefined;
       const count = await connection.get(
         'SELECT COUNT(*) AS count FROM mobile_push_devices WHERE user_id = ?',
         [input.userId],
@@ -383,27 +400,33 @@ export async function registerMobilePushDevice(input: {
         'DELETE FROM mobile_push_devices WHERE expo_push_token = ? AND installation_id <> ?',
         [input.registration.expoPushToken, input.registration.installationId],
       );
+      const tokenChanged = Boolean(
+        existing && existing.expo_push_token !== input.registration.expoPushToken,
+      );
+      const shouldReactivate = !existing || tokenChanged || input.registration.reactivate;
+      const enabled = shouldReactivate || Boolean(existing?.enabled);
+      const lastErrorCode = shouldReactivate ? null : existing?.last_error_code || null;
       await connection.run(
         `INSERT INTO mobile_push_devices (
           id, installation_id, user_id, auth_session_id, expo_push_token, platform,
           app_variant, enabled, agent_response_ready, todo_attention, studio_completed,
           failure_attention, preview_enabled, last_registered_at, last_delivery_at,
           last_error_code, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ?, ?, 0, ?, NULL, NULL, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, ?, ?)
         ON CONFLICT(installation_id) DO UPDATE SET
           user_id = excluded.user_id,
           auth_session_id = excluded.auth_session_id,
           expo_push_token = excluded.expo_push_token,
           platform = excluded.platform,
           app_variant = excluded.app_variant,
-          enabled = 1,
+          enabled = excluded.enabled,
           agent_response_ready = excluded.agent_response_ready,
           todo_attention = excluded.todo_attention,
           studio_completed = excluded.studio_completed,
           failure_attention = excluded.failure_attention,
           preview_enabled = 0,
           last_registered_at = excluded.last_registered_at,
-          last_error_code = NULL,
+          last_error_code = excluded.last_error_code,
           updated_at = excluded.updated_at`,
         [
           `mpd_${randomUUID()}`,
@@ -413,11 +436,13 @@ export async function registerMobilePushDevice(input: {
           input.registration.expoPushToken,
           input.registration.platform,
           input.registration.appVariant,
+          enabled ? 1 : 0,
           input.registration.preferences.agentResponseReady ? 1 : 0,
           input.registration.preferences.todoAttention ? 1 : 0,
           input.registration.preferences.studioCompleted ? 1 : 0,
           input.registration.preferences.failureAttention ? 1 : 0,
           now,
+          lastErrorCode,
           now,
           now,
         ],
@@ -579,9 +604,16 @@ function pushEntityId(target: MobilePushTarget): string {
 }
 
 function ticketErrorCode(ticket: ExpoPushTicket | ExpoPushReceipt): string {
+  const details = ticket.details as ExpoPushReceipt['details'];
+  const apnsReason = details?.apns?.reason;
+  if (typeof apnsReason === 'string') return apnsReason.slice(0, 120);
   return typeof ticket.details?.error === 'string'
     ? ticket.details.error.slice(0, 120)
     : 'EXPO_PUSH_ERROR';
+}
+
+function disablesPushDevice(errorCode: string): boolean {
+  return errorCode === 'DeviceNotRegistered' || errorCode === 'BadDeviceToken';
 }
 
 async function recordTicketResult(input: {
@@ -645,7 +677,7 @@ async function recordTicketResult(input: {
     `UPDATE mobile_push_devices
      SET enabled = ?, last_error_code = ?, updated_at = ?
      WHERE id = ?`,
-    [errorCode === 'DeviceNotRegistered' ? 0 : 1, errorCode, now, row.id],
+    [disablesPushDevice(errorCode) ? 0 : 1, errorCode, now, row.id],
   );
   return false;
 }
@@ -660,6 +692,7 @@ export async function sendMobileAttentionPush(input: {
   const fetcher = input.fetcher || fetch;
   const preferenceColumn = pushPreferenceColumn(input.target);
   const now = input.now ?? Date.now();
+  const authNow = toDatabaseTimestamp(new Date(now));
   return withConnection(async (connection) => {
     const rows = await connection.all(
       `SELECT mobile_push_devices.${DEVICE_SELECT.replaceAll(', ', ', mobile_push_devices.')}
@@ -670,7 +703,7 @@ export async function sendMobileAttentionPush(input: {
          AND mobile_push_devices.${preferenceColumn} = 1
          AND session.user_id = mobile_push_devices.user_id
          AND session.expires_at > ?`,
-      [input.userId, now],
+      [input.userId, authNow],
     ) as MobilePushDeviceRow[];
     let accepted = 0;
 
@@ -885,7 +918,7 @@ export async function pollMobilePushReceipts(input: {
         `UPDATE mobile_push_devices
          SET enabled = ?, last_error_code = ?, updated_at = ?
          WHERE id = ?`,
-        [errorCode === 'DeviceNotRegistered' ? 0 : 1, errorCode, now, row.device_id],
+        [disablesPushDevice(errorCode) ? 0 : 1, errorCode, now, row.device_id],
       );
       failed += 1;
     }

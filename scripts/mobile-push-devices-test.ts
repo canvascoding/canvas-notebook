@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -23,6 +23,7 @@ async function main() {
   const { closeDatabaseConnections, openDb } = await import('../app/lib/db');
   const database = await openDb();
   const now = Date.now();
+  const authNow = Math.floor(now / 1_000);
   await database.run(
     `INSERT INTO user (id, name, email, email_verified, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
@@ -31,7 +32,7 @@ async function main() {
   await database.run(
     `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
      VALUES (?, ?, ?, ?, ?, ?)`,
-    ['auth-session', now + 60_000, 'session-token', now, now, 'push-user'],
+    ['auth-session', authNow + 60, 'session-token', authNow, authNow, 'push-user'],
   );
   const responseAt = now + 1_000;
   await database.run(
@@ -305,11 +306,20 @@ async function main() {
   assert.equal(disabled.enabled, false);
   assert.equal(disabled.lastErrorCode, 'DeviceNotRegistered');
 
-  await registerMobilePushDevice({
+  const automaticReregistration = await registerMobilePushDevice({
     userId: 'push-user',
     authSessionId: 'auth-session',
     registration,
   });
+  assert.equal(automaticReregistration.enabled, false);
+  assert.equal(automaticReregistration.lastErrorCode, 'DeviceNotRegistered');
+  const explicitlyReactivated = await registerMobilePushDevice({
+    userId: 'push-user',
+    authSessionId: 'auth-session',
+    registration: { ...registration, reactivate: true },
+  });
+  assert.equal(explicitlyReactivated.enabled, true);
+  assert.equal(explicitlyReactivated.lastErrorCode, null);
   await sendMobileAttentionPush({
     userId: 'push-user',
     instanceId: 'cni_0123456789abcdef01234567',
@@ -339,6 +349,41 @@ async function main() {
   assert.equal(disabledByReceipt.enabled, false);
   assert.equal(disabledByReceipt.lastErrorCode, 'DeviceNotRegistered');
 
+  await registerMobilePushDevice({
+    userId: 'push-user',
+    authSessionId: 'auth-session',
+    registration: { ...registration, reactivate: true },
+  });
+  await sendMobileAttentionPush({
+    userId: 'push-user',
+    instanceId: 'cni_0123456789abcdef01234567',
+    now,
+    target: { type: 'todo.attention', workspaceId: 'workspace-1', todoId: 'todo-2' },
+    fetcher: async () => Response.json({ data: [{ status: 'ok', id: 'ticket-3' }] }),
+  });
+  const badDeviceReceipt = await pollMobilePushReceipts({
+    userId: 'push-user',
+    now: now + 48 * 60_000,
+    fetcher: async () => Response.json({
+      data: {
+        'ticket-3': {
+          status: 'error',
+          details: {
+            error: 'DeveloperError',
+            apns: { reason: 'BadDeviceToken', statusCode: 400 },
+          },
+        },
+      },
+    }),
+  });
+  assert.deepEqual(badDeviceReceipt, { checked: 1, delivered: 0, failed: 1, pending: 0 });
+  const disabledByBadDeviceToken = await getMobilePushDeviceStatus({
+    userId: 'push-user',
+    installationId: 'installation-1',
+  });
+  assert.equal(disabledByBadDeviceToken.enabled, false);
+  assert.equal(disabledByBadDeviceToken.lastErrorCode, 'BadDeviceToken');
+
   const defaultPreferences = parseMobilePushRegistration({
     installationId: 'installation-2',
     expoPushToken: 'ExpoPushToken[defaults-123]',
@@ -364,6 +409,16 @@ async function main() {
     platform: 'ios',
     appVariant: 'production',
   }), /expoPushToken is invalid/u);
+
+    const bridgeSource = readFileSync(
+      path.join(process.cwd(), 'server/chat-event-bridge.ts'),
+      'utf8',
+    );
+    assert.equal(
+      bridgeSource.match(/void sendAgentResponseReadyPush\(\{/gu)?.length,
+      1,
+      'each saved assistant response must schedule exactly one mobile push decision',
+    );
 
     await closeDatabaseConnections();
     console.log('mobile-push-devices-test: ok');
