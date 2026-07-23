@@ -1,9 +1,7 @@
 import assert from 'node:assert/strict';
 import Module from 'node:module';
 
-type MarkdownToHtmlModule = typeof import('../app/lib/pdf/markdown-to-html');
-
-async function importMarkdownToHtml(): Promise<MarkdownToHtmlModule> {
+async function withServerOnlyModuleMock(run: () => Promise<void>): Promise<void> {
   const moduleInternals = Module as typeof Module & {
     _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
   };
@@ -14,7 +12,7 @@ async function importMarkdownToHtml(): Promise<MarkdownToHtmlModule> {
   };
 
   try {
-    return await import('../app/lib/pdf/markdown-to-html');
+    await run();
   } finally {
     moduleInternals._load = originalLoad;
   }
@@ -46,30 +44,40 @@ async function withBrowserExportTestEnv(run: () => Promise<void>) {
 }
 
 async function main() {
-  const { renderMermaidToSvg } = await importMarkdownToHtml();
-  await withBrowserExportTestEnv(async () => {
-    const svg = await renderMermaidToSvg(`flowchart LR
+  await withServerOnlyModuleMock(async () => {
+    const { processColorCodes, renderMermaidToSvg } = await import('../app/lib/pdf/markdown-to-html');
+    const colorProcessed = processColorCodes([
+      '<p>Brand <code>#1E3A5F</code></p>',
+      '<svg><style>.node{fill:#552222;stroke:#333333}</style><rect fill="#552222"></rect></svg>',
+    ].join(''));
+    assert.equal(colorProcessed.match(/background-color:#1E3A5F/gu)?.length, 1);
+    assert.match(colorProcessed, /<svg><style>\.node\{fill:#552222;stroke:#333333\}<\/style>/u);
+    assert.doesNotMatch(colorProcessed, /<style>[^<]*<span/iu);
+
+    await withBrowserExportTestEnv(async () => {
+      const svg = await renderMermaidToSvg(`flowchart LR
       A[Start] --> B{Ready?}
       B -->|Yes| C[Export PDF]
       B -->|No| A`);
 
-    assert.ok(svg, 'a valid Mermaid flowchart should render for PDF export');
-    assert.match(svg, /^<svg\b/);
-    assert.match(svg, /Start/);
-    assert.match(svg, /Export PDF/);
+      assert.ok(svg, 'a valid Mermaid flowchart should render for PDF export');
+      assert.match(svg, /^<svg\b/);
+      assert.match(svg, /Start/);
+      assert.match(svg, /Export PDF/);
 
-    const untrustedSvg = await renderMermaidToSvg(`flowchart LR
+      const untrustedSvg = await renderMermaidToSvg(`flowchart LR
       A[Safe]
       click A href "javascript:alert(1)"`);
 
-    assert.ok(untrustedSvg, 'Mermaid should still render a diagram containing an unsafe link');
-    assert.doesNotMatch(untrustedSvg, /javascript:/i);
-    assert.doesNotMatch(untrustedSvg, /on[a-z]+\s*=/i);
-    assert.doesNotMatch(untrustedSvg, /<script\b/i);
-  });
+      assert.ok(untrustedSvg, 'Mermaid should still render a diagram containing an unsafe link');
+      assert.doesNotMatch(untrustedSvg, /javascript:/i);
+      assert.doesNotMatch(untrustedSvg, /on[a-z]+\s*=/i);
+      assert.doesNotMatch(untrustedSvg, /<script\b/i);
+    });
 
-  const { disposePdfBrowser } = await import('../app/lib/pdf/browser');
-  await disposePdfBrowser('mermaid PDF export test complete');
+    const { disposePdfBrowser } = await import('../app/lib/pdf/browser');
+    await disposePdfBrowser('mermaid PDF export test complete');
+  });
   console.log('mermaid-pdf-export-test: ok');
 }
 

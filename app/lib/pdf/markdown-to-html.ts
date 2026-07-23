@@ -144,7 +144,7 @@ function escapeHtml(str: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function processColorCodes(htmlContent: string): string {
+export function processColorCodes(htmlContent: string): string {
   let result = htmlContent.replace(/<code>([^<]*)<\/code>/g, (match, codeContent) => {
     const decodedContent = codeContent
       .replace(/&amp;/g, '&')
@@ -167,7 +167,16 @@ function processColorCodes(htmlContent: string): string {
 }
 
 function processInlineHexColors(htmlContent: string): string {
-  return htmlContent.replace(/>([^<]*)</g, (match, textBetweenTags) => {
+  const protectedBlocks: string[] = [];
+  const protectedHtml = htmlContent.replace(
+    /<(pre|code|style|script|svg)\b[\s\S]*?<\/\1>/giu,
+    (block) => {
+      const index = protectedBlocks.push(block) - 1;
+      return `\u0000CANVAS_COLOR_BLOCK_${index}\u0000`;
+    },
+  );
+
+  const processed = protectedHtml.replace(/>([^<]*)</g, (match, textBetweenTags) => {
     const colorRegex = createInlineColorRegex();
     if (!colorRegex.test(textBetweenTags)) return match;
 
@@ -178,6 +187,11 @@ function processInlineHexColors(htmlContent: string): string {
 
     return `>${replaced}<`;
   });
+
+  return processed.replace(
+    /\u0000CANVAS_COLOR_BLOCK_(\d+)\u0000/gu,
+    (_token, index: string) => protectedBlocks[Number(index)] ?? '',
+  );
 }
 
 async function inlineImagesAsBase64(
