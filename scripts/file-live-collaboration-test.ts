@@ -1,6 +1,11 @@
 import assert from 'node:assert/strict';
 import * as Y from 'yjs';
-import { createPlainTextYDoc, createRichMarkdownYDoc, richMarkdownFromYDoc } from '../app/lib/collaboration/markdown-state';
+import {
+  createPlainTextYDoc,
+  createRichMarkdownYDoc,
+  replaceRichMarkdownInYDoc,
+  richMarkdownFromYDoc,
+} from '../app/lib/collaboration/markdown-state';
 import { serializeCanonicalText } from '../app/lib/collaboration/persistence';
 import { issueCollaborationTicket, verifyCollaborationTicket } from '../app/lib/collaboration/ticket';
 
@@ -23,6 +28,13 @@ const markdown = '---\ntitle: Test\n---\n\n# Hello\n\nParagraph with **bold**.\n
 const rich = createRichMarkdownYDoc(markdown);
 assert.equal(rich.getXmlFragment('body').length > 0, true);
 assert.equal(richMarkdownFromYDoc(rich).trim(), markdown.trim());
+const mobileMarkdown = '---\ntitle: Test\n---\n\n# Hello from mobile\n\n- [x] Shared change\n- [ ] Follow up';
+replaceRichMarkdownInYDoc(rich, mobileMarkdown, { actorType: 'user', actorId: 'mobile-user' });
+assert.equal(
+  richMarkdownFromYDoc(rich),
+  mobileMarkdown,
+  'mobile source replacement must remain lossless inside the authoritative rich Y.Doc',
+);
 
 assert.equal(serializeCanonicalText('a\nb\n', { newlineStyle: 'crlf', hasBom: true }), '\uFEFFa\r\nb\r\n');
 

@@ -305,13 +305,14 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
   installCollaborationDirectConnection(async (input, apply, onApplied) => {
     const state = await loadCollaborationState(input.documentId);
     if (!state || state.workspaceId !== input.workspace.workspaceId) throw new Error('Collaboration document is unavailable or stale.');
+    const actorType = input.actorType ?? 'agent';
     const context: CollaborationContext = {
       claims: {
         schemaVersion: state.schemaVersion,
         issuedAt: Date.now(),
         expiresAt: Date.now() + 60_000,
         userId: input.initiatedByUserId,
-        sessionId: input.operationId,
+        sessionId: input.actorSessionId || input.operationId,
         workspaceId: state.workspaceId,
         organizationId: state.organizationId,
         documentId: state.documentId,
@@ -323,9 +324,9 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       },
       workspace: input.workspace,
       user: { id: input.actorId, name: input.actorDisplayName, email: null },
-      actorType: 'agent',
-      initiatedByUserId: input.initiatedByUserId,
-      operationId: input.operationId,
+      actorType,
+      initiatedByUserId: actorType === 'agent' ? input.initiatedByUserId : null,
+      operationId: actorType === 'agent' ? input.operationId : null,
       observedDocumentSequence: state.documentSequence,
     };
     const connection = await hocuspocus.openDirectConnection(input.documentId, context);

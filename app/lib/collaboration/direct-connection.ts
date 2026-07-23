@@ -10,6 +10,8 @@ export interface AgentDirectConnectionInput {
   actorDisplayName: string;
   initiatedByUserId: string;
   operationId: string;
+  actorType?: 'agent' | 'user';
+  actorSessionId?: string;
 }
 
 type DirectConnectionHandler = <T>(

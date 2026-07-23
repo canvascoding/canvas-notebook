@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { createHash } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import path from 'node:path';
 
 import {
@@ -9,12 +9,31 @@ import {
   readFile,
   type WorkspaceFileOperationOptions,
 } from '@/app/lib/filesystem/workspace-files';
-import { sha256Buffer } from '@/app/lib/files/revision-guard';
+import {
+  getWorkspaceFileRevision,
+  sha256Buffer,
+  WorkspaceFileRevisionError,
+} from '@/app/lib/files/revision-guard';
 import {
   ensureFileRevisionForCurrentContent,
+  FileCollaborationPolicyError,
   getFileCollaborationState,
 } from '@/app/lib/files/collaboration-policy';
 import { writeWorkspaceFileContent } from '@/app/lib/files/write-service';
+import { runCollaborationDirectConnection } from '@/app/lib/collaboration/direct-connection';
+import { readCurrentCollaborationTextSnapshot } from '@/app/lib/collaboration/agent-file-edits';
+import {
+  createRichMarkdownYDoc,
+  replaceRichMarkdownInYDoc,
+  richMarkdownFromYDoc,
+  validateRichMarkdownYDoc,
+} from '@/app/lib/collaboration/markdown-state';
+import {
+  ensureCollaborationState,
+  loadCollaborationState,
+  sha256Text,
+} from '@/app/lib/collaboration/persistence';
+import { Y } from '@/app/lib/collaboration/server-runtime';
 import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
@@ -47,6 +66,13 @@ export type MobileNotebookDocument = MobileNotebookSummary & {
     active: boolean;
   };
 };
+
+class MobileCollaborationRevisionConflict extends Error {
+  constructor(public readonly currentSha256: string) {
+    super('The live collaborative document changed while the mobile save was being applied.');
+    this.name = 'MobileCollaborationRevisionConflict';
+  }
+}
 
 type NotebookFile = {
   path: string;
@@ -273,22 +299,188 @@ export async function readMobileNotebookDocument(input: {
     path: filePath,
     ensureDocument: false,
   });
-  const content = buffer.toString('utf8');
-  const liveCollaborationActive = Boolean(collaboration.document);
+  let collaborationSnapshot: Awaited<ReturnType<typeof readCurrentCollaborationTextSnapshot>> | null = null;
+  if (collaboration.document) {
+    let state = await loadCollaborationState(collaboration.document.id);
+    if (!state) {
+      state = await ensureCollaborationState({
+        documentId: collaboration.document.id,
+        workspaceId: input.workspace.workspaceId,
+        organizationId: input.workspace.organizationId ?? null,
+        path: filePath,
+        representation: path.posix.extname(filePath).toLowerCase() === '.txt' ? 'plain_text' : 'tiptap_xml',
+        initialContent: buffer.toString('utf8'),
+      });
+    }
+    if (state.workspaceId !== input.workspace.workspaceId || state.path !== filePath) {
+      throw new MobileNotebookError(
+        'The collaborative document identity is stale. Reload the workspace before editing.',
+        409,
+        'COLLABORATION_STATE_STALE',
+      );
+    }
+    collaborationSnapshot = await readCurrentCollaborationTextSnapshot({
+      documentId: collaboration.document.id,
+      workspace: input.workspace,
+    });
+  }
+  const content = collaborationSnapshot?.content ?? buffer.toString('utf8');
+  const contentBytes = Buffer.byteLength(content, 'utf8');
+  const collaborationDocumentExists = Boolean(collaboration.document);
   const canWrite = input.workspace.permissions.canWrite;
   return {
-    ...summaryFor({ path: filePath, size: stats.size, modified: stats.modified }, content, null),
+    ...summaryFor({ path: filePath, size: contentBytes, modified: stats.modified }, content, null),
     content,
-    sha256,
+    sha256: collaborationSnapshot?.sha256 ?? sha256,
     revisionId: revision.id,
-    canEdit: canWrite && !liveCollaborationActive,
-    editBlockReason: !canWrite ? 'READ_ONLY' : liveCollaborationActive ? 'LIVE_COLLABORATION_ACTIVE' : null,
+    canEdit: canWrite,
+    editBlockReason: !canWrite ? 'READ_ONLY' : null,
     collaboration: {
       strategy: collaboration.strategy,
       requiresRevisionCheck: collaboration.requiresRevisionCheck,
-      active: liveCollaborationActive,
+      active: collaborationDocumentExists,
     },
   };
+}
+
+async function waitForMobileCollaborationCheckpoint(documentId: string, expectedCanonicalHash: string): Promise<void> {
+  for (let attempt = 0; attempt < 40; attempt += 1) {
+    const state = await loadCollaborationState(documentId);
+    if (
+      state
+      && state.canonicalHash === expectedCanonicalHash
+      && state.checkpointSequence >= state.documentSequence
+      && !state.degraded
+    ) return;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+  throw new MobileNotebookError(
+    'The collaborative edit was accepted but its durable file checkpoint is not ready yet. Reload before editing again.',
+    503,
+    'COLLABORATION_CHECKPOINT_PENDING',
+  );
+}
+
+async function saveMobileCollaborativeNotebookDocument(input: {
+  workspace: WorkspaceContext;
+  fileOptions: WorkspaceFileOperationOptions;
+  actorUserId: string;
+  actorSessionId: string;
+  path: string;
+  content: string;
+  expectedSha256: string;
+  baseRevisionId: string;
+  documentId: string;
+  currentRevisionId: string | null;
+}): Promise<MobileNotebookDocument> {
+  if (input.currentRevisionId && input.currentRevisionId !== input.baseRevisionId) {
+    throw new FileCollaborationPolicyError({
+      code: 'FILE_REVISION_ID_CONFLICT',
+      status: 409,
+      message: 'File revision conflict: this file changed after it was loaded. Reload the latest version before saving.',
+      path: input.path,
+      currentRevisionId: input.currentRevisionId,
+      baseRevisionId: input.baseRevisionId,
+    });
+  }
+
+  const persistedState = await loadCollaborationState(input.documentId);
+  if (!persistedState || persistedState.workspaceId !== input.workspace.workspaceId) {
+    throw new MobileNotebookError(
+      'The collaborative document is unavailable. Reload the note before editing.',
+      409,
+      'COLLABORATION_STATE_STALE',
+    );
+  }
+  let collaborationContent = input.content;
+  if (persistedState.representation === 'tiptap_xml') {
+    const candidate = createRichMarkdownYDoc(input.content);
+    try {
+      const normalized = richMarkdownFromYDoc(candidate);
+      const onlyTerminalNewlineChanged = normalized === input.content.replace(/\n$/u, '');
+      if (normalized !== input.content && !onlyTerminalNewlineChanged) {
+        throw new MobileNotebookError(
+          'This Markdown source cannot be represented losslessly by the active collaborative web editor.',
+          422,
+          'COLLABORATION_MARKDOWN_UNSUPPORTED',
+        );
+      }
+      collaborationContent = normalized;
+    } finally {
+      candidate.destroy();
+    }
+  }
+  const operationId = `mobile-notebook-${randomUUID()}`;
+  try {
+    await runCollaborationDirectConnection({
+      documentId: input.documentId,
+      workspace: input.workspace,
+      actorId: input.actorUserId,
+      actorDisplayName: 'Mobile editor',
+      initiatedByUserId: input.actorUserId,
+      operationId,
+      actorType: 'user',
+      actorSessionId: input.actorSessionId,
+    }, (doc) => {
+      const currentContent = persistedState.representation === 'tiptap_xml'
+        ? richMarkdownFromYDoc(doc)
+        : doc.getText('content').toString();
+      const currentSha256 = sha256Text(currentContent);
+      if (currentSha256 !== input.expectedSha256) {
+        throw new MobileCollaborationRevisionConflict(currentSha256);
+      }
+      if (persistedState.representation === 'tiptap_xml') {
+        const preflight = new Y.Doc({ gc: true });
+        try {
+          Y.applyUpdate(preflight, Y.encodeStateAsUpdate(doc));
+          replaceRichMarkdownInYDoc(preflight, collaborationContent);
+          const validation = validateRichMarkdownYDoc(preflight);
+          if (!validation.valid || validation.markdown !== collaborationContent) {
+            throw new MobileNotebookError(
+              'This Markdown source cannot be represented losslessly by the active collaborative web editor.',
+              422,
+              'COLLABORATION_MARKDOWN_UNSUPPORTED',
+            );
+          }
+        } finally {
+          preflight.destroy();
+        }
+        replaceRichMarkdownInYDoc(doc, collaborationContent, {
+          actorType: 'user',
+          actorId: input.actorUserId,
+          sessionId: input.actorSessionId,
+          operationId,
+        });
+      } else {
+        const text = doc.getText('content');
+        doc.transact(() => {
+          if (text.length > 0) text.delete(0, text.length);
+          if (collaborationContent) text.insert(0, collaborationContent);
+        }, {
+          actorType: 'user',
+          actorId: input.actorUserId,
+          sessionId: input.actorSessionId,
+          operationId,
+        });
+      }
+    });
+  } catch (error) {
+    if (error instanceof MobileCollaborationRevisionConflict) {
+      throw new WorkspaceFileRevisionError({
+        code: 'FILE_REVISION_CONFLICT',
+        status: 409,
+        message: 'File revision conflict: the live document changed after it was loaded. Reload the latest version before saving.',
+        path: input.path,
+        expectedSha256: input.expectedSha256,
+        currentSha256: error.currentSha256,
+        currentStats: (await getWorkspaceFileRevision(input.path, input.fileOptions))?.stats ?? null,
+      });
+    }
+    throw error;
+  }
+
+  await waitForMobileCollaborationCheckpoint(input.documentId, sha256Text(collaborationContent));
+  return readMobileNotebookDocument({ ...input, path: input.path });
 }
 
 export async function saveMobileNotebookDocument(input: {
@@ -313,6 +505,22 @@ export async function saveMobileNotebookDocument(input: {
   }
   if (typeof input.baseRevisionId !== 'string' || !input.baseRevisionId.trim()) {
     throw new MobileNotebookError('A current document revision is required.', 428, 'FILE_REVISION_REQUIRED');
+  }
+  const collaboration = getFileCollaborationState({
+    workspace: input.workspace,
+    path: filePath,
+    ensureDocument: false,
+  });
+  if (collaboration.document) {
+    return saveMobileCollaborativeNotebookDocument({
+      ...input,
+      path: filePath,
+      content: input.content,
+      expectedSha256: input.expectedSha256,
+      baseRevisionId: input.baseRevisionId.trim(),
+      documentId: collaboration.document.id,
+      currentRevisionId: collaboration.latestRevision?.id ?? null,
+    });
   }
   await writeWorkspaceFileContent({
     workspace: input.workspace,

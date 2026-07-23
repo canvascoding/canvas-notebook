@@ -9,13 +9,14 @@ import TaskList from '@tiptap/extension-task-list';
 import UniqueID, { generateUniqueIds } from '@tiptap/extension-unique-id';
 import { Markdown, MarkdownManager } from '@tiptap/markdown';
 import StarterKit from '@tiptap/starter-kit';
+import { getSchema } from '@tiptap/core';
 import type * as YTypes from 'yjs';
 
 import {
   composeCanvasMarkdownDocument,
   splitCanvasMarkdownForRichEditor,
 } from '@/app/lib/markdown/obsidian-metadata';
-import { TiptapTransformer, Y } from './server-runtime';
+import { TiptapTransformer, Y, YProsemirror } from './server-runtime';
 
 export const RICH_MARKDOWN_UNIQUE_ID_TYPES = 'all' as const;
 
@@ -58,6 +59,39 @@ export function richMarkdownFromYDoc(doc: YTypes.Doc): string {
   const json = TiptapTransformer.fromYdoc(doc, 'body');
   const body = markdownManager().serialize(json);
   return composeCanvasMarkdownDocument(doc.getText('frontmatter').toString(), body);
+}
+
+/**
+ * Applies a complete Markdown source edit to the authoritative rich Y.Doc.
+ * y-prosemirror performs a structural diff against the existing fragment, so
+ * connected web editors receive a normal collaborative transaction instead
+ * of a destructive whole-file replacement.
+ */
+export function replaceRichMarkdownInYDoc(
+  doc: YTypes.Doc,
+  markdown: string,
+  origin?: unknown,
+): void {
+  const replacement = createRichMarkdownYDoc(markdown);
+  try {
+    const json = TiptapTransformer.fromYdoc(replacement, 'body');
+    const schema = getSchema(richMarkdownSchemaExtensions());
+    const proseMirrorDocument = schema.nodeFromJSON(json);
+    const parts = splitCanvasMarkdownForRichEditor(markdown);
+    doc.transact(() => {
+      YProsemirror.updateYFragment(
+        doc,
+        doc.getXmlFragment('body'),
+        proseMirrorDocument,
+        { mapping: new Map(), isOMark: new Map() },
+      );
+      const frontmatter = doc.getText('frontmatter');
+      if (frontmatter.length > 0) frontmatter.delete(0, frontmatter.length);
+      if (parts.prefix) frontmatter.insert(0, parts.prefix);
+    }, origin);
+  } finally {
+    replacement.destroy();
+  }
 }
 
 export type RichMarkdownValidation = {
