@@ -93,6 +93,7 @@ export function createMobileBootstrap(input: {
     'chat.session_manage',
     'chat.attachments',
     'chat.runtime_control',
+    'agents.manage',
     'push.devices',
     'push.agent_response_ready',
     'push.attention_categories',
@@ -129,6 +130,7 @@ export function createMobileBootstrap(input: {
     'automations.heartbeat',
     'automations.webhooks',
     'automations.composio_triggers',
+    'extensions.store',
   ];
   if (input.listing.canCreateSharedWorkspaces) capabilities.push('workspace.create');
 

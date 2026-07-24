@@ -72,6 +72,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'chat.session_manage',
   'chat.attachments',
   'chat.runtime_control',
+  'agents.manage',
   'push.devices',
   'push.agent_response_ready',
   'push.attention_categories',
@@ -108,6 +109,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'automations.heartbeat',
   'automations.webhooks',
   'automations.composio_triggers',
+  'extensions.store',
   'workspace.create',
 ]);
 assert.equal(bootstrap.user.role, 'admin');

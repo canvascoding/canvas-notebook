@@ -28,6 +28,7 @@ export type MobileCompatibility = {
       'chat.session_manage',
       'chat.attachments',
       'chat.runtime_control',
+      'agents.manage',
       'push.devices',
       'push.agent_response_ready',
       'push.attention_categories',
@@ -64,6 +65,7 @@ export type MobileCompatibility = {
       'automations.heartbeat',
       'automations.webhooks',
       'automations.composio_triggers',
+      'extensions.store',
     ];
   };
   auth: {
@@ -113,6 +115,7 @@ export function createMobileCompatibility(input: {
         'chat.session_manage',
         'chat.attachments',
         'chat.runtime_control',
+        'agents.manage',
         'push.devices',
         'push.agent_response_ready',
         'push.attention_categories',
@@ -149,6 +152,7 @@ export function createMobileCompatibility(input: {
         'automations.heartbeat',
         'automations.webhooks',
         'automations.composio_triggers',
+        'extensions.store',
       ],
     },
     auth: {
