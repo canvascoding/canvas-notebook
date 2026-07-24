@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.24.1] - 2026-07-24
+
+### Added
+
+- Added authenticated mobile APIs for agent files and extension skill and plugin discovery, installation, enablement, and disablement, with matching bootstrap and compatibility capabilities.
+- Exposed structured mobile tool-call inputs and mobile Studio preview URLs for richer native client experiences.
+
+### Changed
+
+- Enabled collaborative mobile Markdown saves and improved Mermaid styling in PDF exports.
+
+### Fixed
+
+- Handled mobile chat runtime policy errors consistently and hardened unread mobile push delivery.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run verify:release`
+
 ## [2026.7.23.1] - 2026-07-23
 
 ### Added
