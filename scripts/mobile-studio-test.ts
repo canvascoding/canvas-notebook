@@ -75,12 +75,25 @@ async function main() {
     sqlite.prepare(`
       INSERT INTO studio_presets (
         id, user_id, organization_id, workspace_id, created_by_user_id, visibility,
-        is_default, name, description, category, blocks, tags, created_at, updated_at
+        is_default, name, description, category, blocks, preview_image_path, tags, created_at, updated_at
       ) VALUES (
         'preset-nullable', 'studio-user', ?, ?, 'studio-user', 'workspace',
-        0, 'Legacy preset', NULL, NULL, '[]', '[]', ?, ?
+        0, 'Legacy preset', NULL, NULL, '[]', 'studio/assets/presets/mobile-preview.png', '[]', ?, ?
       )
     `).run(bootstrap.organizationId, workspace.id, now, now);
+    sqlite.prepare(`
+      INSERT INTO studio_products (
+        id, user_id, organization_id, workspace_id, created_by_user_id, visibility,
+        name, description, thumbnail_path, created_at, updated_at
+      ) VALUES (
+        'product-preview', 'studio-user', ?, ?, 'studio-user', 'workspace',
+        'Mobile product', 'Preview contract fixture',
+        'studio/assets/products/mobile-product/preview.png', ?, ?
+      )
+    `).run(bootstrap.organizationId, workspace.id, now, now);
+    const previewFixturePath = path.join(dataRoot, 'studio', 'assets', 'presets', 'mobile-preview.png');
+    await fs.mkdir(path.dirname(previewFixturePath), { recursive: true });
+    await fs.writeFile(previewFixturePath, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     sqlite.close();
 
     const {
@@ -94,8 +107,15 @@ async function main() {
       resolveMobileStudioReframeFrame,
     } = await import('../app/lib/mobile/studio-reframe');
     const { createPersistedStudioScope } = await import('../app/lib/integrations/studio-scope');
-    const { parseMobileStudioLibraryKind } = await import('../app/lib/mobile/studio-management');
-    const { parseMobileStudioPresetInput } = await import('../app/lib/mobile/studio-presets');
+    const {
+      listMobileStudioLibrary,
+      parseMobileStudioLibraryKind,
+    } = await import('../app/lib/mobile/studio-management');
+    const {
+      parseMobileStudioPresetInput,
+      serializeMobileStudioPreset,
+    } = await import('../app/lib/mobile/studio-presets');
+    const { listPresets } = await import('../app/lib/integrations/studio-preset-service');
     const { closeDatabaseConnections } = await import('../app/lib/db');
     const scope = createPersistedStudioScope({
       actorUserId: 'studio-user',
@@ -138,6 +158,21 @@ async function main() {
     const nullablePreset = catalog.presets.find((preset) => preset.id === 'preset-nullable');
     assert.equal(nullablePreset?.description, '');
     assert.equal(nullablePreset?.category, 'custom');
+    assert.equal(
+      nullablePreset?.previewUrl,
+      `/api/files/preview?path=studio%2Fassets%2Fpresets%2Fmobile-preview.png&w=320&preset=mini&workspaceId=${encodeURIComponent(workspace.id)}`,
+    );
+    const catalogProduct = catalog.library.products.find((product) => product.id === 'product-preview');
+    assert.equal(
+      catalogProduct?.previewUrl,
+      `/api/files/preview?path=studio%2Fassets%2Fproducts%2Fmobile-product%2Fpreview.png&w=320&preset=mini&workspaceId=${encodeURIComponent(workspace.id)}`,
+    );
+    const managedProducts = await listMobileStudioLibrary('products', scope);
+    assert.equal(managedProducts.find((product) => product.id === 'product-preview')?.previewUrl, catalogProduct?.previewUrl);
+    const managedPresets = await listPresets(scope);
+    const managedNullablePreset = managedPresets.find((preset) => preset.id === 'preset-nullable');
+    assert.ok(managedNullablePreset);
+    assert.equal(serializeMobileStudioPreset(managedNullablePreset, workspace.id).previewUrl, nullablePreset?.previewUrl);
 
     const parsed = parseMobileStudioGenerationRequest({
       mode: 'video',

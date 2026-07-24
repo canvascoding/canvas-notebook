@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { listPresets, type StudioPresetBlockInput } from '@/app/lib/integrations/studio-preset-service';
+import { toPreviewUrl } from '@/app/lib/utils/media-url';
 
 import { MobileStudioError } from './studio';
 
@@ -13,6 +14,9 @@ export function serializeMobileStudioPreset(preset: Awaited<ReturnType<typeof li
     tags: preset.tags,
     isDefault: preset.isDefault,
     editable: preset.workspaceId === workspaceId && !preset.isDefault,
+    previewUrl: preset.previewImagePath
+      ? toPreviewUrl(preset.previewImagePath, 320, { preset: 'mini', workspaceId })
+      : null,
     blocks: preset.blocks.map((block) => ({
       id: block.id || '', type: block.type, label: block.label, promptFragment: block.promptFragment,
       category: block.category || '', description: block.description || '',

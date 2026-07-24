@@ -17,6 +17,7 @@ import {
   updateProduct,
 } from '@/app/lib/integrations/studio-product-service';
 import type { StudioScope } from '@/app/lib/integrations/studio-scope';
+import { toPreviewUrl } from '@/app/lib/utils/media-url';
 import {
   addStyleImage,
   createStyle,
@@ -52,13 +53,16 @@ function serializeEntity(entity: {
   imageCount?: number;
   thumbnailPath?: string | null;
   updatedAt: Date | string | number;
-}) {
+}, workspaceId: string) {
   return {
     id: entity.id,
     name: entity.name,
     description: entity.description || '',
     imageCount: entity.imageCount || 0,
     hasPreview: Boolean(entity.thumbnailPath),
+    previewUrl: entity.thumbnailPath
+      ? toPreviewUrl(entity.thumbnailPath, 320, { preset: 'mini', workspaceId })
+      : null,
     updatedAt: new Date(entity.updatedAt).toISOString(),
   };
 }
@@ -81,7 +85,7 @@ function entityInput(value: unknown, partial = false): { name?: string; descript
 
 export async function listMobileStudioLibrary(kind: MobileStudioLibraryKind, scope: StudioScope) {
   const rows = kind === 'products' ? await listProducts(scope) : kind === 'personas' ? await listPersonas(scope) : await listStyles(scope);
-  return rows.map(serializeEntity);
+  return rows.map((row) => serializeEntity(row, scope.workspaceId));
 }
 
 export async function createMobileStudioLibraryEntity(kind: MobileStudioLibraryKind, scope: StudioScope, value: unknown) {
@@ -92,7 +96,7 @@ export async function createMobileStudioLibraryEntity(kind: MobileStudioLibraryK
       ? await createPersona(scope, { name: input.name!, description: input.description })
       : await createStyle(scope, { name: input.name!, description: input.description });
   const detail = kind === 'products' ? await getProduct(created.id, scope) : kind === 'personas' ? await getPersona(created.id, scope) : await getStyle(created.id, scope);
-  return serializeEntity(detail || { ...created, imageCount: 0 });
+  return serializeEntity(detail || { ...created, imageCount: 0 }, scope.workspaceId);
 }
 
 export async function updateMobileStudioLibraryEntity(kind: MobileStudioLibraryKind, entityId: string, scope: StudioScope, value: unknown) {
@@ -102,7 +106,7 @@ export async function updateMobileStudioLibraryEntity(kind: MobileStudioLibraryK
   else await updateStyle(entityId, scope, input);
   const detail = kind === 'products' ? await getProduct(entityId, scope) : kind === 'personas' ? await getPersona(entityId, scope) : await getStyle(entityId, scope);
   if (!detail) throw new MobileStudioError('Studio library item was not found.', 404, 'LIBRARY_ITEM_NOT_FOUND');
-  return serializeEntity(detail);
+  return serializeEntity(detail, scope.workspaceId);
 }
 
 export async function deleteMobileStudioLibraryEntity(kind: MobileStudioLibraryKind, entityId: string, scope: StudioScope) {
@@ -120,5 +124,5 @@ export async function addMobileStudioLibraryImage(kind: MobileStudioLibraryKind,
   else await addStyleImage(entityId, scope, image);
   const detail = kind === 'products' ? await getProduct(entityId, scope) : kind === 'personas' ? await getPersona(entityId, scope) : await getStyle(entityId, scope);
   if (!detail) throw new MobileStudioError('Studio library item was not found.', 404, 'LIBRARY_ITEM_NOT_FOUND');
-  return serializeEntity(detail);
+  return serializeEntity(detail, scope.workspaceId);
 }

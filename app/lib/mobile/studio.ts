@@ -38,6 +38,7 @@ import {
 } from '@/app/lib/integrations/studio-workspace';
 import { normalizeMobileFilePath } from '@/app/lib/mobile/files';
 import { getPublicShareMimeType } from '@/app/lib/public-sharing/public-file-shares';
+import { toPreviewUrl } from '@/app/lib/utils/media-url';
 
 const MAX_LIST_LIMIT = 50;
 const MAX_REFERENCE_COUNT = 16;
@@ -392,11 +393,14 @@ export async function getMobileStudioCatalog(input: {
       tags: preset.tags,
       isDefault: preset.isDefault,
       hasPreview: Boolean(preset.previewImagePath),
+      previewUrl: preset.previewImagePath
+        ? toPreviewUrl(preset.previewImagePath, 320, { preset: 'mini', workspaceId: input.scope.workspaceId })
+        : null,
     })),
     library: {
-      products: products.slice(0, 250).map(serializeLibraryEntity),
-      personas: personas.slice(0, 250).map(serializeLibraryEntity),
-      styles: styles.slice(0, 250).map(serializeLibraryEntity),
+      products: products.slice(0, 250).map((entity) => serializeLibraryEntity(entity, input.scope.workspaceId)),
+      personas: personas.slice(0, 250).map((entity) => serializeLibraryEntity(entity, input.scope.workspaceId)),
+      styles: styles.slice(0, 250).map((entity) => serializeLibraryEntity(entity, input.scope.workspaceId)),
     },
   };
 }
@@ -408,13 +412,16 @@ function serializeLibraryEntity(entity: {
   imageCount: number;
   thumbnailPath?: string | null;
   updatedAt: Date | number | string;
-}) {
+}, workspaceId: string) {
   return {
     id: entity.id,
     name: entity.name,
     description: entity.description || '',
     imageCount: entity.imageCount,
     hasPreview: Boolean(entity.thumbnailPath),
+    previewUrl: entity.thumbnailPath
+      ? toPreviewUrl(entity.thumbnailPath, 320, { preset: 'mini', workspaceId })
+      : null,
     updatedAt: isoDate(entity.updatedAt),
   };
 }
