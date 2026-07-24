@@ -21,6 +21,7 @@ import {
   isToolCallPart,
   stripAttachmentBlocks,
 } from '@/app/lib/chat/message-content';
+import { formatMobileToolInput } from '@/app/lib/mobile/tool-input';
 import { getActiveRuntimeStatusSummaries, getStatus } from '@/app/lib/pi/runtime-service';
 import { parsePersistedPiMessage } from '@/app/lib/pi/message-projection';
 import { createPiSessionWithRuntimeSnapshot } from '@/app/lib/pi/session-store';
@@ -69,6 +70,7 @@ export type MobileChatMessage = {
   kind: 'message' | 'tool' | 'error';
   text: string;
   toolName: string | null;
+  toolInput: string | null;
   attachments: MobileChatAttachment[];
   createdAt: string;
 };
@@ -171,12 +173,54 @@ function messageToolName(message: Record<string, unknown>): string | null {
   return names.length > 0 ? Array.from(new Set(names)).join(', ').slice(0, 160) : null;
 }
 
+type MobileChatMessageRow = {
+  id: number;
+  sequence: number;
+  timestamp: number;
+  content: string;
+};
+
+function parsedMobileMessage(row: MobileChatMessageRow): Record<string, unknown> {
+  return parsePersistedPiMessage(row.content, 'display') as unknown as Record<string, unknown>;
+}
+
+function messageToolCallId(message: Record<string, unknown>): string | null {
+  return typeof message.toolCallId === 'string' && message.toolCallId.trim()
+    ? message.toolCallId.trim().slice(0, 200)
+    : null;
+}
+
+function mobileToolInputsById(rows: MobileChatMessageRow[]): Map<string, string> {
+  const inputs = new Map<string, string>();
+  for (const row of rows) {
+    const message = parsedMobileMessage(row);
+    if (message.role !== 'assistant' || !Array.isArray(message.content)) continue;
+    for (const part of message.content) {
+      if (!isToolCallPart(part)) continue;
+      const formatted = formatMobileToolInput(part.arguments);
+      if (formatted) inputs.set(part.id, formatted);
+    }
+  }
+  return inputs;
+}
+
+function missingToolInputIds(rows: MobileChatMessageRow[], knownInputs: Map<string, string>): string[] {
+  const missing = new Set<string>();
+  for (const row of rows) {
+    const message = parsedMobileMessage(row);
+    if (message.role !== 'toolResult') continue;
+    const toolCallId = messageToolCallId(message);
+    if (toolCallId && !knownInputs.has(toolCallId)) missing.add(toolCallId);
+  }
+  return Array.from(missing);
+}
+
 export function serializeMobileChatMessage(input: {
   id: number;
   sequence: number;
   timestamp: number;
   content: string;
-}): MobileChatMessage {
+}, toolInputsById: ReadonlyMap<string, string> = new Map()): MobileChatMessage {
   const piMessage = parsePersistedPiMessage(input.content, 'display');
   const parsed = piMessage as unknown as Record<string, unknown>;
   const rawRole = typeof parsed.role === 'string' ? parsed.role : 'system';
@@ -193,6 +237,7 @@ export function serializeMobileChatMessage(input: {
   )) === index);
   const visibleText = extractPiMessageText(piMessage, { hideAttachmentMetadata: true })
     || stripAttachmentBlocks(contentToString(parsed.content));
+  const toolCallId = messageToolCallId(parsed);
   return {
     id: String(input.id),
     sequence: input.sequence,
@@ -200,6 +245,7 @@ export function serializeMobileChatMessage(input: {
     kind: isError ? 'error' : role === 'tool' ? 'tool' : 'message',
     text: visibleText,
     toolName: messageToolName(parsed),
+    toolInput: toolCallId ? toolInputsById.get(toolCallId) || null : null,
     attachments: attachments.map(serializeMessageAttachment),
     createdAt: new Date(input.timestamp).toISOString(),
   };
@@ -466,8 +512,26 @@ export async function listMobileChatMessages(input: ChatActor & {
     .orderBy(desc(piMessages.sequence), desc(piMessages.id))
     .limit(limit + 1);
   const pageRows = rows.slice(0, limit).reverse();
+  let toolInputsById = mobileToolInputsById(pageRows);
+  const missingInputIds = missingToolInputIds(pageRows, toolInputsById);
+  if (missingInputIds.length > 0 && pageRows[0]) {
+    const contextRows = await db.select({
+      id: piMessages.id,
+      sequence: piMessages.sequence,
+      timestamp: piMessages.timestamp,
+      content: piMessages.content,
+    })
+      .from(piMessages)
+      .where(and(
+        eq(piMessages.piSessionDbId, session.id),
+        lt(piMessages.sequence, pageRows[0].sequence),
+      ))
+      .orderBy(desc(piMessages.sequence), desc(piMessages.id))
+      .limit(100);
+    toolInputsById = mobileToolInputsById([...contextRows, ...pageRows]);
+  }
   return {
-    messages: pageRows.map(serializeMobileChatMessage),
+    messages: pageRows.map((row) => serializeMobileChatMessage(row, toolInputsById)),
     nextBeforeSequence: rows.length > limit ? pageRows[0]?.sequence || null : null,
   };
 }

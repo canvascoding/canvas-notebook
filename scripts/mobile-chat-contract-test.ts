@@ -5,6 +5,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
+import { formatMobileToolInput } from '../app/lib/mobile/tool-input';
 
 const sqlite = new Database(':memory:');
 try {
@@ -35,6 +36,19 @@ assert.match(service, /isNotNull\(piSessions\.archivedAt\)/u);
 assert.match(service, /SESSION_ACTIVE/u);
 assert.match(service, /extractMessageAttachments/u);
 assert.match(service, /extractPiMessageText\(piMessage, \{ hideAttachmentMetadata: true \}\)/u);
+assert.match(service, /mobileToolInputsById/u);
+assert.match(service, /toolInput:/u);
 assert.match(service, /safeRelativeUrl/u);
+
+const formattedToolInput = formatMobileToolInput({
+  command: 'printf "hello"',
+  nested: { target: 'Research/brief.md' },
+  apiToken: 'top-secret-token',
+  authorization: 'Bearer example-secret',
+});
+assert.match(formattedToolInput || '', /printf \\"hello\\"/u);
+assert.match(formattedToolInput || '', /Research\/brief\.md/u);
+assert.doesNotMatch(formattedToolInput || '', /top-secret-token|example-secret/u);
+assert.match(formattedToolInput || '', /\[REDACTED\]/u);
 
 console.log('mobile-chat-contract-test: ok');
