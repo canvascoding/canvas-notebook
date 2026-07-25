@@ -9,6 +9,8 @@ import { control as controlAgentRuntime, getStatus as getAgentRuntimeStatus } fr
 import {
   acceptPendingDialog,
   activateBrowserRuntimeTab,
+  closeActiveBrowserRuntimeTab,
+  createBrowserRuntimeTab,
   dismissPendingDialog,
   ensurePage,
   getActiveBrowserRuntimeTabId,
@@ -26,6 +28,11 @@ import {
   releaseBrowserViewControl,
   setBrowserControlMode,
 } from './view-control';
+import {
+  assertBrowserClipboardText,
+  normalizeBrowserClipboardRequestId,
+  truncateBrowserClipboardText,
+} from './view-clipboard';
 import { assertBrowserNavigationUrlAllowed } from './url-policy';
 import { browserViewFailure } from './view-errors';
 import {
@@ -41,6 +48,7 @@ import type {
   BrowserViewControlMode,
   BrowserViewDownload,
   BrowserViewFailure,
+  BrowserViewNavigationAction,
   BrowserViewResourceBudget,
   BrowserViewState,
 } from './types';
@@ -50,6 +58,7 @@ export type BrowserViewServerMessage =
   | { type: 'ready'; viewId: string }
   | { type: 'frame'; sequence: number; mimeType: 'image/jpeg'; data: string; width: number; height: number }
   | { type: 'state'; state: BrowserViewState }
+  | { type: 'clipboard_text'; requestId: string; text: string }
   | ({ type: 'error' } & BrowserViewFailure);
 
 type BrowserViewSender = (message: BrowserViewServerMessage) => boolean;
@@ -88,6 +97,7 @@ export class BrowserViewService {
   private acknowledgedSequence = 0;
   private lastState = '';
   private lastErrorCode = '';
+  private navigationStopRequested = false;
   private pendingFileChooser: { chooser: FileChooser; page: Page; openedAt: string } | null = null;
   private fileChooserWatches = new Map<Page, Promise<void>>();
   private pageTransfers = new Map<Page, PageTransferBinding>();
@@ -395,6 +405,10 @@ export class BrowserViewService {
       ]);
       const control = getBrowserControlState(this.context);
       await this.ensurePageTransfers(page);
+      const navigationHistory = await this.pageTransfers
+        .get(page)
+        ?.pageClient.send('Page.getNavigationHistory')
+        .catch(() => null);
       const sensitiveInputFocused = await page.evaluate(() => {
         const active = document.activeElement;
         if (!(active instanceof HTMLInputElement)) return false;
@@ -416,6 +430,11 @@ export class BrowserViewService {
         activeTabId: getActiveBrowserRuntimeTabId(this.context),
         title: await page.title().catch(() => ''),
         url: page.url(),
+        canGoBack: Boolean(navigationHistory && navigationHistory.currentIndex > 0),
+        canGoForward: Boolean(
+          navigationHistory
+          && navigationHistory.currentIndex < navigationHistory.entries.length - 1,
+        ),
         tabs,
         pendingDialog: getPendingDialogDetails(this.context),
         pendingFileChooser: this.pendingFileChooser
@@ -470,16 +489,113 @@ export class BrowserViewService {
 
   async navigate(url: string): Promise<void> {
     const allowedUrl = await assertBrowserNavigationUrlAllowed(url);
-    await this.withUserControl(async (page) => {
-      await page.goto(allowedUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
-    });
+    this.navigationStopRequested = false;
+    let stopped = false;
+    try {
+      await this.withUserControl(async (page) => {
+        await page.goto(allowedUrl, { waitUntil: 'domcontentloaded', timeout: 30_000 });
+      });
+    } catch (error) {
+      if (!this.navigationStopRequested) throw error;
+      stopped = true;
+    }
     const target = new URL(allowedUrl);
     await this.audit('browser_view.navigate', {
       protocol: target.protocol,
       hostname: target.hostname,
       port: target.port || null,
+      stopped,
     });
     await this.publishState(true);
+  }
+
+  async browserAction(action: BrowserViewNavigationAction): Promise<void> {
+    if (action === 'stop') {
+      await this.stopNavigation();
+      return;
+    }
+
+    this.navigationStopRequested = false;
+    let stopped = false;
+    try {
+      await this.withUserControl(async (page) => {
+        if (action === 'back') {
+          await page.goBack({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+        } else if (action === 'forward') {
+          await page.goForward({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+        } else if (action === 'reload') {
+          await page.reload({ waitUntil: 'domcontentloaded', timeout: 30_000 });
+        } else if (action === 'new_tab') {
+          const newPage = await createBrowserRuntimeTab(this.context);
+          await this.applyViewport(newPage);
+          await this.ensurePageTransfers(newPage);
+        } else if (action === 'close_tab') {
+          const nextPage = await closeActiveBrowserRuntimeTab(this.context);
+          await this.applyViewport(nextPage);
+          await this.ensurePageTransfers(nextPage);
+        }
+      });
+    } catch (error) {
+      if (!this.navigationStopRequested) throw error;
+      stopped = true;
+    }
+    await this.audit('browser_view.browser_action', { action, stopped });
+    await this.publishState(true);
+  }
+
+  private async stopNavigation(): Promise<void> {
+    assertBrowserUserControl(this.context, this.claims.viewId);
+    refreshBrowserControlLease(this.context, this.claims.viewId);
+    this.navigationStopRequested = true;
+    const page = await ensurePage(this.context);
+    const existingClient = this.pageTransfers.get(page)?.pageClient;
+    const temporaryClient = existingClient ? null : await page.createCDPSession();
+    try {
+      await (existingClient ?? temporaryClient)?.send('Page.stopLoading');
+    } finally {
+      await temporaryClient?.detach().catch(() => undefined);
+    }
+    scheduleIdleClose(this.context);
+    await this.audit('browser_view.browser_action', { action: 'stop' });
+    await this.publishState(true);
+  }
+
+  async copySelection(requestId: unknown): Promise<void> {
+    const normalizedRequestId = normalizeBrowserClipboardRequestId(requestId);
+    const text = await this.withUserControl(async (page) => page.evaluate(() => {
+      const active = document.activeElement;
+      if (active instanceof HTMLInputElement) {
+        if (active.type === 'password') return '';
+        try {
+          const start = active.selectionStart;
+          const end = active.selectionEnd;
+          if (start !== null && end !== null && end > start) return active.value.slice(start, end);
+        } catch {
+          return '';
+        }
+      }
+      if (active instanceof HTMLTextAreaElement) {
+        const start = active.selectionStart;
+        const end = active.selectionEnd;
+        if (end > start) return active.value.slice(start, end);
+      }
+      return window.getSelection()?.toString() || '';
+    }));
+    const normalizedText = truncateBrowserClipboardText(text);
+    this.send({ type: 'clipboard_text', requestId: normalizedRequestId, text: normalizedText });
+    await this.audit('browser_view.clipboard_copy', {
+      bytes: new TextEncoder().encode(normalizedText).byteLength,
+    });
+  }
+
+  async pasteText(value: unknown): Promise<void> {
+    const text = assertBrowserClipboardText(value);
+    await this.withUserControl(async (page) => {
+      await page.keyboard.type(text);
+    });
+    await this.audit('browser_view.clipboard_paste', {
+      bytes: new TextEncoder().encode(text).byteLength,
+    });
   }
 
   async selectTab(tabId: string): Promise<void> {

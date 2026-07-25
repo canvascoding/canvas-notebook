@@ -4,7 +4,12 @@ import {
   ArrowLeft,
   ArrowLeftRight,
   Bot,
+  ChevronLeft,
+  ChevronRight,
   CircleDot,
+  CircleStop,
+  ClipboardPaste,
+  Copy as CopyIcon,
   Download,
   ExternalLink,
   FileUp,
@@ -14,11 +19,13 @@ import {
   LockKeyhole,
   MessageSquare,
   MonitorUp,
+  Plus,
   RefreshCw,
   ShieldAlert,
   SquareMousePointer,
   Unplug,
   UserRound,
+  X,
 } from 'lucide-react';
 import { useSearchParams } from 'next/navigation';
 import {
@@ -27,6 +34,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ClipboardEvent,
   type FormEvent,
   type KeyboardEvent,
   type PointerEvent,
@@ -39,10 +47,12 @@ import type {
   BrowserViewControlMode,
   BrowserViewErrorCode,
   BrowserViewFailure,
+  BrowserViewNavigationAction,
   BrowserViewState,
 } from '@/app/lib/pi/browser/types';
 import { normalizeBrowserAddressInput } from '@/app/lib/pi/browser/address';
 import { closeBrowserWebSocket } from '@/app/lib/pi/browser/client-websocket';
+import { MAX_BROWSER_CLIPBOARD_TEXT_BYTES } from '@/app/lib/pi/browser/view-clipboard';
 import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -75,6 +85,7 @@ type BrowserSocketMessage =
   | { type: 'ready'; viewId: string }
   | { type: 'frame'; sequence: number; mimeType: string; data: string; width: number; height: number }
   | { type: 'state'; state: BrowserViewState }
+  | { type: 'clipboard_text'; requestId: string; text: string }
   | ({ type: 'error' } & BrowserViewFailure);
 
 type ConnectionStatus = 'connecting' | 'failed' | 'idle' | 'live';
@@ -118,6 +129,20 @@ const copy = {
     failureDescription: 'Das letzte Browserbild bleibt zur Orientierung sichtbar. Eingaben sind bis zur erneuten Verbindung gesperrt.',
     address: 'Adresse',
     navigate: 'Öffnen',
+    back: 'Zurück',
+    forward: 'Vor',
+    reload: 'Neu laden',
+    stop: 'Laden stoppen',
+    newTab: 'Neuer Tab',
+    closeTab: 'Aktuellen Tab schließen',
+    copySelection: 'Aus Browser kopieren',
+    pasteClipboard: 'In Browser einfügen',
+    clipboardCopied: 'Auswahl wurde in die Zwischenablage kopiert.',
+    clipboardPasted: 'Text wurde an den Browser gesendet.',
+    clipboardEmpty: 'Im Browser ist kein Text ausgewählt.',
+    clipboardReadBlocked: 'Zwischenablage konnte nicht gelesen werden. Fokussiere das Browserbild und verwende ⌘/Ctrl+V.',
+    clipboardWriteBlocked: 'Die Auswahl konnte nicht in die Zwischenablage geschrieben werden.',
+    clipboardTooLarge: 'Der Zwischenablagentext ist zu groß.',
     takeControl: 'Übernehmen',
     giveAgent: 'An Agenten geben',
     viewOnly: 'Nur ansehen',
@@ -211,6 +236,20 @@ const copy = {
     failureDescription: 'The last browser frame remains visible for context. Input stays locked until you reconnect.',
     address: 'Address',
     navigate: 'Open',
+    back: 'Back',
+    forward: 'Forward',
+    reload: 'Reload',
+    stop: 'Stop loading',
+    newTab: 'New tab',
+    closeTab: 'Close current tab',
+    copySelection: 'Copy from browser',
+    pasteClipboard: 'Paste into browser',
+    clipboardCopied: 'The selection was copied to the clipboard.',
+    clipboardPasted: 'Text was sent to the browser.',
+    clipboardEmpty: 'No text is selected in the browser.',
+    clipboardReadBlocked: 'The clipboard could not be read. Focus the browser frame and use ⌘/Ctrl+V.',
+    clipboardWriteBlocked: 'The selection could not be written to the clipboard.',
+    clipboardTooLarge: 'The clipboard text is too large.',
     takeControl: 'Take control',
     giveAgent: 'Give to agent',
     viewOnly: 'View only',
@@ -309,6 +348,35 @@ function formatBytes(value: number): string {
   return `${(value / (1024 * 1024)).toFixed(1)} MiB`;
 }
 
+async function writeSystemClipboard(text: string): Promise<void> {
+  if (navigator.clipboard?.writeText) {
+    try {
+      await navigator.clipboard.writeText(text);
+      return;
+    } catch {
+      // Fall through to the compatibility path for browsers that revoke
+      // transient clipboard permission before the WebSocket reply arrives.
+    }
+  }
+
+  const textarea = document.createElement('textarea');
+  textarea.value = text;
+  textarea.setAttribute('readonly', '');
+  textarea.style.position = 'fixed';
+  textarea.style.left = '-9999px';
+  document.body.appendChild(textarea);
+  textarea.select();
+  const copied = document.execCommand('copy');
+  textarea.remove();
+  if (!copied) throw new Error('Clipboard write failed.');
+}
+
+function createClipboardRequestId(): string {
+  return typeof crypto.randomUUID === 'function'
+    ? crypto.randomUUID()
+    : `clipboard-${Date.now()}-${Math.random().toString(36).slice(2)}`;
+}
+
 export function BrowserLabClient({
   agentId,
   locale,
@@ -335,10 +403,12 @@ export function BrowserLabClient({
   const [fileSearch, setFileSearch] = useState('');
   const [selectedUploadPath, setSelectedUploadPath] = useState('');
   const [filesLoading, setFilesLoading] = useState(false);
+  const [clipboardNotice, setClipboardNotice] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const addressEditingRef = useRef(false);
   const lastBrowserAddressRef = useRef('about:blank');
   const submittedAddressRef = useRef<string | null>(null);
+  const pendingClipboardCopiesRef = useRef(new Set<string>());
   const socketRef = useRef<WebSocket | null>(null);
   const connectTimeoutRef = useRef<number | null>(null);
   const intentionalCloseRef = useRef(false);
@@ -380,10 +450,17 @@ export function BrowserLabClient({
       setFrameUrl(null);
       setFrameSequence(0);
     }
+    pendingClipboardCopiesRef.current.clear();
     if (!options.preserveFailure) setFailure(null);
   }, []);
 
   useEffect(() => () => disconnect(), [disconnect]);
+
+  useEffect(() => {
+    if (!clipboardNotice) return;
+    const timer = window.setTimeout(() => setClipboardNotice(null), 3_500);
+    return () => window.clearTimeout(timer);
+  }, [clipboardNotice]);
 
   useEffect(() => {
     let cancelled = false;
@@ -565,6 +642,15 @@ export function BrowserLabClient({
             }
           }
           setFailure((current) => current?.fatal ? current : null);
+        } else if (message.type === 'clipboard_text') {
+          if (!pendingClipboardCopiesRef.current.delete(message.requestId)) return;
+          if (!message.text) {
+            setClipboardNotice({ message: t.clipboardEmpty, tone: 'error' });
+            return;
+          }
+          void writeSystemClipboard(message.text)
+            .then(() => setClipboardNotice({ message: t.clipboardCopied, tone: 'success' }))
+            .catch(() => setClipboardNotice({ message: t.clipboardWriteBlocked, tone: 'error' }));
         } else if (message.type === 'error') {
           setFailure(localizedFailure(t, message));
           if (message.fatal) {
@@ -624,6 +710,41 @@ export function BrowserLabClient({
     send({ type: 'control_request', mode });
   }, [send]);
 
+  const runBrowserAction = useCallback((action: BrowserViewNavigationAction) => {
+    send({ type: 'browser_action', action });
+  }, [send]);
+
+  const requestClipboardCopy = useCallback(() => {
+    if (!userControls) return;
+    const requestId = createClipboardRequestId();
+    pendingClipboardCopiesRef.current.add(requestId);
+    send({ type: 'clipboard_copy', requestId });
+  }, [send, userControls]);
+
+  const pasteClipboardText = useCallback((text: string) => {
+    if (!userControls) return;
+    if (!text) {
+      setClipboardNotice({ message: t.clipboardEmpty, tone: 'error' });
+      return;
+    }
+    if (new Blob([text]).size > MAX_BROWSER_CLIPBOARD_TEXT_BYTES) {
+      setClipboardNotice({ message: t.clipboardTooLarge, tone: 'error' });
+      return;
+    }
+    send({ type: 'clipboard_paste', text });
+    setClipboardNotice({ message: t.clipboardPasted, tone: 'success' });
+  }, [send, t.clipboardEmpty, t.clipboardPasted, t.clipboardTooLarge, userControls]);
+
+  const pasteFromSystemClipboard = useCallback(async () => {
+    if (!userControls) return;
+    try {
+      if (!navigator.clipboard?.readText) throw new Error('Clipboard read is unavailable.');
+      pasteClipboardText(await navigator.clipboard.readText());
+    } catch {
+      setClipboardNotice({ message: t.clipboardReadBlocked, tone: 'error' });
+    }
+  }, [pasteClipboardText, t.clipboardReadBlocked, userControls]);
+
   const scaledPoint = useCallback((event: PointerEvent<HTMLImageElement>) => {
     const bounds = event.currentTarget.getBoundingClientRect();
     const viewport = viewState?.viewport;
@@ -662,6 +783,37 @@ export function BrowserLabClient({
   const handleKeyDown = useCallback((event: KeyboardEvent<HTMLImageElement>) => {
     if (!userControls || event.nativeEvent.isComposing) return;
     if (event.key === 'Shift' || event.key === 'Control' || event.key === 'Alt' || event.key === 'Meta') return;
+    const key = event.key.toLowerCase();
+    const primaryModifier = event.metaKey || event.ctrlKey;
+    if (primaryModifier && key === 'l') {
+      event.preventDefault();
+      addressInputRef.current?.focus();
+      addressInputRef.current?.select();
+      return;
+    }
+    if ((primaryModifier && key === 'r') || event.key === 'F5') {
+      event.preventDefault();
+      runBrowserAction('reload');
+      return;
+    }
+    if (event.altKey && event.key === 'ArrowLeft') {
+      event.preventDefault();
+      runBrowserAction('back');
+      return;
+    }
+    if (event.altKey && event.key === 'ArrowRight') {
+      event.preventDefault();
+      runBrowserAction('forward');
+      return;
+    }
+    if (primaryModifier && key === 'c') {
+      event.preventDefault();
+      requestClipboardCopy();
+      return;
+    }
+    if (primaryModifier && key === 'v') {
+      return;
+    }
     event.preventDefault();
     const modifiers = [
       ...(event.altKey ? ['Alt'] : []),
@@ -671,7 +823,15 @@ export function BrowserLabClient({
     ];
     const printable = event.key.length === 1 && !event.altKey && !event.ctrlKey && !event.metaKey;
     send({ type: 'input_key', key: event.key === ' ' ? 'Space' : event.key, text: printable ? event.key : undefined, modifiers });
-  }, [send, userControls]);
+  }, [requestClipboardCopy, runBrowserAction, send, userControls]);
+
+  const handlePaste = useCallback((event: ClipboardEvent<HTMLImageElement>) => {
+    if (!userControls) return;
+    const text = event.clipboardData.getData('text/plain');
+    if (!text) return;
+    event.preventDefault();
+    pasteClipboardText(text);
+  }, [pasteClipboardText, userControls]);
 
   const handleWheel = useCallback((event: WheelEvent<HTMLImageElement>) => {
     if (!userControls) return;
@@ -830,6 +990,32 @@ export function BrowserLabClient({
                 </button>
               ))}
             </div>
+            <div className="flex shrink-0 items-center gap-0.5">
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={!userControls}
+                aria-label={t.newTab}
+                title={t.newTab}
+                className="h-8 w-8"
+                onClick={() => runBrowserAction('new_tab')}
+              >
+                <Plus className="h-3.5 w-3.5" />
+              </Button>
+              <Button
+                type="button"
+                size="icon"
+                variant="ghost"
+                disabled={!userControls || !viewState?.activeTabId}
+                aria-label={t.closeTab}
+                title={t.closeTab}
+                className="h-8 w-8"
+                onClick={() => runBrowserAction('close_tab')}
+              >
+                <X className="h-3.5 w-3.5" />
+              </Button>
+            </div>
             <Badge variant={viewState?.mode === 'user' ? 'default' : 'secondary'} className="shrink-0 gap-1.5">
               {viewState?.mode === 'user' ? <UserRound className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
               {modeLabel}
@@ -839,6 +1025,56 @@ export function BrowserLabClient({
           <div className="shrink-0 border-b border-border/70 bg-background/70 p-2.5">
             <div className="flex flex-col gap-2 lg:flex-row">
               <form onSubmit={navigate} className="flex min-w-0 flex-1 gap-2">
+                <div className="flex shrink-0 items-center rounded-md border border-border/70 bg-muted/25 p-0.5">
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={!userControls || !viewState?.canGoBack}
+                    aria-label={t.back}
+                    title={t.back}
+                    className="h-8 w-8"
+                    onClick={() => runBrowserAction('back')}
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={!userControls || !viewState?.canGoForward}
+                    aria-label={t.forward}
+                    title={t.forward}
+                    className="h-8 w-8"
+                    onClick={() => runBrowserAction('forward')}
+                  >
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={!userControls}
+                    aria-label={t.reload}
+                    title={t.reload}
+                    className="h-8 w-8"
+                    onClick={() => runBrowserAction('reload')}
+                  >
+                    <RefreshCw className="h-3.5 w-3.5" />
+                  </Button>
+                  <Button
+                    type="button"
+                    size="icon"
+                    variant="ghost"
+                    disabled={!userControls}
+                    aria-label={t.stop}
+                    title={t.stop}
+                    className="h-8 w-8"
+                    onClick={() => runBrowserAction('stop')}
+                  >
+                    <CircleStop className="h-3.5 w-3.5" />
+                  </Button>
+                </div>
                 <div className="relative min-w-0 flex-1">
                   <Globe2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
@@ -862,6 +1098,30 @@ export function BrowserLabClient({
                 </Button>
               </form>
               <div className="flex gap-1.5">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  disabled={!userControls}
+                  aria-label={t.copySelection}
+                  title={`${t.copySelection} (⌘/Ctrl+C)`}
+                  className="h-9 w-9"
+                  onClick={requestClipboardCopy}
+                >
+                  <CopyIcon className="h-3.5 w-3.5" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  disabled={!userControls}
+                  aria-label={t.pasteClipboard}
+                  title={`${t.pasteClipboard} (⌘/Ctrl+V)`}
+                  className="h-9 w-9"
+                  onClick={() => void pasteFromSystemClipboard()}
+                >
+                  <ClipboardPaste className="h-3.5 w-3.5" />
+                </Button>
                 <Button size="sm" variant={viewState?.mode === 'view' ? 'secondary' : 'ghost'} disabled={!viewState} onClick={() => requestControl('view')} className="h-9 gap-2">
                   <SquareMousePointer className="h-3.5 w-3.5" /> {t.viewOnly}
                 </Button>
@@ -874,6 +1134,24 @@ export function BrowserLabClient({
               </div>
             </div>
           </div>
+
+          {clipboardNotice ? (
+            <div
+              role="status"
+              aria-live="polite"
+              className={cn(
+                'flex shrink-0 items-center gap-2 border-b px-3 py-2 text-xs',
+                clipboardNotice.tone === 'success'
+                  ? 'border-emerald-500/30 bg-emerald-500/10 text-emerald-700 dark:text-emerald-300'
+                  : 'border-amber-500/30 bg-amber-500/10 text-amber-700 dark:text-amber-300',
+              )}
+            >
+              {clipboardNotice.tone === 'success'
+                ? <ClipboardPaste className="h-4 w-4 shrink-0" />
+                : <ShieldAlert className="h-4 w-4 shrink-0" />}
+              <span>{clipboardNotice.message}</span>
+            </div>
+          ) : null}
 
           {viewState?.pendingDialog ? (
             <div className="flex shrink-0 flex-wrap items-center gap-3 border-b border-amber-500/30 bg-amber-500/10 px-3 py-2 text-xs">
@@ -968,6 +1246,7 @@ export function BrowserLabClient({
                 onPointerMove={handlePointerMove}
                 onPointerUp={handlePointerUp}
                 onKeyDown={handleKeyDown}
+                onPaste={handlePaste}
                 onWheel={handleWheel}
                 className={cn(
                   'relative max-h-full max-w-full select-none rounded-lg border border-white/10 bg-white shadow-[0_32px_100px_-28px_rgba(0,0,0,.9)] outline-none',

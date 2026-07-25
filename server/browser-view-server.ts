@@ -15,13 +15,18 @@ import {
 } from '@/app/lib/pi/browser/view-rate-limit';
 import { BrowserViewService, type BrowserViewServerMessage } from '@/app/lib/pi/browser/view-service';
 import { verifyBrowserViewTicket } from '@/app/lib/pi/browser/view-ticket';
-import type { BrowserViewControlMode, BrowserViewFailure } from '@/app/lib/pi/browser/types';
+import type {
+  BrowserViewControlMode,
+  BrowserViewFailure,
+  BrowserViewNavigationAction,
+} from '@/app/lib/pi/browser/types';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 
 import { authenticateWebSocketConnection } from './websocket-auth';
 
 const BROWSER_VIEW_PATH = '/ws/browser';
-const MAX_INBOUND_BYTES = 16 * 1024;
+const MAX_STANDARD_INBOUND_BYTES = 16 * 1024;
+const MAX_INBOUND_BYTES = 64 * 1024;
 const MAX_BUFFERED_FRAME_BYTES = 2 * 1024 * 1024;
 const MAX_CONNECTIONS_PER_USER = 4;
 const SUBSCRIBE_TIMEOUT_MS = 15_000;
@@ -31,6 +36,7 @@ type ClientMessage =
   | { type: 'view_subscribe'; ticket?: string }
   | { type: 'control_request'; mode?: BrowserViewControlMode }
   | { type: 'navigate'; url?: string }
+  | { type: 'browser_action'; action?: BrowserViewNavigationAction }
   | { type: 'tab_select'; tabId?: string }
   | { type: 'input_mouse'; action?: 'move' | 'down' | 'up' | 'click'; x?: number; y?: number; button?: 'left' | 'middle' | 'right' }
   | { type: 'input_key'; key?: string; text?: string; modifiers?: string[] }
@@ -38,6 +44,8 @@ type ClientMessage =
   | { type: 'dialog_resolve'; accept?: boolean; promptText?: string }
   | { type: 'file_upload'; paths?: string[] }
   | { type: 'file_cancel' }
+  | { type: 'clipboard_copy'; requestId?: string }
+  | { type: 'clipboard_paste'; text?: string }
   | { type: 'frame_ack'; sequence?: number }
   | { type: 'heartbeat' };
 
@@ -86,7 +94,10 @@ function sendError(ws: WebSocket, failure: BrowserViewFailure): void {
 }
 
 function isInputMessage(message: ClientMessage): boolean {
-  return message.type === 'input_mouse' || message.type === 'input_key' || message.type === 'input_scroll';
+  return message.type === 'input_mouse'
+    || message.type === 'input_key'
+    || message.type === 'input_scroll'
+    || message.type === 'clipboard_paste';
 }
 
 async function subscribe(connection: BrowserConnection, token: string): Promise<void> {
@@ -167,6 +178,19 @@ async function handleMessage(connection: BrowserConnection, message: ClientMessa
       if (typeof message.url !== 'string') throw new Error('A browser URL is required.');
       await service.navigate(message.url);
       break;
+    case 'browser_action':
+      if (
+        message.action !== 'back'
+        && message.action !== 'forward'
+        && message.action !== 'reload'
+        && message.action !== 'stop'
+        && message.action !== 'new_tab'
+        && message.action !== 'close_tab'
+      ) {
+        throw new Error('A valid browser action is required.');
+      }
+      await service.browserAction(message.action);
+      break;
     case 'tab_select':
       if (typeof message.tabId !== 'string') throw new Error('A browser tab is required.');
       await service.selectTab(message.tabId);
@@ -192,6 +216,12 @@ async function handleMessage(connection: BrowserConnection, message: ClientMessa
       break;
     case 'file_cancel':
       await service.cancelFileChooser();
+      break;
+    case 'clipboard_copy':
+      await service.copySelection(message.requestId);
+      break;
+    case 'clipboard_paste':
+      await service.pasteText(message.text);
       break;
     case 'frame_ack':
       if (typeof message.sequence === 'number') service.acknowledgeFrame(message.sequence);
@@ -254,18 +284,28 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
       sendError(ws, { code: 'INVALID_MESSAGE', error: 'Invalid browser view message.', retryable: false, fatal: false });
       return;
     }
+    if (bytes.length > MAX_STANDARD_INBOUND_BYTES && message.type !== 'clipboard_paste') {
+      sendError(ws, { code: 'MESSAGE_TOO_LARGE', error: 'Browser view message is too large.', retryable: false, fatal: true });
+      ws.close(1009, 'Message too large');
+      return;
+    }
+    const handleFailure = (error: unknown) => {
+      const context = message.type === 'view_subscribe'
+        ? 'subscribe'
+        : message.type === 'navigate'
+          ? 'navigate'
+          : 'operation';
+      const failure = browserViewFailure(error, context);
+      sendError(ws, failure);
+      if (failure.fatal && ws.readyState === WebSocket.OPEN) ws.close(1011, failure.code);
+    };
+    if (message.type === 'browser_action' && message.action === 'stop') {
+      void handleMessage(connection, message).catch(handleFailure);
+      return;
+    }
     connection.operationQueue = connection.operationQueue
       .then(() => handleMessage(connection, message))
-      .catch((error) => {
-        const context = message.type === 'view_subscribe'
-          ? 'subscribe'
-          : message.type === 'navigate'
-            ? 'navigate'
-            : 'operation';
-        const failure = browserViewFailure(error, context);
-        sendError(ws, failure);
-        if (failure.fatal && ws.readyState === WebSocket.OPEN) ws.close(1011, failure.code);
-      });
+      .catch(handleFailure);
   });
   const cleanup = () => {
     connections.delete(connection);

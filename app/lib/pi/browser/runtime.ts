@@ -589,6 +589,39 @@ export async function activateBrowserRuntimeTab(
   return page;
 }
 
+export async function createBrowserRuntimeTab(
+  context: BrowserRuntimeContext = {},
+): Promise<Page> {
+  const session = getOrCreateSessionState(context);
+  const browser = await ensureBrowser(context);
+  const page = await browser.newPage();
+  await configureRequestPolicy(page);
+  page.setDefaultTimeout(DEFAULT_TIMEOUT_MS);
+  page.setDefaultNavigationTimeout(DEFAULT_TIMEOUT_MS);
+  bindSessionPage(session, page);
+  session.activePage = page;
+  session.targetStore.clear();
+  scheduleIdleClose(context);
+  return page;
+}
+
+export async function closeActiveBrowserRuntimeTab(
+  context: BrowserRuntimeContext = {},
+): Promise<Page> {
+  const session = getOrCreateSessionState(context);
+  const activePage = session.activePage;
+  if (activePage && !activePage.isClosed()) {
+    const tabId = findSessionTabId(session, activePage);
+    if (tabId) session.pages.delete(tabId);
+    session.activePage = Array.from(session.pages.values()).find((candidate) => !candidate.isClosed()) ?? null;
+    await activePage.close().catch(() => undefined);
+  }
+  session.targetStore.clear();
+  const nextPage = await ensurePage(context);
+  scheduleIdleClose(context);
+  return nextPage;
+}
+
 export async function closeBrowserRuntime(
   context: BrowserRuntimeContext = {},
   reason: string,

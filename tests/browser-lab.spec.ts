@@ -6,8 +6,11 @@ const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_A
 const labels = {
   address: /^(Adresse|Address)$/,
   agentControls: /^(Agent steuert|Agent controls)$/,
+  back: /^(Zurück|Back)$/,
   backToChat: /^(Zurück zum Chat|Back to chat)$/,
+  closeTab: /^(Aktuellen Tab schließen|Close current tab)$/,
   connect: /^(Live-Ansicht starten|Start live view)$/,
+  copySelection: /^(Aus Browser kopieren|Copy from browser)$/,
   disconnect: /^(Trennen|Disconnect)$/,
   disconnected: /^(Nicht verbunden|Disconnected)$/,
   dismissError: /^(Meldung schließen|Dismiss message)$/,
@@ -15,13 +18,18 @@ const labels = {
   giveAgent: /^(An Agenten geben|Give to agent)$/,
   live: /^(Live verbunden|Live connected)$/,
   liveBrowser: /^(Live-Browser|Live Browser)$/,
+  newTab: /^(Neuer Tab|New tab)$/,
+  openChat: /^(Chat öffnen|Open chat)$/,
   openLiveBrowser: /^(Live-Browser öffnen|Open live browser)$/,
   navigate: /^(Öffnen|Open)$/,
   navigationBlocked: /(Diese Adresse wurde durch die Browser-Sicherheitsrichtlinie blockiert\.|This address was blocked by the browser security policy\.)/,
   pageCrashed: /(Die verwaltete Browserseite wurde unerwartet beendet\.|The managed browser page stopped unexpectedly\.)/,
+  pasteClipboard: /^(In Browser einfügen|Paste into browser)$/,
+  reload: /^(Neu laden|Reload)$/,
   resourceUnavailable: /(Auf diesem System stehen nicht genug Ressourcen für die Live-Ansicht bereit\.|This system does not have enough resources for the live view\.)/,
   retry: /^(Erneut versuchen|Try again)$/,
   session: /^(Chat-Session|Chat session)$/,
+  stop: /^(Laden stoppen|Stop loading)$/,
   takeControl: /^(Übernehmen|Take control)$/,
   userControls: /^(Nutzer steuert|User controls)$/,
   viewing: /^(Ansehen|Viewing)$/,
@@ -346,10 +354,24 @@ test.describe('Browser Lab', () => {
       await expect(frame).toBeVisible({ timeout: 30_000 });
       await expect(frame).toHaveAttribute('src', /^data:image\//);
       await expect(page.getByRole('button', { name: labels.takeControl })).toBeEnabled();
+      await expect(page.getByRole('link', { name: labels.openChat })).toHaveAttribute(
+        'href',
+        new RegExp(`/chat\\?.*session=${encodeURIComponent(session.sessionId)}`),
+      );
 
       await page.getByRole('button', { name: labels.takeControl }).click();
       await expect(page.getByText(labels.userControls)).toBeVisible();
       await expect(address).toBeEnabled();
+      await expect(page.getByRole('button', { name: labels.newTab })).toBeEnabled();
+      await expect(page.getByRole('button', { name: labels.closeTab })).toBeEnabled();
+      await expect(page.getByRole('button', { name: labels.reload })).toBeEnabled();
+      await expect(page.getByRole('button', { name: labels.stop })).toBeEnabled();
+      await expect(page.getByRole('button', { name: labels.copySelection })).toBeEnabled();
+      await expect(page.getByRole('button', { name: labels.pasteClipboard })).toBeEnabled();
+
+      await address.fill('youtube.com');
+      await page.waitForTimeout(3_500);
+      await expect(address).toHaveValue('youtube.com');
 
       await address.fill('http://169.254.169.254/latest/meta-data');
       await page.getByRole('button', { name: labels.navigate }).click();
@@ -372,6 +394,13 @@ test.describe('Browser Lab', () => {
       await page.getByRole('button', { name: labels.navigate }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
       await expect.poll(() => frame.getAttribute('src'), { timeout: 30_000 }).not.toBe(frameBeforeNavigation);
+      await expect(page.getByRole('button', { name: labels.back })).toBeEnabled();
+      await page.getByRole('button', { name: labels.back }).click();
+      await expect(address).toHaveValue('about:blank', { timeout: 30_000 });
+      await page.getByRole('button', { name: /^(Vor|Forward)$/ }).click();
+      await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
+      await page.getByRole('button', { name: labels.reload }).click();
+      await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
 
       await page.getByRole('button', { name: labels.viewOnly }).click();
       await expect(page.getByText(labels.viewing)).toBeVisible();

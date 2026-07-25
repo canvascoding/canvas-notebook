@@ -102,6 +102,14 @@ export type BrowserRuntimeTab = {
 
 export type BrowserViewControlMode = 'view' | 'agent' | 'user';
 
+export type BrowserViewNavigationAction =
+  | 'back'
+  | 'forward'
+  | 'reload'
+  | 'stop'
+  | 'new_tab'
+  | 'close_tab';
+
 export type BrowserViewErrorCode =
   | 'CAPACITY_EXHAUSTED'
   | 'CAPTURE_FAILED'
@@ -171,6 +179,8 @@ export type BrowserViewState = {
   activeTabId: string | null;
   title: string;
   url: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
   tabs: BrowserRuntimeTab[];
   pendingDialog: BrowserDialogDetails | null;
   pendingFileChooser: BrowserViewFileChooser | null;

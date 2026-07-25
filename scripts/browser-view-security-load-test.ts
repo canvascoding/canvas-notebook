@@ -6,6 +6,12 @@ import {
   allowBrowserViewMessage,
   createBrowserViewRateLimitState,
 } from '../app/lib/pi/browser/view-rate-limit';
+import {
+  MAX_BROWSER_CLIPBOARD_TEXT_BYTES,
+  assertBrowserClipboardText,
+  normalizeBrowserClipboardRequestId,
+  truncateBrowserClipboardText,
+} from '../app/lib/pi/browser/view-clipboard';
 import { issueBrowserFixtureTicket } from '../app/lib/pi/browser/view-fixture-ticket';
 import {
   cleanupBrowserDownloadStagingFile,
@@ -93,6 +99,19 @@ function testTicketAndPathBoundaries(): void {
   assert.throws(() => normalizeBrowserUploadPaths(['../secret.txt'], false));
   assert.throws(() => normalizeBrowserUploadPaths(['C:\\Windows\\secret.txt'], false));
   assert.throws(() => normalizeBrowserUploadPaths(Array.from({ length: 11 }, (_, index) => `${index}.txt`), true));
+
+  const exactClipboardText = 'a'.repeat(MAX_BROWSER_CLIPBOARD_TEXT_BYTES);
+  assert.equal(assertBrowserClipboardText(exactClipboardText), exactClipboardText);
+  assert.throws(
+    () => assertBrowserClipboardText(`${exactClipboardText}a`),
+    /too large/u,
+  );
+  assert.ok(
+    new TextEncoder().encode(truncateBrowserClipboardText('🧪'.repeat(MAX_BROWSER_CLIPBOARD_TEXT_BYTES))).byteLength
+      <= MAX_BROWSER_CLIPBOARD_TEXT_BYTES,
+  );
+  assert.equal(normalizeBrowserClipboardRequestId('clipboard-request_1'), 'clipboard-request_1');
+  assert.throws(() => normalizeBrowserClipboardRequestId('../clipboard'));
 }
 
 async function testRateLimits(): Promise<void> {
