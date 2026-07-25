@@ -116,7 +116,7 @@ _database_prepare_postgres() {
   fi
   if [[ -f "$CONFIG_ENV_PATH" && -f "$COMPOSE_ENV_PATH" ]]; then
     if postgres_runtime_desired; then
-      _database_reconcile_postgres_auth --timeout "$timeout_seconds" || return 1
+      _database_reconcile_postgres_auth_quiet --timeout "$timeout_seconds" || return 1
     else
       snapshot_dir="$(mktemp -d)"
       chmod 700 "$snapshot_dir"
@@ -629,6 +629,16 @@ _database_reconcile_postgres_auth() (
   fi
 )
 
+_database_reconcile_postgres_auth_quiet() {
+  local output
+  if ! output="$(_database_reconcile_postgres_auth "$@")"; then
+    if [[ -n "$output" ]]; then
+      printf '%s\n' "$output"
+    fi
+    return 1
+  fi
+}
+
 _database_migrate_sqlite_to_postgres() {
   local cid
   local args=("$@")
@@ -636,7 +646,7 @@ _database_migrate_sqlite_to_postgres() {
     _database_json_error "An interrupted Postgres auth reconciliation is pending. Run database reconcile-postgres-auth first."
   fi
   if postgres_runtime_desired && [[ -f "$CONFIG_ENV_PATH" && -f "$COMPOSE_ENV_PATH" ]]; then
-    _database_reconcile_postgres_auth --timeout "${CANVAS_POSTGRES_RECONCILE_TIMEOUT:-900}"
+    _database_reconcile_postgres_auth_quiet --timeout "${CANVAS_POSTGRES_RECONCILE_TIMEOUT:-900}" || return 1
   fi
   config_json_ensure_postgres_infrastructure_config
   CANVAS_ALLOW_SQLITE_POSTGRES_PREPARE=true config_json_to_env

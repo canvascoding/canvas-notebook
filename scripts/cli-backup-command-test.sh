@@ -73,7 +73,63 @@ grep -q 'latest backup' "$TMP_DIR/export.zip"
 : > "$CANVAS_TEST_DOCKER_LOG"
 "$cli" backup create --json --no-banner > "$TMP_DIR/json.txt"
 grep -q -- 'exec fake-container-id npx tsx --conditions react-server scripts/create-full-backup.ts --latest --json' "$CANVAS_TEST_DOCKER_LOG"
-grep -q '"success":true' "$TMP_DIR/json.txt"
+jq -se 'length == 1 and .[0].success == true and .[0].job.id == "backup-job"' "$TMP_DIR/json.txt" >/dev/null
+
+test_postgres_backup_json_contract() (
+  OUTPUT_JSON=true
+  CONFIG_ENV_PATH="$CANVAS_CONFIG_ENV"
+  COMPOSE_ENV_PATH="$CANVAS_COMPOSE_ENV"
+  DATA_DIR="$CANVAS_DATA_DIR"
+  . "$TMP_DIR/install/lib/commands/database.sh"
+  . "$TMP_DIR/install/lib/commands/backup.sh"
+
+  postgres_runtime_desired() { return 0; }
+  _database_reconcile_postgres_auth() {
+    printf '{"success":true,"databaseProvider":"postgres","healthy":true}\n'
+  }
+  log_msg() { return 0; }
+  migrate_compose_file() { return 0; }
+  config_json_to_env() { return 0; }
+  postgres_prepare_managed_runtime() { return 0; }
+  container_id() { printf 'fake-container-id\n'; }
+  config_json_read() { return 1; }
+  docker_cmd() {
+    printf '{"success":true,"job":{"id":"backup-job","status":"completed"},"latest":{"backupId":"backup-job","fileName":"canvas-notebook-backup-latest.zip","archiveSha256":"sha","size":14}}\n'
+  }
+
+  : > "$CANVAS_CONFIG_ENV"
+  : > "$CANVAS_COMPOSE_ENV"
+  _backup_create
+)
+
+test_postgres_backup_json_contract > "$TMP_DIR/postgres-json.txt"
+jq -se 'length == 1 and .[0].success == true and .[0].job.id == "backup-job"' "$TMP_DIR/postgres-json.txt" >/dev/null
+
+test_postgres_reconcile_error_contract() (
+  OUTPUT_JSON=true
+  CONFIG_ENV_PATH="$CANVAS_CONFIG_ENV"
+  COMPOSE_ENV_PATH="$CANVAS_COMPOSE_ENV"
+  DATA_DIR="$CANVAS_DATA_DIR"
+  . "$TMP_DIR/install/lib/commands/database.sh"
+  . "$TMP_DIR/install/lib/commands/backup.sh"
+
+  postgres_runtime_desired() { return 0; }
+  _database_reconcile_postgres_auth() {
+    printf '{"success":false,"phase":"verify","error":"Postgres verification failed","rolledBack":true}\n'
+    return 1
+  }
+  log_msg() { return 0; }
+
+  : > "$CANVAS_CONFIG_ENV"
+  : > "$CANVAS_COMPOSE_ENV"
+  _backup_create
+)
+
+if test_postgres_reconcile_error_contract > "$TMP_DIR/postgres-error.json"; then
+  echo "backup unexpectedly continued after Postgres reconciliation failed" >&2
+  exit 1
+fi
+jq -se 'length == 1 and .[0].success == false and .[0].phase == "verify" and .[0].rolledBack == true' "$TMP_DIR/postgres-error.json" >/dev/null
 
 if "$cli" backup create --output "$TMP_DIR/export.zip" --no-wait --no-banner >/dev/null 2>"$TMP_DIR/error.txt"; then
   echo "backup create unexpectedly allowed --output with --no-wait" >&2
