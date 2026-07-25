@@ -12,6 +12,7 @@ import {
   Hand,
   Loader2,
   LockKeyhole,
+  MessageSquare,
   MonitorUp,
   RefreshCw,
   ShieldAlert,
@@ -33,6 +34,7 @@ import {
 } from 'react';
 
 import type { AgentProfile, AISession } from '@/app/lib/chat/types';
+import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import type {
   BrowserViewControlMode,
   BrowserViewErrorCode,
@@ -92,6 +94,7 @@ const copy = {
     liveTitle: 'Live-Browser',
     liveDescription: 'Verfolge die Browserarbeit des Agenten live oder übernimm die Steuerung, wenn du selbst eingreifen möchtest.',
     backToChat: 'Zurück zum Chat',
+    openChat: 'Chat öffnen',
     currentChat: 'Aktueller Chat',
     context: 'Kontext',
     status: 'Status',
@@ -184,6 +187,7 @@ const copy = {
     liveTitle: 'Live Browser',
     liveDescription: 'Follow the agent’s browser work live or take control when you want to step in yourself.',
     backToChat: 'Back to chat',
+    openChat: 'Open chat',
     currentChat: 'Current chat',
     context: 'Context',
     status: 'Status',
@@ -350,9 +354,8 @@ export function BrowserLabClient({
     [selectedAgentId, selectedSessionId, sessions],
   );
   const chatHref = useMemo(() => {
-    const query = new URLSearchParams({ chat: 'open', session: selectedSessionId });
-    return `/chat?${query.toString()}`;
-  }, [selectedSessionId]);
+    return buildChatSessionHref('/chat', selectedSessionId, selectedSession?.workspace?.workspaceId);
+  }, [selectedSession, selectedSessionId]);
   const userControls = connectionStatus === 'live'
     && viewState?.mode === 'user'
     && viewState.controlOwnerViewId === viewState.viewId;
@@ -750,6 +753,19 @@ export function BrowserLabClient({
                 </select>
               </label>
               <div className="flex items-end gap-2">
+                {selectedSessionId ? (
+                  <Button asChild variant="outline" className="h-10 gap-2">
+                    <Link href={chatHref}>
+                      <MessageSquare className="h-4 w-4" />
+                      {t.openChat}
+                    </Link>
+                  </Button>
+                ) : (
+                  <Button variant="outline" className="h-10 gap-2" disabled>
+                    <MessageSquare className="h-4 w-4" />
+                    {t.openChat}
+                  </Button>
+                )}
                 <Button
                   className="h-10 gap-2"
                   disabled={!selectedSessionId || catalogLoading || connectionStatus === 'connecting'}
