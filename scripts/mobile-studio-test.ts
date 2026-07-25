@@ -221,6 +221,10 @@ async function main() {
     const output = firstPage.generations[0].outputs[0] as unknown as Record<string, unknown>;
     assert.equal('filePath' in output, false);
     assert.equal('mediaUrl' in output, false);
+    assert.equal(
+      output.previewUrl,
+      '/api/mobile/v1/studio/outputs/output-1/preview',
+    );
     assert.equal(firstPage.generations[0].error?.includes('secretvalue'), false);
     assert.equal(firstPage.generations[0].error?.includes('[redacted]'), true);
     assert.equal(firstPage.generations[0].settings.quality, 'auto');

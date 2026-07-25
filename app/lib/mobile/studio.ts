@@ -534,17 +534,23 @@ export function serializeMobileStudioGeneration(generation: StudioGenerationValu
       startFramePath: metadataString(metadata, 'startFramePath'),
       endFramePath: metadataString(metadata, 'endFramePath'),
     },
-    outputs: generation.outputs.map((output) => ({
-      id: output.id,
-      type: outputType(output.type, output.mimeType),
-      fileName: path.basename(output.fileName || output.filePath || `studio-output-${output.id}`),
-      mimeType: output.mimeType || 'application/octet-stream',
-      fileSize: output.fileSize || 0,
-      width: output.width || null,
-      height: output.height || null,
-      isFavorite: Boolean(output.isFavorite),
-      createdAt: isoDate(output.createdAt),
-    })),
+    outputs: generation.outputs.map((output) => {
+      const type = outputType(output.type, output.mimeType);
+      return {
+        id: output.id,
+        type,
+        fileName: path.basename(output.fileName || output.filePath || `studio-output-${output.id}`),
+        mimeType: output.mimeType || 'application/octet-stream',
+        fileSize: output.fileSize || 0,
+        width: output.width || null,
+        height: output.height || null,
+        isFavorite: Boolean(output.isFavorite),
+        previewUrl: type === 'sound'
+          ? null
+          : `/api/mobile/v1/studio/outputs/${encodeURIComponent(output.id)}/preview`,
+        createdAt: isoDate(output.createdAt),
+      };
+    }),
     createdAt: isoDate(generation.createdAt),
     updatedAt: isoDate(generation.updatedAt),
   };
