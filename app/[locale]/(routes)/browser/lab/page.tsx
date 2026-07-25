@@ -1,7 +1,6 @@
 import { notFound } from 'next/navigation';
 
-import { BrowserLabClient } from '@/app/components/browser-lab/BrowserLabClient';
-import { SuitePageLayout } from '@/app/components/SuitePageLayout';
+import { BrowserLabShell } from '@/app/components/browser-lab/BrowserLabShell';
 import { requirePageSession } from '@/app/lib/auth-guards';
 import { isBrowserLabAllowed } from '@/app/lib/pi/browser/view-access';
 
@@ -22,12 +21,5 @@ export default async function BrowserLabPage({
   if (!session) notFound();
   if (!isBrowserLabAllowed(session.user)) notFound();
 
-  return (
-    <SuitePageLayout
-      title={locale === 'en' ? 'Browser Lab' : 'Browser-Labor'}
-      mainClassName="overflow-hidden"
-    >
-      <BrowserLabClient locale={locale} />
-    </SuitePageLayout>
-  );
+  return <BrowserLabShell locale={locale} />;
 }

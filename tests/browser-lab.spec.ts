@@ -344,6 +344,8 @@ test.describe('Browser Lab', () => {
       const address = page.getByLabel(labels.address);
       const connectButton = page.getByRole('button', { name: labels.connect });
       await expect(connectButton).toBeEnabled({ timeout: 15_000 });
+      await expect(page.getByTestId('chat-dock-desktop')).toHaveAttribute('data-chat-visible', 'true');
+      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
       await expect(address).toBeDisabled();
       await expect(page.getByRole('button', { name: labels.takeControl })).toBeDisabled();
 
@@ -354,10 +356,10 @@ test.describe('Browser Lab', () => {
       await expect(frame).toBeVisible({ timeout: 30_000 });
       await expect(frame).toHaveAttribute('src', /^data:image\//);
       await expect(page.getByRole('button', { name: labels.takeControl })).toBeEnabled();
-      await expect(page.getByRole('link', { name: labels.openChat })).toHaveAttribute(
-        'href',
-        new RegExp(`/chat\\?.*session=${encodeURIComponent(session.sessionId)}`),
-      );
+      await page.getByTestId('chat-dock-toggle').click();
+      await expect(page.getByTestId('chat-dock-desktop')).toHaveAttribute('data-chat-visible', 'false');
+      await page.getByRole('button', { name: labels.openChat }).click();
+      await expect(page.getByTestId('chat-dock-desktop')).toHaveAttribute('data-chat-visible', 'true');
 
       await page.getByRole('button', { name: labels.takeControl }).click();
       await expect(page.getByText(labels.userControls)).toBeVisible();

@@ -43,6 +43,7 @@ import {
 
 import type { AgentProfile, AISession } from '@/app/lib/chat/types';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 import type {
   BrowserViewControlMode,
   BrowserViewErrorCode,
@@ -61,6 +62,7 @@ import { cn } from '@/lib/utils';
 
 type BrowserLabClientProps = {
   agentId?: string;
+  embeddedChat?: boolean;
   locale: string;
   sessionId?: string;
   variant?: 'lab' | 'live';
@@ -379,6 +381,7 @@ function createClipboardRequestId(): string {
 
 export function BrowserLabClient({
   agentId,
+  embeddedChat = false,
   locale,
   sessionId,
   variant = 'lab',
@@ -434,6 +437,32 @@ export function BrowserLabClient({
   const userControls = connectionStatus === 'live'
     && viewState?.mode === 'user'
     && viewState.controlOwnerViewId === viewState.viewId;
+
+  const openSelectedChat = useCallback(() => {
+    if (!selectedSession) return false;
+    return dispatchOpenChatSession(
+      selectedSession.sessionId,
+      'browser_lab',
+      selectedSession.workspace?.workspaceId,
+    );
+  }, [selectedSession]);
+
+  useEffect(() => {
+    if (!embeddedChat || !selectedSession) return;
+    let attempts = 0;
+    let timer: number | null = null;
+    const openSelectedSession = () => {
+      const handled = openSelectedChat();
+      attempts += 1;
+      if (!handled && attempts < 4) {
+        timer = window.setTimeout(openSelectedSession, attempts * 100);
+      }
+    };
+    timer = window.setTimeout(openSelectedSession, 0);
+    return () => {
+      if (timer !== null) window.clearTimeout(timer);
+    };
+  }, [embeddedChat, openSelectedChat, selectedSession]);
 
   const disconnect = useCallback((options: { preserveFailure?: boolean; preserveFrame?: boolean } = {}) => {
     intentionalCloseRef.current = true;
@@ -938,12 +967,19 @@ export function BrowserLabClient({
               </label>
               <div className="flex items-end gap-2">
                 {selectedSessionId ? (
-                  <Button asChild variant="outline" className="h-10 gap-2">
-                    <Link href={chatHref}>
+                  embeddedChat ? (
+                    <Button variant="outline" className="h-10 gap-2" onClick={() => openSelectedChat()}>
                       <MessageSquare className="h-4 w-4" />
                       {t.openChat}
-                    </Link>
-                  </Button>
+                    </Button>
+                  ) : (
+                    <Button asChild variant="outline" className="h-10 gap-2">
+                      <Link href={chatHref}>
+                        <MessageSquare className="h-4 w-4" />
+                        {t.openChat}
+                      </Link>
+                    </Button>
+                  )
                 ) : (
                   <Button variant="outline" className="h-10 gap-2" disabled>
                     <MessageSquare className="h-4 w-4" />
