@@ -84,6 +84,7 @@
     "test:plugins:runtime": "tsx --conditions react-server scripts/canvas-plugin-runtime-test.ts",
     "test:plugins:agent-workspace": "tsx --conditions react-server scripts/agent-plugin-workspace-test.ts",
     "test:browser-export": "tsx scripts/browser-export-service-test.ts",
+    "test:browser-address": "tsx scripts/browser-address-test.ts",
     "test:browser-start": "tsx scripts/browser-runtime-test.ts",
     "test:browser-url-policy": "tsx scripts/browser-url-policy-test.ts",
     "test:file-watcher": "tsx --conditions react-server scripts/file-watcher-service-test.ts && tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts && tsx scripts/file-open-flow-test.ts && tsx scripts/notebook-open-file-storage-test.ts",

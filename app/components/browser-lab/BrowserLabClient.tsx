@@ -41,6 +41,7 @@ import type {
   BrowserViewFailure,
   BrowserViewState,
 } from '@/app/lib/pi/browser/types';
+import { normalizeBrowserAddressInput } from '@/app/lib/pi/browser/address';
 import { closeBrowserWebSocket } from '@/app/lib/pi/browser/client-websocket';
 import { Link } from '@/i18n/navigation';
 import { Badge } from '@/components/ui/badge';
@@ -334,6 +335,10 @@ export function BrowserLabClient({
   const [fileSearch, setFileSearch] = useState('');
   const [selectedUploadPath, setSelectedUploadPath] = useState('');
   const [filesLoading, setFilesLoading] = useState(false);
+  const addressInputRef = useRef<HTMLInputElement | null>(null);
+  const addressEditingRef = useRef(false);
+  const lastBrowserAddressRef = useRef('about:blank');
+  const submittedAddressRef = useRef<string | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const connectTimeoutRef = useRef<number | null>(null);
   const intentionalCloseRef = useRef(false);
@@ -545,7 +550,20 @@ export function BrowserLabClient({
           setFrameSequence(message.sequence);
         } else if (message.type === 'state') {
           setViewState(message.state);
-          if (message.state.url) setAddress(message.state.url);
+          if (message.state.url) {
+            const previousBrowserAddress = lastBrowserAddressRef.current;
+            lastBrowserAddressRef.current = message.state.url;
+            const submittedAddress = submittedAddressRef.current;
+            const isStalePreNavigationState = Boolean(
+              submittedAddress
+              && message.state.url === previousBrowserAddress
+              && message.state.url !== submittedAddress,
+            );
+            if (!addressEditingRef.current && !isStalePreNavigationState) {
+              submittedAddressRef.current = null;
+              setAddress(message.state.url);
+            }
+          }
           setFailure((current) => current?.fatal ? current : null);
         } else if (message.type === 'error') {
           setFailure(localizedFailure(t, message));
@@ -663,7 +681,13 @@ export function BrowserLabClient({
 
   const navigate = useCallback((event: FormEvent) => {
     event.preventDefault();
-    if (address.trim()) send({ type: 'navigate', url: address.trim() });
+    const normalizedAddress = normalizeBrowserAddressInput(address);
+    if (!normalizedAddress) return;
+    submittedAddressRef.current = normalizedAddress;
+    addressEditingRef.current = false;
+    setAddress(normalizedAddress);
+    addressInputRef.current?.blur();
+    send({ type: 'navigate', url: normalizedAddress });
   }, [address, send]);
 
   const modeLabel = viewState?.mode === 'user' ? t.modeUser : viewState?.mode === 'view' ? t.modeView : t.modeAgent;
@@ -818,10 +842,17 @@ export function BrowserLabClient({
                 <div className="relative min-w-0 flex-1">
                   <Globe2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
+                    ref={addressInputRef}
                     aria-label={t.address}
                     value={address}
                     disabled={!userControls}
+                    onBlur={() => {
+                      addressEditingRef.current = false;
+                    }}
                     onChange={(event) => setAddress(event.target.value)}
+                    onFocus={() => {
+                      addressEditingRef.current = true;
+                    }}
                     className="h-9 pl-9 font-mono text-xs"
                   />
                 </div>
