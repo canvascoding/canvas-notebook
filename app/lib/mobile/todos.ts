@@ -4,6 +4,7 @@ import {
   getTodo,
   listTodos,
   type ListTodosOptions,
+  type TodoWorkspaceType,
   type TodoWithRelations,
 } from '@/app/lib/todos/store';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
@@ -38,7 +39,13 @@ export type MobileTodo = {
   category: { id: string; name: string } | null;
   createdBy: { id: string; name: string | null; email: string | null } | null;
   assignee: { id: string; name: string | null; email: string | null } | null;
-  fileLinks: { id: string; workspacePath: string; label: string | null }[];
+  fileLinks: {
+    id: string;
+    workspaceId: string | null;
+    workspaceType: TodoWorkspaceType;
+    workspacePath: string;
+    label: string | null;
+  }[];
   workspaceId: string | null;
   workspaceType: string;
   createdAt: string;
@@ -100,6 +107,8 @@ export function serializeMobileTodo(todo: TodoWithRelations): MobileTodo {
     assignee: todo.assignee,
     fileLinks: todo.fileLinks.map((link) => ({
       id: link.id,
+      workspaceId: link.workspaceId,
+      workspaceType: link.workspaceType as TodoWorkspaceType,
       workspacePath: link.workspacePath,
       label: link.label,
     })),

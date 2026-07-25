@@ -62,6 +62,7 @@ async function main() {
       title: 'Approve launch copy',
       priority: 'high',
       seenAt: null,
+      fileLinks: [{ workspacePath: 'Clients/Acme/brief.md', label: 'Brief' }],
     });
     await createTodo('mobile-attention-user', { title: 'Prepare screenshots', seenAt: new Date() });
 
@@ -101,6 +102,15 @@ async function main() {
 
     const loadedTodo = await getMobileTodo({ userId: 'mobile-attention-user', workspace, todoId: firstTodo.id });
     assert.equal(loadedTodo.title, 'Approve launch copy');
+    assert.deepEqual(loadedTodo.fileLinks.map((link) => ({
+      workspaceId: link.workspaceId,
+      workspaceType: link.workspaceType,
+      workspacePath: link.workspacePath,
+    })), [{
+      workspaceId: null,
+      workspaceType: 'personal',
+      workspacePath: 'Clients/Acme/brief.md',
+    }]);
     await assert.rejects(() => listMobileTodos({
       userId: 'mobile-attention-user',
       workspace,
