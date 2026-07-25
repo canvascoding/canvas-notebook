@@ -8,6 +8,8 @@ import Database from 'better-sqlite3';
 import { NextRequest } from 'next/server';
 
 const environmentKeys = [
+  'BASE_URL',
+  'BETTER_AUTH_BASE_URL',
   'BOOTSTRAP_ADMIN_EMAIL',
   'CANVAS_DATABASE_PROVIDER',
   'CANVAS_INSTANCE_ID',
@@ -68,6 +70,32 @@ async function main() {
   ));
   assert.equal(gateResponse.status, 200);
   assert.equal(gateResponse.headers.get('x-middleware-next'), '1');
+
+  process.env.BASE_URL = 'https://canvas.canvasnotebook.app';
+  process.env.BETTER_AUTH_BASE_URL = 'https://canvas.canvasnotebook.app';
+  let gateStatusUrl: string | null = null;
+  globalThis.fetch = async (input) => {
+    gateStatusUrl = String(input);
+    return Response.json({
+      licensed: true,
+      plan: 'managed',
+      instanceId: 'managed-instance',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+  };
+  const forwardedGateResponse = await middleware(new NextRequest(
+    'http://canvas.canvasnotebook.app/api/mobile/v1/bootstrap',
+    {
+      headers: {
+        cookie: 'better-auth.session_token=middleware-test',
+        'x-forwarded-proto': 'https',
+      },
+    },
+  ));
+  assert.equal(gateStatusUrl, 'https://canvas.canvasnotebook.app/api/license/status');
+  assert.equal(forwardedGateResponse.status, 200);
+  assert.equal(forwardedGateResponse.headers.get('x-middleware-next'), '1');
+  assert.match(forwardedGateResponse.headers.get('set-cookie') || '', /canvas_license_gate=/u);
 
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mobile-license-'));
   const dataRoot = path.join(temporaryRoot, 'data');

@@ -162,7 +162,7 @@ async function loadLicenseStatus(request: NextRequest): Promise<{
   expiresAt?: string | null;
 } | null> {
   try {
-    const statusUrl = new URL('/api/license/status', request.url);
+    const statusUrl = resolveLicenseStatusUrl(request);
     const response = await fetch(statusUrl, {
       headers: {
         cookie: request.headers.get('cookie') || '',
@@ -174,6 +174,31 @@ async function loadLicenseStatus(request: NextRequest): Promise<{
   } catch {
     return null;
   }
+}
+
+export function resolveLicenseStatusUrl(request: NextRequest): URL {
+  for (const configured of [
+    process.env.BETTER_AUTH_BASE_URL,
+    process.env.BASE_URL,
+  ]) {
+    if (!configured?.trim()) continue;
+    try {
+      const url = new URL('/api/license/status', configured);
+      if (url.protocol === 'https:' || url.protocol === 'http:') return url;
+    } catch {
+    }
+  }
+
+  const statusUrl = new URL('/api/license/status', request.url);
+  const forwardedProtocol = request.headers
+    .get('x-forwarded-proto')
+    ?.split(',')[0]
+    ?.trim()
+    .toLowerCase();
+  if (forwardedProtocol === 'https' || forwardedProtocol === 'http') {
+    statusUrl.protocol = `${forwardedProtocol}:`;
+  }
+  return statusUrl;
 }
 
 async function buildLicenseGateCookie(status: {
