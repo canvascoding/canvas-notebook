@@ -11,6 +11,23 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.25.1] - 2026-07-25
+
+### Fixed
+
+- Fixed mobile workspace startup behind HTTPS reverse proxies by resolving the license-gate status check against the configured public server URL instead of an incorrect internal HTTP origin.
+
+### Security
+
+- Stopped deriving the internal license-status request target solely from the incoming host and now prefer the trusted Better Auth or Canvas base URL configuration.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run test:mobile:license`
+- `npm run test:mobile:bootstrap`
+- `npm run verify:release`
+
 ## [2026.7.24.1] - 2026-07-24
 
 ### Added
