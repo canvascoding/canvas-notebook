@@ -1,17 +1,142 @@
 import 'server-only';
 
+import { createHmac, timingSafeEqual } from 'node:crypto';
+
 import { Lexer, type Token, type Tokens } from 'marked';
 
 const DEFAULT_CHAT_TITLE = 'Canvas Chat';
 const DEFAULT_CHAT_BODY = 'Your agent has finished a response.';
 const MAX_NOTIFICATION_TITLE_LENGTH = 72;
 const MAX_NOTIFICATION_BODY_LENGTH = 220;
+export const STUDIO_PUSH_PREVIEW_TTL_SECONDS = 60 * 60;
+const STUDIO_PUSH_PREVIEW_SCHEMA_VERSION = 1;
+
+type StudioPushPreviewClaims = {
+  schemaVersion: typeof STUDIO_PUSH_PREVIEW_SCHEMA_VERSION;
+  outputId: string;
+  issuedAt: number;
+  expiresAt: number;
+};
 
 export type MobilePushNotificationPreview = {
   title: string;
   body: string;
   imageUrl?: string;
 };
+
+function pushPreviewSecret(): string {
+  const secret = process.env.BETTER_AUTH_SECRET?.trim()
+    || process.env.AUTH_SECRET?.trim()
+    || (process.env.NODE_ENV !== 'production' ? 'canvas-notebook-local-dev-secret-change-me' : '');
+  if (secret.length < 32) {
+    throw new Error('Studio notification previews require a 32-character Better Auth secret.');
+  }
+  return secret;
+}
+
+function studioPreviewSignature(payload: string): Buffer {
+  return createHmac('sha256', pushPreviewSecret())
+    .update(`studio-push-preview:${payload}`)
+    .digest();
+}
+
+function isStudioPushPreviewClaims(value: unknown): value is StudioPushPreviewClaims {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false;
+  const claims = value as Partial<StudioPushPreviewClaims>;
+  return claims.schemaVersion === STUDIO_PUSH_PREVIEW_SCHEMA_VERSION
+    && typeof claims.outputId === 'string'
+    && Boolean(claims.outputId.trim())
+    && claims.outputId.length <= 180
+    && typeof claims.issuedAt === 'number'
+    && Number.isSafeInteger(claims.issuedAt)
+    && typeof claims.expiresAt === 'number'
+    && Number.isSafeInteger(claims.expiresAt);
+}
+
+function configuredPushPreviewOrigin(baseUrl?: string): string | null {
+  const candidate = baseUrl?.trim()
+    || process.env.BETTER_AUTH_BASE_URL?.trim()
+    || process.env.BASE_URL?.trim()
+    || process.env.APP_BASE_URL?.trim();
+  if (!candidate) return null;
+  try {
+    const parsed = new URL(candidate);
+    if (parsed.protocol !== 'https:' && !(process.env.NODE_ENV !== 'production' && parsed.protocol === 'http:')) {
+      return null;
+    }
+    if (parsed.username || parsed.password) return null;
+    return parsed.origin;
+  } catch {
+    return null;
+  }
+}
+
+export function issueStudioPushPreviewTicket(
+  outputId: string,
+  now = Date.now(),
+): { token: string; claims: StudioPushPreviewClaims } {
+  const normalizedOutputId = outputId.trim();
+  if (!normalizedOutputId || normalizedOutputId.length > 180 || /[\u0000-\u001f\u007f]/u.test(normalizedOutputId)) {
+    throw new Error('Studio notification preview output ID is invalid.');
+  }
+  const claims: StudioPushPreviewClaims = {
+    schemaVersion: STUDIO_PUSH_PREVIEW_SCHEMA_VERSION,
+    outputId: normalizedOutputId,
+    issuedAt: now,
+    expiresAt: now + STUDIO_PUSH_PREVIEW_TTL_SECONDS * 1_000,
+  };
+  const payload = Buffer.from(JSON.stringify(claims)).toString('base64url');
+  return {
+    token: `${payload}.${studioPreviewSignature(payload).toString('base64url')}`,
+    claims,
+  };
+}
+
+export function verifyStudioPushPreviewTicket(
+  token: string,
+  now = Date.now(),
+): StudioPushPreviewClaims {
+  const [payload, encodedSignature, extra] = token.split('.');
+  if (!payload || !encodedSignature || extra) throw new Error('Invalid Studio notification preview ticket.');
+  const expected = studioPreviewSignature(payload);
+  let actual: Buffer;
+  try {
+    actual = Buffer.from(encodedSignature, 'base64url');
+  } catch {
+    throw new Error('Invalid Studio notification preview ticket.');
+  }
+  if (actual.length !== expected.length || !timingSafeEqual(actual, expected)) {
+    throw new Error('Invalid Studio notification preview ticket signature.');
+  }
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(Buffer.from(payload, 'base64url').toString('utf8'));
+  } catch {
+    throw new Error('Invalid Studio notification preview ticket payload.');
+  }
+  if (!isStudioPushPreviewClaims(parsed)) {
+    throw new Error('Unsupported Studio notification preview ticket.');
+  }
+  if (parsed.issuedAt > now + 10_000 || parsed.expiresAt <= now) {
+    throw new Error('Studio notification preview ticket expired.');
+  }
+  return parsed;
+}
+
+export function createStudioPushPreviewUrl(input: {
+  outputId: string;
+  baseUrl?: string;
+  now?: number;
+}): string | null {
+  const origin = configuredPushPreviewOrigin(input.baseUrl);
+  if (!origin) return null;
+  try {
+    const { token } = issueStudioPushPreviewTicket(input.outputId, input.now);
+    return `${origin}/api/mobile/v1/push-previews/studio/${encodeURIComponent(token)}`;
+  } catch {
+    return null;
+  }
+}
 
 function decodeHtmlEntities(value: string): string {
   return value

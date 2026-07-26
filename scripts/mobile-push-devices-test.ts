@@ -1,10 +1,14 @@
 import assert from 'node:assert/strict';
-import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
+import sharp from 'sharp';
+
 const testRoot = mkdtempSync(path.join(tmpdir(), 'canvas-mobile-push-'));
 process.env.DATA = testRoot;
+process.env.BETTER_AUTH_SECRET = 'test-mobile-push-secret-that-is-long-enough';
+process.env.BASE_URL = 'https://canvas.example.test';
 
 async function main() {
   try {
@@ -22,7 +26,11 @@ async function main() {
   } = await import('../app/lib/mobile/push-devices');
   const {
     createAgentResponseNotificationPreview,
+    createStudioPushPreviewUrl,
+    issueStudioPushPreviewTicket,
     markdownToNotificationText,
+    STUDIO_PUSH_PREVIEW_TTL_SECONDS,
+    verifyStudioPushPreviewTicket,
   } = await import('../app/lib/mobile/push-preview');
   const { closeDatabaseConnections, openDb } = await import('../app/lib/db');
   const database = await openDb();
@@ -64,6 +72,40 @@ async function main() {
         timestamp: responseAt,
       }),
       responseAt,
+    ],
+  );
+  const studioPreviewPath = 'studio/outputs/push-preview.png';
+  mkdirSync(path.join(testRoot, 'studio', 'outputs'), { recursive: true });
+  const studioPreviewBytes = await sharp({
+    create: {
+      width: 4,
+      height: 4,
+      channels: 4,
+      background: { r: 24, g: 92, b: 148, alpha: 1 },
+    },
+  }).png().toBuffer();
+  writeFileSync(
+    path.join(testRoot, studioPreviewPath),
+    studioPreviewBytes,
+  );
+  await database.run(
+    `INSERT INTO studio_generations (
+       id, user_id, workspace_id, mode, aspect_ratio, provider, model, status, created_at, updated_at
+     ) VALUES (?, ?, ?, 'image', '1:1', 'test', 'test', 'completed', ?, ?)`,
+    ['studio-generation-1', 'push-user', 'workspace-1', now, now],
+  );
+  await database.run(
+    `INSERT INTO studio_generation_outputs (
+       id, generation_id, workspace_id, variation_index, type, file_path, file_name,
+       file_size, mime_type, is_favorite, created_at
+     ) VALUES (?, ?, ?, 0, 'image', ?, 'push-preview.png', ?, 'image/png', 0, ?)`,
+    [
+      'studio-output-1',
+      'studio-generation-1',
+      'workspace-1',
+      studioPreviewPath,
+      readFileSync(path.join(testRoot, studioPreviewPath)).byteLength,
+      now,
     ],
   );
   await database.close();
@@ -161,6 +203,67 @@ async function main() {
   assert.equal(previewMessages[0].title, 'Push session');
   assert.equal(previewMessages[0].body, 'Done See the finished report and code.');
   assert.equal(JSON.stringify(previewMessages).includes('private.example.test'), false);
+
+  const studioPreviewUrl = createStudioPushPreviewUrl({
+    outputId: 'studio-output-1',
+    now,
+  });
+  assert.ok(studioPreviewUrl);
+  const parsedStudioPreviewUrl = new URL(studioPreviewUrl);
+  assert.equal(parsedStudioPreviewUrl.origin, 'https://canvas.example.test');
+  assert.match(parsedStudioPreviewUrl.pathname, /^\/api\/mobile\/v1\/push-previews\/studio\//u);
+  const studioPreviewToken = decodeURIComponent(parsedStudioPreviewUrl.pathname.split('/').pop() || '');
+  assert.equal(verifyStudioPushPreviewTicket(studioPreviewToken, now + 1_000).outputId, 'studio-output-1');
+  assert.throws(
+    () => verifyStudioPushPreviewTicket(studioPreviewToken, now + STUDIO_PUSH_PREVIEW_TTL_SECONDS * 1_000),
+    /expired/u,
+  );
+  const issuedStudioPreview = issueStudioPushPreviewTicket('studio-output-2', now);
+  assert.equal(issuedStudioPreview.claims.expiresAt - now, STUDIO_PUSH_PREVIEW_TTL_SECONDS * 1_000);
+
+  const studioImageMessages = createMobilePushMessages({
+    tokens: [registration.expoPushToken],
+    instanceId: 'cni_0123456789abcdef01234567',
+    target: {
+      type: 'studio.completed',
+      workspaceId: 'workspace-1',
+      generationId: 'generation-1',
+    },
+    notification: {
+      title: 'Studio image ready',
+      body: 'Your Studio result is ready.',
+      imageUrl: studioPreviewUrl,
+    },
+  });
+  assert.deepEqual(studioImageMessages[0].richContent, { image: studioPreviewUrl });
+  assert.equal(studioImageMessages[0].mutableContent, true);
+  assert.equal(studioImageMessages[0].ttl, STUDIO_PUSH_PREVIEW_TTL_SECONDS);
+  const { db: drizzleDatabase } = await import('../app/lib/db');
+  const { studioGenerationOutputs } = await import('../app/lib/db/schema');
+  const { eq } = await import('drizzle-orm');
+  const storedStudioPreview = await drizzleDatabase.select()
+    .from(studioGenerationOutputs)
+    .where(eq(studioGenerationOutputs.id, 'studio-output-1'))
+    .limit(1);
+  assert.equal(storedStudioPreview[0]?.filePath, studioPreviewPath);
+  const { resolveValidatedStudioPath } = await import('../app/lib/integrations/studio-paths');
+  assert.equal(resolveValidatedStudioPath(studioPreviewPath), path.join(testRoot, studioPreviewPath));
+  const { GET: getStudioPushPreview } = await import(
+    '../app/api/mobile/v1/push-previews/studio/[ticket]/route'
+  );
+  const studioPreviewResponse = await getStudioPushPreview(
+    new Request(studioPreviewUrl),
+    { params: Promise.resolve({ ticket: studioPreviewToken }) },
+  );
+  assert.equal(studioPreviewResponse.status, 200);
+  assert.equal(studioPreviewResponse.headers.get('content-type'), 'image/png');
+  assert.equal(studioPreviewResponse.headers.get('cache-control'), 'private, no-store, max-age=0');
+  assert.ok((await studioPreviewResponse.arrayBuffer()).byteLength > 0);
+  const invalidStudioPreviewResponse = await getStudioPushPreview(
+    new Request('https://canvas.example.test/api/mobile/v1/push-previews/studio/invalid'),
+    { params: Promise.resolve({ ticket: 'invalid' }) },
+  );
+  assert.equal(invalidStudioPreviewResponse.status, 404);
 
   const categoryMessages = createMobilePushMessages({
     tokens: [registration.expoPushToken],
@@ -481,6 +584,18 @@ async function main() {
       1,
       'each saved assistant response must schedule exactly one mobile push decision',
     );
+    const studioGenerationSource = readFileSync(
+      path.join(process.cwd(), 'app/lib/integrations/studio-generation-service.ts'),
+      'utf8',
+    );
+    assert.match(studioGenerationSource, /previewOutputId: outputs\.find\(\(output\) => output\.mimeType\.startsWith\('image\/'\)\)\?\.id/u);
+    const studioPreviewRouteSource = readFileSync(
+      path.join(process.cwd(), 'app/api/mobile/v1/push-previews/studio/[ticket]/route.ts'),
+      'utf8',
+    );
+    assert.match(studioPreviewRouteSource, /verifyStudioPushPreviewTicket/u);
+    assert.match(studioPreviewRouteSource, /output\.type !== 'image'/u);
+    assert.match(studioPreviewRouteSource, /'Cache-Control': 'private, no-store, max-age=0'/u);
 
     await closeDatabaseConnections();
     console.log('mobile-push-devices-test: ok');

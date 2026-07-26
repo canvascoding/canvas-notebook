@@ -1023,6 +1023,7 @@ async function sendStudioResultPush(input: {
   scope: StudioScope;
   generationId: string;
   status: 'completed' | 'failed';
+  previewOutputId?: string;
 }): Promise<void> {
   try {
     const { sendFailureAttentionPush, sendStudioCompletedPush } = await import('@/app/lib/mobile/push-devices');
@@ -1031,6 +1032,7 @@ async function sendStudioResultPush(input: {
         userId: input.scope.actorUserId,
         workspaceId: input.scope.workspaceId,
         generationId: input.generationId,
+        previewOutputId: input.previewOutputId,
       });
       return;
     }
@@ -1212,7 +1214,12 @@ async function executeStudioGenerationProcessing(
       .set({ status: 'completed', prompt: composedPrompt, updatedAt: new Date() })
       .where(eq(studioGenerations.id, generationId));
 
-    await sendStudioResultPush({ scope, generationId, status: 'completed' });
+    await sendStudioResultPush({
+      scope,
+      generationId,
+      status: 'completed',
+      previewOutputId: outputs.find((output) => output.mimeType.startsWith('image/'))?.id,
+    });
 
     console.log(`[Studio Generation] Completed: id=${generationId}, mode=${mode}, outputs=${outputs.length}`);
   } catch (error) {

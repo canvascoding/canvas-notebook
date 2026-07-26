@@ -9,6 +9,8 @@ import { getLicenseInstanceId } from '@/app/lib/license/instance';
 import { createPublicMobileInstanceId } from './compatibility';
 import {
   createAgentResponseNotificationPreview,
+  createStudioPushPreviewUrl,
+  STUDIO_PUSH_PREVIEW_TTL_SECONDS,
   type MobilePushNotificationPreview,
 } from './push-preview';
 
@@ -116,6 +118,11 @@ export type ExpoPushMessage = {
   priority: 'default';
   channelId: 'canvas-activity';
   data: MobilePushData;
+  richContent?: {
+    image: string;
+  };
+  mutableContent?: true;
+  ttl?: number;
 };
 
 type ExpoPushTicket = {
@@ -523,18 +530,26 @@ export function createMobilePushMessages(input: {
   target: MobilePushTarget;
   notification?: MobilePushNotificationPreview;
 }): ExpoPushMessage[] {
-  return input.tokens.map((token) => ({
-    to: token,
-    title: input.notification?.title || 'Canvas Notebook',
-    body: input.notification?.body || notificationBody(input.target),
-    sound: 'default',
-    priority: 'default',
-    channelId: 'canvas-activity',
-    data: {
-      instanceId: input.instanceId,
-      ...input.target,
-    } as MobilePushData,
-  }));
+  return input.tokens.map((token) => {
+    const imageUrl = input.notification?.imageUrl;
+    return {
+      to: token,
+      title: input.notification?.title || 'Canvas Notebook',
+      body: input.notification?.body || notificationBody(input.target),
+      sound: 'default',
+      priority: 'default',
+      channelId: 'canvas-activity',
+      data: {
+        instanceId: input.instanceId,
+        ...input.target,
+      } as MobilePushData,
+      ...(imageUrl ? {
+        richContent: { image: imageUrl },
+        mutableContent: true as const,
+        ttl: STUDIO_PUSH_PREVIEW_TTL_SECONDS,
+      } : {}),
+    };
+  });
 }
 
 export function createAgentResponseReadyMessages(input: {
@@ -844,9 +859,18 @@ export async function sendStudioCompletedPush(input: {
   userId: string;
   workspaceId: string;
   generationId: string;
+  previewOutputId?: string;
 }): Promise<{ attempted: number; accepted: number }> {
+  const imageUrl = input.previewOutputId
+    ? createStudioPushPreviewUrl({ outputId: input.previewOutputId })
+    : null;
   return sendMobileAttentionPush({
     userId: input.userId,
+    notification: {
+      title: imageUrl ? 'Studio image ready' : 'Studio result ready',
+      body: 'Your Studio result is ready.',
+      ...(imageUrl ? { imageUrl } : {}),
+    },
     target: { type: 'studio.completed', workspaceId: input.workspaceId, generationId: input.generationId },
   });
 }
