@@ -11,6 +11,25 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.26.1] - 2026-07-26
+
+### Added
+
+- Added embedded agent chat, navigation history, reload, and clipboard controls to Browser Lab, with a more stable address input.
+- Added authenticated mobile file-kind discovery and Excalidraw read/write APIs for native canvas editing.
+- Added private mobile previews for agent chat and Studio output notifications, plus delivery for completed scheduled automations.
+- Exposed Composio connection profiles to mobile automations and made mobile To-do links workspace-aware.
+
+### Fixed
+
+- Kept nested PostgreSQL backup and database command output out of CLI JSON responses.
+- Corrected To-do due-date filtering and nullable Studio preview filenames.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run verify:release`
+
 ## [2026.7.25.1] - 2026-07-25
 
 ### Fixed
