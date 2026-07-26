@@ -122,7 +122,7 @@ assert.match(sharpUsageOverride.reason, /does not redistribute/u);
 assert.equal(nativeDistributionPolicy.libvips.version, '8.18.3');
 assert.equal(nativeDistributionPolicy.libvips.license, 'LGPL-2.1-or-later');
 assert.equal(nativeDistributionPolicy.libvips.linkage, 'shared');
-assert.deepEqual(nativeDistributionPolicy.libvips.sharpVersions.sort(), ['0.34.5', '0.35.3']);
+assert.deepEqual(nativeDistributionPolicy.libvips.sharpVersions.sort(), ['0.35.2', '0.35.3']);
 assert.deepEqual(nativeDistributionPolicy.excludedPrebuiltPackagePrefixes, ['@img/sharp-']);
 assert.match(
   fs.readFileSync(nativeDistributionPolicy.libvips.licenseTextPath, 'utf8'),
@@ -549,7 +549,7 @@ for (const component of sharpCompositeBinaryComponents) {
 const allSharpPrebuiltComponents = inventory.components.filter((component) => (
   component.name.startsWith('@img/sharp-')
 ));
-assert.equal(allSharpPrebuiltComponents.length, 50);
+assert.equal(allSharpPrebuiltComponents.length, 52);
 assert(allSharpPrebuiltComponents.every((component) => component.usage === 'development-only'));
 assert(allSharpPrebuiltComponents.every((component) => (
   component.distributedIn.join(',') === 'source-development-install'

@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.7.26.1
-- Lockfile SHA-256: `6e7480b1738640a30bb7af1a73bf0ccddbace4c3fa0d0224212be64380376e49`
-- Distributed components: 1493
+- Lockfile SHA-256: `52d2013a4b77f83c21733b52b09098bfd74476aa29fc264e08cc4dfeeb59ea40`
+- Distributed components: 1492
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -192,7 +192,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @hocuspocus/provider | 4.4.0 | runtime | MIT | allowed |
 | @hocuspocus/server | 4.4.0 | runtime | MIT | allowed |
 | @hocuspocus/transformer | 4.4.0 | runtime | MIT | allowed |
-| @hono/node-server | 1.19.14 | runtime | MIT | allowed |
+| @hono/node-server | 2.0.12 | runtime | MIT | allowed |
 | @iconify/types | 2.0.0 | runtime | MIT | allowed |
 | @iconify/utils | 3.1.4 | runtime | MIT | allowed |
 | @img/colour | 1.1.0 | runtime | MIT | allowed |
@@ -263,15 +263,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @napi-rs/canvas-win32-x64-msvc | 1.0.2 | runtime | MIT | allowed |
 | @napi-rs/canvas | 0.1.80 | runtime | MIT | allowed |
 | @napi-rs/canvas | 1.0.2 | runtime | MIT | allowed |
-| @next/env | 16.2.10 | runtime | MIT | allowed |
-| @next/swc-darwin-arm64 | 16.2.10 | runtime | MIT | allowed |
-| @next/swc-darwin-x64 | 16.2.10 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-gnu | 16.2.10 | runtime | MIT | allowed |
-| @next/swc-linux-arm64-musl | 16.2.10 | runtime | MIT | allowed |
-| @next/swc-linux-x64-gnu | 16.2.10 | runtime | MIT | allowed |
-| @next/swc-linux-x64-musl | 16.2.10 | runtime | MIT | allowed |
-| @next/swc-win32-arm64-msvc | 16.2.10 | runtime | MIT | allowed |
-| @next/swc-win32-x64-msvc | 16.2.10 | runtime | MIT | allowed |
+| @next/env | 16.2.12 | runtime | MIT | allowed |
+| @next/swc-darwin-arm64 | 16.2.12 | runtime | MIT | allowed |
+| @next/swc-darwin-x64 | 16.2.12 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-gnu | 16.2.12 | runtime | MIT | allowed |
+| @next/swc-linux-arm64-musl | 16.2.12 | runtime | MIT | allowed |
+| @next/swc-linux-x64-gnu | 16.2.12 | runtime | MIT | allowed |
+| @next/swc-linux-x64-musl | 16.2.12 | runtime | MIT | allowed |
+| @next/swc-win32-arm64-msvc | 16.2.12 | runtime | MIT | allowed |
+| @next/swc-win32-x64-msvc | 16.2.12 | runtime | MIT | allowed |
 | @noble/ciphers | 2.2.0 | runtime | MIT | allowed |
 | @noble/hashes | 2.2.0 | runtime | MIT | allowed |
 | @opentelemetry/api-logs | 0.220.0 | runtime | Apache-2.0 | allowed |
@@ -627,7 +627,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | abort-controller | 3.0.0 | runtime | MIT | allowed |
 | accepts | 1.3.8 | runtime | MIT | allowed |
 | accepts | 2.0.0 | runtime | MIT | allowed |
-| acorn-import-phases | 1.0.4 | runtime | MIT | allowed |
 | acorn | 8.17.0 | runtime | MIT | allowed |
 | agent-base | 7.1.4 | runtime | MIT | allowed |
 | ajv-formats | 2.1.1 | runtime | MIT | allowed |
@@ -674,7 +673,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | bluebird | 3.4.7 | runtime | MIT | allowed |
 | body-parser | 2.3.0 | runtime | MIT | allowed |
 | bowser | 2.14.1 | runtime | MIT | allowed |
-| brace-expansion | 5.0.7 | runtime | MIT | allowed |
+| brace-expansion | 5.0.8 | runtime | MIT | allowed |
 | braces | 3.0.3 | runtime | MIT | allowed |
 | browser-fs-access | 0.29.1 | runtime | Apache-2.0 | allowed |
 | browserslist | 4.28.6 | runtime | MIT | allowed |
@@ -832,7 +831,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | encodeurl | 2.0.0 | runtime | MIT | allowed |
 | encoding-japanese | 2.2.0 | runtime | MIT | allowed |
 | end-of-stream | 1.4.5 | runtime | MIT | allowed |
-| enhanced-resolve | 5.24.2 | runtime | MIT | allowed |
+| enhanced-resolve | 5.24.3 | runtime | MIT | allowed |
 | entities | 4.5.0 | runtime | BSD-2-Clause | allowed |
 | entities | 6.0.1 | runtime | BSD-2-Clause | allowed |
 | entities | 7.0.1 | runtime | BSD-2-Clause | allowed |
@@ -876,7 +875,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | fast-deep-equal | 3.1.3 | runtime | MIT | allowed |
 | fast-equals | 5.4.1 | runtime | MIT | allowed |
 | fast-fifo | 1.3.2 | runtime | MIT | allowed |
-| fast-uri | 3.1.3 | runtime | BSD-3-Clause | allowed |
+| fast-uri | 3.1.4 | runtime | BSD-3-Clause | allowed |
 | fault | 1.0.4 | runtime | MIT | allowed |
 | fault | 2.0.1 | runtime | MIT | allowed |
 | fd-slicer | 1.1.0 | runtime | MIT | allowed |
@@ -1038,7 +1037,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | lines-and-columns | 1.2.4 | runtime | MIT | allowed |
 | linkify-it | 5.0.2 | runtime | MIT | allowed |
 | linkifyjs | 4.3.3 | runtime | MIT | allowed |
-| loader-runner | 4.3.2 | runtime | MIT | allowed |
 | locate-path | 6.0.0 | runtime | MIT | allowed |
 | lodash-es | 4.18.1 | runtime | MIT | allowed |
 | lodash.debounce | 4.0.8 | runtime | MIT | allowed |
@@ -1140,6 +1138,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | ms | 2.1.3 | runtime | MIT | allowed |
 | multimath | 2.0.0 | runtime | MIT | allowed |
 | nanoid | 3.3.12 | runtime | MIT | allowed |
+| nanoid | 3.3.16 | runtime | MIT | allowed |
 | nanoid | 5.1.16 | runtime | MIT | allowed |
 | nanostores | 1.4.0 | runtime | MIT | allowed |
 | napi-build-utils | 2.0.0 | runtime | MIT | allowed |
@@ -1150,7 +1149,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | next-intl-swc-plugin-extractor | 4.13.2 | runtime | MIT | allowed |
 | next-intl | 4.13.2 | runtime | MIT | allowed |
 | next-themes | 0.4.6 | runtime | MIT | allowed |
-| next | 16.2.10 | runtime | MIT | allowed |
+| next | 16.2.12 | runtime | MIT | allowed |
 | node-abi | 3.94.0 | runtime | MIT | allowed |
 | node-addon-api | 7.1.1 | runtime | MIT | allowed |
 | node-domexception | 1.0.0 | runtime | MIT | allowed |
@@ -1229,7 +1228,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | points-on-path | 0.2.1 | runtime | MIT | allowed |
 | postcss-nesting | 13.0.2 | runtime | MIT-0 | allowed |
 | postcss-selector-parser | 7.1.4 | runtime | MIT | allowed |
-| postcss | 8.5.15 | runtime | MIT | allowed |
+| postcss | 8.5.23 | runtime | MIT | allowed |
 | postgres-array | 2.0.0 | runtime | MIT | allowed |
 | postgres-bytea | 1.0.1 | runtime | MIT | allowed |
 | postgres-date | 1.0.7 | runtime | MIT | allowed |
@@ -1342,7 +1341,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | set-cookie-parser | 3.1.2 | runtime | MIT | allowed |
 | setimmediate | 1.0.5 | runtime | MIT | allowed |
 | setprototypeof | 1.2.0 | runtime | ISC | allowed |
-| sharp | 0.34.5 | runtime | Apache-2.0 | allowed |
+| sharp | 0.35.2 | runtime | Apache-2.0 | allowed |
 | sharp | 0.35.3 | runtime | Apache-2.0 | allowed |
 | shebang-command | 2.0.0 | runtime | MIT | allowed |
 | shebang-regex | 3.0.0 | runtime | MIT | allowed |
@@ -1469,7 +1468,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | webidl-conversions | 3.0.1 | runtime | BSD-2-Clause | allowed |
 | webidl-conversions | 8.0.1 | runtime | BSD-2-Clause | allowed |
 | webpack-sources | 3.5.1 | runtime | MIT | allowed |
-| webpack | 5.108.4 | runtime | MIT | allowed |
+| webpack | 5.109.0 | runtime | MIT | allowed |
 | webworkify | 1.5.0 | runtime | MIT | allowed |
 | whatwg-mimetype | 5.0.0 | runtime | MIT | allowed |
 | whatwg-url | 16.0.1 | runtime | MIT | allowed |
@@ -7183,38 +7182,6 @@ IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
 CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
-### License text 3e4463779450
-
-Applies to acorn-import-phases@1.0.4.
-
-Copyright notices:
-
-- Copyright (c) 2025 Nicolò Ribaudo
-
-```text
-MIT License
-
-Copyright (c) 2025 Nicolò Ribaudo
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
-```
-
 ### License text 3e6849627f74
 
 Applies to d3-array@3.2.4, d3@7.9.0.
@@ -8334,38 +8301,6 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-```
-
-### License text 498d39c83164
-
-Applies to loader-runner@4.3.2.
-
-Copyright notices:
-
-- Copyright (c) Tobias Koppers @sokra
-
-```text
-The MIT License
-
-Copyright (c) Tobias Koppers @sokra
-
-Permission is hereby granted, free of charge, to any person obtaining a copy
-of this software and associated documentation files (the "Software"), to deal
-in the Software without restriction, including without limitation the rights
-to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
-copies of the Software, and to permit persons to whom the Software is
-furnished to do so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in
-all copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN
-THE SOFTWARE.
 ```
 
 ### License text 49d4d143fed5
@@ -10895,7 +10830,7 @@ THIS SOFTWARE.
 
 ### License text 5be1f3465bba
 
-Applies to postcss@8.5.15.
+Applies to postcss@8.5.23.
 
 Copyright notices:
 
@@ -12135,7 +12070,7 @@ SOFTWARE.
 
 ### License text 6895190430d8
 
-Applies to @hono/node-server@1.19.14.
+Applies to @hono/node-server@2.0.12.
 
 Copyright notices:
 
@@ -13140,7 +13075,7 @@ THE SOFTWARE.
 
 ### License text 73ba74dfaa52
 
-Applies to sharp@0.34.5, sharp@0.35.3.
+Applies to sharp@0.35.2, sharp@0.35.3.
 
 Copyright notices:
 
@@ -16580,7 +16515,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### License text 9068a8782d2f
 
-Applies to enhanced-resolve@5.24.2, minimizer-webpack-plugin@5.6.1, schema-utils@4.3.3, watchpack@2.5.2, webpack@5.108.4.
+Applies to enhanced-resolve@5.24.3, minimizer-webpack-plugin@5.6.1, schema-utils@4.3.3, watchpack@2.5.2, webpack@5.109.0.
 
 Copyright notices:
 
@@ -18901,7 +18836,7 @@ SOFTWARE.
 
 ### License text 9c63a23124d6
 
-Applies to brace-expansion@5.0.7.
+Applies to brace-expansion@5.0.8.
 
 Copyright notices:
 
@@ -26811,7 +26746,7 @@ SOFTWARE.
 
 ### License text da4db1480d9b
 
-Applies to nanoid@3.3.12.
+Applies to nanoid@3.3.12, nanoid@3.3.16.
 
 Copyright notices:
 
@@ -28094,7 +28029,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text df7464922225
 
-Applies to fast-uri@3.1.3.
+Applies to fast-uri@3.1.4.
 
 Copyright notices:
 
@@ -29777,7 +29712,7 @@ SOFTWARE.**
 
 ### License text ee765244e2d5
 
-Applies to @next/env@16.2.10, @next/swc-darwin-arm64@16.2.10, @next/swc-darwin-x64@16.2.10, @next/swc-linux-arm64-gnu@16.2.10, @next/swc-linux-arm64-musl@16.2.10, @next/swc-linux-x64-gnu@16.2.10, @next/swc-linux-x64-musl@16.2.10, @next/swc-win32-arm64-msvc@16.2.10, @next/swc-win32-x64-msvc@16.2.10, next@16.2.10.
+Applies to @next/env@16.2.12, @next/swc-darwin-arm64@16.2.12, @next/swc-darwin-x64@16.2.12, @next/swc-linux-arm64-gnu@16.2.12, @next/swc-linux-arm64-musl@16.2.12, @next/swc-linux-x64-gnu@16.2.12, @next/swc-linux-x64-musl@16.2.12, @next/swc-win32-arm64-msvc@16.2.12, @next/swc-win32-x64-msvc@16.2.12, next@16.2.12.
 
 Copyright notices:
 

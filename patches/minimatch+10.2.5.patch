@@ -1,0 +1,16 @@
+diff --git a/node_modules/minimatch/dist/commonjs/index.js b/node_modules/minimatch/dist/commonjs/index.js
+index 5a69834..4694978 100644
+--- a/node_modules/minimatch/dist/commonjs/index.js
++++ b/node_modules/minimatch/dist/commonjs/index.js
+@@ -1124,4 +1124,11 @@ exports.minimatch.AST = ast_js_1.AST;
+ exports.minimatch.Minimatch = Minimatch;
+ exports.minimatch.escape = escape_js_1.escape;
+ exports.minimatch.unescape = unescape_js_1.unescape;
++// Preserve the callable CommonJS export used by minimatch 2-9 consumers.
++// The named properties keep the minimatch 10 API available at the same time.
++const commonJsApi = Object.assign(exports.minimatch, exports, {
++    default: exports.minimatch,
++});
++Object.defineProperty(commonJsApi, "__esModule", { value: true });
++module.exports = commonJsApi;
+ //# sourceMappingURL=index.js.map

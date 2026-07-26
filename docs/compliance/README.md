@@ -76,7 +76,7 @@ Die zuvor 29 blockierenden Docker-/Sharp-Positionen sind technisch aufgeloest:
   Gesamtinventar `review_required`, sind aber keine Canvas-Binaerlieferung und
   daher keine Release-Blocker.
 - Canvas baut libvips 8.18.3 unveraendert aus dem exakt gehashten
-  Upstream-Archiv als austauschbare Shared Library, baut sharp 0.34.5 und
+  Upstream-Archiv als austauschbare Shared Library, baut sharp 0.35.2 und
   0.35.3 dagegen und liefert LGPL-Text, Quellarchiv und Austauschanleitung aus.
 
 `npm run test:licenses:release` ist damit statisch gruen. `npm run

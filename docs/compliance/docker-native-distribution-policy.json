@@ -69,7 +69,7 @@
     "license": "LGPL-2.1-or-later",
     "licenseTextPath": "docs/compliance/license-texts/LGPL-2.1-or-later.txt",
     "sharpVersions": [
-      "0.34.5",
+      "0.35.2",
       "0.35.3"
     ],
     "linkage": "shared",

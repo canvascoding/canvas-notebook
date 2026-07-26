@@ -781,8 +781,8 @@ Status: alle 28 Positionen technisch untersucht, weiterhin
 | Feld | Ergebnis |
 | --- | --- |
 | Paketfamilien | 20 `@img/sharp-libvips-*`, 6 `@img/sharp-win32-*`, 2 `@img/sharp-wasm32` |
-| Versionslinien | `sharp` 0.34.5 / `sharp-libvips` 1.2.4 / libvips 8.17.3 sowie `sharp` 0.35.3 / `sharp-libvips` 1.3.2 / libvips 8.18.3 |
-| Source-Commits | `e0624568686516209c434de2d3c0ef6688f0811d`, `1018449164723ba0203c1beffaba0e21f7829c18`, `20b5e899954907a3039d6e3d4c200aaa0ec52c4c`, `4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6` |
+| Versionslinien | `sharp` 0.35.2 / `sharp-libvips` 1.3.1 / libvips 8.18.3 sowie `sharp` 0.35.3 / `sharp-libvips` 1.3.2 / libvips 8.18.3 |
+| Source-Commits | `c9622a38edfc6fc709764152ea34332ba01619cf`, `1018449164723ba0203c1beffaba0e21f7829c18`, `6d80db40e9f37e311c13d1149745fcd80b5466db`, `4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6` |
 | Ergebnis POSIX/macOS | npm-Archive ohne Lizenzdatei; zahlreiche statisch eingebaute Drittbibliotheken |
 | Ergebnis Windows/WASM | npm-`LICENSE` deckt nur Apache-2.0 fuer sharp ab, nicht die LGPL-/MIT- und weiteren Bundle-Bestandteile |
 | Canvas-Modifikation | keine Aenderung der Upstream-Binaerdateien |

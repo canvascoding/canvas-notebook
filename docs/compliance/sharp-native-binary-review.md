@@ -1,6 +1,6 @@
 # sharp/libvips Native Binary Review
 
-Stand: 2026-07-17
+Stand: 2026-07-26
 
 ## Abschlussupdate: Ausschluss der vorgebauten Archive
 
@@ -9,7 +9,7 @@ Die 28 unvollstaendig belegten `@img/sharp-libvips-*`,
 sichtbar und `review_required`. Sie blockieren Canvas-Releases aber nicht
 mehr, weil sie nicht mehr von Canvas ausgeliefert werden:
 
-- Alle 50 optionalen `@img/sharp-*`-Lockfile-Positionen sind als
+- Alle 52 optionalen `@img/sharp-*`-Lockfile-Positionen sind als
   `source-development-install` klassifiziert. Ein Lockfile-Verweis ist kein
   von Canvas gebuendeltes Binaerartefakt; ein Source-Nutzer laedt optionale
   Pakete unmittelbar von npm.
@@ -28,7 +28,7 @@ Das Archiv bleibt unveraendert, wird im Image unter
 mit LGPL-2.1-or-later, Dockerfile und Austauschanleitung in das native
 Release-Evidenzarchiv aufgenommen.
 
-Sharp 0.35.3 und die von Next.js verwendete Version 0.34.5 werden beide lokal
+Sharp 0.35.3 und die von Next.js verwendete Version 0.35.2 werden beide lokal
 gegen `/usr/local/lib/libvips*.so*` gebaut. Je Plattform muss CI:
 
 1. beide lokalen `.node`-Addons samt Hash inventarisieren,
@@ -87,6 +87,7 @@ Primaerquellen:
 
 - `https://www.gnu.org/licenses/lgpl+gpl-3.0-standalone.html`
 - `https://sharp.pixelplumbing.com/install/`
+- `https://github.com/lovell/sharp-libvips/tree/6d80db40e9f37e311c13d1149745fcd80b5466db`
 - `https://github.com/lovell/sharp-libvips/tree/4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6`
 
 Die verantwortliche Erstfreigabe des Gesamtinventars ist dokumentiert. Sie
@@ -100,15 +101,15 @@ Der Lockfile-Bestand umfasst zwei getrennte `sharp`-Linien:
 | Verwendung | sharp | sharp Source-Commit | sharp-libvips | sharp-libvips Source-Commit | libvips |
 | --- | --- | --- | --- | --- | --- |
 | direkte Canvas-Abhaengigkeit | 0.35.3 | `1018449164723ba0203c1beffaba0e21f7829c18` | 1.3.2 | `4da6d14c0d59866adfb9d8cf52bcaa53846dc4f6` | 8.18.3 |
-| Next.js optional | 0.34.5 | `e0624568686516209c434de2d3c0ef6688f0811d` | 1.2.4 | `20b5e899954907a3039d6e3d4c200aaa0ec52c4c` | 8.17.3 |
+| Next.js optional | 0.35.2 | `c9622a38edfc6fc709764152ea34332ba01619cf` | 1.3.1 | `6d80db40e9f37e311c13d1149745fcd80b5466db` | 8.18.3 |
 
 Die 28 Reviewpositionen bestehen aus:
 
 | Familie | Plattformen | Versionen | Anzahl | npm-Deklaration |
 | --- | --- | --- | ---: | --- |
-| `@img/sharp-libvips-*` | darwin-arm64, darwin-x64, linux-arm, linux-arm64, linux-ppc64, linux-riscv64, linux-s390x, linux-x64, linuxmusl-arm64, linuxmusl-x64 | 1.2.4, 1.3.2 | 20 | `LGPL-3.0-or-later` |
-| `@img/sharp-win32-*` | arm64, ia32, x64 | 0.34.5, 0.35.3 | 6 | `Apache-2.0 AND LGPL-3.0-or-later` |
-| `@img/sharp-wasm32` | wasm32 | 0.34.5, 0.35.3 | 2 | `Apache-2.0 AND LGPL-3.0-or-later AND MIT` |
+| `@img/sharp-libvips-*` | darwin-arm64, darwin-x64, linux-arm, linux-arm64, linux-ppc64, linux-riscv64, linux-s390x, linux-x64, linuxmusl-arm64, linuxmusl-x64 | 1.3.1, 1.3.2 | 20 | `LGPL-3.0-or-later` |
+| `@img/sharp-win32-*` | arm64, ia32, x64 | 0.35.2, 0.35.3 | 6 | `Apache-2.0 AND LGPL-3.0-or-later` |
+| `@img/sharp-wasm32` | wasm32 | 0.35.2, 0.35.3 | 2 | `Apache-2.0 AND LGPL-3.0-or-later AND MIT` |
 
 Paketpfad, Version, signierte npm-Integritaet und Tarball-URL stehen
 versionsgenau in `package-lock.json`. Der Lizenzcache bindet jeden dieser
@@ -129,8 +130,7 @@ Die Linux-x64-Archive enthalten:
 - `README.md`,
 - `package.json`,
 - `versions.json`,
-- `libvips-cpp.so.8.17.3` beziehungsweise
-  `libvips-cpp.so.8.18.3`,
+- `libvips-cpp.so.8.18.3`,
 - aber keine `LICENSE`-, `COPYING`- oder vollstaendige Notice-Datei.
 
 Die README nennt die Bibliotheksfamilien und ihre Kurzlizenzen. Der
@@ -157,8 +157,8 @@ enthalten. Es muss die exakten Quellstaende, Buildskripte und alle von
 ### Windows-Pakete
 
 Die Windows-x64-Archive enthalten neben dem nativen `sharp`-Addon
-`libvips-42.dll` und `libvips-cpp-8.17.3.dll` beziehungsweise
-`libvips-cpp-8.18.3.dll`. Ihre `LICENSE`-Datei enthaelt nur Apache-2.0 fuer
+`libvips-42.dll` und `libvips-cpp-8.18.3.dll`. Ihre `LICENSE`-Datei enthaelt
+nur Apache-2.0 fuer
 `sharp`. Die README nennt zwar die eingebauten Drittbibliotheken, liefert
 aber weder LGPL/GPL noch deren vollstaendige Einzeltexte.
 
