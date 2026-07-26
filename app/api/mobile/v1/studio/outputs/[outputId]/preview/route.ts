@@ -49,7 +49,7 @@ export async function GET(
         { status: 404, headers: mobileStudioResponseHeaders },
       );
     }
-    const extension = path.extname(output.filePath || output.fileName).slice(1).toLowerCase();
+    const extension = path.extname(output.filePath || output.fileName || '').slice(1).toLowerCase();
     if (!isSupportedPreviewExtension(extension)) {
       return NextResponse.json(
         { success: false, error: 'This output has no visual preview.', code: 'OUTPUT_PREVIEW_UNAVAILABLE' },
