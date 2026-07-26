@@ -39,6 +39,19 @@ const runtimeResolutionCalls: Array<{
 const quarantinedSettlements: Promise<unknown>[] = [];
 let releaseDetachedTimeoutOperation: (() => void) | null = null;
 const agentResponsePushCalls: Array<{ userId: string; workspaceId: string; sessionId: string }> = [];
+const automationStatusPushCalls: Array<{
+  userId: string;
+  workspaceId: string;
+  runId: string;
+  jobName: string;
+  status: 'success' | 'failed';
+}> = [];
+const failurePushCalls: Array<{
+  userId: string;
+  workspaceId: string;
+  entityKind: 'studio' | 'automation';
+  entityId: string;
+}> = [];
 
 const testModel = {
   id: 'test-model',
@@ -92,7 +105,25 @@ moduleInternals._load = (request, parent, isMain) => {
         agentResponsePushCalls.push(input);
         return { attempted: 1, accepted: 1 };
       },
-      sendFailureAttentionPush: async () => ({ attempted: 1, accepted: 1 }),
+      sendAutomationRunStatusPush: async (input: {
+        userId: string;
+        workspaceId: string;
+        runId: string;
+        jobName: string;
+        status: 'success' | 'failed';
+      }) => {
+        automationStatusPushCalls.push(input);
+        return { attempted: 1, accepted: 1 };
+      },
+      sendFailureAttentionPush: async (input: {
+        userId: string;
+        workspaceId: string;
+        entityKind: 'studio' | 'automation';
+        entityId: string;
+      }) => {
+        failurePushCalls.push(input);
+        return { attempted: 1, accepted: 1 };
+      },
     };
   }
 
@@ -819,6 +850,71 @@ async function main() {
   assert.equal(retrySessions.length, 1);
   assert.equal(agentLoopStreamFns.at(-1), testStreamFn);
   assert.equal(agentResponsePushCalls.length, 3, 'a successful retry must emit one unread-aware response push');
+
+  const scheduledSuccessJob = await createAutomationJob(
+    {
+      name: 'Scheduled Success',
+      prompt: 'Complete the scheduled work.',
+      preferredSkill: 'auto',
+      workspaceContextPaths: [],
+      targetOutputPath: null,
+      agentId,
+      deliveryMode: 'web',
+      deliverySessionMode: 'new_session',
+      schedule: { kind: 'interval', every: 1, unit: 'hours', timeZone: 'UTC' },
+    },
+    userId,
+  );
+  const scheduledSuccessRun = await scheduleAutomationJobRun(scheduledSuccessJob.id, 'scheduled', now);
+  assert.ok(scheduledSuccessRun);
+  const responsePushesBeforeScheduledSuccess = agentResponsePushCalls.length;
+  await executeAutomationRun(scheduledSuccessRun.id);
+  assert.equal((await getAutomationRun(scheduledSuccessRun.id))?.status, 'success');
+  assert.equal(agentResponsePushCalls.length, responsePushesBeforeScheduledSuccess);
+  assert.deepEqual(automationStatusPushCalls.at(-1), {
+    userId,
+    workspaceId: scheduledSuccessJob.workspaceId,
+    runId: scheduledSuccessRun.id,
+    jobName: scheduledSuccessJob.name,
+    status: 'success',
+  });
+
+  const scheduledFailureJob = await createAutomationJob(
+    {
+      name: 'Scheduled Failure',
+      prompt: 'Fail after all scheduled retries.',
+      preferredSkill: 'auto',
+      workspaceContextPaths: [],
+      targetOutputPath: null,
+      agentId,
+      deliveryMode: 'web',
+      deliverySessionMode: 'new_session',
+      schedule: { kind: 'interval', every: 1, unit: 'hours', timeZone: 'UTC' },
+    },
+    userId,
+  );
+  const scheduledFailureRun = await scheduleAutomationJobRun(scheduledFailureJob.id, 'scheduled', now);
+  assert.ok(scheduledFailureRun);
+  const statusPushesBeforeScheduledFailure = automationStatusPushCalls.length;
+  const failurePushesBeforeScheduledFailure = failurePushCalls.length;
+  agentLoopMode = 'empty-error';
+  await executeAutomationRun(scheduledFailureRun.id);
+  assert.equal((await getAutomationRun(scheduledFailureRun.id))?.status, 'retry_scheduled');
+  assert.equal(automationStatusPushCalls.length, statusPushesBeforeScheduledFailure);
+  await executeAutomationRun(scheduledFailureRun.id);
+  assert.equal((await getAutomationRun(scheduledFailureRun.id))?.status, 'retry_scheduled');
+  assert.equal(automationStatusPushCalls.length, statusPushesBeforeScheduledFailure);
+  await executeAutomationRun(scheduledFailureRun.id);
+  agentLoopMode = 'success';
+  assert.equal((await getAutomationRun(scheduledFailureRun.id))?.status, 'failed');
+  assert.equal(failurePushCalls.length, failurePushesBeforeScheduledFailure);
+  assert.deepEqual(automationStatusPushCalls.slice(statusPushesBeforeScheduledFailure), [{
+    userId,
+    workspaceId: scheduledFailureJob.workspaceId,
+    runId: scheduledFailureRun.id,
+    jobName: scheduledFailureJob.name,
+    status: 'failed',
+  }]);
 
   const organization = await db.query.canvasOrganizationSettings.findFirst();
   assert.ok(organization);

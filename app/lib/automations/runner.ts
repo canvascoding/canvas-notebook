@@ -37,7 +37,11 @@ import {
   workspaceToPiSessionFields,
 } from '@/app/lib/pi/session-workspace-context';
 import { findOwnedPiSessionForRuntime, isPiSessionInWorkspace } from '@/app/lib/pi/session-runtime-access';
-import { sendAgentResponseReadyPush } from '@/app/lib/mobile/push-devices';
+import {
+  sendAgentResponseReadyPush,
+  sendAutomationRunStatusPush,
+  sendFailureAttentionPush,
+} from '@/app/lib/mobile/push-devices';
 import {
   PiSessionBusyError,
   withExclusivePiSessionExecution,
@@ -104,19 +108,33 @@ class AutomationRunClaimLostError extends Error {
   }
 }
 
-async function sendAutomationFailurePush(input: {
+async function sendAutomationTerminalPush(input: {
   userId: string;
   workspaceId: string | null;
   runId: string;
+  jobName: string;
+  triggerType: AutomationRunRecord['triggerType'];
+  status: 'success' | 'failed';
 }): Promise<void> {
+  if (input.status === 'success' && input.triggerType !== 'scheduled') return;
   try {
-    const { sendFailureAttentionPush } = await import('@/app/lib/mobile/push-devices');
-    await sendFailureAttentionPush({
-      userId: input.userId,
-      workspaceId: input.workspaceId || LEGACY_PERSONAL_WORKSPACE_ID,
-      entityKind: 'automation',
-      entityId: input.runId,
-    });
+    const workspaceId = input.workspaceId || LEGACY_PERSONAL_WORKSPACE_ID;
+    if (input.triggerType === 'scheduled') {
+      await sendAutomationRunStatusPush({
+        userId: input.userId,
+        workspaceId,
+        runId: input.runId,
+        jobName: input.jobName,
+        status: input.status,
+      });
+    } else {
+      await sendFailureAttentionPush({
+        userId: input.userId,
+        workspaceId,
+        entityKind: 'automation',
+        entityId: input.runId,
+      });
+    }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send automation push notification.';
     console.warn('[Automationen] Push notification failed:', message);
@@ -746,7 +764,16 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           console.warn(`[Automationen] Run ${runId} completed but its terminal transition lost the run CAS`);
           return;
         }
-        if (!heartbeatOk) {
+        if (run.triggerType === 'scheduled') {
+          await sendAutomationTerminalPush({
+            userId: automationUserId,
+            workspaceId: automationWorkspace.workspaceId,
+            runId: run.id,
+            jobName: job.name,
+            triggerType: run.triggerType,
+            status: 'success',
+          });
+        } else if (!heartbeatOk) {
           queueAutomationResponsePush({
             userId: automationUserId,
             workspaceId: automationWorkspace.workspaceId,
@@ -843,10 +870,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           console.warn(`[Automationen] Run ${runId} could not be marked failed because its status or attempt changed`);
           return;
         }
-        await sendAutomationFailurePush({
+        await sendAutomationTerminalPush({
           userId: automationUserId,
           workspaceId: job.workspaceId,
           runId: run.id,
+          jobName: job.name,
+          triggerType: run.triggerType,
+          status: 'failed',
         });
         if (pauseJobAfterFailure) {
           await updateAutomationJob(job.id, { status: 'paused' });
@@ -892,10 +922,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         console.warn(`[Automationen] Run ${runId} timeout lost the run CAS; leaving the current terminal state unchanged`);
         return;
       }
-      await sendAutomationFailurePush({
+      await sendAutomationTerminalPush({
         userId: automationUserId,
         workspaceId: job.workspaceId,
         runId: run.id,
+        jobName: job.name,
+        triggerType: run.triggerType,
+        status: 'failed',
       });
       console.error(`[Automationen] Run ${runId} exceeded its execution deadline (quiescent=${loopQuiescent}): ${message}`);
       return;
@@ -937,10 +970,13 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       console.warn(`[Automationen] Run ${runId} preparation failure lost the run CAS; leaving the current state unchanged`);
       return;
     }
-    await sendAutomationFailurePush({
+    await sendAutomationTerminalPush({
       userId: automationUserId,
       workspaceId: job.workspaceId,
       runId: run.id,
+      jobName: job.name,
+      triggerType: run.triggerType,
+      status: 'failed',
     });
     const duration = Date.now() - runStartTime;
     console.error(`[Automationen] Run ${runId} failed during preparation (duration=${duration}ms): ${message}`);

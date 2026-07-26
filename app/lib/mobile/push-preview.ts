@@ -295,3 +295,16 @@ export function createAgentResponseNotificationPreview(input: {
     body: truncatePreviewText(body || DEFAULT_CHAT_BODY, MAX_NOTIFICATION_BODY_LENGTH),
   };
 }
+
+export function createAutomationRunNotificationPreview(input: {
+  jobName: string;
+  status: 'success' | 'failed';
+}): MobilePushNotificationPreview {
+  const jobName = markdownToNotificationText(input.jobName);
+  return {
+    title: truncatePreviewText(jobName || 'Scheduled automation', MAX_NOTIFICATION_TITLE_LENGTH),
+    body: input.status === 'success'
+      ? 'Scheduled automation completed successfully.'
+      : 'Scheduled automation failed. Open the run for details.',
+  };
+}

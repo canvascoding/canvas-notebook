@@ -22,6 +22,26 @@ try {
       updated_at INTEGER NOT NULL
     );
 
+    CREATE TABLE mobile_push_devices (
+      id TEXT PRIMARY KEY NOT NULL,
+      installation_id TEXT NOT NULL UNIQUE,
+      user_id TEXT NOT NULL,
+      auth_session_id TEXT NOT NULL,
+      expo_push_token TEXT NOT NULL UNIQUE,
+      platform TEXT NOT NULL,
+      app_variant TEXT NOT NULL DEFAULT 'production',
+      enabled INTEGER NOT NULL DEFAULT 1,
+      agent_response_ready INTEGER NOT NULL DEFAULT 1,
+      todo_attention INTEGER NOT NULL DEFAULT 1,
+      studio_completed INTEGER NOT NULL DEFAULT 1,
+      failure_attention INTEGER NOT NULL DEFAULT 1,
+      last_registered_at INTEGER NOT NULL,
+      last_delivery_at INTEGER,
+      last_error_code TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
     CREATE TABLE pi_sessions (
       id INTEGER PRIMARY KEY AUTOINCREMENT NOT NULL,
       session_id TEXT NOT NULL,
@@ -317,6 +337,10 @@ try {
 
   assert.equal(tableExists(sqlite, 'ai_sessions'), false);
   assert.equal(tableExists(sqlite, 'ai_messages'), false);
+
+  const mobilePushDeviceColumns = getColumns(sqlite, 'mobile_push_devices');
+  assert.ok(mobilePushDeviceColumns.has('preview_enabled'));
+  assert.ok(mobilePushDeviceColumns.has('automation_run_status'));
 
   const piSessionColumns = getColumns(sqlite, 'pi_sessions');
   assert.ok(piSessionColumns.has('agent_id'));

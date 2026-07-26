@@ -9,6 +9,7 @@ import { getLicenseInstanceId } from '@/app/lib/license/instance';
 import { createPublicMobileInstanceId } from './compatibility';
 import {
   createAgentResponseNotificationPreview,
+  createAutomationRunNotificationPreview,
   createStudioPushPreviewUrl,
   STUDIO_PUSH_PREVIEW_TTL_SECONDS,
   type MobilePushNotificationPreview,
@@ -44,6 +45,7 @@ export type MobilePushPreferences = {
   todoAttention: boolean;
   studioCompleted: boolean;
   failureAttention: boolean;
+  automationRunStatus: boolean;
   previews: boolean;
 };
 
@@ -88,6 +90,12 @@ export type MobilePushTarget =
       workspaceId: string;
       entityKind: 'studio' | 'automation';
       entityId: string;
+    }
+  | {
+      type: 'automation.completed';
+      workspaceId: string;
+      runId: string;
+      status: 'success' | 'failed';
     };
 
 type MobilePushDeviceRow = {
@@ -100,6 +108,7 @@ type MobilePushDeviceRow = {
   todo_attention: number | boolean;
   studio_completed: number | boolean;
   failure_attention: number | boolean;
+  automation_run_status: number | boolean;
   preview_enabled: number | boolean;
   last_registered_at: number | string;
   last_delivery_at: number | string | null;
@@ -220,6 +229,7 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
       todoAttention: parseBooleanPreference(preferences, 'todoAttention'),
       studioCompleted: parseBooleanPreference(preferences, 'studioCompleted'),
       failureAttention: parseBooleanPreference(preferences, 'failureAttention'),
+      automationRunStatus: parseBooleanPreference(preferences, 'automationRunStatus', false),
       previews: parseBooleanPreference(preferences, 'previews', false),
     },
   };
@@ -242,6 +252,7 @@ function defaultPreferences(value: boolean): MobilePushPreferences {
     todoAttention: value,
     studioCompleted: value,
     failureAttention: value,
+    automationRunStatus: value,
     previews: value,
   };
 }
@@ -269,6 +280,7 @@ function deviceStatus(row: MobilePushDeviceRow | undefined): MobilePushDeviceSta
       todoAttention: Boolean(row.todo_attention),
       studioCompleted: Boolean(row.studio_completed),
       failureAttention: Boolean(row.failure_attention),
+      automationRunStatus: Boolean(row.automation_run_status),
       previews: Boolean(row.preview_enabled),
     },
     registeredAt: timestamp(row.last_registered_at),
@@ -370,7 +382,7 @@ export function agentResponsePushSuppressionReason(
 
 const DEVICE_SELECT = `id, expo_push_token, platform, app_variant, enabled,
   agent_response_ready, todo_attention, studio_completed, failure_attention,
-  preview_enabled, last_registered_at, last_delivery_at, last_error_code`;
+  automation_run_status, preview_enabled, last_registered_at, last_delivery_at, last_error_code`;
 
 export async function getMobilePushDeviceStatus(input: {
   userId: string;
@@ -445,9 +457,9 @@ export async function registerMobilePushDevice(input: {
         `INSERT INTO mobile_push_devices (
           id, installation_id, user_id, auth_session_id, expo_push_token, platform,
           app_variant, enabled, agent_response_ready, todo_attention, studio_completed,
-          failure_attention, preview_enabled, last_registered_at, last_delivery_at,
+          failure_attention, automation_run_status, preview_enabled, last_registered_at, last_delivery_at,
           last_error_code, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
         ON CONFLICT(installation_id) DO UPDATE SET
           user_id = excluded.user_id,
           auth_session_id = excluded.auth_session_id,
@@ -459,6 +471,7 @@ export async function registerMobilePushDevice(input: {
           todo_attention = excluded.todo_attention,
           studio_completed = excluded.studio_completed,
           failure_attention = excluded.failure_attention,
+          automation_run_status = excluded.automation_run_status,
           preview_enabled = excluded.preview_enabled,
           last_registered_at = excluded.last_registered_at,
           last_error_code = excluded.last_error_code,
@@ -476,6 +489,7 @@ export async function registerMobilePushDevice(input: {
           input.registration.preferences.todoAttention ? 1 : 0,
           input.registration.preferences.studioCompleted ? 1 : 0,
           input.registration.preferences.failureAttention ? 1 : 0,
+          input.registration.preferences.automationRunStatus ? 1 : 0,
           input.registration.preferences.previews ? 1 : 0,
           now,
           lastErrorCode,
@@ -521,6 +535,10 @@ function notificationBody(target: MobilePushTarget): string {
       return 'Your Studio result is ready.';
     case 'attention.failure':
       return 'Canvas work needs your attention.';
+    case 'automation.completed':
+      return target.status === 'success'
+        ? 'A scheduled automation completed successfully.'
+        : 'A scheduled automation failed.';
   }
 }
 
@@ -634,6 +652,8 @@ function pushPreferenceColumn(target: MobilePushTarget): string {
       return 'studio_completed';
     case 'attention.failure':
       return 'failure_attention';
+    case 'automation.completed':
+      return 'automation_run_status';
   }
 }
 
@@ -647,6 +667,8 @@ function pushEntityId(target: MobilePushTarget): string {
       return target.generationId;
     case 'attention.failure':
       return target.entityId;
+    case 'automation.completed':
+      return target.runId;
   }
 }
 
@@ -888,6 +910,34 @@ export async function sendFailureAttentionPush(input: {
       workspaceId: input.workspaceId,
       entityKind: input.entityKind,
       entityId: input.entityId,
+    },
+  });
+}
+
+export async function sendAutomationRunStatusPush(input: {
+  userId: string;
+  workspaceId: string;
+  runId: string;
+  jobName: string;
+  status: 'success' | 'failed';
+  instanceId?: string;
+  fetcher?: typeof fetch;
+  now?: number;
+}): Promise<{ attempted: number; accepted: number }> {
+  return sendMobileAttentionPush({
+    userId: input.userId,
+    instanceId: input.instanceId,
+    fetcher: input.fetcher,
+    now: input.now,
+    notification: createAutomationRunNotificationPreview({
+      jobName: input.jobName,
+      status: input.status,
+    }),
+    target: {
+      type: 'automation.completed',
+      workspaceId: input.workspaceId,
+      runId: input.runId,
+      status: input.status,
     },
   });
 }

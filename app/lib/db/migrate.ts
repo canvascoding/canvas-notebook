@@ -56,6 +56,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       todo_attention INTEGER NOT NULL DEFAULT 1,
       studio_completed INTEGER NOT NULL DEFAULT 1,
       failure_attention INTEGER NOT NULL DEFAULT 1,
+      automation_run_status INTEGER NOT NULL DEFAULT 0,
       preview_enabled INTEGER NOT NULL DEFAULT 0,
       last_registered_at INTEGER NOT NULL,
       last_delivery_at INTEGER,
@@ -1489,6 +1490,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     todo_attention: 'INTEGER NOT NULL DEFAULT 1',
     studio_completed: 'INTEGER NOT NULL DEFAULT 1',
     failure_attention: 'INTEGER NOT NULL DEFAULT 1',
+    automation_run_status: 'INTEGER NOT NULL DEFAULT 0',
+    preview_enabled: 'INTEGER NOT NULL DEFAULT 0',
   });
 
   addColumns(sqlite, 'organization_user_permissions', {

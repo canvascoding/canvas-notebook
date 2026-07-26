@@ -21,11 +21,13 @@ async function main() {
     pollMobilePushReceipts,
     registerMobilePushDevice,
     sendAgentResponseReadyPush,
+    sendAutomationRunStatusPush,
     sendMobileAttentionPush,
     unregisterMobilePushDevice,
   } = await import('../app/lib/mobile/push-devices');
   const {
     createAgentResponseNotificationPreview,
+    createAutomationRunNotificationPreview,
     createStudioPushPreviewUrl,
     issueStudioPushPreviewTicket,
     markdownToNotificationText,
@@ -131,6 +133,7 @@ async function main() {
       todoAttention: true,
       studioCompleted: false,
       failureAttention: true,
+      automationRunStatus: true,
       previews: true,
     },
   });
@@ -147,6 +150,7 @@ async function main() {
     todoAttention: true,
     studioCompleted: false,
     failureAttention: true,
+    automationRunStatus: true,
     previews: true,
   });
   const legacyRegistration = parseMobilePushRegistration({
@@ -156,6 +160,7 @@ async function main() {
     appVariant: 'production',
     preferences: { agentResponseReady: true },
   });
+  assert.equal(legacyRegistration.preferences.automationRunStatus, false);
   assert.equal(legacyRegistration.preferences.previews, false);
 
   assert.equal(
@@ -203,6 +208,38 @@ async function main() {
   assert.equal(previewMessages[0].title, 'Push session');
   assert.equal(previewMessages[0].body, 'Done See the finished report and code.');
   assert.equal(JSON.stringify(previewMessages).includes('private.example.test'), false);
+  assert.deepEqual(createAutomationRunNotificationPreview({
+    jobName: '**Daily** [brief](https://private.example.test)',
+    status: 'success',
+  }), {
+    title: 'Daily brief',
+    body: 'Scheduled automation completed successfully.',
+  });
+  assert.deepEqual(createAutomationRunNotificationPreview({
+    jobName: 'Daily brief',
+    status: 'failed',
+  }), {
+    title: 'Daily brief',
+    body: 'Scheduled automation failed. Open the run for details.',
+  });
+  const automationStatusMessages = createMobilePushMessages({
+    tokens: [registration.expoPushToken],
+    instanceId: 'cni_0123456789abcdef01234567',
+    target: {
+      type: 'automation.completed',
+      workspaceId: 'workspace-1',
+      runId: 'run-1',
+      status: 'success',
+    },
+  });
+  assert.deepEqual(automationStatusMessages[0].data, {
+    type: 'automation.completed',
+    instanceId: 'cni_0123456789abcdef01234567',
+    workspaceId: 'workspace-1',
+    runId: 'run-1',
+    status: 'success',
+  });
+  assert.equal(automationStatusMessages[0].body, 'A scheduled automation completed successfully.');
 
   const studioPreviewUrl = createStudioPushPreviewUrl({
     outputId: 'studio-output-1',
@@ -449,6 +486,33 @@ async function main() {
   });
   assert.deepEqual(mutedStudio, { attempted: 0, accepted: 0 });
 
+  let automationStatusPayload: unknown = null;
+  const automationStatusDelivery = await sendAutomationRunStatusPush({
+    userId: 'push-user',
+    workspaceId: 'workspace-1',
+    runId: 'run-scheduled-1',
+    jobName: '**Daily** brief',
+    status: 'success',
+    instanceId: 'cni_0123456789abcdef01234567',
+    now,
+    fetcher: async (_url, init) => {
+      automationStatusPayload = JSON.parse(String(init?.body));
+      return Response.json({
+        data: [{ status: 'error', details: { error: 'MessageTooBig' } }],
+      });
+    },
+  });
+  assert.deepEqual(automationStatusDelivery, { attempted: 1, accepted: 0 });
+  assert.deepEqual(automationStatusPayload, [{
+    ...automationStatusMessages[0],
+    title: 'Daily brief',
+    body: 'Scheduled automation completed successfully.',
+    data: {
+      ...automationStatusMessages[0].data,
+      runId: 'run-scheduled-1',
+    },
+  }]);
+
   let pushAttempts = 0;
   await sendMobileAttentionPush({
     userId: 'push-user',
@@ -559,6 +623,7 @@ async function main() {
     todoAttention: true,
     studioCompleted: true,
     failureAttention: true,
+    automationRunStatus: false,
     previews: false,
   });
 

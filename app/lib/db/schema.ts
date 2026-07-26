@@ -40,6 +40,7 @@ export const mobilePushDevices = sqliteTable("mobile_push_devices", {
   todoAttention: integer("todo_attention", { mode: "boolean" }).notNull().default(true),
   studioCompleted: integer("studio_completed", { mode: "boolean" }).notNull().default(true),
   failureAttention: integer("failure_attention", { mode: "boolean" }).notNull().default(true),
+  automationRunStatus: integer("automation_run_status", { mode: "boolean" }).notNull().default(false),
   previewEnabled: integer("preview_enabled", { mode: "boolean" }).notNull().default(false),
   lastRegisteredAt: integer("last_registered_at", { mode: "timestamp" }).notNull(),
   lastDeliveryAt: integer("last_delivery_at", { mode: "timestamp" }),
