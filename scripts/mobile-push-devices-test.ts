@@ -20,6 +20,10 @@ async function main() {
     sendMobileAttentionPush,
     unregisterMobilePushDevice,
   } = await import('../app/lib/mobile/push-devices');
+  const {
+    createAgentResponseNotificationPreview,
+    markdownToNotificationText,
+  } = await import('../app/lib/mobile/push-preview');
   const { closeDatabaseConnections, openDb } = await import('../app/lib/db');
   const database = await openDb();
   const now = Date.now();
@@ -40,7 +44,7 @@ async function main() {
        session_id, user_id, provider, model, title, created_at, updated_at,
        last_message_at, last_viewed_at, workspace_id, workspace_type
      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)`,
-    ['session-1', 'push-user', 'openai', 'test-model', 'Push session', now, now, responseAt, 'workspace-1', 'personal'],
+    ['session-1', 'push-user', 'openai', 'test-model', '**Push** session', now, now, responseAt, 'workspace-1', 'personal'],
   );
   const insertedSession = await database.get(
     'SELECT id FROM pi_sessions WHERE user_id = ? AND session_id = ?',
@@ -49,11 +53,28 @@ async function main() {
   await database.run(
     `INSERT INTO pi_messages (pi_session_db_id, role, content, timestamp, sequence)
      VALUES (?, 'assistant', ?, ?, 1)`,
-    [insertedSession.id, JSON.stringify({ role: 'assistant', content: 'Done', timestamp: responseAt }), responseAt],
+    [
+      insertedSession.id,
+      JSON.stringify({
+        role: 'assistant',
+        content: [{
+          type: 'text',
+          text: '# Done\n\nSee the **finished** [report](https://private.example.test/report) and `code`.',
+        }],
+        timestamp: responseAt,
+      }),
+      responseAt,
+    ],
   );
   await database.close();
 
-  const unreadState = { lastMessageAt: responseAt, lastViewedAt: null, lastAssistantMessageId: 1 };
+  const unreadState = {
+    lastMessageAt: responseAt,
+    lastViewedAt: null,
+    lastAssistantMessageId: 1,
+    lastAssistantMessageContent: JSON.stringify({ role: 'assistant', content: 'Done' }),
+    sessionTitle: 'Push session',
+  };
   assert.equal(agentResponsePushSuppressionReason(unreadState, unreadState), null);
   assert.equal(agentResponsePushSuppressionReason(unreadState, { ...unreadState, lastViewedAt: responseAt }), 'read');
   assert.equal(agentResponsePushSuppressionReason(unreadState, { ...unreadState, lastAssistantMessageId: 2 }), 'superseded');
@@ -68,6 +89,7 @@ async function main() {
       todoAttention: true,
       studioCompleted: false,
       failureAttention: true,
+      previews: true,
     },
   });
   const registered = await registerMobilePushDevice({
@@ -77,13 +99,42 @@ async function main() {
   });
   assert.equal(registered.registered, true);
   assert.equal(registered.enabled, true);
-  assert.equal(registered.preferences.previews, false);
+  assert.equal(registered.preferences.previews, true);
   assert.deepEqual(registered.preferences, {
     agentResponseReady: true,
     todoAttention: true,
     studioCompleted: false,
     failureAttention: true,
-    previews: false,
+    previews: true,
+  });
+  const legacyRegistration = parseMobilePushRegistration({
+    installationId: 'legacy-installation',
+    expoPushToken: 'ExpoPushToken[legacy-token]',
+    platform: 'android',
+    appVariant: 'production',
+    preferences: { agentResponseReady: true },
+  });
+  assert.equal(legacyRegistration.preferences.previews, false);
+
+  assert.equal(
+    markdownToNotificationText(
+      '# Heading\n\n- **First** item\n- [Second item](https://private.example.test)\n\n`inline`',
+    ),
+    'Heading First item Second item inline',
+  );
+  const notificationPreview = createAgentResponseNotificationPreview({
+    sessionTitle: '**Push** session',
+    serializedMessage: JSON.stringify({
+      role: 'assistant',
+      content: [{
+        type: 'text',
+        text: '# Done\n\nSee the **finished** [report](https://private.example.test/report) and `code`.',
+      }],
+    }),
+  });
+  assert.deepEqual(notificationPreview, {
+    title: 'Push session',
+    body: 'Done See the finished report and code.',
   });
 
   const messages = createAgentResponseReadyMessages({
@@ -100,6 +151,16 @@ async function main() {
   });
   assert.equal(messages[0].body.includes('workspace-1'), false);
   assert.equal(messages[0].body.includes('session-1'), false);
+  const previewMessages = createAgentResponseReadyMessages({
+    tokens: [registration.expoPushToken],
+    instanceId: 'cni_0123456789abcdef01234567',
+    workspaceId: 'workspace-1',
+    sessionId: 'session-1',
+    notification: notificationPreview,
+  });
+  assert.equal(previewMessages[0].title, 'Push session');
+  assert.equal(previewMessages[0].body, 'Done See the finished report and code.');
+  assert.equal(JSON.stringify(previewMessages).includes('private.example.test'), false);
 
   const categoryMessages = createMobilePushMessages({
     tokens: [registration.expoPushToken],
@@ -134,7 +195,7 @@ async function main() {
     },
   });
   assert.deepEqual(delivery, { attempted: 1, accepted: 1 });
-  assert.deepEqual(sentPayload, messages);
+  assert.deepEqual(sentPayload, previewMessages);
 
   let duplicatePushAttempts = 0;
   const duplicateFetcher = async () => {
@@ -395,6 +456,7 @@ async function main() {
     todoAttention: true,
     studioCompleted: true,
     failureAttention: true,
+    previews: false,
   });
 
   await unregisterMobilePushDevice({ userId: 'push-user', installationId: 'installation-1' });

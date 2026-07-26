@@ -77,6 +77,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'push.agent_response_ready',
   'push.attention_categories',
   'push.receipts',
+  'push.rich_previews',
   'notebook.documents',
   'notebook.revision_write',
   'notebook.image_import',

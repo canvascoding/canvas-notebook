@@ -7,6 +7,10 @@ import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
 
 import { createPublicMobileInstanceId } from './compatibility';
+import {
+  createAgentResponseNotificationPreview,
+  type MobilePushNotificationPreview,
+} from './push-preview';
 
 const EXPO_PUSH_ENDPOINT = 'https://exp.host/--/api/v2/push/send';
 const EXPO_RECEIPTS_ENDPOINT = 'https://exp.host/--/api/v2/push/getReceipts';
@@ -22,6 +26,8 @@ type AgentResponsePushReadState = {
   lastMessageAt: number;
   lastViewedAt: number | null;
   lastAssistantMessageId: number;
+  lastAssistantMessageContent: string;
+  sessionTitle: string | null;
 };
 
 type AgentResponsePushSuppressionReason = 'missing' | 'read' | 'superseded';
@@ -36,6 +42,7 @@ export type MobilePushPreferences = {
   todoAttention: boolean;
   studioCompleted: boolean;
   failureAttention: boolean;
+  previews: boolean;
 };
 
 export type MobilePushRegistration = {
@@ -52,9 +59,7 @@ export type MobilePushDeviceStatus = {
   enabled: boolean;
   platform: MobilePushPlatform | null;
   appVariant: MobileAppVariant | null;
-  preferences: MobilePushPreferences & {
-    previews: false;
-  };
+  preferences: MobilePushPreferences;
   registeredAt: string | null;
   lastDeliveryAt: string | null;
   lastErrorCode: string | null;
@@ -93,6 +98,7 @@ type MobilePushDeviceRow = {
   todo_attention: number | boolean;
   studio_completed: number | boolean;
   failure_attention: number | boolean;
+  preview_enabled: number | boolean;
   last_registered_at: number | string;
   last_delivery_at: number | string | null;
   last_error_code: string | null;
@@ -104,7 +110,7 @@ type MobilePushData = MobilePushTarget & {
 
 export type ExpoPushMessage = {
   to: string;
-  title: 'Canvas Notebook';
+  title: string;
   body: string;
   sound: 'default';
   priority: 'default';
@@ -168,12 +174,13 @@ function requiredString(value: unknown, field: string, maximumLength: number): s
 function parseBooleanPreference(
   preferences: Record<string, unknown>,
   key: keyof MobilePushPreferences,
+  defaultValue = true,
 ): boolean {
   const value = preferences[key];
   if (value !== undefined && typeof value !== 'boolean') {
     throw new MobilePushDeviceError('preferences are invalid.', 400, 'INVALID_DEVICE');
   }
-  return value !== false;
+  return value === undefined ? defaultValue : value;
 }
 
 export function parseMobilePushRegistration(value: unknown): MobilePushRegistration {
@@ -206,6 +213,7 @@ export function parseMobilePushRegistration(value: unknown): MobilePushRegistrat
       todoAttention: parseBooleanPreference(preferences, 'todoAttention'),
       studioCompleted: parseBooleanPreference(preferences, 'studioCompleted'),
       failureAttention: parseBooleanPreference(preferences, 'failureAttention'),
+      previews: parseBooleanPreference(preferences, 'previews', false),
     },
   };
 }
@@ -227,6 +235,7 @@ function defaultPreferences(value: boolean): MobilePushPreferences {
     todoAttention: value,
     studioCompleted: value,
     failureAttention: value,
+    previews: value,
   };
 }
 
@@ -237,7 +246,7 @@ function deviceStatus(row: MobilePushDeviceRow | undefined): MobilePushDeviceSta
       enabled: false,
       platform: null,
       appVariant: null,
-      preferences: { ...defaultPreferences(false), previews: false },
+      preferences: defaultPreferences(false),
       registeredAt: null,
       lastDeliveryAt: null,
       lastErrorCode: null,
@@ -253,7 +262,7 @@ function deviceStatus(row: MobilePushDeviceRow | undefined): MobilePushDeviceSta
       todoAttention: Boolean(row.todo_attention),
       studioCompleted: Boolean(row.studio_completed),
       failureAttention: Boolean(row.failure_attention),
-      previews: false,
+      previews: Boolean(row.preview_enabled),
     },
     registeredAt: timestamp(row.last_registered_at),
     lastDeliveryAt: timestamp(row.last_delivery_at),
@@ -290,13 +299,19 @@ async function loadAgentResponsePushReadState(input: {
 }): Promise<AgentResponsePushReadState | null> {
   return withConnection(async (connection) => {
     const row = await connection.get(
-      `SELECT last_message_at, last_viewed_at,
+      `SELECT pi_sessions.last_message_at, pi_sessions.last_viewed_at, pi_sessions.title AS session_title,
         (SELECT pi_messages.id
          FROM pi_messages
          WHERE pi_messages.pi_session_db_id = pi_sessions.id
            AND pi_messages.role = 'assistant'
          ORDER BY pi_messages.sequence DESC, pi_messages.id DESC
-         LIMIT 1) AS last_assistant_message_id
+         LIMIT 1) AS last_assistant_message_id,
+        (SELECT pi_messages.content
+         FROM pi_messages
+         WHERE pi_messages.pi_session_db_id = pi_sessions.id
+           AND pi_messages.role = 'assistant'
+         ORDER BY pi_messages.sequence DESC, pi_messages.id DESC
+         LIMIT 1) AS last_assistant_message_content
        FROM pi_sessions
        WHERE user_id = ? AND session_id = ? AND workspace_id = ?
        LIMIT 1`,
@@ -305,16 +320,29 @@ async function loadAgentResponsePushReadState(input: {
       last_message_at?: unknown;
       last_viewed_at?: unknown;
       last_assistant_message_id?: unknown;
+      last_assistant_message_content?: unknown;
+      session_title?: unknown;
     } | undefined;
     const lastMessageAt = timestampMilliseconds(row?.last_message_at);
     const lastViewedAt = row?.last_viewed_at === null || row?.last_viewed_at === undefined
       ? null
       : timestampMilliseconds(row.last_viewed_at);
     const lastAssistantMessageId = Number(row?.last_assistant_message_id);
-    if (lastMessageAt === null || !Number.isSafeInteger(lastAssistantMessageId) || lastAssistantMessageId < 1) {
+    if (
+      lastMessageAt === null
+      || !Number.isSafeInteger(lastAssistantMessageId)
+      || lastAssistantMessageId < 1
+      || typeof row?.last_assistant_message_content !== 'string'
+    ) {
       return null;
     }
-    return { lastMessageAt, lastViewedAt, lastAssistantMessageId };
+    return {
+      lastMessageAt,
+      lastViewedAt,
+      lastAssistantMessageId,
+      lastAssistantMessageContent: row.last_assistant_message_content,
+      sessionTitle: typeof row.session_title === 'string' ? row.session_title : null,
+    };
   });
 }
 
@@ -335,7 +363,7 @@ export function agentResponsePushSuppressionReason(
 
 const DEVICE_SELECT = `id, expo_push_token, platform, app_variant, enabled,
   agent_response_ready, todo_attention, studio_completed, failure_attention,
-  last_registered_at, last_delivery_at, last_error_code`;
+  preview_enabled, last_registered_at, last_delivery_at, last_error_code`;
 
 export async function getMobilePushDeviceStatus(input: {
   userId: string;
@@ -412,7 +440,7 @@ export async function registerMobilePushDevice(input: {
           app_variant, enabled, agent_response_ready, todo_attention, studio_completed,
           failure_attention, preview_enabled, last_registered_at, last_delivery_at,
           last_error_code, created_at, updated_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, NULL, ?, ?, ?)
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
         ON CONFLICT(installation_id) DO UPDATE SET
           user_id = excluded.user_id,
           auth_session_id = excluded.auth_session_id,
@@ -424,7 +452,7 @@ export async function registerMobilePushDevice(input: {
           todo_attention = excluded.todo_attention,
           studio_completed = excluded.studio_completed,
           failure_attention = excluded.failure_attention,
-          preview_enabled = 0,
+          preview_enabled = excluded.preview_enabled,
           last_registered_at = excluded.last_registered_at,
           last_error_code = excluded.last_error_code,
           updated_at = excluded.updated_at`,
@@ -441,6 +469,7 @@ export async function registerMobilePushDevice(input: {
           input.registration.preferences.todoAttention ? 1 : 0,
           input.registration.preferences.studioCompleted ? 1 : 0,
           input.registration.preferences.failureAttention ? 1 : 0,
+          input.registration.preferences.previews ? 1 : 0,
           now,
           lastErrorCode,
           now,
@@ -492,11 +521,12 @@ export function createMobilePushMessages(input: {
   tokens: string[];
   instanceId: string;
   target: MobilePushTarget;
+  notification?: MobilePushNotificationPreview;
 }): ExpoPushMessage[] {
   return input.tokens.map((token) => ({
     to: token,
-    title: 'Canvas Notebook',
-    body: notificationBody(input.target),
+    title: input.notification?.title || 'Canvas Notebook',
+    body: input.notification?.body || notificationBody(input.target),
     sound: 'default',
     priority: 'default',
     channelId: 'canvas-activity',
@@ -512,6 +542,7 @@ export function createAgentResponseReadyMessages(input: {
   instanceId: string;
   workspaceId: string;
   sessionId: string;
+  notification?: MobilePushNotificationPreview;
 }): ExpoPushMessage[] {
   return createMobilePushMessages({
     tokens: input.tokens,
@@ -521,6 +552,7 @@ export function createAgentResponseReadyMessages(input: {
       workspaceId: input.workspaceId,
       sessionId: input.sessionId,
     },
+    notification: input.notification,
   });
 }
 
@@ -685,6 +717,7 @@ async function recordTicketResult(input: {
 export async function sendMobileAttentionPush(input: {
   userId: string;
   target: MobilePushTarget;
+  notification?: MobilePushNotificationPreview;
   instanceId?: string;
   fetcher?: typeof fetch;
   now?: number;
@@ -709,11 +742,13 @@ export async function sendMobileAttentionPush(input: {
 
     for (let offset = 0; offset < rows.length; offset += MAX_EXPO_BATCH_SIZE) {
       const batch = rows.slice(offset, offset + MAX_EXPO_BATCH_SIZE);
-      const messages = createMobilePushMessages({
-        tokens: batch.map((row) => row.expo_push_token),
-        instanceId: input.instanceId || createPublicMobileInstanceId(getLicenseInstanceId()),
+      const instanceId = input.instanceId || createPublicMobileInstanceId(getLicenseInstanceId());
+      const messages = batch.flatMap((row) => createMobilePushMessages({
+        tokens: [row.expo_push_token],
+        instanceId,
         target: input.target,
-      });
+        notification: Boolean(row.preview_enabled) ? input.notification : undefined,
+      }));
       const response = await postExpoWithRetry({
         endpoint: EXPO_PUSH_ENDPOINT,
         body: messages,
@@ -775,6 +810,10 @@ export async function sendAgentResponseReadyPush(input: {
       userId: input.userId,
       instanceId: input.instanceId,
       fetcher: input.fetcher,
+      notification: createAgentResponseNotificationPreview({
+        sessionTitle: current?.sessionTitle || null,
+        serializedMessage: current?.lastAssistantMessageContent || '',
+      }),
       target: {
         type: 'agent.response_ready',
         workspaceId: input.workspaceId,
