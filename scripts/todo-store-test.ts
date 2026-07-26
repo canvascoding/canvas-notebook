@@ -458,6 +458,17 @@ async function main() {
   assert.equal(restored?.status, 'open');
   assert.equal(restored?.archivedAt, null);
 
+  await updateTodo('todo-user', created.id, { dueAt: new Date('2000-01-01T12:00:00.000Z') });
+  assert.ok((await listTodos('todo-user', { due: 'overdue' })).some((todo) => todo.id === created.id));
+
+  const todayDue = new Date();
+  todayDue.setHours(12, 0, 0, 0);
+  await updateTodo('todo-user', created.id, { dueAt: todayDue });
+  assert.ok((await listTodos('todo-user', { due: 'today' })).some((todo) => todo.id === created.id));
+
+  await updateTodo('todo-user', created.id, { dueAt: new Date('2999-01-01T12:00:00.000Z') });
+  assert.ok((await listTodos('todo-user', { due: 'upcoming' })).some((todo) => todo.id === created.id));
+
   assert.equal(normalizeWorkspaceTodoPath('docs/../docs/brief.md'), 'docs/brief.md');
   assert.throws(
     () => normalizeWorkspaceTodoPath('../outside.md'),

@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import path from 'node:path';
-import { and, asc, desc, eq, inArray, lt, ne, or, sql } from 'drizzle-orm';
+import { and, asc, desc, eq, gte, inArray, isNotNull, lt, ne, or, sql } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import {
@@ -855,14 +855,20 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
   }
   if (options.due) {
     const now = new Date();
+    const startOfToday = new Date(now);
+    startOfToday.setHours(0, 0, 0, 0);
     const startOfTomorrow = new Date(now);
     startOfTomorrow.setHours(24, 0, 0, 0);
     if (options.due === 'overdue') {
-      conditions.push(sql`${todoItems.dueAt} IS NOT NULL AND ${todoItems.dueAt} < ${now}`);
+      conditions.push(and(isNotNull(todoItems.dueAt), lt(todoItems.dueAt, now))!);
     } else if (options.due === 'today') {
-      conditions.push(sql`${todoItems.dueAt} IS NOT NULL AND ${todoItems.dueAt} < ${startOfTomorrow}`);
+      conditions.push(and(
+        isNotNull(todoItems.dueAt),
+        gte(todoItems.dueAt, startOfToday),
+        lt(todoItems.dueAt, startOfTomorrow),
+      )!);
     } else if (options.due === 'upcoming') {
-      conditions.push(sql`${todoItems.dueAt} IS NOT NULL AND ${todoItems.dueAt} >= ${startOfTomorrow}`);
+      conditions.push(and(isNotNull(todoItems.dueAt), gte(todoItems.dueAt, startOfTomorrow))!);
     }
   }
   if (options.query?.trim()) {
