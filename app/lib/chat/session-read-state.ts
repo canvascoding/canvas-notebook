@@ -1,6 +1,7 @@
 import { and, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { piSessions } from '@/app/lib/db/schema';
+import { piSessionReadCursorSql } from './read-cursor';
 import { hasUnreadAssistantResponse } from './unread';
 
 export type PiSessionReadStateResult = {
@@ -29,33 +30,32 @@ function buildReadStateResult(input: {
 }
 
 export async function markPiSessionAsReadForUser(input: SessionReadStateInput): Promise<PiSessionReadStateResult | null> {
-  const session = await db.query.piSessions.findFirst({
-    where: and(
+  const now = input.now ?? new Date();
+  const [session] = await db
+    .update(piSessions)
+    .set({
+      lastViewedAt: piSessionReadCursorSql(),
+      updatedAt: now,
+    })
+    .where(and(
       eq(piSessions.sessionId, input.sessionId),
       eq(piSessions.userId, input.userId),
       eq(piSessions.agentId, input.agentId),
-    ),
-    columns: {
-      id: true,
-      sessionId: true,
-      lastMessageAt: true,
-    },
-  });
+    ))
+    .returning({
+      sessionId: piSessions.sessionId,
+      lastMessageAt: piSessions.lastMessageAt,
+      lastViewedAt: piSessions.lastViewedAt,
+    });
 
   if (!session) {
     return null;
   }
 
-  const now = input.now ?? new Date();
-  await db
-    .update(piSessions)
-    .set({ lastViewedAt: now, updatedAt: now })
-    .where(eq(piSessions.id, session.id));
-
   return buildReadStateResult({
     sessionId: session.sessionId,
     lastMessageAt: session.lastMessageAt,
-    lastViewedAt: now,
+    lastViewedAt: session.lastViewedAt,
   });
 }
 

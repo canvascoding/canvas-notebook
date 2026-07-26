@@ -21,6 +21,7 @@ import {
 import { DEFAULT_AGENT_ID, WEB_CHANNEL_ID, normalizeStoredChannelId, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
+import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { listAgentAccessForUser, requireAgentAccess } from '@/app/lib/agents/access';
@@ -759,7 +760,7 @@ export async function PATCH(request: NextRequest) {
       }
       await db
         .update(piSessions)
-        .set({ lastViewedAt: now, updatedAt: now })
+        .set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now })
         .where(and(...conditions));
 
       return NextResponse.json({

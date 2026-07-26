@@ -2,6 +2,7 @@ import 'server-only';
 
 import { and, desc, eq, inArray, isNotNull, isNull, or, type AnyColumn, type SQL } from 'drizzle-orm';
 
+import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { db } from '@/app/lib/db';
 import {
@@ -312,7 +313,7 @@ export async function markMobileInboxRead(input: {
   const now = new Date();
   if (input.action === 'mark_all_read') {
     await Promise.all([
-      db.update(piSessions).set({ lastViewedAt: now, updatedAt: now }).where(and(
+      db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
         eq(piSessions.userId, input.userId),
         workspaceCondition(piSessions.workspaceId, input.workspace),
         isNotNull(piSessions.lastMessageAt),
@@ -333,7 +334,7 @@ export async function markMobileInboxRead(input: {
   const [kind, entityId] = input.itemId.split(':', 2);
   if (!entityId) throw new MobileInboxError('INVALID_ITEM', 'The Inbox item is invalid.', 400);
   if (kind === 'chat') {
-    const result = await db.update(piSessions).set({ lastViewedAt: now, updatedAt: now }).where(and(
+    const result = await db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
       eq(piSessions.userId, input.userId),
       eq(piSessions.sessionId, entityId),
       workspaceCondition(piSessions.workspaceId, input.workspace),

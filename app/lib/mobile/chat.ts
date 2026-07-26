@@ -6,10 +6,17 @@ import { and, desc, eq, inArray, isNotNull, isNull, lt, or, sql, type SQL } from
 import { listManagedAgents } from '@/app/lib/agents/management-actions';
 import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { requireAgentAccess } from '@/app/lib/agents/access';
-import { prepareSessionRuntimeSnapshot } from '@/app/lib/agent-runtime-policy/session-runtime-service';
+import { resolveEffectiveAgentRuntime } from '@/app/lib/agent-runtime-policy/runtime-resolver';
+import {
+  prepareSessionRuntimeSnapshot,
+  replaceSessionRuntimeSnapshot,
+  type AiSessionRuntimeUpdate,
+} from '@/app/lib/agent-runtime-policy/session-runtime-service';
+import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { WEB_CHANNEL_ID, webChannelSessionKey } from '@/app/lib/channels/constants';
 import { ensureDefaultAgent } from '@/app/lib/channels/agents';
 import { ensureSessionChannelLink } from '@/app/lib/channels/channel-links';
+import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
 import { db } from '@/app/lib/db';
 import { piMessages, piSessions, sessionChannelLinks } from '@/app/lib/db/schema';
@@ -22,7 +29,12 @@ import {
   stripAttachmentBlocks,
 } from '@/app/lib/chat/message-content';
 import { formatMobileToolInput } from '@/app/lib/mobile/tool-input';
-import { getActiveRuntimeStatusSummaries, getStatus } from '@/app/lib/pi/runtime-service';
+import {
+  getActiveRuntimeStatusSummaries,
+  getStatus,
+  invalidateRuntime,
+  withRuntimeSessionOperation,
+} from '@/app/lib/pi/runtime-service';
 import { parsePersistedPiMessage } from '@/app/lib/pi/message-projection';
 import { createPiSessionWithRuntimeSnapshot } from '@/app/lib/pi/session-store';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
@@ -366,6 +378,105 @@ export async function requireMobileChatSession(input: ChatActor & { sessionId: s
   return { session, workspace };
 }
 
+export async function getMobileChatSession(input: ChatActor & { sessionId: string }): Promise<MobileChatSession> {
+  const { session } = await requireMobileChatSession(input);
+  const runtime = await getActiveRuntimeStatusSummaries({
+    userId: input.userId,
+    sessionIds: [session.sessionId],
+  });
+  return {
+    id: session.sessionId,
+    title: session.title?.trim() || DEFAULT_SESSION_TITLE,
+    agentId: session.agentId,
+    createdAt: session.createdAt.toISOString(),
+    lastMessageAt: session.lastMessageAt?.toISOString() || null,
+    hasUnread: hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt),
+    runtime: {
+      phase: runtime[session.sessionId]?.phase || null,
+      activeToolName: runtime[session.sessionId]?.activeToolName || null,
+    },
+  };
+}
+
+function mobileRuntimeContext(input: {
+  userId: string;
+  session: { sessionId: string; agentId: string };
+  workspace: Awaited<ReturnType<typeof resolveChatWorkspace>>;
+}) {
+  if (!input.workspace.organizationId) {
+    throw new MobileChatError('ORGANIZATION_SETUP_REQUIRED', 'Complete the Canvas setup first.', 409);
+  }
+  return {
+    organizationId: input.workspace.organizationId,
+    userId: input.userId,
+    workspaceId: input.workspace.workspaceId,
+    workspaceType: input.workspace.workspaceType,
+    agentId: input.session.agentId,
+    sessionId: input.session.sessionId,
+    requestedSelection: null,
+  };
+}
+
+export async function getMobileChatRuntimeResolution(input: ChatActor & { sessionId: string }) {
+  const { session, workspace } = await requireMobileChatSession(input);
+  return resolveEffectiveAgentRuntime(mobileRuntimeContext({
+    userId: input.userId,
+    session,
+    workspace,
+  }));
+}
+
+export async function updateMobileChatRuntimeSelection(input: ChatActor & {
+  sessionId: string;
+  update: AiSessionRuntimeUpdate;
+}) {
+  const { session, workspace } = await requireMobileChatSession(input);
+  const context = mobileRuntimeContext({
+    userId: input.userId,
+    session,
+    workspace,
+  });
+  const result = await withRuntimeSessionOperation(session.sessionId, input.userId, async () => {
+    const activeRuntime = await getActiveRuntimeStatusSummaries({
+      userId: input.userId,
+      sessionIds: [session.sessionId],
+    });
+    if (activeRuntime[session.sessionId]) {
+      throw new MobileChatError(
+        'SESSION_ACTIVE',
+        'The model can only be changed while the agent is idle.',
+        409,
+      );
+    }
+    const updated = await replaceSessionRuntimeSnapshot({ context, update: input.update });
+    await invalidateRuntime(session.sessionId, input.userId);
+    return updated;
+  });
+
+  await recordAuditEvent({
+    organizationId: context.organizationId,
+    workspaceId: workspace.workspaceId,
+    userId: input.userId,
+    agentId: session.agentId,
+    sessionId: session.sessionId,
+    source: 'agent-runtime',
+    eventType: 'user',
+    entityType: 'pi_session',
+    entityId: session.sessionId,
+    action: 'pi_session_runtime.override',
+    status: 'success',
+    summary: 'AI runtime selection changed from the mobile chat composer.',
+    metadata: {
+      catalogRevision: result.snapshot.catalogRevision,
+      policyRevision: result.snapshot.policyRevision,
+      selectionSource: result.snapshot.selectionSource,
+      selection: result.snapshot.selection,
+    },
+  });
+
+  return result.resolution;
+}
+
 export async function updateMobileChatSession(input: ChatActor & {
   sessionId: string;
   title?: string;
@@ -387,12 +498,20 @@ export async function updateMobileChatSession(input: ChatActor & {
     }
   }
   const now = new Date();
-  await db.update(piSessions).set({
+  const [updatedSession] = await db.update(piSessions).set({
     ...(title === undefined ? {} : { title: title.slice(0, 120), titleGenerationState: 'manual' }),
-    ...(input.markAsRead === true ? { lastViewedAt: now } : {}),
+    ...(input.markAsRead === true ? { lastViewedAt: piSessionReadCursorSql() } : {}),
     ...(input.archived === undefined ? {} : { archivedAt: input.archived ? now : null }),
     updatedAt: now,
-  }).where(eq(piSessions.id, session.id));
+  }).where(eq(piSessions.id, session.id)).returning({
+    title: piSessions.title,
+    lastMessageAt: piSessions.lastMessageAt,
+    lastViewedAt: piSessions.lastViewedAt,
+    archivedAt: piSessions.archivedAt,
+  });
+  if (!updatedSession) {
+    throw new MobileChatError('SESSION_NOT_FOUND', 'The chat session was not found.', 404);
+  }
   if (title !== undefined) {
     await db.update(sessionChannelLinks)
       .set({ displayName: title.slice(0, 120), updatedAt: now })
@@ -403,12 +522,13 @@ export async function updateMobileChatSession(input: ChatActor & {
   }
   return {
     id: session.sessionId,
-    title: title === undefined ? session.title?.trim() || DEFAULT_SESSION_TITLE : title.slice(0, 120),
+    title: updatedSession.title?.trim() || DEFAULT_SESSION_TITLE,
     agentId: session.agentId,
     createdAt: session.createdAt.toISOString(),
-    lastMessageAt: session.lastMessageAt?.toISOString() || null,
-    hasUnread: input.markAsRead === true ? false : hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt),
-    archived: input.archived ?? Boolean(session.archivedAt),
+    lastMessageAt: updatedSession.lastMessageAt?.toISOString() || null,
+    lastViewedAt: updatedSession.lastViewedAt?.toISOString() || null,
+    hasUnread: hasUnreadAssistantResponse(updatedSession.lastMessageAt, updatedSession.lastViewedAt),
+    archived: Boolean(updatedSession.archivedAt),
   };
 }
 

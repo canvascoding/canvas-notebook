@@ -6,6 +6,7 @@ import { eq, and, asc, desc, gt } from 'drizzle-orm';
 import { type AgentMessage } from '@earendil-works/pi-agent-core';
 import { type PiSessionSummaryState } from './history-budget';
 import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
+import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
 import {
   createSessionTitleFallback,
   DEFAULT_PI_SESSION_TITLE,
@@ -598,15 +599,9 @@ export async function loadPiSessionWithSummary(
 }
 
 export async function markPiSessionAsRead(sessionId: string, userId: string, agentId?: string | null): Promise<void> {
-  const session = await db.query.piSessions.findFirst({
-    where: buildPiSessionLookup(sessionId, userId, agentId),
-  });
-
-  if (session) {
-    await db.update(piSessions)
-      .set({ lastViewedAt: new Date() })
-      .where(eq(piSessions.id, session.id));
-  }
+  await db.update(piSessions)
+    .set({ lastViewedAt: piSessionReadCursorSql() })
+    .where(buildPiSessionLookup(sessionId, userId, agentId));
 }
 
 export async function updatePiSessionLastMessageAt(sessionId: string, userId: string, timestamp: Date, agentId?: string | null): Promise<void> {

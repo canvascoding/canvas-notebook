@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
-import { eq } from 'drizzle-orm';
+import { and, eq } from 'drizzle-orm';
 
 const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-session-read-state-'));
 process.env.DATA = dataDir;
@@ -117,7 +117,25 @@ async function main() {
     now: readAt,
   });
   assert.equal(read?.hasUnread, false);
-  assert.equal(read?.lastViewedAt?.toISOString(), readAt.toISOString());
+  assert.equal(read?.lastViewedAt?.toISOString(), messageAt.toISOString());
+
+  await db.update(piSessions)
+    .set({
+      lastMessageAt: new Date('2026-05-31T12:20:00.000Z'),
+      lastViewedAt: null,
+    })
+    .where(and(
+      eq(piSessions.sessionId, 'sess-readable'),
+      eq(piSessions.userId, 'user-read-state'),
+    ));
+  const clockSkewRead = await markPiSessionAsReadForUser({
+    sessionId: 'sess-readable',
+    userId: 'user-read-state',
+    agentId: 'canvas-agent',
+    now: new Date('2026-05-31T12:16:00.000Z'),
+  });
+  assert.equal(clockSkewRead?.hasUnread, false);
+  assert.equal(clockSkewRead?.lastViewedAt?.toISOString(), '2026-05-31T12:20:00.000Z');
 
   const emptyUnread = await markPiSessionAsUnreadForUser({
     sessionId: 'sess-empty',

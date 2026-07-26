@@ -42,6 +42,7 @@ assert.deepEqual(compatibility, {
       'chat.session_manage',
       'chat.attachments',
       'chat.runtime_control',
+      'chat.runtime_selection',
       'agents.manage',
       'push.devices',
       'push.agent_response_ready',
