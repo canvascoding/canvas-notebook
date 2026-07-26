@@ -75,7 +75,9 @@ async function main() {
   }
 
   const pool = createPostgresPool();
-  await runPostgresMigrations(pool);
+  if (process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED !== 'true') {
+    await runPostgresMigrations(pool);
+  }
   const client = await pool.connect();
   const database = createPostgresRuntimeDb(client);
   console.log('[bootstrap-admin] Using Postgres database.');

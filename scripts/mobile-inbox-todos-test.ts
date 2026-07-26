@@ -118,6 +118,23 @@ async function main() {
       cursor: todoPage.nextCursor,
     }), (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'INVALID_CURSOR'));
 
+    const { mobileTodosErrorResponse } = await import('../app/lib/mobile/todos-route');
+    const originalConsoleError = console.error;
+    console.error = () => undefined;
+    try {
+      const response = mobileTodosErrorResponse(
+        new Error('Failed query: select * from "todo_items" where "user_id" = $1\nparams: private-user-id'),
+        '[API] Mobile To-dos GET failed:',
+      );
+      assert.equal(response.status, 500);
+      assert.deepEqual(await response.json(), {
+        success: false,
+        error: 'To-do request failed.',
+      });
+    } finally {
+      console.error = originalConsoleError;
+    }
+
     await closeDatabaseConnections();
     console.log('mobile-inbox-todos-test: ok');
   } finally {

@@ -121,7 +121,7 @@ else
 fi
 
 # ─── Dynamic step count ───────────────────────────────────────────────────
-_step_total=3
+_step_total=4
 if [ "$auto_install" = "true" ]; then _step_total=$((_step_total+2)); fi
 if [ "$ollama_auto_install" = "true" ]; then _step_total=$((_step_total+1)); fi
 if [ "$qmd_enabled" = "true" ]; then _step_total=$((_step_total+3)); fi
@@ -191,7 +191,17 @@ if [ -n "${OLLAMA_MODELS:-}" ]; then
   prepare_writable_dir "${OLLAMA_MODELS}" >> "$STARTUP_LOG" 2>&1 || true
 fi
 
-# ─── Step 3: Agent runtime bootstrap ─────────────────────────────────────
+# ─── Step 3: Database migrations ─────────────────────────────────────────
+step "Database migrations"
+if npx tsx --conditions react-server scripts/run-database-migrations.ts >> "$STARTUP_LOG" 2>&1; then
+  export CANVAS_DATABASE_MIGRATIONS_COMPLETED=true
+  step_ok
+else
+  step_fail
+  fatal_startup "Database migrations failed."
+fi
+
+# ─── Step 4: Agent runtime bootstrap ─────────────────────────────────────
 step "Agent runtime bootstrap"
 if npx tsx scripts/bootstrap-agent-runtime.ts >> "$STARTUP_LOG" 2>&1; then
   step_ok

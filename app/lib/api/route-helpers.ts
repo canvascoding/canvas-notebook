@@ -73,8 +73,7 @@ export function jsonServerError(scope: string, error: unknown, fallbackMessage: 
   const databaseResponse = jsonDatabaseUnavailable(error);
   if (databaseResponse) return databaseResponse;
 
-  const message = error instanceof Error ? error.message : fallbackMessage;
-  return jsonError(message, 500);
+  return jsonError(fallbackMessage, 500);
 }
 
 export function invalidateWorkspaceFileViews({

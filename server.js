@@ -387,28 +387,12 @@ function serveMedia(req, res) {
 }
 
 async function runStartupDatabaseMigrations() {
-  const configuredDatabaseProvider = String(process.env.CANVAS_DATABASE_PROVIDER || 'sqlite').trim().toLowerCase();
-  if (configuredDatabaseProvider === 'postgres') {
-    console.log('[Startup] Running Postgres database migrations...');
-    const { createPostgresPool, runPostgresMigrations } = require('./app/lib/db/postgres');
-    const migrationPool = createPostgresPool();
-    try {
-      await runPostgresMigrations(migrationPool);
-    } finally {
-      await migrationPool.end();
-    }
-    console.log('[Startup] Postgres database migrations completed');
-  } else {
-    console.log('[Startup] Running database migrations...');
-    const Database = require('better-sqlite3');
-    const { runMigrations } = require('./app/lib/db/migrate');
-    const dbPath = require('path').join(process.env.DATA || require('path').resolve(process.cwd(), 'data'), 'sqlite.db');
-    require('fs').mkdirSync(require('path').dirname(dbPath), { recursive: true });
-    const migrationDb = new Database(dbPath);
-    runMigrations(migrationDb);
-    migrationDb.close();
-    console.log('[Startup] Database migrations completed');
+  if (process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED === 'true') {
+    console.log('[Startup] Database migrations already completed by the container entrypoint');
+    return;
   }
+  const { runStartupDatabaseMigrations: migrateDatabase } = require('./app/lib/db/startup-migrations');
+  await migrateDatabase();
 }
 
 // Ensure all runtime directories and tokens are set up before starting the server
