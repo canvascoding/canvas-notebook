@@ -30,6 +30,7 @@ async function main() {
     const {
       listMobileFiles,
       mobileFileCategory,
+      mobileFileOpenKind,
       normalizeMobileFilePath,
       readMobileFileDetail,
     } = await import('../app/lib/mobile/files');
@@ -53,6 +54,7 @@ async function main() {
 
     const search = await listMobileFiles({ workspace, fileOptions, query: 'brief', limit: 20 });
     assert.equal(search.items[0]?.path, 'Projects/Brief.md');
+    assert.equal(search.items[0]?.openKind, 'markdown');
     assert.equal(search.items[0]?.canOpenInNotebook, true);
 
     const text = await readMobileFileDetail({ workspace, fileOptions, path: 'Readme.txt' });
@@ -75,6 +77,13 @@ async function main() {
     assert.equal(await fs.readFile(path.join(workspaceRoot, 'Readme.txt'), 'utf8'), 'Mobile file preview.');
 
     assert.equal(mobileFileCategory('clip.mp4', 'file'), 'video');
+    assert.equal(mobileFileOpenKind('note.md', 'file'), 'markdown');
+    assert.equal(mobileFileOpenKind('document.docx', 'file'), 'word');
+    assert.equal(mobileFileOpenKind('workbook.xlsx', 'file'), 'spreadsheet');
+    assert.equal(mobileFileOpenKind('deck.pptx', 'file'), 'presentation');
+    assert.equal(mobileFileOpenKind('drawing.excalidraw', 'file'), 'excalidraw');
+    assert.equal(mobileFileOpenKind('bundle.zip', 'file'), 'archive');
+    assert.equal(mobileFileOpenKind('Workspace', 'directory'), 'folder');
     assert.throws(() => normalizeMobileFilePath('../secrets', false));
     await assert.rejects(() => listMobileFiles({
       workspace,

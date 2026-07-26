@@ -26,9 +26,13 @@ const MAX_TEXT_PREVIEW_BYTES = 2 * 1024 * 1024;
 const IMAGE_EXTENSIONS = new Set(['avif', 'bmp', 'gif', 'heic', 'heif', 'jpeg', 'jpg', 'png', 'svg', 'webp']);
 const VIDEO_EXTENSIONS = new Set(['m4v', 'mkv', 'mov', 'mp4', 'webm']);
 const AUDIO_EXTENSIONS = new Set(['aac', 'flac', 'm4a', 'mp3', 'oga', 'ogg', 'opus', 'wav']);
+const MARKDOWN_EXTENSIONS = new Set(['markdown', 'md']);
+const WORD_EXTENSIONS = new Set(['doc', 'docx', 'rtf']);
+const SPREADSHEET_EXTENSIONS = new Set(['csv', 'ods', 'tsv', 'xls', 'xlsx']);
+const PRESENTATION_EXTENSIONS = new Set(['odp', 'ppt', 'pptx']);
 const DOCUMENT_EXTENSIONS = new Set([
-  'csv', 'doc', 'docx', 'html', 'json', 'log', 'markdown', 'md', 'pdf', 'ppt', 'pptx', 'rtf', 'text', 'tsv', 'txt',
-  'xls', 'xlsx', 'xml', 'yaml', 'yml',
+  'csv', 'doc', 'docx', 'html', 'json', 'log', 'markdown', 'md', 'odp', 'ods', 'pdf', 'ppt', 'pptx', 'rtf', 'text',
+  'tsv', 'txt', 'xls', 'xlsx', 'xml', 'yaml', 'yml',
 ]);
 const ARCHIVE_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'rar', 'tar', 'tgz', 'zip']);
 const TEXT_EXTENSIONS = new Set([
@@ -38,6 +42,20 @@ const TEXT_EXTENSIONS = new Set([
 
 export type MobileFileCategory = 'folder' | 'document' | 'image' | 'video' | 'audio' | 'archive' | 'other';
 export type MobileFileFilter = 'all' | Exclude<MobileFileCategory, 'folder'>;
+export type MobileFileOpenKind =
+  | 'folder'
+  | 'markdown'
+  | 'text'
+  | 'pdf'
+  | 'word'
+  | 'spreadsheet'
+  | 'presentation'
+  | 'image'
+  | 'video'
+  | 'audio'
+  | 'excalidraw'
+  | 'archive'
+  | 'external';
 
 export type MobileFileEntry = {
   name: string;
@@ -48,7 +66,9 @@ export type MobileFileEntry = {
   mimeType: string;
   sizeBytes: number;
   modifiedAt: string;
+  openKind: MobileFileOpenKind;
   canPreview: boolean;
+  /** @deprecated Mobile clients should route Markdown through openKind. */
   canOpenInNotebook: boolean;
   publicShare: {
     id: string;
@@ -137,6 +157,24 @@ function previewMode(filePath: string, category: MobileFileCategory): MobileFile
   return 'download';
 }
 
+export function mobileFileOpenKind(filePath: string, type: FileNode['type']): MobileFileOpenKind {
+  if (type === 'directory') return 'folder';
+  const extension = extensionFor(filePath);
+  if (MARKDOWN_EXTENSIONS.has(extension)) return 'markdown';
+  if (extension === 'excalidraw') return 'excalidraw';
+  if (extension === 'pdf') return 'pdf';
+  if (WORD_EXTENSIONS.has(extension)) return 'word';
+  if (SPREADSHEET_EXTENSIONS.has(extension)) return 'spreadsheet';
+  if (PRESENTATION_EXTENSIONS.has(extension)) return 'presentation';
+  if (TEXT_EXTENSIONS.has(extension)) return 'text';
+  const category = mobileFileCategory(filePath, type);
+  if (category === 'image') return 'image';
+  if (category === 'video') return 'video';
+  if (category === 'audio') return 'audio';
+  if (category === 'archive') return 'archive';
+  return 'external';
+}
+
 function modifiedAt(seconds: number | undefined): string {
   return new Date(Math.max(0, seconds || 0) * 1_000).toISOString();
 }
@@ -156,6 +194,7 @@ function entryFor(node: FileNode, share?: PublicShareAnnotation): MobileFileEntr
   const category = mobileFileCategory(node.path, node.type);
   const extension = node.type === 'file' ? extensionFor(node.path) : '';
   const mode = previewMode(node.path, category);
+  const openKind = mobileFileOpenKind(node.path, node.type);
   return {
     name: node.name,
     path: node.path,
@@ -165,8 +204,9 @@ function entryFor(node: FileNode, share?: PublicShareAnnotation): MobileFileEntr
     mimeType: node.type === 'file' ? getPublicShareMimeType(node.path) : 'inode/directory',
     sizeBytes: node.size || 0,
     modifiedAt: modifiedAt(node.modified),
+    openKind,
     canPreview: node.type === 'file' && mode !== 'download',
-    canOpenInNotebook: node.type === 'file' && ['md', 'markdown'].includes(extension),
+    canOpenInNotebook: openKind === 'markdown',
     publicShare: publicShareValue(share),
   };
 }
