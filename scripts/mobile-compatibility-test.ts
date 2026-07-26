@@ -54,6 +54,7 @@ assert.deepEqual(compatibility, {
       'notebook.image_import',
       'files.browse',
       'files.mutate',
+      'files.excalidraw_edit',
       'files.copy',
       'files.export',
       'files.upload',

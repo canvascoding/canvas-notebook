@@ -105,6 +105,7 @@ export function createMobileBootstrap(input: {
     'notebook.image_import',
     'files.browse',
     'files.mutate',
+    'files.excalidraw_edit',
     'files.copy',
     'files.export',
     'files.upload',

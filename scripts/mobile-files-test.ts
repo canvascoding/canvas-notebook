@@ -15,6 +15,14 @@ async function main() {
     await fs.writeFile(path.join(workspaceRoot, 'Readme.txt'), 'Mobile file preview.');
     await fs.writeFile(path.join(workspaceRoot, 'Cover.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     await fs.writeFile(path.join(workspaceRoot, 'Projects', 'Brief.md'), '# Brief');
+    await fs.writeFile(path.join(workspaceRoot, 'Drawing.excalidraw'), JSON.stringify({
+      type: 'excalidraw',
+      version: 2,
+      source: 'canvas-notebook',
+      elements: [],
+      appState: { viewBackgroundColor: '#ffffff' },
+      files: {},
+    }, null, 2));
 
     const { closeDatabaseConnections, openDb } = await import('../app/lib/db');
     const database = await openDb();
@@ -40,6 +48,10 @@ async function main() {
       role: 'owner',
     });
     const fileOptions = { workspace };
+    const {
+      readMobileExcalidrawDocument,
+      saveMobileExcalidrawDocument,
+    } = await import('../app/lib/mobile/excalidraw');
 
     const root = await listMobileFiles({ workspace, fileOptions, directory: '.', limit: 20 });
     assert.equal(root.items[0]?.category, 'folder');
@@ -64,6 +76,49 @@ async function main() {
     const image = await readMobileFileDetail({ workspace, fileOptions, path: 'Cover.png' });
     assert.equal(image.previewMode, 'image');
     assert.equal(image.mimeType, 'image/png');
+
+    const drawing = await readMobileExcalidrawDocument({
+      workspace,
+      fileOptions,
+      path: 'Drawing.excalidraw',
+    });
+    assert.equal(drawing.canEdit, true);
+    assert.equal(drawing.sceneSequence, null);
+    const savedDrawing = await saveMobileExcalidrawDocument({
+      workspace,
+      fileOptions,
+      actorUserId: 'files-user',
+      actorSessionId: 'auth-session',
+      path: drawing.path,
+      content: JSON.stringify({
+        type: 'excalidraw',
+        version: 2,
+        source: 'canvas-notebook',
+        elements: [],
+        appState: { viewBackgroundColor: '#f8fafc' },
+        files: {},
+      }),
+      expectedSha256: drawing.sha256,
+      baseRevisionId: drawing.revisionId,
+      baseSceneSequence: null,
+    });
+    assert.match(savedDrawing.content, /#f8fafc/u);
+    await assert.rejects(() => saveMobileExcalidrawDocument({
+      workspace,
+      fileOptions,
+      actorUserId: 'files-user',
+      actorSessionId: 'stale-auth-session',
+      path: drawing.path,
+      content: drawing.content,
+      expectedSha256: drawing.sha256,
+      baseRevisionId: drawing.revisionId,
+      baseSceneSequence: null,
+    }), (error: unknown) => Boolean(
+      error
+      && typeof error === 'object'
+      && 'code' in error
+      && ['FILE_REVISION_CONFLICT', 'FILE_REVISION_ID_CONFLICT'].includes(String(error.code)),
+    ));
 
     const { createDirectoryIfAbsent, writeWorkspaceFileFromPathIfAbsent } = await import('../app/lib/filesystem/workspace-files');
     await assert.rejects(() => createDirectoryIfAbsent('Projects', fileOptions), (error: unknown) => (
@@ -99,6 +154,7 @@ async function main() {
     const marpPdfAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/export/marp-pdf/route.ts'), 'utf8');
     const marpImagesAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/export/marp-images/route.ts'), 'utf8');
     const uploadAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/uploads/[id]/route.ts'), 'utf8');
+    const excalidrawRoute = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/excalidraw/route.ts'), 'utf8');
     assert.match(blobAlias, /api\/files\/download\/route/u);
     assert.match(copyAlias, /api\/files\/copy\/route/u);
     assert.match(markdownPdfAlias, /api\/files\/markdown-pdf\/route/u);
@@ -106,6 +162,8 @@ async function main() {
     assert.match(marpPdfAlias, /api\/files\/marp-pdf\/route/u);
     assert.match(marpImagesAlias, /api\/files\/marp-images\/route/u);
     assert.match(uploadAlias, /DELETE, GET, PUT/u);
+    assert.match(excalidrawRoute, /readMobileExcalidrawDocument/u);
+    assert.match(excalidrawRoute, /saveMobileExcalidrawDocument/u);
 
     await closeDatabaseConnections();
     console.log('mobile-files-test: ok');
