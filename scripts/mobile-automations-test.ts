@@ -20,8 +20,11 @@ const routeExports = new Map<string, string>([
   ['app/api/mobile/v1/automations/skills/route.ts', "export { GET } from '@/app/api/skills/route';"],
   ['app/api/mobile/v1/automations/composio/apps/route.ts', "export { GET } from '@/app/api/composio/trigger-apps/route';"],
   ['app/api/mobile/v1/automations/composio/profiles/route.ts', "export { GET, POST } from '@/app/api/composio/profiles/route';"],
+  ['app/api/mobile/v1/automations/composio/profiles/[profileId]/route.ts', "export { DELETE, PATCH } from '@/app/api/composio/profiles/[profileId]/route';"],
+  ['app/api/mobile/v1/automations/composio/workspace-profile/route.ts', "export { DELETE, PUT } from '@/app/api/composio/workspace-profile/route';"],
   ['app/api/mobile/v1/automations/composio/connect/[toolkit]/route.ts', "export { POST } from '@/app/api/composio/connect/[toolkit]/route';"],
   ['app/api/mobile/v1/automations/composio/disconnect/[toolkit]/route.ts', "export { DELETE } from '@/app/api/composio/disconnect/[toolkit]/route';"],
+  ['app/api/mobile/v1/automations/composio/refresh/[toolkit]/route.ts', "export { POST } from '@/app/api/composio/refresh/[toolkit]/route';"],
   ['app/api/mobile/v1/automations/composio/triggers/route.ts', "export { GET, POST } from '@/app/api/composio/triggers/route';"],
   ['app/api/mobile/v1/automations/composio/triggers/[triggerId]/route.ts', "export { DELETE, PATCH } from '@/app/api/composio/triggers/[triggerId]/route';"],
 ]);
