@@ -11,6 +11,32 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.26.2] - 2026-07-26
+
+### Added
+
+- Added authenticated mobile workspace brand profile and logo APIs, with matching bootstrap and compatibility capabilities.
+- Added mobile chat session detail and runtime-selection APIs, including idle-only model changes and audit logging.
+
+### Changed
+
+- Ran database migrations before application startup so container and direct server launches reach readiness on the current schema.
+- Advanced chat read cursors atomically to the latest message timestamp, avoiding false unread state from clock skew or select/update races.
+
+### Security
+
+- Updated direct and transitive dependencies to resolve security advisories and refreshed the matching third-party compliance artifacts.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run test:sessions:read-state`
+- `npm run test:mobile:compatibility`
+- `npm run test:mobile:bootstrap`
+- `npm run test:mobile:brand`
+- `npm run test:mobile:chat`
+- `npm run verify:release`
+
 ## [2026.7.26.1] - 2026-07-26
 
 ### Added
