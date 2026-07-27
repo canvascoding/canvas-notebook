@@ -154,6 +154,7 @@ function normalizeAutomationSchedule(schedule: {
   time?: string;
   times?: string[];
   days?: string[];
+  dayOfMonth?: number;
   every?: number;
   unit?: string;
   timeZone?: string;
@@ -187,6 +188,11 @@ function normalizeAutomationSchedule(schedule: {
       }
       return { kind: 'weekly', days, times, timeZone };
     }
+    case 'monthly':
+      if (!Number.isInteger(schedule.dayOfMonth) || schedule.dayOfMonth! < 1 || schedule.dayOfMonth! > 31 || !schedule.time) {
+        throw new Error('monthly schedule requires dayOfMonth between 1 and 31 and a time.');
+      }
+      return { kind: 'monthly', dayOfMonth: schedule.dayOfMonth!, time: schedule.time, timeZone };
     case 'interval':
       if (!schedule.every || !schedule.unit || !VALID_AUTOMATION_INTERVAL_UNITS.includes(schedule.unit as AutomationIntervalUnit)) {
         throw new Error('interval schedule requires every and a valid unit.');
@@ -1300,15 +1306,16 @@ export function createUserScopedTools(userId?: string, agentId?: string | null, 
     {
       name: 'create_automation_job',
       label: 'Creating automation job',
-      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), interval (every+unit). Optional: targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
+      description: 'Creates a new scheduled automation job. Use when user wants to automate tasks, create scheduled workflows, or set up recurring jobs. Required: name (job name), prompt (the script to execute), schedule (when to run). Schedule types: once (date+time), daily (time), weekly (days+time), monthly (dayOfMonth+time), interval (every+unit). Use monthly directly for monthly requests; do not emulate it with a weekly or daily schedule and a prompt guard. Optional: targetOutputPath (where to save results), workspaceContextPaths (context files), status (active/paused).',
       parameters: Type.Object({
         name: Type.String({ description: 'Name of the automation job (max 120 chars)' }),
         prompt: Type.String({ description: 'The script/prompt to execute when the job runs' }),
         schedule: Type.Object({
-          kind: Type.String({ description: 'Schedule type: once, daily, weekly, interval' }),
+          kind: Type.String({ description: 'Schedule type: once, daily, weekly, monthly, interval' }),
           date: Type.Optional(Type.String({ description: 'For once: date in YYYY-MM-DD format' })),
-          time: Type.Optional(Type.String({ description: 'For daily/weekly/once: time in HH:MM format' })),
+          time: Type.Optional(Type.String({ description: 'For daily/weekly/monthly/once: time in HH:MM format' })),
           days: Type.Optional(Type.Array(Type.String(), { description: 'For weekly: array of days (mon, tue, wed, thu, fri, sat, sun)' })),
+          dayOfMonth: Type.Optional(Type.Integer({ minimum: 1, maximum: 31, description: 'For monthly: calendar day from 1 to 31. Shorter months use their last calendar day.' })),
           every: Type.Optional(Type.Number({ description: 'For interval: number of units' })),
           unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
           timeZone: Type.Optional(Type.String({ description: 'Timezone (default: user preference, initially Europe/Berlin)' })),
@@ -1326,6 +1333,7 @@ export function createUserScopedTools(userId?: string, agentId?: string | null, 
             date?: string;
             time?: string;
             days?: string[];
+            dayOfMonth?: number;
             every?: number;
             unit?: string;
             timeZone?: string;
@@ -1367,7 +1375,7 @@ export function createUserScopedTools(userId?: string, agentId?: string | null, 
     {
       name: 'update_automation_job',
       label: 'Updating automation job',
-      description: 'Updates an existing automation job. Required: jobId. Optional: name, prompt, schedule, targetOutputPath, workspaceContextPaths, status (active/paused). Before changing prompt, call inspect_automation_job, preserve the existing prompt text, edit only the requested parts, and pass expectedPrompt or expectedUpdatedAt to avoid overwriting a newer version.',
+      description: 'Updates an existing automation job. Required: jobId. Optional: name, prompt, schedule, targetOutputPath, workspaceContextPaths, status (active/paused). Schedule types include monthly (dayOfMonth+time); use it directly instead of adding date guards to daily or weekly prompts. Before changing prompt, call inspect_automation_job, preserve the existing prompt text, edit only the requested parts, and pass expectedPrompt or expectedUpdatedAt to avoid overwriting a newer version.',
       parameters: Type.Object({
         jobId: Type.String({ description: 'ID of the job to update' }),
         name: Type.Optional(Type.String({ description: 'New name for the job' })),
@@ -1375,10 +1383,11 @@ export function createUserScopedTools(userId?: string, agentId?: string | null, 
         expectedPrompt: Type.Optional(Type.String({ description: 'Current full prompt as returned by inspect_automation_job. Required for prompt edits unless expectedUpdatedAt is provided.' })),
         expectedUpdatedAt: Type.Optional(Type.String({ description: 'Current updatedAt value as returned by inspect_automation_job. Required for prompt edits unless expectedPrompt is provided.' })),
         schedule: Type.Optional(Type.Object({
-          kind: Type.String({ description: 'Schedule type: once, daily, weekly, interval' }),
+          kind: Type.String({ description: 'Schedule type: once, daily, weekly, monthly, interval' }),
           date: Type.Optional(Type.String({ description: 'For once: date in YYYY-MM-DD format' })),
-          time: Type.Optional(Type.String({ description: 'For daily/weekly/once: time in HH:MM format' })),
+          time: Type.Optional(Type.String({ description: 'For daily/weekly/monthly/once: time in HH:MM format' })),
           days: Type.Optional(Type.Array(Type.String(), { description: 'For weekly: array of days' })),
+          dayOfMonth: Type.Optional(Type.Integer({ minimum: 1, maximum: 31, description: 'For monthly: calendar day from 1 to 31. Shorter months use their last calendar day.' })),
           every: Type.Optional(Type.Number({ description: 'For interval: number of units' })),
           unit: Type.Optional(Type.String({ description: 'For interval: minutes, hours, or days' })),
           timeZone: Type.Optional(Type.String({ description: 'Timezone' })),
@@ -1399,6 +1408,7 @@ export function createUserScopedTools(userId?: string, agentId?: string | null, 
             date?: string;
             time?: string;
             days?: string[];
+            dayOfMonth?: number;
             every?: number;
             unit?: string;
             timeZone?: string;

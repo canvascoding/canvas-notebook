@@ -884,6 +884,47 @@ async function main() {
   assert.equal(updatedAutomationJob.targetOutputPath, null);
   assert.equal(updatedAutomationJob.schedule.kind, 'daily');
 
+  const createMonthlyAutomationResult = await callAutomation('create_automation_job', {
+    name: 'Monthly Report',
+    prompt: 'Create the monthly report.',
+    schedule: { kind: 'monthly', dayOfMonth: 1, time: '09:15', timeZone: 'UTC' },
+    status: 'active',
+  });
+  assert.match(getText(createMonthlyAutomationResult), /Automation job created successfully/);
+  const createdMonthlyAutomationJob = (createMonthlyAutomationResult.details as {
+    job: {
+      id: string;
+      schedule: { kind: string; dayOfMonth?: number; time?: string };
+    };
+  }).job;
+  assert.deepEqual(createdMonthlyAutomationJob.schedule, {
+    kind: 'monthly',
+    dayOfMonth: 1,
+    time: '09:15',
+    timeZone: 'UTC',
+  });
+
+  const updateMonthlyAutomationResult = await callAutomation('update_automation_job', {
+    jobId: createdMonthlyAutomationJob.id,
+    schedule: { kind: 'monthly', dayOfMonth: 31, time: '10:30', timeZone: 'UTC' },
+  });
+  assert.match(getText(updateMonthlyAutomationResult), /Automation job updated successfully/);
+  const updatedMonthlyAutomationJob = await getAutomationJob(createdMonthlyAutomationJob.id);
+  assert.ok(updatedMonthlyAutomationJob);
+  assert.deepEqual(updatedMonthlyAutomationJob.schedule, {
+    kind: 'monthly',
+    dayOfMonth: 31,
+    time: '10:30',
+    timeZone: 'UTC',
+  });
+
+  const rejectedMonthlyAutomationResult = await callAutomation('create_automation_job', {
+    name: 'Invalid Monthly Report',
+    prompt: 'This must not be created.',
+    schedule: { kind: 'monthly', dayOfMonth: 32, time: '09:15', timeZone: 'UTC' },
+  });
+  assert.match(getText(rejectedMonthlyAutomationResult), /dayOfMonth|31|invalid/i);
+
   const otherAutomationJob = await createAutomationJobInStore(
     {
       name: 'Other User Automation',
