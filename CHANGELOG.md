@@ -11,6 +11,30 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.27.1] - 2026-07-27
+
+### Added
+
+- Added native monthly automation schedules across the scheduler, automation UI, heartbeat descriptions, and agent create/update tools.
+- Added day-of-month validation, time-zone-aware execution, and last-calendar-day handling for shorter months.
+- Added an authenticated mobile app-badge count endpoint and included unread chat counts in attention push notifications.
+- Advertised the new `push.app_badge` capability through the mobile compatibility and bootstrap APIs.
+
+### Changed
+
+- Added localized monthly cadence controls and schedule summaries in English and German.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run test:automation:schedule`
+- `npm run test:pi:tools`
+- `npm run test:mobile:compatibility`
+- `npm run test:mobile:bootstrap`
+- `npm run test:mobile:inbox`
+- `npm run test:mobile:push`
+- `npm run verify:release`
+
 ## [2026.7.26.2] - 2026-07-26
 
 ### Added
