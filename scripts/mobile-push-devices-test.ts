@@ -204,9 +204,11 @@ async function main() {
     workspaceId: 'workspace-1',
     sessionId: 'session-1',
     notification: notificationPreview,
+    badge: 1,
   });
   assert.equal(previewMessages[0].title, 'Push session');
   assert.equal(previewMessages[0].body, 'Done See the finished report and code.');
+  assert.equal(previewMessages[0].badge, 1);
   assert.equal(JSON.stringify(previewMessages).includes('private.example.test'), false);
   assert.deepEqual(createAutomationRunNotificationPreview({
     jobName: '**Daily** [brief](https://private.example.test)',
@@ -225,6 +227,7 @@ async function main() {
   const automationStatusMessages = createMobilePushMessages({
     tokens: [registration.expoPushToken],
     instanceId: 'cni_0123456789abcdef01234567',
+    badge: 1,
     target: {
       type: 'automation.completed',
       workspaceId: 'workspace-1',

@@ -7,6 +7,7 @@ import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
 
 import { createPublicMobileInstanceId } from './compatibility';
+import { countMobileUnreadMessages } from './inbox';
 import {
   createAgentResponseNotificationPreview,
   createAutomationRunNotificationPreview,
@@ -127,6 +128,7 @@ export type ExpoPushMessage = {
   priority: 'default';
   channelId: 'canvas-activity';
   data: MobilePushData;
+  badge?: number;
   richContent?: {
     image: string;
   };
@@ -547,6 +549,7 @@ export function createMobilePushMessages(input: {
   instanceId: string;
   target: MobilePushTarget;
   notification?: MobilePushNotificationPreview;
+  badge?: number;
 }): ExpoPushMessage[] {
   return input.tokens.map((token) => {
     const imageUrl = input.notification?.imageUrl;
@@ -561,6 +564,7 @@ export function createMobilePushMessages(input: {
         instanceId: input.instanceId,
         ...input.target,
       } as MobilePushData,
+      ...(input.badge === undefined ? {} : { badge: input.badge }),
       ...(imageUrl ? {
         richContent: { image: imageUrl },
         mutableContent: true as const,
@@ -576,6 +580,7 @@ export function createAgentResponseReadyMessages(input: {
   workspaceId: string;
   sessionId: string;
   notification?: MobilePushNotificationPreview;
+  badge?: number;
 }): ExpoPushMessage[] {
   return createMobilePushMessages({
     tokens: input.tokens,
@@ -586,6 +591,7 @@ export function createAgentResponseReadyMessages(input: {
       sessionId: input.sessionId,
     },
     notification: input.notification,
+    badge: input.badge,
   });
 }
 
@@ -775,6 +781,15 @@ export async function sendMobileAttentionPush(input: {
          AND session.expires_at > ?`,
       [input.userId, authNow],
     ) as MobilePushDeviceRow[];
+    let badge: number | undefined;
+    if (rows.length) {
+      try {
+        badge = await countMobileUnreadMessages(input.userId);
+      } catch (error) {
+        const message = error instanceof Error ? error.message : 'Unread count unavailable.';
+        console.warn('[Mobile Push] App badge count could not be resolved:', message);
+      }
+    }
     let accepted = 0;
 
     for (let offset = 0; offset < rows.length; offset += MAX_EXPO_BATCH_SIZE) {
@@ -785,6 +800,7 @@ export async function sendMobileAttentionPush(input: {
         instanceId,
         target: input.target,
         notification: Boolean(row.preview_enabled) ? input.notification : undefined,
+        badge,
       }));
       const response = await postExpoWithRetry({
         endpoint: EXPO_PUSH_ENDPOINT,

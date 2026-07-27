@@ -1,6 +1,18 @@
 import 'server-only';
 
-import { and, desc, eq, inArray, isNotNull, isNull, or, type AnyColumn, type SQL } from 'drizzle-orm';
+import {
+  and,
+  count as countRows,
+  desc,
+  eq,
+  gt,
+  inArray,
+  isNotNull,
+  isNull,
+  or,
+  type AnyColumn,
+  type SQL,
+} from 'drizzle-orm';
 
 import { piSessionReadCursorSql } from '@/app/lib/chat/read-cursor';
 import { hasUnreadAssistantResponse } from '@/app/lib/chat/unread';
@@ -288,6 +300,20 @@ export async function listMobileInbox(input: {
       ? encodeCursor({ workspaceId: input.workspace.workspaceId, filter, occurredAt: last.occurredAt, id: last.id })
       : null,
   };
+}
+
+export async function countMobileUnreadMessages(userId: string): Promise<number> {
+  const [result] = await db.select({ count: countRows() })
+    .from(piSessions)
+    .where(and(
+      eq(piSessions.userId, userId),
+      isNotNull(piSessions.lastMessageAt),
+      or(
+        isNull(piSessions.lastViewedAt),
+        gt(piSessions.lastMessageAt, piSessions.lastViewedAt),
+      ),
+    ));
+  return result?.count ?? 0;
 }
 
 async function upsertReadState(userId: string, workspaceId: string, itemKey: string, readAt: Date) {

@@ -103,6 +103,7 @@ export function createMobileBootstrap(input: {
     'push.automation_run_status',
     'push.receipts',
     'push.rich_previews',
+    'push.app_badge',
     'notebook.documents',
     'notebook.revision_write',
     'notebook.image_import',

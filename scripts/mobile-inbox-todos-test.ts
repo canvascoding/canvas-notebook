@@ -3,6 +3,8 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { NextRequest } from 'next/server';
+
 async function main() {
   const temporaryRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-mobile-inbox-'));
   const originalData = process.env.DATA;
@@ -51,7 +53,11 @@ async function main() {
     const { createLegacyPersonalWorkspaceContext } = await import('../app/lib/workspaces/context');
     const { createTodo } = await import('../app/lib/todos/store');
     const { getMobileTodo, listMobileTodos } = await import('../app/lib/mobile/todos');
-    const { listMobileInbox, markMobileInboxRead } = await import('../app/lib/mobile/inbox');
+    const {
+      countMobileUnreadMessages,
+      listMobileInbox,
+      markMobileInboxRead,
+    } = await import('../app/lib/mobile/inbox');
     const workspace = createLegacyPersonalWorkspaceContext({
       userId: 'mobile-attention-user',
       email: 'attention@example.test',
@@ -68,10 +74,27 @@ async function main() {
 
     const inbox = await listMobileInbox({ userId: 'mobile-attention-user', workspace, limit: 20 });
     assert.equal(inbox.counts.unread, 4);
+    assert.equal(await countMobileUnreadMessages('mobile-attention-user'), 1);
     assert.equal(inbox.items.some((item) => item.id === 'chat:attention-session'), true);
     assert.equal(inbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(inbox.items.some((item) => item.id === 'studio:generation-ready'), true);
     assert.equal(inbox.items.some((item) => item.id === 'automation:run-failed'), true);
+
+    const { auth } = await import('../app/lib/auth');
+    let badgeSession: { user: { id: string } } | null = null;
+    assert.equal(Reflect.set(auth.api, 'getSession', async () => badgeSession), true);
+    const badgeRoute = await import('../app/api/mobile/v1/inbox/badge/route');
+    const unauthorizedBadge = await badgeRoute.GET(
+      new NextRequest('http://localhost/api/mobile/v1/inbox/badge'),
+    );
+    assert.equal(unauthorizedBadge.status, 401);
+    badgeSession = { user: { id: 'mobile-attention-user' } };
+    const badgeResponse = await badgeRoute.GET(
+      new NextRequest('http://localhost/api/mobile/v1/inbox/badge'),
+    );
+    assert.equal(badgeResponse.status, 200);
+    assert.equal(badgeResponse.headers.get('cache-control'), 'no-store, max-age=0');
+    assert.deepEqual(await badgeResponse.json(), { success: true, count: 1 });
 
     await markMobileInboxRead({
       userId: 'mobile-attention-user',
@@ -86,6 +109,7 @@ async function main() {
     const afterAllRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
     assert.equal(afterAllRead.counts.unread, 0, JSON.stringify(afterAllRead));
     assert.equal(afterAllRead.items.length, 0);
+    assert.equal(await countMobileUnreadMessages('mobile-attention-user'), 0);
 
     const todoPage = await listMobileTodos({ userId: 'mobile-attention-user', workspace, status: 'all', limit: 1 });
     assert.equal(todoPage.todos.length, 1);
