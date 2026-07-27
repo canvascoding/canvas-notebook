@@ -54,8 +54,9 @@ test.describe('Automationen UI', () => {
     await expect(page.getByTestId('automation-directory-picker')).toBeVisible();
     await page.getByTestId('automation-directory-picker-confirm').click();
     await page.getByTestId('automation-target-output-path').fill(targetDir);
-    await page.getByTestId('automation-schedule-kind').selectOption('interval');
-    await page.getByTestId('automation-interval-every').fill('1');
+    await page.getByTestId('automation-schedule-kind').selectOption('monthly');
+    await page.getByTestId('automation-monthly-day').fill('1');
+    await page.getByTestId('automation-monthly-time').fill('09:15');
     await page.getByTestId('automation-save').click();
 
     await expect(page).toHaveURL(/\/(?:[a-z]{2}\/)?automations\/job-/, { timeout: 15000 });

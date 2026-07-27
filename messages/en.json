@@ -4905,6 +4905,7 @@
       "fields": {
         "kind": "Cadence",
         "date": "Date",
+        "dayOfMonth": "Day of month",
         "time": "Time",
         "timeZone": "Time zone",
         "intervalEvery": "Repeat every",
@@ -4914,6 +4915,7 @@
         "once": "One-time",
         "daily": "Daily",
         "weekly": "Weekly",
+        "monthly": "Monthly",
         "interval": "Every X"
       }
     },
@@ -4921,6 +4923,7 @@
       "once": "One-time on {date} at {time}",
       "daily": "Daily at {time}",
       "weekly": "Weekly ({days}) at {time}",
+      "monthly": "Monthly on day {day} at {time}",
       "interval": "Every {every} {unit}",
       "withTimeZone": "{schedule} ({timeZone})",
       "notScheduled": "Not scheduled yet"

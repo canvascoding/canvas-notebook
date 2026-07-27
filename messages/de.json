@@ -4904,6 +4904,7 @@
       "fields": {
         "kind": "Rhythmus",
         "date": "Datum",
+        "dayOfMonth": "Tag des Monats",
         "time": "Uhrzeit",
         "timeZone": "Zeitzone",
         "intervalEvery": "Wiederholen alle",
@@ -4913,6 +4914,7 @@
         "once": "Einmalig",
         "daily": "Täglich",
         "weekly": "Wöchentlich",
+        "monthly": "Monatlich",
         "interval": "Alle X"
       }
     },
@@ -4920,6 +4922,7 @@
       "once": "Einmalig am {date} um {time}",
       "daily": "Täglich um {time}",
       "weekly": "Wöchentlich ({days}) um {time}",
+      "monthly": "Monatlich am {day}. um {time}",
       "interval": "Alle {every} {unit}",
       "withTimeZone": "{schedule} ({timeZone})",
       "notScheduled": "Noch nicht geplant"

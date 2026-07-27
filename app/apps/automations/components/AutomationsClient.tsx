@@ -76,7 +76,7 @@ import { MarkdownEditor } from '@/app/components/editor/MarkdownEditorClient';
 import { Link, useRouter } from '@/i18n/navigation';
 import { cn } from '@/lib/utils';
 
-type ScheduleKind = 'once' | 'daily' | 'weekly' | 'interval';
+type ScheduleKind = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval';
 type ComposerMode = 'scheduled' | 'trigger';
 type TriggerSource = 'custom' | 'composio';
 
@@ -96,6 +96,8 @@ type JobDraft = {
   dailyTime: string;
   weeklyTime: string;
   weeklyDays: AutomationWeekday[];
+  monthlyDay: string;
+  monthlyTime: string;
   intervalEvery: string;
   intervalUnit: 'minutes' | 'hours' | 'days';
   agentId: string;
@@ -346,6 +348,8 @@ function defaultDraft(defaultTimeZone?: string, workspaceId = ''): JobDraft {
     dailyTime: '09:00',
     weeklyTime: '09:00',
     weeklyDays: ['mon'],
+    monthlyDay: '1',
+    monthlyTime: '09:00',
     intervalEvery: '1',
     intervalUnit: 'days',
     agentId: DEFAULT_AGENT_ID,
@@ -667,7 +671,9 @@ function buildPayload(
         ? { kind: 'daily' as const, times: draft.dailyTime ? [draft.dailyTime] : [], timeZone: draft.timeZone }
         : draft.scheduleKind === 'weekly'
           ? { kind: 'weekly' as const, days: draft.weeklyDays, times: draft.weeklyTime ? [draft.weeklyTime] : [], timeZone: draft.timeZone }
-          : { kind: 'interval' as const, every: Number(draft.intervalEvery || '1'), unit: draft.intervalUnit, timeZone: draft.timeZone };
+          : draft.scheduleKind === 'monthly'
+            ? { kind: 'monthly' as const, dayOfMonth: Number(draft.monthlyDay || '1'), time: draft.monthlyTime, timeZone: draft.timeZone }
+            : { kind: 'interval' as const, every: Number(draft.intervalEvery || '1'), unit: draft.intervalUnit, timeZone: draft.timeZone };
 
   const payload = {
     name: draft.name,
@@ -739,6 +745,11 @@ function describeFriendlyScheduleLocalized(
     summary = translate('scheduleSummary.weekly', {
       days: schedule.days.map((day) => weekdayLabels[day]).join(', '),
       time: schedule.times.join(', '),
+    });
+  } else if (schedule.kind === 'monthly') {
+    summary = translate('scheduleSummary.monthly', {
+      day: schedule.dayOfMonth,
+      time: schedule.time,
     });
   } else if (schedule.kind === 'webhook') {
     summary = 'Webhook';
@@ -828,6 +839,9 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   } else if (job.schedule.kind === 'weekly') {
     draft.weeklyTime = job.schedule.times[0] || '';
     draft.weeklyDays = job.schedule.days;
+  } else if (job.schedule.kind === 'monthly') {
+    draft.monthlyDay = String(job.schedule.dayOfMonth);
+    draft.monthlyTime = job.schedule.time;
   } else if (job.schedule.kind === 'interval') {
     draft.intervalEvery = String(job.schedule.every);
     draft.intervalUnit = job.schedule.unit;
@@ -2988,6 +3002,7 @@ function ScheduleEditor({
             <option value="once">{t('schedule.kind.once')}</option>
             <option value="daily">{t('schedule.kind.daily')}</option>
             <option value="weekly">{t('schedule.kind.weekly')}</option>
+            <option value="monthly">{t('schedule.kind.monthly')}</option>
             <option value="interval">{t('schedule.kind.interval')}</option>
           </select>
         </label>
@@ -3014,6 +3029,12 @@ function ScheduleEditor({
         ) : null}
         {draft.scheduleKind === 'daily' ? (
           <label className="flex min-w-0 flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" className={AUTOMATION_FIELD_CLASS} value={draft.dailyTime} onChange={(event) => setDraft((current) => ({ ...current, dailyTime: event.target.value }))} /></label>
+        ) : null}
+        {draft.scheduleKind === 'monthly' ? (
+          <>
+            <label className="flex min-w-0 flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.dayOfMonth')}</span><input type="number" min="1" max="31" inputMode="numeric" data-testid="automation-monthly-day" className={AUTOMATION_FIELD_CLASS} value={draft.monthlyDay} onChange={(event) => setDraft((current) => ({ ...current, monthlyDay: event.target.value }))} /></label>
+            <label className="flex min-w-0 flex-col gap-1 text-sm"><span className="text-xs text-muted-foreground">{t('schedule.fields.time')}</span><input type="time" data-testid="automation-monthly-time" className={AUTOMATION_FIELD_CLASS} value={draft.monthlyTime} onChange={(event) => setDraft((current) => ({ ...current, monthlyTime: event.target.value }))} /></label>
+          </>
         ) : null}
         {draft.scheduleKind === 'interval' ? (
           <>
