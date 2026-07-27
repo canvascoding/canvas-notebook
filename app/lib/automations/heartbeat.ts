@@ -40,6 +40,10 @@ function formatSchedule(schedule: FriendlySchedule): string {
     return `Wöchentlich an ${days} um ${schedule.times.join(', ')} (Zeitzone: ${schedule.timeZone}).`;
   }
 
+  if (schedule.kind === 'monthly') {
+    return `Monatlich am ${schedule.dayOfMonth}. um ${schedule.time} (Zeitzone: ${schedule.timeZone}).`;
+  }
+
   if (schedule.kind === 'once') {
     return `Einmalig am ${schedule.date} um ${schedule.time} (Zeitzone: ${schedule.timeZone}).`;
   }

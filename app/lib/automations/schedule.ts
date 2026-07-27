@@ -59,6 +59,10 @@ function timePartsToMinutes(value: { hour: number; minute: number }): number {
   return value.hour * 60 + value.minute;
 }
 
+function getDaysInMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
+}
+
 function getZonedDateParts(date: Date, timeZone: string): ZonedDateParts {
   const formatter = new Intl.DateTimeFormat('en-US', {
     timeZone,
@@ -208,7 +212,7 @@ export function validateFriendlySchedule(input: unknown): { schedule: FriendlySc
 
   const candidate = input as Record<string, unknown>;
   const kind = candidate.kind;
-  if (kind !== 'once' && kind !== 'daily' && kind !== 'weekly' && kind !== 'interval' && kind !== 'webhook') {
+  if (kind !== 'once' && kind !== 'daily' && kind !== 'weekly' && kind !== 'monthly' && kind !== 'interval' && kind !== 'webhook') {
     return { schedule: null, error: 'Unsupported schedule kind.' };
   }
 
@@ -245,6 +249,20 @@ export function validateFriendlySchedule(input: unknown): { schedule: FriendlySc
       return { schedule: null, error: error || 'Weekly schedules require at least one weekday.' };
     }
     return { schedule: { kind, days, times, timeZone, ...scheduleOptions }, error: null };
+  }
+
+  if (kind === 'monthly') {
+    const dayOfMonth = typeof candidate.dayOfMonth === 'number'
+      ? candidate.dayOfMonth
+      : Number(candidate.dayOfMonth);
+    const time = typeof candidate.time === 'string' ? candidate.time.trim() : '';
+    if (!Number.isInteger(dayOfMonth) || dayOfMonth < 1 || dayOfMonth > 31) {
+      return { schedule: null, error: 'Monthly schedules require a day of month between 1 and 31.' };
+    }
+    if (!parseTimeInput(time)) {
+      return { schedule: null, error: 'Monthly schedules require a valid time.' };
+    }
+    return { schedule: { kind, dayOfMonth, time, timeZone, ...scheduleOptions }, error: null };
   }
 
   const every = typeof candidate.every === 'number' ? candidate.every : Number(candidate.every);
@@ -366,6 +384,22 @@ export function computeNextRunAt(
     ), schedule);
   }
 
+  if (schedule.kind === 'monthly') {
+    const parsedTime = parseTimeInput(schedule.time);
+    if (!parsedTime || !Number.isInteger(schedule.dayOfMonth) || schedule.dayOfMonth < 1 || schedule.dayOfMonth > 31) {
+      return null;
+    }
+    return applyWorkingHoursWindow(findNextMatchingDate(
+      fromDate,
+      timeZone,
+      (parts) =>
+        parts.day === Math.min(schedule.dayOfMonth, getDaysInMonth(parts.year, parts.month)) &&
+        parts.hour === parsedTime.hour &&
+        parts.minute === parsedTime.minute,
+      35 * 24 * 60,
+    ), schedule);
+  }
+
   return null;
 }
 
@@ -378,6 +412,9 @@ export function describeFriendlySchedule(schedule: FriendlySchedule): string {
   }
   if (schedule.kind === 'weekly') {
     return `Wöchentlich (${schedule.days.join(', ')}) um ${schedule.times.join(', ')}`;
+  }
+  if (schedule.kind === 'monthly') {
+    return `Monatlich am ${schedule.dayOfMonth}. um ${schedule.time}`;
   }
   if (schedule.kind === 'interval') {
     return `Alle ${schedule.every} ${schedule.unit}`;

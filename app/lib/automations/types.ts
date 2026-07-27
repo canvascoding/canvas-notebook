@@ -8,7 +8,7 @@ export type AutomationWorkspaceType = 'personal' | 'organization' | 'team' | 'pr
 export type AutomationActorType = 'user' | 'service';
 export type AutomationDeliveryMode = 'web' | 'origin' | 'session' | 'channel_home' | 'last_active' | 'silent';
 export type AutomationDeliverySessionMode = 'new_session' | 'channel_active' | 'fixed_session';
-export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'interval' | 'webhook';
+export type AutomationScheduleKind = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval' | 'webhook';
 export type AutomationWeekday = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun';
 export type AutomationIntervalUnit = 'minutes' | 'hours' | 'days';
 
@@ -40,6 +40,12 @@ export type FriendlySchedule = (
       kind: 'weekly';
       days: AutomationWeekday[];
       times: string[];
+      timeZone: string;
+    }
+  | {
+      kind: 'monthly';
+      dayOfMonth: number;
+      time: string;
       timeZone: string;
     }
   | {

@@ -86,6 +86,78 @@ const weeklyRun = assertDate(
 );
 assert.equal(weeklyRun.toISOString(), '2026-03-16T10:00:00.000Z');
 
+const monthlySchedule: FriendlySchedule = {
+  kind: 'monthly',
+  dayOfMonth: 1,
+  time: '09:15',
+  timeZone: 'UTC',
+};
+
+const monthlyRun = assertDate(
+  computeNextRunAt(monthlySchedule, { from: new Date('2026-03-14T08:00:00.000Z') }),
+  'Monthly schedule should produce the next requested day of month.',
+);
+assert.equal(monthlyRun.toISOString(), '2026-04-01T09:15:00.000Z');
+
+const sameMonthRun = assertDate(
+  computeNextRunAt({ ...monthlySchedule, dayOfMonth: 20 }, { from: new Date('2026-03-14T08:00:00.000Z') }),
+  'Monthly schedule should still run in the current month when its day is ahead.',
+);
+assert.equal(sameMonthRun.toISOString(), '2026-03-20T09:15:00.000Z');
+
+const lastDayRun = assertDate(
+  computeNextRunAt(
+    { ...monthlySchedule, dayOfMonth: 31 },
+    { from: new Date('2026-02-01T08:00:00.000Z') },
+  ),
+  'Monthly schedules should use the last calendar day in shorter months.',
+);
+assert.equal(lastDayRun.toISOString(), '2026-02-28T09:15:00.000Z');
+
+const yearRolloverRun = assertDate(
+  computeNextRunAt(monthlySchedule, { from: new Date('2026-12-01T09:15:00.000Z') }),
+  'Monthly schedules should advance across the year boundary.',
+);
+assert.equal(yearRolloverRun.toISOString(), '2027-01-01T09:15:00.000Z');
+
+const berlinMonthlyRun = assertDate(
+  computeNextRunAt(
+    { ...monthlySchedule, timeZone: DEFAULT_USER_TIME_ZONE },
+    { from: new Date('2026-03-29T10:00:00.000Z') },
+  ),
+  'Monthly Berlin schedule should convert local summer time to UTC.',
+);
+assert.equal(berlinMonthlyRun.toISOString(), '2026-04-01T07:15:00.000Z');
+
+const validMonthlySchedule = validateFriendlySchedule({
+  kind: 'monthly',
+  dayOfMonth: '1',
+  time: '09:15',
+  timeZone: 'UTC',
+});
+assert.equal(validMonthlySchedule.error, null);
+assert.deepEqual(validMonthlySchedule.schedule, monthlySchedule);
+
+for (const dayOfMonth of [0, 1.5, 32]) {
+  const invalidMonthlySchedule = validateFriendlySchedule({
+    kind: 'monthly',
+    dayOfMonth,
+    time: '09:15',
+    timeZone: 'UTC',
+  });
+  assert.equal(invalidMonthlySchedule.schedule, null);
+  assert.match(invalidMonthlySchedule.error || '', /day of month between 1 and 31/);
+}
+
+const invalidMonthlyTime = validateFriendlySchedule({
+  kind: 'monthly',
+  dayOfMonth: 1,
+  time: '25:00',
+  timeZone: 'UTC',
+});
+assert.equal(invalidMonthlyTime.schedule, null);
+assert.match(invalidMonthlyTime.error || '', /valid time/);
+
 const intervalSchedule: FriendlySchedule = {
   kind: 'interval',
   every: 2,
