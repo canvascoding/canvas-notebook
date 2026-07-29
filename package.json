@@ -189,6 +189,7 @@
     "test:onboarding:preferences": "tsx --conditions react-server scripts/onboarding-preferences-test.ts",
     "test:onboarding:flow": "tsx --conditions react-server scripts/onboarding-flow-test.ts",
     "test:onboarding:hints": "tsx --conditions react-server scripts/onboarding-hints-test.ts",
+    "test:onboarding:license-url": "tsx scripts/onboarding-license-url-test.ts",
     "test:onboarding:ui": "tsx scripts/onboarding-wizard-ui-test.ts",
     "test:workspace:foundation": "tsx --conditions react-server scripts/workspace-context-foundation-test.ts",
     "test:workspace:model": "tsx --conditions react-server scripts/workspace-model-service-test.ts",

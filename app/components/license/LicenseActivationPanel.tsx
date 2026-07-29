@@ -12,6 +12,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
+import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 
 type LicenseStatus = {
@@ -120,6 +121,10 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
   const [loading, setLoading] = useState(true);
   const [registering, setRegistering] = useState(false);
   const [activating, setActivating] = useState(false);
+
+  useEffect(() => {
+    scrubLicenseKeyFromBrowserUrl();
+  }, []);
 
   useEffect(() => {
     let mounted = true;

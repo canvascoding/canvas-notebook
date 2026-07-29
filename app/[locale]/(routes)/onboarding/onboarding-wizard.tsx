@@ -5,6 +5,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { routing } from '@/i18n/routing';
 import { buildLocalePath } from '@/app/lib/locale-path';
+import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
 
 import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { AiProviderCredentialsPanel } from '@/app/components/settings/AiProviderCredentialsPanel';
@@ -204,6 +205,10 @@ export default function OnboardingWizard({
   const profileSessionRequestInFlightRef = useRef(false);
   const isInstanceOnboarding = mode === 'instance';
   const steps = isInstanceOnboarding ? INSTANCE_STEPS : USER_STEPS;
+
+  useEffect(() => {
+    scrubLicenseKeyFromBrowserUrl();
+  }, []);
 
   const advanceTo = useCallback(async (nextStep: Step) => {
     try {
