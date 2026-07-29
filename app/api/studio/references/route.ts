@@ -103,7 +103,7 @@ export async function POST(request: NextRequest) {
       // Use default filename
     }
 
-    const uploadRoot = getUserUploadsStudioRefRoot();
+    const uploadRoot = getUserUploadsStudioRefRoot(session.user.id);
     await fs.mkdir(uploadRoot, { recursive: true });
 
     const timestamp = new Date().toISOString().replace(/[:.]/g, '-');
@@ -111,7 +111,7 @@ export async function POST(request: NextRequest) {
     const fullPath = path.join(uploadRoot, uniqueName);
     await fs.writeFile(fullPath, buffer);
 
-    const relativePath = `user-uploads/studio-references/${uniqueName}`;
+    const relativePath = `user-uploads/studio-references/${session.user.id}/${uniqueName}`;
     return NextResponse.json({
       success: true,
       path: relativePath,

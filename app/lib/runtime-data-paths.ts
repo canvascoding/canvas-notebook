@@ -53,6 +53,10 @@ export function getUserUploadsRoot(cwd?: string): string {
   return path.join(resolveCanvasDataRoot(cwd), 'user-uploads');
 }
 
-export function getUserUploadsStudioRefRoot(cwd?: string): string {
-  return path.join(resolveCanvasDataRoot(cwd), 'user-uploads', 'studio-references');
+export function getUserUploadsStudioRefRoot(userId?: string, cwd?: string): string {
+  const root = path.join(resolveCanvasDataRoot(cwd), 'user-uploads', 'studio-references');
+  if (!userId) {
+    return root;
+  }
+  return path.join(root, userId);
 }

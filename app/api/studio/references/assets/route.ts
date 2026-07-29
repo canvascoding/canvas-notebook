@@ -85,7 +85,7 @@ export async function GET(request: NextRequest) {
     // Scan studio outputs (data/studio/outputs)
     const outputsTree = await safeBuildGenericFileTree(getStudioOutputsRoot(), depth);
     // Scan user-uploaded studio references (data/user-uploads/studio-references)
-    const uploadsTree = await safeBuildGenericFileTree(getUserUploadsStudioRefRoot(), depth);
+    const uploadsTree = await safeBuildGenericFileTree(getUserUploadsStudioRefRoot(session.user.id), depth);
 
     const allFiles = [
       ...walkFiles(outputsTree).map((n) => ({
@@ -94,7 +94,7 @@ export async function GET(request: NextRequest) {
       })),
       ...walkFiles(uploadsTree).map((n) => ({
         ...n,
-        path: n.path.startsWith('user-uploads/') ? n.path : `user-uploads/studio-references/${n.path}`,
+        path: n.path.startsWith('user-uploads/') ? n.path : `user-uploads/studio-references/${session.user.id}/${n.path}`,
       })),
     ];
 

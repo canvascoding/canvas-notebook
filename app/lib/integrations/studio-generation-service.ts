@@ -463,7 +463,7 @@ async function loadExtraReferenceImages(userId: string, urls: string[]): Promise
         sourceId = localPath.sourceId;
         fileName = localPath.relativePath.split('/').pop() || fileName;
       } else if (localPath?.kind === 'user_upload') {
-        const fullPath = resolveValidatedUserUploadStudioRefPath(localPath.relativePath);
+        const fullPath = resolveValidatedUserUploadStudioRefPath(localPath.relativePath, userId);
         if (!fullPath) {
           throw new Error('Invalid user upload reference path');
         }
@@ -536,9 +536,14 @@ function normalizeLocalExtraReference(rawUrl: string): LocalExtraReference | nul
   }
 
   if (studioMediaPath.startsWith('user-uploads/studio-references/')) {
+    const relativePath = studioMediaPath.slice('user-uploads/studio-references/'.length);
+    if (!relativePath.includes('/')) {
+      return null;
+    }
+
     return {
       kind: 'user_upload',
-      relativePath: studioMediaPath.slice('user-uploads/studio-references/'.length),
+      relativePath,
       sourceId: rawUrl,
     };
   }

@@ -19,6 +19,6 @@ export function resolveValidatedStudioOutputPath(relativePath: string): string |
   return resolveWithinRoot(getStudioOutputsRoot(), path.normalize(relativePath));
 }
 
-export function resolveValidatedUserUploadStudioRefPath(relativePath: string): string | null {
-  return resolveWithinRoot(getUserUploadsStudioRefRoot(), path.normalize(relativePath));
+export function resolveValidatedUserUploadStudioRefPath(relativePath: string, userId?: string): string | null {
+  return resolveWithinRoot(getUserUploadsStudioRefRoot(userId), path.normalize(relativePath));
 }

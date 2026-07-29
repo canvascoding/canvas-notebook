@@ -46,7 +46,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const uploadRoot = getUserUploadsStudioRefRoot();
+    const uploadRoot = getUserUploadsStudioRefRoot(session.user.id);
     await fs.mkdir(uploadRoot, { recursive: true });
 
     const results: Array<{
@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
       const buffer = Buffer.from(await file.arrayBuffer());
       await fs.writeFile(fullPath, buffer);
 
-      const relativePath = `user-uploads/studio-references/${uniqueName}`;
+      const relativePath = `user-uploads/studio-references/${session.user.id}/${uniqueName}`;
       results.push({
         path: relativePath,
         name: file.name,

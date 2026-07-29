@@ -41,7 +41,7 @@ function getContentType(filePath: string): string {
   return MEDIA_TYPES[ext] || 'application/octet-stream';
 }
 
-function resolveStudioPath(encodedFilePath: string): string | null {
+function resolveStudioPath(encodedFilePath: string, userId: string): string | null {
   if (encodedFilePath.startsWith('studio/outputs/')) {
     return resolveValidatedStudioOutputPath(encodedFilePath.slice('studio/outputs/'.length));
   }
@@ -49,7 +49,10 @@ function resolveStudioPath(encodedFilePath: string): string | null {
     return resolveValidatedStudioAssetPath(encodedFilePath.slice('studio/assets/'.length));
   }
   if (encodedFilePath.startsWith('user-uploads/studio-references/')) {
-    return resolveValidatedUserUploadStudioRefPath(encodedFilePath.slice('user-uploads/studio-references/'.length));
+    return resolveValidatedUserUploadStudioRefPath(
+      encodedFilePath.slice('user-uploads/studio-references/'.length),
+      userId,
+    );
   }
   return null;
 }
@@ -65,7 +68,7 @@ export async function GET(
 
   const { path: pathParts } = await context.params;
   const encodedPath = pathParts.map((p) => decodeURIComponent(p)).join('/');
-  const fullPath = resolveStudioPath(encodedPath);
+  const fullPath = resolveStudioPath(encodedPath, session.user.id);
 
   if (!fullPath) {
     return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });

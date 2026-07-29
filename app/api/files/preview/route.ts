@@ -227,7 +227,8 @@ export async function GET(request: NextRequest) {
       }
       fullPath = resolved;
     } else if (filePath.startsWith('user-uploads/studio-references/')) {
-      const resolved = resolveValidatedUserUploadStudioRefPath(filePath.slice('user-uploads/studio-references/'.length));
+      const relativeUploadPath = filePath.slice('user-uploads/studio-references/'.length);
+      const resolved = resolveValidatedUserUploadStudioRefPath(relativeUploadPath, session.user.id);
       if (!resolved) {
         return NextResponse.json({ success: false, error: 'Invalid path' }, { status: 400 });
       }
