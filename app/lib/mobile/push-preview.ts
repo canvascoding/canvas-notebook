@@ -4,8 +4,9 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { Lexer, type Token, type Tokens } from 'marked';
 
+import type { UserLocale } from '@/app/lib/user-preferences';
+
 const DEFAULT_CHAT_TITLE = 'Canvas Chat';
-const DEFAULT_CHAT_BODY = 'Your agent has finished a response.';
 const MAX_NOTIFICATION_TITLE_LENGTH = 72;
 const MAX_NOTIFICATION_BODY_LENGTH = 220;
 export const STUDIO_PUSH_PREVIEW_TTL_SECONDS = 60 * 60;
@@ -287,24 +288,37 @@ export function extractPersistedAssistantMarkdown(serializedMessage: string): st
 export function createAgentResponseNotificationPreview(input: {
   sessionTitle: string | null;
   serializedMessage: string;
+  locale?: UserLocale;
 }): MobilePushNotificationPreview {
   const title = markdownToNotificationText(input.sessionTitle || '');
   const body = markdownToNotificationText(extractPersistedAssistantMarkdown(input.serializedMessage));
+  const fallbackBody = input.locale === 'de'
+    ? 'Dein Agent hat eine Antwort fertiggestellt.'
+    : 'Your agent has finished a response.';
   return {
     title: truncatePreviewText(title || DEFAULT_CHAT_TITLE, MAX_NOTIFICATION_TITLE_LENGTH),
-    body: truncatePreviewText(body || DEFAULT_CHAT_BODY, MAX_NOTIFICATION_BODY_LENGTH),
+    body: truncatePreviewText(body || fallbackBody, MAX_NOTIFICATION_BODY_LENGTH),
   };
 }
 
 export function createAutomationRunNotificationPreview(input: {
   jobName: string;
   status: 'success' | 'failed';
+  locale?: UserLocale;
 }): MobilePushNotificationPreview {
   const jobName = markdownToNotificationText(input.jobName);
+  const isGerman = input.locale === 'de';
   return {
-    title: truncatePreviewText(jobName || 'Scheduled automation', MAX_NOTIFICATION_TITLE_LENGTH),
+    title: truncatePreviewText(
+      jobName || (isGerman ? 'Geplante Automation' : 'Scheduled automation'),
+      MAX_NOTIFICATION_TITLE_LENGTH,
+    ),
     body: input.status === 'success'
-      ? 'Scheduled automation completed successfully.'
-      : 'Scheduled automation failed. Open the run for details.',
+      ? isGerman
+        ? 'Geplante Automation erfolgreich abgeschlossen.'
+        : 'Scheduled automation completed successfully.'
+      : isGerman
+        ? 'Geplante Automation fehlgeschlagen. Öffne den Lauf für Details.'
+        : 'Scheduled automation failed. Open the run for details.',
   };
 }

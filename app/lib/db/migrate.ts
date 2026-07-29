@@ -100,6 +100,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       workspace_id TEXT NOT NULL,
       item_key TEXT NOT NULL,
       read_at INTEGER NOT NULL,
+      dismissed_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       PRIMARY KEY (user_id, workspace_id, item_key),
@@ -1492,6 +1493,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     failure_attention: 'INTEGER NOT NULL DEFAULT 1',
     automation_run_status: 'INTEGER NOT NULL DEFAULT 0',
     preview_enabled: 'INTEGER NOT NULL DEFAULT 0',
+  });
+
+  addColumns(sqlite, 'mobile_inbox_read_states', {
+    dismissed_at: 'INTEGER',
   });
 
   addColumns(sqlite, 'organization_user_permissions', {

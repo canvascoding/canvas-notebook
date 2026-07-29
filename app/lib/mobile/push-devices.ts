@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { toDatabaseTimestamp } from '@/app/lib/db/timestamps';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
+import { getUserPreferredLocale, type UserLocale } from '@/app/lib/user-preferences';
 
 import { createPublicMobileInstanceId } from './compatibility';
 import { countMobileUnreadMessages } from './inbox';
@@ -85,6 +86,7 @@ export type MobilePushTarget =
       type: 'studio.completed';
       workspaceId: string;
       generationId: string;
+      outputId?: string;
     }
   | {
       type: 'attention.failure';
@@ -527,20 +529,25 @@ export async function unregisterMobilePushDevice(input: {
   });
 }
 
-function notificationBody(target: MobilePushTarget): string {
+function notificationBody(target: MobilePushTarget, locale: UserLocale): string {
+  const isGerman = locale === 'de';
   switch (target.type) {
     case 'agent.response_ready':
-      return 'Your agent has finished a response.';
+      return isGerman ? 'Dein Agent hat eine Antwort fertiggestellt.' : 'Your agent has finished a response.';
     case 'todo.attention':
-      return 'A Canvas To-do needs your attention.';
+      return isGerman ? 'Ein Canvas-To-do benötigt deine Aufmerksamkeit.' : 'A Canvas To-do needs your attention.';
     case 'studio.completed':
-      return 'Your Studio result is ready.';
+      return isGerman ? 'Dein Studio-Ergebnis ist bereit.' : 'Your Studio result is ready.';
     case 'attention.failure':
-      return 'Canvas work needs your attention.';
+      return isGerman ? 'Canvas-Arbeit benötigt deine Aufmerksamkeit.' : 'Canvas work needs your attention.';
     case 'automation.completed':
       return target.status === 'success'
-        ? 'A scheduled automation completed successfully.'
-        : 'A scheduled automation failed.';
+        ? isGerman
+          ? 'Eine geplante Automation wurde erfolgreich abgeschlossen.'
+          : 'A scheduled automation completed successfully.'
+        : isGerman
+          ? 'Eine geplante Automation ist fehlgeschlagen.'
+          : 'A scheduled automation failed.';
   }
 }
 
@@ -550,13 +557,15 @@ export function createMobilePushMessages(input: {
   target: MobilePushTarget;
   notification?: MobilePushNotificationPreview;
   badge?: number;
+  locale?: UserLocale;
 }): ExpoPushMessage[] {
+  const locale = input.locale ?? 'en';
   return input.tokens.map((token) => {
     const imageUrl = input.notification?.imageUrl;
     return {
       to: token,
       title: input.notification?.title || 'Canvas Notebook',
-      body: input.notification?.body || notificationBody(input.target),
+      body: input.notification?.body || notificationBody(input.target, locale),
       sound: 'default',
       priority: 'default',
       channelId: 'canvas-activity',
@@ -581,6 +590,7 @@ export function createAgentResponseReadyMessages(input: {
   sessionId: string;
   notification?: MobilePushNotificationPreview;
   badge?: number;
+  locale?: UserLocale;
 }): ExpoPushMessage[] {
   return createMobilePushMessages({
     tokens: input.tokens,
@@ -592,6 +602,7 @@ export function createAgentResponseReadyMessages(input: {
     },
     notification: input.notification,
     badge: input.badge,
+    locale: input.locale,
   });
 }
 
@@ -761,12 +772,15 @@ export async function sendMobileAttentionPush(input: {
   userId: string;
   target: MobilePushTarget;
   notification?: MobilePushNotificationPreview;
+  locale?: UserLocale;
   instanceId?: string;
   fetcher?: typeof fetch;
   now?: number;
 }): Promise<{ attempted: number; accepted: number }> {
   const fetcher = input.fetcher || fetch;
   const preferenceColumn = pushPreferenceColumn(input.target);
+  const locale = input.locale
+    ?? await getUserPreferredLocale(input.userId).catch(() => 'en' as const);
   const now = input.now ?? Date.now();
   const authNow = toDatabaseTimestamp(new Date(now));
   return withConnection(async (connection) => {
@@ -801,6 +815,7 @@ export async function sendMobileAttentionPush(input: {
         target: input.target,
         notification: Boolean(row.preview_enabled) ? input.notification : undefined,
         badge,
+        locale,
       }));
       const response = await postExpoWithRetry({
         endpoint: EXPO_PUSH_ENDPOINT,
@@ -859,6 +874,7 @@ export async function sendAgentResponseReadyPush(input: {
       console.log(`[Mobile Push] Agent response suppressed (${suppression}): sessionId=${input.sessionId}`);
       return { attempted: 0, accepted: 0 };
     }
+    const locale = await getUserPreferredLocale(input.userId).catch(() => 'en' as const);
     return sendMobileAttentionPush({
       userId: input.userId,
       instanceId: input.instanceId,
@@ -866,7 +882,9 @@ export async function sendAgentResponseReadyPush(input: {
       notification: createAgentResponseNotificationPreview({
         sessionTitle: current?.sessionTitle || null,
         serializedMessage: current?.lastAssistantMessageContent || '',
+        locale,
       }),
+      locale,
       target: {
         type: 'agent.response_ready',
         workspaceId: input.workspaceId,
@@ -899,17 +917,27 @@ export async function sendStudioCompletedPush(input: {
   generationId: string;
   previewOutputId?: string;
 }): Promise<{ attempted: number; accepted: number }> {
+  const locale = await getUserPreferredLocale(input.userId).catch(() => 'en' as const);
+  const isGerman = locale === 'de';
   const imageUrl = input.previewOutputId
     ? createStudioPushPreviewUrl({ outputId: input.previewOutputId })
     : null;
   return sendMobileAttentionPush({
     userId: input.userId,
     notification: {
-      title: imageUrl ? 'Studio image ready' : 'Studio result ready',
-      body: 'Your Studio result is ready.',
+      title: imageUrl
+        ? isGerman ? 'Studio-Bild bereit' : 'Studio image ready'
+        : isGerman ? 'Studio-Ergebnis bereit' : 'Studio result ready',
+      body: isGerman ? 'Dein Studio-Ergebnis ist bereit.' : 'Your Studio result is ready.',
       ...(imageUrl ? { imageUrl } : {}),
     },
-    target: { type: 'studio.completed', workspaceId: input.workspaceId, generationId: input.generationId },
+    locale,
+    target: {
+      type: 'studio.completed',
+      workspaceId: input.workspaceId,
+      generationId: input.generationId,
+      ...(input.previewOutputId ? { outputId: input.previewOutputId } : {}),
+    },
   });
 }
 
@@ -919,8 +947,10 @@ export async function sendFailureAttentionPush(input: {
   entityKind: 'studio' | 'automation';
   entityId: string;
 }): Promise<{ attempted: number; accepted: number }> {
+  const locale = await getUserPreferredLocale(input.userId).catch(() => 'en' as const);
   return sendMobileAttentionPush({
     userId: input.userId,
+    locale,
     target: {
       type: 'attention.failure',
       workspaceId: input.workspaceId,
@@ -940,6 +970,7 @@ export async function sendAutomationRunStatusPush(input: {
   fetcher?: typeof fetch;
   now?: number;
 }): Promise<{ attempted: number; accepted: number }> {
+  const locale = await getUserPreferredLocale(input.userId).catch(() => 'en' as const);
   return sendMobileAttentionPush({
     userId: input.userId,
     instanceId: input.instanceId,
@@ -948,7 +979,9 @@ export async function sendAutomationRunStatusPush(input: {
     notification: createAutomationRunNotificationPreview({
       jobName: input.jobName,
       status: input.status,
+      locale,
     }),
+    locale,
     target: {
       type: 'automation.completed',
       workspaceId: input.workspaceId,

@@ -70,6 +70,12 @@ async function main() {
   ));
   assert.equal(gateResponse.status, 200);
   assert.equal(gateResponse.headers.get('x-middleware-next'), '1');
+  const preferencesGateResponse = await middleware(new NextRequest(
+    'http://localhost/api/mobile/v1/account/preferences',
+    { headers: { cookie: 'better-auth.session_token=middleware-test' } },
+  ));
+  assert.equal(preferencesGateResponse.status, 200);
+  assert.equal(preferencesGateResponse.headers.get('x-middleware-next'), '1');
 
   process.env.BASE_URL = 'https://canvas.canvasnotebook.app';
   process.env.BETTER_AUTH_BASE_URL = 'https://canvas.canvasnotebook.app';

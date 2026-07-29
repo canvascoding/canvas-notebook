@@ -339,23 +339,49 @@ async function writeEditResult(
   };
 }
 
+async function loadAspectRatioSource(
+  sourcePath: string,
+  scope: StudioScope,
+  storageScope?: EnvStorageScope | null,
+) {
+  if (sourcePath.startsWith('studio/') && !(await canReadStudioMediaPath(sourcePath, scope))) {
+    throw new Error('Source image is not available in this workspace');
+  }
+  const source = await loadMediaReference(sourcePath, {
+    userId: storageScope?.userId ?? undefined,
+    allowedTypes: ['image'],
+  });
+  const metadata = await sharp(source.bytes, { limitInputPixels: false }).metadata();
+  let width = metadata.width || source.width || 0;
+  let height = metadata.height || source.height || 0;
+  if (metadata.orientation && metadata.orientation >= 5 && metadata.orientation <= 8) {
+    [width, height] = [height, width];
+  }
+  if (width <= 0 || height <= 0) {
+    throw new Error('Could not read source image dimensions');
+  }
+  return { bytes: source.bytes, height, width };
+}
+
+export async function resolveAspectRatioSourceDimensions(
+  sourcePath: string,
+  scope: StudioScope,
+  storageScope?: EnvStorageScope | null,
+) {
+  const source = await loadAspectRatioSource(sourcePath, scope, storageScope);
+  return { height: source.height, width: source.width };
+}
+
 export async function createAspectRatioPreview(
   input: AspectRatioPreviewRequest,
   scope: StudioScope,
   storageScope?: EnvStorageScope | null,
 ): Promise<AspectRatioPreviewResult> {
   const request = validatePreviewRequest(input);
-  if (request.sourcePath.startsWith('studio/') && !(await canReadStudioMediaPath(request.sourcePath, scope))) {
-    throw new Error('Source image is not available in this workspace');
-  }
-  const source = await loadMediaReference(request.sourcePath, { userId: storageScope?.userId ?? undefined, allowedTypes: ['image'] });
+  const source = await loadAspectRatioSource(request.sourcePath, scope, storageScope);
   const sourceBytes = source.bytes;
-  const metadata = await sharp(sourceBytes, { limitInputPixels: false }).metadata();
-  const sourceWidth = metadata.width || source.width || 0;
-  const sourceHeight = metadata.height || source.height || 0;
-  if (sourceWidth <= 0 || sourceHeight <= 0) {
-    throw new Error('Could not read source image dimensions');
-  }
+  const sourceWidth = source.width;
+  const sourceHeight = source.height;
 
   const requestedMode = request.mode;
   const actualMode: AspectRatioMode = frameIsInsideImage(request.frame, sourceWidth, sourceHeight) ? 'crop' : 'ai_extend';

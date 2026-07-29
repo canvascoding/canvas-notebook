@@ -64,14 +64,31 @@ async function main() {
       now - 1_000,
       now - 1_000,
     );
-    sqlite.prepare(`
+    const insertOutput = sqlite.prepare(`
       INSERT INTO studio_generation_outputs (
         id, generation_id, organization_id, workspace_id, created_by_user_id, variation_index, type,
         file_path, file_name, mime_type, file_size, width, height, is_favorite, metadata, created_at
-      ) VALUES ('output-1', 'generation-new', ?, ?, 'studio-user', 0, 'image',
-        'studio/outputs/private/server/path.png', 'path.png', 'image/png', 1234, 1024, 1024, 0,
+      ) VALUES (?, 'generation-new', ?, ?, 'studio-user', ?, 'image', ?, ?, 'image/png', 1234, 1024, 1024, 0,
         '{"providerSecret":"hidden"}', ?)
-    `).run(bootstrap.organizationId, workspace.id, now);
+    `);
+    insertOutput.run(
+      'output-2',
+      bootstrap.organizationId,
+      workspace.id,
+      1,
+      'studio/outputs/private/server/path-2.png',
+      'path-2.png',
+      now - 1,
+    );
+    insertOutput.run(
+      'output-1',
+      bootstrap.organizationId,
+      workspace.id,
+      0,
+      'studio/outputs/private/server/path.png',
+      'path.png',
+      now,
+    );
     sqlite.prepare(`
       INSERT INTO studio_presets (
         id, user_id, organization_id, workspace_id, created_by_user_id, visibility,
@@ -139,6 +156,20 @@ async function main() {
       sourceHeight: 1_200,
       targetRatio: 4 / 5,
     }), { x: 120, y: 100, width: 800, height: 1_000 });
+    assert.deepEqual(resolveMobileStudioReframeFrame({
+      frame: { x: -200, y: -150, width: 2_000, height: 2_500 },
+      mode: 'ai_extend',
+      sourceWidth: 1_600,
+      sourceHeight: 1_200,
+      targetRatio: 4 / 5,
+    }), { x: -200, y: -150, width: 2_000, height: 2_500 });
+    assert.throws(() => resolveMobileStudioReframeFrame({
+      frame: { x: 2_000, y: 0, width: 800, height: 1_000 },
+      mode: 'ai_extend',
+      sourceWidth: 1_600,
+      sourceHeight: 1_200,
+      targetRatio: 4 / 5,
+    }), /crop frame is invalid/u);
     assert.throws(() => resolveMobileStudioReframeFrame({
       frame: { x: -1, y: 0, width: 800, height: 1_000 },
       mode: 'crop',
@@ -219,6 +250,7 @@ async function main() {
     const serialized = firstPage.generations[0] as unknown as Record<string, unknown>;
     assert.equal('metadata' in serialized, false);
     const output = firstPage.generations[0].outputs[0] as unknown as Record<string, unknown>;
+    assert.deepEqual(firstPage.generations[0].outputs.map((entry) => entry.id), ['output-1', 'output-2']);
     assert.equal('filePath' in output, false);
     assert.equal('mediaUrl' in output, false);
     assert.equal(
@@ -243,6 +275,7 @@ async function main() {
     );
 
     const detail = await getMobileStudioGeneration({ scope, generationId: 'generation-new' });
+    assert.deepEqual(detail.outputs.map((entry) => entry.id), ['output-1', 'output-2']);
     assert.equal(detail.outputs[0].fileName, 'path.png');
     assert.equal(detail.prompt, 'Private prompt');
     await assert.rejects(

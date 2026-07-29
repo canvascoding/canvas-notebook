@@ -34,6 +34,7 @@ const LICENSE_ALLOWED_API_PREFIXES = [
   '/api/health',
   '/api/license',
   '/api/mobile/v1/license',
+  '/api/mobile/v1/account/preferences',
   '/api/legal',
   '/api/onboarding',
   '/api/user-preferences',

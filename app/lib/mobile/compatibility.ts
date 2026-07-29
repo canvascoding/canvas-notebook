@@ -19,6 +19,7 @@ export type MobileCompatibility = {
     minimumClientVersion: typeof MINIMUM_MOBILE_CLIENT_VERSION;
     capabilities: [
       'auth.email_password',
+      'account.preferences',
       'workspace.bootstrap',
       'license.status',
       'license.register',
@@ -49,6 +50,7 @@ export type MobileCompatibility = {
       'files.public_share',
       'inbox.feed',
       'inbox.read_state',
+      'inbox.dismiss',
       'todos.read',
       'todos.write',
       'todos.follow_up',
@@ -64,6 +66,7 @@ export type MobileCompatibility = {
       'studio.bulk',
       'studio.aspect_ratio',
       'studio.aspect_ratio.positioned_crop',
+      'studio.aspect_ratio.canvas_frame',
       'automations.jobs',
       'automations.run_control',
       'automations.run_history',
@@ -111,6 +114,7 @@ export function createMobileCompatibility(input: {
       minimumClientVersion: MINIMUM_MOBILE_CLIENT_VERSION,
       capabilities: [
         'auth.email_password',
+        'account.preferences',
         'workspace.bootstrap',
         'license.status',
         'license.register',
@@ -141,6 +145,7 @@ export function createMobileCompatibility(input: {
         'files.public_share',
         'inbox.feed',
         'inbox.read_state',
+        'inbox.dismiss',
         'todos.read',
         'todos.write',
         'todos.follow_up',
@@ -156,6 +161,7 @@ export function createMobileCompatibility(input: {
         'studio.bulk',
         'studio.aspect_ratio',
         'studio.aspect_ratio.positioned_crop',
+        'studio.aspect_ratio.canvas_frame',
         'automations.jobs',
         'automations.run_control',
         'automations.run_history',

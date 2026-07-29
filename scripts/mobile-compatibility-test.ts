@@ -33,6 +33,7 @@ assert.deepEqual(compatibility, {
     minimumClientVersion: '0.1.0',
     capabilities: [
       'auth.email_password',
+      'account.preferences',
       'workspace.bootstrap',
       'license.status',
       'license.register',
@@ -63,6 +64,7 @@ assert.deepEqual(compatibility, {
       'files.public_share',
       'inbox.feed',
       'inbox.read_state',
+      'inbox.dismiss',
       'todos.read',
       'todos.write',
       'todos.follow_up',
@@ -78,6 +80,7 @@ assert.deepEqual(compatibility, {
       'studio.bulk',
       'studio.aspect_ratio',
       'studio.aspect_ratio.positioned_crop',
+      'studio.aspect_ratio.canvas_frame',
       'automations.jobs',
       'automations.run_control',
       'automations.run_history',

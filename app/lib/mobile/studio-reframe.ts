@@ -71,7 +71,7 @@ export function resolveMobileStudioReframeFrame({
     targetRatio,
     mode,
   );
-  if (mode !== 'crop' || frame === undefined || frame === null) return centered;
+  if (frame === undefined || frame === null) return centered;
   if (!isRecord(frame)) invalidFrame();
 
   const requested = {
@@ -80,14 +80,7 @@ export function resolveMobileStudioReframeFrame({
     width: finiteCoordinate(frame.width),
     height: finiteCoordinate(frame.height),
   };
-  if (
-    requested.x < 0 ||
-    requested.y < 0 ||
-    requested.width < MINIMUM_FRAME_EDGE ||
-    requested.height < MINIMUM_FRAME_EDGE ||
-    requested.x + requested.width > sourceWidth ||
-    requested.y + requested.height > sourceHeight
-  ) invalidFrame();
+  if (requested.width < MINIMUM_FRAME_EDGE || requested.height < MINIMUM_FRAME_EDGE) invalidFrame();
 
   const ratioError = Math.abs(requested.width / requested.height - targetRatio) / targetRatio;
   if (ratioError > RATIO_TOLERANCE) invalidFrame();
@@ -104,9 +97,20 @@ export function resolveMobileStudioReframeFrame({
   };
   if (
     normalized.width < MINIMUM_FRAME_EDGE ||
-    normalized.height < MINIMUM_FRAME_EDGE ||
-    normalized.x + normalized.width > sourceWidth ||
-    normalized.y + normalized.height > sourceHeight
+    normalized.height < MINIMUM_FRAME_EDGE
+  ) invalidFrame();
+  if (mode === 'crop') {
+    if (
+      normalized.x < 0 ||
+      normalized.y < 0 ||
+      normalized.x + normalized.width > sourceWidth ||
+      normalized.y + normalized.height > sourceHeight
+    ) invalidFrame();
+  } else if (
+    normalized.x >= sourceWidth ||
+    normalized.y >= sourceHeight ||
+    normalized.x + normalized.width <= 0 ||
+    normalized.y + normalized.height <= 0
   ) invalidFrame();
   return normalized;
 }

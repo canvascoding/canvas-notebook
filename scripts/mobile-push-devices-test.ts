@@ -35,6 +35,7 @@ async function main() {
     verifyStudioPushPreviewTicket,
   } = await import('../app/lib/mobile/push-preview');
   const { closeDatabaseConnections, openDb } = await import('../app/lib/db');
+  const { setUserPreferredLocale } = await import('../app/lib/user-preferences');
   const database = await openDb();
   const now = Date.now();
   const authNow = Math.floor(now / 1_000);
@@ -111,6 +112,7 @@ async function main() {
     ],
   );
   await database.close();
+  await setUserPreferredLocale('push-user', 'en');
 
   const unreadState = {
     lastMessageAt: responseAt,
@@ -224,6 +226,22 @@ async function main() {
     title: 'Daily brief',
     body: 'Scheduled automation failed. Open the run for details.',
   });
+  assert.deepEqual(createAgentResponseNotificationPreview({
+    sessionTitle: null,
+    serializedMessage: '',
+    locale: 'de',
+  }), {
+    title: 'Canvas Chat',
+    body: 'Dein Agent hat eine Antwort fertiggestellt.',
+  });
+  assert.deepEqual(createAutomationRunNotificationPreview({
+    jobName: '',
+    status: 'failed',
+    locale: 'de',
+  }), {
+    title: 'Geplante Automation',
+    body: 'Geplante Automation fehlgeschlagen. Öffne den Lauf für Details.',
+  });
   const automationStatusMessages = createMobilePushMessages({
     tokens: [registration.expoPushToken],
     instanceId: 'cni_0123456789abcdef01234567',
@@ -243,6 +261,17 @@ async function main() {
     status: 'success',
   });
   assert.equal(automationStatusMessages[0].body, 'A scheduled automation completed successfully.');
+  const germanTodoMessages = createMobilePushMessages({
+    tokens: [registration.expoPushToken],
+    instanceId: 'cni_0123456789abcdef01234567',
+    locale: 'de',
+    target: {
+      type: 'todo.attention',
+      workspaceId: 'workspace-1',
+      todoId: 'todo-1',
+    },
+  });
+  assert.equal(germanTodoMessages[0].body, 'Ein Canvas-To-do benötigt deine Aufmerksamkeit.');
 
   const studioPreviewUrl = createStudioPushPreviewUrl({
     outputId: 'studio-output-1',
@@ -268,6 +297,7 @@ async function main() {
       type: 'studio.completed',
       workspaceId: 'workspace-1',
       generationId: 'generation-1',
+      outputId: 'studio-output-1',
     },
     notification: {
       title: 'Studio image ready',
@@ -276,6 +306,13 @@ async function main() {
     },
   });
   assert.deepEqual(studioImageMessages[0].richContent, { image: studioPreviewUrl });
+  assert.deepEqual(studioImageMessages[0].data, {
+    type: 'studio.completed',
+    instanceId: 'cni_0123456789abcdef01234567',
+    workspaceId: 'workspace-1',
+    generationId: 'generation-1',
+    outputId: 'studio-output-1',
+  });
   assert.equal(studioImageMessages[0].mutableContent, true);
   assert.equal(studioImageMessages[0].ttl, STUDIO_PUSH_PREVIEW_TTL_SECONDS);
   const { db: drizzleDatabase } = await import('../app/lib/db');

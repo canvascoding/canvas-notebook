@@ -35,6 +35,25 @@ async function main() {
       ['generation-ready', 'mobile-attention-user', 'image', '1:1', 'test', 'test', 'completed', nowSeconds - 5, nowSeconds - 4],
     );
     await database.run(
+      `INSERT INTO studio_generation_outputs (
+        id, generation_id, variation_index, type, file_path, file_name, mime_type,
+        file_size, width, height, created_at
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      [
+        'generation-preview-output',
+        'generation-ready',
+        0,
+        'image',
+        'studio/outputs/generation-ready/preview.png',
+        'preview.png',
+        'image/png',
+        1_234,
+        1_024,
+        1_024,
+        nowSeconds - 4,
+      ],
+    );
+    await database.run(
       `INSERT INTO automation_jobs (
         id, name, status, owner_user_id, prompt, preferred_skill, workspace_context_paths_json,
         schedule_kind, schedule_config_json, time_zone, created_by_user_id, agent_id,
@@ -79,6 +98,10 @@ async function main() {
     assert.equal(inbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(inbox.items.some((item) => item.id === 'studio:generation-ready'), true);
     assert.equal(inbox.items.some((item) => item.id === 'automation:run-failed'), true);
+    assert.equal(
+      inbox.items.find((item) => item.id === 'studio:generation-ready')?.previewUrl,
+      '/api/mobile/v1/studio/outputs/generation-preview-output/preview',
+    );
 
     const { auth } = await import('../app/lib/auth');
     let badgeSession: { user: { id: string } } | null = null;
@@ -104,6 +127,30 @@ async function main() {
     });
     const afterStudioRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
     assert.equal(afterStudioRead.items.some((item) => item.id === 'studio:generation-ready'), false);
+
+    await markMobileInboxRead({
+      userId: 'mobile-attention-user',
+      workspace,
+      action: 'dismiss_item',
+      itemId: 'automation:run-failed',
+    });
+    const afterAutomationDismiss = await listMobileInbox({ userId: 'mobile-attention-user', workspace });
+    assert.equal(afterAutomationDismiss.items.some((item) => item.id === 'automation:run-failed'), false);
+    assert.equal(afterAutomationDismiss.counts.automation, 0);
+    await assert.rejects(
+      () => markMobileInboxRead({
+        userId: 'mobile-attention-user',
+        workspace,
+        action: 'dismiss_item',
+        itemId: `todo:${firstTodo.id}`,
+      }),
+      (error: unknown) => Boolean(
+        error
+        && typeof error === 'object'
+        && 'code' in error
+        && error.code === 'ITEM_NOT_DISMISSIBLE'
+      ),
+    );
 
     await markMobileInboxRead({ userId: 'mobile-attention-user', workspace, action: 'mark_all_read' });
     const afterAllRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });

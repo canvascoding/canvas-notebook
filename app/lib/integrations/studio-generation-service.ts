@@ -1813,7 +1813,8 @@ export async function listStudioGenerations(scope: StudioScope, options: ListStu
   const results = await Promise.all(generations.map(async (gen) => {
     const outputs = await db.select()
       .from(studioGenerationOutputs)
-      .where(eq(studioGenerationOutputs.generationId, gen.id));
+      .where(eq(studioGenerationOutputs.generationId, gen.id))
+      .orderBy(asc(studioGenerationOutputs.variationIndex), asc(studioGenerationOutputs.createdAt));
 
     const productRefs = await db.select({ productId: studioGenerationProducts.productId })
       .from(studioGenerationProducts)
@@ -1858,7 +1859,8 @@ export async function getStudioGeneration(generationId: string, scope: StudioSco
 
   const outputs = await db.select()
     .from(studioGenerationOutputs)
-    .where(eq(studioGenerationOutputs.generationId, generationId));
+    .where(eq(studioGenerationOutputs.generationId, generationId))
+    .orderBy(asc(studioGenerationOutputs.variationIndex), asc(studioGenerationOutputs.createdAt));
 
   const productRefs = await db.select({ productId: studioGenerationProducts.productId })
     .from(studioGenerationProducts)

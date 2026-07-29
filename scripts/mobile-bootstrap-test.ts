@@ -58,6 +58,7 @@ const bootstrap = createMobileBootstrap({
 
 assert.equal(bootstrap.product, 'canvas-notebook');
 assert.deepEqual(bootstrap.mobileApi.capabilities, [
+  'account.preferences',
   'workspace.read',
   'workspace.switch',
   'workspace.update',
@@ -95,6 +96,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'files.public_share',
   'inbox.feed',
   'inbox.read_state',
+  'inbox.dismiss',
   'todos.read',
   'todos.write',
   'todos.follow_up',
@@ -110,6 +112,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'studio.bulk',
   'studio.aspect_ratio',
   'studio.aspect_ratio.positioned_crop',
+  'studio.aspect_ratio.canvas_frame',
   'automations.jobs',
   'automations.run_control',
   'automations.run_history',

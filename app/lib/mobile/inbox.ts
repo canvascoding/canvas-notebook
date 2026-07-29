@@ -2,6 +2,7 @@ import 'server-only';
 
 import {
   and,
+  asc,
   count as countRows,
   desc,
   eq,
@@ -9,6 +10,7 @@ import {
   inArray,
   isNotNull,
   isNull,
+  like,
   or,
   type AnyColumn,
   type SQL,
@@ -22,6 +24,7 @@ import {
   automationRuns,
   mobileInboxReadStates,
   piSessions,
+  studioGenerationOutputs,
   studioGenerations,
   todoItems,
 } from '@/app/lib/db/schema';
@@ -41,6 +44,7 @@ export type MobileInboxItem = {
   type: 'chat.response' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
   title: string;
   detail: string | null;
+  previewUrl: string | null;
   occurredAt: string;
   unread: boolean;
   priority: 'normal' | 'high';
@@ -130,7 +134,11 @@ async function readState(input: { userId: string; workspaceId: string }) {
     createdAt: now,
     updatedAt: now,
   }).onConflictDoNothing();
-  const rows = await db.select({ itemKey: mobileInboxReadStates.itemKey, readAt: mobileInboxReadStates.readAt })
+  const rows = await db.select({
+    itemKey: mobileInboxReadStates.itemKey,
+    readAt: mobileInboxReadStates.readAt,
+    dismissedAt: mobileInboxReadStates.dismissedAt,
+  })
     .from(mobileInboxReadStates)
     .where(and(
       eq(mobileInboxReadStates.userId, input.userId),
@@ -138,6 +146,7 @@ async function readState(input: { userId: string; workspaceId: string }) {
     ));
   return {
     baseline: rows.find((row) => row.itemKey === BASELINE_KEY)?.readAt || baseline,
+    dismissedItemKeys: new Set(rows.filter((row) => row.dismissedAt).map((row) => row.itemKey)),
     itemKeys: new Set(rows.map((row) => row.itemKey)),
   };
 }
@@ -192,6 +201,32 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
     )).orderBy(desc(automationRuns.finishedAt), desc(automationRuns.createdAt)).limit(MAX_SOURCE_ITEMS),
   ]);
 
+  const imageGenerationIds = generationRows
+    .filter((row) => row.mode === 'image')
+    .map((row) => row.id);
+  const previewOutputRows = imageGenerationIds.length > 0
+    ? await db.select({
+      generationId: studioGenerationOutputs.generationId,
+      outputId: studioGenerationOutputs.id,
+    }).from(studioGenerationOutputs).where(and(
+      inArray(studioGenerationOutputs.generationId, imageGenerationIds),
+      or(
+        eq(studioGenerationOutputs.type, 'image'),
+        like(studioGenerationOutputs.mimeType, 'image/%'),
+      ),
+    )).orderBy(
+      asc(studioGenerationOutputs.variationIndex),
+      asc(studioGenerationOutputs.createdAt),
+      asc(studioGenerationOutputs.id),
+    )
+    : [];
+  const previewOutputByGeneration = new Map<string, string>();
+  for (const output of previewOutputRows) {
+    if (!previewOutputByGeneration.has(output.generationId)) {
+      previewOutputByGeneration.set(output.generationId, output.outputId);
+    }
+  }
+
   const items: MobileInboxItem[] = [];
   for (const row of sessionRows) {
     if (!row.lastMessageAt || !hasUnreadAssistantResponse(row.lastMessageAt, row.lastViewedAt)) continue;
@@ -200,6 +235,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       type: 'chat.response',
       title: row.title?.trim() || DEFAULT_SESSION_TITLE,
       detail: 'Agent response ready',
+      previewUrl: null,
       occurredAt: row.lastMessageAt.toISOString(),
       unread: true,
       priority: 'normal',
@@ -218,6 +254,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       type: 'todo.attention',
       title: todo.title,
       detail: todo.category?.name || (isDue ? 'Due today' : 'To-do'),
+      previewUrl: null,
       occurredAt: todo.updatedAt.toISOString(),
       unread,
       priority: todo.priority === 'high' || isDue ? 'high' : 'normal',
@@ -226,11 +263,17 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
   }
   for (const row of generationRows) {
     const key = `studio:${row.id}`;
+    const previewOutputId = row.mode === 'image'
+      ? previewOutputByGeneration.get(row.id)
+      : undefined;
     items.push({
       id: key,
       type: row.status === 'failed' ? 'studio.failed' : 'studio.completed',
       title: row.presetName?.trim() || `${row.mode} generation`,
       detail: row.status === 'failed' ? 'Studio generation needs review' : 'Studio output ready',
+      previewUrl: previewOutputId
+        ? `/api/mobile/v1/studio/outputs/${encodeURIComponent(previewOutputId)}/preview`
+        : null,
       occurredAt: row.updatedAt.toISOString(),
       unread: genericUnread(key, row.updatedAt, state),
       priority: row.status === 'failed' ? 'high' : 'normal',
@@ -245,15 +288,18 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       type: 'automation.failed',
       title: row.jobName,
       detail: row.errorMessage?.trim().slice(0, 240) || 'Automation run failed',
+      previewUrl: null,
       occurredAt: occurredAt.toISOString(),
       unread: genericUnread(key, occurredAt, state),
       priority: 'high',
       target: { kind: 'automation', runId: row.runId },
     });
   }
-  return items.sort((left, right) => (
-    right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id)
-  ));
+  return items
+    .filter((item) => !state.dismissedItemKeys.has(item.id))
+    .sort((left, right) => (
+      right.occurredAt.localeCompare(left.occurredAt) || right.id.localeCompare(left.id)
+    ));
 }
 
 function matchesFilter(item: MobileInboxItem, filter: MobileInboxFilter): boolean {
@@ -330,6 +376,21 @@ async function upsertReadState(userId: string, workspaceId: string, itemKey: str
   });
 }
 
+async function upsertDismissedState(userId: string, workspaceId: string, itemKey: string, dismissedAt: Date) {
+  await db.insert(mobileInboxReadStates).values({
+    userId,
+    workspaceId,
+    itemKey,
+    readAt: dismissedAt,
+    dismissedAt,
+    createdAt: dismissedAt,
+    updatedAt: dismissedAt,
+  }).onConflictDoUpdate({
+    target: [mobileInboxReadStates.userId, mobileInboxReadStates.workspaceId, mobileInboxReadStates.itemKey],
+    set: { readAt: dismissedAt, dismissedAt, updatedAt: dismissedAt },
+  });
+}
+
 export async function markMobileInboxRead(input: {
   userId: string;
   workspace: WorkspaceContext;
@@ -353,6 +414,21 @@ export async function markMobileInboxRead(input: {
       upsertReadState(input.userId, input.workspace.workspaceId, BASELINE_KEY, now),
     ]);
     return { readAt: now.toISOString() };
+  }
+  if (input.action === 'dismiss_item') {
+    if (typeof input.itemId !== 'string') {
+      throw new MobileInboxError('INVALID_ITEM', 'The Inbox item is invalid.', 400);
+    }
+    const [kind, entityId] = input.itemId.split(':', 2);
+    if (!entityId || (kind !== 'studio' && kind !== 'automation')) {
+      throw new MobileInboxError('ITEM_NOT_DISMISSIBLE', 'This Inbox item cannot be dismissed.', 400);
+    }
+    const items = await collectInboxItems(input);
+    if (!items.some((item) => item.id === input.itemId)) {
+      throw new MobileInboxError('ITEM_NOT_FOUND', 'The Inbox item was not found.', 404);
+    }
+    await upsertDismissedState(input.userId, input.workspace.workspaceId, input.itemId, now);
+    return { itemId: input.itemId, dismissedAt: now.toISOString() };
   }
   if (input.action !== 'mark_item_read' || typeof input.itemId !== 'string') {
     throw new MobileInboxError('INVALID_ACTION', 'The Inbox read action is invalid.', 400);

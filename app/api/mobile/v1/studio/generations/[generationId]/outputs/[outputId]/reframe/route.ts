@@ -4,6 +4,7 @@ import { auth } from '@/app/lib/auth';
 import {
   createAspectRatioPreview,
   getAspectRatioModelOptions,
+  resolveAspectRatioSourceDimensions,
   saveAspectRatioEdit,
   type AspectRatioMode,
   type AspectRatioProvider,
@@ -39,7 +40,14 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ge
     const ratio = ratioValue(body?.aspectRatio);
     const { generationId, outputId } = await context.params;
     const output = await resolveMobileStudioOutput({ scope: studioRequest.scope, outputId });
-    if (output.generationId !== generationId || output.type !== 'image' || !output.width || !output.height) throw new MobileStudioError('Image output dimensions are unavailable.', 400, 'OUTPUT_DIMENSIONS_UNAVAILABLE');
+    if (output.generationId !== generationId || output.type !== 'image') {
+      throw new MobileStudioError('Image output is unavailable.', 400, 'OUTPUT_UNAVAILABLE');
+    }
+    const sourceDimensions = await resolveAspectRatioSourceDimensions(
+      output.filePath,
+      studioRequest.scope,
+      { userId: session.user.id },
+    );
     const providerOptions = getAspectRatioModelOptions().find((entry) => entry?.id === provider);
     const model = providerOptions?.models[0]?.id;
     if (mode === 'ai_extend' && !model) throw new MobileStudioError('Image extension provider is unavailable.', 409, 'PROVIDER_UNAVAILABLE');
@@ -48,8 +56,8 @@ export async function POST(request: NextRequest, context: { params: Promise<{ ge
       frame: resolveMobileStudioReframeFrame({
         frame: body?.frame,
         mode,
-        sourceWidth: output.width,
-        sourceHeight: output.height,
+        sourceWidth: sourceDimensions.width,
+        sourceHeight: sourceDimensions.height,
         targetRatio: ratio.value,
       }),
       mode,

@@ -76,6 +76,7 @@ export const mobileInboxReadStates = sqliteTable("mobile_inbox_read_states", {
   workspaceId: text("workspace_id").notNull(),
   itemKey: text("item_key").notNull(),
   readAt: integer("read_at", { mode: "timestamp" }).notNull(),
+  dismissedAt: integer("dismissed_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({

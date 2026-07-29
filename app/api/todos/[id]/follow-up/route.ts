@@ -9,6 +9,7 @@ import {
 import { applyTodoRateLimit, requireTodoSession, todoErrorResponse } from '@/app/lib/todos/api';
 import { getTodo, updateTodo } from '@/app/lib/todos/store';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import { getUserPreferredLocale } from '@/app/lib/user-preferences';
 
 type RouteContext = {
   params: Promise<{ id: string }>;
@@ -65,7 +66,10 @@ export async function POST(request: NextRequest, context: RouteContext) {
   try {
     const payload = await request.json().catch(() => ({}));
     const comment = normalizeComment(payload?.comment);
-    const locale = typeof payload?.locale === 'string' ? payload.locale : request.headers.get('accept-language') ?? 'en';
+    const requestLocale = typeof payload?.locale === 'string'
+      ? payload.locale
+      : request.headers.get('accept-language') ?? 'en';
+    const locale = await getUserPreferredLocale(session.user.id).catch(() => requestLocale);
     const todo = await getTodo(session.user.id, id);
 
     if (!todo) {
