@@ -199,6 +199,9 @@ export default function OnboardingWizard({
   const [modelTestError, setModelTestError] = useState<string | null>(null);
   const [providerCatalogRefreshKey, setProviderCatalogRefreshKey] = useState(0);
   const [profileSessionId, setProfileSessionId] = useState<string | null>(null);
+  const [profileSessionLoading, setProfileSessionLoading] = useState(false);
+  const [profileSessionError, setProfileSessionError] = useState<string | null>(null);
+  const profileSessionRequestInFlightRef = useRef(false);
   const isInstanceOnboarding = mode === 'instance';
   const steps = isInstanceOnboarding ? INSTANCE_STEPS : USER_STEPS;
 
@@ -232,33 +235,46 @@ export default function OnboardingWizard({
   }, [isInstanceOnboarding, t]);
 
   const openProfileSession = useCallback(async () => {
-    const response = await fetch('/api/onboarding/profile-session', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ locale: currentLocale }),
-    });
-    const data = (await response.json().catch(() => ({}))) as {
-      success?: boolean;
-      complete?: boolean;
-      sessionId?: string;
-      error?: string;
-    };
+    if (profileSessionRequestInFlightRef.current) return;
+    profileSessionRequestInFlightRef.current = true;
+    setProfileSessionLoading(true);
+    setProfileSessionError(null);
+    try {
+      const response = await fetch('/api/onboarding/profile-session', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ locale: currentLocale }),
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        complete?: boolean;
+        sessionId?: string;
+        error?: string;
+      };
 
-    if (!response.ok || !data.success) {
-      throw new Error(data.error || t('profileSessionError'));
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || t('profileSessionError'));
+      }
+
+      if (data.complete) {
+        await advanceTo('tour');
+        return;
+      }
+
+      if (!data.sessionId) {
+        throw new Error(t('profileSessionError'));
+      }
+
+      setProfileSessionId(data.sessionId);
+      await advanceTo('profile');
+    } catch (error) {
+      const message = error instanceof Error ? error.message : t('profileSessionError');
+      setProfileSessionError(message);
+      throw error;
+    } finally {
+      profileSessionRequestInFlightRef.current = false;
+      setProfileSessionLoading(false);
     }
-
-    if (data.complete) {
-      await advanceTo('tour');
-      return;
-    }
-
-    if (!data.sessionId) {
-      throw new Error(t('profileSessionError'));
-    }
-
-    setProfileSessionId(data.sessionId);
-    await advanceTo('profile');
   }, [advanceTo, currentLocale, t]);
 
   useEffect(() => {
@@ -433,6 +449,15 @@ export default function OnboardingWizard({
                 />
               )}
 
+              {step === 'profile' && !profileSessionId && (
+                <ProfileSessionRecovery
+                  loading={profileSessionLoading}
+                  error={profileSessionError}
+                  onRetry={() => void openProfileSession().catch(() => undefined)}
+                  onSkipComplete={() => void advanceTo('tour')}
+                />
+              )}
+
               {step === 'tour' && (
                 <TourStep onDone={() => void advanceTo('done')} />
               )}
@@ -452,6 +477,84 @@ export default function OnboardingWizard({
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+function ProfileSessionRecovery({
+  loading,
+  error,
+  onRetry,
+  onSkipComplete,
+}: {
+  loading: boolean;
+  error: string | null;
+  onRetry: () => void;
+  onSkipComplete: () => void;
+}) {
+  const t = useTranslations('onboarding');
+  const [skipping, setSkipping] = useState(false);
+
+  async function handleSkip() {
+    if (skipping) return;
+    setSkipping(true);
+    try {
+      const response = await fetch('/api/onboarding/profile-skip', {
+        method: 'POST',
+      });
+      const data = (await response.json().catch(() => ({}))) as {
+        success?: boolean;
+        error?: string;
+        code?: string;
+      };
+      if (!response.ok || !data.success) {
+        throw new Error(data.code ? `${data.error || t('profileSkipError')} (${data.code})` : data.error || t('profileSkipError'));
+      }
+      toast.success(t('profileSkipped'));
+      onSkipComplete();
+    } catch (skipError) {
+      toast.error(skipError instanceof Error ? skipError.message : t('profileSkipError'));
+    } finally {
+      setSkipping(false);
+    }
+  }
+
+  return (
+    <div className="space-y-6">
+      <div>
+        <h2 className="mb-1 text-xl font-semibold">{t('profileTitle')}</h2>
+        <p className="text-sm text-muted-foreground">{t('profileDescription')}</p>
+      </div>
+
+      <div
+        className={`border p-5 text-sm ${
+          error
+            ? 'border-destructive/30 bg-destructive/10 text-destructive'
+            : 'border-border bg-muted/20 text-muted-foreground'
+        }`}
+        role={error ? 'alert' : 'status'}
+      >
+        <div className="flex items-start gap-3">
+          {loading ? <Loader2 className="mt-0.5 h-4 w-4 shrink-0 animate-spin" /> : <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0" />}
+          <div className="space-y-1">
+            <p className="font-medium text-foreground">
+              {error ? t('profileSessionError') : t('profileSessionPreparing')}
+            </p>
+            <p>{error || t('profileSessionPreparingDescription')}</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex flex-col-reverse gap-2 sm:flex-row sm:justify-end">
+        <Button variant="outline" onClick={() => void handleSkip()} disabled={skipping} className="gap-2">
+          {skipping && <Loader2 className="h-4 w-4 animate-spin" />}
+          {skipping ? t('profileSkipping') : t('profileSkip')}
+        </Button>
+        <Button onClick={onRetry} disabled={loading || skipping} className="gap-2">
+          {loading && <Loader2 className="h-4 w-4 animate-spin" />}
+          {error ? t('profileSessionRetry') : t('profileSessionPreparingAction')}
+        </Button>
       </div>
     </div>
   );
