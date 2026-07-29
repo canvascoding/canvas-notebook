@@ -337,12 +337,20 @@ function createTerminalProcess(shell: string, cwd: string): TerminalProcess {
   }
 }
 
-function attachClient(sessionId: string, client: net.Socket): void {
+function getOwnedSession(sessionId: string, ownerId: string): TerminalSession {
+  const normalizedOwnerId = normalizeOwnerId(ownerId);
   const session = sessions.get(sessionId);
   if (!session) {
     throw new Error('Session not found');
   }
-  
+  if (session.ownerId !== normalizedOwnerId) {
+    throw new Error('Unauthorized session access');
+  }
+  return session;
+}
+
+function attachClient(sessionId: string, ownerId: string, client: net.Socket): void {
+  const session = getOwnedSession(sessionId, ownerId);
   session.clients.add(client);
   
   // Clear idle timer
@@ -380,8 +388,8 @@ function detachClient(sessionId: string, client: net.Socket): void {
   }
 }
 
-function terminateSession(sessionId: string): void {
-  const session = sessions.get(sessionId);
+function terminateSession(sessionId: string, ownerId?: string): void {
+  const session = ownerId ? getOwnedSession(sessionId, ownerId) : sessions.get(sessionId);
   if (!session) return;
   
   log(`Terminating session ${sessionId}`);
@@ -414,21 +422,15 @@ function terminateOwnerSessions(ownerId: string): number {
   return ownedSessionIds.length;
 }
 
-function handleInput(sessionId: string, data: string): void {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
+function handleInput(sessionId: string, ownerId: string, data: string): void {
+  const session = getOwnedSession(sessionId, ownerId);
   
   session.pty.write(data);
   session.lastActivity = new Date();
 }
 
-function handleResize(sessionId: string, cols: number, rows: number): void {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
+function handleResize(sessionId: string, ownerId: string, cols: number, rows: number): void {
+  const session = getOwnedSession(sessionId, ownerId);
   
   session.pty.resize(cols, rows);
 }
@@ -473,8 +475,8 @@ function handleMessage(client: net.Socket, message: Message): void {
           return;
         }
 
-        const { sessionId } = params as { sessionId: string };
-        attachClient(sessionId, client);
+        const { sessionId, ownerId } = params as { sessionId: string; ownerId: string };
+        attachClient(sessionId, ownerId, client);
         sendResult(client, id, { success: true });
         break;
       }
@@ -485,8 +487,8 @@ function handleMessage(client: net.Socket, message: Message): void {
           return;
         }
 
-        const { sessionId, data } = params as { sessionId: string; data: string };
-        handleInput(sessionId, data);
+        const { sessionId, ownerId, data } = params as { sessionId: string; ownerId: string; data: string };
+        handleInput(sessionId, ownerId, data);
         sendResult(client, id, { success: true });
         break;
       }
@@ -497,8 +499,8 @@ function handleMessage(client: net.Socket, message: Message): void {
           return;
         }
 
-        const { sessionId, cols, rows } = params as { sessionId: string; cols: number; rows: number };
-        handleResize(sessionId, cols, rows);
+        const { sessionId, ownerId, cols, rows } = params as { sessionId: string; ownerId: string; cols: number; rows: number };
+        handleResize(sessionId, ownerId, cols, rows);
         sendResult(client, id, { success: true });
         break;
       }
@@ -509,8 +511,8 @@ function handleMessage(client: net.Socket, message: Message): void {
           return;
         }
 
-        const { sessionId } = params as { sessionId: string };
-        terminateSession(sessionId);
+        const { sessionId, ownerId } = params as { sessionId: string; ownerId: string };
+        terminateSession(sessionId, ownerId);
         sendResult(client, id, { success: true });
         break;
       }

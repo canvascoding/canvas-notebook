@@ -34,6 +34,19 @@ export function validatePath(userPath: string): string {
   return normalizedPath;
 }
 
+function validateDataPath(userPath: string): string {
+  const normalizedBase = path.resolve(/*turbopackIgnore: true*/ getDataDir());
+  const normalizedPath = path.isAbsolute(userPath)
+    ? path.resolve(/*turbopackIgnore: true*/ userPath)
+    : path.resolve(/*turbopackIgnore: true*/ normalizedBase, userPath);
+
+  if (normalizedPath !== normalizedBase && !normalizedPath.startsWith(`${normalizedBase}${path.sep}`)) {
+    throw new Error('Invalid path: data directory traversal attempt detected');
+  }
+
+  return normalizedPath;
+}
+
 function isAppOutputMetadataFile(filePath: string, fileName: string): boolean {
   if (!fileName.endsWith('.json')) return false;
   // Hide JSON metadata files in app output directories
@@ -90,12 +103,12 @@ export async function readFile(filePath: string): Promise<Buffer> {
 }
 
 export async function readDataFile(filePath: string): Promise<Buffer> {
-  const fullPath = path.resolve(/*turbopackIgnore: true*/ getDataDir(), filePath);
+  const fullPath = validateDataPath(filePath);
   return fs.readFile(fullPath);
 }
 
 export async function getDataFileStats(filePath: string) {
-  const fullPath = path.resolve(/*turbopackIgnore: true*/ getDataDir(), filePath);
+  const fullPath = validateDataPath(filePath);
   const stats = await fs.stat(fullPath);
 
   let totalSize = stats.size;
@@ -130,7 +143,7 @@ export async function writeFile(filePath: string, content: Buffer | string): Pro
 }
 
 export async function writeDataFile(filePath: string, content: Buffer | string): Promise<void> {
-  const fullPath = path.resolve(/*turbopackIgnore: true*/ getDataDir(), filePath);
+  const fullPath = validateDataPath(filePath);
   const buffer = Buffer.isBuffer(content) ? content : Buffer.from(content);
   await fs.writeFile(fullPath, buffer);
 }

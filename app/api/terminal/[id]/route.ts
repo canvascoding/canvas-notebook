@@ -30,8 +30,9 @@ export async function DELETE(
       );
     }
 
+    const ownerId = String(session.user.id || session.user.email || 'anonymous');
     const client = getTerminalClient();
-    await client.terminate(sessionId);
+    await client.terminate(sessionId, ownerId);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

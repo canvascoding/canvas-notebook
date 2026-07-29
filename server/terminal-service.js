@@ -235,11 +235,20 @@ function resolveShell() {
   return '/bin/sh';
 }
 
-function attachClient(sessionId, client) {
+function getOwnedSession(sessionId, ownerId) {
+  const normalizedOwnerId = normalizeOwnerId(ownerId);
   const session = sessions.get(sessionId);
   if (!session) {
     throw new Error('Session not found');
   }
+  if (session.ownerId !== normalizedOwnerId) {
+    throw new Error('Unauthorized session access');
+  }
+  return session;
+}
+
+function attachClient(sessionId, ownerId, client) {
+  const session = getOwnedSession(sessionId, ownerId);
   
   session.clients.add(client);
   
@@ -278,8 +287,8 @@ function detachClient(sessionId, client) {
   }
 }
 
-function terminateSession(sessionId) {
-  const session = sessions.get(sessionId);
+function terminateSession(sessionId, ownerId) {
+  const session = ownerId ? getOwnedSession(sessionId, ownerId) : sessions.get(sessionId);
   if (!session) return;
   
   log(`Terminating session ${sessionId}`);
@@ -312,21 +321,15 @@ function terminateOwnerSessions(ownerId) {
   return ownedSessionIds.length;
 }
 
-function handleInput(sessionId, data) {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
+function handleInput(sessionId, ownerId, data) {
+  const session = getOwnedSession(sessionId, ownerId);
   
   session.pty.write(data);
   session.lastActivity = new Date();
 }
 
-function handleResize(sessionId, cols, rows) {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
+function handleResize(sessionId, ownerId, cols, rows) {
+  const session = getOwnedSession(sessionId, ownerId);
   
   session.pty.resize(cols, rows);
 }
@@ -371,8 +374,8 @@ function handleMessage(client, message) {
           return;
         }
         
-        const { sessionId } = params;
-        attachClient(sessionId, client);
+        const { sessionId, ownerId } = params;
+        attachClient(sessionId, ownerId, client);
         sendResult(client, id, { success: true });
         break;
       }
@@ -383,8 +386,8 @@ function handleMessage(client, message) {
           return;
         }
         
-        const { sessionId, data } = params;
-        handleInput(sessionId, data);
+        const { sessionId, ownerId, data } = params;
+        handleInput(sessionId, ownerId, data);
         sendResult(client, id, { success: true });
         break;
       }
@@ -395,8 +398,8 @@ function handleMessage(client, message) {
           return;
         }
         
-        const { sessionId, cols, rows } = params;
-        handleResize(sessionId, cols, rows);
+        const { sessionId, ownerId, cols, rows } = params;
+        handleResize(sessionId, ownerId, cols, rows);
         sendResult(client, id, { success: true });
         break;
       }
@@ -407,8 +410,8 @@ function handleMessage(client, message) {
           return;
         }
         
-        const { sessionId } = params;
-        terminateSession(sessionId);
+        const { sessionId, ownerId } = params;
+        terminateSession(sessionId, ownerId);
         sendResult(client, id, { success: true });
         break;
       }

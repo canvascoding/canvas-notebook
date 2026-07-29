@@ -9,7 +9,7 @@ import { auth } from '@/app/lib/auth';
 import { getOrCreatePiRuntime, type PiRuntimeStreamEvent } from '@/app/lib/pi/live-runtime';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
-import { getStudioOutputsRoot } from '@/app/lib/integrations/studio-workspace';
+import { resolveValidatedStudioOutputPath } from '@/app/lib/integrations/studio-paths';
 
 export const runtime = 'nodejs';
 
@@ -118,7 +118,10 @@ export async function POST(request: NextRequest) {
       });
 
       try {
-        const imagePath = path.join(getStudioOutputsRoot(), ctx.studioContext.outputFilePath);
+        const imagePath = resolveValidatedStudioOutputPath(ctx.studioContext.outputFilePath);
+        if (!imagePath) {
+          throw new Error('Invalid studio output file path');
+        }
         console.log('[PI Stream] Reading image from:', imagePath);
         
         const imageBuffer = await fs.readFile(imagePath);

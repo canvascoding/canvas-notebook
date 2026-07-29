@@ -161,19 +161,19 @@ class TerminalClient {
     return this.sendMessage('create', { sessionId, ownerId, cwd });
   }
 
-  async sendInput(sessionId: string, data: string): Promise<unknown> {
+  async sendInput(sessionId: string, ownerId: string, data: string): Promise<unknown> {
     await this.connect();
-    return this.sendMessage('input', { sessionId, data });
+    return this.sendMessage('input', { sessionId, ownerId, data });
   }
 
-  async resize(sessionId: string, cols: number, rows: number): Promise<unknown> {
+  async resize(sessionId: string, ownerId: string, cols: number, rows: number): Promise<unknown> {
     await this.connect();
-    return this.sendMessage('resize', { sessionId, cols, rows });
+    return this.sendMessage('resize', { sessionId, ownerId, cols, rows });
   }
 
-  async terminate(sessionId: string): Promise<unknown> {
+  async terminate(sessionId: string, ownerId: string): Promise<unknown> {
     await this.connect();
-    return this.sendMessage('terminate', { sessionId });
+    return this.sendMessage('terminate', { sessionId, ownerId });
   }
 
   async terminateAll(ownerId: string): Promise<unknown> {

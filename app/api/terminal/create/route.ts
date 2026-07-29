@@ -32,10 +32,22 @@ export async function POST(request: NextRequest) {
     const ownerId = String(session.user.id || session.user.email || 'anonymous');
     const dataDir = path.resolve(/*turbopackIgnore: true*/ process.cwd(), process.env.DATA || 'data');
     const workspaceDir = path.join(dataDir, 'workspace');
-    const finalCwd = cwd && path.isAbsolute(cwd) ? cwd : workspaceDir;
+    const requestedCwd = typeof cwd === 'string' ? cwd.trim() : '';
+    const resolvedCwd = requestedCwd
+      ? (path.isAbsolute(requestedCwd)
+        ? path.resolve(requestedCwd)
+        : path.resolve(workspaceDir, requestedCwd))
+      : workspaceDir;
+
+    if (resolvedCwd !== workspaceDir && !resolvedCwd.startsWith(`${workspaceDir}${path.sep}`)) {
+      return NextResponse.json(
+        { error: 'Invalid cwd: outside workspace' },
+        { status: 400 }
+      );
+    }
 
     const client = getTerminalClient();
-    const result = await client.createSession(sessionId, ownerId, finalCwd);
+    const result = await client.createSession(sessionId, ownerId, resolvedCwd);
 
     return NextResponse.json(result);
   } catch (error: unknown) {

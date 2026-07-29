@@ -22,9 +22,6 @@ export async function authenticateWebSocketConnection(
   headers: IncomingHttpHeaders
 ): Promise<WebSocketAuthResult> {
   try {
-    console.log('[WebSocket Auth] Incoming headers keys:', Object.keys(headers));
-    console.log('[WebSocket Auth] Cookie header:', headers.cookie || 'NOT SET');
-    
     // Convert Node.js headers to Web Headers API
     const webHeaders = new Headers();
     for (const [key, value] of Object.entries(headers)) {
