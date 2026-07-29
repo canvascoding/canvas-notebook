@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { promises as fs } from 'fs';
 import path from 'path';
-import { createReadStream, getFileStats, validatePath } from '@/app/lib/filesystem/workspace-files';
+import { createReadStream, getDataFileStats, getFileStats, validatePath } from '@/app/lib/filesystem/workspace-files';
 import { Readable } from 'stream';
 import { auth } from '@/app/lib/auth';
 import archiver from 'archiver';
@@ -57,7 +56,9 @@ export async function GET(request: NextRequest) {
   if (scope === 'data') {
     try {
       const dataRoot = getDataRoot();
-      const stats = await fs.stat(dataRoot);
+      // Full data exports are intentionally allowed to exceed the workspace ZIP
+      // limit because this path is used for complete backup/export downloads.
+      const stats = await getDataFileStats('.');
       if (!stats.isDirectory()) {
         return NextResponse.json({ success: false, error: 'Data directory does not exist' }, { status: 404 });
       }
@@ -65,6 +66,9 @@ export async function GET(request: NextRequest) {
       return createZipResponse(dataRoot, 'data');
     } catch (error) {
       console.error('[API] Data download error:', error);
+      if ((error as NodeJS.ErrnoException).code === 'ENOENT') {
+        return NextResponse.json({ success: false, error: 'Data directory does not exist' }, { status: 404 });
+      }
       const message = error instanceof Error ? error.message : 'Failed to download data directory';
       return NextResponse.json({ success: false, error: message }, { status: 500 });
     }
