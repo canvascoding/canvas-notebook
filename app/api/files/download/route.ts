@@ -6,6 +6,7 @@ import { Readable } from 'stream';
 import { auth } from '@/app/lib/auth';
 import archiver from 'archiver';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { isBootstrapAdminEmail } from '@/app/lib/bootstrap-admin';
 
 const MAX_ZIP_DOWNLOAD_SIZE = 1024 * 1024 * 1024;
 const MAX_SINGLE_FILE_SIZE = 2 * 1024 * 1024 * 1024;
@@ -55,6 +56,9 @@ export async function GET(request: NextRequest) {
   const scope = searchParams.get('scope');
 
   if (scope === 'data') {
+    if (!isBootstrapAdminEmail(session.user.email)) {
+      return NextResponse.json({ success: false, error: 'Forbidden: admin only' }, { status: 403 });
+    }
     try {
       const dataRoot = getDataRoot();
       const stats = await fs.stat(dataRoot);

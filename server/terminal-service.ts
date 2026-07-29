@@ -611,8 +611,8 @@ function startServer(): void {
     
     server.listen(SOCKET_PATH, () => {
       log(`Terminal service listening on Unix Socket: ${SOCKET_PATH}`);
-      // Set permissions so Next.js process can connect
-      fs.chmodSync(SOCKET_PATH, 0o666);
+      // Restrict socket access to owner/group instead of world-writable.
+      fs.chmodSync(SOCKET_PATH, 0o660);
     });
   } else {
     // TCP mode (Local dev)
@@ -659,5 +659,4 @@ function startServer(): void {
 
 // Start
 log('Starting Terminal Service...');
-log(`Auth token: ${AUTH_TOKEN.substring(0, 8)}...`);
 startServer();
