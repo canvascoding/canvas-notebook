@@ -9,10 +9,20 @@ import { readOrganizationPermissionForUser } from '@/app/lib/organization/permis
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { SETTINGS_SIDEBAR_COLLAPSED_COOKIE } from '@/app/lib/settings-navigation';
+import { isOnboardingLicenseRecoveryRequest } from '@/app/lib/onboarding/flow';
 import { cookies } from 'next/headers';
 
-export default async function SettingsPage() {
-  const session = await requirePageSession({ allowUnlicensed: true });
+type SettingsPageProps = {
+  searchParams: Promise<{ tab?: string | string[] }>;
+};
+
+export default async function SettingsPage({ searchParams }: SettingsPageProps) {
+  const params = await searchParams;
+  const allowLicenseRecovery = isOnboardingLicenseRecoveryRequest(params);
+  const session = await requirePageSession({
+    allowUnlicensed: true,
+    allowIncompleteUserOnboarding: allowLicenseRecovery,
+  });
   const t = await getTranslations('settings');
   const cookieStore = await cookies();
 

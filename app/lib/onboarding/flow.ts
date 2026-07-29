@@ -4,6 +4,13 @@ import type { UserOnboardingState } from '@/app/lib/user-preferences';
 
 export type OnboardingPhase = 'instance' | 'waiting' | 'user' | 'complete';
 
+export function isOnboardingLicenseRecoveryRequest(
+  searchParams: { tab?: string | string[] },
+): boolean {
+  const tab = Array.isArray(searchParams.tab) ? searchParams.tab[0] : searchParams.tab;
+  return tab?.trim().toLowerCase() === 'license';
+}
+
 /**
  * Pure routing policy for the two onboarding scopes. Authorization is checked
  * before this function is called; this only decides which persisted progress

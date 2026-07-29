@@ -9,7 +9,10 @@ moduleInternals._load = (request, parent, isMain) => request === 'server-only' ?
 
 async function main() {
   const { createCompletedUserOnboardingState, createDefaultUserOnboardingState } = await import('../app/lib/user-preferences');
-  const { resolveOnboardingPhase } = await import('../app/lib/onboarding/flow');
+  const {
+    isOnboardingLicenseRecoveryRequest,
+    resolveOnboardingPhase,
+  } = await import('../app/lib/onboarding/flow');
   const pending = createDefaultUserOnboardingState();
   const complete = createCompletedUserOnboardingState();
 
@@ -20,6 +23,11 @@ async function main() {
   assert.equal(resolveOnboardingPhase({ instanceComplete: false, isInstanceAdmin: false, userOnboarding: pending }), 'waiting');
   assert.equal(resolveOnboardingPhase({ instanceComplete: true, isInstanceAdmin: true, userOnboarding: pending }), 'user');
   assert.equal(resolveOnboardingPhase({ instanceComplete: true, isInstanceAdmin: false, userOnboarding: complete }), 'complete');
+
+  assert.equal(isOnboardingLicenseRecoveryRequest({ tab: 'license' }), true);
+  assert.equal(isOnboardingLicenseRecoveryRequest({ tab: ['LICENSE', 'general'] }), true);
+  assert.equal(isOnboardingLicenseRecoveryRequest({ tab: 'general' }), false);
+  assert.equal(isOnboardingLicenseRecoveryRequest({}), false);
 
   console.log('onboarding-flow-test: ok');
 }
