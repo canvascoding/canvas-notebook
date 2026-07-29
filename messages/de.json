@@ -2334,7 +2334,9 @@
         "adminLabel": "Administratorrechte",
         "adminDescription": "Admins können andere Benutzer verwalten.",
         "passwordHint": "Dieses Passwort wird nicht per E-Mail verschickt. Teile es dem Benutzer über einen sicheren Kanal mit.",
-        "submit": "Anlegen"
+        "submit": "Anlegen",
+        "recoveryDescription": "Das Konto {email} wurde bereits angelegt, aber das persönliche Onboarding konnte noch nicht initialisiert werden. Beim erneuten Versuch wird kein weiteres Konto erstellt.",
+        "retrySetup": "Einrichtung erneut versuchen"
       },
       "passwordDialog": {
         "title": "Passwort setzen",

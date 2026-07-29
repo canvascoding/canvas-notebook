@@ -23,6 +23,17 @@ async function main() {
   assert.match(source, /fetch\('\/api\/onboarding\/profile-skip'/u);
   assert.match(source, /profileSessionRetry/u);
 
+  const userManagementSource = await readFile(
+    path.join(process.cwd(), 'app', 'components', 'settings', 'UserManagementPanel.tsx'),
+    'utf8',
+  );
+  assert.match(userManagementSource, /pendingCreatedUser/u);
+  assert.match(userManagementSource, /if \(pendingCreatedUser\)/u);
+  assert.match(userManagementSource, /await initializeCreatedUser\(pendingUser\.id\)/u);
+  assert.match(userManagementSource, /setPendingCreatedUser\(\{ id: created\.user\.id, email: created\.user\.email \}\)/u);
+  assert.match(userManagementSource, /createDialog\.recoveryDescription/u);
+  assert.match(userManagementSource, /createDialog\.retrySetup/u);
+
   console.log('onboarding-wizard-ui-test: ok');
 }
 

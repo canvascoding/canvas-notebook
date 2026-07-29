@@ -43,8 +43,10 @@ async function main() {
     assert.equal(initialized.profile, 'pending');
     assert.equal(initialized.tour, 'pending');
 
-    await setUserPreferredLocale('user-a', 'en');
-    const afterLanguage = await updateUserOnboardingState('user-a', { step: 'workspace' });
+    const [, afterLanguage] = await Promise.all([
+      setUserPreferredLocale('user-a', 'en'),
+      updateUserOnboardingState('user-a', { step: 'workspace' }),
+    ]);
     assert.equal(afterLanguage.step, 'workspace');
     assert.equal(afterLanguage.profile, 'pending');
     assert.equal((await getUserPreferences('user-a')).locale, 'en');
@@ -57,6 +59,13 @@ async function main() {
     assert.equal(afterProfile.profile, 'completed');
     assert.equal(afterProfile.step, 'tour');
     assert.equal((await getUserOnboardingState('user-b')).step, 'complete');
+
+    const parallelUserIds = Array.from({ length: 25 }, (_, index) => `parallel-user-${index}`);
+    await Promise.all(parallelUserIds.map((userId) => initializeUserOnboarding(userId)));
+    const parallelStates = await Promise.all(
+      parallelUserIds.map((userId) => getUserOnboardingState(userId)),
+    );
+    assert.ok(parallelStates.every((state) => state.step === 'language'));
 
     assert.equal(await getInstanceOnboardingStep(), 'server');
     await setInstanceOnboardingStep('owner-a', 'provider');

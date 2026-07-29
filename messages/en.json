@@ -2335,7 +2335,9 @@
         "adminLabel": "Administrator access",
         "adminDescription": "Admins can manage other users.",
         "passwordHint": "This password is not sent by email. Share it with the user through a secure channel.",
-        "submit": "Create"
+        "submit": "Create",
+        "recoveryDescription": "The account {email} was created, but personal onboarding could not be initialized yet. Retrying will not create another account.",
+        "retrySetup": "Retry setup"
       },
       "passwordDialog": {
         "title": "Set password",

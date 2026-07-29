@@ -1,12 +1,14 @@
 import 'server-only';
 
 import { routing } from '@/i18n/routing';
+import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
 import {
   readSettingsTextFileIfExists,
   writeSettingsJsonFileAtomic,
 } from '@/app/lib/settings-storage';
 
 const USER_PREFERENCES_FILE = 'user-preferences.json';
+const USER_PREFERENCES_WRITE_LOCK = 'user-preferences-write';
 const SUPPORTED_LOCALES = routing.locales as readonly string[];
 
 export type UserLocale = typeof routing.locales[number];
@@ -234,14 +236,19 @@ export async function getUserOnboardingState(
  * never sends every historic account through the new flow.
  */
 export async function initializeUserOnboarding(userId: string): Promise<UserOnboardingState> {
-  const preferences = await getUserPreferences(userId);
-  if (preferences.onboarding) return preferences.onboarding;
-  const onboarding = createDefaultUserOnboardingState();
-  await updateUserPreferences(userId, { onboarding });
-  return onboarding;
+  const normalizedUserId = normalizeUserId(userId);
+  return withKeyedOperationLock(USER_PREFERENCES_WRITE_LOCK, USER_PREFERENCES_FILE, async () => {
+    const preferencesFile = await readPreferencesFile();
+    const existing = preferencesFile.users[normalizedUserId]?.onboarding;
+    if (existing) return existing;
+
+    const onboarding = createDefaultUserOnboardingState();
+    await updateUserPreferencesUnlocked(normalizedUserId, { onboarding });
+    return onboarding;
+  });
 }
 
-export async function updateUserPreferences(
+async function updateUserPreferencesUnlocked(
   userId: string,
   updates: UserPreferences,
 ): Promise<UserPreferences> {
@@ -309,6 +316,18 @@ export async function updateUserPreferences(
   return nextPreferences;
 }
 
+export async function updateUserPreferences(
+  userId: string,
+  updates: UserPreferences,
+): Promise<UserPreferences> {
+  const normalizedUserId = normalizeUserId(userId);
+  return withKeyedOperationLock(
+    USER_PREFERENCES_WRITE_LOCK,
+    USER_PREFERENCES_FILE,
+    () => updateUserPreferencesUnlocked(normalizedUserId, updates),
+  );
+}
+
 export async function setUserPreferredLocale(userId: string, locale: unknown): Promise<UserPreferences> {
   const normalizedLocale = normalizeUserLocale(locale);
   if (!normalizedLocale) {
@@ -321,16 +340,21 @@ export async function updateUserOnboardingState(
   userId: string,
   updates: Partial<Pick<UserOnboardingState, 'step' | 'runtime' | 'profile' | 'tour'>>,
 ): Promise<UserOnboardingState> {
-  const current = await getUserOnboardingState(userId, { missing: 'pending' });
-  const candidate = normalizeUserOnboardingState({
-    ...current,
-    ...updates,
-    updatedAt: new Date().toISOString(),
-  });
-  if (!candidate) {
-    throw new Error('Unsupported onboarding state.');
-  }
+  const normalizedUserId = normalizeUserId(userId);
+  return withKeyedOperationLock(USER_PREFERENCES_WRITE_LOCK, USER_PREFERENCES_FILE, async () => {
+    const preferencesFile = await readPreferencesFile();
+    const current = preferencesFile.users[normalizedUserId]?.onboarding
+      ?? createDefaultUserOnboardingState();
+    const candidate = normalizeUserOnboardingState({
+      ...current,
+      ...updates,
+      updatedAt: new Date().toISOString(),
+    });
+    if (!candidate) {
+      throw new Error('Unsupported onboarding state.');
+    }
 
-  const preferences = await updateUserPreferences(userId, { onboarding: candidate });
-  return preferences.onboarding ?? candidate;
+    const preferences = await updateUserPreferencesUnlocked(normalizedUserId, { onboarding: candidate });
+    return preferences.onboarding ?? candidate;
+  });
 }
