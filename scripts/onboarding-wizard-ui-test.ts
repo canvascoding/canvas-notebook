@@ -34,6 +34,28 @@ async function main() {
   assert.match(userManagementSource, /createDialog\.recoveryDescription/u);
   assert.match(userManagementSource, /createDialog\.retrySetup/u);
 
+  const waitingActionsSource = await readFile(
+    path.join(
+      process.cwd(),
+      'app',
+      '[locale]',
+      '(routes)',
+      'onboarding',
+      'onboarding-waiting-actions.tsx',
+    ),
+    'utf8',
+  );
+  assert.match(waitingActionsSource, /STATUS_REFRESH_INTERVAL_MS = 10_000/u);
+  assert.match(waitingActionsSource, /document\.visibilityState === 'visible'/u);
+  assert.match(waitingActionsSource, /router\.refresh\(\)/u);
+  assert.match(waitingActionsSource, /authClient\.signOut\(\)/u);
+
+  const onboardingPageSource = await readFile(
+    path.join(process.cwd(), 'app', '[locale]', '(routes)', 'onboarding', 'page.tsx'),
+    'utf8',
+  );
+  assert.match(onboardingPageSource, /phase === 'waiting'[\s\S]*?<OnboardingWaitingActions \/>/u);
+
   console.log('onboarding-wizard-ui-test: ok');
 }
 

@@ -8,6 +8,7 @@ import { getUserOnboardingState } from '@/app/lib/user-preferences';
 import { resolveOnboardingPhase } from '@/app/lib/onboarding/flow';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import OnboardingWizard from './onboarding-wizard';
+import { OnboardingWaitingActions } from './onboarding-waiting-actions';
 
 export const dynamic = 'force-dynamic';
 
@@ -64,6 +65,7 @@ export default async function OnboardingPage({ searchParams }: OnboardingPagePro
           <p className="mt-3 text-sm leading-6 text-muted-foreground">
             {t('instanceSetupWaitingDescription')}
           </p>
+          <OnboardingWaitingActions />
         </section>
       </main>
     );
