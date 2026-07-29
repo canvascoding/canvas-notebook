@@ -5,6 +5,11 @@ import { userHintState, pageOnboardingState } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { getPageDefinition, getHintDefinition, ALL_PAGES } from '@/app/components/onboarding/hint-config';
 import { ensureUserExists } from '@/app/lib/db/ensure-user';
+import {
+  dismissUserHint,
+  isHintDismissedForVersion,
+  resetUserHintPage,
+} from '@/app/lib/onboarding/hint-state';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -43,15 +48,18 @@ export async function GET(request: NextRequest) {
     const effectiveCompleted = pageState?.completed === true && savedVersion >= pageDef.version;
 
     const dismissedKeys = new Set(
-      rows.filter((r) => r.dismissed).map((r) => r.hintKey)
+      rows
+        .filter((row) => isHintDismissedForVersion(row, pageDef.version))
+        .map((row) => row.hintKey)
     );
 
     const hints = pageDef.hints.map((h) => {
       const row = rows.find((r) => r.hintKey === h.hintKey);
+      const dismissed = isHintDismissedForVersion(row, pageDef.version);
       return {
         hintKey: h.hintKey,
-        dismissed: row?.dismissed ?? false,
-        dismissedAt: row?.dismissedAt ? row.dismissedAt.toISOString() : null,
+        dismissed,
+        dismissedAt: dismissed && row?.dismissedAt ? row.dismissedAt.toISOString() : null,
       };
     });
 
@@ -107,62 +115,11 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Unknown page' }, { status: 400 });
   }
 
-  const now = new Date();
-
-  await db.insert(userHintState).values({
-    userId,
-    hintKey,
-    page: hintDef.page,
-    dismissed: true,
-    dismissedAt: now,
-    version: pageDef.version,
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: [userHintState.userId, userHintState.hintKey],
-    set: { dismissed: true, dismissedAt: now, updatedAt: now },
-  });
-
-  const allHintsForPage = await db.select().from(userHintState).where(
-    and(eq(userHintState.userId, userId), eq(userHintState.page, hintDef.page))
-  );
-
-  const allPageHintsDismissed = pageDef.hints.every((h) =>
-    allHintsForPage.some((r) => r.hintKey === h.hintKey && r.dismissed)
-  );
-
-  if (allPageHintsDismissed) {
-    await db.insert(pageOnboardingState).values({
-      userId,
-      page: hintDef.page,
-      completed: true,
-      completedAt: now,
-      version: pageDef.version,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: [pageOnboardingState.userId, pageOnboardingState.page],
-      set: { completed: true, completedAt: now, version: pageDef.version, updatedAt: now },
-    });
-  }
-
-  let nextHintKey: string | null = null;
-  for (const hint of pageDef.hints) {
-    const row = allHintsForPage.find((r) => r.hintKey === hint.hintKey);
-    if (!row || !row.dismissed) {
-      if (hint.hintKey !== hintKey) {
-        nextHintKey = hint.hintKey;
-        break;
-      }
-    }
-  }
+  const result = await dismissUserHint({ userId, hintDef, pageDef });
 
   return NextResponse.json({
     ok: true,
-    page: hintDef.page,
-    dismissedHintKey: hintKey,
-    nextHintKey,
-    completed: allPageHintsDismissed,
+    ...result,
   });
 }
 
@@ -187,24 +144,7 @@ export async function DELETE(request: NextRequest) {
     return NextResponse.json({ error: 'Unknown page' }, { status: 400 });
   }
 
-  const now = new Date();
-
-  await db.update(userHintState)
-    .set({ dismissed: false, dismissedAt: null, updatedAt: now })
-    .where(and(eq(userHintState.userId, userId), eq(userHintState.page, page)));
-
-  await db.insert(pageOnboardingState).values({
-    userId,
-    page,
-    completed: false,
-    completedAt: null,
-    version: pageDef.version,
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: [pageOnboardingState.userId, pageOnboardingState.page],
-    set: { completed: false, completedAt: null, version: pageDef.version, updatedAt: now },
-  });
+  await resetUserHintPage({ userId, pageDef });
 
   return NextResponse.json({
     ok: true,

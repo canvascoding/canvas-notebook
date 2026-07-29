@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { db } from '@/app/lib/db';
-import { userHintState, pageOnboardingState } from '@/app/lib/db/schema';
 import { auth } from '@/app/lib/auth';
 import { getPageDefinition } from '@/app/components/onboarding/hint-config';
 import { ensureUserExists } from '@/app/lib/db/ensure-user';
+import { completeUserHintPage } from '@/app/lib/onboarding/hint-state';
 
 export async function PATCH(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -26,36 +25,7 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Unknown page' }, { status: 400 });
   }
 
-  const now = new Date();
-
-  for (const hint of pageDef.hints) {
-    await db.insert(userHintState).values({
-      userId,
-      hintKey: hint.hintKey,
-      page: hint.page,
-      dismissed: true,
-      dismissedAt: now,
-      version: pageDef.version,
-      createdAt: now,
-      updatedAt: now,
-    }).onConflictDoUpdate({
-      target: [userHintState.userId, userHintState.hintKey],
-      set: { dismissed: true, dismissedAt: now, version: pageDef.version, updatedAt: now },
-    });
-  }
-
-  await db.insert(pageOnboardingState).values({
-    userId,
-    page,
-    completed: true,
-    completedAt: now,
-    version: pageDef.version,
-    createdAt: now,
-    updatedAt: now,
-  }).onConflictDoUpdate({
-    target: [pageOnboardingState.userId, pageOnboardingState.page],
-    set: { completed: true, completedAt: now, version: pageDef.version, updatedAt: now },
-  });
+  await completeUserHintPage({ userId, pageDef });
 
   return NextResponse.json({
     ok: true,

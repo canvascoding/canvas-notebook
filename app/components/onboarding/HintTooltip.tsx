@@ -315,7 +315,8 @@ export function HintTooltip({
     const origTransition = targetEl.style.transition;
     const origCursor = targetEl.style.cursor;
 
-    if (getComputedStyle(targetEl).position === 'static') {
+    const didOverridePosition = getComputedStyle(targetEl).position === 'static';
+    if (didOverridePosition) {
       targetEl.style.position = 'relative';
     }
     targetEl.style.zIndex = '101';
@@ -336,7 +337,7 @@ export function HintTooltip({
       targetEl.style.zIndex = origZIndex;
       targetEl.style.transition = origTransition;
       targetEl.style.cursor = origCursor;
-      if (getComputedStyle(targetEl).position === 'relative' && origPosition === 'static') {
+      if (didOverridePosition) {
         targetEl.style.position = origPosition;
       }
     };

@@ -75,6 +75,13 @@ async function main() {
   assert.match(gettingStartedSource, /setDismissError/u);
   assert.match(gettingStartedSource, /role="alert"/u);
 
+  const hintTooltipSource = await readFile(
+    path.join(process.cwd(), 'app', 'components', 'onboarding', 'HintTooltip.tsx'),
+    'utf8',
+  );
+  assert.match(hintTooltipSource, /const didOverridePosition = getComputedStyle\(targetEl\)\.position === 'static'/u);
+  assert.match(hintTooltipSource, /if \(didOverridePosition\) \{\s*targetEl\.style\.position = origPosition/u);
+
   console.log('onboarding-wizard-ui-test: ok');
 }
 
