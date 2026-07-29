@@ -56,6 +56,25 @@ async function main() {
   );
   assert.match(onboardingPageSource, /phase === 'waiting'[\s\S]*?<OnboardingWaitingActions \/>/u);
 
+  const homePageSource = await readFile(
+    path.join(process.cwd(), 'app', '[locale]', '(routes)', 'page.tsx'),
+    'utf8',
+  );
+  assert.match(homePageSource, /HomeHintProvider enabled=\{onboardingHintsEnabled \|\| showPersonalTour\}/u);
+
+  const appLauncherSource = await readFile(
+    path.join(process.cwd(), 'app', 'components', 'AppLauncher.tsx'),
+    'utf8',
+  );
+  assert.match(appLauncherSource, /<HelpDropdown \/>/u);
+
+  const gettingStartedSource = await readFile(
+    path.join(process.cwd(), 'app', 'components', 'onboarding', 'GettingStartedCard.tsx'),
+    'utf8',
+  );
+  assert.match(gettingStartedSource, /setDismissError/u);
+  assert.match(gettingStartedSource, /role="alert"/u);
+
   console.log('onboarding-wizard-ui-test: ok');
 }
 

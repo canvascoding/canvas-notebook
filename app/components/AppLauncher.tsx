@@ -33,6 +33,7 @@ import {
   SheetTitle,
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
+import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
 import { cn } from '@/lib/utils';
 
 interface AppItem {
@@ -285,6 +286,7 @@ export function AppLauncher() {
           </SheetContent>
         </Sheet>
       )}
+      <HelpDropdown />
     </>
   );
 }

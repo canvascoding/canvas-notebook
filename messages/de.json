@@ -270,6 +270,7 @@
     "tourHomeDescription": "Gehe diese drei Bereiche in deinem Tempo durch. Die kurzen Hinweise zeigen dir jeweils die wichtigsten Bedienelemente.",
     "tourExplore": "Öffnen",
     "tourFinish": "Tour abschließen",
+    "tourFinishError": "Die Tour konnte nicht abgeschlossen werden. Bitte versuche es erneut.",
     "tourStart": "Kurze Tour starten",
     "tourSkip": "Direkt zur App",
     "instanceSetupWaitingTitle": "Die Instanz wird eingerichtet",
@@ -413,9 +414,11 @@
       }
     },
     "helpDropdown": {
+      "label": "Hilfe und Tour",
       "repeatTutorial": "Tutorial wiederholen",
       "completeOnboarding": "Onboarding abschließen",
-      "openHelp": "Hilfe öffnen"
+      "openHelp": "Hilfe öffnen",
+      "actionError": "Die Tour konnte nicht aktualisiert werden. Bitte versuche es erneut."
     }
   },
   "notebook": {

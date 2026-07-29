@@ -33,7 +33,7 @@ export default async function Home() {
   const showPersonalTour = userOnboarding?.tour === 'started';
 
   return (
-    <HomeHintProvider enabled={onboardingHintsEnabled}>
+    <HomeHintProvider enabled={onboardingHintsEnabled || showPersonalTour}>
       <div className="fixed inset-0 overflow-hidden bg-background text-foreground">
         <div className="flex h-full min-h-0 flex-col">
           {!licenseStatus.licensed && <LicenseBanner status={licenseStatus} />}

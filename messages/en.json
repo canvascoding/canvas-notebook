@@ -270,6 +270,7 @@
     "tourHomeDescription": "Explore these three areas at your own pace. Short hints show the key controls in each one.",
     "tourExplore": "Open",
     "tourFinish": "Finish tour",
+    "tourFinishError": "Could not finish the tour. Please try again.",
     "tourStart": "Start the short tour",
     "tourSkip": "Go straight to the app",
     "instanceSetupWaitingTitle": "The instance is being set up",
@@ -414,9 +415,11 @@
       }
     },
     "helpDropdown": {
+      "label": "Help and tour",
       "repeatTutorial": "Repeat tutorial",
       "completeOnboarding": "Complete onboarding",
-      "openHelp": "Open help"
+      "openHelp": "Open help",
+      "actionError": "Could not update the tour. Please try again."
     }
   },
   "notebook": {

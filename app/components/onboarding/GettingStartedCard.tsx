@@ -2,7 +2,7 @@
 
 import { useState } from 'react';
 import { useTranslations } from 'next-intl';
-import { ArrowRight, Bot, Check, FolderKanban, Settings2, Workflow } from 'lucide-react';
+import { ArrowRight, Bot, Check, FolderKanban, Loader2, Settings2, Workflow } from 'lucide-react';
 
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
@@ -11,9 +11,11 @@ export function GettingStartedCard() {
   const t = useTranslations('onboarding');
   const [dismissing, setDismissing] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  const [dismissError, setDismissError] = useState<string | null>(null);
 
   async function dismiss() {
     setDismissing(true);
+    setDismissError(null);
     try {
       const response = await fetch('/api/onboarding/user', {
         method: 'PATCH',
@@ -21,7 +23,12 @@ export function GettingStartedCard() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ step: 'complete', tour: 'completed' }),
       });
-      if (response.ok) setDismissed(true);
+      if (!response.ok) {
+        throw new Error(t('tourFinishError'));
+      }
+      setDismissed(true);
+    } catch (error) {
+      setDismissError(error instanceof Error ? error.message : t('tourFinishError'));
     } finally {
       setDismissing(false);
     }
@@ -61,10 +68,15 @@ export function GettingStartedCard() {
         ))}
       </div>
       <div className="flex justify-end border-t border-border bg-background/40 px-4 py-2">
-        <Button variant="ghost" size="sm" onClick={() => void dismiss()} disabled={dismissing} className="gap-2 text-xs">
-          <Check className="h-3.5 w-3.5" />
-          {t('tourFinish')}
-        </Button>
+        <div className="flex flex-col items-end gap-1">
+          {dismissError && <p role="alert" className="text-xs text-destructive">{dismissError}</p>}
+          <Button variant="ghost" size="sm" onClick={() => void dismiss()} disabled={dismissing} className="gap-2 text-xs">
+            {dismissing
+              ? <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              : <Check className="h-3.5 w-3.5" />}
+            {t('tourFinish')}
+          </Button>
+        </div>
       </div>
     </section>
   );

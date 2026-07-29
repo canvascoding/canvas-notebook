@@ -2,31 +2,39 @@
 
 import { useState, useRef, useEffect } from 'react';
 import { useTranslations } from 'next-intl';
-import { HelpCircle, RotateCcw, Check, BookOpen } from 'lucide-react';
+import { HelpCircle, RotateCcw, Check, BookOpen, Loader2 } from 'lucide-react';
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { useHintContext } from './HintProvider';
-import { useHintSequence } from './useHintSequence';
+import { useHintSequence, type HintState } from './useHintSequence';
 import { ONBOARDING_PAGES } from './hint-config';
 
 interface HelpDropdownProps {
   page?: string;
 }
 
-export function HelpDropdown({ page }: HelpDropdownProps) {
+type HelpDropdownMenuProps = {
+  page: string;
+  state: HintState | null;
+  loading: boolean;
+  completePage: () => Promise<unknown>;
+  resetPage: () => Promise<unknown>;
+};
+
+function HelpDropdownMenu({
+  page,
+  state,
+  loading,
+  completePage,
+  resetPage,
+}: HelpDropdownMenuProps) {
   const t = useTranslations('onboarding.helpDropdown');
   const [open, setOpen] = useState(false);
+  const [actionPending, setActionPending] = useState<'repeat' | 'complete' | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
   const dropdownRef = useRef<HTMLDivElement>(null);
 
-  const hasHintsForPage = page ? !!ONBOARDING_PAGES[page] : false;
-
-  const hintContext = useHintContext();
-  const isInProvider = hintContext.page === page && !!page;
-
-  const ownSequence = useHintSequence(page ?? '');
-  const state = isInProvider ? hintContext.state : ownSequence.state;
-  const completePageFn = isInProvider ? hintContext.completePage : ownSequence.completePage;
-  const resetPageFn = isInProvider ? hintContext.resetPage : ownSequence.resetPage;
+  const hasHintsForPage = Boolean(page && ONBOARDING_PAGES[page]);
   const isCompleted = state?.completed ?? false;
 
   useEffect(() => {
@@ -42,16 +50,34 @@ export function HelpDropdown({ page }: HelpDropdownProps) {
   }, [open]);
 
   const handleRepeatTutorial = async () => {
-    setOpen(false);
-    if (page) {
-      await resetPageFn();
+    if (!page || actionPending) return;
+    setActionPending('repeat');
+    setActionError(null);
+    try {
+      const result = await resetPage();
+      if (!result) {
+        setActionError(t('actionError'));
+        return;
+      }
+      setOpen(false);
+    } finally {
+      setActionPending(null);
     }
   };
 
   const handleCompleteOnboarding = async () => {
-    setOpen(false);
-    if (page) {
-      await completePageFn();
+    if (!page || actionPending) return;
+    setActionPending('complete');
+    setActionError(null);
+    try {
+      const result = await completePage();
+      if (!result) {
+        setActionError(t('actionError'));
+        return;
+      }
+      setOpen(false);
+    } finally {
+      setActionPending(null);
     }
   };
 
@@ -61,10 +87,14 @@ export function HelpDropdown({ page }: HelpDropdownProps) {
         variant="ghost"
         size="sm"
         className="gap-1.5 px-2"
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          setActionError(null);
+          setOpen((prev) => !prev);
+        }}
         aria-expanded={open}
         aria-haspopup="true"
-        title="Help"
+        aria-label={t('label')}
+        title={t('label')}
       >
         <HelpCircle className="h-4 w-4" />
       </Button>
@@ -74,10 +104,13 @@ export function HelpDropdown({ page }: HelpDropdownProps) {
           {hasHintsForPage && (
             <button
               type="button"
-              onClick={handleRepeatTutorial}
+              onClick={() => void handleRepeatTutorial()}
+              disabled={loading || actionPending !== null}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors"
             >
-              <RotateCcw className="h-4 w-4" />
+              {actionPending === 'repeat'
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <RotateCcw className="h-4 w-4" />}
               {t('repeatTutorial')}
             </button>
           )}
@@ -85,12 +118,21 @@ export function HelpDropdown({ page }: HelpDropdownProps) {
           {hasHintsForPage && !isCompleted && (
             <button
               type="button"
-              onClick={handleCompleteOnboarding}
+              onClick={() => void handleCompleteOnboarding()}
+              disabled={loading || actionPending !== null}
               className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-popover-foreground hover:bg-accent transition-colors"
             >
-              <Check className="h-4 w-4" />
+              {actionPending === 'complete'
+                ? <Loader2 className="h-4 w-4 animate-spin" />
+                : <Check className="h-4 w-4" />}
               {t('completeOnboarding')}
             </button>
+          )}
+
+          {actionError && (
+            <p role="alert" className="px-3 py-2 text-xs text-destructive">
+              {actionError}
+            </p>
           )}
 
           <Link
@@ -105,4 +147,49 @@ export function HelpDropdown({ page }: HelpDropdownProps) {
       )}
     </div>
   );
+}
+
+function StandaloneHelpDropdown({ page }: { page: string }) {
+  const sequence = useHintSequence(page);
+  return (
+    <HelpDropdownMenu
+      page={page}
+      state={sequence.state}
+      loading={sequence.loading}
+      completePage={sequence.completePage}
+      resetPage={sequence.resetPage}
+    />
+  );
+}
+
+export function HelpDropdown({ page }: HelpDropdownProps) {
+  const hintContext = useHintContext();
+  const effectivePage = page || hintContext.page;
+  const usesProvider = Boolean(effectivePage && hintContext.page === effectivePage);
+
+  if (usesProvider) {
+    return (
+      <HelpDropdownMenu
+        page={effectivePage}
+        state={hintContext.state}
+        loading={hintContext.loading}
+        completePage={hintContext.completePage}
+        resetPage={hintContext.resetPage}
+      />
+    );
+  }
+
+  if (!effectivePage) {
+    return (
+      <HelpDropdownMenu
+        page=""
+        state={null}
+        loading={false}
+        completePage={async () => null}
+        resetPage={async () => null}
+      />
+    );
+  }
+
+  return <StandaloneHelpDropdown page={effectivePage} />;
 }
