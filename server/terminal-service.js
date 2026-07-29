@@ -266,6 +266,18 @@ function attachClient(sessionId, client) {
   log(`Client attached to session ${sessionId}`);
 }
 
+function ensureSessionOwner(sessionId, ownerId) {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+  const normalizedOwnerId = normalizeOwnerId(ownerId);
+  if (session.ownerId !== normalizedOwnerId) {
+    throw new Error('Session ownership mismatch');
+  }
+  return session;
+}
+
 function detachClient(sessionId, client) {
   const session = sessions.get(sessionId);
   if (!session) return;
@@ -312,23 +324,20 @@ function terminateOwnerSessions(ownerId) {
   return ownedSessionIds.length;
 }
 
-function handleInput(sessionId, data) {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-  
+function handleInput(sessionId, ownerId, data) {
+  const session = ensureSessionOwner(sessionId, ownerId);
   session.pty.write(data);
   session.lastActivity = new Date();
 }
 
-function handleResize(sessionId, cols, rows) {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-  
+function handleResize(sessionId, ownerId, cols, rows) {
+  const session = ensureSessionOwner(sessionId, ownerId);
   session.pty.resize(cols, rows);
+}
+
+function terminateOwnedSession(sessionId, ownerId) {
+  ensureSessionOwner(sessionId, ownerId);
+  terminateSession(sessionId);
 }
 
 // Message Handling
@@ -371,7 +380,8 @@ function handleMessage(client, message) {
           return;
         }
         
-        const { sessionId } = params;
+        const { sessionId, ownerId } = params;
+        ensureSessionOwner(sessionId, ownerId);
         attachClient(sessionId, client);
         sendResult(client, id, { success: true });
         break;
@@ -383,8 +393,8 @@ function handleMessage(client, message) {
           return;
         }
         
-        const { sessionId, data } = params;
-        handleInput(sessionId, data);
+        const { sessionId, ownerId, data } = params;
+        handleInput(sessionId, ownerId, data);
         sendResult(client, id, { success: true });
         break;
       }
@@ -395,8 +405,8 @@ function handleMessage(client, message) {
           return;
         }
         
-        const { sessionId, cols, rows } = params;
-        handleResize(sessionId, cols, rows);
+        const { sessionId, ownerId, cols, rows } = params;
+        handleResize(sessionId, ownerId, cols, rows);
         sendResult(client, id, { success: true });
         break;
       }
@@ -407,8 +417,8 @@ function handleMessage(client, message) {
           return;
         }
         
-        const { sessionId } = params;
-        terminateSession(sessionId);
+        const { sessionId, ownerId } = params;
+        terminateOwnedSession(sessionId, ownerId);
         sendResult(client, id, { success: true });
         break;
       }
@@ -508,8 +518,8 @@ function startServer() {
     
     server.listen(SOCKET_PATH, () => {
       log(`Terminal service listening on Unix Socket: ${SOCKET_PATH}`);
-      // Set permissions so Next.js process can connect
-      fs.chmodSync(SOCKET_PATH, 0o666);
+      // Restrict socket to owner/group to avoid local privilege escalation.
+      fs.chmodSync(SOCKET_PATH, 0o660);
     });
   } else {
     // TCP mode (Local dev)
@@ -556,5 +566,4 @@ function startServer() {
 
 // Start
 log('Starting Terminal Service...');
-log(`Auth token: ${AUTH_TOKEN.substring(0, 8)}...`);
 startServer();

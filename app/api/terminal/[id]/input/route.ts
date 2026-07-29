@@ -24,6 +24,7 @@ export async function POST(
     const { id: sessionId } = await params;
     const body = await request.json();
     const { data } = body;
+    const ownerId = String(session.user.id || session.user.email || 'anonymous');
 
     if (!data) {
       return NextResponse.json(
@@ -33,7 +34,7 @@ export async function POST(
     }
 
     const client = getTerminalClient();
-    await client.sendInput(sessionId, data);
+    await client.sendInput(sessionId, ownerId, data);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

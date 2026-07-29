@@ -22,9 +22,6 @@ export async function authenticateWebSocketConnection(
   headers: IncomingHttpHeaders
 ): Promise<WebSocketAuthResult> {
   try {
-    console.log('[WebSocket Auth] Incoming headers keys:', Object.keys(headers));
-    console.log('[WebSocket Auth] Cookie header:', headers.cookie || 'NOT SET');
-    
     // Convert Node.js headers to Web Headers API
     const webHeaders = new Headers();
     for (const [key, value] of Object.entries(headers)) {
@@ -41,14 +38,12 @@ export async function authenticateWebSocketConnection(
     const session = await auth.api.getSession({ headers: webHeaders });
 
     if (!session) {
-      console.warn('[WebSocket Auth] No valid session found');
       return {
         isAuthenticated: false,
         error: 'No valid session found',
       };
     }
 
-    console.log('[WebSocket Auth] User authenticated:', session.user.id);
     return {
       isAuthenticated: true,
       userId: session.user.id,
@@ -82,7 +77,13 @@ export function parseCookies(cookieHeader: string | undefined): Record<string, s
     if (separatorIndex === -1) return;
     
     const key = trimmed.slice(0, separatorIndex).trim();
-    const value = decodeURIComponent(trimmed.slice(separatorIndex + 1).trim());
+    const rawValue = trimmed.slice(separatorIndex + 1).trim();
+    let value = rawValue;
+    try {
+      value = decodeURIComponent(rawValue);
+    } catch {
+      value = rawValue;
+    }
     result[key] = value;
   });
   

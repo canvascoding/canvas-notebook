@@ -24,6 +24,7 @@ export async function POST(
     const { id: sessionId } = await params;
     const body = await request.json();
     const { cols, rows } = body;
+    const ownerId = String(session.user.id || session.user.email || 'anonymous');
 
     if (typeof cols !== 'number' || typeof rows !== 'number') {
       return NextResponse.json(
@@ -33,7 +34,7 @@ export async function POST(
     }
 
     const client = getTerminalClient();
-    await client.resize(sessionId, cols, rows);
+    await client.resize(sessionId, ownerId, cols, rows);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

@@ -22,6 +22,7 @@ export async function DELETE(
     }
 
     const { id: sessionId } = await params;
+    const ownerId = String(session.user.id || session.user.email || 'anonymous');
 
     if (!sessionId) {
       return NextResponse.json(
@@ -31,7 +32,7 @@ export async function DELETE(
     }
 
     const client = getTerminalClient();
-    await client.terminate(sessionId);
+    await client.terminate(sessionId, ownerId);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

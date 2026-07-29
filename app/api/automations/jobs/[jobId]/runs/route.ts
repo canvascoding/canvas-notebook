@@ -20,7 +20,7 @@ export async function GET(request: NextRequest, context: RouteContext) {
 
   const { jobId } = await context.params;
   const job = await getAutomationJob(jobId);
-  if (!job) {
+  if (!job || job.createdByUserId !== session.user.id) {
     return NextResponse.json({ success: false, error: 'Automation not found.' }, { status: 404 });
   }
 

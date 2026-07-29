@@ -337,6 +337,20 @@ function createTerminalProcess(shell: string, cwd: string): TerminalProcess {
   }
 }
 
+function ensureSessionOwner(sessionId: string, ownerId: string): TerminalSession {
+  const session = sessions.get(sessionId);
+  if (!session) {
+    throw new Error('Session not found');
+  }
+
+  const normalizedOwnerId = normalizeOwnerId(ownerId);
+  if (session.ownerId !== normalizedOwnerId) {
+    throw new Error('Session ownership mismatch');
+  }
+
+  return session;
+}
+
 function attachClient(sessionId: string, client: net.Socket): void {
   const session = sessions.get(sessionId);
   if (!session) {
@@ -414,23 +428,20 @@ function terminateOwnerSessions(ownerId: string): number {
   return ownedSessionIds.length;
 }
 
-function handleInput(sessionId: string, data: string): void {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-  
+function handleInput(sessionId: string, ownerId: string, data: string): void {
+  const session = ensureSessionOwner(sessionId, ownerId);
   session.pty.write(data);
   session.lastActivity = new Date();
 }
 
-function handleResize(sessionId: string, cols: number, rows: number): void {
-  const session = sessions.get(sessionId);
-  if (!session) {
-    throw new Error('Session not found');
-  }
-  
+function handleResize(sessionId: string, ownerId: string, cols: number, rows: number): void {
+  const session = ensureSessionOwner(sessionId, ownerId);
   session.pty.resize(cols, rows);
+}
+
+function terminateOwnedSession(sessionId: string, ownerId: string): void {
+  ensureSessionOwner(sessionId, ownerId);
+  terminateSession(sessionId);
 }
 
 // Message Handling
@@ -473,7 +484,8 @@ function handleMessage(client: net.Socket, message: Message): void {
           return;
         }
 
-        const { sessionId } = params as { sessionId: string };
+        const { sessionId, ownerId } = params as { sessionId: string; ownerId: string };
+        ensureSessionOwner(sessionId, ownerId);
         attachClient(sessionId, client);
         sendResult(client, id, { success: true });
         break;
@@ -485,8 +497,8 @@ function handleMessage(client: net.Socket, message: Message): void {
           return;
         }
 
-        const { sessionId, data } = params as { sessionId: string; data: string };
-        handleInput(sessionId, data);
+        const { sessionId, ownerId, data } = params as { sessionId: string; ownerId: string; data: string };
+        handleInput(sessionId, ownerId, data);
         sendResult(client, id, { success: true });
         break;
       }
@@ -497,8 +509,8 @@ function handleMessage(client: net.Socket, message: Message): void {
           return;
         }
 
-        const { sessionId, cols, rows } = params as { sessionId: string; cols: number; rows: number };
-        handleResize(sessionId, cols, rows);
+        const { sessionId, ownerId, cols, rows } = params as { sessionId: string; ownerId: string; cols: number; rows: number };
+        handleResize(sessionId, ownerId, cols, rows);
         sendResult(client, id, { success: true });
         break;
       }
@@ -509,8 +521,8 @@ function handleMessage(client: net.Socket, message: Message): void {
           return;
         }
 
-        const { sessionId } = params as { sessionId: string };
-        terminateSession(sessionId);
+        const { sessionId, ownerId } = params as { sessionId: string; ownerId: string };
+        terminateOwnedSession(sessionId, ownerId);
         sendResult(client, id, { success: true });
         break;
       }
@@ -611,8 +623,8 @@ function startServer(): void {
     
     server.listen(SOCKET_PATH, () => {
       log(`Terminal service listening on Unix Socket: ${SOCKET_PATH}`);
-      // Set permissions so Next.js process can connect
-      fs.chmodSync(SOCKET_PATH, 0o666);
+      // Restrict socket to owner/group to avoid local privilege escalation.
+      fs.chmodSync(SOCKET_PATH, 0o660);
     });
   } else {
     // TCP mode (Local dev)
@@ -659,5 +671,4 @@ function startServer(): void {
 
 // Start
 log('Starting Terminal Service...');
-log(`Auth token: ${AUTH_TOKEN.substring(0, 8)}...`);
 startServer();
