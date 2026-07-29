@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireAutomationSession, applyAutomationRateLimit } from '@/app/lib/automations/api';
-import { getAutomationRun } from '@/app/lib/automations/store';
+import { getAutomationJob, getAutomationRun } from '@/app/lib/automations/store';
 
 type RouteContext = {
   params: Promise<{ runId: string }>;
@@ -21,6 +21,11 @@ export async function GET(request: NextRequest, context: RouteContext) {
   const { runId } = await context.params;
   const run = await getAutomationRun(runId);
   if (!run) {
+    return NextResponse.json({ success: false, error: 'Automation run not found.' }, { status: 404 });
+  }
+
+  const job = await getAutomationJob(run.jobId);
+  if (!job || job.createdByUserId !== session.user.id) {
     return NextResponse.json({ success: false, error: 'Automation run not found.' }, { status: 404 });
   }
 

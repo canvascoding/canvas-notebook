@@ -659,5 +659,4 @@ function startServer(): void {
 
 // Start
 log('Starting Terminal Service...');
-log(`Auth token: ${AUTH_TOKEN.substring(0, 8)}...`);
 startServer();

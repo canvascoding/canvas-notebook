@@ -121,13 +121,20 @@ export async function POST(request: NextRequest) {
   }
 }
 
-export async function OPTIONS() {
+export async function OPTIONS(request: NextRequest) {
+  const origin = request.headers.get('origin');
+  const sameOrigin = origin === request.nextUrl.origin;
+  const responseHeaders: Record<string, string> = {
+    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization',
+    'Vary': 'Origin',
+  };
+  if (sameOrigin && origin) {
+    responseHeaders['Access-Control-Allow-Origin'] = origin;
+  }
+
   return new Response(null, {
     status: 204,
-    headers: {
-      'Access-Control-Allow-Origin': '*',
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
-      'Access-Control-Allow-Headers': 'Content-Type, Authorization',
-    },
+    headers: responseHeaders,
   });
 }
