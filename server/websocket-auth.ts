@@ -22,9 +22,6 @@ export async function authenticateWebSocketConnection(
   headers: IncomingHttpHeaders
 ): Promise<WebSocketAuthResult> {
   try {
-    console.log('[WebSocket Auth] Incoming headers keys:', Object.keys(headers));
-    console.log('[WebSocket Auth] Cookie header:', headers.cookie || 'NOT SET');
-    
     // Convert Node.js headers to Web Headers API
     const webHeaders = new Headers();
     for (const [key, value] of Object.entries(headers)) {
@@ -82,8 +79,12 @@ export function parseCookies(cookieHeader: string | undefined): Record<string, s
     if (separatorIndex === -1) return;
     
     const key = trimmed.slice(0, separatorIndex).trim();
-    const value = decodeURIComponent(trimmed.slice(separatorIndex + 1).trim());
-    result[key] = value;
+    const rawValue = trimmed.slice(separatorIndex + 1).trim();
+    try {
+      result[key] = decodeURIComponent(rawValue);
+    } catch {
+      result[key] = rawValue;
+    }
   });
   
   return result;

@@ -61,6 +61,37 @@ function getContentType(filename: string): string {
   return CONTENT_TYPES[ext] || 'application/octet-stream';
 }
 
+function parseRangeHeader(rangeHeader: string, fileSize: number): { start: number; end: number } | null {
+  const match = /^bytes=(\d*)-(\d*)$/.exec(rangeHeader);
+  if (!match) {
+    return null;
+  }
+
+  let start = match[1] ? Number.parseInt(match[1], 10) : Number.NaN;
+  let end = match[2] ? Number.parseInt(match[2], 10) : Number.NaN;
+
+  if (Number.isNaN(start) && Number.isNaN(end)) {
+    return null;
+  }
+
+  if (Number.isNaN(start)) {
+    const suffixLength = end;
+    if (!Number.isFinite(suffixLength) || suffixLength <= 0) {
+      return null;
+    }
+    start = Math.max(fileSize - suffixLength, 0);
+    end = fileSize - 1;
+  } else {
+    end = Number.isNaN(end) ? fileSize - 1 : end;
+  }
+
+  if (start < 0 || end < start || start >= fileSize || end >= fileSize) {
+    return null;
+  }
+
+  return { start, end };
+}
+
 export async function GET(
   request: NextRequest,
   context: { params: Promise<{ id: string }> }
@@ -100,9 +131,13 @@ export async function GET(
     const range = request.headers.get('range');
     
     if (range) {
-      const parts = range.replace(/bytes=/, '').split('-');
-      const start = parseInt(parts[0], 10);
-      const end = parts[1] ? parseInt(parts[1], 10) : fileSize - 1;
+      const parsedRange = parseRangeHeader(range, fileSize);
+      if (!parsedRange) {
+        cleanup();
+        return new NextResponse(null, { status: 416, headers: { 'Content-Range': `bytes */${fileSize}` } });
+      }
+
+      const { start, end } = parsedRange;
       const chunksize = end - start + 1;
 
       // Create a new stream for the range

@@ -8,6 +8,20 @@ import { auth } from '@/app/lib/auth';
 import { getTerminalClient } from '@/app/lib/terminal-client';
 import path from 'path';
 
+function resolveTerminalCwd(requestedCwd: unknown, workspaceDir: string): string {
+  if (typeof requestedCwd !== 'string' || requestedCwd.trim().length === 0) {
+    return workspaceDir;
+  }
+
+  const candidate = path.resolve(requestedCwd);
+  const resolvedWorkspace = path.resolve(workspaceDir);
+  if (candidate === resolvedWorkspace || candidate.startsWith(`${resolvedWorkspace}${path.sep}`)) {
+    return candidate;
+  }
+
+  return workspaceDir;
+}
+
 export async function POST(request: NextRequest) {
   try {
     // Auth check
@@ -32,7 +46,7 @@ export async function POST(request: NextRequest) {
     const ownerId = String(session.user.id || session.user.email || 'anonymous');
     const dataDir = path.resolve(process.cwd(), process.env.DATA || 'data');
     const workspaceDir = path.join(dataDir, 'workspace');
-    const finalCwd = cwd && path.isAbsolute(cwd) ? cwd : workspaceDir;
+    const finalCwd = resolveTerminalCwd(cwd, workspaceDir);
 
     const client = getTerminalClient();
     const result = await client.createSession(sessionId, ownerId, finalCwd);

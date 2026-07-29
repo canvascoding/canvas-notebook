@@ -32,8 +32,9 @@ export async function POST(
       );
     }
 
+    const ownerId = String(session.user.id || session.user.email || 'anonymous');
     const client = getTerminalClient();
-    await client.sendInput(sessionId, data);
+    await client.sendInput(sessionId, ownerId, data);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

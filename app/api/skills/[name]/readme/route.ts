@@ -23,7 +23,23 @@ export async function GET(
     }
 
     const { name } = await params;
-    const skillMdPath = path.join(SKILLS_DIR, name, 'SKILL.md');
+    const sanitizedName = sanitizeSkillName(name);
+    if (!sanitizedName) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid skill name' },
+        { status: 400 }
+      );
+    }
+
+    const skillMdPath = path.join(SKILLS_DIR, sanitizedName, 'SKILL.md');
+    const resolvedPath = path.resolve(skillMdPath);
+    const resolvedSkillsDir = path.resolve(SKILLS_DIR);
+    if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
+      return NextResponse.json(
+        { success: false, error: 'Invalid path' },
+        { status: 400 }
+      );
+    }
     
     // Read SKILL.md file
     const content = await fs.readFile(skillMdPath, 'utf-8');
@@ -66,7 +82,7 @@ export async function PUT(
     // Verify the path is within the skills directory (path traversal protection)
     const resolvedPath = path.resolve(skillMdPath);
     const resolvedSkillsDir = path.resolve(SKILLS_DIR);
-    if (!resolvedPath.startsWith(resolvedSkillsDir)) {
+    if (!resolvedPath.startsWith(`${resolvedSkillsDir}${path.sep}`)) {
       return NextResponse.json(
         { success: false, error: 'Invalid path' },
         { status: 400 }

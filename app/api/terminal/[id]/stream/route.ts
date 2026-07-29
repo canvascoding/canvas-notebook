@@ -26,6 +26,7 @@ export async function GET(
     }
 
     const { id: sessionId } = await params;
+    const ownerId = String(session.user.id || session.user.email || 'anonymous');
 
     // Create SSE stream
     const stream = new ReadableStream({
@@ -113,7 +114,7 @@ export async function GET(
                   const attachMsg = JSON.stringify({
                     id: 'attach',
                     method: 'attach',
-                    params: { sessionId }
+                    params: { sessionId, ownerId }
                   }) + '\n';
                   socket.write(attachMsg);
                   return;
