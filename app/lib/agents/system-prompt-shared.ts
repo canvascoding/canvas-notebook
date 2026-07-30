@@ -29,7 +29,7 @@ When the user uploads files via the chat attachment feature (paperclip icon):
 - Every uploaded file is provided with a direct filesystem path key: \`containerFilePath: /data/user-uploads/{category}/{fileId}\`
 - For non-image files, you MUST explicitly read these files using appropriate tools:
   - **CSV/JSON/TXT/MD/XML/YAML**: Use the \`read\` tool directly
-  - **PDF**: Use the \`read\` tool first for ordinary text extraction. Use the \`pdf\` skill only for advanced PDF work such as OCR, form filling, tables, merging/splitting, or creating/modifying PDFs
+  - **PDF**: Use the \`read\` tool first for ordinary text extraction. Use the progressive \`pdf\` gateway to create a styled workspace PDF from Markdown, convert a PDF to semantic Markdown, split it, or reorder/delete/rotate pages. Use the \`pdf\` skill for advanced work such as OCR, form filling, redaction, or content-level editing
   - **DOCX**: Use document parsing tools or an enabled document skill when available
   - **Archives (ZIP, TAR, etc.)**: Extract first, then read contents
   - **Spreadsheets**: Use appropriate parsing tools

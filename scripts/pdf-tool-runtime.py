@@ -137,8 +137,9 @@ def render_line_words(words: list[dict[str, Any]]) -> tuple[str, str]:
             current_style = style
         if style != current_style:
             flush_run()
+            if separator:
+                markdown_parts.append(separator)
             current_style = style
-            current_run.append(separator)
         elif current_run:
             current_run.append(separator)
         current_run.append(text)
@@ -178,9 +179,24 @@ def center_inside_bbox(word: dict[str, Any], bbox: tuple[float, float, float, fl
     return x0 <= center_x <= x1 and top <= center_y <= bottom
 
 
+def table_detection_page(page: Any) -> Any:
+    """Ignore large filled backgrounds that pdfplumber otherwise treats as table borders."""
+
+    def keep_object(obj: dict[str, Any]) -> bool:
+        if obj.get("object_type") != "rect":
+            return True
+        width = float(obj.get("width") or 0)
+        height = float(obj.get("height") or 0)
+        is_large_background = width >= float(page.width) * 0.75 and height >= 10
+        return not is_large_background
+
+    return page.filter(keep_object)
+
+
 def classify_line(
     words: list[dict[str, Any]],
     body_size: float,
+    base_x0: float,
 ) -> dict[str, Any] | None:
     plain, markdown = render_line_words(words)
     if not plain:
@@ -211,6 +227,9 @@ def classify_line(
     elif median_size >= body_size * 1.14 and bold_ratio >= 0.5:
         kind = "heading"
         rendered = f"### {markdown}"
+    elif x0 >= base_x0 + max(12.0, body_size * 1.5):
+        kind = "list"
+        rendered = f"- {markdown}"
 
     return {
         "type": kind,
@@ -243,9 +262,10 @@ def render_page_markdown(
         for word in words
         if not any(center_inside_bbox(word, bbox) for bbox in table_bboxes)
     ]
+    base_x0 = min((float(word.get("x0") or 0) for word in text_words), default=0.0)
     elements: list[dict[str, Any]] = []
     for line_words in group_words_into_lines(text_words):
-        line = classify_line(line_words, body_size)
+        line = classify_line(line_words, body_size, base_x0)
         if line:
             elements.append(line)
     for table in tables:
@@ -328,7 +348,7 @@ def convert_to_markdown(input_path: Path, output_path: Path, metadata_path: Path
 
             tables: list[dict[str, Any]] = []
             try:
-                for table in page.find_tables():
+                for table in table_detection_page(page).find_tables():
                     rows = table.extract() or []
                     if rows:
                         tables.append({"bbox": tuple(float(value) for value in table.bbox), "rows": rows})

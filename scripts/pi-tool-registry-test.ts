@@ -175,6 +175,10 @@ async function main() {
   const browserTool = piTools.find((tool) => tool.name === 'browser');
   const grepTool = piTools.find((tool) => tool.name === 'grep');
   const globTool = piTools.find((tool) => tool.name === 'glob');
+  const createPdfTool = piTools.find((tool) => tool.name === 'create_pdf');
+  const pdfToMarkdownTool = piTools.find((tool) => tool.name === 'pdf_to_markdown');
+  const splitPdfTool = piTools.find((tool) => tool.name === 'split_pdf');
+  const editPdfPagesTool = piTools.find((tool) => tool.name === 'edit_pdf_pages');
 
   assert.equal(piTools.some((tool) => tool.name === 'rg'), true);
   assert.equal(piTools.some((tool) => tool.name === 'qmd'), false);
@@ -195,6 +199,10 @@ async function main() {
   assert.ok(browserTool);
   assert.ok(grepTool);
   assert.ok(globTool);
+  assert.ok(createPdfTool);
+  assert.ok(pdfToMarkdownTool);
+  assert.ok(splitPdfTool);
+  assert.ok(editPdfPagesTool);
   const browserParametersJson = JSON.stringify(browserTool.parameters);
   assert.match(browserParametersJson, /evaluate/);
   assert.match(browserParametersJson, /eval/);
@@ -791,7 +799,9 @@ async function main() {
     'update_canvas_skill_from_workspace',
   ];
   const extensionsGateway = allTools.find((tool) => tool.name === 'canvas_extensions');
+  const pdfGateway = allTools.find((tool) => tool.name === 'pdf');
   assert.ok(extensionsGateway);
+  assert.ok(pdfGateway);
   for (const toolName of skillToolNames) {
     assert.equal(allTools.some((tool) => tool.name === toolName), false);
     assert.equal(defaultEnabledTools.has(toolName), true);
@@ -807,6 +817,22 @@ async function main() {
   assert.equal(allTools.some((tool) => tool.name === 'web_search'), true);
   assert.equal(defaultEnabledTools.has('inspect_document_relations'), true);
   assert.equal(allTools.some((tool) => tool.name === 'inspect_document_relations'), true);
+  for (const toolName of ['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages']) {
+    assert.equal(allTools.some((tool) => tool.name === toolName), false);
+    assert.equal(defaultEnabledTools.has(toolName), true);
+  }
+  const pdfSearch = await pdfGateway.execute('pdf-gateway-search', {
+    action: 'search',
+    query: 'Markdown',
+  });
+  assert.match(getText(pdfSearch), /create_pdf/);
+  assert.match(getText(pdfSearch), /pdf_to_markdown/);
+  const pdfDescribe = await pdfGateway.execute('pdf-gateway-describe', {
+    action: 'describe',
+    operation: 'split_pdf',
+  });
+  assert.match(getText(pdfDescribe), /split_pdf/);
+  assert.match(getText(pdfDescribe), /outputPath/);
   assert.equal(allTools.some((tool) => tool.name === 'studio'), true);
   assert.equal(allTools.some((tool) => tool.name === 'studio_bulk_generate'), false);
   assert.equal(defaultEnabledTools.has('studio_bulk_generate'), false);
@@ -1042,6 +1068,15 @@ async function main() {
   const studioMetadata = metadata.find((tool) => tool.name === 'studio_generate_image');
   assert.ok(studioMetadata);
   assert.equal(studioMetadata.gateway?.name, 'studio');
+  for (const toolName of ['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages']) {
+    const pdfMetadata = metadata.find((tool) => tool.name === toolName);
+    assert.ok(pdfMetadata);
+    assert.equal(pdfMetadata.group, 'Documents');
+    assert.deepEqual(pdfMetadata.toolsets, ['pdf']);
+    assert.equal(pdfMetadata.defaultEnabled, true);
+    assert.equal(pdfMetadata.planningModeAllowed, false);
+    assert.equal(pdfMetadata.gateway?.name, 'pdf');
+  }
   for (const toolName of ['copy_path', 'move_path', 'delete_path']) {
     const pathMetadata = metadata.find((tool) => tool.name === toolName);
     assert.ok(pathMetadata);

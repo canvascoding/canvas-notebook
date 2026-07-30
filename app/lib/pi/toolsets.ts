@@ -9,6 +9,7 @@ export type PiToolset =
   | 'file'
   | 'memory'
   | 'mcp'
+  | 'pdf'
   | 'session_search'
   | 'skills'
   | 'studio'
@@ -72,6 +73,11 @@ export const PI_TOOLSETS: Record<PiToolset, PiToolsetInfo> = {
     name: 'mcp',
     label: 'MCP',
     description: 'Discover and call tools exposed by configured MCP servers.',
+  },
+  pdf: {
+    name: 'pdf',
+    label: 'PDF',
+    description: 'Create PDFs from Markdown, convert PDFs to semantic Markdown, split PDFs, and edit PDF pages.',
   },
   session_search: {
     name: 'session_search',
@@ -159,6 +165,7 @@ const TOOLSET_TOOL_NAMES: Record<PiToolset, Set<string>> = {
   file: new Set(['apply_patch', 'copy_path', 'delete_path', 'edit_excalidraw_scene', 'edit_file', 'glob', 'grep', 'inspect_document_relations', 'list_file_snapshots', 'ls', 'move_path', 'public_share_file', 'read', 'restore_file_snapshot', 'rg', 'write']),
   memory: new Set(['memory']),
   mcp: new Set(['mcp']),
+  pdf: new Set(['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages']),
   session_search: new Set(['session_search']),
   skills: new Set([...SKILL_TOOL_NAMES, 'canvas_extensions']),
   studio: new Set([

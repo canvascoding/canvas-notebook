@@ -35,7 +35,7 @@ export {
   createStudioGenerateVideoTool,
 } from '@/app/lib/pi/studio-tools';
 
-export type PiToolGroup = 'Core' | 'Studio' | 'Automation' | 'Agents' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security' | 'Skills' | 'Onboarding';
+export type PiToolGroup = 'Core' | 'Documents' | 'Studio' | 'Automation' | 'Agents' | 'Audio' | 'Composio' | 'MCP' | 'Email' | 'Session' | 'Delegation' | 'Memory' | 'Browser' | 'Todo' | 'Web' | 'Security' | 'Skills' | 'Onboarding';
 
 export type PiToolMetadata = {
   name: string;
@@ -68,6 +68,7 @@ function getToolGroup(toolName: string): PiToolGroup {
   if (toolName === 'memory') return 'Memory';
   if (toolName === 'browser') return 'Browser';
   if (toolName === 'transcribe_audio') return 'Audio';
+  if (['create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages'].includes(toolName)) return 'Documents';
   if (toolName === 'email' || toolName.startsWith('email_')) return 'Email';
   if (toolName === 'canvas_extensions' || toolName.includes('canvas_skill') || toolName.includes('canvas_plugin')) return 'Skills';
   if (toolName === 'automation_manage' || toolName.includes('automation_job')) return 'Automation';
@@ -128,6 +129,10 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
     notes.push('Reads local audio files and may call external transcription services.');
     notes.push('Requires GROQ_API_KEY configured under /settings?tab=integrations.');
   }
+  if (group === 'Documents') {
+    notes.push('Reads and writes PDF or Markdown files inside the active workspace. Existing outputs require an explicit overwrite flag and their current SHA-256 revision.');
+    notes.push('PDF creation uses the same styled Chromium renderer as Share PDF. PDF-to-Markdown preserves semantic structure where the source exposes it, but scanned pages may require OCR.');
+  }
   if (group === 'Session') {
     notes.push('Read-only access to this user and agent session history.');
   }
@@ -166,7 +171,7 @@ function getToolNotes(tool: AgentTool, group: PiToolGroup): string[] {
   if (['bash', 'terminal', 'rg', 'glob', 'grep', 'ls', 'read', 'list_file_snapshots', 'transcribe_audio'].includes(tool.name)) {
     notes.push('May execute local shell commands or inspect local files.');
   }
-  if (['write', 'edit', 'edit_file', 'edit_excalidraw_scene', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
+  if (['write', 'edit', 'edit_file', 'edit_excalidraw_scene', 'apply_patch', 'copy_path', 'move_path', 'delete_path', 'restore_file_snapshot', 'create_file', 'delete_file', 'create_pdf', 'pdf_to_markdown', 'split_pdf', 'edit_pdf_pages', 'studio_generate_image', 'studio_generate_video', 'studio_generate_sound', 'studio_bulk_generate'].includes(tool.name)) {
     notes.push('May write files or create generated media.');
   }
   if (['write', 'edit_file', 'apply_patch', 'restore_file_snapshot'].includes(tool.name)) {

@@ -311,6 +311,17 @@ export const PROGRESSIVE_GATEWAY_DEFINITIONS: readonly ProgressiveGatewayDefinit
     ],
   },
   {
+    name: 'pdf',
+    label: 'Working with PDFs',
+    description: 'On-demand gateway for creating workspace PDFs from Markdown, converting PDFs to semantic Markdown, splitting PDFs, and editing PDF page order, deletion, or rotation. Use search, describe, then call so only the needed PDF schema is loaded into context.',
+    operations: [
+      'create_pdf',
+      'pdf_to_markdown',
+      'split_pdf',
+      'edit_pdf_pages',
+    ],
+  },
+  {
     name: 'automation_manage',
     label: 'Managing automations',
     description: 'On-demand gateway for creating, updating, deleting, and manually triggering automations. Use search, describe, then call. Read-only automation inspection remains available as dedicated planning-safe tools.',

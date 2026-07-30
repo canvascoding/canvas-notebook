@@ -101,6 +101,8 @@
     "test:pdf:mermaid": "tsx --conditions react-server scripts/mermaid-pdf-export-test.ts",
     "test:pdf:markdown-table": "tsx scripts/markdown-wide-table-export-test.ts",
     "test:pdf:latex": "tsx scripts/markdown-pdf-latex-export-test.ts",
+    "test:pdf:runtime": "CANVAS_PYTHON_PATH=${CANVAS_PYTHON_PATH:-python3} tsx scripts/pdf-tool-runtime-test.ts",
+    "test:pdf:tools": "CANVAS_PYTHON_PATH=${CANVAS_PYTHON_PATH:-python3} tsx scripts/pdf-tools-test.ts",
     "test:rate-limit": "tsx scripts/rate-limit-test.ts",
     "test:media:references": "tsx --conditions react-server scripts/media-reference-resolver-test.ts",
     "test:upload:conversion": "tsx --conditions react-server scripts/upload-conversion-test.ts",
