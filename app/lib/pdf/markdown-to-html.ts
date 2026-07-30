@@ -251,15 +251,35 @@ export async function markdownFileToHtmlDocument(
   brandProfile: WorkspaceBrandProfile = DEFAULT_WORKSPACE_BRAND_PROFILE,
 ): Promise<string> {
   const contentBuffer = await readFile(filePath, fileOptions);
+  const fileDir = path.dirname(filePath);
+  const ext = path.extname(filePath);
+  const fileName = path.basename(filePath, ext);
 
-  if (contentBuffer.length > READ_SIZE_LIMIT) {
+  return markdownTextToHtmlDocument(contentBuffer.toString('utf-8'), {
+    title: fileName,
+    assetBasePath: fileDir,
+    fileOptions,
+    brandProfile,
+  });
+}
+
+export async function markdownTextToHtmlDocument(
+  markdown: string,
+  options: {
+    title?: string;
+    assetBasePath?: string;
+    fileOptions?: WorkspaceFileOperationOptions;
+    brandProfile?: WorkspaceBrandProfile;
+  } = {},
+): Promise<string> {
+  if (Buffer.byteLength(markdown, 'utf8') > READ_SIZE_LIMIT) {
     const err = new Error('File is too large to export') as NodeJS.ErrnoException;
     (err as { statusCode?: number }).statusCode = 413;
     throw err;
   }
 
   const markdownContent = stripCanvasMarkdownFrontmatterForPresentation(
-    contentBuffer.toString('utf-8'),
+    markdown,
   );
 
   const processedMarkdown = await processMermaidBlocks(markdownContent);
@@ -270,11 +290,10 @@ export async function markdownFileToHtmlDocument(
   htmlContent = processColorCodes(htmlContent);
   htmlContent = formatWideTablesForPagedExport(htmlContent);
 
-  const fileDir = path.dirname(filePath);
-  const ext = path.extname(filePath);
-  const fileName = path.basename(filePath, ext);
-
-  htmlContent = await inlineImagesAsBase64(htmlContent, fileDir, fileOptions);
+  const assetBasePath = options.assetBasePath?.trim() || '.';
+  const title = options.title?.trim() || 'document';
+  const brandProfile = options.brandProfile ?? DEFAULT_WORKSPACE_BRAND_PROFILE;
+  htmlContent = await inlineImagesAsBase64(htmlContent, assetBasePath, options.fileOptions);
   const katexCss = htmlContent.includes('class="katex')
     ? await getEmbeddedKatexCss()
     : '';
@@ -289,7 +308,7 @@ export async function markdownFileToHtmlDocument(
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>${escapeHtml(fileName)}</title>
+  <title>${escapeHtml(title)}</title>
   <style>
     ${katexCss}
 

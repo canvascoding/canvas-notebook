@@ -59,7 +59,7 @@ aliases:
 Only this document body belongs in the export.
 `);
 
-    const { markdownFileToHtmlDocument } = await importMarkdownToHtml();
+    const { markdownFileToHtmlDocument, markdownTextToHtmlDocument } = await importMarkdownToHtml();
     const html = await markdownFileToHtmlDocument('report.md', { workspace });
     const document = new JSDOM(html).window.document;
     const text = document.body.textContent || '';
@@ -77,6 +77,25 @@ Only this document body belongs in the export.
       html,
       /body\s*>\s*:first-child,[\s\S]*?\.canvas-brand-header\s*\+\s*\*\s*\{[\s\S]*?margin-top:\s*0;/u,
     );
+
+    await fs.mkdir(path.join(rootPath, 'notes', 'assets'), { recursive: true });
+    await fs.writeFile(
+      path.join(rootPath, 'notes', 'assets', 'chart.svg'),
+      '<svg xmlns="http://www.w3.org/2000/svg" width="20" height="10"><rect width="20" height="10" fill="#2563eb"/></svg>',
+      'utf8',
+    );
+    const inlineHtml = await markdownTextToHtmlDocument(`# Inline report
+
+![Inline chart](assets/chart.svg)
+`, {
+      title: 'Inline export',
+      assetBasePath: 'notes',
+      fileOptions: { workspace },
+    });
+    const inlineDocument = new JSDOM(inlineHtml).window.document;
+    assert.equal(inlineDocument.title, 'Inline export');
+    assert.equal(inlineDocument.querySelector('h1')?.textContent, 'Inline report');
+    assert.match(inlineDocument.querySelector('img')?.getAttribute('src') || '', /^data:image\/svg\+xml;base64,/u);
   } finally {
     await fs.rm(rootPath, { recursive: true, force: true });
   }

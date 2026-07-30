@@ -12,6 +12,7 @@ import {
   getCachedMarkdownHtmlDocument,
   resolveMarkdownExportBrandState,
 } from '@/app/lib/pdf/markdown-export-cache';
+import { markdownTextToHtmlDocument } from '@/app/lib/pdf/markdown-to-html';
 import {
   getMarkdownPdfRenderOptions,
   hideBodyBrandHeaderForRepeatingPdfHeader,
@@ -39,17 +40,44 @@ export async function renderMarkdownWorkspaceFileToPdf(
 
   const brandState = await resolveMarkdownExportBrandState(fileOptions);
   const html = await getCachedMarkdownHtmlDocument(filePath, fileOptions, brandState);
+  return renderMarkdownHtmlToPdf(html, brandState.profile, fileOptions);
+}
+
+export async function renderMarkdownTextToPdf(
+  markdown: string,
+  options: {
+    title?: string;
+    assetBasePath?: string;
+    fileOptions?: WorkspaceFileOperationOptions;
+  } = {},
+): Promise<Buffer> {
+  await assertBrowserExportAvailable();
+  const brandState = await resolveMarkdownExportBrandState(options.fileOptions);
+  const html = await markdownTextToHtmlDocument(markdown, {
+    title: options.title,
+    assetBasePath: options.assetBasePath,
+    fileOptions: options.fileOptions,
+    brandProfile: brandState.profile,
+  });
+  return renderMarkdownHtmlToPdf(html, brandState.profile, options.fileOptions);
+}
+
+async function renderMarkdownHtmlToPdf(
+  html: string,
+  brandProfile: Awaited<ReturnType<typeof resolveMarkdownExportBrandState>>['profile'],
+  fileOptions?: WorkspaceFileOperationOptions,
+): Promise<Buffer> {
   const brandLogoDataUri = await readWorkspaceBrandLogoDataUri(
-    brandState.profile,
+    brandProfile,
     fileOptions ?? {},
   );
   const workspaceDisplayName = fileOptions?.workspace?.displayName;
-  const headerName = resolveWorkspaceBrandPdfHeaderName(brandState.profile, workspaceDisplayName);
+  const headerName = resolveWorkspaceBrandPdfHeaderName(brandProfile, workspaceDisplayName);
   const pdfHtml = brandLogoDataUri && headerName
     ? hideBodyBrandHeaderForRepeatingPdfHeader(html)
     : html;
   return generatePdfFromHtml(
     pdfHtml,
-    getMarkdownPdfRenderOptions(brandState.profile, brandLogoDataUri, workspaceDisplayName),
+    getMarkdownPdfRenderOptions(brandProfile, brandLogoDataUri, workspaceDisplayName),
   );
 }
