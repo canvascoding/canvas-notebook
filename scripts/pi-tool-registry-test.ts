@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import Module from 'node:module';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -99,7 +100,7 @@ async function main() {
   };
 
   const { enableToolInConfig, getDefaultEnabledToolNames, serializeEnabledToolNames } = await import('../app/lib/pi/enabled-tools');
-  const { detectUnsafeBashCommand } = await import('../app/lib/pi/agent-file-operations');
+  const { detectUnsafeBashCommand, writeAgentBinaryFile } = await import('../app/lib/pi/agent-file-operations');
   const { resolveAgentRuntimeTempDir } = await import('../app/lib/pi/agent-runtime-temp');
   const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
   const { createToolLoopGuard } = await import('../app/lib/pi/tool-loop-guard');
@@ -328,9 +329,50 @@ async function main() {
   assert.doesNotMatch(getText(pdfReadResult), /^%PDF-/);
   assert.equal((pdfReadResult.details as { type: string; pages: number }).type, 'pdf');
   assert.equal((pdfReadResult.details as { type: string; pages: number }).pages, 1);
+  assert.equal(
+    (pdfReadResult.details as { sha256: string }).sha256,
+    createHash('sha256').update(await fs.readFile(pdfPath)).digest('hex'),
+  );
   assert.equal(getImages(pdfReadResult).length, 1);
   assert.equal(getImages(pdfReadResult)[0].mimeType, 'image/png');
   assert.match(getText(pdfReadResult), /Rendered PDF page image/);
+
+  const generatedPdfBytes = Buffer.from(createSimplePdf('Generated Binary PDF'), 'latin1');
+  const generatedPdfWrite = await writeAgentBinaryFile({
+    path: 'docs/generated-binary.pdf',
+    content: generatedPdfBytes,
+    operation: 'pdf_create',
+  });
+  assert.equal(generatedPdfWrite.changed, true);
+  assert.equal(generatedPdfWrite.beforeSha256, null);
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'docs', 'generated-binary.pdf'), 'latin1'), generatedPdfBytes.toString('latin1'));
+  await assert.rejects(
+    writeAgentBinaryFile({
+      path: 'docs/generated-binary.pdf',
+      content: Buffer.from(createSimplePdf('Blocked Overwrite'), 'latin1'),
+      operation: 'pdf_create',
+    }),
+    /overwrite: true/i,
+  );
+  await assert.rejects(
+    writeAgentBinaryFile({
+      path: 'docs/generated-binary.pdf',
+      content: Buffer.from(createSimplePdf('Missing Revision'), 'latin1'),
+      operation: 'pdf_create',
+      overwrite: true,
+    }),
+    /expectedSha256/i,
+  );
+  const overwrittenPdfBytes = Buffer.from(createSimplePdf('Verified Overwrite'), 'latin1');
+  const generatedPdfOverwrite = await writeAgentBinaryFile({
+    path: 'docs/generated-binary.pdf',
+    content: overwrittenPdfBytes,
+    operation: 'pdf_create',
+    overwrite: true,
+    expectedSha256: generatedPdfWrite.afterSha256,
+  });
+  assert.equal(generatedPdfOverwrite.changed, true);
+  assert.equal(await fs.readFile(path.join(workspaceDir, 'docs', 'generated-binary.pdf'), 'latin1'), overwrittenPdfBytes.toString('latin1'));
 
   const multiPagePdfPath = path.join(workspaceDir, 'docs', 'multi-page.pdf');
   await fs.writeFile(multiPagePdfPath, createSimplePdfPages(['Page One Text', 'Page Two Diagram', 'Page Three Appendix']), 'latin1');

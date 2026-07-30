@@ -1281,6 +1281,147 @@ export async function writeAgentTextFile(params: {
   });
 }
 
+export async function writeAgentBinaryFile(params: {
+  path: string;
+  content: Buffer;
+  expectedSha256?: string;
+  operation?: string;
+  overwrite?: boolean;
+}): Promise<AgentFileChangeResult> {
+  if (!Buffer.isBuffer(params.content)) {
+    throw new Error('Binary file content must be a Buffer.');
+  }
+  if (params.content.length === 0) {
+    throw new Error('Refusing to write an empty binary file.');
+  }
+
+  const fullPath = resolveAgentPath(params.path);
+  await assertAgentWritablePathAllowed(fullPath);
+  const before = await readExistingFile(fullPath);
+  const beforeSha256 = before.buffer ? sha256Buffer(before.buffer) : null;
+  const expectedSha256 = normalizeAgentExpectedSha256(params.expectedSha256);
+  const operation = params.operation ?? 'write_binary';
+
+  if (before.existed && !params.overwrite) {
+    throw new Error(`Refusing to overwrite existing file without overwrite: true: ${params.path}`);
+  }
+  if (before.existed && !expectedSha256) {
+    throw new Error(
+      `Refusing to overwrite ${params.path} without expectedSha256. Read the file first and retry with the current SHA-256 hash.`,
+    );
+  }
+  assertAgentSharedWorkspaceRevision({
+    operation,
+    path: params.path,
+    beforeExisted: before.existed,
+    expectedSha256,
+  });
+  if (expectedSha256 && beforeSha256 !== expectedSha256) {
+    throw new Error(`Refusing to write ${params.path}: expectedSha256 did not match current file hash.`);
+  }
+
+  const afterSha256 = sha256Buffer(params.content);
+  const validation: AgentFileValidationResult = {
+    ok: true,
+    checks: [{
+      name: 'binary-read-after-write',
+      ok: true,
+      message: 'Binary output will be verified by size and SHA-256 after writing.',
+    }],
+  };
+  if (before.buffer && beforeSha256 === afterSha256) {
+    return {
+      path: params.path,
+      resolvedPath: fullPath,
+      changed: false,
+      snapshot: null,
+      beforeSha256,
+      afterSha256,
+      size: params.content.length,
+      diff: '(no binary changes)',
+      validation,
+    };
+  }
+
+  await fs.mkdir(path.dirname(fullPath), { recursive: true });
+  const executionContext = getAgentExecutionContext();
+  const workspaceContext = getAgentWorkspaceContext();
+  const baseRevision = workspaceContext && before.buffer
+    ? ensureFileRevisionForCurrentContent({
+        workspace: workspaceContext,
+        path: params.path,
+        contentHash: beforeSha256!,
+        sizeBytes: before.buffer.length,
+        actorType: 'system',
+      })
+    : null;
+
+  if (workspaceContext) {
+    assertFileCollaborationWriteAllowed({
+      workspace: workspaceContext,
+      path: params.path,
+      actorUserId: executionContext?.userId ?? null,
+      actorSessionId: executionContext?.sessionId ?? null,
+      actorType: 'agent',
+      baseRevisionId: baseRevision?.id ?? null,
+    });
+  }
+
+  const snapshot = await createSnapshotFromBuffer({
+    inputPath: params.path,
+    fullPath,
+    existed: before.existed,
+    beforeBuffer: before.buffer,
+    operation,
+  });
+  const stagingPath = path.join(
+    path.dirname(fullPath),
+    `.${path.basename(fullPath)}.canvas-agent-${randomUUID()}.tmp`,
+  );
+  try {
+    await fs.writeFile(stagingPath, params.content, { flag: 'wx', mode: 0o600 });
+    await fs.rename(stagingPath, fullPath);
+  } finally {
+    await fs.rm(stagingPath, { force: true }).catch(() => undefined);
+  }
+
+  const readBack = await fs.readFile(fullPath);
+  const readBackSha256 = sha256Buffer(readBack);
+  if (readBack.length !== params.content.length || readBackSha256 !== afterSha256) {
+    throw new Error(`Read-after-write verification failed for ${params.path}.`);
+  }
+  if (workspaceContext) {
+    ensureFileRevisionForCurrentContent({
+      workspace: workspaceContext,
+      path: params.path,
+      contentHash: readBackSha256,
+      sizeBytes: readBack.length,
+      actorUserId: executionContext?.userId ?? null,
+      actorType: 'agent',
+      sourceSessionId: executionContext?.sessionId ?? null,
+      baseRevisionId: baseRevision?.id ?? null,
+    });
+  }
+  await syncPublicSharesAfterWrite([fullPath]);
+
+  const result: AgentFileChangeResult = {
+    path: params.path,
+    resolvedPath: fullPath,
+    changed: true,
+    snapshot,
+    beforeSha256,
+    afterSha256: readBackSha256,
+    size: readBack.length,
+    diff: before.buffer
+      ? `Binary content changed: ${before.buffer.length} -> ${readBack.length} bytes`
+      : `Binary file created: ${readBack.length} bytes`,
+    validation,
+  };
+  publishAgentWorkspaceMutation(fullPath, before.existed ? 'change' : 'add');
+  await recordAgentFileChangeAudit(result, operation);
+  return result;
+}
+
 async function applyPreparedCollaborativeFileEdit(input: {
   inputPath: string;
   fullPath: string;

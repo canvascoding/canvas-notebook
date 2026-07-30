@@ -194,7 +194,7 @@ export const piTools: AgentTool[] = [
           };
         }
         if (isPdfBuffer(filePath, buffer)) {
-          return await extractPdfTextForRead(filePath, buffer, {
+          const pdfResult = await extractPdfTextForRead(filePath, buffer, {
             maxChars: readTextLimit,
             maxTextPages: clampPositiveInteger(maxPdfTextPages, DEFAULT_PDF_TEXT_PAGE_LIMIT, MAX_PDF_TEXT_PAGE_LIMIT),
             textPages: pdfTextPages,
@@ -203,6 +203,16 @@ export const piTools: AgentTool[] = [
             imagePages: pdfImagePages,
             maxImages: clampPositiveInteger(maxPdfImages, DEFAULT_PDF_IMAGE_LIMIT, MAX_PDF_IMAGE_LIMIT),
           }, signal);
+          return {
+            ...pdfResult,
+            details: {
+              ...pdfResult.details,
+              requestedPath: filePath,
+              resolvedPath: fullPath,
+              sha256,
+              source: resolvedPath.source,
+            },
+          };
         }
         if (bufferLooksBinary(buffer)) {
           return {

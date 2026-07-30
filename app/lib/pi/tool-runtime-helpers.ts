@@ -22,6 +22,7 @@ import {
   resolveAgentPath,
   restoreAgentFileSnapshot,
   sha256Buffer,
+  writeAgentBinaryFile,
   writeAgentTextFile,
   type AgentFileChangeResult,
   type AgentFileValidationResult,
@@ -642,6 +643,7 @@ export {
   resolveAgentPath,
   restoreAgentFileSnapshot,
   sha256Buffer,
+  writeAgentBinaryFile,
   writeAgentTextFile,
 };
 
