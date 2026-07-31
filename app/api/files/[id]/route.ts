@@ -2,64 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { createReadStream, findFilePath } from '@/app/lib/filesystem/upload-handler';
 import { auth } from '@/app/lib/auth';
 import { stat } from 'fs/promises';
-
-// Map file extensions to content types
-const CONTENT_TYPES: Record<string, string> = {
-  // Images
-  jpg: 'image/jpeg',
-  jpeg: 'image/jpeg',
-  png: 'image/png',
-  gif: 'image/gif',
-  webp: 'image/webp',
-  svg: 'image/svg+xml',
-  bmp: 'image/bmp',
-  tiff: 'image/tiff',
-  avif: 'image/avif',
-  heic: 'image/heic',
-  heif: 'image/heif',
-  
-  // Documents
-  pdf: 'application/pdf',
-  doc: 'application/msword',
-  docx: 'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-  odt: 'application/vnd.oasis.opendocument.text',
-  txt: 'text/plain',
-  md: 'text/markdown',
-  csv: 'text/csv',
-  html: 'text/html',
-  htm: 'text/html',
-  xml: 'text/xml',
-  json: 'application/json',
-  yaml: 'application/yaml',
-  yml: 'application/yaml',
-  
-  // Audio
-  mp3: 'audio/mpeg',
-  wav: 'audio/wav',
-  ogg: 'audio/ogg',
-  flac: 'audio/flac',
-  aac: 'audio/aac',
-  m4a: 'audio/mp4',
-  
-  // Video
-  mp4: 'video/mp4',
-  webm: 'video/webm',
-  mov: 'video/quicktime',
-  avi: 'video/x-msvideo',
-  mkv: 'video/x-matroska',
-  
-  // Archives
-  zip: 'application/zip',
-  gz: 'application/gzip',
-  tar: 'application/x-tar',
-  rar: 'application/x-rar-compressed',
-  '7z': 'application/x-7z-compressed',
-};
-
-function getContentType(filename: string): string {
-  const ext = filename.split('.').pop()?.toLowerCase() || '';
-  return CONTENT_TYPES[ext] || 'application/octet-stream';
-}
+import { getUploadResponsePolicy } from '@/app/lib/files/upload-response-policy';
 
 export async function GET(
   request: NextRequest,
@@ -85,7 +28,7 @@ export async function GET(
 
     // Get file stats
     const stats = await stat(filePath);
-    const contentType = getContentType(fileId);
+    const responsePolicy = getUploadResponsePolicy(fileId);
     
     // Create read stream
     const streamResult = await createReadStream(fileId);
@@ -115,8 +58,12 @@ export async function GET(
         'Content-Range': `bytes ${start}-${end}/${fileSize}`,
         'Accept-Ranges': 'bytes',
         'Content-Length': chunksize.toString(),
-        'Content-Type': contentType,
+        'Content-Type': responsePolicy.contentType,
+        'X-Content-Type-Options': 'nosniff',
       });
+      if (responsePolicy.contentDisposition) {
+        headers.set('Content-Disposition', responsePolicy.contentDisposition);
+      }
 
       return new NextResponse(rangeStream as unknown as ReadableStream<Uint8Array>, { 
         status: 206, 
@@ -125,8 +72,12 @@ export async function GET(
     } else {
       const headers = new Headers({
         'Content-Length': fileSize.toString(),
-        'Content-Type': contentType,
+        'Content-Type': responsePolicy.contentType,
+        'X-Content-Type-Options': 'nosniff',
       });
+      if (responsePolicy.contentDisposition) {
+        headers.set('Content-Disposition', responsePolicy.contentDisposition);
+      }
 
       return new NextResponse(stream as unknown as ReadableStream<Uint8Array>, { 
         status: 200, 
