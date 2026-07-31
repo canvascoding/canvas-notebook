@@ -5,6 +5,7 @@ import { saveAspectRatioEdit, type AspectRatioSaveRequest } from '@/app/lib/inte
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireSessionWorkspace, workspaceFileOptions } from '@/app/lib/workspaces/request';
 import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
+import { classifyMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -29,12 +30,24 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const overwriteReference = body.action === 'overwrite_original' && typeof body.sourcePath === 'string'
+      ? classifyMediaReference(body.sourcePath, { userId: session.user.id })
+      : null;
+    const sourceWorkspaceId = overwriteReference
+      && (overwriteReference.kind === 'workspace_relative' || overwriteReference.kind === 'workspace_absolute')
+      ? overwriteReference.workspaceId ?? studioRequest.workspace?.workspaceId ?? null
+      : null;
     const workspaceOptions = body.action === 'copy_workspace'
       ? await requireSessionWorkspace(session, {
           workspaceId: typeof body.targetWorkspaceId === 'string' ? body.targetWorkspaceId : null,
           permissions: 'canWrite',
         })
-      : null;
+      : sourceWorkspaceId
+        ? await requireSessionWorkspace(session, {
+            workspaceId: sourceWorkspaceId,
+            permissions: 'canWrite',
+          })
+        : null;
     if (workspaceOptions?.response) return workspaceOptions.response;
 
     const result = await saveAspectRatioEdit(
@@ -45,7 +58,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, ...result });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Save failed';
-    const status = /required|only local|unsupported|previewPath|confirmation/i.test(message) ? 400 : 500;
+    const status = /not writable|different workspace/i.test(message)
+      ? 403
+      : /required|only local|unsupported|previewPath|confirmation|not a file/i.test(message)
+        ? 400
+        : 500;
     if (status >= 500) {
       console.error('[Studio Aspect Ratio Save] Error:', error);
     }

@@ -1,7 +1,6 @@
 import 'server-only';
 
 import crypto from 'node:crypto';
-import fs from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
 
@@ -10,7 +9,7 @@ import { studioGenerationOutputs, studioGenerations } from '@/app/lib/db/schema'
 import { writeFile, type WorkspaceFileOperationOptions } from '@/app/lib/filesystem/workspace-files';
 import { getImageGenerationProvider } from '@/app/lib/integrations/image-generation-providers';
 import type { EnvStorageScope } from '@/app/lib/integrations/env-config';
-import { classifyMediaReference, loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
+import { loadMediaReference } from '@/app/lib/integrations/media-reference-resolver';
 import {
   ensureStudioEditsWorkspace,
   ensureStudioOutputsWorkspace,
@@ -24,6 +23,7 @@ import {
 } from '@/app/lib/integrations/studio-workspace';
 import type { StudioScope } from '@/app/lib/integrations/studio-scope';
 import { canReadStudioMediaPath } from '@/app/lib/integrations/studio-media-access';
+import { overwriteAspectRatioSource } from '@/app/lib/integrations/studio-aspect-ratio-overwrite';
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 
 export type AspectRatioMode = 'crop' | 'ai_extend';
@@ -614,14 +614,7 @@ export async function saveAspectRatioEdit(
     if (!input.sourcePath || typeof input.sourcePath !== 'string') {
       throw new Error('sourcePath is required for overwrite');
     }
-    if (input.sourcePath.startsWith('studio/') && !(await canReadStudioMediaPath(input.sourcePath, scope))) {
-      throw new Error('Source image is not available in this workspace');
-    }
-    const ref = classifyMediaReference(input.sourcePath);
-    if (!ref?.absolutePath || ref.kind === 'external_url') {
-      throw new Error('Only local studio, upload, and workspace images can be overwritten');
-    }
-    await fs.writeFile(ref.absolutePath, buffer);
+    await overwriteAspectRatioSource(input.sourcePath, buffer, scope, workspaceOptions);
     return { path: input.sourcePath };
   }
 
