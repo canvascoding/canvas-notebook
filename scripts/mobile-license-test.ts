@@ -6,6 +6,7 @@ import path from 'node:path';
 
 import Database from 'better-sqlite3';
 import { NextRequest } from 'next/server';
+import { shouldRequirePageLicense } from '../app/lib/license/page-gate';
 
 const environmentKeys = [
   'BASE_URL',
@@ -20,6 +21,7 @@ const environmentKeys = [
   'CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS',
   'CANVAS_MANAGED_SERVICES_ENABLED',
   'DATA',
+  'PORT',
 ] as const;
 const originalEnvironment = new Map(environmentKeys.map((key) => [key, process.env[key]]));
 const originalFetch = globalThis.fetch;
@@ -59,6 +61,27 @@ function signLicense(privateKey: crypto.KeyObject, instanceId: string) {
 }
 
 async function main() {
+  assert.equal(shouldRequirePageLicense({
+    allowUnlicensed: false,
+    onboardingEnabled: false,
+    onboardingComplete: true,
+  }), true, 'disabling onboarding must not disable the page license gate');
+  assert.equal(shouldRequirePageLicense({
+    allowUnlicensed: false,
+    onboardingEnabled: true,
+    onboardingComplete: false,
+  }), false, 'the incomplete onboarding flow must remain able to activate a license');
+  assert.equal(shouldRequirePageLicense({
+    allowUnlicensed: false,
+    onboardingEnabled: true,
+    onboardingComplete: true,
+  }), true);
+  assert.equal(shouldRequirePageLicense({
+    allowUnlicensed: true,
+    onboardingEnabled: false,
+    onboardingComplete: true,
+  }), false, 'explicit license recovery pages must remain reachable');
+
   const proxyModule = await import('../proxy');
   const defaultExport = proxyModule.default as unknown;
   const middleware = typeof defaultExport === 'function'
@@ -76,6 +99,28 @@ async function main() {
   ));
   assert.equal(preferencesGateResponse.status, 200);
   assert.equal(preferencesGateResponse.headers.get('x-middleware-next'), '1');
+
+  process.env.BASE_URL = 'http://localhost:3456';
+  process.env.BETTER_AUTH_BASE_URL = 'http://localhost:3456';
+  process.env.PORT = '3000';
+  let loopbackGateStatusUrl: string | null = null;
+  globalThis.fetch = async (input) => {
+    loopbackGateStatusUrl = String(input);
+    return Response.json({
+      licensed: true,
+      plan: 'community',
+      instanceId: 'local-instance',
+      expiresAt: new Date(Date.now() + 60_000).toISOString(),
+    });
+  };
+  const loopbackGateResponse = await middleware(new NextRequest(
+    'http://localhost:3456/api/mobile/v1/bootstrap',
+    { headers: { cookie: 'better-auth.session_token=middleware-test' } },
+  ));
+  assert.equal(loopbackGateStatusUrl, 'http://127.0.0.1:3000/api/license/status');
+  assert.equal(loopbackGateResponse.status, 200);
+  assert.equal(loopbackGateResponse.headers.get('x-middleware-next'), '1');
+  assert.match(loopbackGateResponse.headers.get('set-cookie') || '', /canvas_license_gate=/u);
 
   process.env.BASE_URL = 'https://canvas.canvasnotebook.app';
   process.env.BETTER_AUTH_BASE_URL = 'https://canvas.canvasnotebook.app';

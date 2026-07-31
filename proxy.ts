@@ -177,6 +177,31 @@ async function loadLicenseStatus(request: NextRequest): Promise<{
   }
 }
 
+function runtimeLoopbackPort(): string | null {
+  const value = process.env.PORT?.trim();
+  if (!value || !/^\d{1,5}$/u.test(value)) return null;
+  const port = Number(value);
+  return port >= 1 && port <= 65_535 ? String(port) : null;
+}
+
+function isLoopbackHostname(hostname: string): boolean {
+  const normalized = hostname.replace(/^\[|\]$/gu, '').toLowerCase();
+  return normalized === 'localhost'
+    || normalized === '::1'
+    || /^127(?:\.\d{1,3}){3}$/u.test(normalized);
+}
+
+function resolveRuntimeReachableUrl(url: URL): URL {
+  const port = runtimeLoopbackPort();
+  if (!port || !isLoopbackHostname(url.hostname)) return url;
+
+  const internalUrl = new URL(url);
+  internalUrl.protocol = 'http:';
+  internalUrl.hostname = '127.0.0.1';
+  internalUrl.port = port;
+  return internalUrl;
+}
+
 export function resolveLicenseStatusUrl(request: NextRequest): URL {
   for (const configured of [
     process.env.BETTER_AUTH_BASE_URL,
@@ -185,7 +210,9 @@ export function resolveLicenseStatusUrl(request: NextRequest): URL {
     if (!configured?.trim()) continue;
     try {
       const url = new URL('/api/license/status', configured);
-      if (url.protocol === 'https:' || url.protocol === 'http:') return url;
+      if (url.protocol === 'https:' || url.protocol === 'http:') {
+        return resolveRuntimeReachableUrl(url);
+      }
     } catch {
     }
   }
@@ -199,7 +226,7 @@ export function resolveLicenseStatusUrl(request: NextRequest): URL {
   if (forwardedProtocol === 'https' || forwardedProtocol === 'http') {
     statusUrl.protocol = `${forwardedProtocol}:`;
   }
-  return statusUrl;
+  return resolveRuntimeReachableUrl(statusUrl);
 }
 
 async function buildLicenseGateCookie(status: {

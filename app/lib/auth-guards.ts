@@ -6,6 +6,7 @@ import { auth } from '@/app/lib/auth';
 import { hasAnyAuthUser } from '@/app/lib/auth-setup';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { getLicenseStatus } from '@/app/lib/license';
+import { shouldRequirePageLicense } from '@/app/lib/license/page-gate';
 import { getUserOnboardingState } from '@/app/lib/user-preferences';
 
 export async function requirePageSession(options?: {
@@ -25,14 +26,17 @@ export async function requirePageSession(options?: {
     redirect({ href: '/login', locale });
   }
 
-  if (!options?.allowIncompleteOnboarding && isOnboardingEnabled() && !(await isOnboardingComplete())) {
+  const onboardingEnabled = isOnboardingEnabled();
+  const onboardingComplete = onboardingEnabled ? await isOnboardingComplete() : true;
+
+  if (!options?.allowIncompleteOnboarding && onboardingEnabled && !onboardingComplete) {
     redirect({ href: '/onboarding', locale });
   }
 
   if (
     !options?.allowIncompleteUserOnboarding &&
-    isOnboardingEnabled() &&
-    await isOnboardingComplete()
+    onboardingEnabled &&
+    onboardingComplete
   ) {
     const onboarding = await getUserOnboardingState(session!.user.id);
     if (onboarding.step !== 'complete') {
@@ -40,7 +44,11 @@ export async function requirePageSession(options?: {
     }
   }
 
-  if (!options?.allowUnlicensed && isOnboardingEnabled() && await isOnboardingComplete()) {
+  if (shouldRequirePageLicense({
+    allowUnlicensed: Boolean(options?.allowUnlicensed),
+    onboardingEnabled,
+    onboardingComplete,
+  })) {
     const status = await getLicenseStatus();
     if (!status.licensed) {
       redirect({ href: '/settings?tab=license', locale });
