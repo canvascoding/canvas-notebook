@@ -110,6 +110,16 @@ assert.equal(inventory.releaseGate.approvalReviewedBy, 'Frank Alexander Weber');
 assert.equal(inventory.releaseGate.approvalReviewedAt, '2026-07-17');
 assert.equal(inventory.releaseGate.status, 'approved');
 assert.deepEqual(inventory.releaseGate.blockers, []);
+assert.equal(
+  inventory.summary.distributedReviewRequired,
+  0,
+  'a production-ready release must not contain unreviewed distributed components',
+);
+assert.equal(
+  inventory.summary.developmentOnlyReviewRequired,
+  50,
+  'development-only review items must remain visible without being treated as release blockers',
+);
 
 const sharpUsageOverride = licensePolicy.packageUsageOverrides?.find((entry) => (
   entry.namePrefix === '@img/sharp-'

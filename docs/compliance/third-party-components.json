@@ -11,7 +11,9 @@
     "developmentOnlyComponents": 530,
     "allowed": 1972,
     "reviewRequired": 50,
-    "blocked": 0
+    "blocked": 0,
+    "distributedReviewRequired": 0,
+    "developmentOnlyReviewRequired": 50
   },
   "releaseGate": {
     "status": "approved",

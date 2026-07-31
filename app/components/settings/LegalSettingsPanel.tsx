@@ -22,6 +22,8 @@ type LegalSummary = {
     allowed: number;
     reviewRequired: number;
     blocked: number;
+    distributedReviewRequired: number;
+    developmentOnlyReviewRequired: number;
   };
   releaseGate: {
     status: 'approved' | 'blocked';
@@ -107,11 +109,12 @@ export function LegalSettingsPanel() {
           </div>
         </CardHeader>
         <CardContent className="space-y-5">
-          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
             {[
               [t('totalComponents'), data.summary.totalComponents],
               [t('runtimeComponents'), data.summary.runtimeComponents],
-              [t('reviewRequired'), data.summary.reviewRequired],
+              [t('distributedReviewRequired'), data.summary.distributedReviewRequired],
+              [t('developmentOnlyReviewRequired'), data.summary.developmentOnlyReviewRequired],
               [t('blockedComponents'), data.summary.blocked],
             ].map(([label, value]) => (
               <div key={String(label)} className="rounded-lg border bg-muted/30 p-3">

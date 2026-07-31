@@ -119,6 +119,8 @@ export type ThirdPartyInventory = {
     allowed: number;
     reviewRequired: number;
     blocked: number;
+    distributedReviewRequired: number;
+    developmentOnlyReviewRequired: number;
   };
   releaseGate: {
     status: 'approved' | 'blocked';
@@ -621,6 +623,12 @@ export function generateThirdPartyComplianceArtifacts(): GeneratedComplianceArti
       allowed: components.filter((component) => component.policyDecision === 'allowed').length,
       reviewRequired: components.filter((component) => component.policyDecision === 'review_required').length,
       blocked: components.filter((component) => component.policyDecision === 'blocked').length,
+      distributedReviewRequired: components.filter((component) => (
+        component.usage !== 'development-only' && component.policyDecision === 'review_required'
+      )).length,
+      developmentOnlyReviewRequired: components.filter((component) => (
+        component.usage === 'development-only' && component.policyDecision === 'review_required'
+      )).length,
     },
     releaseGate: {
       status: releaseBlockers.length ? 'blocked' : 'approved',

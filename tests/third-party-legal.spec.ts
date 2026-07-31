@@ -23,7 +23,7 @@ test.describe('third-party legal inventory', () => {
 
     await page.getByRole('button', { name: 'Rechtliches', exact: true }).click();
     await expect(page.getByRole('heading', { name: 'Rechtliches', exact: true })).toBeVisible();
-    await expect(page.getByText('Kommerzielles Release-Gate gesperrt')).toBeVisible();
+    await expect(page.getByText('Kommerzielles Release-Gate freigegeben')).toBeVisible();
     await expect(page.getByText('Drittanbieter-Lizenzen', { exact: true })).toBeVisible();
     await expect(page.getByRole('link', { name: /Third-Party Notices öffnen/ })).toHaveAttribute(
       'href',
@@ -37,14 +37,16 @@ test.describe('third-party legal inventory', () => {
     const summaryResponse = await page.request.get('/api/legal/third-party');
     const summary = await summaryResponse.json() as {
       success?: boolean;
-      summary?: { totalComponents?: number };
+      summary?: { totalComponents?: number; distributedReviewRequired?: number; developmentOnlyReviewRequired?: number };
       releaseGate?: { status?: string; blockers?: unknown[] };
     };
     expect(summaryResponse.ok()).toBeTruthy();
     expect(summary.success).toBe(true);
     expect(summary.summary?.totalComponents).toBeGreaterThan(0);
-    expect(summary.releaseGate?.status).toBe('blocked');
-    expect(summary.releaseGate?.blockers?.length).toBeGreaterThan(0);
+    expect(summary.releaseGate?.status).toBe('approved');
+    expect(summary.releaseGate?.blockers).toEqual([]);
+    expect(summary.summary?.distributedReviewRequired).toBe(0);
+    expect(summary.summary?.developmentOnlyReviewRequired).toBe(50);
 
     const noticesResponse = await page.request.get('/api/legal/third-party/notices');
     expect(noticesResponse.ok()).toBeTruthy();
@@ -69,7 +71,7 @@ test.describe('third-party legal inventory', () => {
     await page.goto('/de/settings?tab=legal', { waitUntil: 'domcontentloaded' });
 
     await expect(page.getByRole('heading', { name: 'Rechtliches', exact: true })).toBeVisible();
-    await expect(page.getByText('Kommerzielles Release-Gate gesperrt')).toBeVisible();
+    await expect(page.getByText('Kommerzielles Release-Gate freigegeben')).toBeVisible();
     await expect(page.getByText('Drittanbieter-Lizenzen', { exact: true })).toBeVisible();
 
     const mobileNavigation = page.getByRole('button', { name: /Bereiche.*Rechtliches/ });
