@@ -59,6 +59,7 @@ import { isLikelyHtmlEmailContent, normalizeEmailHtmlContent } from '@/app/lib/e
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { listWorkspaceFileReferences } from '@/app/lib/files/client';
 import { getToolDisplayInfo } from '@/app/lib/pi/tool-display';
+import type { NotebookEmailContextIntent } from '@/app/lib/notebook/context-surface';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -258,6 +259,11 @@ const EMAIL_HTML_SANITIZE_CONFIG = {
   ALLOW_DATA_ATTR: false,
   FORBID_ATTR: ['ping', 'srcset'],
   FORBID_TAGS: ['base', 'button', 'embed', 'form', 'iframe', 'input', 'link', 'math', 'meta', 'object', 'script', 'select', 'svg', 'textarea'],
+};
+
+type EmailClientProps = {
+  contextIntent?: NotebookEmailContextIntent | null;
+  embedded?: boolean;
 };
 
 function formatDate(value: string) {
@@ -1981,7 +1987,10 @@ function EmailComposeDialog({
   );
 }
 
-export function EmailClient() {
+export function EmailClient({
+  contextIntent = null,
+  embedded = false,
+}: EmailClientProps = {}) {
   const t = useTranslations('emails');
   const locale = useLocale();
   const setEmailChatContext = useSetEmailChatContext();
@@ -2024,6 +2033,8 @@ export function EmailClient() {
   const [streamingSummaryMessageId, setStreamingSummaryMessageId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const summaryAbortControllerRef = useRef<AbortController | null>(null);
+  const appliedContextIntentRef = useRef<string | null>(null);
+  const contextMessageId = contextIntent?.messageId;
 
   const activeAccount = useMemo(
     () => accounts.find((account) => account.id === activeAccountId) || accounts[0] || null,
@@ -2226,11 +2237,15 @@ export function EmailClient() {
       const nextMessages = (payload.data?.messages || []) as EmailMessageSummary[];
       setMessages(nextMessages);
       setMessageTotal(typeof payload.data?.total === 'number' ? payload.data.total : null);
-      setSelectedMessageId((current) => current && nextMessages.some((message) => message.id === current) ? current : '');
-      setSelectedMessage(null);
+      setSelectedMessageId((current) => (
+        current && (current === contextMessageId || nextMessages.some((message) => message.id === current))
+          ? current
+          : ''
+      ));
+      setSelectedMessage((current) => current?.id === contextMessageId ? current : null);
       setMessageActionNotice(null);
       clearMessageSummary();
-      setMessageDialogOpen(false);
+      setMessageDialogOpen((current) => contextMessageId ? current : false);
     } catch (loadError) {
       setMessages([]);
       setMessageTotal(null);
@@ -2242,7 +2257,7 @@ export function EmailClient() {
     } finally {
       setIsLoadingMessages(false);
     }
-  }, [activeAccount, activeFolder, canReadActiveAccount, clearMessageSummary, foldersAccountId, messageFilter, messagePage, submittedQuery, t]);
+  }, [activeAccount, activeFolder, canReadActiveAccount, clearMessageSummary, contextMessageId, foldersAccountId, messageFilter, messagePage, submittedQuery, t]);
 
   const updateMessageReadState = useCallback((messageId: string, isRead: boolean) => {
     setMessages((current) => current.map((message) => message.id === messageId ? { ...message, isRead } : message));
@@ -2298,6 +2313,82 @@ export function EmailClient() {
       setIsLoadingMessage(false);
     }
   }, [activeAccount, activeFolder, clearMessageSummary, isCompactViewport, markMessageReadOnOpen, t]);
+
+  useEffect(() => {
+    if (!contextIntent) {
+      appliedContextIntentRef.current = null;
+      return;
+    }
+
+    const intentKey = [
+      contextIntent.toolCallId || contextIntent.toolName,
+      contextIntent.accountId || '',
+      contextIntent.folder || '',
+      contextIntent.messageId || '',
+      contextIntent.query || '',
+    ].join(':');
+    if (appliedContextIntentRef.current === intentKey) return;
+
+    const timeout = window.setTimeout(() => {
+      const requestedAccountId = contextIntent.accountId;
+      if (isLoadingAccounts) return;
+      if (requestedAccountId && !accounts.some((account) => account.id === requestedAccountId)) {
+        return;
+      }
+      if (
+        requestedAccountId
+        && accounts.some((account) => account.id === requestedAccountId)
+        && activeAccountId !== requestedAccountId
+      ) {
+        setActiveAccountId(requestedAccountId);
+        setFoldersAccountId('');
+        setActiveFolder(contextIntent.folder || 'INBOX');
+        setMessagePage(0);
+        return;
+      }
+      if (!activeAccount && contextIntent.toolName !== 'email_list_accounts') return;
+
+      if (contextIntent.folder && activeFolder !== contextIntent.folder) {
+        setActiveFolder(contextIntent.folder);
+        setMessagePage(0);
+      }
+
+      if (contextIntent.toolName === 'email_search' && contextIntent.query !== undefined) {
+        setQuery(contextIntent.query);
+        setSubmittedQuery(contextIntent.query);
+        setMessagePage(0);
+      }
+
+      appliedContextIntentRef.current = intentKey;
+      if (
+        contextIntent.toolName === 'email_read'
+        && contextIntent.messageId
+        && selectedMessage?.id !== contextIntent.messageId
+      ) {
+        const matchingMessage = messages.find((message) => message.id === contextIntent.messageId);
+        void loadMessage(matchingMessage || {
+          id: contextIntent.messageId,
+          folder: contextIntent.folder,
+          from: '',
+          subject: contextIntent.subject || '',
+          date: '',
+          snippet: '',
+        });
+      }
+    }, 0);
+
+    return () => window.clearTimeout(timeout);
+  }, [
+    accounts,
+    activeAccount,
+    activeAccountId,
+    activeFolder,
+    contextIntent,
+    isLoadingAccounts,
+    loadMessage,
+    messages,
+    selectedMessage?.id,
+  ]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -3084,8 +3175,19 @@ export function EmailClient() {
   }
 
   return (
-    <div className="mx-auto flex h-full min-h-0 w-full max-w-7xl flex-col gap-3 overflow-y-auto px-3 py-3 sm:px-6 sm:py-5 lg:overflow-hidden">
-      <section className="shrink-0 flex flex-col gap-2 border border-border bg-card px-3 py-2 sm:px-4">
+    <div
+      data-presentation={embedded ? 'embedded' : 'page'}
+      className={cn(
+        'mx-auto flex h-full min-h-0 w-full flex-col overflow-y-auto lg:overflow-hidden',
+        embedded
+          ? 'max-w-none gap-2 px-0 py-0'
+          : 'max-w-7xl gap-3 px-3 py-3 sm:px-6 sm:py-5',
+      )}
+    >
+      <section className={cn(
+        'shrink-0 flex flex-col gap-2 border border-border bg-card px-3 py-2 sm:px-4',
+        embedded && 'border-x-0 border-t-0',
+      )}>
         <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <div className="flex min-w-0 items-center gap-2">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-muted">

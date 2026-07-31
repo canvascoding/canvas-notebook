@@ -64,6 +64,7 @@ type BrowserLabClientProps = {
   agentId?: string;
   embeddedChat?: boolean;
   locale: string;
+  presentation?: 'embedded' | 'page';
   sessionId?: string;
   variant?: 'lab' | 'live';
 };
@@ -383,12 +384,14 @@ export function BrowserLabClient({
   agentId,
   embeddedChat = false,
   locale,
+  presentation = 'page',
   sessionId,
   variant = 'lab',
 }: BrowserLabClientProps) {
   const t = locale === 'en' ? copy.en : copy.de;
   const searchParams = useSearchParams();
   const isLiveView = variant === 'live';
+  const isEmbedded = presentation === 'embedded';
   const initialAgentId = isLiveView ? agentId?.trim() || '' : searchParams.get('agentId')?.trim() || '';
   const initialSessionId = isLiveView ? sessionId?.trim() || '' : searchParams.get('sessionId')?.trim() || '';
   const [agents, setAgents] = useState<AgentProfile[]>([]);
@@ -882,8 +885,17 @@ export function BrowserLabClient({
   const modeLabel = viewState?.mode === 'user' ? t.modeUser : viewState?.mode === 'view' ? t.modeView : t.modeAgent;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[radial-gradient(circle_at_20%_0%,hsl(var(--primary)/0.09),transparent_32%),hsl(var(--background))]">
-      <section className="shrink-0 border-b border-border/70 px-4 py-4 md:px-6">
+    <div
+      data-presentation={presentation}
+      className={cn(
+        'flex h-full min-h-0 flex-col',
+        isEmbedded
+          ? 'bg-background'
+          : 'bg-[radial-gradient(circle_at_20%_0%,hsl(var(--primary)/0.09),transparent_32%),hsl(var(--background))]',
+      )}
+    >
+      {!isEmbedded ? (
+        <section className="shrink-0 border-b border-border/70 px-4 py-4 md:px-6">
         <div className="mx-auto flex max-w-[1600px] flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-2xl">
             <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
@@ -1003,10 +1015,19 @@ export function BrowserLabClient({
             </div>
           )}
         </div>
-      </section>
+        </section>
+      ) : null}
 
-      <div className="mx-auto grid min-h-0 w-full max-w-[1600px] flex-1 grid-rows-[minmax(430px,1fr)_auto] gap-0 overflow-y-auto xl:grid-cols-[minmax(0,1fr)_300px] xl:grid-rows-1 xl:overflow-hidden">
-        <main className="flex min-h-[430px] min-w-0 flex-col border-border/70 xl:min-h-0 xl:border-r">
+      <div className={cn(
+        'mx-auto grid min-h-0 w-full flex-1 gap-0',
+        isEmbedded
+          ? 'max-w-none grid-cols-1 grid-rows-1 overflow-hidden'
+          : 'max-w-[1600px] grid-rows-[minmax(430px,1fr)_auto] overflow-y-auto xl:grid-cols-[minmax(0,1fr)_300px] xl:grid-rows-1 xl:overflow-hidden',
+      )}>
+        <main className={cn(
+          'flex min-w-0 flex-col border-border/70',
+          isEmbedded ? 'min-h-0' : 'min-h-[430px] xl:min-h-0 xl:border-r',
+        )}>
           <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-border/70 bg-muted/25 px-3">
             <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto py-1.5">
               {(viewState?.tabs ?? []).map((tab) => (
@@ -1133,7 +1154,7 @@ export function BrowserLabClient({
                   {t.navigate}
                 </Button>
               </form>
-              <div className="flex gap-1.5">
+              <div className="flex flex-wrap gap-1.5">
                 <Button
                   type="button"
                   size="icon"
@@ -1342,7 +1363,8 @@ export function BrowserLabClient({
           ) : null}
         </main>
 
-        <aside className="min-h-0 overflow-y-auto bg-muted/15 p-4">
+        {!isEmbedded ? (
+          <aside className="min-h-0 overflow-y-auto bg-muted/15 p-4">
           <div className="mb-4 flex items-center justify-between">
             <h3 className="font-mono text-[11px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
               {isLiveView ? t.context : t.diagnostics}
@@ -1435,7 +1457,8 @@ export function BrowserLabClient({
               {t.takeoverWarning}
             </div>
           ) : null}
-        </aside>
+          </aside>
+        ) : null}
       </div>
     </div>
   );

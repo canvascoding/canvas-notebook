@@ -21,7 +21,7 @@ import {
   SquareTerminal,
   X,
 } from 'lucide-react';
-import { useTranslations } from 'next-intl';
+import { useLocale, useTranslations } from 'next-intl';
 
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
@@ -94,6 +94,7 @@ import {
   type NotebookContextSurface,
   type NotebookMainSurface,
 } from '@/app/lib/notebook/layout-state';
+import type { NotebookEmailContextIntent } from '@/app/lib/notebook/context-surface';
 import { useEditorStore } from '@/app/store/editor-store';
 import { useFileStore } from '@/app/store/file-store';
 import {
@@ -207,6 +208,41 @@ function BrowserContextHeader({
   );
 }
 
+function EmailContextHeader({
+  intent,
+}: {
+  intent: NotebookEmailContextIntent;
+}) {
+  const t = useTranslations('notebook');
+  const toolLabels: Record<string, string> = {
+    email_list_accounts: t('emailToolAccounts'),
+    email_search: t('emailToolSearch'),
+    email_read: t('emailToolRead'),
+    email_create_draft: t('emailToolCreateDraft'),
+    email_update_draft: t('emailToolUpdateDraft'),
+    email_send_draft: t('emailToolSendDraft'),
+  };
+  const detail = intent.subject || intent.query || intent.folder;
+
+  return (
+    <div className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/25 px-3 py-2 text-xs">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={cn(
+          'h-2 w-2 shrink-0 rounded-full',
+          intent.status === 'running' ? 'animate-pulse bg-amber-500' : 'bg-emerald-500',
+        )} />
+        <span className="font-medium text-foreground">
+          {toolLabels[intent.toolName] || t('emailSurface')}
+        </span>
+        <span className="text-muted-foreground">
+          {intent.status === 'running' ? t('contextToolRunning') : t('contextToolComplete')}
+        </span>
+      </div>
+      {detail ? <span className="min-w-0 truncate text-muted-foreground">{detail}</span> : null}
+    </div>
+  );
+}
+
 function NotebookEmptyDocumentState({ onOpenExplorer, onOpenChat }: {
   onOpenExplorer: () => void;
   onOpenChat: () => void;
@@ -247,6 +283,7 @@ function clearStoredNotebookOpenFilePathIfMatches(path: string, workspaceId: str
 }
 
 export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }) {
+  const locale = useLocale();
   const tNotebook = useTranslations('notebook');
   const tCommon = useTranslations('common');
   const tNav = useTranslations('navigation');
@@ -267,6 +304,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const currentFile = useFileStore((fileState) => fileState.currentFile);
   const isLoadingFile = useFileStore((fileState) => fileState.isLoadingFile);
+  const loadingFilePath = useFileStore((fileState) => fileState.loadingFilePath);
   const fileError = useFileStore((fileState) => fileState.fileError);
   const currentDirectory = useFileStore((fileState) => fileState.currentDirectory);
   const activeWorkspaceId = useWorkspaceStore((workspaceState) => workspaceState.activeWorkspaceId);
@@ -313,7 +351,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const currentDirectoryLabel =
     currentDirectory === '.' ? tNotebook('workspaceRoot') : `/${currentDirectory}`;
   const fileLabel = currentFile?.path.split('/').filter(Boolean).pop()
-    || useFileStore.getState().loadingFilePath?.split('/').filter(Boolean).pop()
+    || loadingFilePath?.split('/').filter(Boolean).pop()
     || tNotebook('documentSurface');
 
   const openNotebookFile = useCallback(async (path: string) => {
@@ -641,9 +679,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [dispatch]);
 
   const chatVisible = state.mainSurface === 'chat' || state.chatDocked;
-  const browserLocale = typeof document !== 'undefined'
-    ? document.documentElement.lang || 'de'
-    : 'de';
   const chatContent = (
     <CanvasAgentChat
       initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
@@ -664,11 +699,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         onOpenChat={showChat}
       />
     );
-
-  const contextStatus = (surface: NotebookContextSurface) => {
-    const intent = surface === 'email' ? emailContext : browserContext;
-    return intent?.status === 'running' ? tNotebook('contextRunning') : null;
-  };
+  const emailSurfaceLabel = emailContext?.status === 'running'
+    ? tNotebook('contextRunning')
+    : tNotebook('emailSurface');
+  const browserSurfaceLabel = browserContext?.status === 'running'
+    ? tNotebook('contextRunning')
+    : tNotebook('browserSurface');
 
   return (
     <FileWatcherProvider>
@@ -756,7 +792,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   active={state.mainSurface === 'email'}
                   closeLabel={tNotebook('closeEmailSurface')}
                   icon={<Mail className="h-3.5 w-3.5 shrink-0" />}
-                  label={contextStatus('email') || tNotebook('emailSurface')}
+                  label={emailSurfaceLabel}
                   onClose={() => handleCloseContext('email')}
                   onSelect={() => showSurface('email')}
                   testId="notebook-surface-email"
@@ -767,7 +803,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   active={state.mainSurface === 'browser'}
                   closeLabel={tNotebook('closeBrowserSurface')}
                   icon={<Globe2 className="h-3.5 w-3.5 shrink-0" />}
-                  label={contextStatus('browser') || tNotebook('browserSurface')}
+                  label={browserSurfaceLabel}
                   onClose={() => handleCloseContext('browser')}
                   onSelect={() => showSurface('browser')}
                   testId="notebook-surface-browser"
@@ -836,7 +872,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 {documentContent}
               </SurfaceLayer>
               <SurfaceLayer active={state.mainSurface === 'email'} testId="notebook-mobile-email">
-                {emailContext ? <EmailClient /> : null}
+                {emailContext ? (
+                  <div className="flex h-full min-h-0 flex-col">
+                    <EmailContextHeader intent={emailContext} />
+                    <div className="min-h-0 flex-1">
+                      <EmailClient contextIntent={emailContext} embedded />
+                    </div>
+                  </div>
+                ) : null}
               </SurfaceLayer>
               <SurfaceLayer active={state.mainSurface === 'browser'} testId="notebook-mobile-browser">
                 {browserContext ? (
@@ -848,7 +891,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     />
                     <div className="min-h-0 flex-1">
                       <BrowserLabClient
-                        locale={browserLocale}
+                        locale={locale}
+                        presentation="embedded"
                         variant="live"
                         agentId={browserContext.agentId}
                         sessionId={browserContext.sessionId}
@@ -941,7 +985,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                           {documentContent}
                         </SurfaceLayer>
                         <SurfaceLayer active={state.mainSurface === 'email'} testId="notebook-desktop-email">
-                          {emailContext ? <EmailClient /> : null}
+                          {emailContext ? (
+                            <div className="flex h-full min-h-0 flex-col">
+                              <EmailContextHeader intent={emailContext} />
+                              <div className="min-h-0 flex-1">
+                                <EmailClient contextIntent={emailContext} embedded />
+                              </div>
+                            </div>
+                          ) : null}
                         </SurfaceLayer>
                         <SurfaceLayer active={state.mainSurface === 'browser'} testId="notebook-desktop-browser">
                           {browserContext ? (
@@ -953,7 +1004,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                               />
                               <div className="min-h-0 flex-1">
                                 <BrowserLabClient
-                                  locale={browserLocale}
+                                  locale={locale}
+                                  presentation="embedded"
                                   variant="live"
                                   agentId={browserContext.agentId}
                                   sessionId={browserContext.sessionId}
