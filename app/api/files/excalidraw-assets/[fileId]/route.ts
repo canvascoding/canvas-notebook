@@ -16,7 +16,7 @@ export async function GET(
   try {
     const asset = await loadExcalidrawAsset({ workspaceId: workspaceResult.workspace.workspaceId, fileId });
     if (!asset) return NextResponse.json({ success: false, error: 'Asset not found.' }, { status: 404 });
-    const svgHeaders = asset.metadata.mimeType === 'image/svg+xml'
+    const svgHeaders: Record<string, string> = asset.metadata.mimeType === 'image/svg+xml'
       ? {
           'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'",
           'Cross-Origin-Resource-Policy': 'same-origin',
