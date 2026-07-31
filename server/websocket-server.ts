@@ -33,6 +33,7 @@ import { getLicenseStatus } from '@/app/lib/license';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { createOperationTiming } from '@/app/lib/observability/operation-timing';
+import { PiSessionRuntimeAccessError } from '@/app/lib/pi/session-runtime-access';
 import { getChannelRouter, getRuntimeService } from './agent-runtime-loader';
 import {
   hasPendingMobileChatTicket,
@@ -52,6 +53,16 @@ async function isLicensedForRuntime(): Promise<boolean> {
 
 function getErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : 'Unknown agent error';
+}
+
+function getClientError(error: unknown): { code: string; message: string } {
+  if (error instanceof PiSessionRuntimeAccessError && error.code === 'SESSION_AMBIGUOUS') {
+    return {
+      code: 'SESSION_DATA_CONFLICT',
+      message: 'This chat has conflicting session data. Refresh the app and try again.',
+    };
+  }
+  return { code: 'RUNTIME_ERROR', message: getErrorMessage(error) };
 }
 
 // Initialize WebSocket bridge on module load
@@ -818,17 +829,17 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           error,
           timing: dispatchTiming.snapshot(),
         });
-        const errorMessage = getErrorMessage(error);
+        const clientError = getClientError(error);
         sendWs(ws, {
           type: 'error',
-          error: errorMessage,
-          code: 'RUNTIME_ERROR',
+          error: clientError.message,
+          code: clientError.code,
         });
         sendWs(ws, {
           type: 'send_message_result',
           requestId: message.requestId,
           success: false,
-          error: errorMessage,
+          error: clientError.message,
         });
       }
       break;

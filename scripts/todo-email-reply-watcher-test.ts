@@ -323,6 +323,14 @@ async function main() {
 
   await seedBase('reply-user-ambiguous', 'reply-todo-ambiguous', 'reply-session-ambiguous');
   const now = new Date();
+  // Simulate a pre-migration database so the runtime guard remains covered.
+  const { openDb } = await import('../app/lib/db');
+  const duplicateSeedConnection = await openDb();
+  try {
+    await duplicateSeedConnection.run('DROP INDEX IF EXISTS idx_pi_sessions_user_session');
+  } finally {
+    await duplicateSeedConnection.close();
+  }
   await db.insert(piSessions).values({
     sessionId: 'reply-session-ambiguous',
     userId: 'reply-user-ambiguous',

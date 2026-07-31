@@ -2339,6 +2339,11 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       OR agent_id = '';
   `);
 
+  // A session belongs to exactly one agent for a user. Older versions could
+  // create duplicate records for that pair, so merge their messages before the
+  // unique index below is introduced.
+  deduplicatePiSessions(sqlite);
+
   // ── Deferred indexes on columns added via ALTER TABLE ──────────────────────
   sqlite.exec(`
     DROP INDEX IF EXISTS idx_canvas_workspaces_personal_owner;
@@ -2410,7 +2415,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_last_message ON pi_sessions (last_message_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_created ON pi_sessions (user_id, created_at);
-    CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_session ON pi_sessions (user_id, session_id);
+    DROP INDEX IF EXISTS idx_pi_sessions_user_session;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_sessions_user_session ON pi_sessions (user_id, session_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_user_channel_created ON pi_sessions (user_id, channel_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_agent ON pi_sessions (agent_id);
     CREATE INDEX IF NOT EXISTS idx_pi_sessions_channel ON pi_sessions (channel_id, channel_session_key);
@@ -2544,6 +2550,38 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     UPDATE channel_active_sessions
     SET agent_id = 'canvas-agent'
     WHERE agent_id IS NULL OR agent_id = '';
+
+    UPDATE channel_active_sessions
+    SET agent_id = (
+      SELECT pi_sessions.agent_id
+      FROM pi_sessions
+      WHERE pi_sessions.user_id = channel_active_sessions.user_id
+        AND pi_sessions.session_id = channel_active_sessions.session_id
+      LIMIT 1
+    )
+    WHERE EXISTS (
+      SELECT 1
+      FROM pi_sessions
+      WHERE pi_sessions.user_id = channel_active_sessions.user_id
+        AND pi_sessions.session_id = channel_active_sessions.session_id
+        AND pi_sessions.agent_id != channel_active_sessions.agent_id
+    );
+
+    WITH ranked_active_sessions AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY user_id, agent_id, channel_id, channel_session_key, channel_thread_key
+          ORDER BY updated_at DESC, id DESC
+        ) AS active_rank
+      FROM channel_active_sessions
+    )
+    DELETE FROM channel_active_sessions
+    WHERE id IN (
+      SELECT id
+      FROM ranked_active_sessions
+      WHERE active_rank > 1
+    );
 
     DROP INDEX IF EXISTS idx_session_channel_links_unique;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_session_channel_links_unique
@@ -2739,6 +2777,74 @@ function addColumns(
       }
     }
   }
+}
+
+function deduplicatePiSessions(sqlite: InstanceType<typeof Database>): void {
+  sqlite.exec(`
+    DROP TABLE IF EXISTS temp._canvas_pi_session_dedup;
+
+    CREATE TEMP TABLE _canvas_pi_session_dedup (
+      duplicate_id INTEGER PRIMARY KEY,
+      canonical_id INTEGER NOT NULL
+    );
+
+    INSERT INTO _canvas_pi_session_dedup (duplicate_id, canonical_id)
+    WITH ranked_sessions AS (
+      SELECT
+        id,
+        FIRST_VALUE(id) OVER (
+          PARTITION BY user_id, session_id
+          ORDER BY updated_at DESC, created_at DESC, id DESC
+        ) AS canonical_id
+      FROM pi_sessions
+    )
+    SELECT id, canonical_id
+    FROM ranked_sessions
+    WHERE id != canonical_id;
+
+    UPDATE pi_messages
+    SET pi_session_db_id = (
+      SELECT canonical_id
+      FROM _canvas_pi_session_dedup
+      WHERE duplicate_id = pi_messages.pi_session_db_id
+    )
+    WHERE pi_session_db_id IN (
+      SELECT duplicate_id
+      FROM _canvas_pi_session_dedup
+    );
+
+    WITH ordered_messages AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY pi_session_db_id
+          ORDER BY timestamp ASC, id ASC
+        ) AS next_sequence
+      FROM pi_messages
+      WHERE pi_session_db_id IN (
+        SELECT DISTINCT canonical_id
+        FROM _canvas_pi_session_dedup
+      )
+    )
+    UPDATE pi_messages
+    SET sequence = (
+      SELECT next_sequence
+      FROM ordered_messages
+      WHERE ordered_messages.id = pi_messages.id
+    )
+    WHERE id IN (
+      SELECT id
+      FROM ordered_messages
+    );
+
+    DELETE FROM pi_sessions
+    WHERE id IN (
+      SELECT duplicate_id
+      FROM _canvas_pi_session_dedup
+    );
+
+    DROP TABLE temp._canvas_pi_session_dedup;
+  `);
 }
 
 function getColumnNames(sqlite: InstanceType<typeof Database>, table: string): Set<string> {

@@ -13,8 +13,9 @@ try {
   runMigrations(sqlite);
   const columns = sqlite.prepare('PRAGMA table_info(pi_sessions)').all() as { name: string }[];
   assert.equal(columns.some((column) => column.name === 'archived_at'), true);
-  const indexes = sqlite.prepare('PRAGMA index_list(pi_sessions)').all() as { name: string }[];
+  const indexes = sqlite.prepare('PRAGMA index_list(pi_sessions)').all() as Array<{ name: string; unique: number }>;
   assert.equal(indexes.some((index) => index.name === 'idx_pi_sessions_user_workspace_archived'), true);
+  assert.equal(indexes.find((index) => index.name === 'idx_pi_sessions_user_session')?.unique, 1);
 } finally {
   sqlite.close();
 }
@@ -25,6 +26,7 @@ const sessionRoute = readFileSync(path.join(root, 'app/api/mobile/v1/sessions/[s
 const runtimeRoute = readFileSync(path.join(root, 'app/api/mobile/v1/sessions/[sessionId]/runtime/route.ts'), 'utf8');
 const attachmentRoute = readFileSync(path.join(root, 'app/api/mobile/v1/sessions/[sessionId]/attachments/route.ts'), 'utf8');
 const service = readFileSync(path.join(root, 'app/lib/mobile/chat.ts'), 'utf8');
+const websocketServer = readFileSync(path.join(root, 'server/websocket-server.ts'), 'utf8');
 assert.match(listRoute, /query:\s*url\.searchParams\.get\('query'\)/u);
 assert.match(listRoute, /archived:\s*url\.searchParams\.get\('archived'\) === 'true'/u);
 assert.match(listRoute, /error instanceof AiRuntimePolicyError/u);
@@ -51,6 +53,8 @@ assert.match(service, /extractPiMessageText\(piMessage, \{ hideAttachmentMetadat
 assert.match(service, /mobileToolInputsById/u);
 assert.match(service, /toolInput:/u);
 assert.match(service, /safeRelativeUrl/u);
+assert.match(websocketServer, /SESSION_DATA_CONFLICT/u);
+assert.match(websocketServer, /conflicting session data/u);
 
 const formattedToolInput = formatMobileToolInput({
   command: 'printf "hello"',

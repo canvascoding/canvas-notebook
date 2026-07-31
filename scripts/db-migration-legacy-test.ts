@@ -112,12 +112,16 @@ try {
     INSERT INTO pi_sessions (id, session_id, user_id, provider, model, agent_id, title, created_at, updated_at)
     VALUES
       (1, 'sess-migration', 'user-migration', 'test-provider', 'test-model', 'agent-legacy', 'Migration Session', 1700000000, 1700000000),
-      (2, 'sess-migration-old', 'user-migration', 'test-provider', 'test-model', 'canvas-agent', 'Old Migration Session', 1699990000, 1699990000);
+      (2, 'sess-migration-old', 'user-migration', 'test-provider', 'test-model', 'canvas-agent', 'Old Migration Session', 1699990000, 1699990000),
+      (3, 'sess-duplicate', 'user-migration', 'test-provider', 'test-model', 'agent-old', 'Old Duplicate Session', 1700000000, 1700000000),
+      (4, 'sess-duplicate', 'user-migration', 'test-provider', 'test-model', 'agent-newest', 'Newest Duplicate Session', 1700000100, 1700000200);
 
     INSERT INTO pi_messages (id, pi_session_db_id, role, content, timestamp)
     VALUES
       (10, 1, 'user', '{"role":"user","content":"first","timestamp":2000}', 2000),
-      (20, 1, 'user', '{"role":"user","content":"second","timestamp":1000}', 1000);
+      (20, 1, 'user', '{"role":"user","content":"second","timestamp":1000}', 1000),
+      (30, 3, 'user', '{"role":"user","content":"duplicate older","timestamp":3000}', 3000),
+      (40, 4, 'user', '{"role":"user","content":"duplicate newer","timestamp":1000}', 1000);
 
     INSERT INTO pi_usage_events (
       id,
@@ -354,7 +358,38 @@ try {
   assert.deepEqual(migratedMessages, [
     { id: 10, sequence: 1 },
     { id: 20, sequence: 2 },
+    { id: 30, sequence: 2 },
+    { id: 40, sequence: 1 },
   ]);
+
+  const deduplicatedSessions = sqlite.prepare(`
+    SELECT id, agent_id AS agentId, title
+    FROM pi_sessions
+    WHERE user_id = 'user-migration' AND session_id = 'sess-duplicate'
+  `).all() as Array<{ id: number; agentId: string; title: string }>;
+  assert.deepEqual(deduplicatedSessions, [
+    { id: 4, agentId: 'agent-newest', title: 'Newest Duplicate Session' },
+  ]);
+  const deduplicatedMessages = sqlite.prepare(`
+    SELECT pi_session_db_id AS piSessionDbId, sequence
+    FROM pi_messages
+    WHERE id IN (30, 40)
+    ORDER BY sequence
+  `).all() as Array<{ piSessionDbId: number; sequence: number }>;
+  assert.deepEqual(deduplicatedMessages, [
+    { piSessionDbId: 4, sequence: 1 },
+    { piSessionDbId: 4, sequence: 2 },
+  ]);
+  const piSessionIndex = sqlite.prepare('PRAGMA index_list(pi_sessions)').all()
+    .find((index) => (index as { name: string }).name === 'idx_pi_sessions_user_session') as { unique: number } | undefined;
+  assert.equal(piSessionIndex?.unique, 1);
+  assert.throws(
+    () => sqlite.prepare(`
+      INSERT INTO pi_sessions (session_id, user_id, provider, model, created_at, updated_at)
+      VALUES ('sess-duplicate', 'user-migration', 'test-provider', 'test-model', 1700000300, 1700000300)
+    `).run(),
+    /UNIQUE constraint failed: pi_sessions\.user_id, pi_sessions\.session_id/u,
+  );
 
   const channelActiveSessionColumns = getColumns(sqlite, 'channel_active_sessions');
   assert.ok(channelActiveSessionColumns.has('agent_id'));
@@ -371,6 +406,12 @@ try {
   assert.ok(indexes.has('idx_channel_active_sessions_user_context_agent'));
   assert.equal(indexes.has('idx_channel_active_sessions_context'), false);
   assert.equal(indexes.has('idx_channel_active_sessions_context_agent'), false);
+  const migratedActiveSession = sqlite.prepare(`
+    SELECT agent_id AS agentId
+    FROM channel_active_sessions
+    WHERE user_id = 'user-migration' AND session_id = 'sess-migration'
+  `).get() as { agentId: string } | undefined;
+  assert.equal(migratedActiveSession?.agentId, 'agent-legacy');
 
   const channelLinkIndexes = new Set(
     sqlite.prepare('PRAGMA index_list(session_channel_links)').all()
@@ -386,6 +427,7 @@ try {
     ORDER BY session_id
   `).all() as Array<{ sessionId: string; isPrimary: number }>;
   assert.deepEqual(migratedLinks, [
+    { sessionId: 'sess-duplicate', isPrimary: 0 },
     { sessionId: 'sess-migration', isPrimary: 1 },
     { sessionId: 'sess-migration-old', isPrimary: 0 },
   ]);

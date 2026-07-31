@@ -246,6 +246,104 @@ export function createPostgresDrizzle(pool: Pool) {
   return drizzle(pool, { schema });
 }
 
+async function deduplicatePiSessions(pool: PgQueryable): Promise<void> {
+  await pool.query(`
+    WITH ranked_sessions AS (
+      SELECT
+        id,
+        FIRST_VALUE(id) OVER (
+          PARTITION BY user_id, session_id
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+        ) AS canonical_id
+      FROM pi_sessions
+    ), duplicate_sessions AS (
+      SELECT id AS duplicate_id, canonical_id
+      FROM ranked_sessions
+      WHERE id != canonical_id
+    )
+    UPDATE pi_messages AS messages
+    SET pi_session_db_id = duplicate_sessions.canonical_id
+    FROM duplicate_sessions
+    WHERE messages.pi_session_db_id = duplicate_sessions.duplicate_id
+  `);
+
+  await pool.query(`
+    WITH ranked_sessions AS (
+      SELECT
+        id,
+        FIRST_VALUE(id) OVER (
+          PARTITION BY user_id, session_id
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+        ) AS canonical_id
+      FROM pi_sessions
+    ), affected_sessions AS (
+      SELECT DISTINCT canonical_id
+      FROM ranked_sessions
+      WHERE id != canonical_id
+    ), ordered_messages AS (
+      SELECT
+        messages.id,
+        ROW_NUMBER() OVER (
+          PARTITION BY messages.pi_session_db_id
+          ORDER BY messages.timestamp ASC, messages.id ASC
+        ) AS next_sequence
+      FROM pi_messages AS messages
+      WHERE messages.pi_session_db_id IN (SELECT canonical_id FROM affected_sessions)
+    )
+    UPDATE pi_messages AS messages
+    SET sequence = ordered_messages.next_sequence
+    FROM ordered_messages
+    WHERE messages.id = ordered_messages.id
+  `);
+
+  await pool.query(`
+    WITH ranked_sessions AS (
+      SELECT
+        id,
+        FIRST_VALUE(id) OVER (
+          PARTITION BY user_id, session_id
+          ORDER BY updated_at DESC NULLS LAST, created_at DESC NULLS LAST, id DESC
+        ) AS canonical_id
+      FROM pi_sessions
+    ), duplicate_sessions AS (
+      SELECT id AS duplicate_id
+      FROM ranked_sessions
+      WHERE id != canonical_id
+    )
+    DELETE FROM pi_sessions AS sessions
+    USING duplicate_sessions
+    WHERE sessions.id = duplicate_sessions.duplicate_id
+  `);
+
+  await pool.query(`
+    UPDATE channel_active_sessions AS active_sessions
+    SET agent_id = sessions.agent_id
+    FROM pi_sessions AS sessions
+    WHERE sessions.user_id = active_sessions.user_id
+      AND sessions.session_id = active_sessions.session_id
+      AND sessions.agent_id != active_sessions.agent_id
+  `);
+
+  await pool.query(`
+    WITH ranked_active_sessions AS (
+      SELECT
+        id,
+        ROW_NUMBER() OVER (
+          PARTITION BY user_id, agent_id, channel_id, channel_session_key, channel_thread_key
+          ORDER BY updated_at DESC NULLS LAST, id DESC
+        ) AS active_rank
+      FROM channel_active_sessions
+    )
+    DELETE FROM channel_active_sessions AS active_sessions
+    USING ranked_active_sessions
+    WHERE active_sessions.id = ranked_active_sessions.id
+      AND ranked_active_sessions.active_rank > 1
+  `);
+
+  await pool.query('DROP INDEX IF EXISTS idx_pi_sessions_user_session');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_pi_sessions_user_session ON pi_sessions (user_id, session_id)');
+}
+
 export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   if (process.env.CANVAS_POSTGRES_VECTOR_ENABLED === 'true') {
     await pool.query('CREATE EXTENSION IF NOT EXISTS vector');
@@ -502,15 +600,19 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_agent_saga_document ON collaboration_agent_saga_documents (document_id, status, updated_at)');
 
   for (const table of tables) {
-    const config = getTableConfig(table as never) as {
-      columns: SchemaColumn[];
-      indexes: Array<Parameters<typeof indexSql>[1]>;
-      foreignKeys: Array<Parameters<typeof foreignKeySql>[1]>;
-    };
-
+    const config = getTableConfig(table as never) as { columns: SchemaColumn[] };
     for (const column of config.columns) {
       await pool.query(createColumnAddSql(table, column));
     }
+  }
+
+  await deduplicatePiSessions(pool);
+
+  for (const table of tables) {
+    const config = getTableConfig(table as never) as {
+      columns: SchemaColumn[];
+      indexes: Array<Parameters<typeof indexSql>[1]>;
+    };
 
     for (const column of config.columns) {
       const statement = uniqueColumnIndexSql(table, column);

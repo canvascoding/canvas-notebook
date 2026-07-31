@@ -675,7 +675,7 @@ export const piSessions = sqliteTable("pi_sessions", {
 }, (table) => ({
   channelIdx: index("idx_pi_sessions_channel").on(table.channelId, table.channelSessionKey),
   userCreatedIdx: index("idx_pi_sessions_user_created").on(table.userId, table.createdAt),
-  userSessionIdx: index("idx_pi_sessions_user_session").on(table.userId, table.sessionId),
+  userSessionIdx: uniqueIndex("idx_pi_sessions_user_session").on(table.userId, table.sessionId),
   userChannelIdx: index("idx_pi_sessions_user_channel_created").on(table.userId, table.channelId, table.createdAt),
   agentIdx: index("idx_pi_sessions_agent").on(table.agentId),
   workspaceIdx: index("idx_pi_sessions_workspace").on(table.workspaceId),
