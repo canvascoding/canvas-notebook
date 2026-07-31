@@ -88,6 +88,7 @@
     "test:browser-start": "tsx scripts/browser-runtime-test.ts",
     "test:browser-url-policy": "tsx scripts/browser-url-policy-test.ts",
     "test:terminal:security": "tsx scripts/terminal-route-ownership-test.ts && node scripts/test-terminal-service.js",
+    "test:docker:privileges": "node scripts/docker-runtime-privilege-policy-test.mjs",
     "test:file-watcher": "tsx --conditions react-server scripts/file-watcher-service-test.ts && tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts && tsx scripts/file-open-flow-test.ts && tsx scripts/notebook-open-file-storage-test.ts",
     "test:files:zip": "tsx --conditions react-server scripts/zip-extraction-test.ts",
     "test:files:sort": "tsx scripts/file-sort-test.ts",

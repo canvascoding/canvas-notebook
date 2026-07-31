@@ -73,19 +73,55 @@ env_flag_enabled() {
 
 prepare_writable_dir() {
   target_dir="$1"
-  owner="$(id -un):$(id -gn)"
+  mkdir -p "$target_dir" 2>/dev/null && [ -w "$target_dir" ]
+}
 
-  if mkdir -p "$target_dir" 2>/dev/null && [ -w "$target_dir" ]; then
-    return 0
+install_ollama_cli_user_local() {
+  case "$(uname -m)" in
+    x86_64|amd64)
+      ollama_arch="amd64"
+      ;;
+    aarch64|arm64)
+      ollama_arch="arm64"
+      ;;
+    *)
+      printf '[warning] Unsupported Ollama CLI architecture: %s\n' "$(uname -m)" >> "$STARTUP_LOG"
+      return 1
+      ;;
+  esac
+
+  mkdir -p /data/cache "${NPM_CONFIG_PREFIX}/bin"
+  ollama_staging_dir="$(mktemp -d /data/cache/ollama-install.XXXXXX)"
+  if ! curl -fsSL "https://ollama.com/download/ollama-linux-${ollama_arch}.tar.zst" \
+      | zstd -d \
+      | tar -xf - -C "$ollama_staging_dir"; then
+    rm -rf "$ollama_staging_dir"
+    return 1
+  fi
+  if [ ! -x "$ollama_staging_dir/bin/ollama" ]; then
+    rm -rf "$ollama_staging_dir"
+    return 1
   fi
 
-  if command -v sudo >/dev/null 2>&1; then
-    if sudo mkdir -p "$target_dir" && sudo chown -R "$owner" "$target_dir"; then
-      return 0
+  rm -rf /data/cache/ollama.previous
+  if [ -d /data/cache/ollama ]; then
+    mv /data/cache/ollama /data/cache/ollama.previous
+  fi
+  if ! mv "$ollama_staging_dir" /data/cache/ollama; then
+    if [ -d /data/cache/ollama.previous ]; then
+      mv /data/cache/ollama.previous /data/cache/ollama
     fi
+    return 1
   fi
 
-  return 1
+  if ! ln -sf /data/cache/ollama/bin/ollama "${NPM_CONFIG_PREFIX}/bin/ollama"; then
+    rm -rf /data/cache/ollama
+    if [ -d /data/cache/ollama.previous ]; then
+      mv /data/cache/ollama.previous /data/cache/ollama
+    fi
+    return 1
+  fi
+  rm -rf /data/cache/ollama.previous
 }
 
 # ─── Auto-tune Node.js heap from container RAM ──────────────────────────
@@ -223,11 +259,6 @@ if [ "$auto_install" = "true" ]; then
     if npm i -g "$_pkg" >> "$STARTUP_LOG" 2>&1; then
       step_ok; return 0
     fi
-    if command -v sudo >/dev/null 2>&1; then
-      if sudo npm i -g "$_pkg" >> "$STARTUP_LOG" 2>&1; then
-        step_ok; return 0
-      fi
-    fi
     # Non-fatal: show ok but log warning
     printf '[warning] %s install failed — see %s\n' "$_lbl" "$STARTUP_LOG" >> "$STARTUP_LOG" 2>&1
     step_ok
@@ -241,19 +272,14 @@ if [ "$ollama_auto_install" = "true" ]; then
   step "Ollama CLI"
   if command -v ollama >/dev/null 2>&1; then
     step_ok
-  elif ! command -v curl >/dev/null 2>&1; then
-    printf '[warning] curl not found, skipping Ollama CLI install\n' >> "$STARTUP_LOG" 2>&1
+  elif ! command -v curl >/dev/null 2>&1 || ! command -v zstd >/dev/null 2>&1; then
+    printf '[warning] curl or zstd not found, skipping Ollama CLI install\n' >> "$STARTUP_LOG" 2>&1
+    step_ok
+  elif install_ollama_cli_user_local >> "$STARTUP_LOG" 2>&1; then
     step_ok
   else
-    tmp_script="$(mktemp)"
-    if curl -fsSL https://ollama.com/install.sh > "$tmp_script" 2>> "$STARTUP_LOG" \
-        && OLLAMA_NO_START=1 sh "$tmp_script" >> "$STARTUP_LOG" 2>&1; then
-      step_ok
-    else
-      printf '[warning] Ollama CLI install failed — continuing startup\n' >> "$STARTUP_LOG" 2>&1
-      step_ok
-    fi
-    rm -f "$tmp_script"
+    printf '[warning] Ollama CLI install failed — continuing startup\n' >> "$STARTUP_LOG" 2>&1
+    step_ok
   fi
 fi
 

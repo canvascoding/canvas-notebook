@@ -128,7 +128,7 @@ ARG TARGETPLATFORM
 
 RUN set -eux; \
   apt-get update; \
-  apt-get install -y --no-install-recommends sudo ffmpeg curl wget zstd ca-certificates sqlite3 unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
+  apt-get install -y --no-install-recommends ffmpeg curl wget zstd ca-certificates sqlite3 unzip zip git make python3 python3-pip python3-venv ripgrep poppler-utils procps \
      chromium fonts-liberation libnss3 libatk-bridge2.0-0 libcups2 libdrm2 \
      libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 libgbm1 libasound2 \
      fonts-noto-color-emoji; \
@@ -160,8 +160,6 @@ RUN set -eux; \
 # Install the exact cross-platform Python wheel set required by skills.
 COPY --from=builder /app/requirements/runtime-python.txt /app/requirements/runtime-python.txt
 RUN pip3 install --no-cache-dir --break-system-packages --require-hashes -r /app/requirements/runtime-python.txt
-RUN echo "${APP_USER} ALL=(ALL) NOPASSWD:ALL" > /etc/sudoers.d/${APP_USER} && \
-    chmod 0440 /etc/sudoers.d/${APP_USER}
 RUN npm install -g npm@${NPM_VERSION}
 
 ENV NODE_ENV=production \

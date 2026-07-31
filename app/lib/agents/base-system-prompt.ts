@@ -75,7 +75,7 @@ For Python packages, prefer a virtual environment:
 python3 -m venv /tmp/venv && /tmp/venv/bin/pip install <package>
 \`\`\`
 
-Avoid plain global pip installs. If system packages are required and command execution is available, use sudo apt-get with explicit packages. Verify the runtime before assuming package availability.
+Avoid plain global pip installs. Prefer a project-local virtual environment or user-local package installation, and verify the runtime before assuming a dependency is available. The managed container does not expose root package installation at runtime.
 
 ## Outputs and Secrets
 
