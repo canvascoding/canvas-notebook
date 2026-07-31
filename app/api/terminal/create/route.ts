@@ -10,13 +10,9 @@ import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-worksp
 
 export async function POST(request: NextRequest) {
   try {
-    // Auth check
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const body = await request.json();
@@ -45,7 +41,7 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const ownerId = String(session.user.id || session.user.email || 'anonymous');
+    const ownerId = String(session.user.id);
 
     const client = getTerminalClient();
     const result = await client.createSession(sessionId, ownerId, workspaceRoot);

@@ -5,11 +5,11 @@ import { getTerminalClient } from '@/app/lib/terminal-client';
 export async function POST(request: NextRequest) {
   try {
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
     }
 
-    const ownerId = String(session.user.id || session.user.email || 'anonymous');
+    const ownerId = String(session.user.id);
     const client = getTerminalClient();
     const result = await client.terminateAll(ownerId) as { success: boolean; closed?: number };
 

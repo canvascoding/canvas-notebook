@@ -12,13 +12,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Auth check
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { id: sessionId } = await params;
@@ -31,7 +27,7 @@ export async function DELETE(
     }
 
     const client = getTerminalClient();
-    await client.terminate(sessionId);
+    await client.terminate(sessionId, String(session.user.id));
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

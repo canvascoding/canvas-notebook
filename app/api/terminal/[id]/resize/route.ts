@@ -12,13 +12,9 @@ export async function POST(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Auth check
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+    if (!session?.user?.id) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
 
     const { id: sessionId } = await params;
@@ -33,7 +29,7 @@ export async function POST(
     }
 
     const client = getTerminalClient();
-    await client.resize(sessionId, cols, rows);
+    await client.resize(sessionId, String(session.user.id), cols, rows);
 
     return NextResponse.json({ success: true });
   } catch (error: unknown) {

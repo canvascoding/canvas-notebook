@@ -16,9 +16,8 @@ export async function GET(
   { params }: { params: Promise<{ id: string }> }
 ) {
   try {
-    // Auth check
     const session = await auth.api.getSession({ headers: request.headers });
-    if (!session?.user) {
+    if (!session?.user?.id) {
       return new Response(
         JSON.stringify({ error: 'Unauthorized' }),
         { status: 401, headers: { 'Content-Type': 'application/json' } }
@@ -26,6 +25,7 @@ export async function GET(
     }
 
     const { id: sessionId } = await params;
+    const ownerId = String(session.user.id);
 
     // Create SSE stream
     const stream = new ReadableStream({
@@ -113,7 +113,7 @@ export async function GET(
                   const attachMsg = JSON.stringify({
                     id: 'attach',
                     method: 'attach',
-                    params: { sessionId }
+                    params: { sessionId, ownerId }
                   }) + '\n';
                   socket.write(attachMsg);
                   return;

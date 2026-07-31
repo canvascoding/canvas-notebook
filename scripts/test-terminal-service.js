@@ -103,12 +103,20 @@ class TerminalClient {
     return this.sendMessage('create', { sessionId, ownerId });
   }
 
-  async attachSession(sessionId) {
-    return this.sendMessage('attach', { sessionId });
+  async attachSession(sessionId, ownerId) {
+    return this.sendMessage('attach', { sessionId, ownerId });
   }
 
-  async sendInput(sessionId, data) {
-    return this.sendMessage('input', { sessionId, data });
+  async sendInput(sessionId, ownerId, data) {
+    return this.sendMessage('input', { sessionId, ownerId, data });
+  }
+
+  async resize(sessionId, ownerId, cols, rows) {
+    return this.sendMessage('resize', { sessionId, ownerId, cols, rows });
+  }
+
+  async terminate(sessionId, ownerId) {
+    return this.sendMessage('terminate', { sessionId, ownerId });
   }
 
   async terminateAll(ownerId) {
@@ -200,7 +208,7 @@ async function runTests() {
 
     // Test 4: Control socket should not receive terminal output before attach
     console.log('5. Testing control/output separation...');
-    await client.sendInput(sessionId, 'printf "control-only\\n"\n');
+    await client.sendInput(sessionId, ownerId, 'printf "control-only\\n"\n');
     await new Promise(resolve => setTimeout(resolve, 500));
     const controlOutput = client.receivedMessages.find((message) => message.type === 'output');
     assert.strictEqual(controlOutput, undefined, 'Control socket should not receive terminal output');
@@ -211,13 +219,13 @@ async function runTests() {
     const streamClient = new TerminalClient();
     await streamClient.connect(TEST_PORT);
     await streamClient.authenticate(TEST_TOKEN);
-    await streamClient.attachSession(sessionId);
+    await streamClient.attachSession(sessionId, ownerId);
     await streamClient.waitForMessage((message) => message.type === 'ready');
     const bufferedOutput = await streamClient.waitForMessage(
       (message) => message.type === 'output' && typeof message.data === 'string' && message.data.includes('control-only')
     );
     assert(bufferedOutput, 'Expected buffered terminal output after attach');
-    await client.sendInput(sessionId, 'printf "after-attach\\n"\n');
+    await client.sendInput(sessionId, ownerId, 'printf "after-attach\\n"\n');
     const liveOutput = await streamClient.waitForMessage(
       (message) => message.type === 'output' && typeof message.data === 'string' && message.data.includes('after-attach')
     );
@@ -236,16 +244,32 @@ async function runTests() {
     assert.strictEqual(terminateAllResult.success, true, 'terminateAll should succeed');
     assert.strictEqual(terminateAllResult.closed, 2, 'terminateAll should only close matching owner sessions');
     try {
-      await client.sendInput(ownerSessionA, 'echo "should fail"\n');
+      await client.sendInput(ownerSessionA, 'owner-a', 'echo "should fail"\n');
       assert.fail('Expected terminated session input to fail');
     } catch (error) {
       assert.match(String(error), /Session not found/);
     }
-    await client.sendInput(otherOwnerSession, 'printf "owner-b-still-live\\n"\n');
+    await client.sendInput(otherOwnerSession, 'owner-b', 'printf "owner-b-still-live\\n"\n');
     console.log('   ✓ terminateAll only closed the requested owner sessions\n');
 
-    // Test 7: Invalid auth
-    console.log('8. Testing invalid authentication...');
+    // Test 7: every session operation should reject another owner
+    console.log('8. Testing per-session ownership...');
+    const protectedSession = 'protected-owner-session';
+    await client.createSession(protectedSession, 'protected-owner');
+    for (const operation of [
+      () => client.attachSession(protectedSession, 'attacker'),
+      () => client.sendInput(protectedSession, 'attacker', 'echo "should fail"\n'),
+      () => client.resize(protectedSession, 'attacker', 100, 30),
+      () => client.terminate(protectedSession, 'attacker'),
+    ]) {
+      await assert.rejects(operation, /Session not found/);
+    }
+    await client.sendInput(protectedSession, 'protected-owner', 'printf "owner-still-live\\n"\n');
+    await client.resize(protectedSession, 'protected-owner', 100, 30);
+    console.log('   ✓ Other owners cannot attach, control, resize, or terminate sessions\n');
+
+    // Test 8: Invalid auth
+    console.log('9. Testing invalid authentication...');
     const badClient = new TerminalClient();
     await badClient.connect(TEST_PORT);
     try {
@@ -257,8 +281,8 @@ async function runTests() {
     }
     badClient.disconnect();
 
-    // Test 8: Unauthorized request
-    console.log('9. Testing unauthorized request...');
+    // Test 9: Unauthorized request
+    console.log('10. Testing unauthorized request...');
     const unauthClient = new TerminalClient();
     await unauthClient.connect(TEST_PORT);
     try {
