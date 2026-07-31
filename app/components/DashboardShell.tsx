@@ -196,9 +196,15 @@ function SurfaceLayer({
 }
 
 function BrowserContextHeader({
+  activityControlsId,
+  activityVisible,
   context,
+  onToggleActivity,
 }: {
+  activityControlsId: string;
+  activityVisible: boolean;
   context: NotebookBrowserContextIntent;
+  onToggleActivity: () => void;
 }) {
   const t = useTranslations('notebook');
   const { snapshot } = context;
@@ -211,7 +217,7 @@ function BrowserContextHeader({
     <div
       role="status"
       aria-live="polite"
-      className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/25 px-3 py-2 text-xs"
+      className="flex min-h-12 shrink-0 items-center justify-between gap-2 border-b border-border bg-muted/25 px-3 py-2 text-xs"
     >
       <div className="flex min-w-0 items-center gap-2">
         <span className={cn(
@@ -229,11 +235,53 @@ function BrowserContextHeader({
         </span>
         <span className="hidden text-muted-foreground md:inline">{controlLabel}</span>
       </div>
-      {snapshot.activeUrl || context.url ? (
-        <span className="min-w-0 truncate font-mono text-muted-foreground">
-          {snapshot.activeUrl || context.url}
-        </span>
-      ) : null}
+      <div className="flex min-w-0 shrink-0 items-center gap-2">
+        {snapshot.activeUrl || context.url ? (
+          <span className="hidden min-w-0 max-w-72 truncate font-mono text-muted-foreground lg:inline">
+            {snapshot.activeUrl || context.url}
+          </span>
+        ) : null}
+        <Button
+          type="button"
+          variant={activityVisible ? 'secondary' : 'outline'}
+          size="sm"
+          className="h-8 shrink-0 gap-1.5 px-2.5"
+          aria-controls={activityControlsId}
+          aria-expanded={activityVisible}
+          aria-label={activityVisible ? t('hideAgentActivity') : t('showAgentActivity')}
+          data-testid="browser-agent-activity-toggle"
+          onClick={onToggleActivity}
+        >
+          <MessageSquare className="h-3.5 w-3.5" />
+          <span>{t('agentActivity')}</span>
+        </Button>
+      </div>
+    </div>
+  );
+}
+
+function BrowserActivityPanelHeader({
+  onClose,
+}: {
+  onClose: () => void;
+}) {
+  const t = useTranslations('notebook');
+  return (
+    <div className="flex shrink-0 items-start justify-between gap-4 border-b border-border bg-background/95 px-4 py-3">
+      <div className="min-w-0">
+        <div className="text-sm font-semibold text-foreground">{t('agentActivity')}</div>
+        <p className="mt-0.5 text-xs text-muted-foreground">{t('agentActivityDescription')}</p>
+      </div>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-sm"
+        className="shrink-0"
+        onClick={onClose}
+        aria-label={t('hideAgentActivity')}
+      >
+        <X className="h-4 w-4" />
+      </Button>
     </div>
   );
 }
@@ -330,6 +378,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     sessionId: string;
   } | null>(null);
   const [activeRuntimeStatus, setActiveRuntimeStatus] = useState<RuntimeStatus | null>(null);
+  const [browserActivityOpen, setBrowserActivityOpen] = useState(false);
   const desktopExplorerRef = useRef<HTMLDivElement | null>(null);
   const desktopMainPanelRef = useRef<HTMLDivElement | null>(null);
   const desktopChatRef = useRef<HTMLDivElement | null>(null);
@@ -610,7 +659,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const handleCloseContext = useCallback((surface: NotebookContextSurface) => {
     if (surface === 'email') clearEmail();
-    else clearBrowser();
+    else {
+      clearBrowser();
+      setBrowserActivityOpen(false);
+    }
     dispatch({ type: 'CONTEXT_CLOSED', surface });
   }, [clearBrowser, clearEmail, dispatch]);
 
@@ -719,12 +771,25 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'SET_CHAT_DOCKED', docked: true });
     }
   }, [dispatch, layout.canDockChat]);
+  const browserActivityUsesSheet =
+    !layout.canDockChat && browserActivityOpen && state.mainSurface === 'browser';
+  const browserActivityVisible = layout.canDockChat
+    ? state.chatDocked
+    : browserActivityUsesSheet;
+  const toggleBrowserActivity = useCallback(() => {
+    if (layout.canDockChat) {
+      dispatch({ type: 'SET_CHAT_DOCKED', docked: !state.chatDocked });
+      return;
+    }
+    setBrowserActivityOpen((open) => !open);
+  }, [dispatch, layout.canDockChat, state.chatDocked]);
   const handleFileSelected = useCallback(() => {
     dispatch({ type: 'DOCUMENT_OPENED' });
     setMobileExplorerOpen(false);
   }, [dispatch]);
 
-  const chatVisible = state.mainSurface === 'chat' || state.chatDocked;
+  const chatVisible =
+    state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet;
   const chatContent = (
     <CanvasAgentChat
       initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
@@ -948,7 +1013,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               >
                 {browserContext ? (
                   <div className="flex h-full min-h-0 flex-col">
-                    <BrowserContextHeader context={browserContext} />
+                    <BrowserContextHeader
+                      activityControlsId="browser-agent-activity-panel"
+                      activityVisible={browserActivityVisible}
+                      context={browserContext}
+                      onToggleActivity={toggleBrowserActivity}
+                    />
                     <div className="min-h-0 flex-1">
                       <BrowserLabClient
                         autoConnectKey={browserContext.sessionId}
@@ -964,11 +1034,29 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 ) : null}
               </SurfaceLayer>
               <SurfaceLayer
-                active={state.mainSurface === 'chat'}
+                active={state.mainSurface === 'chat' || browserActivityUsesSheet}
                 labelledBy="notebook-surface-chat-tab"
                 testId="notebook-mobile-chat"
               >
-                {chatContent}
+                <div
+                  id="browser-agent-activity-panel"
+                  data-testid={browserActivityUsesSheet
+                    ? 'browser-agent-activity-sheet'
+                    : undefined}
+                  role={browserActivityUsesSheet ? 'dialog' : undefined}
+                  aria-modal={browserActivityUsesSheet || undefined}
+                  aria-label={browserActivityUsesSheet
+                    ? tNotebook('agentActivity')
+                    : undefined}
+                  className="flex h-full min-h-0 flex-col"
+                >
+                  {browserActivityUsesSheet ? (
+                    <BrowserActivityPanelHeader onClose={() => setBrowserActivityOpen(false)} />
+                  ) : null}
+                  <div className="min-h-0 flex-1">
+                    {chatContent}
+                  </div>
+                </div>
               </SurfaceLayer>
 
               <Sheet open={mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
@@ -1039,7 +1127,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   sidebarResizeLabel={tNotebook('resizeFileTree')}
                   terminalResizeLabel={tNotebook('resizeTerminal')}
                   main={
-                    <div ref={desktopMainPanelRef} className="flex h-full min-h-0 w-full overflow-hidden">
+                    <div ref={desktopMainPanelRef} className="relative flex h-full min-h-0 w-full overflow-hidden">
                       <div
                         id="onboarding-notebook-editor"
                         className={cn(
@@ -1075,7 +1163,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         >
                           {browserContext ? (
                             <div className="flex h-full min-h-0 flex-col">
-                              <BrowserContextHeader context={browserContext} />
+                              <BrowserContextHeader
+                                activityControlsId="browser-agent-activity-panel"
+                                activityVisible={browserActivityVisible}
+                                context={browserContext}
+                                onToggleActivity={toggleBrowserActivity}
+                              />
                               <div className="min-h-0 flex-1">
                                 <BrowserLabClient
                                   autoConnectKey={browserContext.sessionId}
@@ -1110,10 +1203,25 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         ref={desktopChatRef}
                         id="onboarding-notebook-chat"
                         data-testid="notebook-desktop-chat"
-                        data-chat-placement={state.mainSurface === 'chat' ? 'main' : state.chatDocked ? 'side' : 'hidden'}
-                        role={state.mainSurface === 'chat' ? 'tabpanel' : 'complementary'}
+                        data-chat-placement={state.mainSurface === 'chat'
+                          ? 'main'
+                          : state.chatDocked
+                            ? 'side'
+                            : browserActivityUsesSheet
+                              ? 'overlay'
+                              : 'hidden'}
+                        role={browserActivityUsesSheet
+                          ? 'dialog'
+                          : state.mainSurface === 'chat'
+                            ? 'tabpanel'
+                            : 'complementary'}
                         aria-labelledby={state.mainSurface === 'chat' ? 'notebook-surface-chat-tab' : undefined}
-                        aria-label={state.chatDocked ? tCommon('aiChat') : undefined}
+                        aria-label={browserActivityUsesSheet
+                          ? tNotebook('agentActivity')
+                          : state.chatDocked
+                            ? tCommon('aiChat')
+                            : undefined}
+                        aria-modal={browserActivityUsesSheet || undefined}
                         aria-hidden={!chatVisible}
                         inert={!chatVisible}
                         style={state.chatDocked
@@ -1128,10 +1236,25 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                             ? 'min-w-0 flex-1'
                             : state.chatDocked
                               ? 'w-[var(--notebook-chat-width)] shrink-0 border-l border-border'
-                              : 'hidden',
+                              : browserActivityUsesSheet
+                                ? 'absolute inset-y-0 right-0 z-40 w-full max-w-[30rem] border-l border-border shadow-2xl'
+                                : 'hidden',
                         )}
                       >
-                        {chatContent}
+                        <div
+                          id="browser-agent-activity-panel"
+                          data-testid={browserActivityUsesSheet
+                            ? 'browser-agent-activity-sheet'
+                            : undefined}
+                          className="flex h-full min-h-0 flex-col"
+                        >
+                          {browserActivityUsesSheet ? (
+                            <BrowserActivityPanelHeader onClose={() => setBrowserActivityOpen(false)} />
+                          ) : null}
+                          <div className="min-h-0 flex-1">
+                            {chatContent}
+                          </div>
+                        </div>
                       </div>
                     </div>
                   }
@@ -1140,6 +1263,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               </div>
             </main>
           )}
+
         </div>
       </HintProvider>
     </FileWatcherProvider>

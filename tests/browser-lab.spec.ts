@@ -179,6 +179,68 @@ async function deleteBrowserLabTestSession(page: Page, session: SessionSummary):
   );
 }
 
+async function exposeBrowserRuntimeToNotebook(page: Page, sessionId: string): Promise<void> {
+  await page.routeWebSocket('**/ws/chat', (ws: WebSocketRoute) => {
+    ws.send(JSON.stringify({ type: 'auth_success', userId: 'browser-lab-test-user' }));
+    ws.onMessage((rawMessage) => {
+      const message = JSON.parse(
+        typeof rawMessage === 'string' ? rawMessage : rawMessage.toString(),
+      ) as { requestId?: string; sessionId?: string; type?: string };
+      const activeSessionId = message.sessionId || sessionId;
+      if (message.type === 'subscribe_session') {
+        ws.send(JSON.stringify({
+          type: 'subscribe_result',
+          requestId: message.requestId,
+          success: true,
+          sessionId: activeSessionId,
+        }));
+        return;
+      }
+      if (message.type !== 'get_status') return;
+      ws.send(JSON.stringify({
+        type: 'status_result',
+        requestId: message.requestId,
+        success: true,
+        status: {
+          sessionId: activeSessionId,
+          phase: 'idle',
+          activeTool: null,
+          pendingToolCalls: 0,
+          followUpQueue: [],
+          steeringQueue: [],
+          canAbort: false,
+          contextWindow: 128000,
+          estimatedHistoryTokens: 0,
+          availableHistoryTokens: 128000,
+          contextUsagePercent: 0,
+          includedSummary: false,
+          omittedMessageCount: 0,
+          summaryUpdatedAt: null,
+          lastCompactionAt: null,
+          lastCompactionKind: null,
+          lastCompactionOmittedCount: 0,
+          browser: {
+            revision: 1,
+            running: true,
+            controlMode: 'agent',
+            activeTabId: 'browser-lab-tab',
+            activeTitle: 'Browser Lab',
+            activeUrl: 'about:blank',
+            tabCount: 1,
+            tabs: [{
+              id: 'browser-lab-tab',
+              title: 'Browser Lab',
+              url: 'about:blank',
+              active: true,
+            }],
+            hasPendingDialog: false,
+          },
+        },
+      }));
+    });
+  });
+}
+
 test.describe('Browser Lab', () => {
   test.setTimeout(180_000);
 
@@ -457,6 +519,7 @@ test.describe('Browser Lab', () => {
     page.on('pageerror', (error) => pageErrors.push(error));
 
     await page.setViewportSize({ width: 1440, height: 900 });
+    await exposeBrowserRuntimeToNotebook(page, 'browser-lab-session');
     await login(page);
     const session = await findBrowserLabSession(page);
     try {
@@ -505,6 +568,13 @@ test.describe('Browser Lab', () => {
       await expect(page.getByText(/^(Diagnose|Diagnostics)$/)).toHaveCount(0);
       await expect(page.getByText(session.sessionId, { exact: true })).toHaveCount(0);
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
+      const activityToggle = page.getByTestId('browser-agent-activity-toggle');
+      await expect(activityToggle).toHaveAttribute('aria-expanded', 'true');
+      await activityToggle.click();
+      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'true');
+      await expect(page.locator('img[tabindex]')).toBeVisible();
+      await activityToggle.click();
+      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
       await page.screenshot({ path: 'test-results/notebook-browser-beside-chat.png', fullPage: false });
 
       const desktopMetrics = await page.evaluate(() => {
@@ -528,6 +598,18 @@ test.describe('Browser Lab', () => {
       await page.setViewportSize({ width: 390, height: 844 });
       await expect(page.getByTestId('notebook-mobile-browser')).toHaveAttribute('aria-hidden', 'false');
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByTestId('browser-agent-activity-toggle')).toHaveAttribute('aria-expanded', 'false');
+      await page.getByTestId('browser-agent-activity-toggle').click();
+      await expect(page.getByTestId('browser-agent-activity-sheet')).toBeVisible();
+      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId);
+      await page.screenshot({
+        path: 'test-results/notebook-browser-mobile-activity.png',
+        fullPage: false,
+      });
+      await page.getByTestId('browser-agent-activity-sheet').getByRole('button', {
+        name: /^(Agent-Aktivität ausblenden|Hide agent activity)$/,
+      }).click();
+      await expect(page.getByTestId('browser-agent-activity-sheet')).toHaveCount(0);
       await page.screenshot({ path: 'test-results/notebook-browser-mobile.png', fullPage: false });
       const mobileMetrics = await page.evaluate(() => ({
         innerWidth: window.innerWidth,
