@@ -8,10 +8,7 @@ import { ChatDockShell } from '@/app/components/layout/ChatDockShell';
 import { StudioRouteNav } from '@/app/apps/studio/components/StudioRouteNav';
 import { useStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { getStudioBackDestination } from '@/app/apps/studio/utils/studio-navigation';
-import {
-  WorkspaceSwitcher,
-  useShouldShowWorkspaceSwitcher,
-} from '@/app/components/workspaces/WorkspaceSwitcher';
+import { WorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
 
 function isAspectRatioPath(pathname: string | null) {
@@ -31,7 +28,6 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
   const tStudio = useTranslations('studio');
   const pathname = usePathname();
   const { chatContext } = useStudioChatContext();
-  const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
   const isAspectRatioEditor = isAspectRatioPath(pathname);
   const chatVisibleStorageKey = isAspectRatioEditor ? 'studio.chatVisible.aspectRatio' : 'studio.chatVisible';
   const title = getStudioTitle(pathname, tStudio);
@@ -60,14 +56,9 @@ export function StudioShell({ children, hintEnabled = true }: { children: ReactN
       headerActions={(
         <>
           <StudioRouteNav variant="mobile" />
-          <WorkspaceSwitcher source="studio" variant="compact" className="hidden md:inline-flex" />
+          <WorkspaceSwitcher source="studio" variant="compact" />
         </>
       )}
-      headerBelow={showWorkspaceSwitcher ? (
-        <div className="z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden">
-          <WorkspaceSwitcher source="studio" variant="mobile-sheet" />
-        </div>
-      ) : null}
       mainClassName="studio-touch-form-scope"
       hintPage="studio"
       hintEnabled={hintEnabled}

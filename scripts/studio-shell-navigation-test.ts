@@ -21,8 +21,8 @@ const studioShellSource = fs.readFileSync(
   path.join(process.cwd(), 'app', 'components', 'StudioShell.tsx'),
   'utf8',
 );
-assert.match(studioShellSource, /WorkspaceSwitcher source="studio" variant="compact" className="hidden md:inline-flex"/);
-assert.match(studioShellSource, /WorkspaceSwitcher source="studio" variant="mobile-sheet"/);
-assert.match(studioShellSource, /headerBelow=\{showWorkspaceSwitcher/);
+assert.match(studioShellSource, /WorkspaceSwitcher source="studio" variant="compact" \/>/);
+assert.doesNotMatch(studioShellSource, /variant="mobile-sheet"/);
+assert.doesNotMatch(studioShellSource, /headerBelow=/);
 
 console.log('studio-shell-navigation-test: ok');
