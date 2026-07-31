@@ -4,6 +4,7 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 
 import { Lexer, type Token, type Tokens } from 'marked';
 
+import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import type { UserLocale } from '@/app/lib/user-preferences';
 
 const DEFAULT_CHAT_TITLE = 'Canvas Chat';
@@ -26,13 +27,7 @@ export type MobilePushNotificationPreview = {
 };
 
 function pushPreviewSecret(): string {
-  const secret = process.env.BETTER_AUTH_SECRET?.trim()
-    || process.env.AUTH_SECRET?.trim()
-    || (process.env.NODE_ENV !== 'production' ? 'canvas-notebook-local-dev-secret-change-me' : '');
-  if (secret.length < 32) {
-    throw new Error('Studio notification previews require a 32-character Better Auth secret.');
-  }
-  return secret;
+  return resolveAuthSecret();
 }
 
 function studioPreviewSignature(payload: string): Buffer {

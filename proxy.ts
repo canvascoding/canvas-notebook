@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookie } from "better-auth/cookies";
 import createIntlMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
+import { resolveAuthSecret } from './app/lib/security/auth-secret';
 
 // Initialize the next-intl middleware
 const handleI18nRouting = createIntlMiddleware(routing);
@@ -117,7 +118,7 @@ function staleServerActionResponse(request: NextRequest) {
 }
 
 function getSecret(): string {
-  return process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET || 'canvas-notebook-local-dev-secret-change-me';
+  return resolveAuthSecret();
 }
 
 function base64Url(bytes: ArrayBuffer): string {

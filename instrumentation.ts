@@ -3,9 +3,13 @@ import {
   isDatabaseUnavailableError,
   isSqliteDatabaseUnavailableError,
 } from "@/app/lib/db/errors";
+import { assertProductionAuthSecret } from "@/app/lib/security/auth-secret";
 
 export async function register() {
   if (process.env.NEXT_RUNTIME === "nodejs") {
+    if (process.env.NEXT_PHASE !== "phase-production-build") {
+      assertProductionAuthSecret();
+    }
     await import("./sentry.server.config");
     if (process.env.NEXT_PHASE !== "phase-production-build") {
       const { initializeDelegationDispatcher } = await import("./app/lib/pi/delegation-dispatcher");

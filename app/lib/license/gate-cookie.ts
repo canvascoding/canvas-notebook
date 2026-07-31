@@ -2,13 +2,14 @@ import 'server-only';
 
 import crypto from 'crypto';
 import type { NextResponse } from 'next/server';
+import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import type { LicenseStatus } from './types';
 
 export const LICENSE_GATE_COOKIE = 'canvas_license_gate';
 const COOKIE_MAX_AGE_SECONDS = 60 * 60 * 12;
 
 function getCookieSecret(): string {
-  return process.env.BETTER_AUTH_SECRET || process.env.AUTH_SECRET || 'canvas-notebook-local-dev-secret-change-me';
+  return resolveAuthSecret();
 }
 
 function sign(value: string): string {
