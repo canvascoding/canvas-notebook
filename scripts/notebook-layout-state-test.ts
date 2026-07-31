@@ -138,6 +138,16 @@ const browserStart = notebookContextIntentFromAgentEvent({
 } satisfies ChatEvent, {
   agentId: 'canvas-agent',
   sessionId: 'session-a',
+}, {
+  revision: 1,
+  running: true,
+  controlMode: 'agent',
+  activeTabId: 'tab-1',
+  activeTitle: 'Example',
+  activeUrl: 'https://example.com/',
+  tabCount: 1,
+  tabs: [{ id: 'tab-1', title: 'Example', url: 'https://example.com/', active: true }],
+  hasPendingDialog: false,
 });
 assert.deepEqual(browserStart, {
   kind: 'browser',
@@ -146,8 +156,19 @@ assert.deepEqual(browserStart, {
   status: 'running',
   agentId: 'canvas-agent',
   sessionId: 'session-a',
+  snapshot: {
+    revision: 1,
+    running: true,
+    controlMode: 'agent',
+    activeTabId: 'tab-1',
+    activeTitle: 'Example',
+    activeUrl: 'https://example.com/',
+    tabCount: 1,
+    tabs: [{ id: 'tab-1', title: 'Example', url: 'https://example.com/', active: true }],
+    hasPendingDialog: false,
+  },
   action: 'navigate',
-  url: 'https://example.com',
+  url: 'https://example.com/',
 });
 
 assert.equal(notebookContextIntentFromAgentEvent({
@@ -157,6 +178,16 @@ assert.equal(notebookContextIntentFromAgentEvent({
 } satisfies ChatEvent, {
   agentId: 'canvas-agent',
   sessionId: 'session-a',
+}, {
+  revision: 1,
+  running: true,
+  controlMode: 'agent',
+  activeTabId: 'tab-1',
+  activeTitle: 'Example',
+  activeUrl: 'https://example.com/',
+  tabCount: 1,
+  tabs: [{ id: 'tab-1', title: 'Example', url: 'https://example.com/', active: true }],
+  hasPendingDialog: false,
 }), null);
 
 console.log('notebook-layout-state-test: ok');

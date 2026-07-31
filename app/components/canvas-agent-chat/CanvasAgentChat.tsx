@@ -948,8 +948,8 @@ export default function CanvasAgentChat({
     userStartedNewChatRef,
   });
 
-  // Poll runtime status only while the agent is active; fetch once on session switch
-  const isAgentActive = runtimeStatus != null && runtimeStatus.phase !== 'idle';
+  // Runtime changes arrive over the subscribed WebSocket. Refresh once for a
+  // session switch or reconnect so missed events never require polling.
   const handleRuntimeSelectionChange = useCallback((next: AiRuntimeSelection) => {
     setRequestedRuntimeSelection(next);
     updateAgentModelSelection({
@@ -973,21 +973,13 @@ export default function CanvasAgentChat({
   }, [refreshRuntimeStatus]);
 
   useEffect(() => {
-    if (!sessionId) return;
+    if (!sessionId || !wsConnected) return;
     if (skipNextSessionStatusRefreshRef.current === sessionId) {
       skipNextSessionStatusRefreshRef.current = null;
       return;
     }
     void refreshRuntimeStatus(sessionId);
-  }, [refreshRuntimeStatus, sessionId]);
-
-  useEffect(() => {
-    if (!sessionId || !isAgentActive) return;
-    const interval = setInterval(() => {
-      void refreshRuntimeStatus(sessionId);
-    }, 4000);
-    return () => clearInterval(interval);
-  }, [refreshRuntimeStatus, sessionId, isAgentActive]);
+  }, [refreshRuntimeStatus, sessionId, wsConnected]);
 
   useEffect(() => () => {
     resetStreamConnection();

@@ -72,6 +72,7 @@ import {
   OPEN_CHAT_SESSION_EVENT,
 } from '@/app/lib/chat/open-chat-session-event';
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import type { RuntimeStatus } from '@/app/lib/chat/runtime-status';
 import {
   clearLegacyStoredNotebookOpenFilePath,
   clearStoredNotebookOpenFilePath,
@@ -94,7 +95,10 @@ import {
   type NotebookContextSurface,
   type NotebookMainSurface,
 } from '@/app/lib/notebook/layout-state';
-import type { NotebookEmailContextIntent } from '@/app/lib/notebook/context-surface';
+import type {
+  NotebookBrowserContextIntent,
+  NotebookEmailContextIntent,
+} from '@/app/lib/notebook/context-surface';
 import { useEditorStore } from '@/app/store/editor-store';
 import { useFileStore } from '@/app/store/file-store';
 import {
@@ -192,15 +196,17 @@ function SurfaceLayer({
 }
 
 function BrowserContextHeader({
-  action,
-  status,
-  url,
+  context,
 }: {
-  action?: string;
-  status: 'running' | 'complete';
-  url?: string;
+  context: NotebookBrowserContextIntent;
 }) {
   const t = useTranslations('notebook');
+  const { snapshot } = context;
+  const controlLabel = snapshot.controlMode === 'user'
+    ? t('browserControlUser')
+    : snapshot.controlMode === 'view'
+      ? t('browserControlView')
+      : t('browserControlAgent');
   return (
     <div
       role="status"
@@ -210,14 +216,24 @@ function BrowserContextHeader({
       <div className="flex min-w-0 items-center gap-2">
         <span className={cn(
           'h-2 w-2 shrink-0 rounded-full',
-          status === 'running' ? 'animate-pulse bg-amber-500' : 'bg-emerald-500',
+          context.status === 'running' ? 'animate-pulse bg-amber-500' : 'bg-emerald-500',
         )} />
-        <span className="font-medium text-foreground">
-          {status === 'running' ? t('contextToolRunning') : t('contextToolComplete')}
+        <span className="max-w-48 truncate font-medium text-foreground">
+          {snapshot.activeTitle || (
+            context.status === 'running' ? t('contextToolRunning') : t('contextToolComplete')
+          )}
         </span>
-        {action ? <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">{action}</span> : null}
+        {context.action ? <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">{context.action}</span> : null}
+        <span className="hidden text-muted-foreground sm:inline">
+          {t('browserTabCount', { count: snapshot.tabCount })}
+        </span>
+        <span className="hidden text-muted-foreground md:inline">{controlLabel}</span>
       </div>
-      {url ? <span className="min-w-0 truncate font-mono text-muted-foreground">{url}</span> : null}
+      {snapshot.activeUrl || context.url ? (
+        <span className="min-w-0 truncate font-mono text-muted-foreground">
+          {snapshot.activeUrl || context.url}
+        </span>
+      ) : null}
     </div>
   );
 }
@@ -313,6 +329,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     agentId: string;
     sessionId: string;
   } | null>(null);
+  const [activeRuntimeStatus, setActiveRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const desktopExplorerRef = useRef<HTMLDivElement | null>(null);
   const desktopMainPanelRef = useRef<HTMLDivElement | null>(null);
   const desktopChatRef = useRef<HTMLDivElement | null>(null);
@@ -346,6 +363,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const handleContextOpen = useCallback((surface: NotebookContextSurface) => {
     dispatch({ type: 'CONTEXT_OPENED', surface });
   }, [dispatch]);
+  const handleContextUnavailable = useCallback((surface: NotebookContextSurface) => {
+    dispatch({ type: 'CONTEXT_CLOSED', surface });
+  }, [dispatch]);
   const {
     emailContext,
     browserContext,
@@ -353,7 +373,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     clearBrowser,
   } = useNotebookToolContext({
     chatContext: activeChatContext,
+    runtimeStatus: activeRuntimeStatus,
     onOpen: handleContextOpen,
+    onClose: handleContextUnavailable,
   });
 
   const requestContext = useMemo<ChatRequestContext>(() => {
@@ -704,6 +726,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       forcedSessionId={forcedSessionId}
       requestContext={requestContext}
       isSurfaceVisible={chatVisible}
+      onRuntimeStatusChange={setActiveRuntimeStatus}
       onSessionContextChange={setActiveChatContext}
     />
   );
@@ -918,14 +941,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               >
                 {browserContext ? (
                   <div className="flex h-full min-h-0 flex-col">
-                    <BrowserContextHeader
-                      action={browserContext.action}
-                      status={browserContext.status}
-                      url={browserContext.url}
-                    />
+                    <BrowserContextHeader context={browserContext} />
                     <div className="min-h-0 flex-1">
                       <BrowserLabClient
-                        autoConnectKey={`${browserContext.toolCallId || 'browser'}:${browserContext.status}`}
+                        autoConnectKey={browserContext.sessionId}
+                        enabled={state.mainSurface === 'browser'}
                         locale={locale}
                         presentation="embedded"
                         variant="live"
@@ -1048,14 +1068,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         >
                           {browserContext ? (
                             <div className="flex h-full min-h-0 flex-col">
-                              <BrowserContextHeader
-                                action={browserContext.action}
-                                status={browserContext.status}
-                                url={browserContext.url}
-                              />
+                              <BrowserContextHeader context={browserContext} />
                               <div className="min-h-0 flex-1">
                                 <BrowserLabClient
-                                  autoConnectKey={`${browserContext.toolCallId || 'browser'}:${browserContext.status}`}
+                                  autoConnectKey={browserContext.sessionId}
+                                  enabled={state.mainSurface === 'browser'}
                                   locale={locale}
                                   presentation="embedded"
                                   variant="live"

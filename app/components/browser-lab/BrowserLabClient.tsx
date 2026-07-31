@@ -64,6 +64,7 @@ type BrowserLabClientProps = {
   agentId?: string;
   autoConnectKey?: string;
   embeddedChat?: boolean;
+  enabled?: boolean;
   locale: string;
   presentation?: 'embedded' | 'page';
   sessionId?: string;
@@ -385,6 +386,7 @@ export function BrowserLabClient({
   agentId,
   autoConnectKey,
   embeddedChat = false,
+  enabled = true,
   locale,
   presentation = 'page',
   sessionId,
@@ -412,6 +414,7 @@ export function BrowserLabClient({
   const [selectedUploadPath, setSelectedUploadPath] = useState('');
   const [filesLoading, setFilesLoading] = useState(false);
   const [clipboardNotice, setClipboardNotice] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
+  const [documentVisible, setDocumentVisible] = useState(true);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
   const addressEditingRef = useRef(false);
   const lastBrowserAddressRef = useRef('about:blank');
@@ -423,6 +426,7 @@ export function BrowserLabClient({
   const imageRef = useRef<HTMLImageElement | null>(null);
   const lastPointerMoveAtRef = useRef(0);
   const autoConnectedContextRef = useRef<string | null>(null);
+  const viewerEnabled = enabled && documentVisible;
 
   const availableSessions = useMemo(
     () => sessions.filter((session) => session.engine !== 'legacy' && session.agentId === selectedAgentId),
@@ -453,7 +457,7 @@ export function BrowserLabClient({
   }, [selectedSession]);
 
   useEffect(() => {
-    if (!embeddedChat || !selectedSession) return;
+    if (!viewerEnabled || !embeddedChat || !selectedSession) return;
     let attempts = 0;
     let timer: number | null = null;
     const openSelectedSession = () => {
@@ -467,7 +471,7 @@ export function BrowserLabClient({
     return () => {
       if (timer !== null) window.clearTimeout(timer);
     };
-  }, [embeddedChat, openSelectedChat, selectedSession]);
+  }, [embeddedChat, openSelectedChat, selectedSession, viewerEnabled]);
 
   const disconnect = useCallback((options: { preserveFailure?: boolean; preserveFrame?: boolean } = {}) => {
     intentionalCloseRef.current = true;
@@ -491,12 +495,31 @@ export function BrowserLabClient({
   useEffect(() => () => disconnect(), [disconnect]);
 
   useEffect(() => {
+    const updateDocumentVisibility = () => {
+      setDocumentVisible(document.visibilityState !== 'hidden');
+    };
+    updateDocumentVisibility();
+    document.addEventListener('visibilitychange', updateDocumentVisibility);
+    return () => document.removeEventListener('visibilitychange', updateDocumentVisibility);
+  }, []);
+
+  useEffect(() => {
+    if (viewerEnabled) return;
+    autoConnectedContextRef.current = null;
+    const timeout = window.setTimeout(() => {
+      disconnect({ preserveFrame: true });
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [disconnect, viewerEnabled]);
+
+  useEffect(() => {
     if (!clipboardNotice) return;
     const timer = window.setTimeout(() => setClipboardNotice(null), 3_500);
     return () => window.clearTimeout(timer);
   }, [clipboardNotice]);
 
   useEffect(() => {
+    if (!viewerEnabled) return;
     let cancelled = false;
     void (async () => {
       setCatalogLoading(true);
@@ -551,7 +574,7 @@ export function BrowserLabClient({
       }
     })();
     return () => { cancelled = true; };
-  }, [initialAgentId, initialSessionId, isLiveView, t.contextUnavailable, t.errors.CONNECTION_FAILED]);
+  }, [initialAgentId, initialSessionId, isLiveView, t.contextUnavailable, t.errors.CONNECTION_FAILED, viewerEnabled]);
 
   const fileChooserOpenedAt = viewState?.pendingFileChooser?.openedAt ?? null;
   useEffect(() => {
@@ -610,7 +633,7 @@ export function BrowserLabClient({
   }, [frameSequence, send]);
 
   const connect = useCallback(async () => {
-    if (!selectedAgentId || !selectedSessionId) return;
+    if (!viewerEnabled || !selectedAgentId || !selectedSessionId) return;
     const preserveFrame = connectionStatus === 'failed' && Boolean(frameUrl);
     disconnect({ preserveFailure: true, preserveFrame });
     intentionalCloseRef.current = false;
@@ -724,10 +747,10 @@ export function BrowserLabClient({
         error: connectError instanceof Error ? connectError.message : t.errors.CONNECTION_FAILED,
       });
     }
-  }, [connectionStatus, disconnect, frameUrl, selectedAgentId, selectedSessionId, t]);
+  }, [connectionStatus, disconnect, frameUrl, selectedAgentId, selectedSessionId, t, viewerEnabled]);
 
   useEffect(() => {
-    if (!isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
+    if (!viewerEnabled || !isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
     const contextKey = `${selectedAgentId}:${selectedSessionId}:${autoConnectKey || ''}`;
     if (autoConnectedContextRef.current === contextKey) return;
     autoConnectedContextRef.current = contextKey;
@@ -744,6 +767,7 @@ export function BrowserLabClient({
     isLiveView,
     selectedAgentId,
     selectedSessionId,
+    viewerEnabled,
   ]);
 
   useEffect(() => {

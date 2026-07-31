@@ -1,4 +1,5 @@
 import type { ChatEvent } from '@/app/lib/chat/types';
+import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
 
 export type NotebookChatContext = {
   agentId: string;
@@ -25,6 +26,7 @@ export type NotebookBrowserContextIntent = {
   status: 'running' | 'complete';
   agentId: string;
   sessionId: string;
+  snapshot: BrowserSessionSnapshot;
   action?: string;
   url?: string;
 };
@@ -74,6 +76,7 @@ function browserIntent(
   event: ChatEvent,
   status: NotebookBrowserContextIntent['status'],
   chatContext: NotebookChatContext,
+  snapshot: BrowserSessionSnapshot,
 ): NotebookBrowserContextIntent {
   const args = record(event.args);
   return {
@@ -83,14 +86,16 @@ function browserIntent(
     status,
     agentId: chatContext.agentId,
     sessionId: chatContext.sessionId,
+    snapshot,
     action: stringValue(args.action),
-    url: stringValue(args.url),
+    url: stringValue(snapshot.activeUrl, args.url),
   };
 }
 
 export function notebookContextIntentFromAgentEvent(
   event: ChatEvent,
   chatContext: NotebookChatContext | null,
+  browserSnapshot?: BrowserSessionSnapshot | null,
 ): NotebookContextIntent | null {
   const isStart = event.type === 'tool_execution_start';
   const isEnd = event.type === 'tool_execution_end';
@@ -103,8 +108,8 @@ export function notebookContextIntentFromAgentEvent(
     return emailIntent(event, status);
   }
 
-  if (toolName === 'browser' && chatContext) {
-    const intent = browserIntent(event, status, chatContext);
+  if (toolName === 'browser' && chatContext && browserSnapshot?.running) {
+    const intent = browserIntent(event, status, chatContext, browserSnapshot);
     if (intent.action === 'help' || intent.action === 'status' || intent.action === 'close') {
       return null;
     }
