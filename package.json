@@ -142,6 +142,7 @@
     "test:mobile:brand": "tsx --conditions react-server scripts/mobile-workspace-brand-route-test.ts",
     "test:mobile:license": "tsx --conditions react-server scripts/mobile-license-test.ts",
     "test:mobile:chat": "tsx --conditions react-server scripts/mobile-chat-ticket-test.ts && tsx --conditions react-server scripts/mobile-chat-contract-test.ts",
+    "test:mobile:browser": "tsx --conditions react-server scripts/mobile-browser-view-test.ts",
     "test:mobile:push": "tsx --conditions react-server scripts/mobile-push-devices-test.ts",
     "test:mobile:notebook": "tsx --conditions react-server scripts/mobile-notebook-test.ts",
     "test:mobile:files": "tsx --conditions react-server scripts/mobile-files-test.ts",

@@ -3,6 +3,11 @@ import type net from 'node:net';
 
 import WebSocket, { WebSocketServer } from 'ws';
 
+import {
+  consumeMobileBrowserViewTicket,
+  hasPendingMobileBrowserViewTicket,
+  type MobileBrowserViewTicketIdentity,
+} from '@/app/lib/mobile/browser-view-ticket';
 import { assertUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { assertBrowserRuntimeAvailable } from '@/app/lib/pi/browser/settings-service';
@@ -58,6 +63,7 @@ type BrowserConnection = {
   rateLimit: BrowserViewRateLimitState;
   operationQueue: Promise<void>;
   subscribeTimeout: ReturnType<typeof setTimeout> | null;
+  mobileScope: MobileBrowserViewTicketIdentity | null;
 };
 
 const activeServices = new Set<BrowserViewService>();
@@ -105,6 +111,18 @@ async function subscribe(connection: BrowserConnection, token: string): Promise<
   const claims = verifyBrowserViewTicket(token);
   if (claims.userId !== connection.userId || claims.authSessionId !== connection.authSessionId) {
     throw new Error('Browser view ticket does not match the authenticated session.');
+  }
+  if (
+    connection.mobileScope
+    && (
+      claims.agentId !== connection.mobileScope.agentId
+      || claims.agentSessionId !== connection.mobileScope.agentSessionId
+      || claims.workspaceId !== connection.mobileScope.workspaceId
+      || claims.workspaceType !== connection.mobileScope.workspaceType
+      || claims.organizationId !== connection.mobileScope.organizationId
+    )
+  ) {
+    throw new Error('Browser view ticket does not match the mobile session scope.');
   }
   if (activeViewIds.has(claims.viewId)) {
     throw new Error('Browser view ticket is already connected.');
@@ -234,13 +252,16 @@ async function handleMessage(connection: BrowserConnection, message: ClientMessa
 }
 
 async function handleConnection(ws: WebSocket, request: http.IncomingMessage): Promise<void> {
-  const authResult = await authenticateWebSocketConnection(request.headers);
-  if (!authResult.isAuthenticated || !authResult.userId || !authResult.sessionId) {
+  const mobileScope = consumeMobileBrowserViewTicket(request.headers);
+  const cookieAuth = mobileScope ? null : await authenticateWebSocketConnection(request.headers);
+  const userId = mobileScope?.userId || cookieAuth?.userId;
+  const authSessionId = mobileScope?.authSessionId || cookieAuth?.sessionId;
+  if ((!mobileScope && !cookieAuth?.isAuthenticated) || !userId || !authSessionId) {
     sendError(ws, { code: 'UNAUTHORIZED', error: 'Authentication required.', retryable: false, fatal: true });
     ws.close(4001, 'Unauthorized');
     return;
   }
-  const openConnectionsForUser = [...connections].filter((candidate) => candidate.userId === authResult.userId).length;
+  const openConnectionsForUser = [...connections].filter((candidate) => candidate.userId === userId).length;
   if (openConnectionsForUser >= MAX_CONNECTIONS_PER_USER) {
     sendError(ws, { code: 'CAPACITY_EXHAUSTED', error: 'Too many browser views are open for this user.', retryable: true, fatal: true });
     ws.close(4008, 'Too many browser views');
@@ -249,13 +270,14 @@ async function handleConnection(ws: WebSocket, request: http.IncomingMessage): P
 
   const connection: BrowserConnection = {
     ws,
-    userId: authResult.userId,
-    authSessionId: authResult.sessionId,
+    userId,
+    authSessionId,
     service: null,
     isAlive: true,
     rateLimit: createBrowserViewRateLimitState(),
     operationQueue: Promise.resolve(),
     subscribeTimeout: null,
+    mobileScope,
   };
   connection.subscribeTimeout = setTimeout(() => {
     if (!connection.service && ws.readyState === WebSocket.OPEN) {
@@ -331,7 +353,10 @@ export function createBrowserViewServer(server: http.Server): WebSocketServer {
   server.on('upgrade', (request, socket, head) => {
     const normalizedUrl = normalizeBrowserViewPath(request.url);
     if (!normalizedUrl) return;
-    if (!isConfiguredTrustedOrigin(request.headers.origin)) return reject(socket as net.Socket);
+    const hasMobileTicket = hasPendingMobileBrowserViewTicket(request.headers);
+    if (!isConfiguredTrustedOrigin(request.headers.origin) && !hasMobileTicket) {
+      return reject(socket as net.Socket);
+    }
     request.url = normalizedUrl;
     wss.handleUpgrade(request, socket, head, (ws) => wss.emit('connection', ws, request));
   });
