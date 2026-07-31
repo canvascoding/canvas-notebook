@@ -11,6 +11,32 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.30.1] - 2026-07-30
+
+### Added
+
+- Added authenticated mobile onboarding APIs for status discovery, profile-session recovery, and profile skipping, with matching compatibility and bootstrap capabilities.
+- Expanded mobile account preferences, Inbox and To-do data, Studio output reframing, and push-notification support.
+
+### Changed
+
+- Made onboarding profile provisioning recoverable across interrupted sessions and improved waiting-state actions and localized guidance.
+- Unified onboarding tour controls across the launcher, getting-started card, help menu, and contextual hints.
+- Persisted onboarding hint completion more reliably across devices and concurrent updates.
+
+### Fixed
+
+- Restored license and profile recovery paths when onboarding cannot complete normally.
+
+### Security
+
+- Removed activated license keys from browser history and onboarding URLs.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run verify:release`
+
 ## [2026.7.27.1] - 2026-07-27
 
 ### Added
