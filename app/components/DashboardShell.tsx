@@ -1,28 +1,30 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect, type CSSProperties } from 'react';
-
-import { Link } from '@/i18n/navigation';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type CSSProperties,
+  type ReactNode,
+} from 'react';
 import { useSearchParams } from 'next/navigation';
 import {
   ArrowLeft,
-  ChevronDown,
   Files,
-  Maximize2,
+  FileText,
+  Globe2,
+  Mail,
   MessageSquare,
   PanelRight,
+  SquareTerminal,
   X,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
+
+import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuRadioGroup,
-  DropdownMenuRadioItem,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { cn } from '@/lib/utils';
 import {
   Sheet,
   SheetContent,
@@ -32,34 +34,32 @@ import {
 } from '@/components/ui/sheet';
 import { SidebarProvider } from '@/components/ui/sidebar';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
+import { cn } from '@/lib/utils';
 
+import { EmailClient } from '@/app/apps/email/components/EmailClient';
+import { useEmailChatContext } from '@/app/apps/email/context/email-chat-context';
 import { AppLauncher } from '@/app/components/AppLauncher';
-import { HintProvider } from '@/app/components/onboarding/HintProvider';
-import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
+import { BrowserLabClient } from '@/app/components/browser-lab/BrowserLabClient';
+import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
 import { FileEditor } from '@/app/components/editor/FileEditor';
-import { TerminalPanel } from '@/app/components/terminal/Terminal';
+import { FileBrowser } from '@/app/components/file-browser/FileBrowser';
 import { AppLayout } from '@/app/components/layout/AppLayout';
 import { ResizeHandle, usePanelResize } from '@/app/components/layout/ResizeHandle';
-import CanvasAgentChat from '@/app/components/canvas-agent-chat/CanvasAgentChat';
-import { ThemeToggle } from '@/app/components/ThemeToggle';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
-import { WorkspaceSwitcher, useShouldShowWorkspaceSwitcher } from '@/app/components/workspaces/WorkspaceSwitcher';
-
-import { useFileStore } from '@/app/store/file-store';
-import { useEditorStore } from '@/app/store/editor-store';
+import { HintProvider } from '@/app/components/onboarding/HintProvider';
+import { TerminalPanel } from '@/app/components/terminal/Terminal';
+import { ThemeToggle } from '@/app/components/ThemeToggle';
+import { useNotebookLayoutController } from '@/app/components/notebook/useNotebookLayoutController';
+import { useNotebookToolContext } from '@/app/components/notebook/useNotebookToolContext';
 import {
-  useWorkspaceStore,
-  WORKSPACE_CHANGED_EVENT,
-  type WorkspaceChangedDetail,
-} from '@/app/store/workspace-store';
+  WorkspaceSwitcher,
+  useShouldShowWorkspaceSwitcher,
+} from '@/app/components/workspaces/WorkspaceSwitcher';
 import { FileWatcherProvider } from '@/app/hooks/FileWatcherContext';
 import { CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import {
-  handleOpenChatSessionEvent,
-  OPEN_CHAT_SESSION_EVENT,
-} from '@/app/lib/chat/open-chat-session-event';
-import { getNotebookNavigationIntent } from '@/app/lib/chat/chat-navigation-intent';
-import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForcedChatSession';
+  getNotebookNavigationIntent,
+} from '@/app/lib/chat/chat-navigation-intent';
 import {
   clearPendingNotebookFileReference,
   NOTEBOOK_WINDOW_NAME,
@@ -68,12 +68,10 @@ import {
   type NotebookFileReferenceRequest,
 } from '@/app/lib/chat/notebook-file-reference-bridge';
 import {
-  notifyWorkspaceFileOpened,
-  WORKSPACE_FILE_OPENED_EVENT,
-  type WorkspaceFileOpenedDetail,
-} from '@/app/lib/files/workspace-file-events';
-import { createWorkspaceFileTransitionId } from '@/app/lib/files/open-transition';
-import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
+  handleOpenChatSessionEvent,
+  OPEN_CHAT_SESSION_EVENT,
+} from '@/app/lib/chat/open-chat-session-event';
+import type { ChatRequestContext } from '@/app/lib/chat/types';
 import {
   clearLegacyStoredNotebookOpenFilePath,
   clearStoredNotebookOpenFilePath,
@@ -81,121 +79,154 @@ import {
   readStoredNotebookOpenFilePath,
   writeStoredNotebookOpenFilePath,
 } from '@/app/lib/files/notebook-open-file-storage';
+import { createWorkspaceFileTransitionId } from '@/app/lib/files/open-transition';
+import {
+  notifyWorkspaceFileOpened,
+  WORKSPACE_FILE_OPENED_EVENT,
+} from '@/app/lib/files/workspace-file-events';
+import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
+import {
+  NOTEBOOK_CHAT_MAX_WIDTH,
+  NOTEBOOK_CHAT_MIN_WIDTH,
+  NOTEBOOK_DOCUMENT_MIN_WIDTH,
+  NOTEBOOK_EXPLORER_MAX_WIDTH,
+  NOTEBOOK_EXPLORER_MIN_WIDTH,
+  type NotebookContextSurface,
+  type NotebookMainSurface,
+} from '@/app/lib/notebook/layout-state';
+import { useEditorStore } from '@/app/store/editor-store';
+import { useFileStore } from '@/app/store/file-store';
+import {
+  useWorkspaceStore,
+  WORKSPACE_CHANGED_EVENT,
+  type WorkspaceChangedDetail,
+} from '@/app/store/workspace-store';
+import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForcedChatSession';
 
+type SurfaceTabProps = {
+  active: boolean;
+  closeLabel?: string;
+  icon: ReactNode;
+  label: string;
+  onClose?: () => void;
+  onSelect: () => void;
+  testId: string;
+};
 
-
-type MobileSurface = 'editor' | 'terminal';
-type DesktopChatMode = 'side' | 'fullscreen';
-
-const LEFT_SIDEBAR_MIN = 380;
-const LEFT_SIDEBAR_DEFAULT = 410;
-const LEFT_SIDEBAR_MAX = 940;
-const CHAT_PANEL_MIN = 300;
-const CHAT_PANEL_MAX = 800;
-const MIN_EDITOR_WIDTH = 360;
-const NOTEBOOK_DESKTOP_SIDEBAR_VISIBLE_STORAGE_KEY = 'canvas.notebookDesktopSidebarVisible';
-const NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY = 'canvas.leftSidebarWidth';
-const NOTEBOOK_CHAT_WIDTH_STORAGE_KEY = 'canvas.notebookChatWidth';
-
-function clearStoredNotebookOpenFilePathIfMatches(path: string, workspaceId: string | null) {
-  if (!workspaceId || typeof window === 'undefined') return;
-
-  try {
-    if (readStoredNotebookOpenFilePath(window.localStorage, workspaceId) === path) {
-      clearStoredNotebookOpenFilePath(window.localStorage, workspaceId);
-    }
-  } catch {
-    // Non-critical: stale local UI state can be ignored on the next load.
-  }
+function SurfaceTab({
+  active,
+  closeLabel,
+  icon,
+  label,
+  onClose,
+  onSelect,
+  testId,
+}: SurfaceTabProps) {
+  return (
+    <div
+      className={cn(
+        'group/tab flex h-8 shrink-0 items-center overflow-hidden rounded-md border transition-colors',
+        active
+          ? 'border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_-2px_0_hsl(var(--primary))]'
+          : 'border-transparent text-muted-foreground hover:border-border hover:bg-muted/70 hover:text-foreground',
+      )}
+    >
+      <button
+        type="button"
+        role="tab"
+        aria-selected={active}
+        data-testid={testId}
+        className="flex h-full min-w-0 items-center gap-2 px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        onClick={onSelect}
+      >
+        {icon}
+        <span className="max-w-36 truncate sm:max-w-52">{label}</span>
+      </button>
+      {onClose ? (
+        <button
+          type="button"
+          className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          aria-label={closeLabel}
+          title={closeLabel}
+          onClick={onClose}
+        >
+          <X className="h-3.5 w-3.5" />
+        </button>
+      ) : null}
+    </div>
+  );
 }
 
-function readStoredDesktopSidebarVisible() {
-  if (typeof window === 'undefined') return true;
-
-  try {
-    const stored = window.localStorage.getItem(NOTEBOOK_DESKTOP_SIDEBAR_VISIBLE_STORAGE_KEY);
-    if (stored === null) return true;
-    return stored === 'true';
-  } catch {
-    return true;
-  }
-}
-
-function writeStoredDesktopSidebarVisible(visible: boolean) {
-  if (typeof window === 'undefined') return;
-
-  try {
-    window.localStorage.setItem(NOTEBOOK_DESKTOP_SIDEBAR_VISIBLE_STORAGE_KEY, String(visible));
-  } catch {
-    // Non-critical: the desktop explorer can fall back to its default visibility.
-  }
-}
-
-function getSidebarMaxWidth() {
-  if (typeof window === 'undefined') {
-    return LEFT_SIDEBAR_MIN;
-  }
-
-  return Math.min(LEFT_SIDEBAR_MAX, Math.max(LEFT_SIDEBAR_MIN, window.innerWidth - MIN_EDITOR_WIDTH));
-}
-
-function clampSidebarWidth(width: number) {
-  return Math.min(LEFT_SIDEBAR_MAX, getSidebarMaxWidth(), Math.max(LEFT_SIDEBAR_MIN, width));
-}
-
-function clampChatWidth(width: number, maxWidth: number) {
-  return Math.min(maxWidth, Math.max(CHAT_PANEL_MIN, width));
-}
-
-function getAvailableChatMaxWidth(containerWidth?: number) {
-  const availableWidth = containerWidth ?? (typeof window === 'undefined' ? CHAT_PANEL_MAX : window.innerWidth);
-  return Math.min(CHAT_PANEL_MAX, Math.max(CHAT_PANEL_MIN, availableWidth - MIN_EDITOR_WIDTH));
-}
-
-function hasNotebookSideChatSpace(
-  viewportWidth: number,
-  sidebarVisible: boolean,
-  sidebarWidth: number,
-  chatWidth: number,
-) {
-  const availableWidth = viewportWidth - (sidebarVisible ? sidebarWidth : 0);
-  return availableWidth >= MIN_EDITOR_WIDTH + chatWidth;
-}
-
-function MobileNotebookEmptyState({
-  onOpenExplorer,
-  onOpenChat,
+function SurfaceLayer({
+  active,
+  children,
+  testId,
 }: {
+  active: boolean;
+  children: ReactNode;
+  testId: string;
+}) {
+  return (
+    <section
+      data-testid={testId}
+      aria-hidden={!active}
+      className={cn(
+        'absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-background',
+        active ? 'visible z-10' : 'invisible z-0 pointer-events-none',
+      )}
+    >
+      {children}
+    </section>
+  );
+}
+
+function BrowserContextHeader({
+  action,
+  status,
+  url,
+}: {
+  action?: string;
+  status: 'running' | 'complete';
+  url?: string;
+}) {
+  const t = useTranslations('notebook');
+  return (
+    <div className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/25 px-3 py-2 text-xs">
+      <div className="flex min-w-0 items-center gap-2">
+        <span className={cn(
+          'h-2 w-2 shrink-0 rounded-full',
+          status === 'running' ? 'animate-pulse bg-amber-500' : 'bg-emerald-500',
+        )} />
+        <span className="font-medium text-foreground">
+          {status === 'running' ? t('contextToolRunning') : t('contextToolComplete')}
+        </span>
+        {action ? <span className="rounded bg-muted px-1.5 py-0.5 font-mono text-muted-foreground">{action}</span> : null}
+      </div>
+      {url ? <span className="min-w-0 truncate font-mono text-muted-foreground">{url}</span> : null}
+    </div>
+  );
+}
+
+function NotebookEmptyDocumentState({ onOpenExplorer, onOpenChat }: {
   onOpenExplorer: () => void;
   onOpenChat: () => void;
 }) {
   const t = useTranslations('notebook');
   return (
-    <div className="flex h-full items-center justify-center overflow-auto bg-[radial-gradient(circle_at_top,_hsl(var(--primary)/0.14),_transparent_48%),linear-gradient(180deg,_hsl(var(--muted)/0.36),_transparent_52%)] px-4 py-8">
-      <div className="w-full max-w-sm rounded-[28px] border border-border/80 bg-background/95 p-6 shadow-[0_24px_80px_-32px_hsl(var(--foreground)/0.45)] backdrop-blur">
-        <div className="inline-flex items-center gap-2 rounded-full border border-border bg-muted/70 px-3 py-1 text-[11px] font-semibold uppercase tracking-[0.22em] text-muted-foreground">
-          <Files className="h-3.5 w-3.5" />
-          {t('badge')}
+    <div className="flex h-full items-center justify-center overflow-auto bg-[radial-gradient(circle_at_top_left,hsl(var(--primary)/0.08),transparent_42%),hsl(var(--background))] p-6">
+      <div className="w-full max-w-md border border-border/80 bg-card/95 p-6 shadow-[0_28px_80px_-48px_hsl(var(--foreground)/0.55)]">
+        <div className="flex h-10 w-10 items-center justify-center rounded-md border border-border bg-muted text-primary">
+          <FileText className="h-5 w-5" />
         </div>
-        <div className="mt-5 space-y-3">
-          <h2 className="text-2xl font-semibold tracking-tight text-foreground">
-            {t('emptyStateTitle')}
-          </h2>
-          <p className="text-sm leading-6 text-muted-foreground">
-            {t('emptyStateDescription')}
-          </p>
-        </div>
-        <div className="mt-6 flex flex-col gap-3">
-          <Button className="h-12 justify-center gap-2 rounded-2xl text-sm" onClick={onOpenExplorer}>
-            <Files className="h-4 w-4" />
+        <h2 className="mt-5 text-xl font-semibold tracking-tight">{t('emptyStateTitle')}</h2>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('emptyStateDescription')}</p>
+        <div className="mt-5 flex flex-wrap gap-2">
+          <Button onClick={onOpenExplorer}>
+            <Files className="mr-2 h-4 w-4" />
             {t('selectFile')}
           </Button>
-          <Button
-            variant="outline"
-            className="h-12 justify-center gap-2 rounded-2xl text-sm"
-            onClick={onOpenChat}
-          >
-            <MessageSquare className="h-4 w-4" />
+          <Button variant="outline" onClick={onOpenChat}>
+            <MessageSquare className="mr-2 h-4 w-4" />
             {t('openChat')}
           </Button>
         </div>
@@ -204,167 +235,99 @@ function MobileNotebookEmptyState({
   );
 }
 
+function clearStoredNotebookOpenFilePathIfMatches(path: string, workspaceId: string | null) {
+  if (!workspaceId || typeof window === 'undefined') return;
+  try {
+    if (readStoredNotebookOpenFilePath(window.localStorage, workspaceId) === path) {
+      clearStoredNotebookOpenFilePath(window.localStorage, workspaceId);
+    }
+  } catch {
+    // Local UI persistence is non-critical.
+  }
+}
+
 export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }) {
   const tNotebook = useTranslations('notebook');
   const tCommon = useTranslations('common');
-  const tChat = useTranslations('chat');
   const tNav = useTranslations('navigation');
   const searchParams = useSearchParams();
-  const [viewportMode, setViewportMode] = useState<'mobile' | 'desktop' | null>(null);
-  const [viewportWidth, setViewportWidth] = useState(0);
-  const [sidebarVisible, setSidebarVisible] = useState(true);
-  const [sidebarWidth, setSidebarWidth] = useState(LEFT_SIDEBAR_DEFAULT);
-  const [chatVisible, setChatVisible] = useState(true);
-  const [desktopChatMode, setDesktopChatMode] = useState<DesktopChatMode>('side');
-  const [terminalVisible, setTerminalVisible] = useState(false);
-  const [chatWidth, setChatWidth] = useState(420);
-  const [mobileSurface, setMobileSurface] = useState<MobileSurface>('editor');
+  const layout = useNotebookLayoutController();
+  const { state, dispatch } = layout;
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
-  const [mobileChatOpen, setMobileChatOpen] = useState(false);
-  const [mobileChatMounted, setMobileChatMounted] = useState(false);
-  const desktopSidebarRef = useRef<HTMLDivElement | null>(null);
+  const [activeChatContext, setActiveChatContext] = useState<{
+    agentId: string;
+    sessionId: string;
+  } | null>(null);
+  const desktopExplorerRef = useRef<HTMLDivElement | null>(null);
   const desktopMainPanelRef = useRef<HTMLDivElement | null>(null);
-  const desktopChatWrapperRef = useRef<HTMLDivElement | null>(null);
+  const desktopChatRef = useRef<HTMLDivElement | null>(null);
   const openedPathRef = useRef<string | null>(null);
   const initialNotebookStateResolvedRef = useRef(false);
-  const desktopDefaultChatAppliedRef = useRef(false);
-  const prevViewportModeRef = useRef<'mobile' | 'desktop' | null>(null);
   const previousCurrentFileIdentityRef = useRef<string | null>(null);
-  const preserveMobileChatTransitionIdsRef = useRef(new Set<string>());
-  const currentFile = useFileStore((state) => state.currentFile);
-  const isLoadingFile = useFileStore((state) => state.isLoadingFile);
-  const fileError = useFileStore((state) => state.fileError);
-  const currentDirectory = useFileStore((state) => state.currentDirectory);
-  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
 
-  const currentDirectoryLabel =
-    currentDirectory === '.' ? 'Workspace /' : `/${currentDirectory}`;
+  const currentFile = useFileStore((fileState) => fileState.currentFile);
+  const isLoadingFile = useFileStore((fileState) => fileState.isLoadingFile);
+  const fileError = useFileStore((fileState) => fileState.fileError);
+  const currentDirectory = useFileStore((fileState) => fileState.currentDirectory);
+  const activeWorkspaceId = useWorkspaceStore((workspaceState) => workspaceState.activeWorkspaceId);
+  const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
+  const { chatContext: emailChatContext } = useEmailChatContext();
+
   const navigationIntent = getNotebookNavigationIntent(searchParams);
   const routeFilePath = navigationIntent.path;
   const routeSessionId = navigationIntent.sessionId;
   const shouldOpenRouteChat = navigationIntent.shouldOpenChat;
   const {
     forceSession: applyForcedChatSession,
-    forcedSessionId: forcedChatSessionId,
+    forcedSessionId,
     requestId: chatOpenRequestId,
   } = useForcedChatSession(routeSessionId);
   const hasStoredInitialPrompt =
     typeof window !== 'undefined'
     && Boolean(window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY));
   const shouldForceChatOpen = shouldOpenRouteChat || hasStoredInitialPrompt;
-  const openDesktopSideChat = useCallback(() => {
-    setChatVisible(true);
-    setDesktopChatMode('side');
-  }, []);
 
-  const openMobileChat = useCallback(() => {
-    setMobileChatMounted(true);
-    setMobileExplorerOpen(false);
-    setMobileChatOpen(true);
-  }, []);
+  const handleContextOpen = useCallback((surface: NotebookContextSurface) => {
+    dispatch({ type: 'CONTEXT_OPENED', surface });
+  }, [dispatch]);
+  const {
+    emailContext,
+    browserContext,
+    clearEmail,
+    clearBrowser,
+  } = useNotebookToolContext({
+    chatContext: activeChatContext,
+    onOpen: handleContextOpen,
+  });
 
-  const toggleMobileChat = useCallback(() => {
-    setMobileChatMounted(true);
-    setMobileExplorerOpen(false);
-    setMobileChatOpen((current) => !current);
-  }, []);
-
-  const setDesktopSidebarVisible = useCallback((nextVisible: boolean | ((current: boolean) => boolean)) => {
-    setSidebarVisible((current) => {
-      const resolvedVisible =
-        typeof nextVisible === 'function' ? nextVisible(current) : nextVisible;
-      writeStoredDesktopSidebarVisible(resolvedVisible);
-      return resolvedVisible;
-    });
-  }, []);
-
-  const openInitialNotebookChat = useCallback((
-    mode: 'mobile' | 'desktop',
-    options: { forceOpenChat?: boolean } = {},
-  ) => {
-    setChatVisible(true);
-
-    if (mode === 'desktop') {
-      setDesktopChatMode('fullscreen');
-      return;
+  const requestContext = useMemo<ChatRequestContext>(() => {
+    if (state.mainSurface === 'email' && emailChatContext) {
+      return emailChatContext;
     }
-
-    setMobileSurface('editor');
-    setMobileExplorerOpen(false);
-    if (options.forceOpenChat) {
-      setMobileChatMounted(true);
-      setMobileChatOpen(true);
-      return;
+    if (state.mainSurface === 'browser') {
+      return { currentPage: '/browser/live' };
     }
+    return { currentPage: '/notebook' };
+  }, [emailChatContext, state.mainSurface]);
 
-    setMobileChatOpen(false);
-  }, []);
+  const currentDirectoryLabel =
+    currentDirectory === '.' ? tNotebook('workspaceRoot') : `/${currentDirectory}`;
+  const fileLabel = currentFile?.path.split('/').filter(Boolean).pop()
+    || useFileStore.getState().loadingFilePath?.split('/').filter(Boolean).pop()
+    || tNotebook('documentSurface');
 
-  useEffect(() => {
-    const storedWidth = Number(window.localStorage.getItem(NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY));
-    if (!Number.isFinite(storedWidth) || storedWidth < LEFT_SIDEBAR_MIN) {
-      window.localStorage.removeItem(NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY);
-      return;
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setSidebarWidth(clampSidebarWidth(storedWidth));
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(NOTEBOOK_SIDEBAR_WIDTH_STORAGE_KEY, String(sidebarWidth));
-  }, [sidebarWidth]);
-
-  useEffect(() => {
-    const storedWidth = Number(window.localStorage.getItem(NOTEBOOK_CHAT_WIDTH_STORAGE_KEY));
-    if (!Number.isFinite(storedWidth) || storedWidth < CHAT_PANEL_MIN) {
-      window.localStorage.removeItem(NOTEBOOK_CHAT_WIDTH_STORAGE_KEY);
-      return;
-    }
-    // eslint-disable-next-line react-hooks/set-state-in-effect
-    setChatWidth(clampChatWidth(storedWidth, getAvailableChatMaxWidth()));
-  }, []);
-
-  useEffect(() => {
-    window.localStorage.setItem(NOTEBOOK_CHAT_WIDTH_STORAGE_KEY, String(chatWidth));
-  }, [chatWidth]);
-
-  useEffect(() => {
-    window.localStorage.setItem('canvas.terminalVisible', String(terminalVisible));
-  }, [terminalVisible]);
-
-  useEffect(() => {
-    const storedTerminal = window.localStorage.getItem('canvas.terminalVisible');
-    if (storedTerminal !== null) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setTerminalVisible(storedTerminal === 'true');
-    }
-  }, []);
-
-  useEffect(() => {
-    const stored = window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY);
-    if (stored) {
-      // eslint-disable-next-line react-hooks/set-state-in-effect
-      setChatVisible(true);
-    }
-  }, []);
-
-  const openNotebookFile = useCallback(async (
-    path: string,
-    options: { preserveMobileChat?: boolean } = {},
-  ) => {
+  const openNotebookFile = useCallback(async (path: string) => {
     const normalizedPath = normalizeNotebookFilePath(path);
     if (!normalizedPath) return null;
 
+    dispatch({ type: 'DOCUMENT_OPENED' });
     const transitionId = createWorkspaceFileTransitionId();
-    if (options.preserveMobileChat) {
-      preserveMobileChatTransitionIdsRef.current.add(transitionId);
-    }
-
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
-    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, { transitionId, workspaceId });
+    const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, {
+      transitionId,
+      workspaceId,
+    });
     if (result.status !== 'opened') {
-      preserveMobileChatTransitionIdsRef.current.delete(transitionId);
       if (result.status !== 'superseded') {
         clearStoredNotebookOpenFilePathIfMatches(normalizedPath, workspaceId);
       }
@@ -372,29 +335,21 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     }
 
     const loadedPath = useFileStore.getState().currentFile?.path ?? null;
-    if (loadedPath === normalizedPath) {
-      if (workspaceId) {
-        try {
-          writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, normalizedPath);
-        } catch {
-          // Non-critical: the notebook can still open files without persistence.
-        }
+    if (loadedPath === normalizedPath && workspaceId) {
+      try {
+        writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, normalizedPath);
+      } catch {
+        // Local UI persistence is non-critical.
       }
-    } else {
-      clearStoredNotebookOpenFilePathIfMatches(normalizedPath, workspaceId);
     }
-
-    useFileStore.getState().setMobileSurface('editor');
     return result;
-  }, []);
+  }, [dispatch]);
 
   const openBridgedNotebookFile = useCallback(async (request: NotebookFileReferenceRequest) => {
     openedPathRef.current = request.path;
     const result = await openNotebookFile(request.path);
     if (result?.status !== 'opened') {
-      if (openedPathRef.current === request.path) {
-        openedPathRef.current = null;
-      }
+      if (openedPathRef.current === request.path) openedPathRef.current = null;
       return;
     }
 
@@ -410,48 +365,28 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [openNotebookFile]);
 
   useEffect(() => {
-    const targetPath = routeFilePath;
     const pendingBridgeRequest = window.name === NOTEBOOK_WINDOW_NAME
       ? readPendingNotebookFileReference()
       : null;
-    if (!pendingBridgeRequest && targetPath && openedPathRef.current !== targetPath) {
-      openedPathRef.current = targetPath;
-      void openNotebookFile(targetPath, {
-        preserveMobileChat: shouldForceChatOpen,
-      });
-
-      if (viewportMode === 'desktop') {
-        queueMicrotask(openDesktopSideChat);
-      }
+    if (!pendingBridgeRequest && routeFilePath && openedPathRef.current !== routeFilePath) {
+      openedPathRef.current = routeFilePath;
+      void openNotebookFile(routeFilePath);
     }
-
     if (shouldOpenRouteChat) {
-      queueMicrotask(() => {
-        setChatVisible(true);
-        if (viewportMode === 'mobile') {
-          openMobileChat();
-        }
-      });
+      dispatch({ type: 'SHOW_CHAT' });
     }
-  }, [openDesktopSideChat, openMobileChat, openNotebookFile, routeFilePath, shouldForceChatOpen, shouldOpenRouteChat, viewportMode]);
+  }, [dispatch, openNotebookFile, routeFilePath, shouldOpenRouteChat]);
 
   useEffect(() => {
     if (window.name !== NOTEBOOK_WINDOW_NAME) return;
-
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       const request = parseNotebookFileReferenceRequest(event.data);
-      if (!request) return;
-      void openBridgedNotebookFile(request);
+      if (request) void openBridgedNotebookFile(request);
     };
-
     window.addEventListener('message', handleMessage);
-
     const pendingRequest = readPendingNotebookFileReference();
-    if (pendingRequest) {
-      queueMicrotask(() => void openBridgedNotebookFile(pendingRequest));
-    }
-
+    if (pendingRequest) queueMicrotask(() => void openBridgedNotebookFile(pendingRequest));
     return () => window.removeEventListener('message', handleMessage);
   }, [openBridgedNotebookFile]);
 
@@ -463,37 +398,29 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         switchWorkspace: (workspaceId) => workspaceState.setActiveWorkspace(workspaceId, 'chat'),
         openSession: applyForcedChatSession,
       });
+      dispatch({ type: 'SHOW_CHAT' });
     };
-
     window.addEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
-    return () => {
-      window.removeEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
-    };
-  }, [applyForcedChatSession]);
+    return () => window.removeEventListener(OPEN_CHAT_SESSION_EVENT, handleOpenChatSession);
+  }, [applyForcedChatSession, dispatch]);
 
   useEffect(() => {
-    if (!forcedChatSessionId || viewportMode === null) return;
-
-    const handle = window.setTimeout(() => {
-      setChatVisible(true);
-      if (viewportMode === 'mobile') {
-        openMobileChat();
-        return;
-      }
-
-      setDesktopChatMode('side');
-    }, 0);
-
-    return () => window.clearTimeout(handle);
-  }, [chatOpenRequestId, forcedChatSessionId, openMobileChat, viewportMode]);
+    if (!forcedSessionId || chatOpenRequestId === 0) return;
+    dispatch({ type: 'SHOW_CHAT' });
+  }, [chatOpenRequestId, dispatch, forcedSessionId]);
 
   useEffect(() => {
-    if (viewportMode === null || !activeWorkspaceId || initialNotebookStateResolvedRef.current) return;
-
+    if (
+      !layout.preferencesHydrated
+      || layout.viewportWidth === 0
+      || !activeWorkspaceId
+      || initialNotebookStateResolvedRef.current
+    ) {
+      return;
+    }
     initialNotebookStateResolvedRef.current = true;
-
-    const targetPath = routeFilePath;
-    if (targetPath) {
+    if (routeFilePath) {
+      if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
     }
 
@@ -502,675 +429,586 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       clearLegacyStoredNotebookOpenFilePath(window.localStorage);
       storedPath = readStoredNotebookOpenFilePath(window.localStorage, activeWorkspaceId);
     } catch {
-      // Non-critical: start with an empty editor if local storage is unavailable.
+      // Start with chat if local persistence is unavailable.
     }
     if (storedPath) {
       openedPathRef.current = storedPath;
-      void openNotebookFile(storedPath, {
-        preserveMobileChat: shouldForceChatOpen && viewportMode === 'mobile',
-      });
-      if (viewportMode === 'desktop') {
-        queueMicrotask(openDesktopSideChat);
-      } else if (shouldForceChatOpen) {
-        queueMicrotask(() => openInitialNotebookChat(viewportMode, { forceOpenChat: true }));
-      }
+      void openNotebookFile(storedPath);
+      if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
     }
 
     useFileStore.getState().clearCurrentFile();
-    queueMicrotask(() => openInitialNotebookChat(viewportMode, { forceOpenChat: shouldForceChatOpen }));
-  }, [activeWorkspaceId, openDesktopSideChat, openInitialNotebookChat, openNotebookFile, routeFilePath, shouldForceChatOpen, viewportMode]);
+    dispatch({ type: 'DOCUMENT_CLOSED' });
+    dispatch({ type: 'SHOW_CHAT' });
+  }, [
+    activeWorkspaceId,
+    dispatch,
+    layout.preferencesHydrated,
+    layout.viewportWidth,
+    openNotebookFile,
+    routeFilePath,
+    shouldForceChatOpen,
+  ]);
 
   useEffect(() => {
     const initialFileState = useFileStore.getState();
-    previousCurrentFileIdentityRef.current = initialFileState.currentFile && initialFileState.currentFileWorkspaceId
-      ? `${initialFileState.currentFileWorkspaceId}\0${initialFileState.currentFile.path}`
-      : null;
+    previousCurrentFileIdentityRef.current =
+      initialFileState.currentFile && initialFileState.currentFileWorkspaceId
+        ? `${initialFileState.currentFileWorkspaceId}\0${initialFileState.currentFile.path}`
+        : null;
 
-    const unsubscribe = useFileStore.subscribe((state) => {
-      const nextPath = state.currentFile?.path ?? null;
-      const workspaceId = state.currentFileWorkspaceId;
+    return useFileStore.subscribe((fileState) => {
+      const nextPath = fileState.currentFile?.path ?? null;
+      const workspaceId = fileState.currentFileWorkspaceId;
       const nextIdentity = nextPath && workspaceId ? `${workspaceId}\0${nextPath}` : null;
       const previousIdentity = previousCurrentFileIdentityRef.current;
       previousCurrentFileIdentityRef.current = nextIdentity;
-
-      if (nextPath && workspaceId && nextIdentity !== previousIdentity) {
-        try {
-          writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, nextPath);
-        } catch {
-          // Non-critical: the notebook can still open files without persistence.
-        }
+      if (!nextPath || !workspaceId || nextIdentity === previousIdentity) return;
+      try {
+        writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, nextPath);
+      } catch {
+        // Local UI persistence is non-critical.
       }
-
-      // File selection should not override a manually hidden desktop chat.
-      // Explicit session/prompt entry points still open the chat in their own effects.
     });
-
-    return unsubscribe;
   }, []);
 
   useEffect(() => {
     const handleWorkspaceChange = (event: Event) => {
-      const { activeWorkspaceId: nextWorkspaceId } = (event as CustomEvent<WorkspaceChangedDetail>).detail;
+      const { activeWorkspaceId: nextWorkspaceId } =
+        (event as CustomEvent<WorkspaceChangedDetail>).detail;
       openedPathRef.current = routeFilePath;
       previousCurrentFileIdentityRef.current = null;
-      preserveMobileChatTransitionIdsRef.current.clear();
       useFileStore.getState().resetWorkspaceView(nextWorkspaceId);
       useEditorStore.getState().clear();
-      setMobileSurface('editor');
+      clearEmail();
+      clearBrowser();
+      dispatch({ type: 'DOCUMENT_CLOSED' });
+      dispatch({ type: 'CONTEXT_CLOSED', surface: 'email' });
+      dispatch({ type: 'CONTEXT_CLOSED', surface: 'browser' });
 
       if (routeFilePath) return;
-
       let storedPath: string | null = null;
       try {
         storedPath = readStoredNotebookOpenFilePath(window.localStorage, nextWorkspaceId);
       } catch {
-        // Non-critical: leave the editor empty if local storage is unavailable.
+        // Keep chat as the deterministic fallback.
       }
-      if (!storedPath) return;
-
+      if (!storedPath) {
+        dispatch({ type: 'SHOW_CHAT' });
+        return;
+      }
       openedPathRef.current = storedPath;
       window.setTimeout(() => {
-        if (useWorkspaceStore.getState().activeWorkspaceId !== nextWorkspaceId) return;
-        void openNotebookFile(storedPath);
+        if (useWorkspaceStore.getState().activeWorkspaceId === nextWorkspaceId) {
+          void openNotebookFile(storedPath);
+        }
       }, 0);
     };
-
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
     return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-  }, [openNotebookFile, routeFilePath]);
-
-  const applySidebarPanelWidth = useCallback((nextWidth: number) => {
-    desktopSidebarRef.current?.style.setProperty('--desktop-sidebar-width', `${nextWidth}px`);
-  }, []);
-
-  const applyChatPanelWidth = useCallback((nextWidth: number) => {
-    desktopChatWrapperRef.current?.style.setProperty('--desktop-chat-width', `${nextWidth}px`);
-  }, []);
-
-  const getChatPanelMaxWidth = useCallback(() => {
-    const containerWidth = desktopMainPanelRef.current?.getBoundingClientRect().width ?? window.innerWidth;
-    return getAvailableChatMaxWidth(containerWidth);
-  }, []);
-
-  const getSidebarPanelMaxWidth = useCallback(() => {
-    const sideChatFits = hasNotebookSideChatSpace(window.innerWidth, sidebarVisible, sidebarWidth, chatWidth);
-    const reservedChatWidth = chatVisible && desktopChatMode === 'side' && sideChatFits ? chatWidth : 0;
-    return Math.min(
-      LEFT_SIDEBAR_MAX,
-      Math.max(LEFT_SIDEBAR_MIN, window.innerWidth - MIN_EDITOR_WIDTH - reservedChatWidth),
-    );
-  }, [chatVisible, chatWidth, desktopChatMode, sidebarVisible, sidebarWidth]);
-
-  const sidebarResize = usePanelResize({
-    orientation: 'vertical',
-    value: sidebarWidth,
-    min: LEFT_SIDEBAR_MIN,
-    max: getSidebarPanelMaxWidth,
-    onResize: applySidebarPanelWidth,
-    onResizeEnd: setSidebarWidth,
-  });
-
-  const chatResize = usePanelResize({
-    orientation: 'vertical',
-    direction: -1,
-    value: chatWidth,
-    min: CHAT_PANEL_MIN,
-    max: getChatPanelMaxWidth,
-    onResize: applyChatPanelWidth,
-    onResizeEnd: setChatWidth,
-  });
+  }, [clearBrowser, clearEmail, dispatch, openNotebookFile, routeFilePath]);
 
   useEffect(() => {
-    applySidebarPanelWidth(sidebarWidth);
-  }, [applySidebarPanelWidth, sidebarWidth]);
+    const handleWorkspaceFileOpen = () => {
+      dispatch({ type: 'DOCUMENT_OPENED' });
+      setMobileExplorerOpen(false);
+    };
+    window.addEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
+    return () => window.removeEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
+  }, [dispatch]);
 
-  useEffect(() => {
-    applyChatPanelWidth(chatWidth);
-  }, [applyChatPanelWidth, chatWidth]);
-
-  const openDesktopChat = useCallback((mode: DesktopChatMode) => {
-    setDesktopChatMode(mode);
-    setChatVisible(true);
-  }, []);
-
-  const collapseDesktopFullscreenChat = useCallback(() => {
-    if (viewportMode !== 'desktop' || !chatVisible || desktopChatMode !== 'fullscreen') {
-      return;
-    }
-
-    if (hasNotebookSideChatSpace(window.innerWidth, sidebarVisible, sidebarWidth, chatWidth)) {
-      setDesktopChatMode('side');
-    } else {
-      setChatVisible(false);
-    }
-  }, [chatVisible, chatWidth, desktopChatMode, sidebarVisible, sidebarWidth, viewportMode]);
-
-  const handleDesktopChatPrimaryAction = useCallback(() => {
-    if (!chatVisible) {
-      openDesktopChat('side');
-      return;
-    }
-
-    if (desktopChatMode === 'fullscreen') {
-      if (hasNotebookSideChatSpace(window.innerWidth, sidebarVisible, sidebarWidth, chatWidth)) {
-        setDesktopChatMode('side');
-      } else {
-        setChatVisible(false);
-      }
-      return;
-    }
-
-    setChatVisible(false);
-  }, [chatVisible, chatWidth, desktopChatMode, openDesktopChat, sidebarVisible, sidebarWidth]);
-
-  const handleClosePreview = useCallback(() => {
+  const handleCloseDocument = useCallback(() => {
     useFileStore.getState().clearCurrentFile();
     if (activeWorkspaceId) {
       try {
         clearStoredNotebookOpenFilePath(window.localStorage, activeWorkspaceId);
       } catch {
-        // Non-critical: stale local UI state can be ignored on the next load.
+        // Local UI persistence is non-critical.
       }
     }
-    setChatVisible(true);
+    dispatch({ type: 'DOCUMENT_CLOSED' });
+  }, [activeWorkspaceId, dispatch]);
 
-    if (viewportMode === 'desktop') {
-      setDesktopChatMode('fullscreen');
-      return;
-    }
-
-    if (viewportMode === 'mobile') {
-      setMobileSurface('editor');
-      setMobileExplorerOpen(false);
-      openMobileChat();
-    }
-  }, [activeWorkspaceId, openMobileChat, viewportMode]);
-
-  useEffect(() => {
-    const handleViewport = () => {
-      const nextWidth = window.innerWidth;
-      const isMobile = nextWidth < 768;
-      const nextMode = isMobile ? 'mobile' : 'desktop';
-      setViewportMode((current) => (current === nextMode ? current : nextMode));
-      setViewportWidth(nextWidth);
-
-      if (!isMobile) {
-        setSidebarWidth((prev) => {
-          const clampedWidth = clampSidebarWidth(prev);
-          return clampedWidth === prev ? prev : clampedWidth;
-        });
-      }
-
-      // Only reset layout state when the viewport mode actually changes (mobile ↔ desktop).
-      // Some browsers fire synthetic resize events on tab switch which would otherwise
-      // reset panel visibility to defaults.
-      if (nextMode === prevViewportModeRef.current) return;
-      prevViewportModeRef.current = nextMode;
-
-      if (isMobile) {
-        setSidebarVisible(false);
-        setTerminalVisible(false);
-        setMobileExplorerOpen(false);
-        // Check if there's an initial prompt in sessionStorage - if so, open chat
-        const stored = window.sessionStorage.getItem(CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY);
-        if (stored) {
-          setChatVisible(true);
-          setMobileChatMounted(true);
-          setMobileChatOpen(true);
-        } else {
-          setChatVisible(false);
-          setMobileSurface('editor');
-        }
-      } else {
-        setSidebarVisible(readStoredDesktopSidebarVisible());
-        if (!desktopDefaultChatAppliedRef.current) {
-          desktopDefaultChatAppliedRef.current = true;
-          setChatVisible(true);
-        }
-      }
-    };
-
-    handleViewport();
-    window.addEventListener('resize', handleViewport);
-    return () => window.removeEventListener('resize', handleViewport);
-  }, [shouldForceChatOpen]);
-
-  useEffect(() => {
-    if (!mobileChatOpen || viewportMode !== 'mobile') return;
-
-    const handleEscape = (event: KeyboardEvent) => {
-      if (event.key !== 'Escape') return;
-      event.preventDefault();
-      setMobileChatOpen(false);
-    };
-
-    window.addEventListener('keydown', handleEscape);
-    return () => window.removeEventListener('keydown', handleEscape);
-  }, [mobileChatOpen, viewportMode]);
-
-  const handleMobileFileSelect = useCallback(() => {
-    if (viewportMode !== 'mobile') return;
-    setMobileSurface('editor');
-    setMobileExplorerOpen(false);
-    setMobileChatOpen(false);
-  }, [viewportMode]);
-
-  // Handle file opens from non-FileBrowser contexts (e.g. chat file references)
-  useEffect(() => {
-    let prevCount = useFileStore.getState().mobileFileOpenedCount;
-    const unsub = useFileStore.subscribe((state) => {
-      if (state.mobileFileOpenedCount !== prevCount) {
-        prevCount = state.mobileFileOpenedCount;
-        const transitionId = state.lastMobileFileOpen?.transitionId;
-        if (transitionId && preserveMobileChatTransitionIdsRef.current.delete(transitionId)) {
-          return;
-        }
-        if (viewportMode !== 'mobile') return;
-        setMobileSurface('editor');
-        setMobileExplorerOpen(false);
-        setMobileChatOpen(false);
-      }
-    });
-    return unsub;
-  }, [viewportMode]);
+  const handleCloseContext = useCallback((surface: NotebookContextSurface) => {
+    if (surface === 'email') clearEmail();
+    else clearBrowser();
+    dispatch({ type: 'CONTEXT_CLOSED', surface });
+  }, [clearBrowser, clearEmail, dispatch]);
 
   useEffect(() => {
     const handleDesktopSidebarToggle = () => {
-      if (viewportMode !== 'desktop') {
-        return;
-      }
-      setDesktopSidebarVisible((current) => !current);
+      if (!layout.isDesktop) return;
+      dispatch({ type: 'SET_EXPLORER', open: !state.explorerOpen });
     };
-
-    const handleDesktopChatToggle = () => {
-      if (viewportMode !== 'desktop') {
-        return;
-      }
-      handleDesktopChatPrimaryAction();
-    };
-
+    const handleDesktopChatToggle = () => dispatch({ type: 'SHOW_CHAT' });
     window.addEventListener('notebook-desktop-toggle-sidebar', handleDesktopSidebarToggle);
     window.addEventListener('notebook-desktop-toggle-chat', handleDesktopChatToggle);
     return () => {
       window.removeEventListener('notebook-desktop-toggle-sidebar', handleDesktopSidebarToggle);
       window.removeEventListener('notebook-desktop-toggle-chat', handleDesktopChatToggle);
     };
-  }, [handleDesktopChatPrimaryAction, setDesktopSidebarVisible, viewportMode]);
-
-  useEffect(() => {
-    const handleWorkspaceFileOpen = (event: Event) => {
-      collapseDesktopFullscreenChat();
-      const detail = (event as CustomEvent<WorkspaceFileOpenedDetail>).detail;
-      if (viewportMode !== 'mobile' || detail?.source !== 'chat-reference') return;
-      setMobileSurface('editor');
-      setMobileExplorerOpen(false);
-      setMobileChatOpen(false);
-    };
-
-    window.addEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
-    return () => {
-      window.removeEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
-    };
-  }, [collapseDesktopFullscreenChat, viewportMode]);
+  }, [dispatch, layout.isDesktop, state.explorerOpen]);
 
   useEffect(() => {
     const handleKeyboardToggle = (event: KeyboardEvent) => {
-      if (viewportMode !== 'desktop') return;
-      if (!(event.metaKey || event.ctrlKey)) return;
+      if (!layout.isDesktop || !(event.metaKey || event.ctrlKey)) return;
       const key = event.key.toLowerCase();
-      if (key === 'j') {
+      if (key === 'k') {
         event.preventDefault();
-        setTerminalVisible((prev) => !prev);
-      } else if (key === 'k') {
+        if (event.shiftKey) {
+          dispatch({ type: 'SET_CHAT_DOCKED', docked: !state.chatDocked });
+        } else {
+          dispatch({ type: 'SHOW_CHAT' });
+        }
+      } else if (key === 'j') {
         event.preventDefault();
-        handleDesktopChatPrimaryAction();
+        dispatch({ type: 'SET_TERMINAL', open: !state.terminalOpen });
+      } else if (key === 'b') {
+        event.preventDefault();
+        dispatch({ type: 'SET_EXPLORER', open: !state.explorerOpen });
       }
     };
     window.addEventListener('keydown', handleKeyboardToggle);
     return () => window.removeEventListener('keydown', handleKeyboardToggle);
-  }, [viewportMode, handleDesktopChatPrimaryAction]);
+  }, [
+    dispatch,
+    layout.isDesktop,
+    state.chatDocked,
+    state.explorerOpen,
+    state.terminalOpen,
+  ]);
 
-  const isMobileViewport = viewportMode === 'mobile';
-  const isDesktopViewport = viewportMode === 'desktop';
-  const shouldUseResponsiveChatOverlay = isDesktopViewport
-    && desktopChatMode === 'side'
-    && !hasNotebookSideChatSpace(viewportWidth, sidebarVisible, sidebarWidth, chatWidth);
-  const usesDesktopChatOverlay = desktopChatMode === 'fullscreen' || shouldUseResponsiveChatOverlay;
-  const isDesktopChatSideVisible = isDesktopViewport && chatVisible && !usesDesktopChatOverlay;
-  const availableMainPanelWidth = viewportWidth - (sidebarVisible ? sidebarWidth : 0);
-  const availableChatMaxWidth = getAvailableChatMaxWidth(availableMainPanelWidth);
-  const availableSidebarMaxWidth = Math.min(
-    LEFT_SIDEBAR_MAX,
+  const applyExplorerWidth = useCallback((width: number) => {
+    desktopExplorerRef.current?.style.setProperty('--notebook-explorer-width', `${width}px`);
+  }, []);
+  const applyChatWidth = useCallback((width: number) => {
+    desktopChatRef.current?.style.setProperty('--notebook-chat-width', `${width}px`);
+  }, []);
+  const explorerMaxWidth = useCallback(() => Math.min(
+    NOTEBOOK_EXPLORER_MAX_WIDTH,
     Math.max(
-      LEFT_SIDEBAR_MIN,
-      viewportWidth - MIN_EDITOR_WIDTH - (isDesktopChatSideVisible ? chatWidth : 0),
+      NOTEBOOK_EXPLORER_MIN_WIDTH,
+      layout.viewportWidth
+        - NOTEBOOK_DOCUMENT_MIN_WIDTH
+        - (state.chatDocked ? layout.chatWidth : 0),
+    ),
+  ), [layout.chatWidth, layout.viewportWidth, state.chatDocked]);
+  const chatMaxWidth = useCallback(() => {
+    const containerWidth =
+      desktopMainPanelRef.current?.getBoundingClientRect().width ?? layout.viewportWidth;
+    return Math.min(
+      NOTEBOOK_CHAT_MAX_WIDTH,
+      Math.max(NOTEBOOK_CHAT_MIN_WIDTH, containerWidth - NOTEBOOK_DOCUMENT_MIN_WIDTH),
+    );
+  }, [layout.viewportWidth]);
+  const explorerResize = usePanelResize({
+    orientation: 'vertical',
+    value: layout.explorerWidth,
+    min: NOTEBOOK_EXPLORER_MIN_WIDTH,
+    max: explorerMaxWidth,
+    onResize: applyExplorerWidth,
+    onResizeEnd: layout.setExplorerWidth,
+  });
+  const chatResize = usePanelResize({
+    orientation: 'vertical',
+    direction: -1,
+    value: layout.chatWidth,
+    min: NOTEBOOK_CHAT_MIN_WIDTH,
+    max: chatMaxWidth,
+    onResize: applyChatWidth,
+    onResizeEnd: layout.setChatWidth,
+  });
+  useEffect(() => applyExplorerWidth(layout.explorerWidth), [applyExplorerWidth, layout.explorerWidth]);
+  useEffect(() => applyChatWidth(layout.chatWidth), [applyChatWidth, layout.chatWidth]);
+  const availableChatMaxWidth = Math.min(
+    NOTEBOOK_CHAT_MAX_WIDTH,
+    Math.max(
+      NOTEBOOK_CHAT_MIN_WIDTH,
+      layout.viewportWidth
+        - (state.explorerOpen ? layout.explorerWidth : 0)
+        - NOTEBOOK_DOCUMENT_MIN_WIDTH,
     ),
   );
-  const desktopChatWrapperStyle =
-    !usesDesktopChatOverlay
-      ? ({
-        '--desktop-chat-width': `${chatWidth}px`,
-        width: chatVisible ? 'var(--desktop-chat-width)' : '0px',
-      } as CSSProperties)
-      : undefined;
+
+  const showChat = useCallback(() => dispatch({ type: 'SHOW_CHAT' }), [dispatch]);
+  const showSurface = useCallback((surface: Exclude<NotebookMainSurface, 'chat'>) => {
+    dispatch({ type: 'SHOW_SURFACE', surface });
+  }, [dispatch]);
+  const handleFileSelected = useCallback(() => {
+    dispatch({ type: 'DOCUMENT_OPENED' });
+    setMobileExplorerOpen(false);
+  }, [dispatch]);
+
+  const chatVisible = state.mainSurface === 'chat' || state.chatDocked;
+  const browserLocale = typeof document !== 'undefined'
+    ? document.documentElement.lang || 'de'
+    : 'de';
+  const chatContent = (
+    <CanvasAgentChat
+      initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
+      hideNavHeader
+      forcedSessionId={forcedSessionId}
+      requestContext={requestContext}
+      isSurfaceVisible={chatVisible}
+      onSessionContextChange={setActiveChatContext}
+    />
+  );
+  const documentContent = currentFile || isLoadingFile || fileError
+    ? <FileEditor onClosePreview={handleCloseDocument} />
+    : (
+      <NotebookEmptyDocumentState
+        onOpenExplorer={() => layout.isMobile
+          ? setMobileExplorerOpen(true)
+          : dispatch({ type: 'SET_EXPLORER', open: true })}
+        onOpenChat={showChat}
+      />
+    );
+
+  const contextStatus = (surface: NotebookContextSurface) => {
+    const intent = surface === 'email' ? emailContext : browserContext;
+    return intent?.status === 'running' ? tNotebook('contextRunning') : null;
+  };
 
   return (
     <FileWatcherProvider>
-    <HintProvider page="notebook" enabled={hintEnabled}>
-    <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
-      <header className="z-40 md:z-40 h-16 flex-shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)]">
-        <div className="relative mx-auto flex h-full items-center justify-between px-4">
-          {/* Left side: always back link + title (desktop) */}
-          <div className="flex items-center gap-2">
-            <Button asChild variant="outline" size="sm" className="gap-2 px-2 sm:px-3">
-              <Link href="/">
-                <ArrowLeft className="h-4 w-4" />
-                <span className="hidden sm:inline">{tCommon('suite')}</span>
-              </Link>
-            </Button>
-
-          </div>
-
-          {/* Center toggle group: both mobile and desktop */}
-          <div className="absolute left-1/2 top-1/2 z-[60] flex -translate-x-1/2 -translate-y-1/2 items-center">
-            <div className="pointer-events-auto flex items-center gap-1 rounded-full border border-border/80 bg-background/95 p-1 shadow-sm">
-              {/* Explorer toggle */}
-              <Button
-                variant={isMobileViewport ? (mobileExplorerOpen ? 'default' : 'ghost') : (sidebarVisible ? 'default' : 'ghost')}
-                size="sm"
-                className="gap-2 rounded-full"
-                onClick={() => {
-                  if (isMobileViewport) {
-                    setMobileExplorerOpen(true);
-                    setMobileChatOpen(false);
-                  } else {
-                    setDesktopSidebarVisible((prev) => !prev);
-                  }
-                }}
-                aria-label={isMobileViewport ? tNav('openFileExplorer') : (sidebarVisible ? tNav('hideSidebar') : tNav('showSidebar'))}
-              >
-                <Files className="h-4 w-4" />
-                <span className="hidden sm:inline">{tCommon('explorer')}</span>
+      <HintProvider page="notebook" enabled={hintEnabled}>
+        <div className="fixed inset-0 flex flex-col overflow-hidden bg-background text-foreground">
+          <header className="z-40 flex h-14 shrink-0 items-center justify-between gap-3 border-b border-border bg-background/95 px-3 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/88 sm:px-4">
+            <div className="flex min-w-0 items-center gap-2">
+              <Button asChild variant="outline" size="sm" className="shrink-0 gap-2 px-2 sm:px-3">
+                <Link href="/">
+                  <ArrowLeft className="h-4 w-4" />
+                  <span className="hidden sm:inline">{tCommon('suite')}</span>
+                </Link>
               </Button>
+              <div className="hidden min-w-0 md:block">
+                <div className="truncate text-sm font-semibold">{tNotebook('workbenchTitle')}</div>
+                <div className="truncate text-[11px] text-muted-foreground">{tNotebook('workbenchSubtitle')}</div>
+              </div>
+            </div>
+            <div className="flex shrink-0 items-center gap-1.5 md:gap-3">
+              <WorkspaceSwitcher source="notebook" variant="compact" className="hidden md:inline-flex" />
+              <NotificationBell />
+              <AppLauncher />
+              <ThemeToggle />
+            </div>
+          </header>
 
-              {/* Chat toggle */}
-              <DropdownMenu modal={false}>
-                <TooltipProvider delayDuration={300}>
+          {layout.isMobile && showWorkspaceSwitcher ? (
+            <div className="z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden">
+              <WorkspaceSwitcher source="notebook" variant="mobile-sheet" />
+            </div>
+          ) : null}
+
+          <div className="z-30 flex h-11 shrink-0 items-center gap-2 border-b border-border bg-muted/20 px-2">
+            <TooltipProvider delayDuration={250}>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    type="button"
+                    variant={(layout.isMobile ? mobileExplorerOpen : state.explorerOpen) ? 'secondary' : 'ghost'}
+                    size="icon-sm"
+                    className="shrink-0"
+                    aria-label={layout.isMobile
+                      ? tNav('openFileExplorer')
+                      : state.explorerOpen ? tNav('hideSidebar') : tNav('showSidebar')}
+                    aria-pressed={layout.isMobile ? mobileExplorerOpen : state.explorerOpen}
+                    onClick={() => {
+                      if (layout.isMobile) {
+                        setMobileExplorerOpen(true);
+                      } else {
+                        dispatch({ type: 'SET_EXPLORER', open: !state.explorerOpen });
+                      }
+                    }}
+                  >
+                    <Files className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>{tCommon('explorer')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}B)</TooltipContent>
+              </Tooltip>
+            </TooltipProvider>
+
+            <div className="h-5 w-px shrink-0 bg-border" />
+            <div
+              role="tablist"
+              aria-label={tNotebook('surfaceTabsLabel')}
+              className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+            >
+              <SurfaceTab
+                active={state.mainSurface === 'chat'}
+                icon={<MessageSquare className="h-3.5 w-3.5 shrink-0" />}
+                label={tCommon('aiChat')}
+                onSelect={showChat}
+                testId="notebook-surface-chat"
+              />
+              {state.documentAvailable ? (
+                <SurfaceTab
+                  active={state.mainSurface === 'document'}
+                  icon={<FileText className="h-3.5 w-3.5 shrink-0" />}
+                  label={fileLabel}
+                  onSelect={() => showSurface('document')}
+                  testId="notebook-surface-document"
+                />
+              ) : null}
+              {state.emailAvailable ? (
+                <SurfaceTab
+                  active={state.mainSurface === 'email'}
+                  closeLabel={tNotebook('closeEmailSurface')}
+                  icon={<Mail className="h-3.5 w-3.5 shrink-0" />}
+                  label={contextStatus('email') || tNotebook('emailSurface')}
+                  onClose={() => handleCloseContext('email')}
+                  onSelect={() => showSurface('email')}
+                  testId="notebook-surface-email"
+                />
+              ) : null}
+              {state.browserAvailable ? (
+                <SurfaceTab
+                  active={state.mainSurface === 'browser'}
+                  closeLabel={tNotebook('closeBrowserSurface')}
+                  icon={<Globe2 className="h-3.5 w-3.5 shrink-0" />}
+                  label={contextStatus('browser') || tNotebook('browserSurface')}
+                  onClose={() => handleCloseContext('browser')}
+                  onSelect={() => showSurface('browser')}
+                  testId="notebook-surface-browser"
+                />
+              ) : null}
+            </div>
+
+            {layout.isDesktop ? (
+              <>
+                <TooltipProvider delayDuration={250}>
                   <Tooltip>
                     <TooltipTrigger asChild>
-                      <div className="flex items-center">
-                        <Button
-                          variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
-                          size="sm"
-                          aria-label={tCommon('aiChat')}
-                          className={cn(
-                            'gap-2',
-                            isMobileViewport ? 'rounded-full' : 'rounded-l-full rounded-r-none'
-                          )}
-                          onClick={() => {
-                            if (isMobileViewport) {
-                              toggleMobileChat();
-                            } else {
-                              handleDesktopChatPrimaryAction();
-                            }
-                          }}
-                        >
-                          <MessageSquare className="h-4 w-4" />
-                          <span className="hidden sm:inline">{tCommon('aiChat')}</span>
-                        </Button>
-                        {!isMobileViewport && (
-                          <DropdownMenuTrigger asChild>
-                            <Button
-                              variant={isMobileViewport ? (mobileChatOpen ? 'default' : 'ghost') : (chatVisible ? 'default' : 'ghost')}
-                              size="sm"
-                              className={`rounded-l-none rounded-r-full border-l ${
-                                ((!isMobileViewport && chatVisible) || (isMobileViewport && mobileChatOpen))
-                                  ? 'border-primary-foreground/15'
-                                  : 'border-border/60'
-                              }`}
-                              aria-label={tNav('openChatModeMenu')}
-                            >
-                              <ChevronDown className="h-4 w-4" />
-                            </Button>
-                          </DropdownMenuTrigger>
-                        )}
-                      </div>
+                      <Button
+                        type="button"
+                        variant={state.chatDocked ? 'secondary' : 'ghost'}
+                        size="icon-sm"
+                        className="shrink-0"
+                        disabled={!layout.canDockChat && !state.chatDocked}
+                        aria-label={state.chatDocked ? tNotebook('unpinChat') : tNotebook('pinChat')}
+                        aria-pressed={state.chatDocked}
+                        onClick={() => dispatch({
+                          type: 'SET_CHAT_DOCKED',
+                          docked: !state.chatDocked,
+                        })}
+                      >
+                        <PanelRight className="h-4 w-4" />
+                      </Button>
                     </TooltipTrigger>
-                    <TooltipContent side="bottom">
-                      {tCommon('aiChat')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}K)
+                    <TooltipContent>
+                      {state.chatDocked ? tNotebook('unpinChat') : tNotebook('pinChat')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}⇧K)
                     </TooltipContent>
                   </Tooltip>
                 </TooltipProvider>
-                <DropdownMenuContent align="end" className="w-56">
-                  <DropdownMenuRadioGroup
-                    value={desktopChatMode}
-                    onValueChange={(value) => openDesktopChat(value as DesktopChatMode)}
-                  >
-                    <DropdownMenuRadioItem value="side">
-                      <PanelRight className="h-4 w-4" />
-                      {tCommon('openInSidePanel')}
-                    </DropdownMenuRadioItem>
-                    <DropdownMenuRadioItem value="fullscreen">
-                      <Maximize2 className="h-4 w-4" />
-                      {tCommon('openFullscreen')}
-                    </DropdownMenuRadioItem>
-                  </DropdownMenuRadioGroup>
-                </DropdownMenuContent>
-              </DropdownMenu>
-            </div>
-          </div>
-
-          {/* Right side: help, theme, logout */}
-          <div className="relative z-50 flex items-center gap-1.5 md:gap-4">
-            <WorkspaceSwitcher source="notebook" variant="compact" className="hidden md:inline-flex" />
-            <NotificationBell />
-            <AppLauncher />
-            <ThemeToggle />
-          </div>
-        </div>
-      </header>
-
-      {isMobileViewport && showWorkspaceSwitcher ? (
-        <div className="z-30 shrink-0 border-b border-border bg-background/95 px-3 py-2 md:hidden">
-          <WorkspaceSwitcher source="notebook" variant="mobile-sheet" />
-        </div>
-      ) : null}
-
-      {viewportMode === null ? (
-        <main className="flex min-h-0 flex-1 overflow-hidden bg-background" />
-      ) : isMobileViewport ? (
-        <main className="flex min-h-0 flex-1 overflow-hidden">
-          <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-            {mobileSurface === 'editor' ? (
-              currentFile || isLoadingFile || fileError ? (
-                <FileEditor onClosePreview={handleClosePreview} />
-              ) : (
-                <MobileNotebookEmptyState
-                  onOpenExplorer={() => setMobileExplorerOpen(true)}
-                  onOpenChat={openMobileChat}
-                />
-              )
+                <TooltipProvider delayDuration={250}>
+                  <Tooltip>
+                    <TooltipTrigger asChild>
+                      <Button
+                        type="button"
+                        variant={state.terminalOpen ? 'secondary' : 'ghost'}
+                        size="icon-sm"
+                        className="shrink-0"
+                        aria-label={state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')}
+                        aria-pressed={state.terminalOpen}
+                        onClick={() => dispatch({
+                          type: 'SET_TERMINAL',
+                          open: !state.terminalOpen,
+                        })}
+                      >
+                        <SquareTerminal className="h-4 w-4" />
+                      </Button>
+                    </TooltipTrigger>
+                    <TooltipContent>
+                      {state.terminalOpen ? tNotebook('hideTerminal') : tNotebook('showTerminal')} ({typeof navigator !== 'undefined' && /Mac/i.test(navigator.userAgent) ? '⌘' : 'Ctrl'}J)
+                    </TooltipContent>
+                  </Tooltip>
+                </TooltipProvider>
+              </>
             ) : null}
-            {mobileSurface === 'terminal' ? <TerminalPanel standalone /> : null}
           </div>
-          <Sheet open={mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
-            <SheetContent
-              side="left"
-              showCloseButton={false}
-              className="w-full max-w-none gap-0 border-r p-0 sm:max-w-none"
-            >
-              <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0">
-                    <SheetTitle className="text-base">{tCommon('explorer')}</SheetTitle>
-                    <SheetDescription className="truncate text-xs">
-                      {currentDirectoryLabel}
-                    </SheetDescription>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setMobileExplorerOpen(false)}
-                    aria-label={tNav('closeExplorer')}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </SheetHeader>
-              <div className="min-h-0 flex-1">
-                <SidebarProvider className="h-full min-h-0">
-                  <FileBrowser variant="mobile-sheet" onFileSelect={handleMobileFileSelect} />
-                </SidebarProvider>
-              </div>
-            </SheetContent>
-          </Sheet>
-          {mobileChatMounted ? (
-            <div
-              id="onboarding-notebook-chat"
-              role="dialog"
-              aria-modal={mobileChatOpen}
-              aria-hidden={!mobileChatOpen}
-              aria-labelledby="notebook-mobile-chat-title"
-              className={cn(
-                'fixed inset-x-0 top-0 bottom-0 z-[90] flex h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden overscroll-contain border-l border-border bg-background shadow-lg transition-[transform,opacity,visibility] duration-300 ease-in-out md:hidden',
-                mobileChatOpen
-                  ? 'visible translate-x-0 opacity-100'
-                  : 'invisible pointer-events-none translate-x-full opacity-0'
-              )}
-            >
-              <div className="shrink-0 border-b border-border bg-background/95 px-4 py-3 pt-[calc(env(safe-area-inset-top)+0.75rem)] text-left">
-                <div className="flex items-center justify-between gap-4">
-                  <div className="min-w-0">
-                    <h2 id="notebook-mobile-chat-title" className="text-base font-semibold text-foreground">
-                      {tCommon('aiChat')}
-                    </h2>
-                    <p className="sr-only">
-                      {tChat('metadataDescription')}
-                    </p>
-                  </div>
-                  <Button
-                    variant="ghost"
-                    size="icon-sm"
-                    onClick={() => setMobileChatOpen(false)}
-                    aria-label={tNav('closeChat')}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </div>
-              </div>
-              <div className="min-h-0 flex-1 overflow-hidden flex flex-col">
-                <CanvasAgentChat
-                  initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
-                  hideNavHeader={true}
-                  forcedSessionId={forcedChatSessionId}
-                  isSurfaceVisible={mobileChatOpen}
-                />
-              </div>
-            </div>
-          ) : null}
-        </main>
-      ) : (
-        <main className="flex min-h-0 flex-1 overflow-hidden relative">
-          {sidebarVisible ? (
-            <div
-              ref={desktopSidebarRef}
-              id="onboarding-notebook-fileBrowser"
-              style={{
-                '--desktop-sidebar-min': `${LEFT_SIDEBAR_MIN}px`,
-                '--desktop-sidebar-width': `${sidebarWidth}px`,
-              } as CSSProperties}
-              className="relative z-[80] min-w-[var(--desktop-sidebar-min)] w-[var(--desktop-sidebar-width)] basis-[var(--desktop-sidebar-width)] flex-shrink-0 bg-card"
-            >
-              <div className="flex h-full flex-col">
-                <div className="flex-1 min-w-0 overflow-hidden">
-                  <SidebarProvider className="h-full min-h-0">
-                    <FileBrowser />
-                  </SidebarProvider>
-                </div>
-              </div>
-            </div>
-          ) : null}
 
-          {sidebarVisible ? (
-            <ResizeHandle
-              data-testid="notebook-explorer-resize-handle"
-              orientation="vertical"
-              label={tNotebook('resizeFileTree')}
-              controls="onboarding-notebook-fileBrowser"
-              min={LEFT_SIDEBAR_MIN}
-              max={availableSidebarMaxWidth}
-              value={sidebarWidth}
-              resizing={sidebarResize.isResizing}
-              {...sidebarResize.handleProps}
-            />
-          ) : null}
-
-          <div className="flex-1 min-w-0 h-full flex flex-col relative">
-            <AppLayout
-              sidebar={<div />}
-              sidebarHidden={true}
-              terminalVisible={terminalVisible}
-              sidebarResizeLabel={tNotebook('resizeFileTree')}
-              terminalResizeLabel={tNotebook('resizeTerminal')}
-              main={
-                <div ref={desktopMainPanelRef} className="flex h-full w-full overflow-hidden relative">
-                  <div id="onboarding-notebook-editor" className="flex-1 min-w-0 bg-background">
-                    <FileEditor onClosePreview={handleClosePreview} />
-                  </div>
-
-                  {isDesktopChatSideVisible ? (
-                    <ResizeHandle
-                      data-testid="notebook-chat-resize-handle"
-                      orientation="vertical"
-                      label={tNotebook('resizeChat')}
-                      controls="onboarding-notebook-chat"
-                      min={CHAT_PANEL_MIN}
-                      max={availableChatMaxWidth}
-                      value={chatWidth}
-                      resizing={chatResize.isResizing}
-                      {...chatResize.handleProps}
+          {!layout.preferencesHydrated || layout.viewportWidth === 0 ? (
+            <main className="min-h-0 flex-1 bg-background" />
+          ) : layout.isMobile ? (
+            <main className="relative min-h-0 flex-1 overflow-hidden">
+              <SurfaceLayer active={state.mainSurface === 'document'} testId="notebook-mobile-document">
+                {documentContent}
+              </SurfaceLayer>
+              <SurfaceLayer active={state.mainSurface === 'email'} testId="notebook-mobile-email">
+                {emailContext ? <EmailClient /> : null}
+              </SurfaceLayer>
+              <SurfaceLayer active={state.mainSurface === 'browser'} testId="notebook-mobile-browser">
+                {browserContext ? (
+                  <div className="flex h-full min-h-0 flex-col">
+                    <BrowserContextHeader
+                      action={browserContext.action}
+                      status={browserContext.status}
+                      url={browserContext.url}
                     />
-                  ) : null}
-
-                  <div
-                    ref={desktopChatWrapperRef}
-                    data-chat-mode={shouldUseResponsiveChatOverlay ? 'responsive-overlay' : desktopChatMode}
-                    style={desktopChatWrapperStyle}
-                    className={cn(
-                      usesDesktopChatOverlay
-                        ? 'absolute inset-0 z-[70] overflow-hidden bg-background shadow-[0_0_0_1px_hsl(var(--border)),0_24px_60px_-24px_hsl(var(--foreground)/0.45)] transition-[opacity,box-shadow] duration-200 ease-out motion-reduce:transition-none'
-                        : cn(
-                          'relative flex-shrink-0 overflow-hidden bg-background',
-                          chatResize.isResizing
-                            ? 'transition-none'
-                            : 'transition-[width,opacity] duration-200 ease-out motion-reduce:transition-none',
-                        ),
-                      chatVisible
-                        ? 'opacity-100'
-                        : usesDesktopChatOverlay
-                          ? 'pointer-events-none opacity-0'
-                          : 'pointer-events-none w-0 opacity-0',
-                    )}
-                  >
-                    <div id="onboarding-notebook-chat" className="flex flex-col w-full h-full relative">
-                      <CanvasAgentChat
-                        initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
-                        hideNavHeader={true}
-                        forcedSessionId={forcedChatSessionId}
-                        isSurfaceVisible={chatVisible}
+                    <div className="min-h-0 flex-1">
+                      <BrowserLabClient
+                        locale={browserLocale}
+                        variant="live"
+                        agentId={browserContext.agentId}
+                        sessionId={browserContext.sessionId}
                       />
                     </div>
                   </div>
+                ) : null}
+              </SurfaceLayer>
+              <SurfaceLayer active={state.mainSurface === 'chat'} testId="notebook-mobile-chat">
+                {chatContent}
+              </SurfaceLayer>
+
+              <Sheet open={mobileExplorerOpen} onOpenChange={setMobileExplorerOpen}>
+                <SheetContent
+                  side="left"
+                  showCloseButton={false}
+                  className="w-full max-w-none gap-0 border-r p-0 sm:max-w-none"
+                >
+                  <SheetHeader className="border-b border-border bg-background/95 px-4 py-3 text-left">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="min-w-0">
+                        <SheetTitle className="text-base">{tCommon('explorer')}</SheetTitle>
+                        <SheetDescription className="truncate text-xs">{currentDirectoryLabel}</SheetDescription>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        onClick={() => setMobileExplorerOpen(false)}
+                        aria-label={tNav('closeExplorer')}
+                      >
+                        <X className="h-4 w-4" />
+                      </Button>
+                    </div>
+                  </SheetHeader>
+                  <div className="min-h-0 flex-1">
+                    <SidebarProvider className="h-full min-h-0">
+                      <FileBrowser variant="mobile-sheet" onFileSelect={handleFileSelected} />
+                    </SidebarProvider>
+                  </div>
+                </SheetContent>
+              </Sheet>
+            </main>
+          ) : (
+            <main className="flex min-h-0 flex-1 overflow-hidden">
+              {state.explorerOpen ? (
+                <div
+                  ref={desktopExplorerRef}
+                  id="onboarding-notebook-fileBrowser"
+                  style={{
+                    '--notebook-explorer-width': `${layout.explorerWidth}px`,
+                  } as CSSProperties}
+                  className="relative min-w-[var(--notebook-explorer-width)] w-[var(--notebook-explorer-width)] basis-[var(--notebook-explorer-width)] shrink-0 border-r border-border bg-card"
+                >
+                  <SidebarProvider className="h-full min-h-0">
+                    <FileBrowser onFileSelect={handleFileSelected} />
+                  </SidebarProvider>
                 </div>
-              }
-              terminal={<TerminalPanel />}
-            />
-          </div>
-        </main>
-        )}
-    </div>
-    </HintProvider>
+              ) : null}
+              {state.explorerOpen ? (
+                <ResizeHandle
+                  data-testid="notebook-explorer-resize-handle"
+                  orientation="vertical"
+                  label={tNotebook('resizeFileTree')}
+                  controls="onboarding-notebook-fileBrowser"
+                  min={NOTEBOOK_EXPLORER_MIN_WIDTH}
+                  max={explorerMaxWidth()}
+                  value={layout.explorerWidth}
+                  resizing={explorerResize.isResizing}
+                  {...explorerResize.handleProps}
+                />
+              ) : null}
+
+              <div className="min-w-0 flex-1">
+                <AppLayout
+                  sidebar={<div />}
+                  sidebarHidden
+                  terminalVisible={state.terminalOpen}
+                  sidebarResizeLabel={tNotebook('resizeFileTree')}
+                  terminalResizeLabel={tNotebook('resizeTerminal')}
+                  main={
+                    <div ref={desktopMainPanelRef} className="flex h-full min-h-0 w-full overflow-hidden">
+                      <div
+                        id="onboarding-notebook-editor"
+                        className={cn(
+                          'relative min-h-0 min-w-0 flex-1 overflow-hidden bg-background',
+                          state.mainSurface === 'chat' && 'hidden',
+                        )}
+                      >
+                        <SurfaceLayer active={state.mainSurface === 'document'} testId="notebook-desktop-document">
+                          {documentContent}
+                        </SurfaceLayer>
+                        <SurfaceLayer active={state.mainSurface === 'email'} testId="notebook-desktop-email">
+                          {emailContext ? <EmailClient /> : null}
+                        </SurfaceLayer>
+                        <SurfaceLayer active={state.mainSurface === 'browser'} testId="notebook-desktop-browser">
+                          {browserContext ? (
+                            <div className="flex h-full min-h-0 flex-col">
+                              <BrowserContextHeader
+                                action={browserContext.action}
+                                status={browserContext.status}
+                                url={browserContext.url}
+                              />
+                              <div className="min-h-0 flex-1">
+                                <BrowserLabClient
+                                  locale={browserLocale}
+                                  variant="live"
+                                  agentId={browserContext.agentId}
+                                  sessionId={browserContext.sessionId}
+                                />
+                              </div>
+                            </div>
+                          ) : null}
+                        </SurfaceLayer>
+                      </div>
+
+                      {state.chatDocked ? (
+                        <ResizeHandle
+                          data-testid="notebook-chat-resize-handle"
+                          orientation="vertical"
+                          label={tNotebook('resizeChat')}
+                          controls="onboarding-notebook-chat"
+                          min={NOTEBOOK_CHAT_MIN_WIDTH}
+                          max={availableChatMaxWidth}
+                          value={layout.chatWidth}
+                          resizing={chatResize.isResizing}
+                          {...chatResize.handleProps}
+                        />
+                      ) : null}
+
+                      <div
+                        ref={desktopChatRef}
+                        id="onboarding-notebook-chat"
+                        data-testid="notebook-desktop-chat"
+                        data-chat-placement={state.mainSurface === 'chat' ? 'main' : state.chatDocked ? 'side' : 'hidden'}
+                        style={state.chatDocked
+                          ? {
+                              '--notebook-chat-width': `${layout.chatWidth}px`,
+                              width: 'var(--notebook-chat-width)',
+                            } as CSSProperties
+                          : undefined}
+                        className={cn(
+                          'min-h-0 overflow-hidden bg-background',
+                          state.mainSurface === 'chat'
+                            ? 'min-w-0 flex-1'
+                            : state.chatDocked
+                              ? 'w-[var(--notebook-chat-width)] shrink-0 border-l border-border'
+                              : 'hidden',
+                        )}
+                      >
+                        {chatContent}
+                      </div>
+                    </div>
+                  }
+                  terminal={<TerminalPanel />}
+                />
+              </div>
+            </main>
+          )}
+        </div>
+      </HintProvider>
     </FileWatcherProvider>
   );
 }

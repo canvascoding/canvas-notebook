@@ -87,6 +87,7 @@ interface CanvasAgentChatProps {
   forcedSessionId?: string | null;
   requestContext?: ChatRequestContext;
   onRuntimeStatusChange?: (status: RuntimeStatus | null) => void;
+  onSessionContextChange?: (context: { agentId: string; sessionId: string } | null) => void;
   onMediaClick?: (mediaUrl: string) => void;
 }
 
@@ -141,6 +142,7 @@ export default function CanvasAgentChat({
   forcedSessionId,
   requestContext,
   onRuntimeStatusChange,
+  onSessionContextChange,
   onMediaClick,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
@@ -1043,6 +1045,17 @@ export default function CanvasAgentChat({
   const showStarterScreen = messages.length === 0 && !sessionId && !isResolvingInitialChatState;
   const activeSession = history.find((session) => session.sessionId === sessionId);
   const activeSessionAgentId = activeSession?.agentId || selectedAgentId;
+  useEffect(() => {
+    onSessionContextChange?.(
+      sessionId
+        ? {
+            agentId: activeSessionAgentId,
+            sessionId,
+          }
+        : null,
+    );
+  }, [activeSessionAgentId, onSessionContextChange, sessionId]);
+  useEffect(() => () => onSessionContextChange?.(null), [onSessionContextChange]);
   const isSessionTitleGenerating = activeSession?.titleGenerationState === 'pending' || activeSession?.titleGenerationState === 'generating';
   const activeAgentProfile = agentProfilesById.get(activeSessionAgentId);
   const activeAgentDisplayName = activeAgentProfile?.name || getAgentDisplayName(activeSessionAgentId);
