@@ -40,7 +40,6 @@ import { cn } from '@/lib/utils';
 interface AppItem {
   id: string;
   href: string;
-  activeHref?: string;
   icon: React.ComponentType<{ className?: string }>;
   hasQuickActions: boolean;
 }
@@ -55,7 +54,6 @@ const APPS: AppItem[] = [
   {
     id: 'chat',
     href: NOTEBOOK_CHAT_HREF,
-    activeHref: '/chat',
     icon: MessageSquare,
     hasQuickActions: false,
   },
@@ -224,7 +222,7 @@ export function AppLauncher() {
           <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
             {APPS.map((app) => {
               const Icon = app.icon;
-              const active = isPathActive(pathname, app.activeHref ?? app.href);
+              const active = isPathActive(pathname, app.href);
               const label = tApps(`${app.id}.title` as Parameters<typeof tApps>[0]);
               return (
                 <div key={app.id} className="group relative">
