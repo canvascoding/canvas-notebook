@@ -4,6 +4,10 @@ export type BrowserAction =
   | 'help'
   | 'status'
   | 'start'
+  | 'list_tabs'
+  | 'select_tab'
+  | 'new_tab'
+  | 'close_tab'
   | 'navigate'
   | 'observe'
   | 'click'
@@ -41,6 +45,7 @@ export type BrowserGatewayInput = {
   clear?: boolean;
   mutates?: boolean;
   prompt_text?: string;
+  tab_id?: string;
 };
 
 export type BrowserGatewayOutput = {
@@ -87,10 +92,12 @@ export type ConsoleEntry = {
 export type BrowserStatusDetails = {
   running: boolean;
   pageCount?: number;
+  activeTabId?: string | null;
   activeUrl?: string | null;
   activeTitle?: string | null;
   idleCloseMs?: number;
   pendingDialog?: BrowserDialogDetails | null;
+  tabs?: BrowserRuntimeTab[];
 };
 
 export type BrowserRuntimeTab = {
@@ -101,6 +108,20 @@ export type BrowserRuntimeTab = {
 };
 
 export type BrowserViewControlMode = 'view' | 'agent' | 'user';
+
+export type BrowserSessionSnapshot = {
+  revision: number;
+  running: boolean;
+  controlMode: BrowserViewControlMode;
+  activeTabId: string | null;
+  activeTitle: string | null;
+  activeUrl: string | null;
+  tabCount: number;
+  tabs: BrowserRuntimeTab[];
+  hasPendingDialog: boolean;
+};
+
+export type BrowserSessionSnapshotInput = Omit<BrowserSessionSnapshot, 'revision'>;
 
 export type BrowserViewNavigationAction =
   | 'back'

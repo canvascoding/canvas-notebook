@@ -12,6 +12,12 @@ import { resolveBrowserViewResourceBudget } from '../app/lib/pi/browser/view-res
 import { browserViewFailure } from '../app/lib/pi/browser/view-errors';
 import { issueBrowserFixtureTicket, verifyBrowserFixtureTicket } from '../app/lib/pi/browser/view-fixture-ticket';
 import {
+  getBrowserSessionSnapshot,
+  publishBrowserSessionSnapshot,
+  sanitizeBrowserSessionUrl,
+  subscribeBrowserSessionSnapshot,
+} from '../app/lib/pi/browser/session-state';
+import {
   normalizeBrowserUploadPaths,
   sanitizeBrowserDownloadFileName,
 } from '../app/lib/pi/browser/view-transfers';
@@ -112,6 +118,74 @@ function testSafeTransfers() {
   assert.throws(() => normalizeBrowserUploadPaths(['one.txt', 'two.txt'], false));
 }
 
+function testCompactBrowserSessionState() {
+  assert.equal(
+    sanitizeBrowserSessionUrl('https://user:password@example.test/account?token=secret#private'),
+    'https://example.test/account',
+  );
+  assert.equal(sanitizeBrowserSessionUrl('javascript:alert(1)'), null);
+
+  const contextKey = `browser-session-state-${Date.now()}`;
+  const revisions: number[] = [];
+  const unsubscribe = subscribeBrowserSessionSnapshot(contextKey, (snapshot) => {
+    revisions.push(snapshot.revision);
+  });
+  const tabs = Array.from({ length: 14 }, (_, index) => ({
+    id: `tab-${index + 1}`,
+    title: `Tab ${index + 1}`,
+    url: `https://example.test/page-${index + 1}?token=secret#private`,
+    active: index === 13,
+  }));
+  const first = publishBrowserSessionSnapshot(contextKey, {
+    running: true,
+    controlMode: 'user',
+    activeTabId: 'tab-14',
+    activeTitle: 'Sensitive title',
+    activeUrl: 'https://example.test/page-14?token=secret',
+    tabCount: tabs.length,
+    tabs,
+    hasPendingDialog: true,
+  });
+  assert.equal(first.revision, 1);
+  assert.equal(first.tabCount, 14);
+  assert.equal(first.tabs.length, 12);
+  assert.equal(first.tabs[0]?.id, 'tab-14');
+  assert.equal(first.activeUrl, 'https://example.test/page-14');
+  assert.equal(first.controlMode, 'user');
+  assert.equal(first.hasPendingDialog, true);
+  assert.deepEqual(revisions, [1]);
+
+  const unchanged = publishBrowserSessionSnapshot(contextKey, {
+    running: true,
+    controlMode: 'user',
+    activeTabId: 'tab-14',
+    activeTitle: 'Sensitive title',
+    activeUrl: 'https://example.test/page-14?different=secret',
+    tabCount: tabs.length,
+    tabs,
+    hasPendingDialog: true,
+  });
+  assert.equal(unchanged.revision, 1);
+  assert.deepEqual(revisions, [1]);
+
+  const closed = publishBrowserSessionSnapshot(contextKey, {
+    running: false,
+    controlMode: 'view',
+    activeTabId: 'tab-14',
+    activeTitle: 'Ignored',
+    activeUrl: 'https://example.test',
+    tabCount: 14,
+    tabs,
+    hasPendingDialog: true,
+  });
+  assert.equal(closed.revision, 2);
+  assert.equal(closed.running, false);
+  assert.deepEqual(closed.tabs, []);
+  assert.equal(getBrowserSessionSnapshot(contextKey)?.running, false);
+  assert.deepEqual(revisions, [1, 2]);
+  unsubscribe();
+}
+
 async function testResourceBudget() {
   const budget = await resolveBrowserViewResourceBudget();
   assert.ok(budget.effectiveMemoryMb > 0);
@@ -130,6 +204,7 @@ async function main() {
     testExclusiveControl();
     testSafeFailures();
     testSafeTransfers();
+    testCompactBrowserSessionState();
     await testResourceBudget();
   } finally {
     if (previousSecret === undefined) delete process.env.CANVAS_BROWSER_VIEW_TICKET_SECRET;

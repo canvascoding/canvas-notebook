@@ -14,6 +14,7 @@ import {
   dismissPendingDialog,
   ensurePage,
   getActiveBrowserRuntimeTabId,
+  getBrowserRuntimeContextKey,
   getBrowserRuntimeTabs,
   getPendingDialogDetails,
   resetBrowserSessionPage,
@@ -21,6 +22,8 @@ import {
   withBrowserRuntimeLock,
   type BrowserRuntimeContext,
 } from './runtime';
+import { publishBrowserSessionSnapshot } from './session-state';
+import { refreshBrowserSessionSnapshot } from './session-state-service';
 import {
   assertBrowserUserControl,
   getBrowserControlState,
@@ -454,6 +457,16 @@ export class BrowserViewService {
   async publishState(force: boolean): Promise<void> {
     if (this.closed) return;
     const state = await this.getState();
+    publishBrowserSessionSnapshot(getBrowserRuntimeContextKey(this.context), {
+      running: true,
+      controlMode: state.mode,
+      activeTabId: state.activeTabId,
+      activeTitle: state.title,
+      activeUrl: state.url,
+      tabCount: state.tabs.length,
+      tabs: state.tabs,
+      hasPendingDialog: Boolean(state.pendingDialog),
+    });
     const serialized = JSON.stringify(state);
     if (!force && serialized === this.lastState) return;
     this.lastState = serialized;
@@ -744,6 +757,7 @@ export class BrowserViewService {
     if (this.captureTimer) clearInterval(this.captureTimer);
     this.captureTimer = null;
     releaseBrowserViewControl(this.context, this.claims.viewId);
+    void refreshBrowserSessionSnapshot(this.context).catch(() => undefined);
     const pending = this.pendingFileChooser;
     this.pendingFileChooser = null;
     if (pending) void pending.chooser.cancel().catch(() => undefined);

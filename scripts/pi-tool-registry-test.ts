@@ -208,6 +208,11 @@ async function main() {
   assert.match(browserParametersJson, /eval/);
   assert.match(browserParametersJson, /script/);
   assert.match(browserParametersJson, /mutates/);
+  assert.match(browserParametersJson, /list_tabs/);
+  assert.match(browserParametersJson, /select_tab/);
+  assert.match(browserParametersJson, /new_tab/);
+  assert.match(browserParametersJson, /close_tab/);
+  assert.match(browserParametersJson, /tab_id/);
 
   const secretsDir = path.join(dataDir, 'secrets');
   const secretFile = path.join(secretsDir, 'Canvas-Integrations.env');

@@ -8,6 +8,7 @@ import puppeteer, { type Browser, type Dialog, type HTTPRequest, type Page, type
 import { requirePathInside } from '@/app/lib/security/safe-paths';
 
 import { buildBrowserLaunchSpec, resolveBrowserUserDataDir } from './chromium';
+import { publishBrowserSessionSnapshot } from './session-state';
 import { BrowserTargetStore } from './targets';
 import { isBrowserRequestUrlAllowed } from './url-policy';
 import type {
@@ -70,6 +71,19 @@ const CHROME_PROFILE_STARTUP_ARTIFACTS = [
   'SingletonCookie',
   'DevToolsActivePort',
 ] as const;
+
+function publishClosedBrowserSession(contextKey: string): void {
+  publishBrowserSessionSnapshot(contextKey, {
+    running: false,
+    controlMode: 'agent',
+    activeTabId: null,
+    activeTitle: null,
+    activeUrl: null,
+    tabCount: 0,
+    tabs: [],
+    hasPendingDialog: false,
+  });
+}
 
 export type BrowserProfileLaunchPreparation = {
   removedArtifacts: string[];
@@ -517,10 +531,11 @@ async function ensureBrowser(context: BrowserRuntimeContext = {}): Promise<Brows
     profile.browser.on('targetcreated', (target) => bindCreatedTargetToSession(profile, target));
     profile.browser.on('disconnected', () => {
       profile.browser = null;
-      for (const session of profile.sessions.values()) {
+      for (const [sessionKey, session] of profile.sessions) {
         session.activePage = null;
         session.pages.clear();
         session.targetStore.clear();
+        publishClosedBrowserSession(sessionKey);
       }
     });
     scheduleIdleClose(context);
@@ -657,6 +672,7 @@ export async function closeBrowserRuntime(
 
   profile.sessions.delete(sessionKey);
   await closeProfileIfUnused(profileKey, profile);
+  publishClosedBrowserSession(sessionKey);
 }
 
 export async function resetBrowserSessionPage(
@@ -698,19 +714,26 @@ export async function resetBrowserSessionPage(
 export async function getStatusDetails(context: BrowserRuntimeContext = {}): Promise<BrowserStatusDetails> {
   const profile = browserProfiles.get(getProfileKey(context));
   if (!profile || !profile.browser?.connected) {
-    return { running: false, pendingDialog: null };
+    return {
+      running: false,
+      activeTabId: null,
+      pendingDialog: null,
+      tabs: [],
+    };
   }
 
   const session = profile.sessions.get(getSessionKey(context));
-  const pages = await profile.browser.pages().catch(() => []);
+  const tabs = await getBrowserRuntimeTabs(context);
   const page = session?.activePage && !session.activePage.isClosed() ? session.activePage : null;
   return {
     running: true,
-    pageCount: pages.length,
+    pageCount: tabs.length,
+    activeTabId: getActiveBrowserRuntimeTabId(context),
     activeUrl: page?.url() || null,
     activeTitle: page ? await page.title().catch(() => null) : null,
     idleCloseMs: IDLE_CLOSE_MS,
     pendingDialog: session?.pendingDialog?.details ?? null,
+    tabs,
   };
 }
 

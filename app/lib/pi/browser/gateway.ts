@@ -10,7 +10,10 @@ import { resolveBrowserUserDataDir } from './chromium';
 import { extractReadablePageContent } from './content';
 import {
   acceptPendingDialog,
+  activateBrowserRuntimeTab,
+  closeActiveBrowserRuntimeTab,
   closeBrowserRuntime,
+  createBrowserRuntimeTab,
   dismissPendingDialog,
   ensurePage,
   getConsoleEntries,
@@ -24,6 +27,7 @@ import {
   withBrowserRuntimeLock,
   type BrowserRuntimeContext,
 } from './runtime';
+import { refreshBrowserSessionSnapshot } from './session-state-service';
 import {
   observeInteractiveTargets,
   resolveTargetHandle,
@@ -75,6 +79,10 @@ function normalizeAction(value: unknown): BrowserAction {
     'help',
     'status',
     'start',
+    'list_tabs',
+    'select_tab',
+    'new_tab',
+    'close_tab',
     'navigate',
     'observe',
     'click',
@@ -98,6 +106,9 @@ function normalizeAction(value: unknown): BrowserAction {
 
 function isMutatingBrowserAction(action: BrowserAction, input: BrowserGatewayInput): boolean {
   return action === 'start'
+    || action === 'select_tab'
+    || action === 'new_tab'
+    || action === 'close_tab'
     || action === 'navigate'
     || action === 'click'
     || action === 'type'
@@ -146,13 +157,81 @@ function helpText(topic?: string): string {
   }
 
   return [
-    'Browser gateway actions: status, start, navigate, observe, click, type, keypress, scroll, screenshot, extract_content, evaluate, dialog_status, accept_dialog, dismiss_dialog, console_logs, close.',
+    'Browser gateway actions: status, start, list_tabs, select_tab, new_tab, close_tab, navigate, observe, click, type, keypress, scroll, screenshot, extract_content, evaluate, dialog_status, accept_dialog, dismiss_dialog, console_logs, close.',
     'Use web_fetch first for static HTML, docs, blogs, and ordinary content extraction. Use this browser gateway only for JavaScript-rendered pages, UI interaction, screenshots, login/session checks, or local app verification.',
     'Navigation blocks cloud metadata, link-local, multicast, and private network targets by default; localhost is allowed for local app verification.',
     'Browser storage is persistent per user and agent by default, so cookies, local storage, and site login state can survive new agent sessions. Use normal site prompts to keep sign-ins persistent when appropriate.',
     'Evaluate is intended for read-only inspection. Set mutates: true only when the script intentionally changes page state and the user has approved that action.',
     'Call help with topic "safety" or "interaction" for more specific guidance.',
   ].join('\n');
+}
+
+async function withBrowserSessionSnapshot(
+  output: BrowserGatewayOutput,
+  context: BrowserRuntimeContext,
+): Promise<BrowserGatewayOutput> {
+  const browser = await refreshBrowserSessionSnapshot(context);
+  return {
+    ...output,
+    details: {
+      ...(output.details ?? {}),
+      browser,
+    },
+  };
+}
+
+async function listTabs(context: BrowserRuntimeContext): Promise<BrowserGatewayOutput> {
+  const details = await getStatusDetails(context);
+  const payload = {
+    activeTabId: details.activeTabId ?? null,
+    tabs: details.tabs ?? [],
+  };
+  return {
+    text: formatJson(payload),
+    details: payload,
+  };
+}
+
+async function selectTab(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext,
+): Promise<BrowserGatewayOutput> {
+  const tabId = input.tab_id?.trim();
+  if (!tabId) throw new Error('tab_id is required for select_tab.');
+  await activateBrowserRuntimeTab(context, tabId);
+  const details = await getStatusDetails(context);
+  return {
+    text: `Selected browser tab: ${tabId}`,
+    details,
+  };
+}
+
+async function newTab(
+  input: BrowserGatewayInput,
+  context: BrowserRuntimeContext,
+): Promise<BrowserGatewayOutput> {
+  const page = await createBrowserRuntimeTab(context);
+  if (input.url?.trim()) {
+    const url = await validateBrowserUrl(input.url);
+    await page.goto(url, {
+      waitUntil: input.wait_until || 'domcontentloaded',
+      timeout: clampNumber(input.timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS),
+    });
+  }
+  const details = await getStatusDetails(context);
+  return {
+    text: `Opened browser tab: ${page.url()}`,
+    details,
+  };
+}
+
+async function closeTab(context: BrowserRuntimeContext): Promise<BrowserGatewayOutput> {
+  const page = await closeActiveBrowserRuntimeTab(context);
+  const details = await getStatusDetails(context);
+  return {
+    text: `Closed active browser tab. Current tab: ${page.url()}`,
+    details,
+  };
 }
 
 function toJsonSafeValue(value: unknown): unknown {
@@ -555,14 +634,14 @@ export async function runBrowserGatewayAction(
     const requirements = getBrowserRequirementStatus({ cache: true });
     const details = await getStatusDetails(context);
     const payload = { ...details, requirements };
-    return { text: formatJson(payload), details: payload };
+    return withBrowserSessionSnapshot({ text: formatJson(payload), details: payload }, context);
   }
 
   if (action === 'console_logs') {
-    return consoleLogs(input, context);
+    return withBrowserSessionSnapshot(consoleLogs(input, context), context);
   }
 
-  return withBrowserRuntimeLock(context, async () => {
+  const output = await withBrowserRuntimeLock(context, async () => {
     const targetStore = getContextTargetStore(context);
     if (isMutatingBrowserAction(action, input)) {
       assertAgentBrowserControl(context);
@@ -582,7 +661,14 @@ export async function runBrowserGatewayAction(
           details: { requirements },
         };
       }
-      await ensurePage(context);
+      const page = await ensurePage(context);
+      if (input.url?.trim()) {
+        const url = await validateBrowserUrl(input.url);
+        await page.goto(url, {
+          waitUntil: input.wait_until || 'domcontentloaded',
+          timeout: clampNumber(input.timeout_ms, DEFAULT_TIMEOUT_MS, MAX_TIMEOUT_MS),
+        });
+      }
       targetStore.clear();
       const details = await getStatusDetails(context);
       return { text: formatJson(details), details };
@@ -595,6 +681,14 @@ export async function runBrowserGatewayAction(
     scheduleIdleClose(context);
 
     switch (action) {
+      case 'list_tabs':
+        return listTabs(context);
+      case 'select_tab':
+        return selectTab(input, context);
+      case 'new_tab':
+        return newTab(input, context);
+      case 'close_tab':
+        return closeTab(context);
       case 'navigate':
         return navigate(input, context);
       case 'observe':
@@ -623,4 +717,5 @@ export async function runBrowserGatewayAction(
         throw new Error(`Unsupported browser action "${action}".`);
     }
   });
+  return withBrowserSessionSnapshot(output, context);
 }
