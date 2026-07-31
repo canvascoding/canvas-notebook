@@ -11,6 +11,33 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.7.31.1] - 2026-07-31
+
+### Added
+
+- Added a deterministic Notebook workbench with accessible layouts, contextual tools, and integrated PDF conversion, rendering, and page operations.
+- Added shared live-browser session state, on-demand runtime context, embedded Notebook controls, a mobile browser contract, and an optional agent activity view beside the browser.
+- Added safe binary file writes for agents and versioned mobile browser-view tickets.
+
+### Changed
+
+- Unified legacy and newly created chats in the Notebook route while preserving browser and agent session state across tab changes.
+- Reused Docker build cache during setup and unified the Studio workspace switcher.
+
+### Fixed
+
+- Reconnected embedded browser views after tab switches, prevented duplicate agent sessions, and corrected scoped Studio aspect-ratio updates.
+
+### Security
+
+- Enforced upload and terminal ownership, restricted Studio reference reads, sanitized Excalidraw SVG assets, and forced active uploads to safe downloads.
+- Removed runtime root escalation and rejected unsafe production authentication secrets.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run verify:release`
+
 ## [2026.7.30.1] - 2026-07-30
 
 ### Added
