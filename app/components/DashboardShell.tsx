@@ -141,7 +141,7 @@ function SurfaceTab({
         aria-controls={controlsId}
         aria-selected={active}
         data-testid={testId}
-        className="flex h-full min-w-0 items-center gap-2 px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
+        className="flex h-full min-w-0 items-center gap-1 px-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:gap-2 sm:px-2.5"
         onClick={onSelect}
       >
         {icon}
@@ -150,7 +150,7 @@ function SurfaceTab({
       {onClose ? (
         <button
           type="button"
-          className="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring"
+          className="mr-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:mr-1 sm:w-6"
           aria-label={closeLabel}
           title={closeLabel}
           onClick={onClose}
@@ -717,12 +717,6 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
         onOpenChat={showChat}
       />
     );
-  const emailSurfaceLabel = emailContext?.status === 'running'
-    ? tNotebook('contextRunning')
-    : tNotebook('emailSurface');
-  const browserSurfaceLabel = browserContext?.status === 'running'
-    ? tNotebook('contextRunning')
-    : tNotebook('browserSurface');
   const surfacePanelIds = {
     chat: layout.isMobile ? 'notebook-mobile-chat' : 'onboarding-notebook-chat',
     document: layout.isMobile ? 'notebook-mobile-document' : 'notebook-desktop-document',
@@ -819,7 +813,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   closeLabel={tNotebook('closeEmailSurface')}
                   controlsId={surfacePanelIds.email}
                   icon={<Mail className="h-3.5 w-3.5 shrink-0" />}
-                  label={emailSurfaceLabel}
+                  label={tNotebook('emailSurface')}
                   onClose={() => handleCloseContext('email')}
                   onSelect={() => showSurface('email')}
                   testId="notebook-surface-email"
@@ -831,7 +825,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   closeLabel={tNotebook('closeBrowserSurface')}
                   controlsId={surfacePanelIds.browser}
                   icon={<Globe2 className="h-3.5 w-3.5 shrink-0" />}
-                  label={browserSurfaceLabel}
+                  label={tNotebook('browserSurface')}
                   onClose={() => handleCloseContext('browser')}
                   onSelect={() => showSurface('browser')}
                   testId="notebook-surface-browser"
