@@ -7,6 +7,7 @@ import path from 'node:path';
 import { getDatabaseProvider, openDb } from '@/app/lib/db';
 import { resolveDataDir } from '@/app/lib/db/provider';
 import type { ExcalidrawAssetMetadata } from './protocol';
+import { sanitizeExcalidrawSvg } from './svg-sanitizer';
 
 const MAX_ASSET_BYTES = 20 * 1024 * 1024;
 const SAFE_FILE_ID = /^[A-Za-z0-9_-]{1,128}$/u;
@@ -61,16 +62,12 @@ function mapAsset(row: AssetRow): ExcalidrawAssetMetadata {
   };
 }
 
-function assertSignature(mimeType: string, buffer: Buffer): void {
+function validateAssetData(mimeType: string, buffer: Buffer): Buffer {
   if (mimeType === 'image/png' && buffer.subarray(0, 8).toString('hex') !== '89504e470d0a1a0a') throw new Error('PNG signature does not match MIME type.');
   if (mimeType === 'image/jpeg' && !(buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[buffer.length - 2] === 0xff && buffer[buffer.length - 1] === 0xd9)) throw new Error('JPEG signature does not match MIME type.');
   if (mimeType === 'image/gif' && !['GIF87a', 'GIF89a'].includes(buffer.subarray(0, 6).toString('ascii'))) throw new Error('GIF signature does not match MIME type.');
   if (mimeType === 'image/webp' && !(buffer.subarray(0, 4).toString('ascii') === 'RIFF' && buffer.subarray(8, 12).toString('ascii') === 'WEBP')) throw new Error('WebP signature does not match MIME type.');
-  if (mimeType === 'image/svg+xml') {
-    const source = buffer.subarray(0, Math.min(buffer.length, 8_192)).toString('utf8').replace(/^\uFEFF/u, '').trimStart();
-    if (!/^(?:<\?xml[^>]*>\s*)?<svg(?:\s|>)/iu.test(source)) throw new Error('SVG content does not match MIME type.');
-    if (/<script(?:\s|>)/iu.test(source) || /\bon\w+\s*=/iu.test(source)) throw new Error('Active SVG content is not allowed.');
-  }
+  return mimeType === 'image/svg+xml' ? sanitizeExcalidrawSvg(buffer) : buffer;
 }
 
 export function decodeExcalidrawDataUrl(dataUrl: string): { mimeType: string; data: Buffer } {
@@ -94,14 +91,15 @@ export async function storeExcalidrawAsset(input: {
   const mimeType = input.mimeType.toLowerCase().split(';', 1)[0].trim();
   if (!ALLOWED_MIME_TYPES.has(mimeType)) throw new Error(`Unsupported Excalidraw asset MIME type: ${mimeType}.`);
   if (!input.data.length || input.data.length > MAX_ASSET_BYTES) throw new Error('Excalidraw asset exceeds the 20 MiB limit.');
-  assertSignature(mimeType, input.data);
-  const hash = crypto.createHash('sha256').update(input.data).digest('hex');
+  const data = validateAssetData(mimeType, input.data);
+  if (!data.length || data.length > MAX_ASSET_BYTES) throw new Error('Excalidraw asset exceeds the 20 MiB limit.');
+  const hash = crypto.createHash('sha256').update(data).digest('hex');
   const storageKey = path.join(workspaceStorageScope(input.workspaceId), hash);
   const target = absoluteStoragePath(storageKey);
   await mkdir(path.dirname(target), { recursive: true, mode: 0o700 });
   const temporary = `${target}.${process.pid}.${crypto.randomUUID()}.tmp`;
   try {
-    await writeFile(temporary, input.data, { mode: 0o600, flag: 'wx' });
+    await writeFile(temporary, data, { mode: 0o600, flag: 'wx' });
     await rename(temporary, target).catch(async (error: NodeJS.ErrnoException) => {
       if (error.code !== 'EEXIST') throw error;
       await rm(temporary, { force: true });
@@ -130,7 +128,7 @@ export async function storeExcalidrawAsset(input: {
         input.fileId,
         hash,
         mimeType,
-        input.data.length,
+        data.length,
         storageKey,
         input.version ?? 1,
         input.createdAt ?? now,

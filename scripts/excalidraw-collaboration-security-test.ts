@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { issueCollaborationTicket, verifyCollaborationTicket } from '@/app/lib/collaboration/ticket';
 import { EXCALIDRAW_MAX_PATCH_ELEMENTS } from '@/app/lib/excalidraw-collaboration/protocol';
 import { validateExcalidrawElement, validateExcalidrawElements, validateExcalidrawSceneReferences } from '@/app/lib/excalidraw-collaboration/scene';
+import { sanitizeExcalidrawSvg } from '@/app/lib/excalidraw-collaboration/svg-sanitizer';
 
 process.env.CANVAS_COLLABORATION_TICKET_SECRET = 'test-only-excalidraw-ticket-secret-0001';
 
@@ -51,5 +52,24 @@ assert.throws(() => validateExcalidrawSceneReferences([{
   isDeleted: false,
   startBinding: { elementId: 'missing' },
 }]), /missing/u);
+
+const validSvg = sanitizeExcalidrawSvg(Buffer.from(
+  '<svg xmlns="http://www.w3.org/2000/svg"><defs><linearGradient id="g"><stop offset="0" stop-color="red"/></linearGradient></defs><rect width="10" height="10" fill="url(#g)"/></svg>',
+));
+assert.match(validSvg.toString('utf8'), /linearGradient/u, 'Valid SVG drawing features must be preserved.');
+assert.match(validSvg.toString('utf8'), /fill="url\(#g\)"/u, 'Valid SVG paint references must be preserved.');
+assert.match(
+  sanitizeExcalidrawSvg(Buffer.from('<svg><rect width="10" height="10"/></svg>')).toString('utf8'),
+  /<rect/u,
+  'Existing namespace-less SVG assets must remain supported.',
+);
+
+const delayedActiveSvg = Buffer.from(
+  `<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/>${' '.repeat(8_192)}<script>alert(1)</script><circle onload="alert(1)" r="5"/></svg>`,
+);
+const sanitizedSvg = sanitizeExcalidrawSvg(delayedActiveSvg).toString('utf8');
+assert.doesNotMatch(sanitizedSvg, /<script|\bonload\s*=/iu);
+assert.match(sanitizedSvg, /<rect/u, 'Sanitization must preserve the safe visual content.');
+assert.match(sanitizedSvg, /<circle/u, 'Sanitization must remove active attributes without dropping the shape.');
 
 console.log('excalidraw-collaboration-security-test: ok');

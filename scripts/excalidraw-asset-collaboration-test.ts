@@ -27,10 +27,17 @@ async function main() {
   assert.equal(await loadExcalidrawAsset({ workspaceId: 'foreign-workspace', fileId: 'image-a' }), null, 'Assets must be workspace isolated.');
   assert.deepEqual(await validateExcalidrawAssetMetadata(workspaceId, [first]), [first]);
   await assert.rejects(validateExcalidrawAssetMetadata('foreign-workspace', [first]), /unavailable/u);
-  await assert.rejects(
-    storeExcalidrawAsset({ workspaceId, fileId: 'active-svg', mimeType: 'image/svg+xml', data: Buffer.from('<svg><script>alert(1)</script></svg>') }),
-    /active SVG/iu,
-  );
+  const sanitizedSvgMetadata = await storeExcalidrawAsset({
+    workspaceId,
+    fileId: 'active-svg',
+    mimeType: 'image/svg+xml',
+    data: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg"><rect width="10" height="10"/>${' '.repeat(8_192)}<script>alert(1)</script><circle onload="alert(1)" r="5"/></svg>`),
+  });
+  const sanitizedSvg = await loadExcalidrawAsset({ workspaceId, fileId: sanitizedSvgMetadata.fileId });
+  assert(sanitizedSvg);
+  assert.doesNotMatch(sanitizedSvg.data.toString('utf8'), /<script|\bonload\s*=/iu);
+  assert.match(sanitizedSvg.data.toString('utf8'), /<rect/u);
+  assert.match(sanitizedSvg.data.toString('utf8'), /<circle/u);
   await assert.rejects(
     storeExcalidrawAsset({ workspaceId, fileId: 'fake-png', mimeType: 'image/png', data: Buffer.from('not-a-png') }),
     /signature/u,

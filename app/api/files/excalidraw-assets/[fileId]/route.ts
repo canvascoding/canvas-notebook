@@ -16,6 +16,12 @@ export async function GET(
   try {
     const asset = await loadExcalidrawAsset({ workspaceId: workspaceResult.workspace.workspaceId, fileId });
     if (!asset) return NextResponse.json({ success: false, error: 'Asset not found.' }, { status: 404 });
+    const svgHeaders = asset.metadata.mimeType === 'image/svg+xml'
+      ? {
+          'Content-Security-Policy': "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'",
+          'Cross-Origin-Resource-Policy': 'same-origin',
+        }
+      : {};
     return new NextResponse(new Uint8Array(asset.data), {
       headers: {
         'Content-Type': asset.metadata.mimeType,
@@ -23,6 +29,7 @@ export async function GET(
         'Cache-Control': 'private, max-age=31536000, immutable',
         'X-Content-Type-Options': 'nosniff',
         ETag: `"${asset.metadata.contentHash}"`,
+        ...svgHeaders,
       },
     });
   } catch (error) {
