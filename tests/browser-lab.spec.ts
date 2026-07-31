@@ -466,7 +466,7 @@ test.describe('Browser Lab', () => {
       await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
 
-      await page.goto('/chat?chat=open');
+      await page.goto('/notebook?chat=open');
       await page.getByTestId('chat-open-latest-session').click();
       await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
 
@@ -498,7 +498,7 @@ test.describe('Browser Lab', () => {
       await page.screenshot({ path: 'test-results/live-browser-from-chat.png', fullPage: false });
 
       await page.getByRole('link', { name: labels.backToChat }).click();
-      await expect(page).toHaveURL(/\/chat\?/);
+      await expect(page).toHaveURL(/\/notebook\?/);
       await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
       expect(pageErrors).toEqual([]);
     } finally {

@@ -1,8 +1,13 @@
 import type { Metadata } from 'next';
-import { getTranslations } from 'next-intl/server';
+import { getLocale, getTranslations } from 'next-intl/server';
 
-import { ChatShell } from './chat-shell';
 import { requirePageSession } from '@/app/lib/auth-guards';
+import { buildNotebookChatRedirectHref } from '@/app/lib/chat/chat-navigation-intent';
+import { redirect } from '@/i18n/navigation';
+
+type ChatPageProps = {
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
+};
 
 export async function generateMetadata(): Promise<Metadata> {
   const t = await getTranslations('chat');
@@ -13,8 +18,16 @@ export async function generateMetadata(): Promise<Metadata> {
   };
 }
 
-export default async function ChatPage() {
+export default async function ChatPage({ searchParams }: ChatPageProps) {
   await requirePageSession();
 
-  return <ChatShell />;
+  const [locale, resolvedSearchParams] = await Promise.all([
+    getLocale(),
+    searchParams ?? Promise.resolve({}),
+  ]);
+
+  redirect({
+    href: buildNotebookChatRedirectHref(resolvedSearchParams),
+    locale,
+  });
 }

@@ -133,8 +133,8 @@ async function login(page: Page) {
   });
 
   expect(response.ok()).toBeTruthy();
-  await page.goto('/chat', { waitUntil: 'domcontentloaded' });
-  await expect(page).toHaveURL(/\/chat$/, { timeout: 15000 });
+  await page.goto('/notebook?chat=open', { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/\/notebook\?chat=open$/, { timeout: 15000 });
 }
 
 async function startFreshChat(page: Page) {
@@ -229,6 +229,21 @@ async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string;
       }),
     });
   });
+
+  return {
+    updateTitle(title: string) {
+      if (!mockSession) {
+        return;
+      }
+
+      mockSession = {
+        ...mockSession,
+        title,
+        titleGenerationState: 'generated',
+        lastMessageAt: new Date().toISOString(),
+      };
+    },
+  };
 }
 
 async function getChatInputMetrics(page: Page) {
@@ -260,6 +275,10 @@ interface MockWsConfig {
   agentEvents?: AgentEventPayload[];
   sendEventsAfterSendMessage?: boolean;
   runtimeStatus?: Record<string, unknown>;
+  sessionTitleUpdate?: {
+    title: string;
+    titleGenerationState?: string;
+  };
 }
 
 function isMockControlEnvelope(value: MockControlResult): value is { status: Record<string, unknown>; agentEvents?: AgentEventPayload[] } {
@@ -311,8 +330,8 @@ async function setupMockWebSocket(page: Page, config: MockWsConfig) {
 
           config.onSendMessage?.(message.message, message.context, requestId);
 
+          let delay = 0;
           if (sendEventsAfterSendMessage) {
-            let delay = 0;
             for (const event of eventQueue) {
               const currentDelay = delay;
               setTimeout(() => {
@@ -321,6 +340,18 @@ async function setupMockWebSocket(page: Page, config: MockWsConfig) {
               delay += 50;
             }
             eventQueue = [];
+          }
+
+          if (config.sessionTitleUpdate) {
+            const currentDelay = delay;
+            setTimeout(() => {
+              ws.send(JSON.stringify({
+                type: 'session_title_updated',
+                sessionId,
+                title: config.sessionTitleUpdate?.title,
+                titleGenerationState: config.sessionTitleUpdate?.titleGenerationState ?? 'generated',
+              }));
+            }, currentDelay);
           }
           break;
         }
@@ -394,6 +425,10 @@ test.describe('PI Chat E2E', () => {
     await login(page);
     await context.storageState({ path: AUTH_STATE_PATH });
     await context.close();
+  });
+
+  test.beforeEach(async ({ page }) => {
+    await mockEffectiveAgentRuntime(page);
   });
 
   test('should render persisted upload references as preview attachments without metadata duplication', async ({ page }) => {
@@ -506,7 +541,7 @@ contentKind: document
 
     await setupMockWebSocket(page, { sessionId, sendEventsAfterSendMessage: false });
 
-    await page.goto(`/chat?session=${encodeURIComponent(sessionId)}`);
+    await page.goto(`/notebook?chat=open&session=${encodeURIComponent(sessionId)}`);
 
     const userMessage = page.getByTestId('chat-message-user').filter({ hasText: 'Please inspect these uploads.' });
     await expect(userMessage).toBeVisible({ timeout: 15000 });
@@ -521,10 +556,18 @@ contentKind: document
   test('should bootstrap a session, show the session id, and derive a history title', async ({ page }) => {
     const sessionId = `sess-bootstrap-${Date.now()}`;
     const prompt = `Session title smoke ${Date.now()} should become the visible history title after the first streamed reply finishes.`;
+    const generatedTitle = prompt.slice(0, 48);
 
-    await mockEmptyChatBootstrap(page, { sessionId });
+    const sessionBootstrap = await mockEmptyChatBootstrap(page, { sessionId });
     await setupMockWebSocket(page, {
       sessionId,
+      onSendMessage: () => {
+        sessionBootstrap.updateTitle(generatedTitle);
+      },
+      sessionTitleUpdate: {
+        title: generatedTitle,
+        titleGenerationState: 'generated',
+      },
       agentEvents: [
         {
           type: 'agent_end',
@@ -553,7 +596,7 @@ contentKind: document
       ],
     });
 
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
@@ -595,7 +638,7 @@ contentKind: document
   });
 
   test('should keep structured PI context for a second turn', async ({ page }) => {
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
@@ -627,7 +670,7 @@ contentKind: document
       consoleMessages.push(message.text());
     });
 
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
@@ -663,7 +706,7 @@ contentKind: document
     });
 
     await mockEmptyChatBootstrap(page, { sessionId });
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
@@ -767,7 +810,7 @@ contentKind: document
       });
     });
 
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     await page.getByTestId('chat-input').fill('hi');
@@ -838,7 +881,7 @@ contentKind: document
 
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'subtle'));
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
     await input.fill('Render markdown and tools.');
@@ -940,7 +983,7 @@ contentKind: document
 
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'subtle'));
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
     await input.fill('Create a markdown plan.');
@@ -1045,7 +1088,7 @@ contentKind: document
 
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
     await input.fill('Use the Studio media tools with workspace assets.');
@@ -1168,7 +1211,7 @@ contentKind: document
 
     await mockEmptyChatBootstrap(page, { sessionId });
     await page.addInitScript(() => window.localStorage.setItem('canvas-tool-verbosity', 'verbose'));
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
     await page.getByTestId('chat-input').fill('Read both screenshots.');
     await page.getByTestId('chat-send').click();
@@ -1267,7 +1310,7 @@ contentKind: document
     });
 
     await mockEmptyChatBootstrap(page, { sessionId });
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
@@ -1292,7 +1335,7 @@ contentKind: document
   });
 
   test('should switch runtime badge to working immediately on send and back to ready when final message lands', async ({ page }) => {
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
@@ -1444,7 +1487,7 @@ contentKind: document
     });
 
     await mockEmptyChatBootstrap(page, { sessionId });
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
@@ -1563,7 +1606,7 @@ contentKind: document
     });
 
     await mockEmptyChatBootstrap(page, { sessionId });
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
     const input = page.getByTestId('chat-input');
     await input.fill('Render usage footer.');
@@ -1651,7 +1694,7 @@ contentKind: document
     });
 
     await mockEmptyChatBootstrap(page, { sessionId });
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
@@ -1858,7 +1901,7 @@ contentKind: document
       sendEventsAfterSendMessage: true,
     });
 
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
 
     await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
     await expect
@@ -2020,7 +2063,7 @@ contentKind: document
         documentRequests.push(request.url());
       }
     });
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     const documentRequestCountBeforeSessionOpen = documentRequests.length;
     await page.getByRole('button', { name: /Open latest session Stopped runtime session/i }).click();
 
@@ -2041,7 +2084,7 @@ contentKind: document
     await page.setViewportSize({ width: 390, height: 844 });
     await mockEmptyChatBootstrap(page);
 
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
 
     await expect(page.getByTestId('chat-starter-prompts')).toHaveCount(0);
     await expect(page.getByTestId('chat-prompt-suggestion')).toHaveText(/.+/);
@@ -2143,7 +2186,7 @@ contentKind: document
   test('should auto-grow the composer up to the mobile max height and collapse on reset', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
     await mockEmptyChatBootstrap(page);
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
 
     const input = page.getByTestId('chat-input');
     const longPrompt = Array.from({ length: 20 }, (_, index) => `Zeile ${index + 1} für den Composer-Wachstumstest.`).join('\n');
@@ -2350,7 +2393,7 @@ contentKind: document
       });
     });
 
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
 
     await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
     await expect(page.getByTestId('chat-runtime-busy-badge')).toContainText('Ready');
@@ -2477,7 +2520,7 @@ contentKind: document
       sendEventsAfterSendMessage: false,
     });
 
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     await page.getByRole('button', { name: /Open latest session Compact session/i }).click();
 
     await expect(page.getByTestId('chat-compact')).toBeEnabled({ timeout: 15000 });
@@ -2689,7 +2732,7 @@ contentKind: document
     await expect(page.getByText('Prompt files included:')).toContainText('AGENTS.md', { timeout: 15000 });
     await expect(page.getByText('Prompt fallback:')).toContainText('Inactive', { timeout: 15000 });
 
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
 
     const input = page.getByTestId('chat-input');
     await input.fill('Antworte nur mit READY.');

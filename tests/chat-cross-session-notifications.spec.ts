@@ -82,7 +82,7 @@ test('shows a completion toast fallback and unread badge for another session', a
   const currentSessionId = 'sess-current';
   const backgroundSessionId = 'sess-background';
 
-  await page.route('**/api/sessions', async (route) => {
+  await page.route('**/api/sessions**', async (route) => {
     if (route.request().method() !== 'GET') {
       await route.continue();
       return;
@@ -123,7 +123,7 @@ test('shows a completion toast fallback and unread badge for another session', a
     });
   });
 
-  await page.goto('/chat', { waitUntil: 'networkidle' });
+  await page.goto('/notebook?chat=open', { waitUntil: 'domcontentloaded' });
   await page.getByTestId('chat-history-toggle').click();
   await expect(page.getByText('Background session')).toBeVisible();
   await expect(page.getByTestId('chat-history-unread-indicator')).toHaveCount(0);
@@ -147,7 +147,7 @@ test('suppresses toast and unread when the finished response belongs to the visi
   const currentSessionId = 'sess-current';
   let markAsReadCalls = 0;
 
-  await page.route('**/api/sessions', async (route) => {
+  await page.route('**/api/sessions**', async (route) => {
     const method = route.request().method();
 
     if (method === 'PATCH') {
@@ -192,7 +192,7 @@ test('suppresses toast and unread when the finished response belongs to the visi
     });
   });
 
-  await page.goto(`/chat?session=${encodeURIComponent(currentSessionId)}`, { waitUntil: 'networkidle' });
+  await page.goto(`/notebook?chat=open&session=${encodeURIComponent(currentSessionId)}`, { waitUntil: 'domcontentloaded' });
   await expect(page.getByTestId('chat-session-id')).toContainText('Current session');
   await page.getByTestId('chat-history-toggle').click();
   await expect(page.getByTestId('chat-history-unread-indicator')).toHaveCount(0);

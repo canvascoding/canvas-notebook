@@ -20,8 +20,8 @@ async function login(page: Page) {
   });
 
   expect(response.ok()).toBeTruthy();
-  await page.goto('/chat', { waitUntil: 'domcontentloaded' });
-  await expect(page).toHaveURL(/\/chat$/, { timeout: 15000 });
+  await page.goto('/notebook?chat=open', { waitUntil: 'domcontentloaded' });
+  await expect(page).toHaveURL(/\/notebook\?chat=open$/, { timeout: 15000 });
 }
 
 async function createFileDataTransfer(page: Page, files: Array<{ name: string; mimeType: string; content: string }>) {
@@ -50,7 +50,7 @@ test.describe('Multiple File Upload', () => {
   });
 
   test('allows selecting multiple files via paperclip', async ({ page }) => {
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     
     // Start fresh chat
     await page.getByRole('button', { name: /new chat/i }).click();
@@ -83,7 +83,7 @@ test.describe('Multiple File Upload', () => {
   });
 
   test('allows dropping multiple files onto the composer prompt', async ({ page }) => {
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
 
     await page.getByRole('button', { name: /new chat/i }).click();
 
@@ -114,7 +114,7 @@ test.describe('Multiple File Upload', () => {
   });
 
   test('uploads mixed file types (image + document)', async ({ page }) => {
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     
     // Start fresh chat
     await page.getByRole('button', { name: /new chat/i }).click();
@@ -147,7 +147,7 @@ test.describe('Multiple File Upload', () => {
   });
 
   test('shows upload error for oversized files', async ({ page }) => {
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     
     // Start fresh chat
     await page.getByRole('button', { name: /new chat/i }).click();
@@ -166,13 +166,13 @@ test.describe('Multiple File Upload', () => {
     ]);
     
     // Verify error is shown
-    const errorBanner = page.locator('[class*="bg-destructive/10"]');
+    const errorBanner = page.getByText(/too-large\.txt: File too large/i);
     await expect(errorBanner).toBeVisible();
-    await expect(errorBanner).toContainText(/too large|File too large/i);
+    await expect(errorBanner).toContainText(/File too large/i);
   });
 
   test('allows removing individual attachments', async ({ page }) => {
-    await page.goto('/chat');
+    await page.goto('/notebook?chat=open');
     
     // Start fresh chat
     await page.getByRole('button', { name: /new chat/i }).click();

@@ -363,7 +363,7 @@ test.describe('Task 50 agent provisioning and management', () => {
         access: { canUse: true, canEdit: false, canManage: false },
       });
 
-      await memberPage.goto('/en/chat');
+      await memberPage.goto('/en/notebook?chat=open');
       const selector = memberPage.getByTestId('chat-agent-id');
       await expect(selector).toBeVisible({ timeout: 30_000 });
       await selector.click();
@@ -445,7 +445,7 @@ test.describe('Task 50 agent provisioning and management', () => {
       await expect.poll(async () => (await listAgents(memberPage)).some((agent) => agent.agentId === organizationAgent!.agentId)).toBe(false);
       const revokedBrowserStatusResponse = await memberPage.request.get(`/api/agents/browser?agentId=${encodeURIComponent(organizationAgent!.agentId)}`);
       expect(revokedBrowserStatusResponse.status()).toBe(403);
-      await memberPage.goto('/en/chat');
+      await memberPage.goto('/en/notebook?chat=open');
       await expect(memberPage.getByTestId('chat-agent-id')).toBeVisible({ timeout: 30_000 });
       await memberPage.getByTestId('chat-agent-id').click();
       await expect(memberPage.getByTestId('chat-agent-selector-popover').getByText(organizationName, { exact: true })).toHaveCount(0);

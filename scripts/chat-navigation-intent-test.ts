@@ -4,6 +4,7 @@ import {
   NOTEBOOK_CHAT_HREF,
   NOTEBOOK_CHAT_PATH,
   buildChatSessionHref,
+  buildNotebookChatRedirectHref,
   buildNotebookChatSessionHref,
   getChatNavigationIntent,
   getNotebookNavigationIntent,
@@ -60,6 +61,20 @@ function main() {
   assert.equal(
     buildNotebookChatSessionHref('session-a', 'workspace-a'),
     '/notebook?session=session-a&workspaceId=workspace-a&chat=open',
+  );
+  assert.equal(
+    buildNotebookChatRedirectHref({}),
+    '/notebook?chat=open',
+  );
+  assert.equal(
+    buildNotebookChatRedirectHref({
+      session: 'session-a',
+      workspaceId: 'workspace-a',
+      chat: 'closed',
+      filter: ['unread', 'assigned'],
+      ignored: undefined,
+    }),
+    '/notebook?session=session-a&workspaceId=workspace-a&chat=open&filter=unread&filter=assigned',
   );
   assert.equal(
     buildChatSessionHref('/todos?todo=todo-a#details', 'session-a', 'workspace-a'),
