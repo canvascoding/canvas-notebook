@@ -1,6 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
-import { readStudioReferenceFile } from '@/app/lib/integrations/studio-workspace';
+import {
+  isValidStudioReferenceId,
+  readStudioReferenceFile,
+} from '@/app/lib/integrations/studio-workspace';
 import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -31,8 +34,8 @@ export async function GET(
   if (!studioRequest.scope) return studioRequest.response;
 
   const { id } = await params;
-  if (!id) {
-    return NextResponse.json({ success: false, error: 'File ID required' }, { status: 400 });
+  if (!id || !isValidStudioReferenceId(id)) {
+    return NextResponse.json({ success: false, error: 'Invalid file ID' }, { status: 400 });
   }
 
   let buffer: Buffer;
@@ -50,6 +53,7 @@ export async function GET(
     headers: {
       'Content-Type': CONTENT_TYPES[extension] ?? 'application/octet-stream',
       'Cache-Control': 'private, max-age=31536000, immutable',
+      'X-Content-Type-Options': 'nosniff',
     },
   });
 }

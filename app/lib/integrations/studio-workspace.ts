@@ -25,6 +25,9 @@ export const STUDIO_STYLES_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'styles
 export const STUDIO_PRESETS_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'presets');
 export const STUDIO_REFERENCES_DIR = path.posix.join(STUDIO_ASSETS_ROOT_DIR, 'references');
 
+const SAFE_STUDIO_REFERENCE_ID = /^ref-[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}\.[a-z0-9]{1,16}$/iu;
+const SAFE_LEGACY_REFERENCE_OWNER_ID = /^[A-Za-z0-9_-]{1,128}$/u;
+
 function normalizeScope(scope: StudioStorageScope): StudioStorageScope {
   return {
     organizationId: normalizeDataScopeId(scope.organizationId, 'organizationId'),
@@ -173,6 +176,10 @@ export function generateStudioReferencePath(
   return { id, relativePath };
 }
 
+export function isValidStudioReferenceId(referenceId: string): boolean {
+  return SAFE_STUDIO_REFERENCE_ID.test(referenceId);
+}
+
 function toSlug(input: string): string {
   const slug = input
     .toLowerCase()
@@ -244,20 +251,72 @@ export async function writeStudioReferenceFile(
   referenceId: string,
   buffer: Buffer,
 ): Promise<void> {
-  const filePath = typeof scopeOrUserId === 'string'
-    ? path.posix.join('references', scopeOrUserId, referenceId)
-    : workspaceAssetPath(scopeOrUserId, 'references', referenceId);
-  await writeAssetFile(filePath, buffer);
+  const filePath = await resolveStudioReferenceTarget(scopeOrUserId, referenceId, true);
+  await fs.writeFile(filePath, buffer);
 }
 
 export async function readStudioReferenceFile(
   scopeOrUserId: StudioStorageScope | string,
   referenceId: string,
 ): Promise<Buffer> {
-  const filePath = typeof scopeOrUserId === 'string'
-    ? path.posix.join('references', scopeOrUserId, referenceId)
-    : workspaceAssetPath(scopeOrUserId, 'references', referenceId);
-  return readAssetFile(filePath);
+  const filePath = await resolveStudioReferenceTarget(scopeOrUserId, referenceId, false);
+  return fs.readFile(filePath);
+}
+
+async function resolveStudioReferenceTarget(
+  scopeOrUserId: StudioStorageScope | string,
+  referenceId: string,
+  createRoot: boolean,
+): Promise<string> {
+  if (!isValidStudioReferenceId(referenceId)) {
+    throw new Error('Invalid Studio reference id.');
+  }
+
+  let parentRoot: string;
+  let referenceRoot: string;
+  if (typeof scopeOrUserId === 'string') {
+    if (!SAFE_LEGACY_REFERENCE_OWNER_ID.test(scopeOrUserId)) {
+      throw new Error('Invalid Studio reference owner id.');
+    }
+    parentRoot = path.join(getStudioAssetsRoot(), 'references');
+    referenceRoot = path.join(parentRoot, scopeOrUserId);
+  } else {
+    parentRoot = getStudioAssetsRoot(scopeOrUserId);
+    referenceRoot = path.join(parentRoot, 'references');
+  }
+
+  if (createRoot) {
+    await fs.mkdir(referenceRoot, { recursive: true });
+  }
+
+  const [realParentRoot, realReferenceRoot] = await Promise.all([
+    fs.realpath(parentRoot),
+    fs.realpath(referenceRoot),
+  ]);
+  const expectedReferenceRoot = path.join(realParentRoot, path.basename(referenceRoot));
+  if (realReferenceRoot !== expectedReferenceRoot) {
+    throw new Error('Invalid Studio reference storage path.');
+  }
+
+  const targetPath = path.join(realReferenceRoot, referenceId);
+  if (createRoot) {
+    try {
+      const existingTarget = await fs.realpath(targetPath);
+      if (path.dirname(existingTarget) !== realReferenceRoot) {
+        throw new Error('Invalid Studio reference storage path.');
+      }
+      return existingTarget;
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+      return targetPath;
+    }
+  }
+
+  const realTarget = await fs.realpath(targetPath);
+  if (path.dirname(realTarget) !== realReferenceRoot) {
+    throw new Error('Invalid Studio reference storage path.');
+  }
+  return realTarget;
 }
 
 export async function getStudioOutputStats(filePath: string) {
