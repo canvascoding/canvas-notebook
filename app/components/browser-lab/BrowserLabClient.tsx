@@ -753,9 +753,9 @@ export function BrowserLabClient({
     if (!viewerEnabled || !isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
     const contextKey = `${selectedAgentId}:${selectedSessionId}:${autoConnectKey || ''}`;
     if (autoConnectedContextRef.current === contextKey) return;
-    autoConnectedContextRef.current = contextKey;
     if (connectionStatus === 'live') return;
     const timeout = window.setTimeout(() => {
+      autoConnectedContextRef.current = contextKey;
       void connect();
     }, 0);
     return () => window.clearTimeout(timeout);
