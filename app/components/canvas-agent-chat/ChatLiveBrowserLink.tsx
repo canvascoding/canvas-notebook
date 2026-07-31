@@ -9,12 +9,14 @@ import { Link } from '@/i18n/navigation';
 
 type ChatLiveBrowserLinkProps = {
   agentId: string;
+  onOpen?: () => void;
   runtimeStatus: RuntimeStatus | null;
   sessionId: string | null;
 };
 
 export function ChatLiveBrowserLink({
   agentId,
+  onOpen,
   runtimeStatus,
   sessionId,
 }: ChatLiveBrowserLinkProps) {
@@ -32,6 +34,32 @@ export function ChatLiveBrowserLink({
 
   if (!sessionId || !browser) return null;
 
+  const content = (
+    <>
+      <MonitorUp aria-hidden="true" size={14} />
+      <span className="hidden @[36rem]:inline">{label}</span>
+      <span className="sr-only @[36rem]:hidden">{label}</span>
+    </>
+  );
+  const className = 'group inline-flex h-7 items-center gap-1.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300';
+
+  if (onOpen) {
+    return (
+      <button
+        type="button"
+        onClick={onOpen}
+        data-testid="chat-live-browser-link"
+        data-browser-control-mode={browser.controlMode}
+        data-browser-tab-count={browser.tabCount}
+        aria-label={accessibleLabel}
+        title={accessibleLabel}
+        className={className}
+      >
+        {content}
+      </button>
+    );
+  }
+
   return (
     <Link
       href={href}
@@ -40,11 +68,9 @@ export function ChatLiveBrowserLink({
       data-browser-tab-count={browser.tabCount}
       aria-label={accessibleLabel}
       title={accessibleLabel}
-      className="group inline-flex h-7 items-center gap-1.5 rounded-md border border-emerald-500/35 bg-emerald-500/10 px-2 text-[11px] font-medium text-emerald-700 transition-colors hover:bg-emerald-500/20 dark:text-emerald-300"
+      className={className}
     >
-      <MonitorUp aria-hidden="true" size={14} />
-      <span className="hidden @[36rem]:inline">{label}</span>
-      <span className="sr-only @[36rem]:hidden">{label}</span>
+      {content}
     </Link>
   );
 }

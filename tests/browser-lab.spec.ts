@@ -452,7 +452,7 @@ test.describe('Browser Lab', () => {
     }
   });
 
-  test('opens the running browser from its chat without exposing lab diagnostics', async ({ page }) => {
+  test('opens the running browser beside its chat inside the notebook', async ({ page }) => {
     const pageErrors: Error[] = [];
     page.on('pageerror', (error) => pageErrors.push(error));
 
@@ -466,8 +466,8 @@ test.describe('Browser Lab', () => {
       await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
 
-      await page.goto('/notebook?chat=open');
-      await page.getByTestId('chat-open-latest-session').click();
+      await page.goto(`/notebook?chat=open&session=${encodeURIComponent(session.sessionId)}`);
+      await page.getByTestId('notebook-surface-chat').click();
       await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
 
       const browserStatusResponse = await page.request.get(
@@ -481,25 +481,59 @@ test.describe('Browser Lab', () => {
       expect(browserStatusResponse.ok(), JSON.stringify(browserStatus)).toBeTruthy();
       expect(browserStatus.data?.profile?.sessionRunning, JSON.stringify(browserStatus)).toBeTruthy();
 
+      await expect(page.getByTestId('notebook-surface-browser')).toHaveAttribute(
+        'aria-selected',
+        'true',
+        { timeout: 30_000 },
+      );
+      await page.getByTestId('notebook-surface-chat').click();
+      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
       const liveBrowserLink = page.getByTestId('chat-live-browser-link');
       await expect(liveBrowserLink).toBeVisible({ timeout: 30_000 });
-      await expect(liveBrowserLink).toHaveAttribute('aria-label', labels.openLiveBrowser);
+      await expect(liveBrowserLink).toHaveAttribute(
+        'aria-label',
+        /^(Live-Browser öffnen|Open live browser)(?::|$)/,
+      );
+      const notebookUrl = page.url();
       await liveBrowserLink.click();
 
-      await expect(page).toHaveURL(new RegExp(
-        `/browser/live\\?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}$`,
-      ));
-      await expect(page.getByRole('heading', { name: labels.liveBrowser, level: 2 })).toBeVisible();
+      await expect(page).toHaveURL(notebookUrl);
+      await expect(page.getByTestId('notebook-surface-browser')).toHaveAttribute('aria-selected', 'true');
+      await expect(page.getByTestId('notebook-desktop-browser')).toHaveAttribute('aria-hidden', 'false');
+      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('data-chat-placement', 'side');
       await expect(page.getByRole('combobox')).toHaveCount(0);
       await expect(page.getByText(/^(Diagnose|Diagnostics)$/)).toHaveCount(0);
       await expect(page.getByText(session.sessionId, { exact: true })).toHaveCount(0);
-      await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
-      await page.screenshot({ path: 'test-results/live-browser-from-chat.png', fullPage: false });
+      await page.screenshot({ path: 'test-results/notebook-browser-beside-chat.png', fullPage: false });
 
-      await page.getByRole('link', { name: labels.backToChat }).click();
-      await expect(page).toHaveURL(/\/notebook\?/);
-      await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
+      const desktopMetrics = await page.evaluate(() => {
+        const browser = document.querySelector<HTMLElement>('[data-testid="notebook-desktop-browser"]')
+          ?.getBoundingClientRect();
+        const chat = document.querySelector<HTMLElement>('[data-testid="notebook-desktop-chat"]')
+          ?.getBoundingClientRect();
+        return {
+          innerWidth: window.innerWidth,
+          scrollWidth: document.documentElement.scrollWidth,
+          browser: browser ? { left: browser.left, right: browser.right, width: browser.width } : null,
+          chat: chat ? { left: chat.left, right: chat.right, width: chat.width } : null,
+        };
+      });
+      expect(desktopMetrics.scrollWidth).toBeLessThanOrEqual(desktopMetrics.innerWidth + 1);
+      expect(desktopMetrics.browser?.width ?? 0).toBeGreaterThan(240);
+      expect(desktopMetrics.chat?.width ?? 0).toBeGreaterThan(240);
+      expect(desktopMetrics.chat!.left).toBeGreaterThanOrEqual(desktopMetrics.browser!.right - 1);
+      expect(desktopMetrics.chat!.right).toBeLessThanOrEqual(desktopMetrics.innerWidth + 1);
+
+      await page.setViewportSize({ width: 390, height: 844 });
+      await expect(page.getByTestId('notebook-mobile-browser')).toHaveAttribute('aria-hidden', 'false');
+      await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
+      await page.screenshot({ path: 'test-results/notebook-browser-mobile.png', fullPage: false });
+      const mobileMetrics = await page.evaluate(() => ({
+        innerWidth: window.innerWidth,
+        scrollWidth: document.documentElement.scrollWidth,
+      }));
+      expect(mobileMetrics.scrollWidth).toBeLessThanOrEqual(mobileMetrics.innerWidth + 1);
       expect(pageErrors).toEqual([]);
     } finally {
       await deleteBrowserLabTestSession(page, session);

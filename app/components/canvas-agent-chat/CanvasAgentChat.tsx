@@ -88,6 +88,7 @@ interface CanvasAgentChatProps {
   requestContext?: ChatRequestContext;
   onRuntimeStatusChange?: (status: RuntimeStatus | null) => void;
   onSessionContextChange?: (context: { agentId: string; sessionId: string } | null) => void;
+  onOpenLiveBrowser?: () => void;
   onMediaClick?: (mediaUrl: string) => void;
 }
 
@@ -143,6 +144,7 @@ export default function CanvasAgentChat({
   requestContext,
   onRuntimeStatusChange,
   onSessionContextChange,
+  onOpenLiveBrowser,
   onMediaClick,
 }: CanvasAgentChatProps) {
   const t = useTranslations('chat');
@@ -1157,6 +1159,7 @@ export default function CanvasAgentChat({
           selectChatAgent(agentId);
         }}
         onReloadAgents={refreshAgents}
+        onOpenLiveBrowser={onOpenLiveBrowser}
         onSetShowHistory={setShowHistory}
         onStartNewChat={() => startNewChat()}
         runtimeStatus={runtimeStatus}

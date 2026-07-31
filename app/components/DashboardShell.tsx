@@ -713,6 +713,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const showSurface = useCallback((surface: Exclude<NotebookMainSurface, 'chat'>) => {
     dispatch({ type: 'SHOW_SURFACE', surface });
   }, [dispatch]);
+  const openLiveBrowser = useCallback(() => {
+    dispatch({ type: 'CONTEXT_OPENED', surface: 'browser' });
+    if (layout.canDockChat) {
+      dispatch({ type: 'SET_CHAT_DOCKED', docked: true });
+    }
+  }, [dispatch, layout.canDockChat]);
   const handleFileSelected = useCallback(() => {
     dispatch({ type: 'DOCUMENT_OPENED' });
     setMobileExplorerOpen(false);
@@ -728,6 +734,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       isSurfaceVisible={chatVisible}
       onRuntimeStatusChange={setActiveRuntimeStatus}
       onSessionContextChange={setActiveChatContext}
+      onOpenLiveBrowser={openLiveBrowser}
     />
   );
   const documentContent = currentFile || isLoadingFile || fileError

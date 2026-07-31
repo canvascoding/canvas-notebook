@@ -28,6 +28,14 @@ const dockedState = notebookLayoutReducer(chatState, { type: 'SET_CHAT_DOCKED', 
 assert.equal(dockedState.mainSurface, 'document');
 assert.equal(dockedState.chatDocked, true);
 
+const browserBesideChatState = reduce(
+  { type: 'CONTEXT_OPENED', surface: 'browser' },
+  { type: 'SET_CHAT_DOCKED', docked: true },
+);
+assert.equal(browserBesideChatState.mainSurface, 'browser');
+assert.equal(browserBesideChatState.browserAvailable, true);
+assert.equal(browserBesideChatState.chatDocked, true);
+
 const compactState = notebookLayoutReducer(dockedState, {
   type: 'VIEWPORT_CHANGED',
   viewport: 'desktop-compact',

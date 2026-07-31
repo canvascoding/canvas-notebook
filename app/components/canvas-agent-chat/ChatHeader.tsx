@@ -40,6 +40,7 @@ type ChatHeaderProps = {
   onCompact: () => void;
   onSelectAgent: (agentId: string) => void;
   onReloadAgents: () => Promise<void>;
+  onOpenLiveBrowser?: () => void;
   onSetShowHistory: (value: boolean) => void;
   onStartNewChat: () => void;
   runtimeStatus: RuntimeStatus | null;
@@ -69,6 +70,7 @@ export function ChatHeader({
   onCompact,
   onSelectAgent,
   onReloadAgents,
+  onOpenLiveBrowser,
   onSetShowHistory,
   onStartNewChat,
   runtimeStatus,
@@ -178,6 +180,7 @@ export function ChatHeader({
           <div className="flex shrink-0 items-center gap-1 md:ml-auto">
             <ChatLiveBrowserLink
               agentId={activeSessionAgentId}
+              onOpen={onOpenLiveBrowser}
               runtimeStatus={runtimeStatus}
               sessionId={sessionId}
             />
