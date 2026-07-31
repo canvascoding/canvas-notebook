@@ -131,7 +131,7 @@ export function notebookLayoutReducer(
         explorerOpen: action.viewport === 'mobile' ? false : state.explorerOpen,
         terminalOpen: action.viewport === 'mobile' ? false : state.terminalOpen,
         chatDocked: compacted ? false : state.chatDocked,
-        mainSurface: compacted ? 'chat' : state.mainSurface,
+        mainSurface: state.mainSurface,
       };
     }
 

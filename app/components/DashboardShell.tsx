@@ -931,6 +931,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                     />
                     <div className="min-h-0 flex-1">
                       <BrowserLabClient
+                        autoConnectKey={`${browserContext.toolCallId || 'browser'}:${browserContext.status}`}
                         locale={locale}
                         presentation="embedded"
                         variant="live"
@@ -1060,6 +1061,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                               />
                               <div className="min-h-0 flex-1">
                                 <BrowserLabClient
+                                  autoConnectKey={`${browserContext.toolCallId || 'browser'}:${browserContext.status}`}
                                   locale={locale}
                                   presentation="embedded"
                                   variant="live"

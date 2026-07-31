@@ -10,6 +10,7 @@ import {
   NOTEBOOK_EXPLORER_DEFAULT_WIDTH,
   NOTEBOOK_EXPLORER_MAX_WIDTH,
   NOTEBOOK_EXPLORER_MIN_WIDTH,
+  defaultNotebookLayoutPreferences,
   initialNotebookLayoutState,
   notebookLayoutReducer,
   readNotebookLayoutPreferences,
@@ -39,7 +40,12 @@ export function useNotebookLayoutController() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
-      const preferences = readNotebookLayoutPreferences(window.localStorage);
+      let preferences = defaultNotebookLayoutPreferences();
+      try {
+        preferences = readNotebookLayoutPreferences(window.localStorage);
+      } catch {
+        // Layout persistence is optional; the workbench remains usable without it.
+      }
       setExplorerWidthState(preferences.explorerWidth);
       setChatWidthState(preferences.chatWidth);
       dispatch({
@@ -72,13 +78,17 @@ export function useNotebookLayoutController() {
 
   useEffect(() => {
     if (!preferencesHydrated) return;
-    writeNotebookLayoutPreferences(window.localStorage, {
-      version: 2,
-      explorerOpen: state.explorerOpen,
-      explorerWidth,
-      chatWidth,
-      terminalOpen: state.terminalOpen,
-    });
+    try {
+      writeNotebookLayoutPreferences(window.localStorage, {
+        version: 2,
+        explorerOpen: state.explorerOpen,
+        explorerWidth,
+        chatWidth,
+        terminalOpen: state.terminalOpen,
+      });
+    } catch {
+      // Layout persistence is optional; state remains valid for this session.
+    }
   }, [
     chatWidth,
     explorerWidth,

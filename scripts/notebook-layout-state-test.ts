@@ -32,7 +32,7 @@ const compactState = notebookLayoutReducer(dockedState, {
   type: 'VIEWPORT_CHANGED',
   viewport: 'desktop-compact',
 });
-assert.equal(compactState.mainSurface, 'chat');
+assert.equal(compactState.mainSurface, 'document');
 assert.equal(compactState.chatDocked, false);
 
 const contextualState = reduce(

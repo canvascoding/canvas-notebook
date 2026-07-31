@@ -62,6 +62,7 @@ import { cn } from '@/lib/utils';
 
 type BrowserLabClientProps = {
   agentId?: string;
+  autoConnectKey?: string;
   embeddedChat?: boolean;
   locale: string;
   presentation?: 'embedded' | 'page';
@@ -382,6 +383,7 @@ function createClipboardRequestId(): string {
 
 export function BrowserLabClient({
   agentId,
+  autoConnectKey,
   embeddedChat = false,
   locale,
   presentation = 'page',
@@ -726,11 +728,23 @@ export function BrowserLabClient({
 
   useEffect(() => {
     if (!isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
-    const contextKey = `${selectedAgentId}:${selectedSessionId}`;
+    const contextKey = `${selectedAgentId}:${selectedSessionId}:${autoConnectKey || ''}`;
     if (autoConnectedContextRef.current === contextKey) return;
     autoConnectedContextRef.current = contextKey;
-    void connect();
-  }, [catalogLoading, connect, isLiveView, selectedAgentId, selectedSessionId]);
+    if (connectionStatus === 'live') return;
+    const timeout = window.setTimeout(() => {
+      void connect();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [
+    autoConnectKey,
+    catalogLoading,
+    connect,
+    connectionStatus,
+    isLiveView,
+    selectedAgentId,
+    selectedSessionId,
+  ]);
 
   useEffect(() => {
     if (connectionStatus !== 'live') return;
