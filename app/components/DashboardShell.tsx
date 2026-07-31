@@ -107,6 +107,7 @@ import { useForcedChatSession } from '@/app/components/canvas-agent-chat/useForc
 type SurfaceTabProps = {
   active: boolean;
   closeLabel?: string;
+  controlsId: string;
   icon: ReactNode;
   label: string;
   onClose?: () => void;
@@ -117,6 +118,7 @@ type SurfaceTabProps = {
 function SurfaceTab({
   active,
   closeLabel,
+  controlsId,
   icon,
   label,
   onClose,
@@ -133,8 +135,10 @@ function SurfaceTab({
       )}
     >
       <button
+        id={`${testId}-tab`}
         type="button"
         role="tab"
+        aria-controls={controlsId}
         aria-selected={active}
         data-testid={testId}
         className="flex h-full min-w-0 items-center gap-2 px-2.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
@@ -161,16 +165,22 @@ function SurfaceTab({
 function SurfaceLayer({
   active,
   children,
+  labelledBy,
   testId,
 }: {
   active: boolean;
   children: ReactNode;
+  labelledBy: string;
   testId: string;
 }) {
   return (
     <section
+      id={testId}
       data-testid={testId}
+      role="tabpanel"
+      aria-labelledby={labelledBy}
       aria-hidden={!active}
+      inert={!active}
       className={cn(
         'absolute inset-0 min-h-0 min-w-0 overflow-hidden bg-background',
         active ? 'visible z-10' : 'invisible z-0 pointer-events-none',
@@ -192,7 +202,11 @@ function BrowserContextHeader({
 }) {
   const t = useTranslations('notebook');
   return (
-    <div className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/25 px-3 py-2 text-xs">
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/25 px-3 py-2 text-xs"
+    >
       <div className="flex min-w-0 items-center gap-2">
         <span className={cn(
           'h-2 w-2 shrink-0 rounded-full',
@@ -225,7 +239,11 @@ function EmailContextHeader({
   const detail = intent.subject || intent.query || intent.folder;
 
   return (
-    <div className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/25 px-3 py-2 text-xs">
+    <div
+      role="status"
+      aria-live="polite"
+      className="flex min-h-10 shrink-0 items-center justify-between gap-3 border-b border-border bg-muted/25 px-3 py-2 text-xs"
+    >
       <div className="flex min-w-0 items-center gap-2">
         <span className={cn(
           'h-2 w-2 shrink-0 rounded-full',
@@ -705,6 +723,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const browserSurfaceLabel = browserContext?.status === 'running'
     ? tNotebook('contextRunning')
     : tNotebook('browserSurface');
+  const surfacePanelIds = {
+    chat: layout.isMobile ? 'notebook-mobile-chat' : 'onboarding-notebook-chat',
+    document: layout.isMobile ? 'notebook-mobile-document' : 'notebook-desktop-document',
+    email: layout.isMobile ? 'notebook-mobile-email' : 'notebook-desktop-email',
+    browser: layout.isMobile ? 'notebook-mobile-browser' : 'notebook-desktop-browser',
+  };
 
   return (
     <FileWatcherProvider>
@@ -773,6 +797,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             >
               <SurfaceTab
                 active={state.mainSurface === 'chat'}
+                controlsId={surfacePanelIds.chat}
                 icon={<MessageSquare className="h-3.5 w-3.5 shrink-0" />}
                 label={tCommon('aiChat')}
                 onSelect={showChat}
@@ -781,6 +806,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
               {state.documentAvailable ? (
                 <SurfaceTab
                   active={state.mainSurface === 'document'}
+                  controlsId={surfacePanelIds.document}
                   icon={<FileText className="h-3.5 w-3.5 shrink-0" />}
                   label={fileLabel}
                   onSelect={() => showSurface('document')}
@@ -791,6 +817,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 <SurfaceTab
                   active={state.mainSurface === 'email'}
                   closeLabel={tNotebook('closeEmailSurface')}
+                  controlsId={surfacePanelIds.email}
                   icon={<Mail className="h-3.5 w-3.5 shrink-0" />}
                   label={emailSurfaceLabel}
                   onClose={() => handleCloseContext('email')}
@@ -802,6 +829,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 <SurfaceTab
                   active={state.mainSurface === 'browser'}
                   closeLabel={tNotebook('closeBrowserSurface')}
+                  controlsId={surfacePanelIds.browser}
                   icon={<Globe2 className="h-3.5 w-3.5 shrink-0" />}
                   label={browserSurfaceLabel}
                   onClose={() => handleCloseContext('browser')}
@@ -868,10 +896,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             <main className="min-h-0 flex-1 bg-background" />
           ) : layout.isMobile ? (
             <main className="relative min-h-0 flex-1 overflow-hidden">
-              <SurfaceLayer active={state.mainSurface === 'document'} testId="notebook-mobile-document">
+              <SurfaceLayer
+                active={state.mainSurface === 'document'}
+                labelledBy="notebook-surface-document-tab"
+                testId="notebook-mobile-document"
+              >
                 {documentContent}
               </SurfaceLayer>
-              <SurfaceLayer active={state.mainSurface === 'email'} testId="notebook-mobile-email">
+              <SurfaceLayer
+                active={state.mainSurface === 'email'}
+                labelledBy="notebook-surface-email-tab"
+                testId="notebook-mobile-email"
+              >
                 {emailContext ? (
                   <div className="flex h-full min-h-0 flex-col">
                     <EmailContextHeader intent={emailContext} />
@@ -881,7 +917,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   </div>
                 ) : null}
               </SurfaceLayer>
-              <SurfaceLayer active={state.mainSurface === 'browser'} testId="notebook-mobile-browser">
+              <SurfaceLayer
+                active={state.mainSurface === 'browser'}
+                labelledBy="notebook-surface-browser-tab"
+                testId="notebook-mobile-browser"
+              >
                 {browserContext ? (
                   <div className="flex h-full min-h-0 flex-col">
                     <BrowserContextHeader
@@ -901,7 +941,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                   </div>
                 ) : null}
               </SurfaceLayer>
-              <SurfaceLayer active={state.mainSurface === 'chat'} testId="notebook-mobile-chat">
+              <SurfaceLayer
+                active={state.mainSurface === 'chat'}
+                labelledBy="notebook-surface-chat-tab"
+                testId="notebook-mobile-chat"
+              >
                 {chatContent}
               </SurfaceLayer>
 
@@ -981,10 +1025,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                           state.mainSurface === 'chat' && 'hidden',
                         )}
                       >
-                        <SurfaceLayer active={state.mainSurface === 'document'} testId="notebook-desktop-document">
+                        <SurfaceLayer
+                          active={state.mainSurface === 'document'}
+                          labelledBy="notebook-surface-document-tab"
+                          testId="notebook-desktop-document"
+                        >
                           {documentContent}
                         </SurfaceLayer>
-                        <SurfaceLayer active={state.mainSurface === 'email'} testId="notebook-desktop-email">
+                        <SurfaceLayer
+                          active={state.mainSurface === 'email'}
+                          labelledBy="notebook-surface-email-tab"
+                          testId="notebook-desktop-email"
+                        >
                           {emailContext ? (
                             <div className="flex h-full min-h-0 flex-col">
                               <EmailContextHeader intent={emailContext} />
@@ -994,7 +1046,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                             </div>
                           ) : null}
                         </SurfaceLayer>
-                        <SurfaceLayer active={state.mainSurface === 'browser'} testId="notebook-desktop-browser">
+                        <SurfaceLayer
+                          active={state.mainSurface === 'browser'}
+                          labelledBy="notebook-surface-browser-tab"
+                          testId="notebook-desktop-browser"
+                        >
                           {browserContext ? (
                             <div className="flex h-full min-h-0 flex-col">
                               <BrowserContextHeader
@@ -1035,6 +1091,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         id="onboarding-notebook-chat"
                         data-testid="notebook-desktop-chat"
                         data-chat-placement={state.mainSurface === 'chat' ? 'main' : state.chatDocked ? 'side' : 'hidden'}
+                        role={state.mainSurface === 'chat' ? 'tabpanel' : 'complementary'}
+                        aria-labelledby={state.mainSurface === 'chat' ? 'notebook-surface-chat-tab' : undefined}
+                        aria-label={state.chatDocked ? tCommon('aiChat') : undefined}
+                        aria-hidden={!chatVisible}
+                        inert={!chatVisible}
                         style={state.chatDocked
                           ? {
                               '--notebook-chat-width': `${layout.chatWidth}px`,
