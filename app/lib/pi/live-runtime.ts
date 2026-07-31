@@ -1670,6 +1670,8 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
         organizationId: executionContext.organizationId,
       }),
     ],
+    uploadOwnerUserId: userId,
+    uploadWorkspaceId: executionContext.workspaceId,
   };
 
   const runtimeRef: { current: LivePiRuntime | null } = { current: null };

@@ -269,6 +269,21 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       CHECK (type != 'project' OR project_id IS NOT NULL)
     );
 
+    CREATE TABLE IF NOT EXISTS upload_access_grants (
+      file_id TEXT PRIMARY KEY NOT NULL,
+      owner_user_id TEXT NOT NULL,
+      workspace_id TEXT,
+      storage_path TEXT NOT NULL,
+      original_name TEXT NOT NULL,
+      mime_type TEXT NOT NULL,
+      category TEXT NOT NULL,
+      size_bytes INTEGER NOT NULL,
+      created_at INTEGER NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_upload_access_owner ON upload_access_grants (owner_user_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_upload_access_workspace ON upload_access_grants (workspace_id, created_at);
+
     CREATE TABLE IF NOT EXISTS workspace_brand_profiles (
       workspace_id TEXT PRIMARY KEY NOT NULL,
       settings_json TEXT NOT NULL,

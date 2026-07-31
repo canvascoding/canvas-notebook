@@ -3,6 +3,10 @@ import path from 'path';
 import { fileTypeFromBuffer } from 'file-type';
 import { randomUUID } from 'crypto';
 import { resolveCanvasDataRoot } from '@/app/lib/runtime-data-paths';
+import {
+  createUploadAccessGrant,
+  deleteUploadAccessGrant,
+} from '@/app/lib/files/upload-access-store';
 
 // Upload configuration
 const DATA = resolveCanvasDataRoot();
@@ -249,9 +253,17 @@ export async function findFilePath(fileId: string): Promise<string | null> {
 export async function saveUploadBuffer(
   buffer: Buffer,
   originalFilename: string,
-  providedMimeType?: string,
-  options: { maxBytes?: number } = {},
+  providedMimeType: string | undefined,
+  options: {
+    maxBytes?: number;
+    ownerUserId: string;
+    workspaceId?: string | null;
+  },
 ): Promise<UploadedFile> {
+  const ownerUserId = options.ownerUserId.trim();
+  if (!ownerUserId) {
+    throw new Error('Upload owner is required.');
+  }
   // Check file size
   const maxBytes = options.maxBytes ?? MAX_FILE_SIZE;
   if (buffer.length > maxBytes) {
@@ -285,6 +297,23 @@ export async function saveUploadBuffer(
   
   // Write file
   await fs.writeFile(fullPath, buffer, { mode: 0o644 });
+
+  try {
+    await createUploadAccessGrant({
+      fileId: id,
+      ownerUserId,
+      workspaceId: options.workspaceId?.trim() || null,
+      storagePath,
+      originalName: originalFilename,
+      mimeType,
+      category,
+      sizeBytes: buffer.length,
+      createdAt: Date.now(),
+    });
+  } catch (error) {
+    await fs.rm(fullPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
   
   return {
     id,
@@ -333,10 +362,34 @@ export async function deleteFile(fileId: string): Promise<boolean> {
   
   try {
     await fs.unlink(filePath);
+    await deleteUploadAccessGrant(fileId);
     return true;
   } catch {
     return false;
   }
+}
+
+export async function claimLegacyUploadAccess(
+  fileId: string,
+  ownerUserId: string,
+): Promise<boolean> {
+  const filePath = await findFilePath(fileId);
+  if (!filePath || !ownerUserId.trim()) return false;
+  const stats = await fs.stat(filePath);
+  if (!stats.isFile()) return false;
+  const category = path.basename(path.dirname(filePath));
+  await createUploadAccessGrant({
+    fileId,
+    ownerUserId: ownerUserId.trim(),
+    workspaceId: null,
+    storagePath: path.join(category, fileId),
+    originalName: fileId,
+    mimeType: resolveContentTypeFromExtension(fileId) || 'application/octet-stream',
+    category,
+    sizeBytes: stats.size,
+    createdAt: Math.floor(stats.birthtimeMs || stats.ctimeMs || Date.now()),
+  }, { ifAbsent: true });
+  return true;
 }
 
 /**

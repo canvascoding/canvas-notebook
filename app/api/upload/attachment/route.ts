@@ -65,7 +65,9 @@ export async function POST(request: NextRequest) {
           continue;
         }
 
-        const uploadedFile = await saveUploadBuffer(normalized.buffer, normalized.filename, normalized.mimeType);
+        const uploadedFile = await saveUploadBuffer(normalized.buffer, normalized.filename, normalized.mimeType, {
+          ownerUserId: session.user.id,
+        });
 
         uploadedFiles.push({
           id: uploadedFile.id,

@@ -598,6 +598,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           convertToLlm: async (messages: AgentMessage[]) => normalizePiMessagesForLlm(messages, {
             workspaceImageRoot: automationWorkspace.rootPath,
             allowedImageFileRoots: [automationWorkspace.rootPath],
+            uploadOwnerUserId: runtimeContext.userId,
+            uploadWorkspaceId: automationWorkspace.workspaceId,
           }),
           prepareNextTurn: async (turnContext: { context: AgentContext }) => {
             const nextWorkspaceFileTree = await buildWorkspaceFileTreePrompt({

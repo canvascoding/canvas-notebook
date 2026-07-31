@@ -12,6 +12,7 @@ import {
   resolvePreviewWidth,
 } from '@/app/lib/files/media-preview';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { canSessionReadUpload } from '@/app/lib/files/upload-access-authorization';
 
 const SUPPORTED_UPLOAD_IMAGE_EXTENSIONS = new Set([
   'avif',
@@ -50,6 +51,9 @@ export async function GET(
     const { id: fileId } = await context.params;
     if (!fileId) {
       return NextResponse.json({ success: false, error: 'File ID required' }, { status: 400 });
+    }
+    if (!(await canSessionReadUpload(session, fileId))) {
+      return NextResponse.json({ success: false, error: 'File not found' }, { status: 404 });
     }
 
     const extension = path.extname(fileId).slice(1).toLowerCase();
@@ -106,4 +110,3 @@ export async function GET(
     return NextResponse.json({ success: false, error: message }, { status: 500 });
   }
 }
-

@@ -83,12 +83,14 @@ function assertTelegramDownloadSize(buffer: Buffer): void {
 async function persistTelegramUpload(
   buffer: Buffer,
   originalName: string,
-  providedMimeType?: string,
+  providedMimeType: string | undefined,
+  ownerUserId: string,
   includeImagePart = false,
 ): Promise<SavedTelegramUpload> {
   assertTelegramDownloadSize(buffer);
   const uploaded = await saveUploadBuffer(buffer, originalName, providedMimeType, {
     maxBytes: MAX_TELEGRAM_DOWNLOAD_SIZE,
+    ownerUserId,
   });
   const containerFilePath = getUploadedContainerPath(uploaded.storagePath);
 
@@ -108,25 +110,27 @@ async function saveTelegramUpload(
   bot: Bot,
   fileId: string,
   originalName: string,
-  providedMimeType?: string,
+  providedMimeType: string | undefined,
+  ownerUserId: string,
   includeImagePart = false,
 ): Promise<SavedTelegramUpload | null> {
   const buffer = await downloadTelegramFile(bot, fileId);
   if (!buffer) return null;
-  return persistTelegramUpload(buffer, originalName, providedMimeType, includeImagePart);
+  return persistTelegramUpload(buffer, originalName, providedMimeType, ownerUserId, includeImagePart);
 }
 
 async function saveAndTranscribeTelegramAudio(
   bot: Bot,
   fileId: string,
   originalName: string,
-  providedMimeType?: string,
+  providedMimeType: string | undefined,
+  ownerUserId: string,
   storageScope?: EnvStorageScope | null,
 ): Promise<{ upload: SavedTelegramUpload; transcription: TelegramTranscription } | null> {
   const buffer = await downloadTelegramFile(bot, fileId);
   if (!buffer) return null;
 
-  const upload = await persistTelegramUpload(buffer, originalName, providedMimeType);
+  const upload = await persistTelegramUpload(buffer, originalName, providedMimeType, ownerUserId);
   const transcription = await transcribeAudio({
     buffer,
     filename: upload.originalName,
@@ -319,6 +323,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
             largestPhoto.file_id,
             `telegram-photo-${ctx.message.message_id}.jpg`,
             'image/jpeg',
+            binding.userId,
             true,
           );
           if (upload) {
@@ -348,6 +353,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
             document.file_id,
             filename,
             document.mime_type,
+            binding.userId,
             { userId: binding.userId },
           );
           if (audioResult) {
@@ -360,6 +366,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
             document.file_id,
             filename,
             document.mime_type,
+            binding.userId,
             document.mime_type?.startsWith('image/') === true,
           );
           if (upload) {
@@ -388,6 +395,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
           voice.file_id,
           `telegram-voice-${ctx.message.message_id}.ogg`,
           voice.mime_type || 'audio/ogg',
+          binding.userId,
           { userId: binding.userId },
         );
         if (audioResult) {
@@ -418,6 +426,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
           audio.file_id,
           filename,
           audio.mime_type || 'audio/mpeg',
+          binding.userId,
           { userId: binding.userId },
         );
         if (audioResult) {
@@ -448,6 +457,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
           video.file_id,
           filename,
           video.mime_type || 'video/mp4',
+          binding.userId,
         );
         if (upload) {
           uploads.push(upload);
@@ -472,6 +482,7 @@ export function setupInboundHandler(bot: Bot, onInbound: (message: InboundMessag
           videoNote.file_id,
           `telegram-video-note-${ctx.message.message_id}.mp4`,
           'video/mp4',
+          binding.userId,
         );
         if (upload) {
           uploads.push(upload);

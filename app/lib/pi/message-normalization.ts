@@ -39,6 +39,8 @@ const LLM_IMAGE_COMPRESSION_PROFILES = [
 export type PiMessageNormalizationOptions = {
   allowedImageFileRoots?: readonly string[];
   workspaceImageRoot?: string | null;
+  uploadOwnerUserId?: string;
+  uploadWorkspaceId?: string | null;
 };
 
 // Regex to detect image file references in text
@@ -285,6 +287,21 @@ async function normalizeImagePart(
   const apiUploadFileId = resolveApiUploadFileId(trimmed);
   if (apiUploadFileId) {
     try {
+      const {
+        getUploadAccessGrant,
+        isUploadAccessAllowed,
+      } = await import('../files/upload-access-store');
+      const grant = await getUploadAccessGrant(apiUploadFileId);
+      if (
+        !grant
+        || !options.uploadOwnerUserId
+        || !isUploadAccessAllowed(grant, {
+          userId: options.uploadOwnerUserId,
+          workspaceId: options.uploadWorkspaceId,
+        })
+      ) {
+        throw new Error('Upload attachment is not available to this user.');
+      }
       const filePath = await findFilePath(apiUploadFileId);
       if (filePath) {
         // Upload IDs are resolved by the server-side upload store. Do not accept
@@ -293,7 +310,9 @@ async function normalizeImagePart(
       }
     } catch (error) {
       console.warn(`[Message Normalization] Failed to resolve API file: ${error instanceof Error ? error.message : 'Unknown error'}`);
+      throw new Error('Upload attachment is not available to this user.');
     }
+    throw new Error('Upload attachment is not available to this user.');
   }
 
   if (isValidBase64(trimmed)) {

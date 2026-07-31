@@ -448,6 +448,8 @@ async function runEphemeralWorker(params: {
           {
             workspaceImageRoot: params.executionContext.workspaceRoot,
             allowedImageFileRoots: [params.executionContext.workspaceRoot],
+            uploadOwnerUserId: params.request.userId,
+            uploadWorkspaceId: params.executionContext.workspaceId,
           },
         );
       },

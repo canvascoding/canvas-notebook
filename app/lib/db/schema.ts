@@ -256,6 +256,21 @@ export const canvasWorkspaces = sqliteTable("canvas_workspaces", {
   projectIdRequired: check("chk_canvas_workspaces_project_id_required", sql`${table.type} != 'project' OR ${table.projectId} IS NOT NULL`),
 }));
 
+export const uploadAccessGrants = sqliteTable("upload_access_grants", {
+  fileId: text("file_id").primaryKey(),
+  ownerUserId: text("owner_user_id").notNull(),
+  workspaceId: text("workspace_id"),
+  storagePath: text("storage_path").notNull(),
+  originalName: text("original_name").notNull(),
+  mimeType: text("mime_type").notNull(),
+  category: text("category").notNull(),
+  sizeBytes: integer("size_bytes").notNull(),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  ownerIdx: index("idx_upload_access_owner").on(table.ownerUserId, table.createdAt),
+  workspaceIdx: index("idx_upload_access_workspace").on(table.workspaceId, table.createdAt),
+}));
+
 export const workspaceBrandProfiles = sqliteTable("workspace_brand_profiles", {
   workspaceId: text("workspace_id").primaryKey().references(() => canvasWorkspaces.id, { onDelete: 'cascade' }),
   settingsJson: text("settings_json").notNull(),

@@ -3,6 +3,7 @@ import { createReadStream, findFilePath } from '@/app/lib/filesystem/upload-hand
 import { auth } from '@/app/lib/auth';
 import { stat } from 'fs/promises';
 import { getUploadResponsePolicy } from '@/app/lib/files/upload-response-policy';
+import { canSessionReadUpload } from '@/app/lib/files/upload-access-authorization';
 
 export async function GET(
   request: NextRequest,
@@ -18,6 +19,9 @@ export async function GET(
     
     if (!fileId) {
       return NextResponse.json({ success: false, error: 'File ID required' }, { status: 400 });
+    }
+    if (!(await canSessionReadUpload(session, fileId))) {
+      return NextResponse.json({ success: false, error: 'File not found' }, { status: 404 });
     }
 
     // Find the file path

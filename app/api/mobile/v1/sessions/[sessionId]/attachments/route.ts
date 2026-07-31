@@ -47,10 +47,11 @@ export async function POST(
   if (!limited.ok) return limited.response;
   try {
     const params = await context.params;
+    const workspaceId = request.headers.get('x-canvas-workspace-id')?.trim() || '';
     await requireMobileChatSession({
       userId: authSession.user.id,
       sessionId: params.sessionId,
-      workspaceId: request.headers.get('x-canvas-workspace-id')?.trim() || '',
+      workspaceId,
     });
     const parsed = await parseMultipartFormData(request);
     if (!parsed.ok) return parsed.response;
@@ -73,7 +74,10 @@ export async function POST(
     } catch (error) {
       throw new MobileChatError('ATTACHMENT_INVALID', getImageConversionErrorMessage(value.name, error), 400);
     }
-    const saved = await saveUploadBuffer(normalized.buffer, normalized.filename, normalized.mimeType);
+    const saved = await saveUploadBuffer(normalized.buffer, normalized.filename, normalized.mimeType, {
+      ownerUserId: authSession.user.id,
+      workspaceId,
+    });
     const isImage = saved.category === 'image' || saved.mimeType.startsWith('image/');
     return NextResponse.json({
       success: true,

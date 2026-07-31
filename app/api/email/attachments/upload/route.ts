@@ -107,6 +107,7 @@ export async function POST(request: NextRequest) {
     for (const file of candidates) {
       const saved = await saveUploadBuffer(file.buffer, file.name, file.mimeType, {
         maxBytes: EMAIL_ATTACHMENT_TOTAL_LIMIT_BYTES,
+        ownerUserId: session.user.id,
       });
       uploaded.push({
         id: `upload:${saved.id}`,
