@@ -1,7 +1,10 @@
 import assert from 'node:assert/strict';
 
 import {
+  NOTEBOOK_CHAT_HREF,
+  NOTEBOOK_CHAT_PATH,
   buildChatSessionHref,
+  buildNotebookChatSessionHref,
   getChatNavigationIntent,
   getNotebookNavigationIntent,
 } from '../app/lib/chat/chat-navigation-intent';
@@ -50,7 +53,12 @@ function main() {
     shouldOpenChat: true,
   });
   assert.equal(
-    buildChatSessionHref('/notebook', 'session-a', 'workspace-a'),
+    buildChatSessionHref(NOTEBOOK_CHAT_PATH, 'session-a', 'workspace-a'),
+    '/notebook?session=session-a&workspaceId=workspace-a&chat=open',
+  );
+  assert.equal(NOTEBOOK_CHAT_HREF, '/notebook?chat=open');
+  assert.equal(
+    buildNotebookChatSessionHref('session-a', 'workspace-a'),
     '/notebook?session=session-a&workspaceId=workspace-a&chat=open',
   );
   assert.equal(

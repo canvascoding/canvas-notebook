@@ -4,6 +4,7 @@ import React, { useState } from 'react';
 import { useTranslations } from 'next-intl';
 import { Link } from '@/i18n/navigation';
 import { ChevronDown, Terminal, Settings, MessageSquare, FolderOpen } from 'lucide-react';
+import { NOTEBOOK_CHAT_HREF } from '@/app/lib/chat/chat-navigation-intent';
 
 interface MoreToolsLink {
   labelKey: string;
@@ -12,7 +13,7 @@ interface MoreToolsLink {
 }
 
 const MORE_TOOLS_LINKS: MoreToolsLink[] = [
-  { labelKey: 'chat', href: '/chat', icon: MessageSquare },
+  { labelKey: 'chat', href: NOTEBOOK_CHAT_HREF, icon: MessageSquare },
   { labelKey: 'files', href: '/files', icon: FolderOpen },
   { labelKey: 'terminal', href: '/terminal', icon: Terminal },
   { labelKey: 'settings', href: '/settings', icon: Settings },

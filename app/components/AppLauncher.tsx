@@ -34,11 +34,13 @@ import {
 } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { HelpDropdown } from '@/app/components/onboarding/HelpDropdown';
+import { NOTEBOOK_CHAT_HREF } from '@/app/lib/chat/chat-navigation-intent';
 import { cn } from '@/lib/utils';
 
 interface AppItem {
   id: string;
   href: string;
+  activeHref?: string;
   icon: React.ComponentType<{ className?: string }>;
   hasQuickActions: boolean;
 }
@@ -50,7 +52,13 @@ const APPS: AppItem[] = [
   { id: 'emails', href: '/emails', icon: Inbox, hasQuickActions: false },
   { id: 'studio', href: '/studio', icon: Sparkles, hasQuickActions: true },
   { id: 'files', href: '/files', icon: FolderOpen, hasQuickActions: false },
-  { id: 'chat', href: '/chat', icon: MessageSquare, hasQuickActions: false },
+  {
+    id: 'chat',
+    href: NOTEBOOK_CHAT_HREF,
+    activeHref: '/chat',
+    icon: MessageSquare,
+    hasQuickActions: false,
+  },
   { id: 'automations', href: '/automations', icon: Workflow, hasQuickActions: false },
   { id: 'terminal', href: '/terminal', icon: Terminal, hasQuickActions: false },
   { id: 'security', href: '/security/public-shares', icon: ShieldCheck, hasQuickActions: false },
@@ -216,7 +224,7 @@ export function AppLauncher() {
           <div className="grid grid-cols-3 gap-1 sm:grid-cols-4">
             {APPS.map((app) => {
               const Icon = app.icon;
-              const active = isPathActive(pathname, app.href);
+              const active = isPathActive(pathname, app.activeHref ?? app.href);
               const label = tApps(`${app.id}.title` as Parameters<typeof tApps>[0]);
               return (
                 <div key={app.id} className="group relative">

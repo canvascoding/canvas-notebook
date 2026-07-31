@@ -42,7 +42,7 @@ import {
 } from 'react';
 
 import type { AgentProfile, AISession } from '@/app/lib/chat/types';
-import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import { buildNotebookChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 import type {
   BrowserViewControlMode,
@@ -437,7 +437,7 @@ export function BrowserLabClient({
     [selectedAgentId, selectedSessionId, sessions],
   );
   const chatHref = useMemo(() => {
-    return buildChatSessionHref('/chat', selectedSessionId, selectedSession?.workspace?.workspaceId);
+    return buildNotebookChatSessionHref(selectedSessionId, selectedSession?.workspace?.workspaceId);
   }, [selectedSession, selectedSessionId]);
   const userControls = connectionStatus === 'live'
     && viewState?.mode === 'user'

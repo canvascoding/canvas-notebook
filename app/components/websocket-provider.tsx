@@ -11,11 +11,14 @@ import React, { useEffect, useRef, useState, useCallback } from 'react';
 import { WebSocketClient, getWebSocketClient } from '@/app/lib/websocket/client';
 import { toast } from 'sonner';
 import { useTranslations } from 'next-intl';
-import { usePathname, useRouter } from '@/i18n/navigation';
+import { useRouter } from '@/i18n/navigation';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
-import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
+import {
+  buildChatSessionHref,
+  buildNotebookChatSessionHref,
+} from '@/app/lib/chat/chat-navigation-intent';
 
 interface WebSocketProviderProps {
   children: React.ReactNode;
@@ -137,7 +140,6 @@ function ToastMarkdown({ content }: { content: string }) {
 
 export function WebSocketProvider({ children, enabled = true }: WebSocketProviderProps) {
   const router = useRouter();
-  const pathname = usePathname();
   const t = useTranslations('chat');
   const clientRef = useRef<WebSocketClient | null>(null);
   const activeSessionRef = useRef<{ sessionId: string | null; workspaceId: string | null; isVisible: boolean }>({
@@ -148,11 +150,9 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
   const fallbackNotificationTimersRef = useRef<Map<string, number>>(new Map());
   const deliveredNotificationKeysRef = useRef<Map<string, number>>(new Map());
   const [, setConnected] = useState(false);
-  const sessionBasePath = pathname.includes('/chat') ? pathname : '/notebook';
-
   const getSessionTargetPath = useCallback((sessionId: string, workspaceId?: string) => {
-    return buildChatSessionHref(sessionBasePath, sessionId, workspaceId);
-  }, [sessionBasePath]);
+    return buildNotebookChatSessionHref(sessionId, workspaceId);
+  }, []);
 
   const clearFallbackNotificationTimer = useCallback((sessionId: string) => {
     const timer = fallbackNotificationTimersRef.current.get(sessionId);

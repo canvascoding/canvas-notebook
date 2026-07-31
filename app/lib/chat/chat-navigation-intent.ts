@@ -2,6 +2,9 @@ import { normalizeChatFilePath } from '@/app/lib/chat/extract-file-paths';
 
 type SearchParamsReader = Pick<URLSearchParams, 'get'>;
 
+export const NOTEBOOK_CHAT_PATH = '/notebook';
+export const NOTEBOOK_CHAT_HREF = `${NOTEBOOK_CHAT_PATH}?chat=open`;
+
 export type ChatNavigationIntent = {
   sessionId: string | null;
   workspaceId: string | null;
@@ -49,6 +52,13 @@ export function buildChatSessionHref(
 
   const nextQuery = params.toString();
   return `${pathname}${nextQuery ? `?${nextQuery}` : ''}${hash ? `#${hash}` : ''}`;
+}
+
+export function buildNotebookChatSessionHref(
+  sessionId: string,
+  workspaceId?: string | null,
+): string {
+  return buildChatSessionHref(NOTEBOOK_CHAT_PATH, sessionId, workspaceId);
 }
 
 export function getNotebookNavigationIntent(searchParams: SearchParamsReader): NotebookNavigationIntent {
