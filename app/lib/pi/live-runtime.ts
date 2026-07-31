@@ -89,6 +89,12 @@ import type { AgentExecutionContext } from '@/app/lib/pi/agent-execution-context
 import { withPiSessionOperationLock } from '@/app/lib/pi/session-operation-lock';
 import { createOperationTiming, type OperationTiming } from '@/app/lib/observability/operation-timing';
 import { findUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
+import { buildBrowserRuntimeContextBlock } from '@/app/lib/pi/browser/runtime-context';
+import { getBrowserRuntimeContextKey } from '@/app/lib/pi/browser/runtime';
+import { subscribeBrowserSessionSnapshot } from '@/app/lib/pi/browser/session-state';
+import { refreshBrowserSessionSnapshot } from '@/app/lib/pi/browser/session-state-service';
+import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
+import type { BrowserToolMode } from '@/app/lib/pi/browser/tool';
 
 export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
@@ -164,6 +170,7 @@ type RuntimePhase = 'idle' | 'streaming' | 'running_tool' | 'aborting';
 
 export type PiRuntimeStatus = {
   sessionId: string;
+  browser?: BrowserSessionSnapshot;
   phase: RuntimePhase;
   activeTool: { toolCallId: string; name: string } | null;
   pendingToolCalls: number;
@@ -236,6 +243,7 @@ type RuntimeInit = {
   initialMessages: AgentMessage[];
   executionContext: AgentExecutionContext;
   workspaceFileTreePromptBlock: string;
+  browserSnapshot: BrowserSessionSnapshot;
 };
 
 type RuntimeOptions = {
@@ -381,6 +389,7 @@ function getRuntimeStatusSignature(status: PiRuntimeStatus): string {
     lastCompactionAt: status.lastCompactionAt,
     lastCompactionKind: status.lastCompactionKind,
     lastCompactionOmittedCount: status.lastCompactionOmittedCount,
+    browser: status.browser,
   });
 }
 
@@ -437,6 +446,10 @@ class LivePiRuntime {
   private activePromptTiming: OperationTiming | null = null;
   private firstAssistantEventLogged = false;
   private firstTextDeltaLogged = false;
+  private browserSnapshot: BrowserSessionSnapshot | null;
+  private browserToolMode: BrowserToolMode;
+  private browserToolsNeedRefresh = false;
+  private browserSnapshotUnsubscribe: (() => void) | null = null;
   agentUnsubscribe: (() => void) | null = null;
 
   constructor(init: RuntimeInit, agent: Agent, private readonly options: RuntimeOptions = {}) {
@@ -456,6 +469,21 @@ class LivePiRuntime {
     this.lastCompactionKind = init.summary.summaryUpdatedAt ? 'automatic' : null;
     this.lastCompactionOmittedCount = 0;
     this.pendingInitialToolTailContinuation = createToolTailContinuationDecision(init.initialMessages) !== null;
+    this.browserSnapshot = init.browserSnapshot.running ? init.browserSnapshot : null;
+    this.browserToolMode = this.browserSnapshot ? 'active' : 'dormant';
+    this.browserSnapshotUnsubscribe = subscribeBrowserSessionSnapshot(
+      getBrowserRuntimeContextKey(this.executionContext),
+      (snapshot) => {
+        if (this.disposed) return;
+        const nextMode: BrowserToolMode = snapshot.running ? 'active' : 'dormant';
+        this.browserSnapshot = snapshot.running ? snapshot : null;
+        this.lastComposition = null;
+        if (nextMode !== this.browserToolMode) {
+          this.browserToolsNeedRefresh = true;
+        }
+        this.publishStatus();
+      },
+    );
   }
 
   touch() {
@@ -507,6 +535,7 @@ class LivePiRuntime {
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
         toolTokens: estimatePiToolSchemaTokens(this.tools),
+        additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
       });
     }
     const composition = this.lastComposition;
@@ -515,6 +544,7 @@ class LivePiRuntime {
 
     return {
       sessionId: this.sessionId,
+      ...(this.browserSnapshot ? { browser: this.browserSnapshot } : {}),
       phase: this.abortRequested || hasPendingReplace
         ? 'aborting'
         : this.activeTool
@@ -633,6 +663,7 @@ class LivePiRuntime {
       systemPromptTokens: estimateTextTokens(this.getEffectiveSystemPrompt()),
       model: this.model,
       toolTokens: estimatePiToolSchemaTokens(this.tools),
+      additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
       sessionId: this.sessionId,
       streamFn: this.options.summaryStreamFn,
     });
@@ -657,6 +688,7 @@ class LivePiRuntime {
         contextWindow: this.model.contextWindow,
         modelMaxTokens: this.model.maxTokens,
         toolTokens: estimatePiToolSchemaTokens(this.tools),
+        additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
       });
       this.touch();
       this.publishStatus();
@@ -693,6 +725,7 @@ class LivePiRuntime {
       contextWindow: this.model.contextWindow,
       modelMaxTokens: this.model.maxTokens,
       toolTokens: estimatePiToolSchemaTokens(this.tools),
+      additionalContextTokens: this.getBrowserRuntimeContextTokenEstimate(),
     });
 
     this.touch();
@@ -755,6 +788,10 @@ class LivePiRuntime {
     signal?: AbortSignal,
   ): Promise<AgentLoopTurnUpdate | undefined> {
     if (signal?.aborted) return undefined;
+    if (this.browserToolsNeedRefresh) {
+      await this.reloadTools();
+    }
+    if (signal?.aborted) return undefined;
     await this.refreshWorkspaceFileTreePrompt();
     if (signal?.aborted) return undefined;
     return {
@@ -769,7 +806,15 @@ class LivePiRuntime {
     if (this.systemPromptRefreshRequested && !this.isRunning && !this.agent.state.isStreaming) {
       await this.refreshSystemPrompt();
     }
-    this.tools = await getPiTools(this.userId, this.agentId, this.sessionId);
+    const browserSnapshot = await refreshBrowserSessionSnapshot(this.executionContext);
+    const browserMode: BrowserToolMode = browserSnapshot.running ? 'active' : 'dormant';
+    this.browserSnapshot = browserSnapshot.running ? browserSnapshot : null;
+    this.tools = await getPiTools(this.userId, this.agentId, this.sessionId, {
+      executionContext: this.executionContext,
+      browserMode,
+    });
+    this.browserToolMode = browserMode;
+    this.browserToolsNeedRefresh = false;
     this.lastComposition = null;
     this.agent.state.tools = this.planningMode ? filterToolsForPlanningMode(this.tools) : this.tools;
   }
@@ -958,6 +1003,11 @@ class LivePiRuntime {
     return null;
   }
 
+  private getBrowserRuntimeContextTokenEstimate(): number {
+    const browserBlock = buildBrowserRuntimeContextBlock(this.browserSnapshot);
+    return browserBlock ? estimateTextTokens(browserBlock) : 0;
+  }
+
   private async getRuntimeContextBlock(latestUserMessageText?: string): Promise<string | null> {
     const sections: string[] = [];
 
@@ -988,6 +1038,11 @@ class LivePiRuntime {
     const emailBlock = this.getEmailContextBlock();
     if (emailBlock) {
       sections.push(emailBlock);
+    }
+
+    const browserBlock = buildBrowserRuntimeContextBlock(this.browserSnapshot);
+    if (browserBlock) {
+      sections.push(browserBlock);
     }
 
     if (latestUserMessageText) {
@@ -1550,6 +1605,10 @@ class LivePiRuntime {
 
   dispose(): void {
     this.disposed = true;
+    if (this.browserSnapshotUnsubscribe) {
+      this.browserSnapshotUnsubscribe();
+      this.browserSnapshotUnsubscribe = null;
+    }
     if (this.agentUnsubscribe) {
       this.agentUnsubscribe();
       this.agentUnsubscribe = null;
@@ -1656,7 +1715,11 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
     rootPath: executionContext.workspaceRoot,
   });
   timing.mark('workspaceFileTree');
-  const tools = await getPiTools(userId, agentId, sessionId);
+  const browserSnapshot = await refreshBrowserSessionSnapshot(executionContext);
+  const tools = await getPiTools(userId, agentId, sessionId, {
+    executionContext,
+    browserMode: browserSnapshot.running ? 'active' : 'dormant',
+  });
   timing.mark('tools');
   const toolLoopGuard = createToolLoopGuard();
   const imageNormalizationOptions = {
@@ -1718,6 +1781,7 @@ async function createRuntime(sessionId: string, userId: string): Promise<LivePiR
       initialMessages,
       executionContext,
       workspaceFileTreePromptBlock: workspaceFileTreePrompt.promptBlock,
+      browserSnapshot,
     },
     agent,
     {
@@ -1990,7 +2054,6 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
   };
   const promptSnapshot = await ensurePiSessionSystemPromptSnapshot(sessionRecord);
   const systemPrompt = promptSnapshot.systemPrompt;
-  const tools = await getPiTools(userId, sessionRecord.agentId, sessionId);
   const executionContext = await resolveAgentExecutionContextForSession({
     sessionId,
     userId,
@@ -1999,6 +2062,11 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
   if (!executionContext.organizationId) {
     throw new Error('Complete the app AI runtime setup before loading the session runtime.');
   }
+  const browserSnapshot = await refreshBrowserSessionSnapshot(executionContext);
+  const tools = await getPiTools(userId, sessionRecord.agentId, sessionId, {
+    executionContext,
+    browserMode: browserSnapshot.running ? 'active' : 'dormant',
+  });
   const executableRuntime = await resolveAndPinSessionRuntime({
     organizationId: executionContext.organizationId,
     userId,
@@ -2009,6 +2077,7 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     requestedSelection: null,
   });
   const model = executableRuntime.model;
+  const browserRuntimeContextBlock = buildBrowserRuntimeContextBlock(browserSnapshot);
   const composition = composePiHistoryForLlm({
     messages,
     summary,
@@ -2016,10 +2085,14 @@ export async function getPiRuntimeStatus(sessionId: string, userId: string): Pro
     contextWindow: model.contextWindow,
     modelMaxTokens: model.maxTokens,
     toolTokens: estimatePiToolSchemaTokens(tools),
+    additionalContextTokens: browserRuntimeContextBlock
+      ? estimateTextTokens(browserRuntimeContextBlock)
+      : 0,
   });
 
   return {
     sessionId,
+    ...(browserSnapshot.running ? { browser: browserSnapshot } : {}),
     phase: 'idle',
     activeTool: null,
     pendingToolCalls: 0,

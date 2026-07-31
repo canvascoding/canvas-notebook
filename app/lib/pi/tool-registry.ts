@@ -20,6 +20,7 @@ import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage, wrapToolWithExecutionContext } from '@/app/lib/pi/tool-runtime-helpers';
+import type { BrowserToolMode } from '@/app/lib/pi/browser/tool';
 import { piTools } from '@/app/lib/pi/core-tools';
 import {
   collapseProgressiveToolGroups,
@@ -318,7 +319,10 @@ export async function getPiTools(
   userId?: string,
   agentId?: string | null,
   sessionId?: string | null,
-  options: { executionContext?: AgentExecutionContext } = {},
+  options: {
+    executionContext?: AgentExecutionContext;
+    browserMode?: BrowserToolMode;
+  } = {},
 ): Promise<AgentTool[]> {
   let resolvedExecutionContext: AgentExecutionContext | undefined;
   if (userId && sessionId) {
@@ -407,7 +411,9 @@ export async function getPiTools(
   }
 
   if (resolvedExecutionContext) {
-    return allTools.map((tool) => wrapToolWithExecutionContext(tool, resolvedExecutionContext));
+    return allTools.map((tool) => wrapToolWithExecutionContext(tool, resolvedExecutionContext, {
+      browserMode: options.browserMode,
+    }));
   }
 
   return allTools;

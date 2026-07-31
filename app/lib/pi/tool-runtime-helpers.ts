@@ -42,7 +42,7 @@ import {
 import { toMediaUrl, toPreviewUrl } from '@/app/lib/utils/media-url';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { runWithAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
-import { createBrowserGatewayTool } from '@/app/lib/pi/browser/tool';
+import { createBrowserGatewayTool, type BrowserToolMode } from '@/app/lib/pi/browser/tool';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
 
@@ -62,7 +62,11 @@ export function assertBashCommandAllowed(command: string): void {
   }
 }
 
-export function wrapToolWithExecutionContext(tool: AgentTool, context: AgentExecutionContext): AgentTool {
+export function wrapToolWithExecutionContext(
+  tool: AgentTool,
+  context: AgentExecutionContext,
+  options: { browserMode?: BrowserToolMode } = {},
+): AgentTool {
   const scopedTool = tool.name === 'browser'
     ? createBrowserGatewayTool({
         userId: context.userId,
@@ -71,7 +75,7 @@ export function wrapToolWithExecutionContext(tool: AgentTool, context: AgentExec
         workspaceId: context.workspaceId,
         workspaceType: context.workspaceType,
         organizationId: context.organizationId,
-      })
+      }, { mode: options.browserMode })
     : tool;
   const execute = scopedTool.execute;
   return {

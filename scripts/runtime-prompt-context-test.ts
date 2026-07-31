@@ -5,6 +5,8 @@ import {
   buildActiveWorkspacePromptBlock,
   type RuntimePromptContextTarget,
 } from '../app/lib/pi/runtime-prompt-context';
+import { buildBrowserRuntimeContextBlock } from '../app/lib/pi/browser/runtime-context';
+import type { BrowserSessionSnapshot } from '../app/lib/pi/browser/types';
 
 function createTarget() {
   const calls: Record<string, unknown> = {};
@@ -115,5 +117,49 @@ const boundedDescriptionPromptBlock = buildActiveWorkspacePromptBlock({
 });
 assert.match(boundedDescriptionPromptBlock || '', new RegExp(`Workspace description[^\\n]+"x{280}"`, 'u'));
 assert.doesNotMatch(boundedDescriptionPromptBlock || '', /x{281}/u);
+
+const inactiveBrowserSnapshot: BrowserSessionSnapshot = {
+  revision: 1,
+  running: false,
+  controlMode: 'agent',
+  activeTabId: null,
+  activeTitle: null,
+  activeUrl: null,
+  tabCount: 0,
+  tabs: [],
+  hasPendingDialog: false,
+};
+assert.equal(buildBrowserRuntimeContextBlock(inactiveBrowserSnapshot), null);
+
+const activeBrowserContext = buildBrowserRuntimeContextBlock({
+  revision: 2,
+  running: true,
+  controlMode: 'user',
+  activeTabId: 'tab-2',
+  activeTitle: 'Canvas Notebook',
+  activeUrl: 'http://localhost:3000/notebook',
+  tabCount: 2,
+  tabs: [
+    {
+      id: 'tab-1',
+      title: 'Docs',
+      url: 'https://example.test/docs',
+      active: false,
+    },
+    {
+      id: 'tab-2',
+      title: 'Canvas Notebook',
+      url: 'http://localhost:3000/notebook',
+      active: true,
+    },
+  ],
+  hasPendingDialog: true,
+});
+assert.match(activeBrowserContext || '', /^## Active Browser Session/mu);
+assert.match(activeBrowserContext || '', /Control mode: user/u);
+assert.match(activeBrowserContext || '', /Do not run interactive browser actions/u);
+assert.match(activeBrowserContext || '', /Active tab ID: "tab-2"/u);
+assert.match(activeBrowserContext || '', /Open tab count: 2/u);
+assert.match(activeBrowserContext || '', /dialog is pending/u);
 
 console.log('Runtime prompt context test passed');

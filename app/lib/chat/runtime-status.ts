@@ -1,3 +1,5 @@
+import type { BrowserSessionSnapshot } from '@/app/lib/pi/browser/types';
+
 export type RuntimeQueueItem = {
   id: string;
   text: string;
@@ -8,6 +10,7 @@ export type RuntimeQueueItem = {
 
 export type RuntimeStatus = {
   sessionId: string;
+  browser?: BrowserSessionSnapshot;
   phase: 'idle' | 'streaming' | 'running_tool' | 'aborting';
   activeTool: { toolCallId: string; name: string } | null;
   pendingToolCalls: number;

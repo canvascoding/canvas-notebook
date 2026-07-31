@@ -713,7 +713,8 @@ export async function resetBrowserSessionPage(
 
 export async function getStatusDetails(context: BrowserRuntimeContext = {}): Promise<BrowserStatusDetails> {
   const profile = browserProfiles.get(getProfileKey(context));
-  if (!profile || !profile.browser?.connected) {
+  const session = profile?.sessions.get(getSessionKey(context));
+  if (!profile?.browser?.connected || !session) {
     return {
       running: false,
       activeTabId: null,
@@ -722,7 +723,6 @@ export async function getStatusDetails(context: BrowserRuntimeContext = {}): Pro
     };
   }
 
-  const session = profile.sessions.get(getSessionKey(context));
   const tabs = await getBrowserRuntimeTabs(context);
   const page = session?.activePage && !session.activePage.isClosed() ? session.activePage : null;
   return {

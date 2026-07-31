@@ -105,6 +105,7 @@ async function main() {
   const { runWithAgentExecutionContext } = await import('../app/lib/pi/agent-execution-context');
   const { createToolLoopGuard } = await import('../app/lib/pi/tool-loop-guard');
   const { getProgressiveGatewayCapabilityNames } = await import('../app/lib/pi/progressive-tool-gateway');
+  const { createBrowserGatewayTool } = await import('../app/lib/pi/browser/tool');
   const { buildPiToolRegistry, createRipgrepTool, createStudioGenerateImageTool, createStudioGenerateVideoTool, getPiToolMetadata, getPiTools, piTools } = await import('../app/lib/pi/tool-registry');
   const { DEFAULT_PI_CONFIG } = await import('../app/lib/pi/config');
   const { writePiRuntimeConfig } = await import('../app/lib/agents/storage');
@@ -213,6 +214,14 @@ async function main() {
   assert.match(browserParametersJson, /new_tab/);
   assert.match(browserParametersJson, /close_tab/);
   assert.match(browserParametersJson, /tab_id/);
+  const dormantBrowserTool = createBrowserGatewayTool({}, { mode: 'dormant' });
+  const dormantBrowserParametersJson = JSON.stringify(dormantBrowserTool.parameters);
+  assert.match(dormantBrowserParametersJson, /help/);
+  assert.match(dormantBrowserParametersJson, /status/);
+  assert.match(dormantBrowserParametersJson, /start/);
+  assert.doesNotMatch(dormantBrowserParametersJson, /evaluate/);
+  assert.doesNotMatch(dormantBrowserParametersJson, /select_tab/);
+  assert.ok(dormantBrowserParametersJson.length < browserParametersJson.length / 3);
 
   const secretsDir = path.join(dataDir, 'secrets');
   const secretFile = path.join(secretsDir, 'Canvas-Integrations.env');

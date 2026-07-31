@@ -6,7 +6,55 @@ import { Type } from 'typebox';
 import { runBrowserGatewayAction, type BrowserGatewayInput } from './gateway';
 import type { BrowserRuntimeContext } from './runtime';
 
-export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): AgentTool {
+export type BrowserToolMode = 'dormant' | 'active';
+
+export function createBrowserGatewayTool(
+  context: BrowserRuntimeContext = {},
+  options: { mode?: BrowserToolMode } = {},
+): AgentTool {
+  const executeBrowserAction: AgentTool['execute'] = async (_toolCallId, params, signal) => {
+    try {
+      if (signal?.aborted) {
+        throw new Error('Tool execution aborted.');
+      }
+      const result = await runBrowserGatewayAction(params as BrowserGatewayInput, context);
+      return {
+        content: [
+          { type: 'text', text: result.text },
+          ...(result.image ? [{ type: 'image' as const, data: result.image.data, mimeType: result.image.mimeType }] : []),
+        ],
+        details: result.details || {},
+      };
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : 'Unknown browser tool error';
+      return {
+        content: [{ type: 'text', text: `Error: ${message}` }],
+        details: { error: message },
+      };
+    }
+  };
+
+  if (options.mode === 'dormant') {
+    return {
+      name: 'browser',
+      label: 'Starting browser',
+      description:
+        'Browser is currently inactive. Use status to check it, start to open a browser session, or help for guidance. ' +
+        'After start, the complete interactive browser controls become available on the next agent turn.',
+      executionMode: 'sequential',
+      parameters: Type.Object({
+        action: Type.Union([
+          Type.Literal('help'),
+          Type.Literal('status'),
+          Type.Literal('start'),
+        ], { description: 'Inactive browser action to run.' }),
+        topic: Type.Optional(Type.String({ description: 'For help: overview, safety, or interaction.' })),
+        url: Type.Optional(Type.String({ description: 'For start: absolute http(s) URL or about:blank.' })),
+      }),
+      execute: executeBrowserAction,
+    };
+  }
+
   return {
     name: 'browser',
     label: 'Controlling browser',
@@ -69,26 +117,6 @@ export function createBrowserGatewayTool(context: BrowserRuntimeContext = {}): A
       clear: Type.Optional(Type.Boolean({ description: 'For type: clear the existing value before typing. Defaults to true.' })),
       mutates: Type.Optional(Type.Boolean({ description: 'For evaluate: set true only after explicit user approval when the script intentionally changes page state.' })),
     }),
-    execute: async (_toolCallId, params, signal) => {
-      try {
-        if (signal?.aborted) {
-          throw new Error('Tool execution aborted.');
-        }
-        const result = await runBrowserGatewayAction(params as BrowserGatewayInput, context);
-        return {
-          content: [
-            { type: 'text', text: result.text },
-            ...(result.image ? [{ type: 'image' as const, data: result.image.data, mimeType: result.image.mimeType }] : []),
-          ],
-          details: result.details || {},
-        };
-      } catch (error: unknown) {
-        const message = error instanceof Error ? error.message : 'Unknown browser tool error';
-        return {
-          content: [{ type: 'text', text: `Error: ${message}` }],
-          details: { error: message },
-        };
-      }
-    },
+    execute: executeBrowserAction,
   };
 }
