@@ -76,6 +76,9 @@ function publishClosedBrowserSession(contextKey: string): void {
   publishBrowserSessionSnapshot(contextKey, {
     running: false,
     controlMode: 'agent',
+    interactionPolicy: 'exclusive',
+    interactionRevision: 0,
+    lastUserInteractionAt: null,
     activeTabId: null,
     activeTitle: null,
     activeUrl: null,

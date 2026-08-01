@@ -39,7 +39,7 @@ import type {
 } from './types';
 import { getBrowserRequirementStatus } from './requirements';
 import { assertBrowserNavigationUrlAllowed } from './url-policy';
-import { assertAgentBrowserControl } from './view-control';
+import { assertAgentBrowserControl, getBrowserControlState } from './view-control';
 
 export type {
   BrowserAction,
@@ -323,7 +323,7 @@ async function observePage(
   const maxElements = clampNumber(input.max_elements, MAX_OBSERVED_TARGETS, MAX_OBSERVED_TARGETS);
   const observed = await observeInteractiveTargets(page, maxElements);
   const targetStore = getContextTargetStore(context);
-  targetStore.replace(observed);
+  targetStore.replace(observed, getBrowserControlState(context).interactionRevision);
   return {
     text: formatJson(observed),
     details: observed,
@@ -336,7 +336,12 @@ async function click(
 ): Promise<BrowserGatewayOutput> {
   const page = await ensurePage(context);
   const targetStore = getContextTargetStore(context);
-  const handle = await resolveTargetHandle(page, input, targetStore);
+  const handle = await resolveTargetHandle(
+    page,
+    input,
+    targetStore,
+    getBrowserControlState(context).interactionRevision,
+  );
   try {
     await handle.click();
     await page.waitForNavigation({ waitUntil: 'domcontentloaded', timeout: 3_000 }).catch(() => undefined);
@@ -359,7 +364,12 @@ async function typeText(
 
   const page = await ensurePage(context);
   const targetStore = getContextTargetStore(context);
-  const handle = await resolveTargetHandle(page, input, targetStore);
+  const handle = await resolveTargetHandle(
+    page,
+    input,
+    targetStore,
+    getBrowserControlState(context).interactionRevision,
+  );
   try {
     await handle.click({ count: input.clear === false ? 1 : 3 });
     if (input.clear !== false) {
@@ -401,7 +411,12 @@ async function scroll(
   const scrollY = typeof input.scroll_y === 'number' ? input.scroll_y : 600;
 
   if (input.target_id || input.selector) {
-    const handle = await resolveTargetHandle(page, input, targetStore);
+    const handle = await resolveTargetHandle(
+      page,
+      input,
+      targetStore,
+      getBrowserControlState(context).interactionRevision,
+    );
     try {
       await handle.evaluate((el, delta) => {
         el.scrollBy(delta.x, delta.y);

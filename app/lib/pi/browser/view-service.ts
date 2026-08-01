@@ -27,9 +27,11 @@ import { refreshBrowserSessionSnapshot } from './session-state-service';
 import {
   assertBrowserUserControl,
   getBrowserControlState,
+  recordBrowserUserInteraction,
   refreshBrowserControlLease,
   releaseBrowserViewControl,
   setBrowserControlMode,
+  shouldAbortAgentForBrowserControl,
 } from './view-control';
 import {
   assertBrowserClipboardText,
@@ -94,6 +96,7 @@ export class BrowserViewService {
   readonly context: BrowserRuntimeContext;
 
   private captureTimer: NodeJS.Timeout | null = null;
+  private interactionPublishTimer: NodeJS.Timeout | null = null;
   private captureInFlight = false;
   private closed = false;
   private sequence = 0;
@@ -141,7 +144,10 @@ export class BrowserViewService {
       await preparePage();
     }
     this.send({ type: 'ready', viewId: this.claims.viewId });
-    await this.audit('browser_view.connect', { mode: getBrowserControlState(this.context).mode });
+    await this.audit('browser_view.connect', {
+      mode: getBrowserControlState(this.context).mode,
+      interactionPolicy: this.claims.interactionPolicy ?? 'exclusive',
+    });
     await this.publishState(true);
     const intervalMs = Math.max(150, Math.round(1000 / this.resourceBudget.fps));
     this.captureTimer = setInterval(() => void this.captureFrame(), intervalMs);
@@ -428,6 +434,13 @@ export class BrowserViewService {
         agentSessionId: this.claims.agentSessionId,
         workspaceId: this.claims.workspaceId,
         mode: control.mode,
+        interactionPolicy: control.mode === 'user'
+          ? control.interactionPolicy
+          : this.claims.interactionPolicy ?? 'exclusive',
+        interactionRevision: control.interactionRevision,
+        lastUserInteractionAt: control.lastUserInteractionAt
+          ? new Date(control.lastUserInteractionAt).toISOString()
+          : null,
         controlOwnerViewId: control.ownerViewId,
         leaseExpiresAt: control.leaseExpiresAt ? new Date(control.leaseExpiresAt).toISOString() : null,
         activeTabId: getActiveBrowserRuntimeTabId(this.context),
@@ -460,6 +473,9 @@ export class BrowserViewService {
     publishBrowserSessionSnapshot(getBrowserRuntimeContextKey(this.context), {
       running: true,
       controlMode: state.mode,
+      interactionPolicy: state.interactionPolicy,
+      interactionRevision: state.interactionRevision,
+      lastUserInteractionAt: state.lastUserInteractionAt,
       activeTabId: state.activeTabId,
       activeTitle: state.title,
       activeUrl: state.url,
@@ -475,28 +491,46 @@ export class BrowserViewService {
 
   async requestControl(mode: BrowserViewControlMode): Promise<void> {
     let abortedAgentRun = false;
+    const interactionPolicy = this.claims.interactionPolicy ?? 'exclusive';
     if (mode === 'user') {
       await withBrowserRuntimeLock(this.context, async () => {
-        setBrowserControlMode({ context: this.context, viewId: this.claims.viewId, mode });
-      });
-      try {
-        const status = await getAgentRuntimeStatus(this.claims.agentSessionId, this.claims.userId);
-        if (status?.canAbort) {
-          await controlAgentRuntime(this.claims.agentSessionId, this.claims.userId, 'abort');
-          abortedAgentRun = true;
-        }
-      } catch (error) {
-        await withBrowserRuntimeLock(this.context, async () => {
-          setBrowserControlMode({ context: this.context, viewId: this.claims.viewId, mode: 'agent' });
+        setBrowserControlMode({
+          context: this.context,
+          viewId: this.claims.viewId,
+          mode,
+          interactionPolicy,
         });
-        throw error;
+      });
+      if (shouldAbortAgentForBrowserControl(interactionPolicy)) {
+        try {
+          const status = await getAgentRuntimeStatus(this.claims.agentSessionId, this.claims.userId);
+          if (status?.canAbort) {
+            await controlAgentRuntime(this.claims.agentSessionId, this.claims.userId, 'abort');
+            abortedAgentRun = true;
+          }
+        } catch (error) {
+          await withBrowserRuntimeLock(this.context, async () => {
+            setBrowserControlMode({
+              context: this.context,
+              viewId: this.claims.viewId,
+              mode: 'agent',
+              interactionPolicy,
+            });
+          });
+          throw error;
+        }
       }
     } else {
       await withBrowserRuntimeLock(this.context, async () => {
-        setBrowserControlMode({ context: this.context, viewId: this.claims.viewId, mode });
+        setBrowserControlMode({
+          context: this.context,
+          viewId: this.claims.viewId,
+          mode,
+          interactionPolicy,
+        });
       });
     }
-    await this.audit('browser_view.control', { mode, abortedAgentRun });
+    await this.audit('browser_view.control', { mode, interactionPolicy, abortedAgentRun });
     await this.publishState(true);
   }
 
@@ -558,7 +592,7 @@ export class BrowserViewService {
 
   private async stopNavigation(): Promise<void> {
     assertBrowserUserControl(this.context, this.claims.viewId);
-    refreshBrowserControlLease(this.context, this.claims.viewId);
+    recordBrowserUserInteraction(this.context, this.claims.viewId);
     this.navigationStopRequested = true;
     const page = await ensurePage(this.context);
     const existingClient = this.pageTransfers.get(page)?.pageClient;
@@ -575,25 +609,28 @@ export class BrowserViewService {
 
   async copySelection(requestId: unknown): Promise<void> {
     const normalizedRequestId = normalizeBrowserClipboardRequestId(requestId);
-    const text = await this.withUserControl(async (page) => page.evaluate(() => {
-      const active = document.activeElement;
-      if (active instanceof HTMLInputElement) {
-        if (active.type === 'password') return '';
-        try {
+    const text = await this.withUserControl(
+      async (page) => page.evaluate(() => {
+        const active = document.activeElement;
+        if (active instanceof HTMLInputElement) {
+          if (active.type === 'password') return '';
+          try {
+            const start = active.selectionStart;
+            const end = active.selectionEnd;
+            if (start !== null && end !== null && end > start) return active.value.slice(start, end);
+          } catch {
+            return '';
+          }
+        }
+        if (active instanceof HTMLTextAreaElement) {
           const start = active.selectionStart;
           const end = active.selectionEnd;
-          if (start !== null && end !== null && end > start) return active.value.slice(start, end);
-        } catch {
-          return '';
+          if (end > start) return active.value.slice(start, end);
         }
-      }
-      if (active instanceof HTMLTextAreaElement) {
-        const start = active.selectionStart;
-        const end = active.selectionEnd;
-        if (end > start) return active.value.slice(start, end);
-      }
-      return window.getSelection()?.toString() || '';
-    }));
+        return window.getSelection()?.toString() || '';
+      }),
+      { trackInteraction: false },
+    );
     const normalizedText = truncateBrowserClipboardText(text);
     this.send({ type: 'clipboard_text', requestId: normalizedRequestId, text: normalizedText });
     await this.audit('browser_view.clipboard_copy', {
@@ -684,13 +721,13 @@ export class BrowserViewService {
     if (!pending) throw new Error('A browser file chooser is required.');
     await withBrowserRuntimeLock(this.context, async () => {
       assertBrowserUserControl(this.context, this.claims.viewId);
-      refreshBrowserControlLease(this.context, this.claims.viewId);
       const resolved = await resolveBrowserUploadFiles(
         this.context,
         paths,
         pending.chooser.isMultiple(),
       );
       await pending.chooser.accept(resolved.absolutePaths);
+      recordBrowserUserInteraction(this.context, this.claims.viewId);
       if (this.pendingFileChooser === pending) this.pendingFileChooser = null;
       this.armFileChooser(pending.page);
       scheduleIdleClose(this.context);
@@ -706,6 +743,7 @@ export class BrowserViewService {
       assertBrowserUserControl(this.context, this.claims.viewId);
       this.pendingFileChooser = null;
       await pending.chooser.cancel();
+      recordBrowserUserInteraction(this.context, this.claims.viewId);
       this.armFileChooser(pending.page);
     });
     await this.publishState(true);
@@ -721,16 +759,33 @@ export class BrowserViewService {
     this.acknowledgedSequence = sequence;
   }
 
-  private async withUserControl<T>(operation: (page: Page) => Promise<T>): Promise<T> {
-    return withBrowserRuntimeLock(this.context, async () => {
+  private async withUserControl<T>(
+    operation: (page: Page) => Promise<T>,
+    options: { trackInteraction?: boolean } = {},
+  ): Promise<T> {
+    const result = await withBrowserRuntimeLock(this.context, async () => {
       assertBrowserUserControl(this.context, this.claims.viewId);
       refreshBrowserControlLease(this.context, this.claims.viewId);
       const page = await ensurePage(this.context);
       await this.ensurePageTransfers(page);
       const result = await operation(page);
+      if (options.trackInteraction !== false) {
+        recordBrowserUserInteraction(this.context, this.claims.viewId);
+      }
       scheduleIdleClose(this.context);
       return result;
     });
+    if (options.trackInteraction !== false) this.scheduleInteractionStatePublish();
+    return result;
+  }
+
+  private scheduleInteractionStatePublish(): void {
+    if (this.closed || this.interactionPublishTimer) return;
+    this.interactionPublishTimer = setTimeout(() => {
+      this.interactionPublishTimer = null;
+      void this.publishState(true).catch(() => undefined);
+    }, 160);
+    this.interactionPublishTimer.unref?.();
   }
 
   private async audit(action: string, metadata: Record<string, unknown>): Promise<void> {
@@ -756,6 +811,8 @@ export class BrowserViewService {
     this.closed = true;
     if (this.captureTimer) clearInterval(this.captureTimer);
     this.captureTimer = null;
+    if (this.interactionPublishTimer) clearTimeout(this.interactionPublishTimer);
+    this.interactionPublishTimer = null;
     releaseBrowserViewControl(this.context, this.claims.viewId);
     void refreshBrowserSessionSnapshot(this.context).catch(() => undefined);
     const pending = this.pendingFileChooser;

@@ -13,9 +13,15 @@ export async function refreshBrowserSessionSnapshot(
   context: BrowserRuntimeContext,
 ): Promise<BrowserSessionSnapshot> {
   const status = await getStatusDetails(context);
+  const control = getBrowserControlState(context);
   return publishBrowserSessionSnapshot(getBrowserRuntimeContextKey(context), {
     running: status.running,
-    controlMode: getBrowserControlState(context).mode,
+    controlMode: control.mode,
+    interactionPolicy: control.interactionPolicy,
+    interactionRevision: control.interactionRevision,
+    lastUserInteractionAt: control.lastUserInteractionAt
+      ? new Date(control.lastUserInteractionAt).toISOString()
+      : null,
     activeTabId: status.activeTabId ?? null,
     activeTitle: status.activeTitle ?? null,
     activeUrl: status.activeUrl ?? null,

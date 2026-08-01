@@ -15,6 +15,7 @@ import { rateLimit } from '@/app/lib/utils/rate-limit';
 type BrowserViewRequest = {
   agentId?: unknown;
   sessionId?: unknown;
+  interactionPolicy?: unknown;
 };
 
 export async function POST(request: NextRequest) {
@@ -59,6 +60,9 @@ export async function POST(request: NextRequest) {
       }, { status: 400 });
     }
     const agentId = normalizeManagedAgentId(typeof payload.agentId === 'string' ? payload.agentId : null);
+    const interactionPolicy = payload.interactionPolicy === 'cooperative'
+      ? 'cooperative'
+      : 'exclusive';
     const agentSession = await assertUnambiguousOwnedPiSessionForRuntime({
       sessionId: rawSessionId,
       userId: session.user.id,
@@ -108,6 +112,7 @@ export async function POST(request: NextRequest) {
       workspaceId: executionContext.workspaceId,
       workspaceType: executionContext.workspaceType,
       organizationId: executionContext.organizationId,
+      interactionPolicy,
     });
 
     return NextResponse.json({
@@ -117,6 +122,7 @@ export async function POST(request: NextRequest) {
         viewId: issued.claims.viewId,
         expiresAt: new Date(issued.claims.expiresAt).toISOString(),
         websocketUrl: '/ws/browser',
+        interactionPolicy,
         resourceBudget,
       },
     }, { headers: { 'Cache-Control': 'no-store' } });

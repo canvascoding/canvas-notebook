@@ -108,11 +108,15 @@ export type BrowserRuntimeTab = {
 };
 
 export type BrowserViewControlMode = 'view' | 'agent' | 'user';
+export type BrowserInteractionPolicy = 'exclusive' | 'cooperative';
 
 export type BrowserSessionSnapshot = {
   revision: number;
   running: boolean;
   controlMode: BrowserViewControlMode;
+  interactionPolicy: BrowserInteractionPolicy;
+  interactionRevision: number;
+  lastUserInteractionAt: string | null;
   activeTabId: string | null;
   activeTitle: string | null;
   activeUrl: string | null;
@@ -195,6 +199,9 @@ export type BrowserViewState = {
   agentSessionId: string;
   workspaceId: string;
   mode: BrowserViewControlMode;
+  interactionPolicy: BrowserInteractionPolicy;
+  interactionRevision: number;
+  lastUserInteractionAt: string | null;
   controlOwnerViewId: string | null;
   leaseExpiresAt: string | null;
   activeTabId: string | null;

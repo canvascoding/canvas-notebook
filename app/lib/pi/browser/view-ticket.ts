@@ -2,6 +2,8 @@ import 'server-only';
 
 import crypto from 'node:crypto';
 
+import type { BrowserInteractionPolicy } from './types';
+
 export const BROWSER_VIEW_TICKET_SCHEMA_VERSION = 1;
 export const BROWSER_VIEW_TICKET_TTL_MS = 90_000;
 
@@ -17,6 +19,7 @@ export type BrowserViewTicketClaims = {
   workspaceId: string;
   workspaceType: string;
   organizationId: string | null;
+  interactionPolicy?: BrowserInteractionPolicy;
 };
 
 function ticketSecret(): string {
@@ -47,7 +50,12 @@ function isClaims(value: unknown): value is BrowserViewTicketClaims {
     && typeof claims.agentSessionId === 'string'
     && typeof claims.workspaceId === 'string'
     && typeof claims.workspaceType === 'string'
-    && (claims.organizationId === null || typeof claims.organizationId === 'string');
+    && (claims.organizationId === null || typeof claims.organizationId === 'string')
+    && (
+      claims.interactionPolicy === undefined
+      || claims.interactionPolicy === 'exclusive'
+      || claims.interactionPolicy === 'cooperative'
+    );
 }
 
 export function issueBrowserViewTicket(

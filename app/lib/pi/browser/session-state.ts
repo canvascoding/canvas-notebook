@@ -1,5 +1,6 @@
 import type {
   BrowserRuntimeTab,
+  BrowserInteractionPolicy,
   BrowserSessionSnapshot,
   BrowserSessionSnapshotInput,
   BrowserViewControlMode,
@@ -65,6 +66,16 @@ function normalizeControlMode(value: BrowserViewControlMode): BrowserViewControl
   return value === 'user' || value === 'view' ? value : 'agent';
 }
 
+function normalizeInteractionPolicy(value: BrowserInteractionPolicy): BrowserInteractionPolicy {
+  return value === 'cooperative' ? 'cooperative' : 'exclusive';
+}
+
+function normalizeInteractionTimestamp(value: string | null): string | null {
+  if (!value) return null;
+  const timestamp = new Date(value);
+  return Number.isNaN(timestamp.getTime()) ? null : timestamp.toISOString();
+}
+
 export function normalizeBrowserSessionSnapshot(
   input: BrowserSessionSnapshotInput,
   revision: number,
@@ -74,6 +85,9 @@ export function normalizeBrowserSessionSnapshot(
       revision,
       running: false,
       controlMode: 'agent',
+      interactionPolicy: normalizeInteractionPolicy(input.interactionPolicy),
+      interactionRevision: Math.max(0, Math.floor(input.interactionRevision)),
+      lastUserInteractionAt: normalizeInteractionTimestamp(input.lastUserInteractionAt),
       activeTabId: null,
       activeTitle: null,
       activeUrl: null,
@@ -99,6 +113,9 @@ export function normalizeBrowserSessionSnapshot(
     revision,
     running: true,
     controlMode: normalizeControlMode(input.controlMode),
+    interactionPolicy: normalizeInteractionPolicy(input.interactionPolicy),
+    interactionRevision: Math.max(0, Math.floor(input.interactionRevision)),
+    lastUserInteractionAt: normalizeInteractionTimestamp(input.lastUserInteractionAt),
     activeTabId: activeTab?.id ?? activeTabId,
     activeTitle: boundedText(activeTab?.title || input.activeTitle, MAX_TAB_TITLE_LENGTH) || null,
     activeUrl: sanitizeBrowserSessionUrl(activeTab?.url || input.activeUrl),
@@ -148,6 +165,9 @@ export function subscribeBrowserSessionSnapshot(
       snapshot: normalizeBrowserSessionSnapshot({
         running: false,
         controlMode: 'agent',
+        interactionPolicy: 'exclusive',
+        interactionRevision: 0,
+        lastUserInteractionAt: null,
         activeTabId: null,
         activeTitle: null,
         activeUrl: null,

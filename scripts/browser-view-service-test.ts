@@ -4,9 +4,11 @@ import {
   assertAgentBrowserControl,
   assertBrowserUserControl,
   getBrowserControlState,
+  recordBrowserUserInteraction,
   refreshBrowserControlLease,
   releaseBrowserViewControl,
   setBrowserControlMode,
+  shouldAbortAgentForBrowserControl,
 } from '../app/lib/pi/browser/view-control';
 import { resolveBrowserViewResourceBudget } from '../app/lib/pi/browser/view-resource-budget';
 import { browserViewFailure } from '../app/lib/pi/browser/view-errors';
@@ -22,6 +24,7 @@ import {
   sanitizeBrowserDownloadFileName,
 } from '../app/lib/pi/browser/view-transfers';
 import { issueBrowserViewTicket, verifyBrowserViewTicket } from '../app/lib/pi/browser/view-ticket';
+import { BrowserTargetStore } from '../app/lib/pi/browser/targets';
 
 function ticketInput() {
   return {
@@ -59,6 +62,7 @@ function testExclusiveControl() {
   };
   const now = Date.now();
   assert.equal(getBrowserControlState(context).mode, 'agent');
+  assert.equal(getBrowserControlState(context).interactionPolicy, 'exclusive');
 
   const owned = setBrowserControlMode({ context, viewId: 'view-a', mode: 'user', now });
   assert.equal(owned.ownerViewId, 'view-a');
@@ -79,6 +83,61 @@ function testExclusiveControl() {
 
   setBrowserControlMode({ context, viewId: 'view-a', mode: 'user', now: now + 50_000 });
   assert.equal(getBrowserControlState(context, now + 80_001).mode, 'view');
+}
+
+function testCooperativeControl() {
+  assert.equal(shouldAbortAgentForBrowserControl('cooperative'), false);
+  assert.equal(shouldAbortAgentForBrowserControl('exclusive'), true);
+
+  const context = {
+    userId: 'cooperative-user',
+    agentId: 'cooperative-agent',
+    sessionId: `cooperative-session-${Date.now()}`,
+    workspaceId: 'cooperative-workspace',
+  };
+  const now = Date.now();
+  const owned = setBrowserControlMode({
+    context,
+    viewId: 'view-cooperative',
+    mode: 'user',
+    interactionPolicy: 'cooperative',
+    now,
+  });
+  assert.equal(owned.interactionPolicy, 'cooperative');
+  assert.doesNotThrow(() => assertAgentBrowserControl(context));
+
+  const interacted = recordBrowserUserInteraction(context, 'view-cooperative', now + 500);
+  assert.equal(interacted.interactionRevision, 1);
+  assert.equal(interacted.lastUserInteractionAt, now + 500);
+  assert.equal(interacted.leaseExpiresAt, now + 30_500);
+
+  const targetStore = new BrowserTargetStore();
+  targetStore.replace({
+    title: 'Before user interaction',
+    url: 'https://example.test/',
+    targets: [{
+      targetId: 't1',
+      tag: 'button',
+      role: 'button',
+      name: 'Continue',
+      text: 'Continue',
+      ariaLabel: null,
+      placeholder: null,
+      href: null,
+      value: null,
+      testId: null,
+      type: null,
+      disabled: false,
+      checked: null,
+      selected: null,
+      rect: { x: 0, y: 0, width: 100, height: 40 },
+      candidates: ['button'],
+    }],
+  }, 0);
+  assert.throws(
+    () => targetStore.assertCurrent(interacted.interactionRevision),
+    /user changed the browser/u,
+  );
 }
 
 function testSafeFailures() {
@@ -139,6 +198,9 @@ function testCompactBrowserSessionState() {
   const first = publishBrowserSessionSnapshot(contextKey, {
     running: true,
     controlMode: 'user',
+    interactionPolicy: 'cooperative',
+    interactionRevision: 2,
+    lastUserInteractionAt: '2026-08-01T10:00:00.000Z',
     activeTabId: 'tab-14',
     activeTitle: 'Sensitive title',
     activeUrl: 'https://example.test/page-14?token=secret',
@@ -152,12 +214,17 @@ function testCompactBrowserSessionState() {
   assert.equal(first.tabs[0]?.id, 'tab-14');
   assert.equal(first.activeUrl, 'https://example.test/page-14');
   assert.equal(first.controlMode, 'user');
+  assert.equal(first.interactionPolicy, 'cooperative');
+  assert.equal(first.interactionRevision, 2);
   assert.equal(first.hasPendingDialog, true);
   assert.deepEqual(revisions, [1]);
 
   const unchanged = publishBrowserSessionSnapshot(contextKey, {
     running: true,
     controlMode: 'user',
+    interactionPolicy: 'cooperative',
+    interactionRevision: 2,
+    lastUserInteractionAt: '2026-08-01T10:00:00.000Z',
     activeTabId: 'tab-14',
     activeTitle: 'Sensitive title',
     activeUrl: 'https://example.test/page-14?different=secret',
@@ -171,6 +238,9 @@ function testCompactBrowserSessionState() {
   const closed = publishBrowserSessionSnapshot(contextKey, {
     running: false,
     controlMode: 'view',
+    interactionPolicy: 'cooperative',
+    interactionRevision: 3,
+    lastUserInteractionAt: '2026-08-01T10:01:00.000Z',
     activeTabId: 'tab-14',
     activeTitle: 'Ignored',
     activeUrl: 'https://example.test',
@@ -202,6 +272,7 @@ async function main() {
     testTickets();
     testFixtureTickets();
     testExclusiveControl();
+    testCooperativeControl();
     testSafeFailures();
     testSafeTransfers();
     testCompactBrowserSessionState();

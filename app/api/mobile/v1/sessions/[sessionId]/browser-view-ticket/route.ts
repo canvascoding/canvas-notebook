@@ -64,6 +64,9 @@ export async function POST(
   try {
     const params = await context.params;
     const workspaceId = request.headers.get('x-canvas-workspace-id')?.trim() || '';
+    const interactionPolicy = request.headers.get('x-canvas-browser-interaction-policy') === 'cooperative'
+      ? 'cooperative'
+      : 'exclusive';
     const { session, workspace } = await requireMobileChatSession({
       userId: authSession.user.id,
       sessionId: params.sessionId,
@@ -104,6 +107,7 @@ export async function POST(
     const browserTicket = issueBrowserViewTicket({
       viewId: randomUUID(),
       ...identity,
+      interactionPolicy,
     });
     const websocketTicket = issueMobileBrowserViewTicket(identity);
 
@@ -120,6 +124,7 @@ export async function POST(
           ticket: browserTicket.token,
           viewId: browserTicket.claims.viewId,
           expiresAt: new Date(browserTicket.claims.expiresAt).toISOString(),
+          interactionPolicy,
         },
       },
     }, { headers: responseHeaders });

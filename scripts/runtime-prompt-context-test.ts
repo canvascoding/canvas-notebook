@@ -122,6 +122,9 @@ const inactiveBrowserSnapshot: BrowserSessionSnapshot = {
   revision: 1,
   running: false,
   controlMode: 'agent',
+  interactionPolicy: 'exclusive',
+  interactionRevision: 0,
+  lastUserInteractionAt: null,
   activeTabId: null,
   activeTitle: null,
   activeUrl: null,
@@ -135,6 +138,9 @@ const activeBrowserContext = buildBrowserRuntimeContextBlock({
   revision: 2,
   running: true,
   controlMode: 'user',
+  interactionPolicy: 'cooperative',
+  interactionRevision: 4,
+  lastUserInteractionAt: '2026-08-01T10:00:00.000Z',
   activeTabId: 'tab-2',
   activeTitle: 'Canvas Notebook',
   activeUrl: 'http://localhost:3000/notebook',
@@ -157,7 +163,9 @@ const activeBrowserContext = buildBrowserRuntimeContextBlock({
 });
 assert.match(activeBrowserContext || '', /^## Active Browser Session/mu);
 assert.match(activeBrowserContext || '', /Control mode: user/u);
-assert.match(activeBrowserContext || '', /Do not run interactive browser actions/u);
+assert.match(activeBrowserContext || '', /Interaction policy: cooperative/u);
+assert.match(activeBrowserContext || '', /may interact with the browser while you continue working/u);
+assert.match(activeBrowserContext || '', /User interaction revision: 4/u);
 assert.match(activeBrowserContext || '', /Active tab ID: "tab-2"/u);
 assert.match(activeBrowserContext || '', /Open tab count: 2/u);
 assert.match(activeBrowserContext || '', /dialog is pending/u);

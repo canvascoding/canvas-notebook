@@ -134,17 +134,28 @@ const OBSERVE_TARGETS_SOURCE = String.raw`
 
 export class BrowserTargetStore {
   private targets = new Map<string, ObservedTarget>();
+  private interactionRevision = 0;
 
-  replace(observation: BrowserObservation): void {
+  replace(observation: BrowserObservation, interactionRevision = 0): void {
     this.targets = new Map(observation.targets.map((target) => [target.targetId, target]));
+    this.interactionRevision = interactionRevision;
   }
 
   clear(): void {
     this.targets = new Map();
+    this.interactionRevision = 0;
   }
 
   get(targetId: string): ObservedTarget | undefined {
     return this.targets.get(targetId);
+  }
+
+  assertCurrent(interactionRevision: number): void {
+    if (this.targets.size > 0 && this.interactionRevision !== interactionRevision) {
+      throw new Error(
+        'The user changed the browser after the last observation. Run observe again and use a current target_id.',
+      );
+    }
   }
 }
 
@@ -198,11 +209,13 @@ export async function resolveTargetHandle(
   page: Page,
   input: BrowserGatewayInput,
   targetStore: BrowserTargetStore,
+  interactionRevision = 0,
 ): Promise<ElementHandle<Element>> {
   const targetId = input.target_id?.trim();
   const selector = input.selector?.trim();
 
   if (targetId) {
+    targetStore.assertCurrent(interactionRevision);
     const target = targetStore.get(targetId);
     if (!target) {
       throw new Error(`Unknown target_id "${targetId}". Run observe before interacting.`);

@@ -11,12 +11,25 @@ export function buildBrowserRuntimeContextBlock(
     '## Active Browser Session',
     'A browser session is running for this chat. Its URLs are compacted and omit query strings, fragments, and credentials.',
     `Control mode: ${snapshot.controlMode}`,
+    `Interaction policy: ${snapshot.interactionPolicy}`,
+    `User interaction revision: ${snapshot.interactionRevision}`,
   ];
 
   if (snapshot.controlMode === 'user') {
-    lines.push('The user currently controls the browser. Do not run interactive browser actions until control returns to the agent.');
+    if (snapshot.interactionPolicy === 'cooperative') {
+      lines.push(
+        'The user may interact with the browser while you continue working. Browser actions are serialized. '
+        + 'If a target became stale, re-run observe and continue from the current page instead of assuming the previous layout.',
+      );
+    } else {
+      lines.push('The user currently controls the browser. Do not run interactive browser actions until control returns to the agent.');
+    }
   } else if (snapshot.controlMode === 'view') {
     lines.push('The browser is visible in read-only mode; the agent retains interaction control.');
+  }
+
+  if (snapshot.lastUserInteractionAt) {
+    lines.push(`Last user browser interaction: ${JSON.stringify(snapshot.lastUserInteractionAt)}`);
   }
 
   if (snapshot.activeTabId) {
