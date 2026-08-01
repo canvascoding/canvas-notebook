@@ -1,21 +1,21 @@
 # Canvas Notebook MCP Server Architecture Plan
 
-> Stand: 2026-07-16
+> Stand: 2026-08-01
 > Status: Entwurf – noch nicht zur Umsetzung freigegeben
 
 ## 1. Ziel
 
 Canvas Notebook soll seine Knowledge Base und ausgewählte Workspace-Funktionen über MCP für externe Clients bereitstellen können.
 
-Der wichtigste Zielclient ist eine zukünftige offizielle und von OpenAI geprüfte Canvas-Notebook-App für ChatGPT. Zusätzlich soll eine direkte MCP-Anbindung für Entwicklung, Tests und individuell konfigurierte MCP-Clients möglich bleiben.
+Der erste Zielclient ist eine manuell in ChatGPT Developer Mode oder einem anderen MCP-Client konfigurierte direkte Verbindung zur jeweiligen Notebook-Instanz. Eine zukünftige offizielle und von OpenAI geprüfte Canvas-Notebook-App folgt erst mit dem Managed Gateway in V2.
 
 Die Architektur muss folgende Betriebsarten unterstützen:
 
-1. Eine durch Canvas verwaltete Notebook-Instanz.
-2. Eine selbst gehostete Notebook-Instanz mit optionalem Canvas Cloud Link.
-3. Eine vollständig direkte Development-Anbindung ohne Canvas Control Plane.
+1. V1: eine direkte Verbindung zu einer selbst gehosteten oder verwalteten Notebook-Instanz ohne Canvas Control Plane im Datenpfad.
+2. V2: eine selbst gehostete Notebook-Instanz mit optionalem Canvas Cloud Link.
+3. V2: eine durch Canvas verwaltete Notebook-Instanz hinter dem zentralen Managed Gateway.
 
-Der Zugriff auf eine selbst gehostete Instanz über die offizielle ChatGPT-App darf nicht voraussetzen, dass der Betreiber den vollständigen Managed Mode aktiviert.
+V1 benötigt keine zentrale Canvas-App-Registrierung. Jede Instanz wird mit ihrer eigenen stabilen HTTPS-URL als eigener MCP-Server im Client eingetragen.
 
 ## 2. Abgrenzung zur vorhandenen MCP-Client-Integration
 
@@ -35,54 +35,58 @@ Beide Funktionen dürfen gemeinsame MCP-Grundlagen verwenden, müssen aber getre
 
 ## 3. Architekturentscheidung
 
-Für die offizielle Canvas-Notebook-App wird ein zentraler öffentlicher MCP-Endpunkt benötigt. Ein zentraler OAuth-Provider allein reicht nicht aus.
+Die Umsetzung wird verbindlich in zwei voneinander getrennte Stufen aufgeteilt.
 
-Die veröffentlichte App soll einen stabilen öffentlichen MCP-Endpunkt verwenden:
+### 3.1 V1: direkter MCP-Server pro Notebook-Instanz
+
+Jede Notebook-Instanz ist selbst OAuth Authorization Server und MCP Resource Server:
 
 ```text
-https://mcp.canvasnotebook.app/mcp
+MCP Resource:
+https://{instance-domain}/mcp
+
+Better Auth Issuer:
+https://{instance-domain}/api/auth
 ```
 
-> Architekturentscheidung (2026-08-01): Dies ist der kanonische Produktionsendpunkt. Die Basisdomain lautet verbindlich `canvasnotebook.app` ohne Bindestrich. Die Wiederholung von `mcp` ist beabsichtigt: Die Subdomain bezeichnet den Dienst, der Pfad den MCP-Endpunkt.
-
-Der zentrale OAuth-Provider soll ebenfalls über eine offizielle Canvas-Domain erreichbar sein:
+ChatGPT wird im Developer Mode manuell mit der jeweiligen Instanz-URL verbunden. Der Benutzer meldet sich im OAuth-Flow direkt mit seinem lokalen Canvas-Notebook-Konto an. Better Auth stellt Authorization Code Flow, PKCE, Dynamic Client Registration, Access Tokens, Refresh Tokens und Revocation bereit. Die Notebook-Instanz prüft danach weiterhin ihre lokale Benutzer- und Workspace-ACL.
 
 ```text
-https://auth.canvasnotebook.app
-```
-
-Der zentrale MCP-Endpunkt ist ein Gateway. Die eigentliche Knowledge-Base-Operation wird weiterhin von der verbundenen Canvas-Notebook-Instanz ausgeführt.
-
-```text
-ChatGPT / offizieller Canvas Client
-                  │
-                  │ OAuth-Token und MCP Request
-                  ▼
-┌────────────────────────────────────────────┐
-│ Canvas Cloud                              │
-│                                           │
-│ auth.canvasnotebook.app                   │
-│ Zentraler OAuth Authorization Server      │
-│                                           │
-│ mcp.canvasnotebook.app/mcp                │
-│ Öffentlicher MCP Resource Server/Gateway  │
-└─────────────────────┬──────────────────────┘
-                      │
-                      │ ausgehender authentifizierter Tunnel
-                      ▼
+ChatGPT / MCP Client
+          │
+          │ OAuth mit lokalem Canvas-Benutzer
+          │ MCP Request mit instanzgebundenem Access Token
+          ▼
 ┌────────────────────────────────────────────┐
 │ Canvas Notebook Instanz                   │
 │                                           │
-│ lokaler MCP Executor                      │
+│ Better Auth OAuth Provider: /api/auth     │
+│ MCP Resource Server: /mcp                 │
 │ lokale Benutzer- und Workspace-ACLs       │
 │ Knowledge Base und Workspace-Dateien      │
 └────────────────────────────────────────────┘
 ```
 
-Diese Architektur folgt der aktuellen OpenAI-Anforderung, dass eine ChatGPT-App einen öffentlich erreichbaren MCP-Endpunkt verwendet. OAuth muss für benutzerbezogene Daten als getrennte Authorization- und Resource-Server-Architektur umgesetzt werden:
+V1 benötigt keine zentrale Benutzerzuordnung, keine Control-Plane-Auflösung, keinen Relay, kein Pairing und keine zentrale Canvas-App-Registrierung.
 
-- [OpenAI: Connect from ChatGPT](https://developers.openai.com/apps-sdk/deploy/connect-chatgpt)
-- [OpenAI: Authentication](https://developers.openai.com/apps-sdk/build/auth)
+### 3.2 V2: zentraler Managed Gateway
+
+Für eine später zentral veröffentlichte Canvas-Notebook-App bleibt folgender Produktionsendpunkt reserviert:
+
+```text
+https://mcp.canvasnotebook.app/mcp
+```
+
+> Architekturentscheidung (2026-08-01): Die Basisdomain lautet verbindlich `canvasnotebook.app` ohne Bindestrich. Die Wiederholung von `mcp` ist beabsichtigt: Die Subdomain bezeichnet den Dienst, der Pfad den MCP-Endpunkt.
+
+V2 ergänzt den zentralen OAuth-Provider, den Canvas Cloud Link, Instanz- und User-Pairing sowie das Gateway. Der lokale MCP Core bleibt dabei dieselbe Autorisierungs- und Ausführungsschicht wie in V1.
+
+Die Detailplanung orientiert sich an:
+
+- [OpenAI: Authentication](https://developers.openai.com/plugins/build/auth)
+- [OpenAI: Build an MCP server](https://developers.openai.com/plugins/build/mcp-server)
+- [MCP Authorization](https://modelcontextprotocol.io/specification/2025-11-25/basic/authorization)
+- [Better Auth OAuth Provider](https://better-auth.com/docs/plugins/oauth-provider)
 
 ## 4. Produktbausteine
 
@@ -132,14 +136,14 @@ Managed Instanzen können den Cloud Link automatisch erhalten. Der Cloud Link bl
 
 ## 5. Betriebsmodelle
 
-| Modus | MCP-Endpunkt | OAuth | Control Plane | Offizielle ChatGPT-App |
+| Version und Modus | MCP-Endpunkt | OAuth | Control Plane | ChatGPT-Einbindung |
 |---|---|---|---|---|
-| Direct Development | direkt an der Notebook-Instanz oder über einen individuellen Tunnel | lokal oder individuell | nicht erforderlich | nein, manuelle Developer-Konfiguration |
-| Self-hosted mit Cloud Link | zentraler Canvas MCP Gateway | zentraler Canvas OAuth-Provider | nur Cloud-Link-Dienste | ja |
-| Canvas Managed | zentraler Canvas MCP Gateway | zentraler Canvas OAuth-Provider | vollständiger Managed Mode | ja |
+| V1 Direct | `https://{instance-domain}/mcp` | lokales Better Auth | nicht erforderlich | manuelle Developer-Mode-Konfiguration |
+| V2 Self-hosted mit Cloud Link | `https://mcp.canvasnotebook.app/mcp` | zentraler Canvas OAuth-Provider | nur Cloud-Link-Dienste | zentrale Canvas-App |
+| V2 Canvas Managed | `https://mcp.canvasnotebook.app/mcp` | zentraler Canvas OAuth-Provider | vollständiger Managed Mode | zentrale Canvas-App |
 | Enterprise On-Prem | eigener oder zentraler Gateway | eigener oder zentraler Provider | optional | abhängig vom gewählten Modell |
 
-OpenAIs Secure MCP Tunnel kann für direkte Development-Verbindungen zu privaten Instanzen relevant sein. Er ersetzt in dieser Zielarchitektur nicht den zentralen mandantenfähigen Gateway der offiziellen Canvas-App:
+Eine V1-Instanz benötigt eine stabile, öffentlich erreichbare HTTPS-Domain. OpenAIs Secure MCP Tunnel kann ausschließlich für Entwicklung mit privaten Instanzen verwendet werden. Er ersetzt weder die öffentliche V1-Instanz-URL noch später den mandantenfähigen V2-Gateway:
 
 - [OpenAI: Secure MCP Tunnel](https://developers.openai.com/api/docs/guides/secure-mcp-tunnels)
 
@@ -147,19 +151,21 @@ OpenAIs Secure MCP Tunnel kann für direkte Development-Verbindungen zu privaten
 
 Folgende Identitäten und Berechtigungen müssen getrennt behandelt werden:
 
-| Ebene | Bedeutung |
-|---|---|
-| Lizenz-Entitlement | Darf diese Instanz lokalen oder zentral vermittelten MCP-Zugriff anbieten? |
-| Instanzidentität | Handelt es sich um eine registrierte und authentische Notebook-Instanz? |
-| User Link | Welcher zentrale Canvas-Account ist mit welchem lokalen Notebook-Benutzer verbunden? |
-| OAuth Grant | Welche Rechte hat ein bestimmter MCP-Client erhalten? |
-| lokale Autorisierung | Darf der lokale Benutzer aktuell auf den Workspace und die angefragte Ressource zugreifen? |
+| Ebene | V1 Direct | V2 Managed |
+|---|---|---|
+| Lizenz-Entitlement | Darf diese Instanz direkten MCP-Zugriff anbieten? | Darf sie zusätzlich den Cloud Relay verwenden? |
+| Instanzidentität | HTTPS-Origin und lokaler OAuth-Issuer | registrierte Instanzidentität plus Relay-Credential |
+| Benutzeridentität | lokaler Better-Auth-`user.id` | zentraler Benutzer plus expliziter User Link |
+| OAuth Grant | lokaler Client, lokale Scopes und lokaler Consent | zentraler Client, Instanz, User Link, Scopes und Grant |
+| lokale Autorisierung | aktuelle lokale Benutzer- und Workspace-ACL | bleibt auch nach Gateway-Prüfung die letzte Autorität |
 
 Eine Lizenz identifiziert keinen Benutzer und darf nicht als Benutzer-Credential oder Request-Token verwendet werden.
 
-Der bestehende `CANVAS_INSTANCE_TOKEN` für Managed Services soll nicht ohne gesonderte Sicherheitsprüfung für den MCP Relay wiederverwendet werden. Bevorzugt wird eine eigene Instanzidentität mit eigenem Schlüsselpaar und eng begrenzten Relay-Rechten.
+V1 verwendet keine Instanz-Credentials gegenüber der Control Plane. Für V2 soll der bestehende `CANVAS_INSTANCE_TOKEN` nicht ohne gesonderte Sicherheitsprüfung für den MCP Relay wiederverwendet werden. Bevorzugt wird eine eigene Instanzidentität mit eigenem Schlüsselpaar und eng begrenzten Relay-Rechten.
 
-## 7. Registrierung einer Notebook-Instanz
+## 7. V2: Registrierung einer Notebook-Instanz
+
+Dieser Abschnitt gilt ausschließlich für den späteren Managed Gateway. V1 benötigt keine zentrale Instanzregistrierung.
 
 ### 7.1 Self-hosted
 
@@ -184,7 +190,9 @@ Bei einer Managed-Instanz kann die Instanzidentität während der Provisionierun
 
 Trotz automatischer Registrierung bleibt die Verknüpfung eines lokalen Benutzers mit einem zentralen Account eine eigene, explizite Berechtigung.
 
-## 8. Verknüpfung eines lokalen Benutzers
+## 8. V2: Verknüpfung eines lokalen Benutzers
+
+Dieser Abschnitt gilt ausschließlich für den späteren Managed Gateway. In V1 ist der OAuth-Subject direkt der lokale Better-Auth-Benutzer.
 
 Lokale Canvas-Zugangsdaten dürfen niemals an den zentralen OAuth-Provider übertragen werden.
 
@@ -216,69 +224,68 @@ Stattdessen wird ein expliziter Pairing-Flow verwendet.
 10. Der Control Plane speichert die Verbindung zwischen zentralem Benutzer, Instanz und `linkId`.
 11. Die Verbindung kann sowohl lokal als auch zentral widerrufen werden.
 
-Für die erste Version soll das Pairing vor dem OAuth-Flow in ChatGPT abgeschlossen sein. Ein Pairing innerhalb eines bereits laufenden OAuth-Dialogs bleibt eine spätere Erweiterung.
+Für die erste V2-Version soll das Pairing vor dem OAuth-Flow in ChatGPT abgeschlossen sein. Ein Pairing innerhalb eines bereits laufenden OAuth-Dialogs bleibt eine spätere Erweiterung.
 
-## 9. OAuth-Modell für die offizielle App
+## 9. OAuth-Modell
 
-Der zentrale OAuth-Provider übernimmt:
+### 9.1 V1 Direct
 
-- Anmeldung beziehungsweise Registrierung des zentralen Canvas-Accounts.
-- Auswahl einer bereits verknüpften Instanz.
-- Auswahl oder Bestätigung eines bestehenden lokalen Grants.
-- Ausgabe kurzlebiger Access Tokens.
-- Refresh und Revocation.
-- Bindung des Tokens an den vorgesehenen MCP Resource Server.
+Die lokale Better-Auth-Installation wird um den offiziellen OAuth-Provider und JWT/JWKS erweitert. Der bestehende E-Mail-/Passwort-Login bleibt die Benutzeranmeldung.
 
-Die OAuth-Implementierung soll mindestens berücksichtigen:
+Der V1-Vertrag lautet:
 
-- OAuth 2.1 beziehungsweise ein mit OpenAI kompatibles OAuth-2.0-Profil.
-- Authorization Code Flow.
-- PKCE.
-- Authorization-Server-Metadaten.
-- Protected-Resource-Metadaten.
-- Resource Indicators und Audience-Prüfung.
-- klar definierte Scopes.
-- Token- und Grant-Revocation.
-- Schutz vor Login-CSRF und Authorization-Code-Replay.
+```text
+MCP Resource:
+https://{instance-domain}/mcp
 
-Der Token-Subject repräsentiert den zentralen Benutzer. Die konkrete Instanz- und User-Link-Zuordnung wird serverseitig aus dem Grant aufgelöst.
+Protected Resource Metadata:
+https://{instance-domain}/.well-known/oauth-protected-resource/mcp
 
-Ein vom Modell oder Client frei übergebener `instanceId`, `userId` oder `workspaceId` darf niemals allein die Zielidentität bestimmen.
+Protected Resource Metadata Alias:
+https://{instance-domain}/.well-known/oauth-protected-resource
+
+Authorization Server Issuer:
+https://{instance-domain}/api/auth
+```
+
+Erforderlich sind:
+
+- Authorization Code Flow mit PKCE `S256`.
+- Dynamic Client Registration für öffentliche ChatGPT-Clients.
+- exakte Redirect-URI-Prüfung.
+- Protected-Resource- und Authorization-Server-Metadaten.
+- Resource Indicator `https://{instance-domain}/mcp`.
+- Audience-Bindung und Prüfung auf genau diese Resource.
+- kurzlebige Access Tokens, rotierbare Refresh Tokens und Revocation.
+- lokale Consent-Seite mit klaren Scopes.
+- keine Übertragung lokaler Passwörter oder Sessions an Canvas Cloud.
+
+Der Token-Subject ist die lokale Better-Auth-`user.id`. `email` und `profile` werden für V1 nicht als MCP-Scopes benötigt.
+
+### 9.2 V2 Managed
+
+Der zentrale OAuth-Provider übernimmt später die Anmeldung des zentralen Canvas-Accounts, die Auswahl einer verknüpften Instanz, den zentralen Grant sowie Ausgabe, Refresh und Revocation der Gateway-Tokens.
+
+Der Token-Subject repräsentiert dann den zentralen Benutzer. Instanz und User Link werden serverseitig aus dem Grant aufgelöst. Ein vom Modell oder Client übergebener `instanceId`, `userId` oder `workspaceId` darf niemals allein die Zielidentität bestimmen.
 
 ## 10. Request-Ablauf
 
-Ein Tool-Aufruf über die offizielle ChatGPT-App soll wie folgt verarbeitet werden:
+### 10.1 V1 Direct
 
-1. ChatGPT sendet einen MCP-Request an den zentralen Canvas MCP Gateway.
-2. Der Gateway validiert Access Token, Client, Audience, Scopes und Grant-Status.
-3. Der Gateway ermittelt die fest mit dem Grant verknüpfte Instanz und `linkId`.
-4. Der Gateway erstellt einen kurzlebigen signierten Request-Umschlag mit:
+1. Der MCP-Client liest die Protected-Resource-Metadaten der Instanz.
+2. Er registriert sich dynamisch beim lokalen Better-Auth-OAuth-Provider.
+3. Der lokale Benutzer meldet sich auf seiner eigenen Canvas-Notebook-Instanz an und bestätigt die Scopes.
+4. Der Client tauscht den einmaligen Authorization Code mit PKCE-Verifier gegen instanzgebundene Tokens.
+5. Der Client sendet den MCP-Request mit Bearer Token direkt an `/mcp`.
+6. Canvas Notebook validiert Signatur, Issuer, Audience, Ablauf, Revocation und erforderlichen Scope.
+7. Canvas Notebook löst `sub` ausschließlich zum lokalen Benutzer auf und prüft dessen aktuelle ACL.
+8. Der lokale MCP Core führt das read-only Tool aus und antwortet direkt an den Client.
 
-   - Request-ID.
-   - Grant-ID.
-   - Link-ID.
-   - erlaubten Scopes.
-   - Toolname.
-   - Ablaufzeit.
-   - Nonce beziehungsweise Replay-Schutz.
+Ein deaktivierter Benutzer oder eine entzogene Workspace-Berechtigung wirkt sofort, auch wenn das Access Token noch nicht abgelaufen ist.
 
-5. Der Request wird über den ausgehenden Instanztunnel zugestellt.
-6. Canvas Notebook prüft Signatur, Ablaufzeit, Replay-Schutz und Grant-Revision.
-7. Canvas Notebook löst die `linkId` zum lokalen Benutzer auf.
-8. Canvas Notebook prüft erneut:
+### 10.2 V2 Managed
 
-   - Ist der lokale Benutzer aktiv?
-   - Ist der User Link aktiv?
-   - Ist der lokale Grant aktiv?
-   - Ist die Lizenz noch gültig?
-   - Ist der Workspace für diesen Grant freigegeben?
-   - Besitzt der Benutzer aktuell die erforderliche Workspace-Berechtigung?
-   - Darf das angefragte Tool mit den erteilten Scopes ausgeführt werden?
-
-9. Der lokale MCP Core führt das Tool aus.
-10. Das Ergebnis wird über den Relay an ChatGPT zurückgegeben.
-
-Die lokale Berechtigungsprüfung bleibt immer die abschließende Autorität. Ein gültiges zentrales OAuth-Token darf eine lokal entzogene Berechtigung nicht wiederherstellen.
+V2 ersetzt die direkte Transportstrecke durch den zentralen Gateway und einen ausgehenden Instanztunnel. Der Gateway validiert den zentralen Grant, bindet den Request an Instanz und User Link und sendet einen kurzlebigen signierten Request-Umschlag. Die lokale Instanz validiert diesen Umschlag und führt dieselben lokalen ACL-Prüfungen wie in V1 aus.
 
 ## 11. Lizenzmodell
 
@@ -318,7 +325,7 @@ Die erste Version soll read-only bleiben und sich auf die Knowledge Base konzent
 
 #### `list_workspaces`
 
-Gibt ausschließlich Workspaces zurück, die für den verbundenen lokalen Benutzer und den OAuth-Grant sichtbar sind.
+Gibt ausschließlich Workspaces zurück, die für den authentifizierten lokalen Benutzer sichtbar sind und deren Nutzung durch die Token-Scopes erlaubt ist.
 
 #### `get_workspace_overview`
 
@@ -396,26 +403,35 @@ media:video:generate
 jobs:read
 ```
 
-Ein OAuth-Scope allein reicht nicht. Zusätzlich muss lokal eine Workspace-Allowlist gespeichert werden.
-
-Ein Grant besteht daher mindestens aus:
+In V1 ergibt sich die effektive Berechtigung aus:
 
 ```text
-Client
-User Link
-Instanz
-Scopes
-lokaler Workspace-Allowlist
-Status
-Revision
-Erstellungs- und Widerrufszeitpunkt
+lokaler OAuth-Consent
+∩ Token-Scopes
+∩ aktuelle lokale Benutzer- und Workspace-ACL
 ```
+
+Eine zusätzliche Workspace-Allowlist ist für den ersten OAuth-Proof nicht erforderlich. Sie kann vor Veröffentlichung der realen Knowledge-Tools als V1.1-Härtung ergänzt werden, falls ein Client nur einzelne Workspaces sehen soll. In V2 ist die explizite Workspace-Allowlist Teil des zentral und lokal widerrufbaren Grants.
 
 ## 14. Datenmodell
 
-Die genauen Tabellen werden erst während der Detailplanung festgelegt. Fachlich werden mindestens folgende Datensätze benötigt.
+### 14.1 V1 Direct in Canvas Notebook
 
-### 14.1 Control Plane
+Better Auth OAuth Provider und JWT benötigen nach dem aktuellen v1.6-Schema mindestens:
+
+```text
+oauthClient
+oauthAccessToken
+oauthRefreshToken
+oauthConsent
+jwks
+```
+
+Das authoritative Schema wird mit der zur App passenden Better-Auth-Version generiert, geprüft und danach in die vorhandenen eigenen Drizzle-Migrationen für SQLite und PostgreSQL übernommen. Die produktive Datenbank darf nicht blind über Better Auth CLI migriert werden.
+
+V1 benötigt keine Control-Plane-Tabelle, keinen `external_identity_link` und keinen zentralen MCP-Grant. Bestehende Benutzer-, Session- und Workspace-Daten bleiben die lokale Autorität.
+
+### 14.2 V2 Control Plane
 
 #### `mcp_instances`
 
@@ -454,7 +470,7 @@ Der Control Plane muss die lokale Benutzer-ID nicht als frei verwendbaren Identi
 - Protokollversion.
 - Start- und Endzeit.
 
-### 14.2 Canvas Notebook
+### 14.3 V2 Canvas Notebook
 
 #### `external_identity_links`
 
@@ -484,7 +500,9 @@ Der Control Plane muss die lokale Benutzer-ID nicht als frei verwendbaren Identi
 
 ## 15. Datenschutz und Trust Boundaries
 
-Der zentrale MCP Gateway liegt im Datenpfad. Daraus folgt:
+In V1 liegt die Canvas Control Plane nicht im OAuth- oder MCP-Datenpfad. Der Client verbindet sich direkt mit der Notebook-Instanz. Angeforderte Inhalte verlassen die Instanz nur in Richtung des ausdrücklich verbundenen MCP-Clients.
+
+In V2 liegt der zentrale MCP Gateway zusätzlich im Datenpfad. Daraus folgt:
 
 - Knowledge-Base-Daten bleiben dauerhaft auf der Notebook-Instanz gespeichert.
 - Angeforderte Inhalte verlassen die Instanz und werden an ChatGPT übertragen.
@@ -495,20 +513,19 @@ Der zentrale MCP Gateway liegt im Datenpfad. Daraus folgt:
 - Caches für Knowledge-Inhalte sind standardmäßig deaktiviert.
 - Support-Zugriff darf keine Inhalte sichtbar machen.
 
-Die Produktkommunikation darf deshalb nicht behaupten, dass externe MCP-Daten die VM niemals verlassen. Korrekt wäre die Aussage, dass die Knowledge Base weiterhin auf der eigenen Instanz gespeichert und nur für explizit autorisierte Anfragen übertragen wird.
+Die Produktkommunikation darf deshalb in keiner Version behaupten, dass per MCP angeforderte Daten die VM niemals verlassen. Korrekt ist: Die Knowledge Base bleibt auf der eigenen Instanz gespeichert und Inhalte werden nur für explizit autorisierte Requests an den verbundenen Client übertragen; in V2 werden sie zusätzlich durch den Canvas Gateway geleitet.
 
 ## 16. Sicherheitsanforderungen
 
-- Keine lokalen Passwörter im Control Plane.
-- Keine Wiederverwendung lokaler Session-Cookies.
-- Keine stille Identitätsverknüpfung über E-Mail.
-- Eigene, eng begrenzte Instanz-Credentials für den MCP Relay.
-- Bevorzugt asymmetrische Instanzidentität statt langfristigem Shared Secret.
-- Rotation und Widerruf von Instanz-Credentials.
+- Authorization Code Flow nur mit PKCE `S256`.
+- exakte Redirect-URI-Prüfung bei Registrierung und Authorization Request.
+- Dynamic-Client-Registration-Endpunkt mit Rate Limit, Audit Event und strikter Scope-Allowlist.
+- keine Consent-Umgehung für dynamisch registrierte Clients.
 - kurzlebige OAuth Access Tokens.
-- Audience- und Resource-Prüfung.
-- signierte, kurzlebige Request-Umschläge.
-- Replay-Schutz.
+- strikte Prüfung von Issuer, Audience, Resource, Ablauf und Scopes pro Request.
+- Authorization Codes nur einmal verwendbar und kurzlebig.
+- Refresh-Token-Rotation und sofortige Revocation.
+- keine Wiederverwendung lokaler Session-Cookies als MCP-Credential.
 - Rate Limits auf Benutzer-, Grant-, Instanz- und Tool-Ebene.
 - Größen- und Laufzeitlimits.
 - lokales Re-Authorization-Gate für jeden Request.
@@ -517,13 +534,28 @@ Die Produktkommunikation darf deshalb nicht behaupten, dass externe MCP-Daten di
 - explizite Deny-Regeln für `/data/secrets`, System-Prompts und Runtime-Credentials.
 - Security Audit vor Aktivierung schreibender Tools.
 
+Zusätzlich für V2:
+
+- keine lokalen Passwörter im Control Plane.
+- keine stille Identitätsverknüpfung über E-Mail.
+- eigene, eng begrenzte und rotierbare Instanz-Credentials für den MCP Relay.
+- bevorzugt asymmetrische Instanzidentität statt langfristigem Shared Secret.
+- signierte, kurzlebige Request-Umschläge mit Replay-Schutz.
+
 ## 17. Fehler- und Sperrzustände
 
-Der Gateway und das Notebook sollen stabile, maschinenlesbare Fehlerklassen verwenden.
+Der lokale V1-Server und der spätere V2-Gateway sollen stabile, maschinenlesbare Fehlerklassen verwenden.
 
 Beispiele:
 
 ```text
+OAUTH_DISCOVERY_INVALID
+OAUTH_CLIENT_REGISTRATION_DENIED
+OAUTH_REDIRECT_URI_INVALID
+OAUTH_PKCE_REQUIRED
+TOKEN_INVALID
+TOKEN_AUDIENCE_INVALID
+TOKEN_REVOKED
 INSTANCE_OFFLINE
 INSTANCE_REVOKED
 USER_LINK_REQUIRED
@@ -543,133 +575,124 @@ REPLAY_DETECTED
 
 Verhaltensregeln:
 
-- Eine offline Instanz wird nicht automatisch durch eine andere Instanz ersetzt.
+- Ein nicht authentifizierter MCP-Request antwortet mit `401` und einem `WWW-Authenticate`-Verweis auf die Protected-Resource-Metadaten.
+- Fehlende Scopes antworten ohne Datenleck mit `403` beziehungsweise einem neuen OAuth-Challenge für den erforderlichen Scope.
 - Ein deaktivierter lokaler Benutzer verliert den Zugriff sofort.
 - Eine entfernte Workspace-Berechtigung wirkt trotz gültigem OAuth-Token sofort.
-- Zentrale und lokale Revocation werden unabhängig geprüft.
 - Bei abgelaufener Lizenz werden keine neuen Grants oder Requests zugelassen.
-- Ein optionales Grace-Period-Verhalten muss ausdrücklich als Produktentscheidung definiert werden.
+- In V2 wird eine offline Instanz nicht durch eine andere Instanz ersetzt und zentrale sowie lokale Revocation werden unabhängig geprüft.
 
 ## 18. Umsetzungsphasen
 
-Die folgenden Phasen sind eine Planungsreihenfolge. Sie stellen noch keinen Implementierungsauftrag dar.
+Die Phasen werden strikt nacheinander umgesetzt. Keine Phase beginnt, bevor ihre Abnahmekriterien erfüllt sind.
 
-### Phase 0: ADR und Threat Model
+### Phase 0: V1-Vertrag und Threat Model
 
-- öffentliche Endpunkte festlegen.
-- Trust Boundaries dokumentieren.
-- Datenfluss und Datenschutzversprechen festlegen.
-- Managed Mode und Cloud Link verbindlich trennen.
-- Bedrohungsmodell für Instanz-, Benutzer- und Grant-Übernahme erstellen.
-- Lizenz- und Tarifgrenzen festlegen.
+- Direct-V1-Endpunkte, Issuer, Resource und Scopes festschreiben.
+- DCR als temporäre ChatGPT-Kompatibilitätsentscheidung dokumentieren.
+- lokale Trust Boundaries und Datenschutzversprechen freigeben.
+- Lizenz- und Aktivierungsverhalten entscheiden.
 
-### Phase 1: Lokaler MCP Core
+### Phase 1: Better Auth OAuth Provider
 
-- read-only Knowledge-Tools definieren.
-- Toollogik von MCP-Transport und Gateway trennen.
-- lokalen User- und Workspace-Kontext erzwingen.
-- direkte lokale Development-Verbindung ermöglichen.
-- Ergebnis-, Datei- und Tokenlimits definieren.
+- kompatible Better-Auth- und OAuth-Provider-Versionen festlegen.
+- OAuth- und JWKS-Schema generieren und in SQLite/PostgreSQL-Migrationen integrieren.
+- Authorization Code, PKCE, DCR, Consent, Token, Refresh und Revocation konfigurieren.
+- bestehendes Login so anpassen, dass der signierte OAuth-Request erhalten bleibt.
+- Discovery- und Protected-Resource-Metadaten bereitstellen.
 
-### Phase 2: Zentraler OAuth-Provider und MCP Gateway
+### Phase 2: OAuth isoliert testen
 
-- OAuth-Metadaten und PKCE umsetzen.
-- festen offiziellen MCP-Endpunkt bereitstellen.
-- Token-, Audience- und Scope-Prüfung umsetzen.
-- Grant-Modell einführen.
-- zunächst eine Instanz pro Grant unterstützen.
+- automatisierten PKCE-Client gegen die lokale OAuth-Implementierung ausführen.
+- Discovery, DCR, Code-Austausch, Audience, Refresh und Revocation positiv und negativ testen.
+- Migrationen auf frischen und aktualisierten SQLite- und PostgreSQL-Datenbanken testen.
+- Login- und Consent-Flow in beiden unterstützten Locales prüfen.
 
-### Phase 3: Canvas Cloud Link
+### Phase 3: minimaler MCP-Auth-Probe
 
-- separate Instanzregistrierung einführen.
-- Instanz-Keypair und Rotation umsetzen.
-- ausgehenden Relay-Tunnel bereitstellen.
-- Self-hosted- und Managed-Provisionierung unterstützen.
-- Lizenz- und Quota-Prüfung integrieren.
+- einen nicht fachlichen `auth_probe` über `/mcp` bereitstellen.
+- Tool-`securitySchemes`, `WWW-Authenticate` und `_meta["mcp/www_authenticate"]` korrekt ausgeben.
+- OAuth mit MCP Inspector und danach mit ChatGPT Developer Mode auf einer öffentlichen Staging-Instanz vollständig testen.
 
-### Phase 4: User-Pairing und Workspace-Grants
+Dieser Probe ist der kleinste nötige Protokoll-Harness und noch keine Implementierung der eigentlichen MCP-Tools. Ohne ihn kann der reale ChatGPT-OAuth-Einstieg nicht vollständig validiert werden.
 
-- Pairing aus einer lokalen authentifizierten Session starten.
-- zentralen Account verknüpfen.
-- lokale Workspace-Allowlist und Scopes speichern.
-- lokale und zentrale Revocation-Oberflächen bereitstellen.
-- Audit Events ergänzen.
+### Phase 4: lokaler MCP Core und read-only Tools
 
-### Phase 5: Request-Routing und Hardening
+- Toollogik von Transport und Authentifizierung trennen.
+- `list_workspaces`, `get_workspace_overview`, `list_knowledge_tree`, `search_knowledge` und `read_knowledge_source` implementieren.
+- lokalen Benutzer- und Workspace-Kontext bei jedem Request neu prüfen.
+- Ergebnis-, Datei-, Laufzeit- und Tokenlimits durchsetzen.
 
-- signierte Request-Umschläge.
-- Replay- und Idempotency-Schutz.
-- Rate Limits.
-- Offline- und Revocation-Verhalten.
-- Privacy-konformes Logging und Monitoring.
-- Last-, Sicherheits- und Ausfalltests.
+### Phase 5: V1 Hardening und Freigabe
 
-### Phase 6: Offizielle ChatGPT-App
+- Rate Limits, Audit Events, Revocation und Abuse-Schutz abschließen.
+- Security-, Integrations-, Build- und UI-Tests durchführen.
+- direkte Einrichtung für ChatGPT Developer Mode dokumentieren.
+- ausschließlich read-only V1 freigeben.
 
-- App-Metadaten und Toolbeschreibungen finalisieren.
-- Privacy Policy und Support-Abläufe bereitstellen.
-- OAuth- und Pairing-UX testen.
-- Review- und Veröffentlichungsvoraussetzungen erfüllen.
-- zunächst ausschließlich read-only Knowledge-Tools veröffentlichen.
+### Phase 6: V2 Managed Gateway
+
+- zentralen OAuth-Provider und `https://mcp.canvasnotebook.app/mcp` bereitstellen.
+- Canvas Cloud Link, Instanzregistrierung und Tunnel umsetzen.
+- User-Pairing und Workspace-Grants ergänzen.
+- Request-Routing, signierte Umschläge, Revocation und Ausfallverhalten härten.
+- zentrale Canvas-App zur Prüfung einreichen.
 
 ### Phase 7: Erweiterungen
 
-- mehrere Instanzen pro zentralem Benutzer.
-- mehrere Grants mit unterschiedlichen Workspace-Sets.
-- schreibende Tools.
-- Freigabe- und Bestätigungsdialoge.
+- mehrere Instanzen und Grants.
+- schreibende Tools und Bestätigungsdialoge.
 - Mediengenerierung und asynchrone Jobs.
 - Enterprise-Gateway und On-Prem-Varianten.
 
 ## 19. Entscheidungen für die erste Version
 
-Für einen beherrschbaren ersten Release werden folgende Einschränkungen empfohlen:
+Für den V1-Release gelten folgende Entscheidungen:
 
 1. Nur read-only Knowledge-Base-Zugriff.
-2. Ein OAuth-Grant verweist auf genau eine Instanz.
-3. Workspaces werden lokal explizit freigegeben.
-4. Pairing wird vor dem ChatGPT-OAuth-Flow durchgeführt.
-5. Keine lokalen Passwörter oder zentralen E-Mail-Matches.
-6. Kein Host- oder Containerzugriff über den MCP Relay.
-7. Keine Wiederverwendung des allgemeinen Managed-Service-Tokens.
-8. Kein zentraler Knowledge-Cache.
-9. Keine Mediengenerierung im MVP.
-10. Direkter Development-MCP bleibt unabhängig vom Cloud Link möglich.
+2. Ein MCP-Server entspricht genau einer Notebook-Instanz und ist unter `https://{instance-domain}/mcp` erreichbar.
+3. OAuth läuft vollständig auf dieser Instanz über den bestehenden lokalen Better-Auth-Benutzer.
+4. Keine Control Plane, kein Relay, kein Pairing und keine zentrale Canvas-App in V1.
+5. ChatGPT wird manuell im Developer Mode verbunden.
+6. Der OAuth-Grant gilt nur für die exakte Resource und die erteilten Scopes.
+7. Die aktuelle lokale ACL bleibt bei jedem Request die letzte Autorität.
+8. Keine zusätzliche Workspace-Allowlist im OAuth-Proof; vor den realen Tools wird diese Entscheidung erneut sicherheitlich geprüft.
+9. Keine Mediengenerierung und keine schreibenden Tools.
+10. Der Managed Gateway bleibt als V2-Erweiterung vorgesehen.
 
 ## 20. Offene Produkt- und Architekturentscheidungen
 
-Vor Beginn der Implementierung müssen mindestens folgende Fragen entschieden werden:
+Vor Beginn beziehungsweise während der bezeichneten Phase sind noch folgende Fragen zu entscheiden:
 
 - Gehört `mcpLocalServer` zur Community-, Pro- oder Enterprise-Lizenz?
-- Ist `mcpCloudRelay` ein eigenes Add-on oder Bestandteil von Pro und Managed?
-- Welche Traffic- und Request-Quotas gelten?
-- Soll der zentrale Account mehrere Instanzen gleichzeitig verwalten können?
-- Muss die erste Version Organisationen und Team-Accounts unterstützen?
-- Wird Better Auth als zentraler OAuth-Provider erweitert oder ein separater Authorization Server betrieben?
-- Läuft der Relay als Bestandteil des bestehenden Control Plane oder als eigener Dienst?
-- Wird der Tunnel direkt im Notebook-Prozess, in einem Sidecar oder in einem separaten lokalen Dienst betrieben?
-- Welche Daten dürfen für Audit und Abrechnung gespeichert werden?
+- Wird der direkte OAuth-Endpunkt nur per Lizenz und nicht zusätzlich per Deployment-Schalter aktiviert?
+- Wird vor Phase 4 eine explizite Workspace-Allowlist bereits für V1 eingeführt?
 - Welche maximale Dokument- und Ergebnisgröße gilt?
-- Wie werden Lizenzablauf und temporäre Control-Plane-Ausfälle behandelt?
-- Welche Anforderungen stellt OpenAI zum Zeitpunkt der konkreten App-Einreichung?
+- Welche DCR-Rate-Limits und Aufbewahrungsfristen gelten für ungenutzte dynamische Clients?
+- Wann kann Dynamic Client Registration durch Client ID Metadata Documents ersetzt werden?
+- Für V2: Tarif, Relay-Topologie, mehrere Instanzen, Organisationen, Quotas und Audit-Abrechnung.
+- Welche Anforderungen stellt OpenAI zum Zeitpunkt der späteren zentralen App-Einreichung?
 
 ## 21. Abnahmekriterien der Architektur
 
-Die Architekturplanung gilt als bereit für eine spätere Umsetzung, wenn:
+V1 darf erst mit den fachlichen MCP-Tools beginnen, wenn:
 
-- der feste öffentliche MCP- und OAuth-Endpunkt entschieden ist.
-- Managed Mode und Self-hosted Cloud Link fachlich und technisch getrennt sind.
-- das User-Pairing ohne Übertragung lokaler Zugangsdaten spezifiziert ist.
-- Lizenz, Instanzidentität, User Link, OAuth Grant und lokale ACL getrennt modelliert sind.
-- die MVP-Tools und Scopes festgelegt sind.
-- Datenschutz- und Logging-Grenzen freigegeben sind.
-- das Threat Model geprüft wurde.
-- die notwendigen Änderungen im Notebook- und Control-Plane-Repository getrennt geplant sind.
-- ein Testplan für OAuth, Pairing, Revocation, ACLs, Tunnel und Ausfälle vorliegt.
+- Direct-V1-Resource, Issuer und Metadaten stabil sind.
+- Better Auth OAuth Provider und Datenbankmigrationen für SQLite und PostgreSQL funktionieren.
+- DCR, Authorization Code mit PKCE `S256`, Consent, Audience, Refresh und Revocation positiv und negativ getestet sind.
+- falsche Issuer, Resources, Redirect URIs, Scopes, Codes und Tokens zuverlässig abgewiesen werden.
+- der lokale Login- und Consent-Flow keine OAuth-Parameter verliert.
+- der minimale MCP-Auth-Probe mit MCP Inspector und ChatGPT Developer Mode auf einer öffentlichen Staging-Instanz funktioniert.
+- ein deaktivierter Benutzer und eine entzogene lokale ACL trotz vorhandenem Token keinen Zugriff erhalten.
+- keine Tokens, Codes, Passwörter oder Inhalte in Logs erscheinen.
+
+Die ausführbare Reihenfolge und die einzelnen Abnahmekriterien stehen im [Direct V1 OAuth Implementation Plan](./direct-v1-oauth-plan.md) und in [`todo.json`](./todo.json).
 
 ## 22. Verwandte Dokumente
 
 - [Vorhandene MCP-Client-Integration](../../../dokumentation/architecture/mcp-integration/)
+- [Direct V1 OAuth Implementation Plan](./direct-v1-oauth-plan.md)
+- [Direct V1 OAuth Todos](./todo.json)
 - [Canvas Notebook Architecture](../plan.md)
 - [Canvas Control Plane Architecture](../../../dokumentation/architecture/canvas-control-plane/plan.md)
 - [Managed Service Planning](../../../dokumentation/manged-service/)

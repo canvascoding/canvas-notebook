@@ -1,0 +1,210 @@
+{
+  "title": "Direct V1 MCP OAuth implementation",
+  "updatedAt": "2026-08-01",
+  "source": "docs/architecture/canvas-notebook/mcp-server/direct-v1-oauth-plan.md",
+  "executionPolicy": {
+    "sequential": true,
+    "maxInProgress": 1,
+    "nextTaskRequiresPreviousDone": true,
+    "containerBuildRequiresExplicitUserRequest": true,
+    "playwrightRequiresExplicitUserApproval": true,
+    "localDevPort": 3000
+  },
+  "tasks": [
+    {
+      "id": "MCP-OAUTH-01",
+      "title": "Versionen festlegen und OAuth-Schema generieren",
+      "status": "pending",
+      "dependsOn": [],
+      "deliverables": [
+        "Kompatible Better-Auth- und OAuth-Provider-Versionen",
+        "Generierter OAuth-/JWT-Schema-Snapshot",
+        "Geprüfter Schema-Diff ohne produktive Aktivierung"
+      ],
+      "acceptance": [
+        "Nur eine kompatible Better-Auth-Core-Version wird aufgelöst",
+        "Die geplanten Plugin-Optionen bestehen den TypeScript-Check",
+        "Noch keine produktive OAuth- oder MCP-Route ist aktiviert"
+      ]
+    },
+    {
+      "id": "MCP-OAUTH-02",
+      "title": "SQLite- und PostgreSQL-Migrationen integrieren",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-01"
+      ],
+      "deliverables": [
+        "OAuth- und JWKS-Tabellen im zentralen Drizzle-Schema",
+        "Idempotente SQLite-Migration",
+        "Idempotente PostgreSQL-Migration"
+      ],
+      "acceptance": [
+        "Fresh Install und Upgrade funktionieren für SQLite",
+        "Fresh Install und Upgrade funktionieren für PostgreSQL",
+        "Ein zweiter Migrationslauf erzeugt keinen Fehler oder Drift",
+        "Bestehende Auth-Daten bleiben unverändert"
+      ]
+    },
+    {
+      "id": "MCP-OAUTH-03",
+      "title": "Better Auth OAuth Provider und Discovery konfigurieren",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-02"
+      ],
+      "deliverables": [
+        "JWT- und OAuth-Provider-Plugins",
+        "Authorization Code und Refresh Grants",
+        "Dynamic Client Registration für öffentliche Clients",
+        "Authorization-Server-Metadaten"
+      ],
+      "acceptance": [
+        "Issuer entspricht exakt der öffentlichen Instanzdomain plus /api/auth",
+        "PKCE S256 wird angekündigt und erzwungen",
+        "client_credentials ist nicht erlaubt",
+        "Unbekannte Scopes und ungültige Redirect URIs werden abgewiesen"
+      ]
+    },
+    {
+      "id": "MCP-OAUTH-04",
+      "title": "Lokalen Login-Flow und Consent OAuth-fähig machen",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-03"
+      ],
+      "deliverables": [
+        "OAuth-Continuation im bestehenden Login",
+        "Stabile Consent-Route",
+        "Deutsche und englische Consent-Darstellung",
+        "Accept- und Deny-Flow"
+      ],
+      "acceptance": [
+        "Ausgeloggte Benutzer kehren in denselben OAuth-Flow zurück",
+        "Eingeloggte Benutzer gelangen direkt zum Consent",
+        "Manipulierte oder abgelaufene OAuth-Queries werden abgewiesen",
+        "Der normale Login bleibt ohne Regression"
+      ]
+    },
+    {
+      "id": "MCP-OAUTH-05",
+      "title": "Protected Resource Metadata und gemeinsamen Token-Verifier umsetzen",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-04"
+      ],
+      "deliverables": [
+        "Path-aware Protected Resource Metadata",
+        "Root-Kompatibilitätsalias",
+        "Gemeinsamer Access-Token-Verifier",
+        "Standardkonforme WWW-Authenticate-Challenges"
+      ],
+      "acceptance": [
+        "Issuer und Resource sind exakt gebunden",
+        "Token anderer Instanzen oder Resources werden abgewiesen",
+        "Abgelaufene, manipulierte und widerrufene Tokens werden abgewiesen",
+        "Fehlende Scopes und inaktive lokale Benutzer werden abgewiesen"
+      ]
+    },
+    {
+      "id": "MCP-OAUTH-06",
+      "title": "OAuth isoliert mit einem automatisierten PKCE-Client testen",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-05"
+      ],
+      "deliverables": [
+        "Reproduzierbarer DCR-, Authorization-, Token-, Refresh- und Revocation-Test",
+        "OAuth-Negativtests",
+        "Log-Redaction-Test"
+      ],
+      "acceptance": [
+        "Authorization Codes sind nur einmal verwendbar",
+        "Fehlendes oder plain PKCE wird abgewiesen",
+        "Redirect-, Issuer-, Resource-, Audience- und Scope-Mismatch werden abgewiesen",
+        "Refresh rotiert und Revocation beendet den Zugriff",
+        "Logs enthalten keine Secrets, Codes oder Tokens"
+      ]
+    },
+    {
+      "id": "MCP-OAUTH-07",
+      "title": "Minimalen MCP-Auth-Probe bereitstellen",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-06"
+      ],
+      "deliverables": [
+        "Streamable HTTP unter /mcp",
+        "Nicht fachliches auth_probe-Tool",
+        "Tool securitySchemes und mcp/www_authenticate-Challenge"
+      ],
+      "acceptance": [
+        "Unauthentifizierter Probe löst die OAuth-Challenge aus",
+        "Authentifizierter Probe verlangt exakte Audience und Scope",
+        "Der Probe gibt keine Workspace- oder Knowledge-Daten zurück"
+      ]
+    },
+    {
+      "id": "MCP-OAUTH-08",
+      "title": "OAuth Ende-zu-Ende mit Inspector und ChatGPT testen",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-07"
+      ],
+      "deliverables": [
+        "Protokollierter MCP-Inspector-Test",
+        "Protokollierter ChatGPT-Developer-Mode-Test auf HTTPS-Staging",
+        "Getesteter Reconnect- und Revocation-Flow"
+      ],
+      "acceptance": [
+        "Beide Metadata-Ebenen werden gefunden",
+        "DCR übernimmt die Client-Redirect-URI",
+        "Lokaler Login, Consent und Rückkehr zum Client funktionieren",
+        "Refresh, Reconnect und Revocation funktionieren",
+        "Die Canvas Control Plane wird nicht aufgerufen"
+      ]
+    },
+    {
+      "id": "MCP-OAUTH-09",
+      "title": "Security-, Build- und Release-Gate abschließen",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-08"
+      ],
+      "deliverables": [
+        "DCR-Rate-Limits und Audit Events",
+        "Token- und Client-Aufräumstrategie",
+        "Lizenz- oder Aktivierungsentscheidung",
+        "Workspace-Allowlist-Entscheidung"
+      ],
+      "acceptance": [
+        "OAuth- und Migrationstests sind grün",
+        "npm run lint ist grün",
+        "npm run build ist grün",
+        "Kein Container wurde ohne ausdrückliche Nutzeranforderung gebaut",
+        "Kein zweiter Development-Server wurde gestartet"
+      ]
+    },
+    {
+      "id": "MCP-CORE-01",
+      "title": "Read-only MCP Knowledge Core implementieren",
+      "status": "pending",
+      "dependsOn": [
+        "MCP-OAUTH-09"
+      ],
+      "deliverables": [
+        "list_workspaces",
+        "get_workspace_overview",
+        "list_knowledge_tree",
+        "search_knowledge",
+        "read_knowledge_source"
+      ],
+      "acceptance": [
+        "Alle Tools verwenden den getesteten gemeinsamen Token-Verifier",
+        "Alle Tools prüfen die aktuelle lokale ACL",
+        "Alle Tools bleiben read-only",
+        "Ergebnis-, Datei-, Laufzeit- und Tokenlimits sind getestet"
+      ]
+    }
+  ]
+}
