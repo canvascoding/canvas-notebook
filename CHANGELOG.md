@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.1.1] - 2026-08-01
+
+### Added
+
+- Added aggregate mobile Inbox sources and notification preferences for tasks, chats, and workspace activity.
+- Added authenticated mobile Notebook collaboration-session tickets and compatibility capabilities.
+- Added secure, ticket-based mobile HTML previews for workspace files.
+
+### Changed
+
+- Updated iOS push-device handling so badge-count changes wake registered devices.
+
+### Security
+
+- Restricted mobile HTML preview delivery to short-lived authenticated tickets and documented the internal security review.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run verify:release`
+
 ## [2026.7.31.1] - 2026-07-31
 
 ### Added
