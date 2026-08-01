@@ -43,6 +43,8 @@ Die veröffentlichte App soll einen stabilen öffentlichen MCP-Endpunkt verwende
 https://mcp.canvasnotebook.app/mcp
 ```
 
+> Architekturentscheidung (2026-08-01): Dies ist der kanonische Produktionsendpunkt. Die Basisdomain lautet verbindlich `canvasnotebook.app` ohne Bindestrich. Die Wiederholung von `mcp` ist beabsichtigt: Die Subdomain bezeichnet den Dienst, der Pfad den MCP-Endpunkt.
+
 Der zentrale OAuth-Provider soll ebenfalls über eine offizielle Canvas-Domain erreichbar sein:
 
 ```text
