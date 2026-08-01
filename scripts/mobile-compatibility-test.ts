@@ -56,6 +56,7 @@ assert.deepEqual(compatibility, {
       'notebook.documents',
       'notebook.revision_write',
       'notebook.image_import',
+      'notebook.collaboration.yjs',
       'files.browse',
       'files.mutate',
       'files.excalidraw_edit',

@@ -29,6 +29,10 @@ import type { CollaborationTicketClaims, FilePresenceEntry } from '@/app/lib/col
 import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { getFileCollaborationState } from '@/app/lib/files/collaboration-policy';
 import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
+import {
+  consumeMobileCollaborationTicket,
+  hasMobileCollaborationProtocol,
+} from '@/app/lib/mobile/collaboration-ticket';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
 import { resolvePostgresWorkspaceForActor } from '@/app/lib/workspaces/postgres-runtime';
@@ -110,14 +114,34 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (getDatabaseProvider() !== 'postgres') throw new Error('Collaboration requires Postgres.');
       await requireTeamRuntimeLicense();
       await requireRuntimeCapability('liveCollaboration');
-      const claims = verifyCollaborationTicket(token);
+      const mobileIdentity = consumeMobileCollaborationTicket(token);
+      const claims = mobileIdentity?.claims ?? verifyCollaborationTicket(token);
       if (claims.documentId !== documentName) throw new Error('Collaboration document scope mismatch.');
-      const session = await auth.api.getSession({ headers: requestHeaders });
-      const sessionId = String((session?.session as { id?: string } | undefined)?.id || '');
-      if (!session || session.user.id !== claims.userId || sessionId !== claims.sessionId) {
-        throw new Error('Collaboration session is no longer authenticated.');
+      let authenticatedUser: {
+        id: string;
+        name: string;
+        email: string | null;
+        role?: string | null;
+      };
+      if (mobileIdentity) {
+        authenticatedUser = mobileIdentity.user;
+      } else {
+        const session = await auth.api.getSession({ headers: requestHeaders });
+        const sessionId = String((session?.session as { id?: string } | undefined)?.id || '');
+        if (!session || session.user.id !== claims.userId || sessionId !== claims.sessionId) {
+          throw new Error('Collaboration session is no longer authenticated.');
+        }
+        authenticatedUser = {
+          id: session.user.id,
+          name: session.user.name || session.user.email || 'User',
+          email: session.user.email,
+          role: session.user.role,
+        };
       }
-      const actor = resolveWorkspaceActor(session.user);
+      if (authenticatedUser.id !== claims.userId) {
+        throw new Error('Collaboration ticket user scope mismatch.');
+      }
+      const actor = resolveWorkspaceActor(authenticatedUser);
       const workspace = await resolvePostgresWorkspaceForActor(actor, claims.workspaceId);
       if (!workspace || !workspace.permissions.canRead) throw new Error('Workspace access was revoked.');
       if (claims.permission === 'write' && !workspace.permissions.canWrite) throw new Error('Workspace write access was revoked.');
@@ -136,7 +160,11 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       return {
         claims,
         workspace,
-        user: { id: session.user.id, name: session.user.name || session.user.email || 'User', email: session.user.email },
+        user: {
+          id: authenticatedUser.id,
+          name: authenticatedUser.name,
+          email: authenticatedUser.email,
+        },
         actorType: 'user',
         initiatedByUserId: null,
         operationId: null,
@@ -345,7 +373,10 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
   server.on('upgrade', (request, socket, head) => {
     const nextUrl = normalizedPath(request.url);
     if (!nextUrl) return;
-    if (!isConfiguredTrustedOrigin(request.headers.origin)) return reject(socket as net.Socket);
+    if (
+      !isConfiguredTrustedOrigin(request.headers.origin)
+      && !hasMobileCollaborationProtocol(request.headers)
+    ) return reject(socket as net.Socket);
     request.url = nextUrl;
     wss.handleUpgrade(request, socket, head, (websocket) => {
       const connection = hocuspocus.handleConnection(websocket, requestFromIncoming(request));
