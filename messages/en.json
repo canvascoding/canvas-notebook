@@ -712,6 +712,9 @@
     "markdownEditorImageAltPrompt": "Alt text",
     "markdownEditorImageSrcPrompt": "Image URL or workspace path",
     "markdownEditorLatexPrompt": "LaTeX formula",
+    "markdownEditorCalloutTitlePrompt": "Callout title",
+    "markdownEditorDetailsSummaryPrompt": "Collapsible section title",
+    "markdownEditorFootnoteContentPrompt": "Footnote text",
     "markdownEditorImageDialogTitle": "Insert image",
     "markdownEditorImageDialogDescription": "Upload an image into this note folder or import an external image as a local Markdown file reference.",
     "markdownEditorImageTabUpload": "Upload",
@@ -861,6 +864,18 @@
         "title": "Quote",
         "description": "Blockquote"
       },
+      "callout": {
+        "title": "Callout",
+        "description": "Note or warning block"
+      },
+      "details": {
+        "title": "Collapsible section",
+        "description": "Expandable details block"
+      },
+      "footnote": {
+        "title": "Footnote",
+        "description": "Reference with an editable definition"
+      },
       "codeBlock": {
         "title": "Code block",
         "description": "Fenced code block"
@@ -896,6 +911,10 @@
       "strike": {
         "title": "Strike",
         "description": "Strikethrough text from here"
+      },
+      "highlight": {
+        "title": "Highlight",
+        "description": "Highlight text from here"
       },
       "inlineCode": {
         "title": "Inline code",

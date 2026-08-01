@@ -248,14 +248,8 @@ export function parseObsidianBlockIds(markdown: string): ObsidianBlockId[] {
 export function hasObsidianRichEditorUnsupportedSyntax(markdown: string): boolean {
   const trimmed = markdown.trimStart();
   if (/^---[ \t]*\r?\n/.test(trimmed)) return true;
-  if (parseObsidianCallouts(markdown).length > 0) return true;
   if (parseObsidianBlockIds(markdown).length > 0) return true;
 
-  const { hasComment, mask } = scanObsidianSyntax(markdown);
-  return (
-    hasComment ||
-    /==[^=\r\n]+==/.test(mask) ||
-    /\[\^[^\]\r\n]+\]/.test(mask) ||
-    /^\[\^[^\]\r\n]+\]:/m.test(mask)
-  );
+  const { hasComment } = scanObsidianSyntax(markdown);
+  return hasComment;
 }

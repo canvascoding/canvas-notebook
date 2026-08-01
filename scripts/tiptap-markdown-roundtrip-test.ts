@@ -66,6 +66,7 @@ type JsonNode = {
   type?: string;
   text?: string;
   attrs?: Record<string, unknown>;
+  marks?: Array<{ type?: string }>;
   content?: JsonNode[];
 };
 
@@ -73,6 +74,13 @@ function collectNodeTypes(node: JsonNode): string[] {
   return [
     ...(node.type ? [node.type] : []),
     ...(node.content ?? []).flatMap(collectNodeTypes),
+  ];
+}
+
+function collectMarkTypes(node: JsonNode): string[] {
+  return [
+    ...(node.marks ?? []).flatMap((mark) => mark.type ? [mark.type] : []),
+    ...(node.content ?? []).flatMap(collectMarkTypes),
   ];
 }
 
@@ -137,6 +145,22 @@ Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](
 
 Workspace links [[Plan#Outcome|the plan]] and ![[Embed]], with a note.^[Inline source]
 
+Highlighted ==important **context**== stays editable.
+
+> [!warning]+ Verify this
+> Callout body with *formatting*.
+
+Reference with a standard footnote.[^1]
+
+[^1]: Standard footnote content.
+
+<details>
+<summary>More context</summary>
+
+Hidden **details** body.
+
+</details>
+
 Inline math $E = mc^2$ remains in the paragraph.
 
 $$
@@ -199,6 +223,7 @@ async function main() {
   const { TaskItem } = await import('@tiptap/extension-task-item');
   const { TableKit } = await import('@tiptap/extension-table');
   const { MarkdownHeadingAnchors } = await import('../app/lib/markdown/tiptap-heading-anchors');
+  const { canvasRichMarkdownExtensions } = await import('../app/lib/markdown/canvas-rich-markdown-extensions');
   const { createObsidianWikiLinkExtensions } = await import('../app/components/editor/ObsidianWikiLinkExtension');
   const { ObsidianInlineFootnoteExtension } = await import('../app/components/editor/ObsidianInlineFootnoteExtension');
   const { getActiveWorkspaceWikiLink } = await import('../app/lib/markdown/tiptap-workspace-link');
@@ -228,6 +253,7 @@ async function main() {
       }),
       TableKit.configure({ table: { resizable: false } }),
       MarkdownHeadingAnchors,
+      ...canvasRichMarkdownExtensions(),
       ...createObsidianWikiLinkExtensions({
         labels: { empty: 'No match', group: 'Workspace links' },
         workspaceId: null,
@@ -245,6 +271,7 @@ async function main() {
   const output = editor.getMarkdown();
   const json = editor.getJSON();
   const nodeTypes = collectNodeTypes(json);
+  const markTypes = collectMarkTypes(json);
   const tableAlignments = collectTableAlignments(json);
 
   assert.match(output, /^# Title/m);
@@ -256,6 +283,13 @@ async function main() {
   assert.match(output, /\[\[Plan#Outcome\|the plan\]\]/);
   assert.match(output, /!\[\[Embed\]\]/);
   assert.match(output, /\^\[Inline source\]/);
+  assert.match(output, /==important \*\*context\*\*==/u);
+  assert.match(output, /^> \[!warning\]\+ Verify this$/mu);
+  assert.match(output, /^> Callout body with \*formatting\*\.$/mu);
+  assert.match(output, /standard footnote\.\[\^1\]/u);
+  assert.match(output, /^\[\^1\]: Standard footnote content\.$/mu);
+  assert.match(output, /^<details>\n<summary>More context<\/summary>/mu);
+  assert.match(output, /Hidden \*\*details\*\* body\./u);
   assert.match(output, /Inline math \$E = mc\^2\$/);
   assert.ok(output.includes(String.raw`$$
 \int_0^1 x^2 \, dx = \frac{1}{3}
@@ -287,6 +321,11 @@ $$`));
     'wiki links and embeds should parse into rich-editor nodes',
   );
   assert.ok(nodeTypes.includes('obsidianInlineFootnote'), 'inline footnotes should parse into rich-editor nodes');
+  assert.ok(markTypes.includes('canvasHighlight'), 'Obsidian highlights should parse into editable marks');
+  assert.ok(nodeTypes.includes('canvasCallout'), 'Obsidian callouts should parse into rich-editor blocks');
+  assert.ok(nodeTypes.includes('canvasDetails'), 'details blocks should parse into rich-editor blocks');
+  assert.ok(nodeTypes.includes('markdownFootnoteReference'), 'standard footnote references should remain editable');
+  assert.ok(nodeTypes.includes('markdownFootnoteDefinition'), 'standard footnote definitions should remain editable');
   assert.ok(nodeTypes.includes('inlineMath'), 'inline LaTeX should parse as an editable math node');
   assert.ok(nodeTypes.includes('blockMath'), 'display LaTeX should parse as an editable math node');
   assert.ok(nodeTypes.includes('codeBlock'), 'Mermaid fences should remain code blocks');

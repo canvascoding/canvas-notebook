@@ -33,6 +33,7 @@ import {
   AlignLeft,
   AlignRight,
   Bold,
+  BadgeInfo,
   ChevronLeft,
   Code,
   Code2,
@@ -46,12 +47,14 @@ import {
   Heading1,
   Heading2,
   Heading3,
+  Highlighter,
   Image as ImageIcon,
   Italic,
   Keyboard,
   Link as LinkIcon,
   List,
   ListChecks,
+  ListCollapse,
   ListOrdered,
   Minus,
   Plus,
@@ -62,6 +65,7 @@ import {
   Sigma,
   SquareSigma,
   Strikethrough,
+  Superscript,
   Table2,
   Trash2,
   Type,
@@ -118,6 +122,7 @@ import {
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
+import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
 import {
   createMarkdownHeadingAnchorFactory,
   markdownHeadingAnchorFromHref,
@@ -189,6 +194,7 @@ type ToolbarState = {
   isBold: boolean;
   isItalic: boolean;
   isStrike: boolean;
+  isHighlight: boolean;
   isCode: boolean;
   isHeading1: boolean;
   isHeading2: boolean;
@@ -197,6 +203,8 @@ type ToolbarState = {
   isOrderedList: boolean;
   isTaskList: boolean;
   isBlockquote: boolean;
+  isCallout: boolean;
+  isDetails: boolean;
   isLink: boolean;
   isCodeBlock: boolean;
   isTable: boolean;
@@ -225,6 +233,9 @@ type SlashCommandItemId =
   | 'numberedList'
   | 'taskList'
   | 'quote'
+  | 'callout'
+  | 'details'
+  | 'footnote'
   | 'codeBlock'
   | 'inlineMath'
   | 'blockMath'
@@ -234,6 +245,7 @@ type SlashCommandItemId =
   | 'bold'
   | 'italic'
   | 'strike'
+  | 'highlight'
   | 'inlineCode';
 
 type SlashCommandItemLabel = {
@@ -248,6 +260,9 @@ type SlashCommandLabels = {
   dragBlockHint: string;
   empty: string;
   group: string;
+  calloutTitlePrompt: string;
+  detailsSummaryPrompt: string;
+  footnoteContentPrompt: string;
   imageAltPrompt: string;
   imageSrcPrompt: string;
   latexPrompt: string;
@@ -307,6 +322,7 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
   isBold: false,
   isItalic: false,
   isStrike: false,
+  isHighlight: false,
   isCode: false,
   isHeading1: false,
   isHeading2: false,
@@ -315,6 +331,8 @@ const EMPTY_TOOLBAR_STATE: ToolbarState = {
   isOrderedList: false,
   isTaskList: false,
   isBlockquote: false,
+  isCallout: false,
+  isDetails: false,
   isLink: false,
   isCodeBlock: false,
   isTable: false,
@@ -364,6 +382,7 @@ function getMarkdownToolbarState(editor: Editor | null): ToolbarState {
     isBold: editor.isActive('bold'),
     isItalic: editor.isActive('italic'),
     isStrike: editor.isActive('strike'),
+    isHighlight: editor.isActive('canvasHighlight'),
     isCode: editor.isActive('code'),
     isHeading1: editor.isActive('heading', { level: 1 }),
     isHeading2: editor.isActive('heading', { level: 2 }),
@@ -372,6 +391,8 @@ function getMarkdownToolbarState(editor: Editor | null): ToolbarState {
     isOrderedList: editor.isActive('orderedList'),
     isTaskList: editor.isActive('taskList'),
     isBlockquote: editor.isActive('blockquote'),
+    isCallout: editor.isActive('canvasCallout'),
+    isDetails: editor.isActive('canvasDetails'),
     isLink: editor.isActive('link') || editor.isActive('obsidianWikiLink'),
     isCodeBlock: editor.isActive('codeBlock'),
     isTable: editor.isActive('table'),
@@ -801,6 +822,56 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     command: (context) => runAfterSlashDelete(context).toggleBlockquote().run(),
   },
   {
+    id: 'callout',
+    keywords: ['note', 'warning', 'admonition', 'info'],
+    Icon: BadgeInfo,
+    command: (context) => {
+      const title = window.prompt(
+        context.labels.calloutTitlePrompt,
+        context.labels.items.callout.title,
+      );
+      if (title === null) {
+        runAfterSlashDelete(context).run();
+        return;
+      }
+      runAfterSlashDelete(context).insertCanvasCallout({
+        title: title.trim() || context.labels.items.callout.title,
+        type: 'note',
+      }).run();
+    },
+  },
+  {
+    id: 'details',
+    keywords: ['collapse', 'toggle', 'summary', 'expand'],
+    Icon: ListCollapse,
+    command: (context) => {
+      const summary = window.prompt(
+        context.labels.detailsSummaryPrompt,
+        context.labels.items.details.title,
+      );
+      if (summary === null) {
+        runAfterSlashDelete(context).run();
+        return;
+      }
+      runAfterSlashDelete(context).insertCanvasDetails({
+        summary: summary.trim() || context.labels.items.details.title,
+      }).run();
+    },
+  },
+  {
+    id: 'footnote',
+    keywords: ['reference', 'citation', 'annotation'],
+    Icon: Superscript,
+    command: (context) => {
+      const content = window.prompt(context.labels.footnoteContentPrompt);
+      if (content === null) {
+        runAfterSlashDelete(context).run();
+        return;
+      }
+      runAfterSlashDelete(context).insertMarkdownFootnote({ content: content.trim() }).run();
+    },
+  },
+  {
     id: 'codeBlock',
     keywords: ['pre', 'fence'],
     Icon: Code2,
@@ -888,6 +959,12 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     keywords: ['delete', 'cross'],
     Icon: Strikethrough,
     command: (context) => runAfterSlashDelete(context).toggleStrike().run(),
+  },
+  {
+    id: 'highlight',
+    keywords: ['mark', 'marker'],
+    Icon: Highlighter,
+    command: (context) => runAfterSlashDelete(context).toggleCanvasHighlight().run(),
   },
   {
     id: 'inlineCode',
@@ -1305,6 +1382,9 @@ function createSlashCommandLabels(t: (key: string) => string): SlashCommandLabel
     dragBlockHint: t('markdownEditorDragBlockHint'),
     empty: t('markdownEditorNoCommandFound'),
     group: t('markdownEditorSlashGroup'),
+    calloutTitlePrompt: t('markdownEditorCalloutTitlePrompt'),
+    detailsSummaryPrompt: t('markdownEditorDetailsSummaryPrompt'),
+    footnoteContentPrompt: t('markdownEditorFootnoteContentPrompt'),
     imageAltPrompt: t('markdownEditorImageAltPrompt'),
     imageSrcPrompt: t('markdownEditorImageSrcPrompt'),
     latexPrompt: t('markdownEditorLatexPrompt'),
@@ -1768,6 +1848,7 @@ function createEditorExtensions(
     ColorSwatchDecorations,
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
+    ...canvasRichMarkdownExtensions(),
     ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
     ObsidianInlineFootnoteExtension,
     Markdown.configure({
@@ -3009,6 +3090,32 @@ function MarkdownToolbar({
     }
   }, [editor, labels.latexPrompt]);
 
+  const insertCallout = useCallback(() => {
+    if (!editor) return;
+    const title = window.prompt(labels.calloutTitlePrompt, labels.items.callout.title);
+    if (title === null) return;
+    editor.chain().focus().insertCanvasCallout({
+      title: title.trim() || labels.items.callout.title,
+      type: 'note',
+    }).run();
+  }, [editor, labels.calloutTitlePrompt, labels.items.callout.title]);
+
+  const insertDetails = useCallback(() => {
+    if (!editor) return;
+    const summary = window.prompt(labels.detailsSummaryPrompt, labels.items.details.title);
+    if (summary === null) return;
+    editor.chain().focus().insertCanvasDetails({
+      summary: summary.trim() || labels.items.details.title,
+    }).run();
+  }, [editor, labels.detailsSummaryPrompt, labels.items.details.title]);
+
+  const insertFootnote = useCallback(() => {
+    if (!editor) return;
+    const content = window.prompt(labels.footnoteContentPrompt);
+    if (content === null) return;
+    editor.chain().focus().insertMarkdownFootnote({ content: content.trim() }).run();
+  }, [editor, labels.footnoteContentPrompt]);
+
   const openLinkPopoverFromSelection = useCallback(() => {
     if (!editor || linkDialogOpen) return;
 
@@ -3120,6 +3227,14 @@ function MarkdownToolbar({
           <Strikethrough />
         </TooltipIconButton>
         <TooltipIconButton
+          label={labels.items.highlight.title}
+          active={toolbarState.isHighlight}
+          disabled={!canUseCommands}
+          onClick={() => editor?.chain().focus().toggleCanvasHighlight().run()}
+        >
+          <Highlighter />
+        </TooltipIconButton>
+        <TooltipIconButton
           label="Inline code"
           active={toolbarState.isCode}
           disabled={!canUseCommands}
@@ -3188,6 +3303,29 @@ function MarkdownToolbar({
           onClick={() => editor?.chain().focus().toggleBlockquote().run()}
         >
           <Quote />
+        </TooltipIconButton>
+        <TooltipIconButton
+          label={labels.items.callout.title}
+          active={toolbarState.isCallout}
+          disabled={!canUseCommands}
+          onClick={insertCallout}
+        >
+          <BadgeInfo />
+        </TooltipIconButton>
+        <TooltipIconButton
+          label={labels.items.details.title}
+          active={toolbarState.isDetails}
+          disabled={!canUseCommands}
+          onClick={insertDetails}
+        >
+          <ListCollapse />
+        </TooltipIconButton>
+        <TooltipIconButton
+          label={labels.items.footnote.title}
+          disabled={!canUseCommands}
+          onClick={insertFootnote}
+        >
+          <Superscript />
         </TooltipIconButton>
 
         <ToolbarDivider />
@@ -3387,6 +3525,9 @@ const MOBILE_BLOCK_COMMAND_IDS = new Set<SlashCommandItemId>([
   'numberedList',
   'taskList',
   'quote',
+  'callout',
+  'details',
+  'footnote',
   'codeBlock',
   'inlineMath',
   'blockMath',
@@ -3405,6 +3546,7 @@ const MOBILE_STYLE_COMMAND_IDS = new Set<SlashCommandItemId>([
   'taskList',
   'quote',
   'codeBlock',
+  'highlight',
 ]);
 
 function preserveEditorSelectionOnPointerDown(event: React.PointerEvent<HTMLElement>) {
@@ -3809,6 +3951,9 @@ function MobileMarkdownToolbar({
         </MobileToolbarButton>
         <MobileToolbarButton label={labels.items.strike.title} active={toolbarState.isStrike} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleStrike().run())}>
           <Strikethrough className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton label={labels.items.highlight.title} active={toolbarState.isHighlight} disabled={!canUseCommands} onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().toggleCanvasHighlight().run())}>
+          <Highlighter className="h-5 w-5" />
         </MobileToolbarButton>
         <MobileToolbarButton label={t('markdownEditorLinkDialogTitle')} active={toolbarState.isLink} disabled={!canUseCommands} onClick={openLinkDialog}>
           <LinkIcon className="h-5 w-5" />

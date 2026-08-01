@@ -711,6 +711,9 @@
     "markdownEditorImageAltPrompt": "Alt-Text",
     "markdownEditorImageSrcPrompt": "Bild-URL oder Workspace-Pfad",
     "markdownEditorLatexPrompt": "LaTeX-Formel",
+    "markdownEditorCalloutTitlePrompt": "Titel des Hinweisblocks",
+    "markdownEditorDetailsSummaryPrompt": "Titel des aufklappbaren Bereichs",
+    "markdownEditorFootnoteContentPrompt": "Text der Fußnote",
     "markdownEditorImageDialogTitle": "Bild einfügen",
     "markdownEditorImageDialogDescription": "Lade ein Bild in den Ordner dieser Notiz hoch oder importiere ein externes Bild als lokale Markdown-Referenz.",
     "markdownEditorImageTabUpload": "Upload",
@@ -860,6 +863,18 @@
         "title": "Zitat",
         "description": "Blockzitat"
       },
+      "callout": {
+        "title": "Hinweisblock",
+        "description": "Hinweis- oder Warnungsblock"
+      },
+      "details": {
+        "title": "Aufklappbarer Bereich",
+        "description": "Ein- und ausklappbarer Detailblock"
+      },
+      "footnote": {
+        "title": "Fußnote",
+        "description": "Verweis mit bearbeitbarer Definition"
+      },
       "codeBlock": {
         "title": "Codeblock",
         "description": "Codeblock mit Backticks"
@@ -895,6 +910,10 @@
       "strike": {
         "title": "Durchstreichen",
         "description": "Text ab hier durchstreichen"
+      },
+      "highlight": {
+        "title": "Hervorheben",
+        "description": "Text ab hier hervorheben"
       },
       "inlineCode": {
         "title": "Inline-Code",

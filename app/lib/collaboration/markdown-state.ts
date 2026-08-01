@@ -16,6 +16,7 @@ import {
   composeCanvasMarkdownDocument,
   splitCanvasMarkdownForRichEditor,
 } from '@/app/lib/markdown/obsidian-metadata';
+import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
 import { TiptapTransformer, Y, YProsemirror } from './server-runtime';
 
 export const RICH_MARKDOWN_UNIQUE_ID_TYPES = 'all' as const;
@@ -23,6 +24,7 @@ export const RICH_MARKDOWN_UNIQUE_ID_TYPES = 'all' as const;
 export function richMarkdownSchemaExtensions() {
   return [
     StarterKit.configure({ link: false }),
+    ...canvasRichMarkdownExtensions(),
     Link.configure({ openOnClick: false, autolink: false }),
     Image,
     Mathematics,
