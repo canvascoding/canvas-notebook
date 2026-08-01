@@ -64,6 +64,58 @@ async function main() {
     requireLicensePlan,
     requireTeamRuntimeLicense,
   } = await import('../app/lib/license/entitlements');
+  const { restrictWorkspaceListingToCore } = await import('../app/lib/workspaces/listing-action');
+
+  const actor = { userId: 'owner-user', role: 'owner' as const };
+  const personalWorkspace = {
+    workspaceId: 'personal-workspace',
+    workspaceType: 'personal' as const,
+    rootPath: '/data/workspaces/personal/owner-user/files',
+    isDefault: true,
+    ownerUserId: actor.userId,
+    permissions: {
+      canRead: true,
+      canWrite: true,
+      canDelete: true,
+      canCreatePublicLinks: true,
+      canManageWorkspace: true,
+      canRunAgent: true,
+    },
+    legacy: false,
+  };
+  const coreListing = restrictWorkspaceListingToCore({
+    organizationId: 'org-test',
+    teamFeaturesEnabled: true,
+    projectFeaturesEnabled: true,
+    canCreateSharedWorkspaces: true,
+    databaseProvider: 'postgres',
+    activeWorkspaceId: 'team-workspace',
+    defaultWorkspace: null,
+    workspaces: [
+      personalWorkspace,
+      {
+        ...personalWorkspace,
+        workspaceId: 'team-workspace',
+        workspaceType: 'team',
+        ownerUserId: null,
+        isDefault: false,
+      },
+      {
+        ...personalWorkspace,
+        workspaceId: 'other-personal-workspace',
+        ownerUserId: 'other-user',
+        isDefault: false,
+      },
+    ],
+    warnings: [],
+  }, actor);
+  assert.equal(coreListing.teamFeaturesEnabled, false);
+  assert.equal(coreListing.projectFeaturesEnabled, false);
+  assert.equal(coreListing.canCreateSharedWorkspaces, false);
+  assert.equal(coreListing.activeWorkspaceId, personalWorkspace.workspaceId);
+  assert.equal(coreListing.defaultWorkspace?.workspaceId, personalWorkspace.workspaceId);
+  assert.deepEqual(coreListing.workspaces.map((workspace) => workspace.workspaceId), [personalWorkspace.workspaceId]);
+  assert.match(coreListing.warnings.at(-1) || '', /Team features are unavailable/u);
 
   const basePayload = {
     sub: 'self_license_test',

@@ -1,7 +1,10 @@
 import 'server-only';
 
 import { getDatabaseProvider } from '@/app/lib/db/provider';
-import { requireTeamRuntimeLicense } from '@/app/lib/license/entitlements';
+import {
+  LicenseEntitlementError,
+  requireTeamRuntimeLicense,
+} from '@/app/lib/license/entitlements';
 import {
   ensureOrganizationBootstrapForUser,
   openOrganizationBootstrapDatabase,
@@ -34,15 +37,58 @@ export class WorkspaceListingError extends Error {
   }
 }
 
-async function assertTeamRuntimeLicense(teamFeaturesEnabled: boolean): Promise<void> {
-  if (teamFeaturesEnabled) await requireTeamRuntimeLicense();
+export function restrictWorkspaceListingToCore(
+  listing: WorkspaceListing,
+  actor: WorkspaceActor,
+): WorkspaceListing {
+  const workspaces = listing.workspaces.filter((workspace) => (
+    workspace.workspaceType === 'personal'
+    && (!workspace.ownerUserId || workspace.ownerUserId === actor.userId)
+  ));
+  const defaultWorkspace = workspaces.find((workspace) => workspace.isDefault) || workspaces[0] || null;
+  if (!defaultWorkspace) {
+    throw new WorkspaceListingError(
+      'Personal workspace is unavailable',
+      'PERSONAL_WORKSPACE_UNAVAILABLE',
+      409,
+    );
+  }
+
+  return {
+    ...listing,
+    teamFeaturesEnabled: false,
+    projectFeaturesEnabled: false,
+    canCreateSharedWorkspaces: false,
+    activeWorkspaceId: defaultWorkspace.workspaceId,
+    defaultWorkspace,
+    workspaces,
+    warnings: [
+      ...listing.warnings,
+      'Team features are unavailable until a valid Team license is activated.',
+    ],
+  };
+}
+
+async function enforceTeamLicenseBoundary(
+  listing: WorkspaceListing,
+  actor: WorkspaceActor,
+): Promise<WorkspaceListing> {
+  if (!listing.teamFeaturesEnabled) return listing;
+  try {
+    await requireTeamRuntimeLicense();
+    return listing;
+  } catch (error) {
+    if (error instanceof LicenseEntitlementError) {
+      return restrictWorkspaceListingToCore(listing, actor);
+    }
+    throw error;
+  }
 }
 
 export async function loadWorkspaceListingForActor(actor: WorkspaceActor): Promise<WorkspaceListing> {
   if (getDatabaseProvider() === 'postgres') {
     const state = await getPostgresWorkspaceState(actor);
-    await assertTeamRuntimeLicense(state.status.teamFeaturesEnabled);
-    return {
+    return enforceTeamLicenseBoundary({
       organizationId: state.status.organizationId,
       teamFeaturesEnabled: state.status.teamFeaturesEnabled,
       projectFeaturesEnabled: areProjectFeaturesEnabled(),
@@ -52,14 +98,13 @@ export async function loadWorkspaceListingForActor(actor: WorkspaceActor): Promi
       defaultWorkspace: state.defaultWorkspace,
       workspaces: state.workspaces,
       warnings: state.status.warnings,
-    };
+    }, actor);
   }
 
   const sqlite = openOrganizationBootstrapDatabase();
   try {
     sqlite.exec('BEGIN IMMEDIATE');
     const status = ensureOrganizationBootstrapForUser(sqlite, actor.userId);
-    await assertTeamRuntimeLicense(status.teamFeaturesEnabled);
     if (!status.organizationId) {
       throw new WorkspaceListingError(
         'Organization is not configured',
@@ -78,7 +123,7 @@ export async function loadWorkspaceListingForActor(actor: WorkspaceActor): Promi
     });
     sqlite.exec('COMMIT');
 
-    return {
+    return enforceTeamLicenseBoundary({
       organizationId: status.organizationId,
       teamFeaturesEnabled: status.teamFeaturesEnabled,
       projectFeaturesEnabled: areProjectFeaturesEnabled(),
@@ -88,7 +133,7 @@ export async function loadWorkspaceListingForActor(actor: WorkspaceActor): Promi
       defaultWorkspace,
       workspaces,
       warnings: status.warnings,
-    };
+    }, actor);
   } catch (error) {
     if (sqlite.inTransaction) sqlite.exec('ROLLBACK');
     throw error;
