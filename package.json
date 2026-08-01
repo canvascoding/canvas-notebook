@@ -160,6 +160,7 @@
     "test:team-seat-contract": "tsx scripts/team-seat-contract-test.ts",
     "test:team-seat-rollout": "tsx --conditions react-server scripts/team-seat-rollout-test.ts",
     "test:team-membership-model": "tsx --conditions react-server scripts/team-membership-model-test.ts",
+    "test:team-seat-outbox": "tsx --conditions react-server scripts/team-seat-outbox-test.ts",
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
     "licenses:generate": "tsx scripts/generate-third-party-notices.ts",
     "licenses:refresh-cache": "tsx scripts/refresh-third-party-license-cache.ts && npm run licenses:generate",

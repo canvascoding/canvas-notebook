@@ -7,6 +7,10 @@ import {
   getDatabaseProvider,
   type DatabaseProvider,
 } from '@/app/lib/db/provider';
+import {
+  recordTeamMembershipProjectionChange,
+} from '@/app/lib/license/team-seat-outbox';
+import type { TeamSeatChangeType } from '@/app/lib/license/team-seat-contract';
 
 export const TEAM_MEMBERSHIP_STATUSES = [
   'invited',
@@ -273,6 +277,7 @@ async function appendTransition(
     source: TeamMembershipTransitionSource;
     reason?: string | null;
     externalOperationId?: string | null;
+    membershipRevision?: number | null;
     metadata?: unknown;
     createdAt: number;
   },
@@ -288,9 +293,10 @@ async function appendTransition(
       source,
       reason,
       external_operation_id,
+      membership_revision,
       metadata_json,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `, [
     `team-membership-transition-${randomUUID()}`,
     input.membershipId,
@@ -301,6 +307,7 @@ async function appendTransition(
     input.source,
     optionalText(input.reason, 1000),
     optionalText(input.externalOperationId, 500),
+    input.membershipRevision ?? null,
     serializeMetadata(input.metadata),
     input.createdAt,
   ]);
@@ -392,7 +399,7 @@ export async function createTeamMembershipCandidate(
 }
 
 export async function adoptActiveTeamMembership(
-  database: Pick<SqlConnection, 'get' | 'run'>,
+  database: Pick<SqlConnection, 'get' | 'run' | 'all'>,
   input: {
     organizationId: string;
     userId: string;
@@ -401,6 +408,7 @@ export async function adoptActiveTeamMembership(
     actorUserId?: string | null;
     reason?: string | null;
     metadata?: unknown;
+    seatOperationType?: TeamSeatChangeType;
     now?: number;
     databaseProvider?: DatabaseProvider;
   },
@@ -450,6 +458,20 @@ export async function adoptActiveTeamMembership(
       now,
     ]);
 
+    const membership = await readMembership(database, input.organizationId, id);
+    if (!membership) {
+      throw new TeamMembershipError('MEMBERSHIP_CONFLICT', 'Membership was not persisted.', 409);
+    }
+    const revision = input.seatOperationType
+      ? (await recordTeamMembershipProjectionChange(database, {
+          organizationId: input.organizationId,
+          membershipId: id,
+          operationType: input.seatOperationType,
+          projection: await getActiveTeamMembershipProjection(database, input.organizationId),
+          now,
+        })).revision
+      : null;
+
     await appendTransition(database, {
       membershipId: id,
       organizationId: input.organizationId,
@@ -458,20 +480,17 @@ export async function adoptActiveTeamMembership(
       actorUserId: input.actorUserId,
       source: input.source,
       reason: input.reason,
+      membershipRevision: revision,
       metadata: input.metadata,
       createdAt: now,
     });
 
-    const membership = await readMembership(database, input.organizationId, id);
-    if (!membership) {
-      throw new TeamMembershipError('MEMBERSHIP_CONFLICT', 'Membership was not persisted.', 409);
-    }
     return membership;
   }, input.databaseProvider ?? getDatabaseProvider());
 }
 
 export async function transitionTeamMembership(
-  database: Pick<SqlConnection, 'get' | 'run'>,
+  database: Pick<SqlConnection, 'get' | 'run' | 'all'>,
   input: {
     organizationId: string;
     membershipId: string;
@@ -485,6 +504,7 @@ export async function transitionTeamMembership(
     controlPlaneOperationId?: string | null;
     userId?: string | null;
     acceptedAt?: number | null;
+    seatOperationType?: TeamSeatChangeType;
     role?: TeamMembershipRole;
     displayName?: string | null;
     now?: number;
@@ -620,6 +640,18 @@ export async function transitionTeamMembership(
       );
     }
 
+    const affectsActiveSeatProjection = membership.status === 'active' || input.toStatus === 'active';
+    const revision = affectsActiveSeatProjection
+      ? (await recordTeamMembershipProjectionChange(database, {
+          organizationId: input.organizationId,
+          membershipId: membership.id,
+          operationType: input.seatOperationType
+            ?? (input.toStatus === 'active' ? 'invitation_accept' : 'member_remove'),
+          projection: await getActiveTeamMembershipProjection(database, input.organizationId),
+          now,
+        })).revision
+      : null;
+
     await appendTransition(database, {
       membershipId: membership.id,
       organizationId: membership.organizationId,
@@ -629,6 +661,7 @@ export async function transitionTeamMembership(
       source: input.source,
       reason: input.reason,
       externalOperationId: input.controlPlaneOperationId,
+      membershipRevision: revision,
       metadata: input.metadata,
       createdAt: now,
     });

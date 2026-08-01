@@ -187,7 +187,7 @@
         {
           "id": "NB-TS-011",
           "title": "Membership-Revision, Snapshot und Outbox modellieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "database-sync",
           "description": "Monotone Revisionen, Snapshot-Hash, lokale Seat-Operationen, Retry-Zustand und letzte bestätigte Control-Plane-Version persistieren.",

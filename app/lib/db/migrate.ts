@@ -525,11 +525,78 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       source TEXT NOT NULL,
       reason TEXT,
       external_operation_id TEXT,
+      membership_revision INTEGER,
       metadata_json TEXT,
       created_at INTEGER NOT NULL,
       FOREIGN KEY (membership_id) REFERENCES team_memberships(id) ON DELETE CASCADE,
       FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
       FOREIGN KEY (actor_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS team_membership_sync_state (
+      organization_id TEXT PRIMARY KEY NOT NULL,
+      current_revision INTEGER NOT NULL DEFAULT 0,
+      current_observed_quantity INTEGER NOT NULL DEFAULT 0,
+      latest_snapshot_hash TEXT,
+      latest_snapshot_generated_at INTEGER,
+      last_local_change_at INTEGER,
+      acknowledged_revision INTEGER NOT NULL DEFAULT 0,
+      acknowledged_snapshot_id TEXT,
+      acknowledged_snapshot_hash TEXT,
+      acknowledged_at INTEGER,
+      control_plane_protocol_version TEXT,
+      control_plane_observed_quantity INTEGER,
+      approved_quantity INTEGER,
+      billed_quantity INTEGER,
+      licensed_quantity INTEGER,
+      expected_licensed_quantity INTEGER,
+      entitlements_version INTEGER,
+      billing_status TEXT,
+      drift_status TEXT,
+      next_report_at INTEGER,
+      last_sync_error_code TEXT,
+      last_sync_error TEXT,
+      last_sync_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (
+        current_revision >= 0
+        AND acknowledged_revision >= 0
+        AND acknowledged_revision <= current_revision
+      ),
+      CHECK (current_observed_quantity >= 0),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE
+    );
+
+    CREATE TABLE IF NOT EXISTS team_seat_outbox (
+      id TEXT PRIMARY KEY NOT NULL,
+      operation_id TEXT NOT NULL UNIQUE,
+      dedupe_key TEXT NOT NULL UNIQUE,
+      organization_id TEXT NOT NULL,
+      membership_id TEXT,
+      membership_revision INTEGER,
+      operation_kind TEXT NOT NULL
+        CHECK (operation_kind IN ('membership_snapshot', 'seat_prepare', 'seat_execute', 'license_refresh')),
+      operation_type TEXT
+        CHECK (operation_type IS NULL OR operation_type IN ('team_upgrade', 'member_create', 'invitation_accept', 'member_remove', 'reconcile')),
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'processing', 'retry_wait', 'succeeded', 'failed', 'canceled')),
+      request_json TEXT NOT NULL,
+      request_hash TEXT NOT NULL,
+      response_json TEXT,
+      control_plane_operation_id TEXT,
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      max_attempts INTEGER NOT NULL DEFAULT 10,
+      next_attempt_at INTEGER,
+      last_attempt_at INTEGER,
+      last_error_code TEXT,
+      last_error TEXT,
+      completed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (attempt_count >= 0 AND max_attempts >= 1 AND attempt_count <= max_attempts),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (membership_id) REFERENCES team_memberships(id) ON DELETE SET NULL
     );
 
     CREATE TABLE IF NOT EXISTS capability_policies (
@@ -2462,7 +2529,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_team_memberships_control_plane_operation ON team_memberships (organization_id, control_plane_operation_id);
     CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_membership_created ON team_membership_transitions (membership_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_org_created ON team_membership_transitions (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_org_revision ON team_membership_transitions (organization_id, membership_revision);
     CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_external_operation ON team_membership_transitions (organization_id, external_operation_id);
+    CREATE INDEX IF NOT EXISTS idx_team_membership_sync_next_report ON team_membership_sync_state (next_report_at);
+    CREATE INDEX IF NOT EXISTS idx_team_seat_outbox_status_retry ON team_seat_outbox (status, next_attempt_at);
+    CREATE INDEX IF NOT EXISTS idx_team_seat_outbox_org_created ON team_seat_outbox (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_team_seat_outbox_org_revision ON team_seat_outbox (organization_id, membership_revision);
+    CREATE INDEX IF NOT EXISTS idx_team_seat_outbox_membership ON team_seat_outbox (membership_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_team_seat_outbox_control_plane_operation ON team_seat_outbox (control_plane_operation_id);
     CREATE INDEX IF NOT EXISTS idx_capability_policies_org_resource ON capability_policies (organization_id, resource_type, resource_id);
     CREATE INDEX IF NOT EXISTS idx_capability_policies_org_target ON capability_policies (organization_id, target_type, target_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_capability_policies_binding ON capability_policies (organization_id, resource_type, resource_id, target_type, target_id);
@@ -2588,6 +2662,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     relevant_skills_json: 'TEXT',
     relevant_connections_json: 'TEXT',
     access_policy: "TEXT NOT NULL DEFAULT 'legacy'",
+  });
+
+  addColumns(sqlite, 'team_membership_transitions', {
+    membership_revision: 'INTEGER',
   });
   addColumns(sqlite, 'channel_active_sessions', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",

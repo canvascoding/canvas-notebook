@@ -10,6 +10,7 @@ import {
   parseTeamSeatMembershipSnapshot,
   TEAM_SEAT_PROTOCOL_VERSION,
 } from '../app/lib/license/team-seat-contract';
+import { getTeamMembershipSyncState } from '../app/lib/license/team-seat-outbox';
 import {
   adoptActiveTeamMembership,
   createTeamMembershipCandidate,
@@ -184,6 +185,7 @@ async function main(): Promise<void> {
     userId: 'owner-user',
     role: 'owner',
     source: 'first_owner',
+    seatOperationType: 'reconcile',
     reason: 'Adopt the existing first owner without creating another auth user',
     now: 1_500,
     databaseProvider: 'sqlite',
@@ -236,6 +238,16 @@ async function main(): Promise<void> {
     'active',
     'the membership update must roll back if its transition audit cannot be persisted',
   );
+  assert.equal(
+    (await getTeamMembershipSyncState(connection, 'organization-1'))?.currentRevision,
+    2,
+    'the membership revision must roll back with a failed transition audit',
+  );
+  assert.equal(
+    sqlite.prepare('SELECT COUNT(*) FROM team_seat_outbox').pluck().get(),
+    2,
+    'the snapshot outbox write must roll back with a failed transition audit',
+  );
   sqlite.exec('DROP TRIGGER fail_suspended_membership_audit');
 
   const suspended = await transitionTeamMembership(connection, {
@@ -249,6 +261,10 @@ async function main(): Promise<void> {
     databaseProvider: 'sqlite',
   });
   assert.equal(isActiveTeamMembership(suspended), false);
+  assert.equal(
+    (await getTeamMembershipSyncState(connection, 'organization-1'))?.currentRevision,
+    3,
+  );
   assert.equal(
     (await getActiveTeamMembershipProjection(connection, 'organization-1')).observedQuantity,
     1,
