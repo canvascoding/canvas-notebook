@@ -41,6 +41,7 @@ async function main() {
 
   const mobileRouteMarkers = new Map<string, string>([
     ['app/api/mobile/v1/extensions/plugins/route.ts', 'serializeMobileInstalledPlugin'],
+    ['app/api/mobile/v1/extensions/plugins/[name]/route.ts', 'serializeMobileInstalledPluginDetail'],
     ['app/api/mobile/v1/extensions/plugins/store/route.ts', 'serializeMobilePluginSummary'],
     ['app/api/mobile/v1/extensions/plugins/store/[name]/route.ts', 'serializeMobilePluginDetail'],
     ['app/api/mobile/v1/extensions/plugins/store/preflight/route.ts', 'serializeMobilePluginPreflight'],

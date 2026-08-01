@@ -308,3 +308,59 @@ export function serializeMobileInstalledPlugin(
     },
   };
 }
+
+export function serializeMobileInstalledPluginDetail(
+  plugin: CanvasPluginInstallRecord,
+): MobilePluginDetail {
+  const summary = serializeMobileInstalledPlugin(plugin);
+  return {
+    ...summary,
+    publisher: plugin.author,
+    release: {
+      version: plugin.version,
+    },
+    skills: plugin.skills.map((skill) => ({
+      name: skill.name,
+      displayName: skill.title || skill.name,
+      description: skill.description,
+      icon: {
+        brandColor: plugin.interface?.brandColor,
+        initials: initialsFor(skill.title || skill.name),
+      },
+      installed: true,
+      enabled: plugin.enabled,
+      status: 'ok',
+      updateAvailable: false,
+      repairable: false,
+    })),
+    connections: [
+      ...normalizeComposioConnectors(plugin.connectors).map((connector) => ({
+        type: 'composio' as const,
+        key: connector.toolkit,
+        label: connector.label || connector.toolkit,
+        description: connector.reason,
+        required: connector.required === true,
+        icon: { initials: initialsFor(connector.label || connector.toolkit) },
+      })),
+      ...normalizeEmailConnectors(plugin.connectors).map((connector, index) => ({
+        type: 'email' as const,
+        key: connector.label || `email-${index}`,
+        label: connector.label || 'Email account',
+        description: connector.reason,
+        required: connector.required === true,
+        icon: { initials: initialsFor(connector.label || 'Email account') },
+      })),
+      ...normalizeMcpConnectors(plugin.connectors).map((connector) => ({
+        type: 'mcp' as const,
+        key: connector.name,
+        label: connector.label || connector.name,
+        description: connector.reason,
+        required: connector.required === true,
+        icon: {
+          url: `/api/mobile/v1/integrations/mcp-icon/${encodeURIComponent(connector.name)}`,
+          initials: initialsFor(connector.label || connector.name),
+        },
+      })),
+    ],
+  };
+}
