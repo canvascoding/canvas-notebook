@@ -22,6 +22,7 @@ async function main() {
     '/api/license/claim/start',
     '/api/license/claim/poll',
     '/api/license/claim/cancel',
+    '/api/license/claim/rotate',
     '/api/license/team/preflight',
   ]) {
     assert.match(panel, new RegExp(endpoint.replaceAll('/', '\\/'), 'u'));
@@ -33,6 +34,10 @@ async function main() {
   assert.match(panel, /runPreflight/u);
   assert.match(panel, /target="_blank" rel="noopener noreferrer"/u);
   assert.match(panel, /preflight\.ready && preflight\.managementUrl/u);
+  assert.match(panel, /reconnect_required/u);
+  assert.match(panel, /Sicher erneut verbinden/u);
+  assert.match(panel, /Reconnect securely/u);
+  assert.match(panel, /rotateConnection/u);
   assert.match(licensePanel, /<CommunityTeamConnectionPanel/u);
 
   assert.doesNotMatch(panel, /instanceToken/u);

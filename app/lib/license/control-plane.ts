@@ -11,10 +11,12 @@ import {
   createTeamSeatClaimPollRequest,
   createTeamSeatClaimStartRequest,
   createTeamSeatPreflightRequest,
+  createTeamSeatTokenLifecycleRequest,
   parseTeamSeatClaimPollResult,
   parseTeamSeatClaimStart,
   parseTeamSeatErrorPayload,
   parseTeamSeatPreflightResponse,
+  parseTeamSeatTokenRotation,
   TEAM_SEAT_ERROR_CODES,
   TeamSeatContractError,
   type TeamSeatCommunityPreflightResponse,
@@ -27,14 +29,19 @@ import {
 import {
   getCommunityInstanceTokenStatus,
   loadCommunityClaimSession,
+  loadCommunityConnectionRecoveryState,
   loadCommunityInstanceToken,
   loadStoredLicenseCert,
+  markCommunityConnectionReconnectRequired,
   removeCommunityClaimSession,
+  rotateCommunityInstanceToken,
   saveCommunityClaimSession,
   saveCommunityInstanceToken,
   updateCommunityClaimSession,
   type CommunityClaimSessionSecret,
+  type CommunityConnectionRecoveryReason,
   type CommunityInstanceTokenStatus,
+  CommunityInstanceTokenStorageError,
 } from './storage';
 import type { LicenseStatus } from './types';
 
@@ -170,9 +177,19 @@ export type CommunityLicenseClaimIdle = {
   claimId: string | null;
 };
 
+export type CommunityLicenseClaimReconnectRequired = {
+  state: 'reconnect_required';
+  claimId: null;
+  reason: CommunityConnectionRecoveryReason;
+  detectedAt: string;
+  coreUnaffected: true;
+  teamAccessPolicy: 'signed_certificate_until_expiry';
+};
+
 export type CommunityLicenseClaimPublicStatus =
   | CommunityLicenseClaimPending
   | CommunityLicenseClaimConnected
+  | CommunityLicenseClaimReconnectRequired
   | CommunityLicenseClaimIdle;
 
 type CommunityClaimClientOptions = {
@@ -183,6 +200,7 @@ type CommunityClaimClientOptions = {
 const COMMUNITY_CLAIM_START_PATH = '/v1/license/claim/v1/start';
 const COMMUNITY_CLAIM_POLL_PATH = '/v1/license/claim/v1/poll';
 const COMMUNITY_TEAM_PREFLIGHT_PATH = '/v1/license/community/v1/team/preflight';
+const COMMUNITY_TOKEN_ROTATE_PATH = '/v1/license/community/v1/token/rotate';
 const MAX_CLAIM_BACKOFF_SECONDS = 300;
 let communityClaimOperationQueue: Promise<void> = Promise.resolve();
 
@@ -290,6 +308,37 @@ function isTerminalClaimError(error: LicenseControlPlaneError): boolean {
     || error.code === TEAM_SEAT_ERROR_CODES.featureDisabled;
 }
 
+function reconnectReasonFor(
+  error: LicenseControlPlaneError,
+): CommunityConnectionRecoveryReason | null {
+  if (error.code === TEAM_SEAT_ERROR_CODES.tokenInvalid) return 'revoked';
+  if (error.code === TEAM_SEAT_ERROR_CODES.tokenInstanceMismatch) return 'invalid';
+  return null;
+}
+
+async function recordRejectedCommunityToken(
+  error: LicenseControlPlaneError,
+  input: { instanceId: string; instanceToken: string },
+): Promise<void> {
+  const reason = reconnectReasonFor(error);
+  if (!reason) return;
+  try {
+    await markCommunityConnectionReconnectRequired({
+      instanceId: input.instanceId,
+      expectedToken: input.instanceToken,
+      reason,
+    });
+  } catch (storageError) {
+    if (
+      storageError instanceof CommunityInstanceTokenStorageError
+      && storageError.code === 'TOKEN_ROTATION_CONFLICT'
+    ) {
+      return;
+    }
+    throw storageError;
+  }
+}
+
 function nextBackoffSeconds(session: CommunityClaimSessionSecret): number {
   const exponent = Math.min(session.consecutiveFailures, 6);
   return Math.min(
@@ -332,6 +381,21 @@ export async function getCommunityLicenseClaimStatus(
   const instanceId = getLicenseInstanceId();
   const token = await getCommunityInstanceTokenStatus(instanceId);
   const session = await loadCommunityClaimSession(instanceId);
+  if (token.configured && token.expired) {
+    const recovery = await markCommunityConnectionReconnectRequired({
+      instanceId,
+      reason: 'expired',
+      now: nowFrom(options),
+    });
+    return {
+      state: 'reconnect_required',
+      claimId: null,
+      reason: recovery.reason,
+      detectedAt: recovery.detectedAt,
+      coreUnaffected: true,
+      teamAccessPolicy: 'signed_certificate_until_expiry',
+    };
+  }
   if (token.configured) {
     if (session) await removeCommunityClaimSession(session.claimId);
     return {
@@ -341,7 +405,19 @@ export async function getCommunityLicenseClaimStatus(
       token,
     };
   }
-  if (!session) return { state: 'idle', claimId: null };
+  if (!session) {
+    const recovery = await loadCommunityConnectionRecoveryState(instanceId);
+    return recovery
+      ? {
+          state: 'reconnect_required',
+          claimId: null,
+          reason: recovery.reason,
+          detectedAt: recovery.detectedAt,
+          coreUnaffected: true,
+          teamAccessPolicy: 'signed_certificate_until_expiry',
+        }
+      : { state: 'idle', claimId: null };
+  }
   const now = nowFrom(options);
   if (Date.parse(session.expiresAt) <= now.getTime()) {
     await removeCommunityClaimSession(session.claimId);
@@ -358,12 +434,19 @@ export async function startCommunityLicenseClaim(
     const instanceId = getLicenseInstanceId();
     const now = nowFrom(options);
     const token = await getCommunityInstanceTokenStatus(instanceId);
-    if (token.configured) {
+    if (token.configured && !token.expired) {
       throw localClaimError(
         'This Notebook instance is already connected to the Control Plane.',
         409,
         TEAM_SEAT_ERROR_CODES.claimConflict,
       );
+    }
+    if (token.configured) {
+      await markCommunityConnectionReconnectRequired({
+        instanceId,
+        reason: 'expired',
+        now,
+      });
     }
     const existing = await loadCommunityClaimSession(instanceId);
     if (existing && Date.parse(existing.expiresAt) > now.getTime()) {
@@ -587,6 +670,11 @@ export async function getCommunityTeamUpgradePreflight(
     );
   }
   if (token.expiresAt && Date.parse(token.expiresAt) <= Date.now()) {
+    await markCommunityConnectionReconnectRequired({
+      instanceId,
+      expectedToken: token.instanceToken,
+      reason: 'expired',
+    });
     throw localClaimError(
       'The Community instance connection has expired and must be restored.',
       401,
@@ -614,7 +702,14 @@ export async function getCommunityTeamUpgradePreflight(
       },
     },
   );
-  if (!response.ok) throw claimErrorFromResponse(response, payload);
+  if (!response.ok) {
+    const error = claimErrorFromResponse(response, payload);
+    await recordRejectedCommunityToken(error, {
+      instanceId,
+      instanceToken: token.instanceToken,
+    });
+    throw error;
+  }
 
   try {
     const preflight = parseTeamSeatPreflightResponse(payload.preflight);
@@ -630,6 +725,115 @@ export async function getCommunityTeamUpgradePreflight(
     if (error instanceof LicenseControlPlaneError) throw error;
     throw contractResponseError(error);
   }
+}
+
+export async function rotateCommunityLicenseConnection(
+  options?: { fetchImpl?: typeof fetch; now?: Date },
+): Promise<CommunityLicenseClaimConnected> {
+  requireTeamSeatClientRollout();
+  const instanceId = getLicenseInstanceId();
+  const token = await loadCommunityInstanceToken(instanceId);
+  if (!token) {
+    throw localClaimError(
+      'No Community instance connection is available to rotate.',
+      409,
+      TEAM_SEAT_ERROR_CODES.accountRequired,
+    );
+  }
+  const now = options?.now ?? new Date();
+  if (token.expiresAt && Date.parse(token.expiresAt) <= now.getTime()) {
+    await markCommunityConnectionReconnectRequired({
+      instanceId,
+      expectedToken: token.instanceToken,
+      reason: 'expired',
+      now,
+    });
+    throw localClaimError(
+      'The Community instance connection expired and must be restored.',
+      401,
+      TEAM_SEAT_ERROR_CODES.tokenInvalid,
+    );
+  }
+  if (!token.scopes.includes('token:rotate')) {
+    throw localClaimError(
+      'The Community instance connection does not permit token rotation.',
+      403,
+      TEAM_SEAT_ERROR_CODES.tokenScopeDenied,
+    );
+  }
+
+  const { response, payload } = await postLicenseControlPlane(
+    COMMUNITY_TOKEN_ROTATE_PATH,
+    createTeamSeatTokenLifecycleRequest(),
+    {
+      fetchImpl: options?.fetchImpl,
+      unreachableCode: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
+      authorization: {
+        tokenType: token.tokenType,
+        token: token.instanceToken,
+      },
+    },
+  );
+  if (!response.ok) {
+    const error = claimErrorFromResponse(response, payload);
+    await recordRejectedCommunityToken(error, {
+      instanceId,
+      instanceToken: token.instanceToken,
+    });
+    throw error;
+  }
+
+  let rotated;
+  try {
+    rotated = parseTeamSeatTokenRotation(payload.token);
+  } catch (error) {
+    throw contractResponseError(error);
+  }
+  if (rotated.instanceId !== instanceId) {
+    await markCommunityConnectionReconnectRequired({
+      instanceId,
+      expectedToken: token.instanceToken,
+      reason: 'invalid',
+      now,
+    });
+    throw localClaimError(
+      'The rotated Community token belongs to another Notebook instance.',
+      409,
+      TEAM_SEAT_ERROR_CODES.tokenInstanceMismatch,
+    );
+  }
+
+  let status: CommunityInstanceTokenStatus;
+  try {
+    status = await rotateCommunityInstanceToken({
+      instanceId,
+      previousToken: token.instanceToken,
+      instanceToken: rotated.instanceToken,
+      tokenType: rotated.tokenType,
+      scopes: rotated.scopes,
+      expiresAt: rotated.expiresAt,
+      now,
+    });
+  } catch (error) {
+    const current = await loadCommunityInstanceToken(instanceId).catch(() => null);
+    if (current?.instanceToken === rotated.instanceToken) {
+      status = await getCommunityInstanceTokenStatus(instanceId);
+    } else {
+      await markCommunityConnectionReconnectRequired({
+        instanceId,
+        expectedToken: token.instanceToken,
+        reason: 'rotation_failed',
+        now,
+      }).catch(() => undefined);
+      throw error;
+    }
+  }
+  return {
+    state: 'connected',
+    claimId: null,
+    organizationId: null,
+    token: status,
+  };
 }
 
 export function communityLicenseClaimErrorPayload(

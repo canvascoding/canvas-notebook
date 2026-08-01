@@ -328,7 +328,7 @@
         {
           "id": "NB-TS-022",
           "title": "Token-Rotation, Revocation und Recovery integrieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P1",
           "ownerArea": "license-security",
           "description": "Lokale Aktionen und Fehlerzustände für Token-Rotation, serverseitigen Widerruf, verlorenes Token und erneuten Claim implementieren.",
@@ -349,7 +349,8 @@
             "Widerruf führt zu einem klaren reconnect_required-Zustand.",
             "Recovery überschreibt keine fremd geclaimte Ownership.",
             "Team-Zugriff folgt bis zur Recovery der definierten Grace-Policy."
-          ]
+          ],
+          "progress": "Die Notebook-Instanz rotiert Community-Tokens serverseitig über den versionierten Control-Plane-Endpunkt und ersetzt das lokale Secret per Compare-and-swap, ohne das neue Token an den Browser auszugeben. Abgelaufene, widerrufene, fremde oder nach einer fehlgeschlagenen Rotation unsichere Tokens werden entfernt und als restartfester reconnect_required-Zustand gespeichert. Recovery nutzt erneut den Device-Claim; die Control Plane erlaubt dies nur bei vollständiger bestehender Ownership und bestätigt weiterhin exakt denselben Owner und dieselbe Billing-Organization. Canvas Core bleibt unberührt, bestehender Team-Zugriff folgt bis zur Recovery ausschließlich dem lokal verifizierten signierten Zertifikat und dessen Ablauf. Rotation, Revocation-Erkennung, Abbruch und Recovery sind automatisiert getestet."
         }
       ]
     },

@@ -21,6 +21,8 @@ const COMMUNITY_INSTANCE_TOKEN_FILE = 'community-instance-token.json';
 const COMMUNITY_INSTANCE_TOKEN_SCHEMA_VERSION = 1;
 const COMMUNITY_CLAIM_SESSION_FILE = 'community-claim-session.json';
 const COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION = 1;
+const COMMUNITY_CONNECTION_RECOVERY_FILE = 'community-connection-recovery.json';
+const COMMUNITY_CONNECTION_RECOVERY_SCHEMA_VERSION = 1;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 
@@ -62,6 +64,26 @@ export type CommunityInstanceTokenStatus = {
   rotatedAt: string | null;
   updatedAt: string | null;
 };
+
+export type CommunityConnectionRecoveryReason =
+  | 'expired'
+  | 'revoked'
+  | 'invalid'
+  | 'lost'
+  | 'rotation_failed';
+
+type StoredCommunityConnectionRecoveryState = {
+  schemaVersion: typeof COMMUNITY_CONNECTION_RECOVERY_SCHEMA_VERSION;
+  protocolVersion: typeof TEAM_SEAT_PROTOCOL_VERSION;
+  instanceId: string;
+  reason: CommunityConnectionRecoveryReason;
+  detectedAt: string;
+};
+
+export type CommunityConnectionRecoveryState = Omit<
+  StoredCommunityConnectionRecoveryState,
+  'schemaVersion' | 'protocolVersion'
+>;
 
 type StoredCommunityClaimSession = {
   schemaVersion: typeof COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION;
@@ -371,6 +393,32 @@ function parseStoredCommunityClaimSession(value: unknown): StoredCommunityClaimS
   };
 }
 
+function parseStoredCommunityConnectionRecoveryState(
+  value: unknown,
+): StoredCommunityConnectionRecoveryState {
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== COMMUNITY_CONNECTION_RECOVERY_SCHEMA_VERSION
+    || value.protocolVersion !== TEAM_SEAT_PROTOCOL_VERSION
+    || typeof value.instanceId !== 'string'
+    || !['expired', 'revoked', 'invalid', 'lost', 'rotation_failed'].includes(String(value.reason))
+    || typeof value.detectedAt !== 'string'
+  ) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_STORAGE_CORRUPT',
+      'Stored Community connection recovery state has an unsupported schema.',
+      500,
+    );
+  }
+  return {
+    schemaVersion: COMMUNITY_CONNECTION_RECOVERY_SCHEMA_VERSION,
+    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
+    instanceId: normalizeInstanceId(value.instanceId),
+    reason: value.reason as CommunityConnectionRecoveryReason,
+    detectedAt: normalizeTimestamp(value.detectedAt, 'detectedAt')!,
+  };
+}
+
 function toSecret(stored: StoredCommunityInstanceToken): CommunityInstanceTokenSecret {
   return {
     instanceId: stored.instanceId,
@@ -429,6 +477,10 @@ export function resolveCommunityInstanceTokenPath(): string {
 
 export function resolveCommunityClaimSessionPath(): string {
   return path.join(communityInstanceTokenDirectory(), COMMUNITY_CLAIM_SESSION_FILE);
+}
+
+export function resolveCommunityConnectionRecoveryPath(): string {
+  return path.join(communityInstanceTokenDirectory(), COMMUNITY_CONNECTION_RECOVERY_FILE);
 }
 
 async function assertOwnedNonSymlink(targetPath: string, expectedType: 'directory' | 'file'): Promise<void> {
@@ -508,6 +560,12 @@ async function writeStoredTokenAtomic(stored: StoredCommunityInstanceToken): Pro
   await writePrivateLicenseFileAtomic(COMMUNITY_INSTANCE_TOKEN_FILE, stored);
 }
 
+async function writeCommunityConnectionRecoveryStateAtomic(
+  state: StoredCommunityConnectionRecoveryState,
+): Promise<void> {
+  await writePrivateLicenseFileAtomic(COMMUNITY_CONNECTION_RECOVERY_FILE, state);
+}
+
 async function readStoredTokenIfExists(): Promise<StoredCommunityInstanceToken | null> {
   const filePath = resolveCommunityInstanceTokenPath();
   try {
@@ -526,6 +584,31 @@ async function readStoredTokenIfExists(): Promise<StoredCommunityInstanceToken |
     }
     throw error;
   }
+}
+
+async function readCommunityConnectionRecoveryStateIfExists():
+Promise<StoredCommunityConnectionRecoveryState | null> {
+  const filePath = resolveCommunityConnectionRecoveryPath();
+  try {
+    await assertOwnedNonSymlink(filePath, 'file');
+    const content = await fs.readFile(filePath, 'utf8');
+    await fs.chmod(filePath, PRIVATE_FILE_MODE);
+    return parseStoredCommunityConnectionRecoveryState(JSON.parse(content) as unknown);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if (error instanceof SyntaxError) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_STORAGE_CORRUPT',
+        'Stored Community connection recovery state contains invalid JSON.',
+        500,
+      );
+    }
+    throw error;
+  }
+}
+
+async function removeCommunityConnectionRecoveryStateFile(): Promise<void> {
+  await fs.rm(resolveCommunityConnectionRecoveryPath(), { force: true });
 }
 
 async function readStoredClaimSessionIfExists(): Promise<StoredCommunityClaimSession | null> {
@@ -603,6 +686,63 @@ export async function getCommunityInstanceTokenStatus(
   };
 }
 
+export async function loadCommunityConnectionRecoveryState(
+  expectedInstanceId?: string,
+): Promise<CommunityConnectionRecoveryState | null> {
+  const localInstanceId = requireLocalInstanceId(expectedInstanceId);
+  const state = await readCommunityConnectionRecoveryStateIfExists();
+  if (!state) return null;
+  if (state.instanceId !== localInstanceId) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_INSTANCE_MISMATCH',
+      'Stored Community connection recovery state belongs to another instance.',
+      409,
+    );
+  }
+  return {
+    instanceId: state.instanceId,
+    reason: state.reason,
+    detectedAt: state.detectedAt,
+  };
+}
+
+export async function markCommunityConnectionReconnectRequired(input: {
+  instanceId: string;
+  reason: CommunityConnectionRecoveryReason;
+  expectedToken?: string;
+  now?: Date;
+}): Promise<CommunityConnectionRecoveryState> {
+  return withTokenMutationLock(async () => {
+    const instanceId = requireLocalInstanceId(input.instanceId);
+    const existing = await readStoredTokenIfExists();
+    if (
+      existing
+      && input.expectedToken !== undefined
+      && !tokensEqual(existing.token, normalizeToken(input.expectedToken))
+    ) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_ROTATION_CONFLICT',
+        'The stored Community instance token changed before recovery was recorded.',
+      );
+    }
+    if (existing) await fs.rm(resolveCommunityInstanceTokenPath(), { force: true });
+    const state: StoredCommunityConnectionRecoveryState = {
+      schemaVersion: COMMUNITY_CONNECTION_RECOVERY_SCHEMA_VERSION,
+      protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
+      instanceId,
+      reason: input.reason,
+      detectedAt: (input.now ?? new Date()).toISOString(),
+    };
+    await writeCommunityConnectionRecoveryStateAtomic(state);
+    await syncDirectory(communityInstanceTokenDirectory());
+    return {
+      instanceId: state.instanceId,
+      reason: state.reason,
+      detectedAt: state.detectedAt,
+    };
+  });
+}
+
 export async function saveCommunityInstanceToken(input: {
   instanceId: string;
   instanceToken: string;
@@ -653,6 +793,7 @@ export async function saveCommunityInstanceToken(input: {
       updatedAt: now,
     };
     await writeStoredTokenAtomic(stored);
+    await removeCommunityConnectionRecoveryStateFile();
     return statusFromStored(stored);
   });
 }
@@ -714,6 +855,7 @@ export async function rotateCommunityInstanceToken(input: {
       updatedAt: now,
     };
     await writeStoredTokenAtomic(rotated);
+    await removeCommunityConnectionRecoveryStateFile();
     return statusFromStored(rotated);
   });
 }

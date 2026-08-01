@@ -49,7 +49,16 @@ type ClaimConnected = {
   };
 };
 
-type ClaimStatus = ClaimIdle | ClaimPending | ClaimConnected;
+type ClaimReconnectRequired = {
+  state: 'reconnect_required';
+  claimId: null;
+  reason: 'expired' | 'revoked' | 'invalid' | 'lost' | 'rotation_failed';
+  detectedAt: string;
+  coreUnaffected: true;
+  teamAccessPolicy: 'signed_certificate_until_expiry';
+};
+
+type ClaimStatus = ClaimIdle | ClaimPending | ClaimConnected | ClaimReconnectRequired;
 
 type TeamPreflight = {
   connected: true;
@@ -99,10 +108,12 @@ function getCopy(locale: string) {
         team: 'Team',
         optional: 'Optional',
         connected: 'Verbunden',
+        reconnectRequired: 'Erneute Verbindung erforderlich',
         waiting: 'Wartet auf Bestätigung',
         notConnected: 'Nicht verbunden',
         unavailable: 'Nicht verfügbar',
         connect: 'Mit Control Plane verbinden',
+        reconnect: 'Sicher erneut verbinden',
         connecting: 'Verbindung wird vorbereitet',
         claimCode: 'Bestätigungscode',
         copyCode: 'Code kopieren',
@@ -113,8 +124,15 @@ function getCopy(locale: string) {
         expires: 'Code gültig bis',
         cancel: 'Abbrechen',
         verified: 'Der Control-Plane-Account und die Eigentümer-Organisation wurden verifiziert.',
+        reconnectDetail:
+          'Das lokale Instanz-Token ist abgelaufen, wurde widerrufen oder konnte nicht sicher fortgeführt werden. Canvas Core bleibt nutzbar. Für Team-Synchronisierung muss derselbe Control-Plane-Owner die Instanz erneut bestätigen.',
+        graceDetail:
+          'Bestehender Team-Zugriff folgt bis zur Wiederherstellung weiterhin ausschließlich dem lokal geprüften, signierten Lizenzzertifikat und dessen Ablauf.',
         tokenExpiry: 'Serververbindung gültig bis',
         permanent: 'ohne gemeldetes Ablaufdatum',
+        rotate: 'Verbindungsschlüssel rotieren',
+        rotating: 'Verbindungsschlüssel wird rotiert',
+        rotated: 'Verbindungsschlüssel wurde sicher rotiert',
         preflight: 'Team-Upgrade prüfen',
         checking: 'Team-Bereitschaft wird geprüft',
         preflightHint:
@@ -147,10 +165,12 @@ function getCopy(locale: string) {
         team: 'Team',
         optional: 'Optional',
         connected: 'Connected',
+        reconnectRequired: 'Reconnection required',
         waiting: 'Waiting for confirmation',
         notConnected: 'Not connected',
         unavailable: 'Unavailable',
         connect: 'Connect to Control Plane',
+        reconnect: 'Reconnect securely',
         connecting: 'Preparing connection',
         claimCode: 'Confirmation code',
         copyCode: 'Copy code',
@@ -161,8 +181,15 @@ function getCopy(locale: string) {
         expires: 'Code valid until',
         cancel: 'Cancel',
         verified: 'The Control Plane account and owner organization have been verified.',
+        reconnectDetail:
+          'The local instance token expired, was revoked or could not be continued safely. Canvas Core remains available. The same Control Plane owner must confirm this instance again for Team synchronization.',
+        graceDetail:
+          'Until recovery, existing Team access continues to follow only the locally verified signed license certificate and its expiry.',
         tokenExpiry: 'Server connection valid until',
         permanent: 'no expiry reported',
+        rotate: 'Rotate connection key',
+        rotating: 'Rotating connection key',
+        rotated: 'Connection key rotated securely',
         preflight: 'Check Team upgrade',
         checking: 'Checking Team readiness',
         preflightHint:
@@ -256,11 +283,13 @@ export function CommunityTeamConnectionPanel({
   const [starting, setStarting] = useState(false);
   const [polling, setPolling] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [rotating, setRotating] = useState(false);
   const [checkingTeam, setCheckingTeam] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const isManaged = licensePlan === 'managed';
   const connected = claim?.state === 'connected';
   const pending = claim?.state === 'authorization_pending' ? claim : null;
+  const reconnect = claim?.state === 'reconnect_required' ? claim : null;
 
   const loadStatus = useCallback(async () => {
     setError(null);
@@ -375,13 +404,34 @@ export function CommunityTeamConnectionPanel({
     } catch (requestError) {
       setPreflight(null);
       setError(requestError instanceof Error ? requestError.message : copy.preflightError);
+      await loadStatus();
     } finally {
       setCheckingTeam(false);
     }
   }
 
+  async function rotateConnection() {
+    setRotating(true);
+    setError(null);
+    try {
+      const payload = await apiRequest<{ success: true; claim: ClaimStatus }>(
+        '/api/license/claim/rotate',
+        { method: 'POST' },
+      );
+      setClaim(payload.claim);
+      toast.success(copy.rotated);
+    } catch (requestError) {
+      setError(requestError instanceof Error ? requestError.message : copy.pollError);
+      await loadStatus();
+    } finally {
+      setRotating(false);
+    }
+  }
+
   const connectionDetail = connected
     ? copy.connected
+    : reconnect
+      ? copy.reconnectRequired
     : pending
       ? copy.waiting
       : copy.notConnected;
@@ -435,7 +485,7 @@ export function CommunityTeamConnectionPanel({
           </div>
         ) : null}
 
-        {!isManaged && !pending && !connected ? (
+        {!isManaged && !pending && !connected && !reconnect ? (
           <Button
             type="button"
             onClick={() => void startClaim()}
@@ -445,6 +495,23 @@ export function CommunityTeamConnectionPanel({
             {starting || loading ? <Loader2 className="animate-spin" /> : <Link2 />}
             {starting ? copy.connecting : copy.connect}
           </Button>
+        ) : null}
+
+        {reconnect ? (
+          <div className="grid gap-4 border border-amber-500/25 bg-amber-500/5 p-4 lg:grid-cols-[minmax(0,1fr)_auto] lg:items-center">
+            <div className="min-w-0">
+              <p className="text-sm font-semibold text-amber-800 dark:text-amber-300">{copy.reconnectRequired}</p>
+              <p className="mt-1 text-sm leading-5 text-muted-foreground">{copy.reconnectDetail}</p>
+              <p className="mt-2 text-xs leading-5 text-muted-foreground">{copy.graceDetail}</p>
+              <p className="mt-2 font-mono text-[10px] uppercase tracking-wider text-muted-foreground">
+                {reconnect.reason} · {new Date(reconnect.detectedAt).toLocaleString(locale)}
+              </p>
+            </div>
+            <Button type="button" onClick={() => void startClaim()} disabled={starting || !licensed}>
+              {starting ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+              {starting ? copy.connecting : copy.reconnect}
+            </Button>
+          </div>
         ) : null}
 
         {pending ? (
@@ -516,10 +583,16 @@ export function CommunityTeamConnectionPanel({
                 </p>
                 <p className="mt-1 text-sm leading-5 text-muted-foreground">{copy.preflightHint}</p>
               </div>
-              <Button type="button" variant="outline" onClick={() => void runPreflight()} disabled={checkingTeam}>
-                {checkingTeam ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-                {checkingTeam ? copy.checking : preflight ? copy.refresh : copy.preflight}
-              </Button>
+              <div className="flex flex-col gap-2 sm:flex-row">
+                <Button type="button" variant="outline" onClick={() => void rotateConnection()} disabled={rotating || checkingTeam}>
+                  {rotating ? <Loader2 className="animate-spin" /> : <ShieldCheck />}
+                  {rotating ? copy.rotating : copy.rotate}
+                </Button>
+                <Button type="button" variant="outline" onClick={() => void runPreflight()} disabled={checkingTeam || rotating}>
+                  {checkingTeam ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                  {checkingTeam ? copy.checking : preflight ? copy.refresh : copy.preflight}
+                </Button>
+              </div>
             </div>
           </>
         ) : null}
