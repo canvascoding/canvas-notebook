@@ -491,6 +491,12 @@ export const organizationUserPermissions = sqliteTable("organization_user_permis
   singleOwnerIdx: uniqueIndex("idx_org_user_permissions_single_owner").on(table.organizationId).where(sql`${table.role} = 'owner'`),
 }));
 
+export const canvasDataMigrations = sqliteTable("canvas_data_migrations", {
+  migrationKey: text("migration_key").primaryKey(),
+  completedAt: integer("completed_at", { mode: "timestamp" }).notNull(),
+  metadataJson: text("metadata_json"),
+});
+
 export const teamMemberships = sqliteTable("team_memberships", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),

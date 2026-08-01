@@ -3,6 +3,11 @@ import { getTableConfig } from 'drizzle-orm/sqlite-core';
 import { Pool, types } from 'pg';
 
 import * as schema from './schema';
+import {
+  TEAM_SEAT_LEGACY_MIGRATION_KEY,
+  TEAM_SEAT_LEGACY_MIGRATION_METADATA,
+  TEAM_SEAT_LEGACY_MIGRATION_REASON,
+} from './migrate';
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 
 const TABLE_NAME_SYMBOL = Symbol.for('drizzle:Name');
@@ -225,6 +230,292 @@ BEGIN
       REFERENCES ${quotePostgresIdentifier(foreignTableName)} (${foreignColumns})${onDelete}${onUpdate};
   END IF;
 END $$`;
+}
+
+export const TEAM_SEAT_LEGACY_POSTGRES_BACKFILL_SQL = `
+DO $team_seat_legacy_backfill$
+DECLARE
+  migration_now bigint := floor(extract(epoch from clock_timestamp()) * 1000)::bigint;
+BEGIN
+  PERFORM pg_advisory_xact_lock(hashtext('${TEAM_SEAT_LEGACY_MIGRATION_KEY}'));
+
+  IF EXISTS (
+    SELECT 1
+    FROM canvas_data_migrations
+    WHERE migration_key = '${TEAM_SEAT_LEGACY_MIGRATION_KEY}'
+  ) OR NOT EXISTS (
+    SELECT 1
+    FROM canvas_organization_settings
+  ) THEN
+    RETURN;
+  END IF;
+
+  IF EXISTS (
+    WITH legacy_access AS (
+      SELECT
+        organization.organization_id,
+        owner.id AS user_id,
+        lower(btrim(owner.email)) AS candidate_email
+      FROM canvas_organization_settings organization
+      INNER JOIN "user" owner
+        ON owner.id = organization.owner_user_id
+
+      UNION ALL
+
+      SELECT
+        permission.organization_id,
+        member.id AS user_id,
+        lower(btrim(member.email)) AS candidate_email
+      FROM organization_user_permissions permission
+      INNER JOIN canvas_organization_settings organization
+        ON organization.organization_id = permission.organization_id
+      INNER JOIN "user" member
+        ON member.id = permission.user_id
+      WHERE permission.user_id != organization.owner_user_id
+    )
+    SELECT 1
+    FROM legacy_access
+    WHERE candidate_email = ''
+      OR strpos(candidate_email, '@') <= 1
+  ) THEN
+    RAISE EXCEPTION 'Cannot migrate Team Seat membership with an invalid legacy identity.';
+  END IF;
+
+  IF EXISTS (
+    WITH legacy_access AS (
+      SELECT
+        organization.organization_id,
+        lower(btrim(owner.email)) AS candidate_email
+      FROM canvas_organization_settings organization
+      INNER JOIN "user" owner
+        ON owner.id = organization.owner_user_id
+
+      UNION ALL
+
+      SELECT
+        permission.organization_id,
+        lower(btrim(member.email)) AS candidate_email
+      FROM organization_user_permissions permission
+      INNER JOIN canvas_organization_settings organization
+        ON organization.organization_id = permission.organization_id
+      INNER JOIN "user" member
+        ON member.id = permission.user_id
+      WHERE permission.user_id != organization.owner_user_id
+    )
+    SELECT 1
+    FROM legacy_access
+    GROUP BY organization_id, candidate_email
+    HAVING COUNT(*) > 1
+  ) THEN
+    RAISE EXCEPTION 'Cannot migrate duplicate Team Seat legacy identities.';
+  END IF;
+
+  WITH legacy_access AS (
+    SELECT
+      organization.organization_id,
+      owner.id AS user_id,
+      lower(btrim(owner.email)) AS candidate_email,
+      NULLIF(btrim(owner.name), '') AS display_name,
+      'owner' AS role,
+      CASE
+        WHEN COALESCE(owner.banned, 0) != 0 THEN 'suspended'
+        WHEN COALESCE(permission.status, 'active') = 'archived' THEN 'removed'
+        WHEN COALESCE(permission.status, 'active') != 'active' THEN 'suspended'
+        ELSE 'active'
+      END AS status,
+      COALESCE(permission.created_at, owner.created_at, organization.created_at) AS adopted_at
+    FROM canvas_organization_settings organization
+    INNER JOIN "user" owner
+      ON owner.id = organization.owner_user_id
+    LEFT JOIN organization_user_permissions permission
+      ON permission.organization_id = organization.organization_id
+     AND permission.user_id = owner.id
+
+    UNION ALL
+
+    SELECT
+      permission.organization_id,
+      member.id AS user_id,
+      lower(btrim(member.email)) AS candidate_email,
+      NULLIF(btrim(member.name), '') AS display_name,
+      CASE
+        WHEN permission.role IN ('owner', 'admin', 'member', 'external') THEN permission.role
+        ELSE 'member'
+      END AS role,
+      CASE
+        WHEN COALESCE(member.banned, 0) != 0 THEN 'suspended'
+        WHEN permission.status = 'archived' THEN 'removed'
+        WHEN permission.status != 'active' THEN 'suspended'
+        ELSE 'active'
+      END AS status,
+      COALESCE(permission.created_at, member.created_at, organization.created_at) AS adopted_at
+    FROM organization_user_permissions permission
+    INNER JOIN canvas_organization_settings organization
+      ON organization.organization_id = permission.organization_id
+    INNER JOIN "user" member
+      ON member.id = permission.user_id
+    WHERE permission.user_id != organization.owner_user_id
+  )
+  INSERT INTO team_memberships (
+    id,
+    organization_id,
+    candidate_email,
+    display_name,
+    user_id,
+    role,
+    status,
+    external_invitation_id,
+    control_plane_operation_id,
+    invited_by_user_id,
+    invited_at,
+    accepted_at,
+    activated_at,
+    suspended_at,
+    removed_at,
+    created_at,
+    updated_at
+  )
+  SELECT
+    'team-membership-migration-' || md5(organization_id || ':' || user_id),
+    organization_id,
+    candidate_email,
+    display_name,
+    user_id,
+    role,
+    status,
+    NULL,
+    NULL,
+    NULL,
+    adopted_at,
+    adopted_at,
+    adopted_at,
+    CASE WHEN status = 'suspended' THEN migration_now ELSE NULL END,
+    CASE WHEN status = 'removed' THEN migration_now ELSE NULL END,
+    adopted_at,
+    migration_now
+  FROM legacy_access
+  ON CONFLICT DO NOTHING;
+
+  IF EXISTS (
+    WITH legacy_access AS (
+      SELECT organization.organization_id, owner.id AS user_id
+      FROM canvas_organization_settings organization
+      INNER JOIN "user" owner
+        ON owner.id = organization.owner_user_id
+
+      UNION ALL
+
+      SELECT permission.organization_id, permission.user_id
+      FROM organization_user_permissions permission
+      INNER JOIN canvas_organization_settings organization
+        ON organization.organization_id = permission.organization_id
+      WHERE permission.user_id != organization.owner_user_id
+    )
+    SELECT 1
+    FROM legacy_access
+    LEFT JOIN team_memberships membership
+      ON membership.organization_id = legacy_access.organization_id
+     AND membership.user_id = legacy_access.user_id
+    WHERE membership.id IS NULL
+  ) THEN
+    RAISE EXCEPTION 'Team Seat legacy migration could not adopt every existing organization user.';
+  END IF;
+
+  WITH legacy_access AS (
+    SELECT organization.organization_id, owner.id AS user_id
+    FROM canvas_organization_settings organization
+    INNER JOIN "user" owner
+      ON owner.id = organization.owner_user_id
+
+    UNION ALL
+
+    SELECT permission.organization_id, permission.user_id
+    FROM organization_user_permissions permission
+    INNER JOIN canvas_organization_settings organization
+      ON organization.organization_id = permission.organization_id
+    WHERE permission.user_id != organization.owner_user_id
+  )
+  INSERT INTO team_membership_transitions (
+    id,
+    membership_id,
+    organization_id,
+    from_status,
+    to_status,
+    actor_user_id,
+    source,
+    reason,
+    external_operation_id,
+    membership_revision,
+    metadata_json,
+    created_at
+  )
+  SELECT
+    'team-membership-transition-migration-' || md5(membership.id),
+    membership.id,
+    membership.organization_id,
+    NULL,
+    membership.status,
+    NULL,
+    'migration',
+    '${TEAM_SEAT_LEGACY_MIGRATION_REASON}',
+    NULL,
+    NULL,
+    '${TEAM_SEAT_LEGACY_MIGRATION_METADATA}',
+    migration_now
+  FROM legacy_access
+  INNER JOIN team_memberships membership
+    ON membership.organization_id = legacy_access.organization_id
+   AND membership.user_id = legacy_access.user_id
+  WHERE NOT EXISTS (
+    SELECT 1
+    FROM team_membership_transitions transition
+    WHERE transition.membership_id = membership.id
+      AND transition.source = 'migration'
+      AND transition.metadata_json = '${TEAM_SEAT_LEGACY_MIGRATION_METADATA}'
+  )
+  ON CONFLICT DO NOTHING;
+
+  INSERT INTO team_membership_sync_state (
+    organization_id,
+    current_revision,
+    current_observed_quantity,
+    acknowledged_revision,
+    created_at,
+    updated_at
+  )
+  SELECT
+    organization.organization_id,
+    0,
+    (
+      SELECT COUNT(*)
+      FROM team_memberships membership
+      WHERE membership.organization_id = organization.organization_id
+        AND membership.status = 'active'
+        AND membership.user_id IS NOT NULL
+        AND membership.accepted_at IS NOT NULL
+    ),
+    0,
+    migration_now,
+    migration_now
+  FROM canvas_organization_settings organization
+  ON CONFLICT (organization_id) DO NOTHING;
+
+  INSERT INTO canvas_data_migrations (
+    migration_key,
+    completed_at,
+    metadata_json
+  ) VALUES (
+    '${TEAM_SEAT_LEGACY_MIGRATION_KEY}',
+    migration_now,
+    '{"source":"organization_user_permissions","billableOperationsCreated":0}'
+  )
+  ON CONFLICT (migration_key) DO NOTHING;
+END
+$team_seat_legacy_backfill$;
+`;
+
+export async function runPostgresTeamSeatLegacyBackfill(pool: PgQueryable): Promise<void> {
+  await pool.query(TEAM_SEAT_LEGACY_POSTGRES_BACKFILL_SQL);
 }
 
 export function createPostgresPool(): Pool {
@@ -672,6 +963,8 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
       await pool.query(foreignKeySql(table, foreignKey));
     }
   }
+
+  await runPostgresTeamSeatLegacyBackfill(pool);
 
   const now = Math.floor(Date.now() / 1000);
   await pool.query(

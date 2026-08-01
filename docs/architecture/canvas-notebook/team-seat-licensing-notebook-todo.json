@@ -237,7 +237,7 @@
         {
           "id": "NB-TS-013",
           "title": "Backward-kompatible Datenmigration implementieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "database-migration",
           "description": "Bestehende Community-Solo-, Managed-Single- und Managed-Team-Installationen in das neue lokale Seat-Modell migrieren.",

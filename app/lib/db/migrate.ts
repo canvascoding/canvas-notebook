@@ -2,6 +2,11 @@ import type Database from 'better-sqlite3';
 
 import { STUDIO_WORKSPACE_BACKFILL_STATEMENTS } from './studio-workspace-migration';
 
+export const TEAM_SEAT_LEGACY_MIGRATION_KEY = 'team-seat-memberships-v1';
+export const TEAM_SEAT_LEGACY_MIGRATION_REASON = 'Legacy organization access backfill (non-billable).';
+export const TEAM_SEAT_LEGACY_MIGRATION_METADATA =
+  '{"migrationKey":"team-seat-memberships-v1","billableOperation":false}';
+
 /**
  * Runs all database migrations synchronously.
  * Safe to call multiple times — all operations are idempotent.
@@ -484,6 +489,12 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
       FOREIGN KEY (user_id) REFERENCES user(id),
       FOREIGN KEY (offboarded_by_user_id) REFERENCES user(id)
+    );
+
+    CREATE TABLE IF NOT EXISTS canvas_data_migrations (
+      migration_key TEXT PRIMARY KEY NOT NULL,
+      completed_at INTEGER NOT NULL,
+      metadata_json TEXT
     );
 
     CREATE TABLE IF NOT EXISTS team_memberships (
@@ -2887,6 +2898,250 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
         AND preview_image_path NOT LIKE 'studio/assets/%'
     `);
   } catch { /* ignore if column doesn't exist */ }
+
+  runTeamSeatLegacyBackfill(sqlite);
+}
+
+/**
+ * Adopts pre-Team-Seat organization access without manufacturing a billable
+ * operation. The marker prevents this compatibility bridge from becoming a
+ * permanent bypass once the membership orchestrator owns all future changes.
+ */
+export function runTeamSeatLegacyBackfill(sqlite: InstanceType<typeof Database>): void {
+  const completed = sqlite.prepare(`
+    SELECT 1
+    FROM canvas_data_migrations
+    WHERE migration_key = ?
+    LIMIT 1
+  `).get(TEAM_SEAT_LEGACY_MIGRATION_KEY);
+  if (completed) return;
+
+  const organization = sqlite.prepare(`
+    SELECT 1
+    FROM canvas_organization_settings
+    LIMIT 1
+  `).get();
+  if (!organization) return;
+
+  const legacyAccessCte = `
+    legacy_access AS (
+      SELECT
+        organization.organization_id,
+        owner.id AS user_id,
+        lower(trim(owner.email)) AS candidate_email,
+        NULLIF(trim(owner.name), '') AS display_name,
+        'owner' AS role,
+        CASE
+          WHEN COALESCE(owner.banned, 0) != 0 THEN 'suspended'
+          WHEN COALESCE(permission.status, 'active') = 'archived' THEN 'removed'
+          WHEN COALESCE(permission.status, 'active') != 'active' THEN 'suspended'
+          ELSE 'active'
+        END AS status,
+        COALESCE(permission.created_at, owner.created_at, organization.created_at) AS adopted_at
+      FROM canvas_organization_settings organization
+      INNER JOIN "user" owner
+        ON owner.id = organization.owner_user_id
+      LEFT JOIN organization_user_permissions permission
+        ON permission.organization_id = organization.organization_id
+       AND permission.user_id = owner.id
+
+      UNION ALL
+
+      SELECT
+        permission.organization_id,
+        member.id AS user_id,
+        lower(trim(member.email)) AS candidate_email,
+        NULLIF(trim(member.name), '') AS display_name,
+        CASE
+          WHEN permission.role IN ('owner', 'admin', 'member', 'external') THEN permission.role
+          ELSE 'member'
+        END AS role,
+        CASE
+          WHEN COALESCE(member.banned, 0) != 0 THEN 'suspended'
+          WHEN permission.status = 'archived' THEN 'removed'
+          WHEN permission.status != 'active' THEN 'suspended'
+          ELSE 'active'
+        END AS status,
+        COALESCE(permission.created_at, member.created_at, organization.created_at) AS adopted_at
+      FROM organization_user_permissions permission
+      INNER JOIN canvas_organization_settings organization
+        ON organization.organization_id = permission.organization_id
+      INNER JOIN "user" member
+        ON member.id = permission.user_id
+      WHERE permission.user_id != organization.owner_user_id
+    )
+  `;
+  const migrationNowSql = "CAST(strftime('%s', 'now') AS INTEGER) * 1000";
+
+  sqlite.exec('SAVEPOINT team_seat_legacy_backfill_v1');
+  try {
+    const invalidIdentity = sqlite.prepare(`
+      WITH ${legacyAccessCte}
+      SELECT organization_id, user_id
+      FROM legacy_access
+      WHERE candidate_email = ''
+        OR instr(candidate_email, '@') <= 1
+      LIMIT 1
+    `).get() as { organization_id: string; user_id: string } | undefined;
+    if (invalidIdentity) {
+      throw new Error(
+        `Cannot migrate Team Seat membership for invalid identity ${invalidIdentity.organization_id}/${invalidIdentity.user_id}.`,
+      );
+    }
+
+    const duplicateIdentity = sqlite.prepare(`
+      WITH ${legacyAccessCte}
+      SELECT organization_id, candidate_email
+      FROM legacy_access
+      GROUP BY organization_id, candidate_email
+      HAVING COUNT(*) > 1
+      LIMIT 1
+    `).get() as { organization_id: string; candidate_email: string } | undefined;
+    if (duplicateIdentity) {
+      throw new Error(
+        `Cannot migrate duplicate Team Seat identity ${duplicateIdentity.organization_id}/${duplicateIdentity.candidate_email}.`,
+      );
+    }
+
+    sqlite.exec(`
+      WITH ${legacyAccessCte}
+      INSERT OR IGNORE INTO team_memberships (
+        id,
+        organization_id,
+        candidate_email,
+        display_name,
+        user_id,
+        role,
+        status,
+        external_invitation_id,
+        control_plane_operation_id,
+        invited_by_user_id,
+        invited_at,
+        accepted_at,
+        activated_at,
+        suspended_at,
+        removed_at,
+        created_at,
+        updated_at
+      )
+      SELECT
+        'team-membership-migration-' || lower(hex(randomblob(16))),
+        organization_id,
+        candidate_email,
+        display_name,
+        user_id,
+        role,
+        status,
+        NULL,
+        NULL,
+        NULL,
+        adopted_at,
+        adopted_at,
+        adopted_at,
+        CASE WHEN status = 'suspended' THEN ${migrationNowSql} ELSE NULL END,
+        CASE WHEN status = 'removed' THEN ${migrationNowSql} ELSE NULL END,
+        adopted_at,
+        ${migrationNowSql}
+      FROM legacy_access;
+    `);
+
+    const missingMembership = sqlite.prepare(`
+      WITH ${legacyAccessCte}
+      SELECT legacy_access.organization_id, legacy_access.user_id
+      FROM legacy_access
+      LEFT JOIN team_memberships membership
+        ON membership.organization_id = legacy_access.organization_id
+       AND membership.user_id = legacy_access.user_id
+      WHERE membership.id IS NULL
+      LIMIT 1
+    `).get() as { organization_id: string; user_id: string } | undefined;
+    if (missingMembership) {
+      throw new Error(
+        `Team Seat legacy migration could not adopt ${missingMembership.organization_id}/${missingMembership.user_id}.`,
+      );
+    }
+
+    sqlite.exec(`
+      WITH ${legacyAccessCte}
+      INSERT INTO team_membership_transitions (
+        id,
+        membership_id,
+        organization_id,
+        from_status,
+        to_status,
+        actor_user_id,
+        source,
+        reason,
+        external_operation_id,
+        membership_revision,
+        metadata_json,
+        created_at
+      )
+      SELECT
+        'team-membership-transition-migration-' || lower(hex(randomblob(16))),
+        membership.id,
+        membership.organization_id,
+        NULL,
+        membership.status,
+        NULL,
+        'migration',
+        '${TEAM_SEAT_LEGACY_MIGRATION_REASON}',
+        NULL,
+        NULL,
+        '${TEAM_SEAT_LEGACY_MIGRATION_METADATA}',
+        ${migrationNowSql}
+      FROM legacy_access
+      INNER JOIN team_memberships membership
+        ON membership.organization_id = legacy_access.organization_id
+       AND membership.user_id = legacy_access.user_id
+      WHERE NOT EXISTS (
+        SELECT 1
+        FROM team_membership_transitions transition
+        WHERE transition.membership_id = membership.id
+          AND transition.source = 'migration'
+          AND transition.metadata_json = '${TEAM_SEAT_LEGACY_MIGRATION_METADATA}'
+      );
+
+      INSERT OR IGNORE INTO team_membership_sync_state (
+        organization_id,
+        current_revision,
+        current_observed_quantity,
+        acknowledged_revision,
+        created_at,
+        updated_at
+      )
+      SELECT
+        organization.organization_id,
+        0,
+        (
+          SELECT COUNT(*)
+          FROM team_memberships membership
+          WHERE membership.organization_id = organization.organization_id
+            AND membership.status = 'active'
+            AND membership.user_id IS NOT NULL
+            AND membership.accepted_at IS NOT NULL
+        ),
+        0,
+        ${migrationNowSql},
+        ${migrationNowSql}
+      FROM canvas_organization_settings organization;
+
+      INSERT OR IGNORE INTO canvas_data_migrations (
+        migration_key,
+        completed_at,
+        metadata_json
+      ) VALUES (
+        '${TEAM_SEAT_LEGACY_MIGRATION_KEY}',
+        ${migrationNowSql},
+        '{"source":"organization_user_permissions","billableOperationsCreated":0}'
+      );
+    `);
+    sqlite.exec('RELEASE SAVEPOINT team_seat_legacy_backfill_v1');
+  } catch (error) {
+    sqlite.exec('ROLLBACK TO SAVEPOINT team_seat_legacy_backfill_v1');
+    sqlite.exec('RELEASE SAVEPOINT team_seat_legacy_backfill_v1');
+    throw error;
+  }
 }
 
 function addColumns(
