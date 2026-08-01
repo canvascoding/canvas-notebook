@@ -158,6 +158,7 @@
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",
     "test:team-seat-contract": "tsx scripts/team-seat-contract-test.ts",
+    "test:team-seat-rollout": "tsx --conditions react-server scripts/team-seat-rollout-test.ts",
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
     "licenses:generate": "tsx scripts/generate-third-party-notices.ts",
     "licenses:refresh-cache": "tsx scripts/refresh-third-party-license-cache.ts && npm run licenses:generate",

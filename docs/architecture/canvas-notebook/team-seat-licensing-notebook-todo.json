@@ -127,7 +127,7 @@
         {
           "id": "NB-TS-003",
           "title": "Kompatibilitäts- und Rollout-Gates ergänzen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P1",
           "ownerArea": "runtime-config",
           "description": "Team-Seat-Client, Community-Claim und kostenpflichtige Membership-Flows getrennt aktivierbar und versionsgebunden machen.",
