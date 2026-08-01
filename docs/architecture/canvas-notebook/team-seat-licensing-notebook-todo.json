@@ -99,7 +99,7 @@
         {
           "id": "NB-TS-002",
           "title": "Team-Seat-Protocol-v1 konsumieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "shared-contract",
           "description": "Versionierte Types und Validatoren für Claim, Token, Quote, Authorization, Seat-Change, Snapshot, Drift, License Class, License Environment und License-Claims aus dem gemeinsamen Contract ableiten.",

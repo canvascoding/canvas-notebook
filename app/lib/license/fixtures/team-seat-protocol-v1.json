@@ -1,0 +1,260 @@
+{
+  "protocolVersion": "canvas-team-seat-protocol-v1",
+  "positive": {
+    "preflight": {
+      "protocolVersion": "canvas-team-seat-protocol-v1",
+      "ready": true,
+      "mutating": false,
+      "nextAction": "manage_seats",
+      "license": {
+        "licenseId": "11111111-1111-4111-8111-111111111111",
+        "instanceId": "instance-fixture",
+        "hostingMode": "community",
+        "edition": "team",
+        "licenseClass": "test",
+        "licenseEnvironment": "development",
+        "claimed": true,
+        "billingOrganizationId": "organization-fixture"
+      },
+      "runtime": {
+        "notebookVersion": "1.4.0",
+        "minimumNotebookVersion": "1.4.0",
+        "versionSupported": true,
+        "databaseEngine": "postgres",
+        "teamReady": true
+      },
+      "team": {
+        "active": true,
+        "provider": "test",
+        "billingStatus": "active",
+        "observedQuantity": 2,
+        "approvedQuantity": 3,
+        "billedQuantity": 0,
+        "licensedQuantity": 2,
+        "entitlementsVersion": 4,
+        "nonBillable": true
+      },
+      "rollout": {
+        "communityCommercial": {
+          "requested": false,
+          "effective": false
+        },
+        "cloudCommercial": {
+          "requested": false,
+          "effective": false
+        },
+        "stripeMutations": {
+          "requested": false,
+          "effective": false,
+          "implementationReady": false,
+          "billingMode": "disabled",
+          "credentialsConfigured": false,
+          "prorationPolicy": null,
+          "prorationPolicyConfigured": false
+        }
+      },
+      "blockers": []
+    },
+    "entitlements": {
+      "protocolVersion": "canvas-team-seat-protocol-v1",
+      "subject": {
+        "type": "license",
+        "licenseId": "11111111-1111-4111-8111-111111111111"
+      },
+      "hostingMode": "community",
+      "edition": "team",
+      "licenseClass": "test",
+      "licenseEnvironment": "development",
+      "provider": "test",
+      "teamEnabled": true,
+      "observedSeats": 2,
+      "approvedSeats": 3,
+      "billedSeats": 0,
+      "licensedSeats": 3,
+      "entitlementsVersion": 4,
+      "expiresAt": "2030-01-02T00:00:00.000Z",
+      "nonBillable": true
+    },
+    "quote": {
+      "protocolVersion": "canvas-team-seat-protocol-v1",
+      "quoteId": "22222222-2222-4222-8222-222222222222",
+      "subject": {
+        "type": "organization",
+        "organizationId": "org-fixture"
+      },
+      "quantityBefore": 2,
+      "quantityAfter": 3,
+      "quantityDelta": 1,
+      "unitAmountCents": 1500,
+      "currency": "eur",
+      "billingInterval": "month",
+      "immediateAmountCents": 750,
+      "recurringAmountCents": 4500,
+      "expiresAt": "2030-01-01T00:05:00.000Z",
+      "quoteHash": "fixture-quote-hash"
+    },
+    "snapshot": {
+      "protocolVersion": "canvas-team-seat-protocol-v1",
+      "revision": 7,
+      "snapshotHash": "fixture-snapshot-hash",
+      "observedQuantity": 3,
+      "roleSummary": {
+        "owner": 1,
+        "member": 2
+      },
+      "memberHashes": [
+        "member-hash-1",
+        "member-hash-2",
+        "member-hash-3"
+      ],
+      "generatedAt": "2030-01-01T00:00:00.000Z"
+    },
+    "transitions": {
+      "grantRevocationRollback": {
+        "trigger": "grant_revoked",
+        "before": {
+          "protocolVersion": "canvas-team-seat-protocol-v1",
+          "subject": {
+            "type": "license",
+            "licenseId": "11111111-1111-4111-8111-111111111111"
+          },
+          "hostingMode": "community",
+          "edition": "team",
+          "licenseClass": "test",
+          "licenseEnvironment": "development",
+          "provider": "test",
+          "teamEnabled": true,
+          "observedSeats": 3,
+          "approvedSeats": 3,
+          "billedSeats": 0,
+          "licensedSeats": 3,
+          "entitlementsVersion": 4,
+          "expiresAt": "2030-01-02T00:00:00.000Z",
+          "nonBillable": true
+        },
+        "after": {
+          "protocolVersion": "canvas-team-seat-protocol-v1",
+          "subject": {
+            "type": "license",
+            "licenseId": "11111111-1111-4111-8111-111111111111"
+          },
+          "hostingMode": "community",
+          "edition": "solo",
+          "licenseClass": "commercial",
+          "licenseEnvironment": "production",
+          "provider": "disabled",
+          "teamEnabled": false,
+          "observedSeats": 1,
+          "approvedSeats": 1,
+          "billedSeats": 0,
+          "licensedSeats": 1,
+          "entitlementsVersion": 5,
+          "expiresAt": "2031-01-01T00:00:00.000Z",
+          "nonBillable": false
+        },
+        "expectedInvariants": {
+          "sameSubject": true,
+          "entitlementsVersionIncreased": true,
+          "licensedSeatsDidNotIncrease": true,
+          "localDataDeleted": false
+        }
+      },
+      "paymentFailureNoIncrease": {
+        "trigger": "payment_failed",
+        "before": {
+          "protocolVersion": "canvas-team-seat-protocol-v1",
+          "subject": {
+            "type": "organization",
+            "organizationId": "org-fixture"
+          },
+          "hostingMode": "cloud",
+          "edition": "team",
+          "licenseClass": "test",
+          "licenseEnvironment": "development",
+          "provider": "test",
+          "teamEnabled": true,
+          "observedSeats": 2,
+          "approvedSeats": 2,
+          "billedSeats": 0,
+          "licensedSeats": 2,
+          "entitlementsVersion": 7,
+          "expiresAt": "2030-01-02T00:00:00.000Z",
+          "nonBillable": true
+        },
+        "after": {
+          "protocolVersion": "canvas-team-seat-protocol-v1",
+          "subject": {
+            "type": "organization",
+            "organizationId": "org-fixture"
+          },
+          "hostingMode": "cloud",
+          "edition": "team",
+          "licenseClass": "test",
+          "licenseEnvironment": "development",
+          "provider": "test",
+          "teamEnabled": true,
+          "observedSeats": 2,
+          "approvedSeats": 2,
+          "billedSeats": 0,
+          "licensedSeats": 2,
+          "entitlementsVersion": 7,
+          "expiresAt": "2030-01-02T00:00:00.000Z",
+          "nonBillable": true
+        },
+        "expectedInvariants": {
+          "sameSubject": true,
+          "entitlementsVersionIncreased": false,
+          "licensedSeatsDidNotIncrease": true,
+          "localDataDeleted": false
+        }
+      }
+    }
+  },
+  "negative": {
+    "staleQuote": {
+      "error": "The seat quote is stale",
+      "code": "TEAM_SEAT_QUOTE_STALE",
+      "retryable": true
+    },
+    "authorizationReplay": {
+      "error": "The seat authorization was already consumed",
+      "code": "TEAM_SEAT_AUTHORIZATION_REPLAY",
+      "retryable": false
+    },
+    "idempotencyConflict": {
+      "error": "The operation key belongs to another request",
+      "code": "TEAM_SEAT_IDEMPOTENCY_CONFLICT",
+      "retryable": false
+    },
+    "paymentRequiresAction": {
+      "error": "Payment requires customer action",
+      "code": "TEAM_SEAT_PAYMENT_REQUIRES_ACTION",
+      "retryable": true
+    },
+    "paymentFailed": {
+      "error": "Payment failed",
+      "code": "TEAM_SEAT_PAYMENT_FAILED",
+      "retryable": true
+    },
+    "grantExpired": {
+      "error": "The Team Seat grant has expired",
+      "code": "TEAM_SEAT_GRANT_EXPIRED",
+      "retryable": false
+    },
+    "grantRevoked": {
+      "error": "The Team Seat grant was revoked",
+      "code": "TEAM_SEAT_GRANT_REVOKED",
+      "retryable": false
+    },
+    "reconciliationRequired": {
+      "error": "Entitlements require reconciliation",
+      "code": "TEAM_SEAT_RECONCILIATION_REQUIRED",
+      "retryable": true
+    },
+    "protocolUnsupported": {
+      "error": "The Team Seat protocol version is unsupported",
+      "code": "TEAM_SEAT_PROTOCOL_UNSUPPORTED",
+      "retryable": false
+    }
+  }
+}
