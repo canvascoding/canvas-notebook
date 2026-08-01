@@ -1,0 +1,1210 @@
+{
+  "schemaVersion": "1.0",
+  "updatedAt": "2026-08-01",
+  "project": "canvasstudios-notebook",
+  "initiative": {
+    "id": "team-seat-licensing-v1",
+    "title": "Lokale Team-Seat-Lizenzierung und Control-Plane-Verbindung",
+    "status": "planned",
+    "architectureRef": "canvas-control-plane:docs/team-seat-licensing-architecture.md",
+    "counterpartRepository": "canvas-control-plane",
+    "counterpartTodo": "docs/team-seat-licensing-control-plane-todo.json",
+    "contractId": "canvas-team-seat-protocol-v1",
+    "contractOwner": "canvas-control-plane"
+  },
+  "executionRules": [
+    "Phasen werden in der angegebenen Reihenfolge umgesetzt; innerhalb einer Phase dürfen nur Tasks mit erfüllten Dependencies begonnen werden.",
+    "Der Control-Plane-Contract wird konsumiert und nicht lokal inkompatibel erweitert.",
+    "Kein neuer oder reaktivierter Team-User wird produktiv aktiv, bevor Kostenfreigabe, Billing-Erfolg und ein ausreichendes signiertes seatLimit vorliegen.",
+    "Direkte Better-Auth-Admin-Aufrufe zur User-Erstellung werden hinter einen serverseitigen Membership-Orchestrator verschoben.",
+    "Instanz-Tokens, Device-Codes und vollständige Zertifikate dürfen nicht in Client-State, Browser-Logs oder Analytics gelangen.",
+    "Membership-Snapshots enthalten standardmäßig keine Namen oder E-Mail-Adressen.",
+    "Community Solo bleibt ohne Control-Plane-Dashboard-Account nutzbar; Community Team verlangt spätestens beim Upgrade einen verifizierten Account.",
+    "Team-Downgrade oder Nichtzahlung deaktiviert zusätzliche Team-Zugriffe, löscht aber keine lokalen Userdaten oder Workspaces.",
+    "Nach jeder logischen Änderung werden die passenden Tests und mindestens npm run build ausgeführt, bevor ein Container gebaut wird.",
+    "Dev-Server, Container und Playwright werden nur gemäß AGENTS.md und bei ausdrücklicher Freigabe gestartet."
+  ],
+  "knownStartingPoints": [
+    {
+      "area": "license-client",
+      "status": "partial",
+      "artifacts": [
+        "app/lib/license/control-plane.ts",
+        "app/lib/license/index.ts",
+        "app/lib/license/types.ts",
+        "app/lib/license/storage.ts",
+        "app/lib/license/entitlements.ts"
+      ],
+      "gap": "Community unterstützt Registrierung und Aktivierung, aber keinen Claim, kein Instanz-Token, keinen Team-Refresh und kein seatLimit."
+    },
+    {
+      "area": "user-management",
+      "status": "partial",
+      "artifacts": [
+        "app/components/settings/UserManagementPanel.tsx",
+        "app/lib/auth.ts",
+        "app/lib/organization"
+      ],
+      "gap": "User werden aktuell direkt über Better Auth angelegt; Kosten-Vorschau, Approval, Billing-Pending und zweiphasige Aktivierung fehlen."
+    },
+    {
+      "area": "team-runtime",
+      "status": "partial",
+      "artifacts": [
+        "app/lib/organization/bootstrap.ts",
+        "app/lib/workspaces",
+        "app/lib/runtime",
+        "app/lib/db/schema.ts"
+      ],
+      "gap": "Team-Capabilities und Postgres-Gates existieren, sind aber noch nicht mit einer bezahlten Community-Team-Seat-Lizenz verbunden."
+    }
+  ],
+  "phases": [
+    {
+      "id": "NB-TS-P0",
+      "title": "Inventar und gemeinsamer Contract",
+      "exitCriteria": [
+        "Alle lokalen User-Erstellungs-, Reaktivierungs- und Offboarding-Pfade sind inventarisiert.",
+        "Canvas Notebook validiert den v1-Contract und dessen Fixtures.",
+        "Inkompatible Control-Plane-Versionen werden vor kostenpflichtigen Aktionen erkannt."
+      ],
+      "tasks": [
+        {
+          "id": "NB-TS-001",
+          "title": "Alle billable Membership-Pfade inventarisieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "architecture",
+          "description": "Direkte User-Erstellung, Invitation, Bootstrap, Import, Reaktivierung, Ban, Offboarding, Rollenwechsel und Login-Gates erfassen und nach Kostenwirkung klassifizieren.",
+          "dependencies": [],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/components/settings/UserManagementPanel.tsx",
+            "app/lib/auth.ts",
+            "app/lib/auth-setup.ts",
+            "app/lib/organization",
+            "app/api",
+            "scripts"
+          ],
+          "acceptanceCriteria": [
+            "Jeder Pfad, der einen aktiven User erzeugen oder reaktivieren kann, ist dokumentiert.",
+            "Für jeden Pfad ist festgelegt, ob er Quote, Approval, Seat-Change und seatLimit-Prüfung benötigt.",
+            "Bootstrap-Owner und bestehende Community-Solo-User sind separat berücksichtigt.",
+            "Kein versteckter Mobile-, API- oder Import-Pfad bleibt ungeprüft."
+          ]
+        },
+        {
+          "id": "NB-TS-002",
+          "title": "Team-Seat-Protocol-v1 konsumieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "shared-contract",
+          "description": "Versionierte Types und Validatoren für Claim, Token, Quote, Authorization, Seat-Change, Snapshot, Drift und License-Claims aus dem gemeinsamen Contract ableiten.",
+          "dependencies": [
+            "NB-TS-001"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-002",
+            "CP-TS-003"
+          ],
+          "implementationAreas": [
+            "app/lib/license",
+            "app/lib/control-plane",
+            "types",
+            "scripts"
+          ],
+          "acceptanceCriteria": [
+            "Der Client sendet canvas-team-seat-protocol-v1.",
+            "Unbekannte Breaking-Versionen werden abgelehnt.",
+            "Alle gemeinsamen positiven und negativen Fixtures werden validiert.",
+            "Stripe-spezifische Types gelangen nicht in Notebook-Domain-Modelle."
+          ]
+        },
+        {
+          "id": "NB-TS-003",
+          "title": "Kompatibilitäts- und Rollout-Gates ergänzen",
+          "status": "pending",
+          "priority": "P1",
+          "ownerArea": "runtime-config",
+          "description": "Team-Seat-Client, Community-Claim und kostenpflichtige Membership-Flows getrennt aktivierbar und versionsgebunden machen.",
+          "dependencies": [
+            "NB-TS-002"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-004"
+          ],
+          "implementationAreas": [
+            "app/lib/server-settings.ts",
+            "app/lib/license",
+            "app/components/license"
+          ],
+          "acceptanceCriteria": [
+            "Community Solo funktioniert bei deaktiviertem Team-Seat-Flow unverändert.",
+            "Nicht unterstützte Control-Plane-Versionen blockieren nur Team-Upgrade und kostenpflichtige Änderungen.",
+            "Rollout-Status ist serverseitig bestimmt.",
+            "Feature Flags umgehen keine Lizenzprüfung."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "NB-TS-P1",
+      "title": "Lokales Datenmodell und Migration",
+      "exitCriteria": [
+        "Pending Membership, Membership-Revisionen, lokale Operationen und sichere Token-Speicherung sind persistiert.",
+        "Bestehende Solo- und Managed-Installationen migrieren ohne Userverlust.",
+        "Ein Crash zwischen Billing und lokaler Aktivierung ist wiederaufnehmbar."
+      ],
+      "tasks": [
+        {
+          "id": "NB-TS-010",
+          "title": "Lokale Team-Membership-Zustände modellieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "database-membership",
+          "description": "invited, approval_required, billing_pending, active, suspended und removed als fachlichen Lifecycle ergänzen, ohne vorzeitig einen produktiven Better-Auth-User zu erzeugen.",
+          "dependencies": [
+            "NB-TS-001",
+            "NB-TS-002"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/lib/db/schema.ts",
+            "app/lib/db/migrate.ts",
+            "app/lib/organization"
+          ],
+          "acceptanceCriteria": [
+            "Pending-Kandidaten sind von aktiven Better-Auth-Usern unterscheidbar.",
+            "Externe Invitation- und Control-Plane-Operation-Referenzen sind speicherbar.",
+            "Statusübergänge sind transaktional und auditierbar.",
+            "Aktive Member-Semantik entspricht dem gemeinsamen Contract."
+          ]
+        },
+        {
+          "id": "NB-TS-011",
+          "title": "Membership-Revision, Snapshot und Outbox modellieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "database-sync",
+          "description": "Monotone Revisionen, Snapshot-Hash, lokale Seat-Operationen, Retry-Zustand und letzte bestätigte Control-Plane-Version persistieren.",
+          "dependencies": [
+            "NB-TS-010"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/lib/db/schema.ts",
+            "app/lib/db/migrate.ts",
+            "app/lib/organization",
+            "app/lib/license"
+          ],
+          "acceptanceCriteria": [
+            "Jede billable Membership-Änderung erhöht die Revision genau einmal.",
+            "Outbox-Einträge überleben Prozessneustarts.",
+            "Operation-IDs bleiben bei Retry stabil.",
+            "Letzter observed, billed und licensed Stand ist lokal diagnostizierbar."
+          ]
+        },
+        {
+          "id": "NB-TS-012",
+          "title": "Community-Instanz-Token sicher speichern",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "security-storage",
+          "description": "Serverseitige Speicherung, Zugriff, Rotation und Löschung des Community-Instanz-Tokens außerhalb des Browser-Kontexts implementieren.",
+          "dependencies": [
+            "NB-TS-002"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-011"
+          ],
+          "implementationAreas": [
+            "app/lib/license/storage.ts",
+            "app/lib/license",
+            "data/secrets",
+            "scripts"
+          ],
+          "acceptanceCriteria": [
+            "Token ist nur für den Serverprozess lesbar.",
+            "Token wird nicht in license_certs, Client-State oder Analytics gespeichert.",
+            "Rotation ersetzt das alte Token atomar.",
+            "Logs zeigen höchstens einen ungefährlichen Prefix."
+          ]
+        },
+        {
+          "id": "NB-TS-013",
+          "title": "Backward-kompatible Datenmigration implementieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "database-migration",
+          "description": "Bestehende Community-Solo-, Managed-Single- und Managed-Team-Installationen in das neue lokale Seat-Modell migrieren.",
+          "dependencies": [
+            "NB-TS-010",
+            "NB-TS-011",
+            "NB-TS-012"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/lib/db/migrate.ts",
+            "scripts",
+            "install"
+          ],
+          "acceptanceCriteria": [
+            "Bestehender Solo-Owner bleibt aktiv.",
+            "Bestehende Managed-Team-User werden nicht versehentlich deaktiviert.",
+            "Migration erzeugt keine künstlichen billable Seat-Operationen.",
+            "Fehlerhafte Teilmigration kann sicher erneut ausgeführt werden."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "NB-TS-P2",
+      "title": "Control-Plane-Claim und Account-Verbindung",
+      "exitCriteria": [
+        "Eine bestehende Community-Instanz kann eine Claim-Session starten.",
+        "Der lokale Admin kann sich im Control Plane anmelden oder einen Account erstellen.",
+        "Nach erfolgreichem Claim besitzt die Instanz ein rotierbares Token.",
+        "Team-Upgrade bleibt ohne Claim blockiert."
+      ],
+      "tasks": [
+        {
+          "id": "NB-TS-020",
+          "title": "Device-Claim-Client implementieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-client",
+          "description": "Claim starten, User-Code und Verification URL verarbeiten, Status mit Device-Code pollen und das Instanz-Token einmalig übernehmen.",
+          "dependencies": [
+            "NB-TS-012"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-020",
+            "CP-TS-021"
+          ],
+          "implementationAreas": [
+            "app/lib/license/control-plane.ts",
+            "app/lib/license",
+            "app/api/license"
+          ],
+          "acceptanceCriteria": [
+            "Device-Code verlässt den Serverkontext nicht.",
+            "Polling respektiert Ablauf, Backoff und terminale Zustände.",
+            "Ein erfolgreich übernommenes Token wird sicher gespeichert.",
+            "Abbruch und Timeout lassen Community Solo funktionsfähig."
+          ]
+        },
+        {
+          "id": "NB-TS-021",
+          "title": "Control-Plane-Verbindung und Team-Upgrade-UI bauen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-ui",
+          "description": "Mit-Control-Plane-verbinden, Account erstellen/anmelden, Claim-Code, Status, Upgrade-Preflight und Checkout-Weiterleitung in der lokalen Lizenzverwaltung abbilden.",
+          "dependencies": [
+            "NB-TS-020"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-023",
+            "CP-TS-034",
+            "CP-TS-060"
+          ],
+          "implementationAreas": [
+            "app/components/license",
+            "app/api/license",
+            "app/[locale]/(routes)/settings"
+          ],
+          "acceptanceCriteria": [
+            "UI erklärt, dass Hosting selbstverwaltet bleibt.",
+            "Team-Upgrade verlangt einen verifizierten Control-Plane-Account.",
+            "Der Claim- und Account-Flow bleibt von der späteren Runtime-Readiness-Prüfung getrennt testbar.",
+            "Keine Stripe-ID oder Instanz-Token wird im Browser offengelegt."
+          ]
+        },
+        {
+          "id": "NB-TS-022",
+          "title": "Token-Rotation, Revocation und Recovery integrieren",
+          "status": "pending",
+          "priority": "P1",
+          "ownerArea": "license-security",
+          "description": "Lokale Aktionen und Fehlerzustände für Token-Rotation, serverseitigen Widerruf, verlorenes Token und erneuten Claim implementieren.",
+          "dependencies": [
+            "NB-TS-020"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-021",
+            "CP-TS-050"
+          ],
+          "implementationAreas": [
+            "app/lib/license",
+            "app/components/license",
+            "app/api/license"
+          ],
+          "acceptanceCriteria": [
+            "Altes Token wird nach Rotation nicht weiterverwendet.",
+            "Widerruf führt zu einem klaren reconnect_required-Zustand.",
+            "Recovery überschreibt keine fremd geclaimte Ownership.",
+            "Team-Zugriff folgt bis zur Recovery der definierten Grace-Policy."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "NB-TS-P3",
+      "title": "Lizenz-Claims, Refresh und Runtime",
+      "exitCriteria": [
+        "Notebook versteht hostingMode, edition, seatLimit und entitlementsVersion.",
+        "Community Team erneuert Zertifikate automatisch.",
+        "Seat-Limit und Team-Runtime werden serverseitig durchgesetzt.",
+        "Downgrade bewahrt Daten und deaktiviert nur nicht mehr erlaubte Zugriffe."
+      ],
+      "tasks": [
+        {
+          "id": "NB-TS-030",
+          "title": "Lizenztypen auf Hosting und Edition umstellen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-domain",
+          "description": "LicenseCert und LicenseStatus um hostingMode, edition, seatLimit und Protokollversion erweitern und Legacy-Claims kompatibel normalisieren.",
+          "dependencies": [
+            "NB-TS-002"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-053"
+          ],
+          "implementationAreas": [
+            "app/lib/license/types.ts",
+            "app/lib/license/index.ts",
+            "app/lib/license/entitlements.ts"
+          ],
+          "acceptanceCriteria": [
+            "Community Solo, Community Team, Cloud Solo und Cloud Team sind eindeutig ableitbar.",
+            "Legacy community und managed Claims bleiben während der Migration lesbar.",
+            "seatLimit ist als Ganzzahl größer oder gleich 1 validiert.",
+            "Billing-Beträge und Stripe-IDs sind nicht Teil der License-Types."
+          ]
+        },
+        {
+          "id": "NB-TS-031",
+          "title": "Zertifikatsprüfung gegen Rollback und falsche Instanz härten",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-security",
+          "description": "Signatur, Issuer, Audience, Subject, Ablauf, Hosting/Edition, seatLimit und monotone entitlementsVersion prüfen.",
+          "dependencies": [
+            "NB-TS-030"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-053"
+          ],
+          "implementationAreas": [
+            "app/lib/license/jwt.ts",
+            "app/lib/license/index.ts",
+            "app/lib/license/storage.ts"
+          ],
+          "acceptanceCriteria": [
+            "Zertifikat einer anderen Instance-ID wird abgelehnt.",
+            "Niedrigere Entitlement-Version kann keinen neueren Zustand überschreiben.",
+            "Abgelaufene Team-Zertifikate folgen Grace- statt stiller Dauerfreigabe.",
+            "Ungültige Claims erzeugen stabile Fehlercodes."
+          ]
+        },
+        {
+          "id": "NB-TS-032",
+          "title": "Automatischen Community-Team-Refresh und Offline-Grace bauen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-runtime",
+          "description": "Periodischen authentifizierten Refresh mit Backoff, Cache, Ablaufwarnung, Grace-State und Recovery implementieren.",
+          "dependencies": [
+            "NB-TS-012",
+            "NB-TS-031"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-053",
+            "CP-TS-054"
+          ],
+          "implementationAreas": [
+            "app/lib/license/index.ts",
+            "app/lib/license/control-plane.ts",
+            "instrumentation.ts",
+            "server"
+          ],
+          "acceptanceCriteria": [
+            "Refresh läuft ohne Browser-Session.",
+            "Temporäre Netzfehler verwenden begrenzten Backoff.",
+            "Grace-Ablauf ist im Status sichtbar und testbar.",
+            "Erfolgreicher Refresh aktualisiert Zertifikat und Entitlement-Version atomar."
+          ]
+        },
+        {
+          "id": "NB-TS-033",
+          "title": "Team-Runtime-Readiness vor Upgrade prüfen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "runtime-readiness",
+          "description": "Postgres, pgvector, Migrationen, Team-Capabilities, Storage und unterstützte Notebook-Version als Preflight zusammenfassen.",
+          "dependencies": [
+            "NB-TS-003"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/lib/workspaces/postgres-runtime.ts",
+            "app/lib/organization/bootstrap.ts",
+            "app/lib/runtime",
+            "app/api/license"
+          ],
+          "acceptanceCriteria": [
+            "Community-Solo-SQLite-Installationen erhalten einen klaren Migrationsblocker.",
+            "Readiness ist ohne Team-Kauf prüfbar.",
+            "Fehler unterscheiden Datenbank, Migration, Capability und Version.",
+            "Control Plane kann das Ergebnis im Upgrade-Preflight anzeigen."
+          ]
+        },
+        {
+          "id": "NB-TS-034",
+          "title": "Team-Downgrade und Solo-Fallback ohne Datenverlust implementieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-lifecycle",
+          "description": "Bei Kündigung, Nichtzahlung oder Grace-Ablauf zusätzliche Team-Zugriffe deterministisch deaktivieren und Daten unverändert erhalten.",
+          "dependencies": [
+            "NB-TS-031",
+            "NB-TS-032"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-054"
+          ],
+          "implementationAreas": [
+            "app/lib/license",
+            "app/lib/organization",
+            "app/lib/workspaces",
+            "app/components/license"
+          ],
+          "acceptanceCriteria": [
+            "Server, Userdaten und Workspaces werden nicht gelöscht.",
+            "Genau ein Solo-Owner bleibt produktiv, sofern die Policy nichts anderes festlegt.",
+            "Deaktivierte User sind nach Reaktivierung wiederherstellbar.",
+            "Fallback ist auditierbar und idempotent."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "NB-TS-P4",
+      "title": "Kostenbewusster Membership-Lifecycle",
+      "exitCriteria": [
+        "Alle User-Aktivierungspfade laufen über einen serverseitigen Membership-Orchestrator.",
+        "Kosten werden vor Aktivierung angezeigt und bestätigt.",
+        "Payment-Pending erzeugt keinen produktiven User.",
+        "seatLimit wird bei Add, Accept, Reactivate, Import und Login erzwungen."
+      ],
+      "tasks": [
+        {
+          "id": "NB-TS-040",
+          "title": "Serverseitigen Membership-Orchestrator einführen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership-core",
+          "description": "Zentralen Service vor Better Auth setzen, der Candidate, Revision, Quote, Authorization, Billing-Operation, Zertifikat und endgültige Aktivierung koordiniert.",
+          "dependencies": [
+            "NB-TS-010",
+            "NB-TS-011",
+            "NB-TS-031"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-051"
+          ],
+          "implementationAreas": [
+            "app/lib/organization",
+            "app/lib/auth.ts",
+            "app/api/admin/organization"
+          ],
+          "acceptanceCriteria": [
+            "UI ruft authClient.admin.createUser nicht mehr als finalen ersten Schritt auf.",
+            "Aktiver Better-Auth-User entsteht erst nach bestätigtem Seat-Limit.",
+            "Operation kann nach Crash oder Timeout fortgesetzt werden.",
+            "Alle Pfade verwenden dieselbe aktive-Seat-Definition."
+          ]
+        },
+        {
+          "id": "NB-TS-041",
+          "title": "Lokale Invitations und Candidate-Accounts implementieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership",
+          "description": "Einladungen getrennt von aktiven Usern speichern, Ablauf und Widerruf abbilden und Annahme an einen Pending Candidate binden.",
+          "dependencies": [
+            "NB-TS-010",
+            "NB-TS-040"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/lib/db/schema.ts",
+            "app/lib/organization",
+            "app/api/admin/organization",
+            "app/components/settings"
+          ],
+          "acceptanceCriteria": [
+            "Pending Invitation verbraucht keinen Seat.",
+            "Ablauf und Widerruf verändern Stripe nicht.",
+            "Invitation kann genau einmal angenommen werden.",
+            "E-Mail und Role werden bei Annahme erneut validiert."
+          ]
+        },
+        {
+          "id": "NB-TS-042",
+          "title": "Seat-Quote und Billing-Approval in lokaler UI integrieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership-ui",
+          "description": "Kosten-Vorschau vom Control Plane anzeigen, Billing-Owner-Deep-Link unterstützen und Approval-/Stale-/Pending-Zustände darstellen.",
+          "dependencies": [
+            "NB-TS-021",
+            "NB-TS-040"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-031",
+            "CP-TS-032",
+            "CP-TS-051"
+          ],
+          "implementationAreas": [
+            "app/components/settings/UserManagementPanel.tsx",
+            "app/components/license",
+            "app/api/admin/organization"
+          ],
+          "acceptanceCriteria": [
+            "UI zeigt Quantity vorher und nachher sowie Price und Intervall.",
+            "Nicht billing-berechtigte lokale Admins können keine Ausgabe final bestätigen.",
+            "Stale Quote muss neu geladen und bestätigt werden.",
+            "Browser kann Price und Quantity nicht manipulieren."
+          ]
+        },
+        {
+          "id": "NB-TS-043",
+          "title": "Direkte User-Erstellung zweiphasig umstellen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership",
+          "description": "Create-User-Flow in Candidate, Quote/Approval, Seat-Execute, Zertifikatprüfung, Better-Auth-Erstellung und Onboarding aufteilen.",
+          "dependencies": [
+            "NB-TS-040",
+            "NB-TS-042"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-051",
+            "CP-TS-053"
+          ],
+          "implementationAreas": [
+            "app/components/settings/UserManagementPanel.tsx",
+            "app/lib/organization",
+            "app/api/onboarding/user-initialize"
+          ],
+          "acceptanceCriteria": [
+            "User ist vor Billing-Erfolg nicht loginfähig.",
+            "Onboarding startet erst nach erfolgreicher Aktivierung.",
+            "requires_action bleibt billing_pending.",
+            "Retry erzeugt weder doppelten User noch doppelten Seat."
+          ]
+        },
+        {
+          "id": "NB-TS-044",
+          "title": "Invitation Acceptance zweiphasig umstellen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership",
+          "description": "Annahme einer Einladung gegen Vorabfreigabe oder Billing-Owner-Approval prüfen und erst nach Seat-Erfolg aktivieren.",
+          "dependencies": [
+            "NB-TS-041",
+            "NB-TS-042",
+            "NB-TS-043"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-051"
+          ],
+          "implementationAreas": [
+            "app/api",
+            "app/lib/organization",
+            "app/components/settings"
+          ],
+          "acceptanceCriteria": [
+            "Annahme ohne gültige Freigabe endet in approval_required.",
+            "Invited User sieht einen verständlichen Pending-Zustand.",
+            "Billing-Owner kann die Aktivierung freigeben oder ablehnen.",
+            "Erfolgreiche Annahme erhöht Membership-Revision genau einmal."
+          ]
+        },
+        {
+          "id": "NB-TS-045",
+          "title": "Suspend, Ban, Offboarding und Seat-Reduktion verbinden",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership-offboarding",
+          "description": "Zugriff sofort entziehen, lokale Revision erhöhen und idempotente Seat-Reduktion anstoßen, ohne Daten vorzeitig zu löschen.",
+          "dependencies": [
+            "NB-TS-040"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-051",
+            "CP-TS-054"
+          ],
+          "implementationAreas": [
+            "app/components/settings/UserManagementPanel.tsx",
+            "app/api/admin/organization/users",
+            "app/lib/organization/offboarding.ts"
+          ],
+          "acceptanceCriteria": [
+            "User verliert lokal sofort Zugriff.",
+            "Seat-Reduktion ist retry-sicher.",
+            "Userdaten folgen weiterhin der bestehenden Retention-Policy.",
+            "Letzter Owner kann nicht entfernt oder gesperrt werden."
+          ]
+        },
+        {
+          "id": "NB-TS-046",
+          "title": "Rollenwechsel und Reaktivierung auf Kostenwirkung prüfen",
+          "status": "pending",
+          "priority": "P1",
+          "ownerArea": "membership-permissions",
+          "description": "Rollenwechsel ohne Seat-Delta von Reaktivierung mit Seat-Delta trennen und Billing-Rechte korrekt darstellen.",
+          "dependencies": [
+            "NB-TS-040",
+            "NB-TS-045"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/api/admin/organization/users/[userId]/role",
+            "app/lib/organization/permissions.ts",
+            "app/components/settings/UserManagementPanel.tsx"
+          ],
+          "acceptanceCriteria": [
+            "Owner/Admin/Member-Rollen zählen jeweils genau einen Seat.",
+            "Reiner Rollenwechsel verändert Quantity nicht.",
+            "Reaktivierung eines nicht billable Users durchläuft Quote und Billing.",
+            "Billing-Berechtigung ist von lokaler Content-Admin-Rolle getrennt."
+          ]
+        },
+        {
+          "id": "NB-TS-047",
+          "title": "seatLimit an allen Aktivierungs- und Zugriffspfaden erzwingen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership-security",
+          "description": "Serverseitige Guards für Create, Accept, Reactivate, Bootstrap, Import, Mobile und Login ergänzen.",
+          "dependencies": [
+            "NB-TS-031",
+            "NB-TS-043",
+            "NB-TS-044",
+            "NB-TS-046"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/lib/auth.ts",
+            "app/lib/auth-guards.ts",
+            "app/lib/auth-setup.ts",
+            "app/lib/organization/bootstrap.ts",
+            "app/api/mobile",
+            "app/api"
+          ],
+          "acceptanceCriteria": [
+            "Aktive Userzahl kann seatLimit nicht überschreiten.",
+            "Clientseitige Umgehung wird serverseitig blockiert.",
+            "Community Solo bleibt auf genau einen aktiven User begrenzt.",
+            "Bereits vorhandene Überbelegung wird erkannt und nicht still erweitert."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "NB-TS-P5",
+      "title": "Control-Plane-Sync und Reconciliation",
+      "exitCriteria": [
+        "Seat-Änderungen und Snapshots sind retry-sicher.",
+        "Control Plane kann observed, billed und licensed Zustand abgleichen.",
+        "Notebook reagiert sicher auf Drift und veraltete Zertifikate.",
+        "Owner sehen den letzten erfolgreichen Sync."
+      ],
+      "tasks": [
+        {
+          "id": "NB-TS-050",
+          "title": "Authentifizierten Control-Plane-Team-Client bauen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "control-plane-client",
+          "description": "Gemeinsamen Server-Client mit Instanz-Token, Protokollheader, Timeouts, Backoff, Fehler-Mapping und Log-Redaction implementieren.",
+          "dependencies": [
+            "NB-TS-002",
+            "NB-TS-012"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-050"
+          ],
+          "implementationAreas": [
+            "app/lib/license/control-plane.ts",
+            "app/lib/control-plane"
+          ],
+          "acceptanceCriteria": [
+            "Token wird nur serverseitig angefügt.",
+            "4xx-Fachfehler und temporäre 5xx/Netzfehler werden getrennt behandelt.",
+            "Retries verwenden dieselbe Operation-ID.",
+            "Logs enthalten keine Secrets oder vollständige Member-Hashes."
+          ]
+        },
+        {
+          "id": "NB-TS-051",
+          "title": "Seat-Prepare- und Execute-Client integrieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "control-plane-client",
+          "description": "Membership-Orchestrator mit Quote, Authorization-Status, Seat-Execute, Payment-Status und neuem Zertifikat verbinden.",
+          "dependencies": [
+            "NB-TS-040",
+            "NB-TS-050"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-051"
+          ],
+          "implementationAreas": [
+            "app/lib/organization",
+            "app/lib/license/control-plane.ts"
+          ],
+          "acceptanceCriteria": [
+            "Current und desired Count werden aus lokalem Serverzustand berechnet.",
+            "Price- oder Quantity-Felder aus dem Browser werden nicht weitergereicht.",
+            "Erfolgsantwort wird vor User-Aktivierung vollständig validiert.",
+            "Pending-Antwort bleibt wiederaufnehmbar."
+          ]
+        },
+        {
+          "id": "NB-TS-052",
+          "title": "Datensparsamen vollständigen Membership-Snapshot erzeugen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership-sync",
+          "description": "Aktive angenommene Mitglieder, Rollen-Summary, pseudonymisierte stabile Referenzen, Revision und Snapshot-Hash erzeugen und senden.",
+          "dependencies": [
+            "NB-TS-011",
+            "NB-TS-050"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-052"
+          ],
+          "implementationAreas": [
+            "app/lib/organization",
+            "app/lib/license",
+            "instrumentation.ts"
+          ],
+          "acceptanceCriteria": [
+            "Snapshot enthält keine Namen oder E-Mail-Adressen.",
+            "Gleicher Membership-Zustand erzeugt einen stabilen Hash.",
+            "Revision ist monoton.",
+            "Snapshot wird beim Start, nach Änderung und periodisch gesendet."
+          ]
+        },
+        {
+          "id": "NB-TS-053",
+          "title": "Durable Outbox, Retry und Crash-Recovery implementieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "membership-sync",
+          "description": "Seat-Operationen und Snapshots aus persistierter Outbox mit Lease, Backoff, Retry und terminalen Fehlerzuständen verarbeiten.",
+          "dependencies": [
+            "NB-TS-011",
+            "NB-TS-051",
+            "NB-TS-052"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-055"
+          ],
+          "implementationAreas": [
+            "app/lib/organization",
+            "server",
+            "instrumentation.ts"
+          ],
+          "acceptanceCriteria": [
+            "Prozessneustart verliert keine Operation.",
+            "Parallele Worker verarbeiten denselben Eintrag nicht gleichzeitig.",
+            "Terminale Auth- oder Contract-Fehler werden nicht endlos retried.",
+            "Erfolgreich bestätigte Operationen werden nicht erneut abgerechnet."
+          ]
+        },
+        {
+          "id": "NB-TS-054",
+          "title": "Drift- und Reconciliation-Antworten lokal behandeln",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-reconciliation",
+          "description": "observed, billed und licensed Abweichungen klassifizieren und sichere Refresh-, Approval-, Suspend- oder Support-Aktionen auslösen.",
+          "dependencies": [
+            "NB-TS-031",
+            "NB-TS-052",
+            "NB-TS-053"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-055"
+          ],
+          "implementationAreas": [
+            "app/lib/license",
+            "app/lib/organization"
+          ],
+          "acceptanceCriteria": [
+            "licensed kleiner als observed aktiviert keine weiteren User.",
+            "licensed größer als billed führt zu Refresh oder sicherer Einschränkung.",
+            "Unautorisierte Erhöhung wird niemals automatisch gekauft.",
+            "Supportpflichtige Drift bleibt sichtbar und auditierbar."
+          ]
+        },
+        {
+          "id": "NB-TS-055",
+          "title": "Lokale Sync- und Billing-Gesundheit anzeigen",
+          "status": "pending",
+          "priority": "P1",
+          "ownerArea": "license-ui",
+          "description": "Ownern Claim-Status, observed/billed/licensed Seats, letzte Synchronisation, Pending-Operationen, Grace und Recovery-Aktionen anzeigen.",
+          "dependencies": [
+            "NB-TS-032",
+            "NB-TS-054"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/components/license",
+            "app/components/settings/UserManagementPanel.tsx",
+            "app/api/license/status"
+          ],
+          "acceptanceCriteria": [
+            "Normale Member sehen keine Billing- oder Token-Details.",
+            "Owner erkennt stale sync und Grace-Ablauf.",
+            "UI trennt observed, billed und licensed verständlich.",
+            "Recovery-Aktionen erzeugen keine unbestätigten Kosten."
+          ]
+        }
+      ]
+    },
+    {
+      "id": "NB-TS-P6",
+      "title": "Security, Tests und Release",
+      "exitCriteria": [
+        "Secrets und Membership-Daten sind datensparsam geschützt.",
+        "Contract-, Migration-, Membership-, Offline- und End-to-End-Tests bestehen.",
+        "Build und relevante Repository-Checks sind erfolgreich.",
+        "Kompatibilitäts- und Recovery-Dokumentation ist veröffentlicht."
+      ],
+      "tasks": [
+        {
+          "id": "NB-TS-060",
+          "title": "Token-, Snapshot- und Log-Sicherheit prüfen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "security",
+          "description": "Secret Storage, Dateirechte, Server/Client-Grenze, Redaction, Pseudonymisierung, CSRF und Rate Limits prüfen.",
+          "dependencies": [
+            "NB-TS-012",
+            "NB-TS-050",
+            "NB-TS-052"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "app/lib/license",
+            "app/lib/security",
+            "app/api",
+            "server"
+          ],
+          "acceptanceCriteria": [
+            "Instanz-Token erscheint nicht in Browser-Bundles.",
+            "Logs und Errors enthalten keine Secrets oder PII-Snapshots.",
+            "Kostenpflichtige lokale Aktionen verlangen authentifizierte und berechtigte Actor.",
+            "Snapshot-Pseudonyme sind außerhalb der Instanz nicht auf E-Mail-Adressen zurückführbar."
+          ]
+        },
+        {
+          "id": "NB-TS-070",
+          "title": "Gemeinsame Contract-Tests implementieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "tests-contract",
+          "description": "v1-Fixtures für Claim, Seat-Change, Snapshot, License-Claims und Fehlercodes im Notebook ausführen.",
+          "dependencies": [
+            "NB-TS-002",
+            "NB-TS-031"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-003"
+          ],
+          "implementationAreas": [
+            "scripts",
+            "tests",
+            "app/lib/license"
+          ],
+          "acceptanceCriteria": [
+            "Gültige Control-Plane-Payloads werden akzeptiert.",
+            "Ungültige Subject-, Revision-, seatLimit- und Version-Fälle werden abgelehnt.",
+            "Fixtures sind identisch versioniert.",
+            "Test benötigt keinen echten Stripe-Zugang."
+          ]
+        },
+        {
+          "id": "NB-TS-071",
+          "title": "Migration und Upgrade aus bestehenden Installationen testen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "tests-migration",
+          "description": "Community Solo, Managed Single, Managed Team und Teilmigrationen mit realistischen Datenständen prüfen.",
+          "dependencies": [
+            "NB-TS-013",
+            "NB-TS-030"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "scripts",
+            "tests",
+            "app/lib/db"
+          ],
+          "acceptanceCriteria": [
+            "Bestehende User und Daten bleiben erhalten.",
+            "Solo-Owner bleibt aktiv.",
+            "Migration erzeugt keine Stripe- oder Seat-Mutation.",
+            "Wiederholung ist idempotent."
+          ]
+        },
+        {
+          "id": "NB-TS-072",
+          "title": "Membership-State- und seatLimit-Tests ergänzen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "tests-membership",
+          "description": "Add, Invite, Accept, Reactivate, Role, Suspend, Remove, Bootstrap, Import und Login gegen alle Seat-Zustände testen.",
+          "dependencies": [
+            "NB-TS-047"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "scripts",
+            "tests",
+            "app/lib/organization"
+          ],
+          "acceptanceCriteria": [
+            "Kein Pfad überschreitet seatLimit.",
+            "Pending Invitation zählt nicht.",
+            "Rollenwechsel verändert Seat-Zahl nicht.",
+            "Community Solo kann keinen zweiten aktiven User erzeugen."
+          ]
+        },
+        {
+          "id": "NB-TS-073",
+          "title": "Control-Plane-Integration mit Mock-Server testen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "tests-integration",
+          "description": "Claim, Quote, Approval, Execute, Snapshot, Refresh, Retry und Drift gegen deterministische Mock-Antworten testen.",
+          "dependencies": [
+            "NB-TS-053",
+            "NB-TS-054"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "scripts",
+            "tests",
+            "app/lib/license"
+          ],
+          "acceptanceCriteria": [
+            "Timeout und 5xx werden retry-sicher behandelt.",
+            "401/403 führen zu Reconnect oder terminalem Zustand.",
+            "requires_action aktiviert keinen User.",
+            "Verlorene Erfolgsantwort kann reconciled werden."
+          ]
+        },
+        {
+          "id": "NB-TS-074",
+          "title": "Community Claim und Team-Upgrade End-to-End prüfen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "tests-e2e",
+          "description": "Bestehende Solo-Instanz verbinden, Control-Plane-Account erstellen, claimen, Preflight und Checkout bis zum Team-Zertifikat prüfen.",
+          "dependencies": [
+            "NB-TS-021",
+            "NB-TS-032",
+            "NB-TS-033",
+            "NB-TS-070",
+            "NB-TS-073"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-060"
+          ],
+          "implementationAreas": [
+            "tests",
+            "docs"
+          ],
+          "acceptanceCriteria": [
+            "Ohne Account und Claim bleibt Upgrade blockiert.",
+            "Checkout erzeugt keine VM-Migration.",
+            "Team-Zertifikat gilt für dieselbe Instance-ID.",
+            "Abbruch lässt Community Solo vollständig nutzbar."
+          ]
+        },
+        {
+          "id": "NB-TS-075",
+          "title": "Kostenpflichtige User-Aktivierung End-to-End prüfen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "tests-e2e",
+          "description": "Direct Add, Invitation, Preauthorization, Approval, stale Quote, requires_action, Erfolg, Suspend und Remove prüfen.",
+          "dependencies": [
+            "NB-TS-042",
+            "NB-TS-043",
+            "NB-TS-044",
+            "NB-TS-045",
+            "NB-TS-072",
+            "NB-TS-073"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "tests",
+            "docs"
+          ],
+          "acceptanceCriteria": [
+            "Kostenwirkung wird vor Aktivierung angezeigt.",
+            "Ohne Approval wird kein User aktiv.",
+            "Payment Failure erzeugt keinen produktiven Zugriff.",
+            "Nach Erfolg stimmen active users und seatLimit überein."
+          ]
+        },
+        {
+          "id": "NB-TS-076",
+          "title": "Offline-, Drift- und Downgrade-End-to-End prüfen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "tests-e2e",
+          "description": "Control-Plane-Ausfall, Token-Revocation, stale Snapshot, Zertifikatsablauf, Grace, Nichtzahlung, Kündigung und Solo-Fallback prüfen.",
+          "dependencies": [
+            "NB-TS-034",
+            "NB-TS-053",
+            "NB-TS-054",
+            "NB-TS-073"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-054",
+            "CP-TS-055"
+          ],
+          "implementationAreas": [
+            "tests",
+            "docs"
+          ],
+          "acceptanceCriteria": [
+            "Temporärer Ausfall respektiert Grace.",
+            "Grace-Ablauf deaktiviert zusätzliche Zugriffe deterministisch.",
+            "Kein Test löscht Userdaten oder Workspaces.",
+            "Reaktivierung verwendet bestehende Lizenz und lokale Daten."
+          ]
+        },
+        {
+          "id": "NB-TS-077",
+          "title": "Build, Dokumentation und Release-Kompatibilität abschließen",
+          "status": "pending",
+          "priority": "P1",
+          "ownerArea": "release",
+          "description": "Build, relevante Tests, Upgrade-Dokumentation, Owner-Hilfe, Recovery-Runbook und Control-Plane-Kompatibilitätsmatrix abschließen.",
+          "dependencies": [
+            "NB-TS-060",
+            "NB-TS-070",
+            "NB-TS-071",
+            "NB-TS-072",
+            "NB-TS-074",
+            "NB-TS-075",
+            "NB-TS-076"
+          ],
+          "crossRepositoryDependencies": [],
+          "implementationAreas": [
+            "docs",
+            "README.md",
+            "CHANGELOG.md",
+            "package.json"
+          ],
+          "acceptanceCriteria": [
+            "npm run build ist erfolgreich.",
+            "Alle neuen Contract-, Migration- und Membership-Tests sind erfolgreich.",
+            "Owner-Dokumentation erklärt Account-Pflicht, Kosten, Grace und Downgrade.",
+            "Unterstützte Control-Plane- und Notebook-Versionen sind veröffentlicht."
+          ]
+        }
+      ]
+    }
+  ],
+  "crossRepositoryGates": [
+    {
+      "id": "TS-GATE-1",
+      "title": "Contract bereit",
+      "controlPlaneTasks": [
+        "CP-TS-002",
+        "CP-TS-003"
+      ],
+      "notebookTasks": [
+        "NB-TS-002",
+        "NB-TS-070"
+      ],
+      "releaseCondition": "Beide Repositories validieren dieselben v1-Fixtures."
+    },
+    {
+      "id": "TS-GATE-2",
+      "title": "Community-Instanz verbunden",
+      "controlPlaneTasks": [
+        "CP-TS-020",
+        "CP-TS-021",
+        "CP-TS-022"
+      ],
+      "notebookTasks": [
+        "NB-TS-012",
+        "NB-TS-020",
+        "NB-TS-021"
+      ],
+      "releaseCondition": "Eine bestehende Community-Instanz kann geclaimt werden und besitzt danach ein rotierbares Token."
+    },
+    {
+      "id": "TS-GATE-3",
+      "title": "Kostenpflichtige Aktivierung sicher",
+      "controlPlaneTasks": [
+        "CP-TS-031",
+        "CP-TS-032",
+        "CP-TS-033",
+        "CP-TS-051"
+      ],
+      "notebookTasks": [
+        "NB-TS-040",
+        "NB-TS-042",
+        "NB-TS-043",
+        "NB-TS-044"
+      ],
+      "releaseCondition": "Kein zusätzlicher User wird ohne gültige Kostenfreigabe und bestätigtes Seat-Limit aktiv."
+    },
+    {
+      "id": "TS-GATE-4",
+      "title": "Lizenz und Snapshot konsistent",
+      "controlPlaneTasks": [
+        "CP-TS-052",
+        "CP-TS-053",
+        "CP-TS-055"
+      ],
+      "notebookTasks": [
+        "NB-TS-030",
+        "NB-TS-031",
+        "NB-TS-052",
+        "NB-TS-053"
+      ],
+      "releaseCondition": "Observed, billed und licensed Seats werden versioniert übertragen und reconciled."
+    },
+    {
+      "id": "TS-GATE-5",
+      "title": "Gemeinsame Release-Abnahme",
+      "controlPlaneTasks": [
+        "CP-TS-075",
+        "CP-TS-076",
+        "CP-TS-077"
+      ],
+      "notebookTasks": [
+        "NB-TS-074",
+        "NB-TS-075",
+        "NB-TS-076",
+        "NB-TS-077"
+      ],
+      "releaseCondition": "Cloud Team und Community Team bestehen Contract-, Billing-, Failure- und Downgrade-Tests."
+    }
+  ]
+}
