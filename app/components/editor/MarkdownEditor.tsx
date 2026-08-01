@@ -159,6 +159,7 @@ import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditorClient';
 import { MarkdownBacklinksPanel } from './MarkdownBacklinksPanel';
+import { MarkdownOutlinePanel } from './MarkdownOutlinePanel';
 import { MarkdownPropertiesPanel } from './MarkdownPropertiesPanel';
 import { createObsidianWikiLinkExtensions } from './ObsidianWikiLinkExtension';
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
@@ -3925,6 +3926,7 @@ function RichMarkdownEditor({
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
   const [mathEditRequest, setMathEditRequest] = useState<MathEditRequest | null>(null);
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
+  const [outlinePinned, setOutlinePinned] = useState(false);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const collaboration = useCollaborationDocument({
     enabled: collaborationEnabled,
@@ -4328,6 +4330,14 @@ function RichMarkdownEditor({
         />
       ) : null}
       <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">
+        <div className="pointer-events-none sticky top-3 z-30 ml-auto h-0 w-fit pr-3">
+          <MarkdownOutlinePanel
+            editor={editor}
+            onPinnedChange={setOutlinePinned}
+            pinned={outlinePinned}
+            scrollContainerRef={scrollContainerRef}
+          />
+        </div>
         {collaborationEnabled ? (
           <div className="pointer-events-none sticky right-3 top-2 z-20 ml-auto mr-3 w-fit rounded bg-background/85 px-2 py-1 text-[10px] text-muted-foreground shadow-sm" role="status">
             {collaboration?.status === 'degraded'
@@ -4343,39 +4353,41 @@ function RichMarkdownEditor({
                   : collaboration?.status || t('collaboration.connecting')}
           </div>
         ) : null}
-        {!effectiveReadOnly ? (
-          <div className="hidden md:block">
-            <TooltipProvider>
-              <MarkdownBlockControls
-                editor={editor}
-                labels={labels}
-                onAddBlock={openInsertedBlockCommandMenu}
-                onOpenCommandMenu={openCurrentBlockCommandMenu}
-                scrollContainerRef={scrollContainerRef}
-              />
-            </TooltipProvider>
-          </div>
-        ) : null}
-        {showNotebookMetadata ? (
-          <MarkdownPropertiesPanel
-            filePath={filePath}
-            onChange={handlePropertiesChange}
-            readOnly={effectiveReadOnly}
-            value={value}
-          />
-        ) : null}
-        <EditorContent editor={editor} className="tiptap-editor-shell" />
-        <MarkdownBacklinksPanel filePath={filePath} />
-        {!effectiveReadOnly && editor && blockCommandMenu ? (
-          <MarkdownBlockCommandMenu
-            key={blockCommandMenu.id}
-            actions={slashCommandActions}
-            editor={editor}
-            labels={labels}
-            menu={blockCommandMenu}
-            onClose={closeBlockCommandMenu}
-          />
-        ) : null}
+        <div className={cn('min-w-0 transition-[padding] duration-200', outlinePinned && 'md:pr-[17.5rem]')}>
+          {!effectiveReadOnly ? (
+            <div className="hidden md:block">
+              <TooltipProvider>
+                <MarkdownBlockControls
+                  editor={editor}
+                  labels={labels}
+                  onAddBlock={openInsertedBlockCommandMenu}
+                  onOpenCommandMenu={openCurrentBlockCommandMenu}
+                  scrollContainerRef={scrollContainerRef}
+                />
+              </TooltipProvider>
+            </div>
+          ) : null}
+          {showNotebookMetadata ? (
+            <MarkdownPropertiesPanel
+              filePath={filePath}
+              onChange={handlePropertiesChange}
+              readOnly={effectiveReadOnly}
+              value={value}
+            />
+          ) : null}
+          <EditorContent editor={editor} className="tiptap-editor-shell" />
+          <MarkdownBacklinksPanel filePath={filePath} />
+          {!effectiveReadOnly && editor && blockCommandMenu ? (
+            <MarkdownBlockCommandMenu
+              key={blockCommandMenu.id}
+              actions={slashCommandActions}
+              editor={editor}
+              labels={labels}
+              menu={blockCommandMenu}
+              onClose={closeBlockCommandMenu}
+            />
+          ) : null}
+        </div>
       </div>
     </div>
   );
