@@ -211,6 +211,7 @@ async function main() {
   assert.equal(previewMessages[0].title, 'Push session');
   assert.equal(previewMessages[0].body, 'Done See the finished report and code.');
   assert.equal(previewMessages[0].badge, 1);
+  assert.equal(previewMessages[0]._contentAvailable, true);
   assert.equal(JSON.stringify(previewMessages).includes('private.example.test'), false);
   assert.deepEqual(createAutomationRunNotificationPreview({
     jobName: '**Daily** [brief](https://private.example.test)',

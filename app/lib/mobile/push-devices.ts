@@ -131,6 +131,7 @@ export type ExpoPushMessage = {
   channelId: 'canvas-activity';
   data: MobilePushData;
   badge?: number;
+  _contentAvailable?: true;
   richContent?: {
     image: string;
   };
@@ -573,7 +574,10 @@ export function createMobilePushMessages(input: {
         instanceId: input.instanceId,
         ...input.target,
       } as MobilePushData,
-      ...(input.badge === undefined ? {} : { badge: input.badge }),
+      ...(input.badge === undefined ? {} : {
+        badge: input.badge,
+        _contentAvailable: true as const,
+      }),
       ...(imageUrl ? {
         richContent: { image: imageUrl },
         mutableContent: true as const,
