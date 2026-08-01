@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
+import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { areExternalUsersEnabled } from '@/app/lib/organization/features';
 import {
   getOrganizationUserPermissionDetails,
@@ -42,6 +43,9 @@ export async function PATCH(request: NextRequest, context: RouteContext) {
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
+
+  const licenseResponse = await requireTeamRuntimeRoute();
+  if (licenseResponse) return licenseResponse;
 
   const limited = rateLimit(request, {
     limit: 20,

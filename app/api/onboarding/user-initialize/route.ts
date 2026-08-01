@@ -5,6 +5,7 @@ import { isAdminUser } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import { db } from '@/app/lib/db';
 import { user } from '@/app/lib/db/schema';
+import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { getUserOnboardingState, initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -26,6 +27,9 @@ export async function POST(request: NextRequest) {
   if (!isAdminUser(session.user)) {
     return NextResponse.json({ success: false, error: 'Forbidden: admin only.' }, { status: 403 });
   }
+
+  const licenseResponse = await requireTeamRuntimeRoute();
+  if (licenseResponse) return licenseResponse;
 
   const limited = rateLimit(request, {
     limit: 30,

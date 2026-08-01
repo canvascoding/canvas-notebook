@@ -12,6 +12,7 @@ import {
 
 export type LicenseEntitlementErrorCode =
   | 'LICENSE_REQUIRED'
+  | 'LICENSE_TEAM_REQUIRED'
   | 'LICENSE_FEATURE_REQUIRED'
   | 'LICENSE_PLAN_REQUIRED'
   | 'LICENSE_QUOTA_REQUIRED';
@@ -171,7 +172,15 @@ export async function requireVectorProvider(provider: NotebookVectorProvider): P
 }
 
 export async function requireTeamRuntimeLicense(): Promise<LicenseStatus> {
-  const status = await requireLicensed();
+  const status = await getLicenseStatus();
+  if (!status.licensed) {
+    throw new LicenseEntitlementError(
+      'A Team license is required for this feature',
+      'LICENSE_TEAM_REQUIRED',
+      402,
+      { feature: 'teamWorkspace', plan: status.plan, source: status.source, error: status.error },
+    );
+  }
   assertRuntimeCapability(status, 'teamWorkspace');
   assertRuntimeCapability(status, 'multiUser');
   const profile = licenseRuntimeProfile(status);

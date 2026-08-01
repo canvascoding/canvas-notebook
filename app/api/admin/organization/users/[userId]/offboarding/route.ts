@@ -6,6 +6,7 @@ import {
   offboardUser,
   OffboardingError,
 } from '@/app/lib/organization/offboarding';
+import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { requireOrganizationPermission } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -39,6 +40,9 @@ export async function GET(request: NextRequest, context: RouteContext) {
   });
   if (!guard.ok) return guard.response;
 
+  const licenseResponse = await requireTeamRuntimeRoute();
+  if (licenseResponse) return licenseResponse;
+
   const limited = rateLimit(request, {
     limit: 30,
     windowMs: 60_000,
@@ -60,6 +64,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
     errorMessage: 'Only owners or administrators with recovery permission can offboard users.',
   });
   if (!guard.ok) return guard.response;
+
+  const licenseResponse = await requireTeamRuntimeRoute();
+  if (licenseResponse) return licenseResponse;
 
   const limited = rateLimit(request, {
     limit: 10,

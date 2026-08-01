@@ -2,11 +2,16 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
+import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 
 function hasAuthPathSegment(pathname: string, segment: string): boolean {
   return new RegExp(`/${segment}(?:/|$)`).test(pathname);
+}
+
+function isTeamUserManagementPath(pathname: string): boolean {
+  return /\/api\/auth\/admin(?:\/|$)/u.test(pathname);
 }
 
 function authAuditAction(pathname: string): string | null {
@@ -90,6 +95,10 @@ async function initializeCreatedUserOnboarding(pathname: string, response: Respo
 }
 
 export async function GET(request: NextRequest) {
+  if (isTeamUserManagementPath(request.nextUrl.pathname)) {
+    const licenseResponse = await requireTeamRuntimeRoute();
+    if (licenseResponse) return licenseResponse;
+  }
   return auth.handler(request);
 }
 
@@ -102,6 +111,11 @@ export async function POST(request: NextRequest) {
     const response = NextResponse.json({ message: 'Sign up is disabled' }, { status: 403 });
     if (action) await recordAuthRequestAudit(request, action, response, beforeUserId);
     return response;
+  }
+
+  if (isTeamUserManagementPath(pathname)) {
+    const licenseResponse = await requireTeamRuntimeRoute();
+    if (licenseResponse) return licenseResponse;
   }
 
   const response = await auth.handler(request);

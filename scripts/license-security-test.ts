@@ -120,6 +120,15 @@ async function main() {
     (error) => error instanceof LicenseEntitlementError && error.code === 'LICENSE_FEATURE_REQUIRED',
   );
 
+  delete process.env.CANVAS_LICENSE_CERT;
+  process.env.CANVAS_INSTANCE_ID = 'self_unlicensed_license_test';
+  await assert.rejects(
+    () => requireTeamRuntimeLicense(),
+    (error) => error instanceof LicenseEntitlementError
+      && error.code === 'LICENSE_TEAM_REQUIRED'
+      && error.statusCode === 402,
+  );
+
   rmSync(dataDir, { recursive: true, force: true });
 }
 

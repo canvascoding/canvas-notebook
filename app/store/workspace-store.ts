@@ -59,7 +59,12 @@ function teamModeUnavailableFromPayload(payload: ClientWorkspaceResponse): TeamM
   const blocksTeamRuntime = /team runtime|team workspace|team mode/iu.test(message);
 
   if (feature !== 'teamWorkspace' && !blocksTeamRuntime) return null;
-  if (code && code !== 'LICENSE_FEATURE_REQUIRED' && !blocksTeamRuntime) return null;
+  if (
+    code
+    && code !== 'LICENSE_FEATURE_REQUIRED'
+    && code !== 'LICENSE_TEAM_REQUIRED'
+    && !blocksTeamRuntime
+  ) return null;
 
   return {
     message: message || 'Team mode is currently not available for this self-hosted instance.',
