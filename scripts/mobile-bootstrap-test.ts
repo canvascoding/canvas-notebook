@@ -96,6 +96,8 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'files.upload',
   'files.public_share',
   'inbox.feed',
+  'inbox.aggregate',
+  'inbox.sources',
   'inbox.read_state',
   'inbox.dismiss',
   'todos.read',

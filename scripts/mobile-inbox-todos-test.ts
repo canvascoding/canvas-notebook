@@ -74,9 +74,15 @@ async function main() {
     const { getMobileTodo, listMobileTodos } = await import('../app/lib/mobile/todos');
     const {
       countMobileUnreadMessages,
+      listMobileAggregateInbox,
       listMobileInbox,
+      markMobileAggregateInboxRead,
       markMobileInboxRead,
     } = await import('../app/lib/mobile/inbox');
+    const {
+      getUserInboxExcludedWorkspaceIds,
+      setUserInboxExcludedWorkspaceIds,
+    } = await import('../app/lib/user-preferences');
     const workspace = createLegacyPersonalWorkspaceContext({
       userId: 'mobile-attention-user',
       email: 'attention@example.test',
@@ -102,16 +108,68 @@ async function main() {
       inbox.items.find((item) => item.id === 'studio:generation-ready')?.previewUrl,
       '/api/mobile/v1/studio/outputs/generation-preview-output/preview',
     );
+    const aggregateInbox = await listMobileAggregateInbox({
+      userId: 'mobile-attention-user',
+      workspaces: [workspace],
+      limit: 2,
+    });
+    assert.equal(aggregateInbox.scope.workspaceCount, 1);
+    assert.deepEqual(aggregateInbox.scope.workspaceIds, [workspace.workspaceId]);
+    assert.equal(aggregateInbox.counts.unread, inbox.counts.unread);
+    assert.equal(aggregateInbox.items.every((item) => item.workspaceId === workspace.workspaceId), true);
+    assert.ok(aggregateInbox.nextCursor);
+    const aggregateNextPage = await listMobileAggregateInbox({
+      userId: 'mobile-attention-user',
+      workspaces: [workspace],
+      cursor: aggregateInbox.nextCursor,
+      limit: 2,
+    });
+    assert.equal(aggregateNextPage.items.length, 2);
+    await assert.rejects(
+      () => listMobileAggregateInbox({
+        userId: 'mobile-attention-user',
+        workspaces: [],
+        cursor: aggregateInbox.nextCursor,
+      }),
+      (error: unknown) => Boolean(
+        error
+        && typeof error === 'object'
+        && 'code' in error
+        && error.code === 'INVALID_CURSOR'
+      ),
+    );
+    assert.deepEqual(await getUserInboxExcludedWorkspaceIds('mobile-attention-user'), []);
+    assert.deepEqual(
+      await setUserInboxExcludedWorkspaceIds('mobile-attention-user', ['workspace-muted']),
+      ['workspace-muted'],
+    );
+    assert.deepEqual(
+      await getUserInboxExcludedWorkspaceIds('mobile-attention-user'),
+      ['workspace-muted'],
+    );
+    await assert.rejects(
+      () => setUserInboxExcludedWorkspaceIds('mobile-attention-user', ['workspace-muted', 'workspace-muted']),
+      /Unsupported Inbox workspace selection/u,
+    );
+    await setUserInboxExcludedWorkspaceIds('mobile-attention-user', []);
 
     const { auth } = await import('../app/lib/auth');
-    let badgeSession: { user: { id: string } } | null = null;
+    let badgeSession: {
+      user: { id: string; email: string; role: string };
+    } | null = null;
     assert.equal(Reflect.set(auth.api, 'getSession', async () => badgeSession), true);
     const badgeRoute = await import('../app/api/mobile/v1/inbox/badge/route');
     const unauthorizedBadge = await badgeRoute.GET(
       new NextRequest('http://localhost/api/mobile/v1/inbox/badge'),
     );
     assert.equal(unauthorizedBadge.status, 401);
-    badgeSession = { user: { id: 'mobile-attention-user' } };
+    badgeSession = {
+      user: {
+        id: 'mobile-attention-user',
+        email: 'attention@example.test',
+        role: 'owner',
+      },
+    };
     const badgeResponse = await badgeRoute.GET(
       new NextRequest('http://localhost/api/mobile/v1/inbox/badge'),
     );
@@ -157,6 +215,11 @@ async function main() {
     assert.equal(afterAllRead.counts.unread, 0, JSON.stringify(afterAllRead));
     assert.equal(afterAllRead.items.length, 0);
     assert.equal(await countMobileUnreadMessages('mobile-attention-user'), 0);
+    const aggregateReadResult = await markMobileAggregateInboxRead({
+      userId: 'mobile-attention-user',
+      workspaces: [workspace],
+    });
+    assert.deepEqual(aggregateReadResult.workspaceIds, [workspace.workspaceId]);
 
     const todoPage = await listMobileTodos({ userId: 'mobile-attention-user', workspace, status: 'all', limit: 1 });
     assert.equal(todoPage.todos.length, 1);
@@ -188,6 +251,36 @@ async function main() {
       status: 'open',
       cursor: todoPage.nextCursor,
     }), (error: unknown) => Boolean(error && typeof error === 'object' && 'code' in error && error.code === 'INVALID_CURSOR'));
+
+    const aggregateRoute = await import('../app/api/mobile/v1/inbox/aggregate/route');
+    const aggregateResponse = await aggregateRoute.GET(
+      new NextRequest('http://localhost/api/mobile/v1/inbox/aggregate?filter=all&limit=20'),
+    );
+    assert.equal(aggregateResponse.status, 200);
+    const aggregatePayload = await aggregateResponse.json();
+    assert.equal(aggregatePayload.success, true);
+    assert.equal(aggregatePayload.scope.workspaceCount, 1);
+    assert.equal(aggregatePayload.items.length > 0, true);
+    assert.equal(typeof aggregatePayload.items[0]?.workspaceId, 'string');
+
+    const preferencesRoute = await import('../app/api/mobile/v1/inbox/preferences/route');
+    const preferencesResponse = await preferencesRoute.GET(
+      new NextRequest('http://localhost/api/mobile/v1/inbox/preferences'),
+    );
+    assert.equal(preferencesResponse.status, 200);
+    const preferencesPayload = await preferencesResponse.json();
+    assert.equal(preferencesPayload.success, true);
+    assert.equal(preferencesPayload.data.sources.length, 1);
+    assert.deepEqual(preferencesPayload.data.excludedWorkspaceIds, []);
+    const emptyScopeResponse = await preferencesRoute.PATCH(
+      new NextRequest('http://localhost/api/mobile/v1/inbox/preferences', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          excludedWorkspaceIds: [preferencesPayload.data.sources[0].id],
+        }),
+      }),
+    );
+    assert.equal(emptyScopeResponse.status, 400);
 
     const { mobileTodosErrorResponse } = await import('../app/lib/mobile/todos-route');
     const originalConsoleError = console.error;

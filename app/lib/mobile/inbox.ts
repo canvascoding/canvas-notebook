@@ -1,5 +1,7 @@
 import 'server-only';
 
+import { createHash } from 'node:crypto';
+
 import {
   and,
   asc,
@@ -55,10 +57,22 @@ export type MobileInboxItem = {
     | { kind: 'automation'; runId: string };
 };
 
+export type MobileAggregateInboxItem = MobileInboxItem & {
+  workspaceId: string;
+};
+
 type InboxCursor = {
   workspaceId: string;
   filter: MobileInboxFilter;
   occurredAt: string;
+  id: string;
+};
+
+type AggregateInboxCursor = {
+  scopeKey: string;
+  filter: MobileInboxFilter;
+  occurredAt: string;
+  workspaceId: string;
   id: string;
 };
 
@@ -118,6 +132,39 @@ function decodeCursor(value: string | null | undefined, workspaceId: string, fil
       || Number.isNaN(new Date(parsed.occurredAt).getTime())
     ) throw new Error('Invalid cursor');
     return parsed as InboxCursor;
+  } catch {
+    throw new MobileInboxError('INVALID_CURSOR', 'The Inbox cursor is invalid for this view.', 400);
+  }
+}
+
+function aggregateScopeKey(workspaces: WorkspaceContext[]): string {
+  return createHash('sha256')
+    .update(workspaces.map((workspace) => workspace.workspaceId).sort().join('\n'))
+    .digest('hex')
+    .slice(0, 24);
+}
+
+function encodeAggregateCursor(value: AggregateInboxCursor): string {
+  return Buffer.from(JSON.stringify(value), 'utf8').toString('base64url');
+}
+
+function decodeAggregateCursor(
+  value: string | null | undefined,
+  scopeKey: string,
+  filter: MobileInboxFilter,
+): AggregateInboxCursor | null {
+  if (!value) return null;
+  try {
+    const parsed = JSON.parse(Buffer.from(value, 'base64url').toString('utf8')) as Partial<AggregateInboxCursor>;
+    if (
+      parsed.scopeKey !== scopeKey
+      || parsed.filter !== filter
+      || typeof parsed.workspaceId !== 'string'
+      || typeof parsed.id !== 'string'
+      || typeof parsed.occurredAt !== 'string'
+      || Number.isNaN(new Date(parsed.occurredAt).getTime())
+    ) throw new Error('Invalid cursor');
+    return parsed as AggregateInboxCursor;
   } catch {
     throw new MobileInboxError('INVALID_CURSOR', 'The Inbox cursor is invalid for this view.', 400);
   }
@@ -348,6 +395,101 @@ export async function listMobileInbox(input: {
   };
 }
 
+async function collectAggregateInboxItems(input: {
+  userId: string;
+  workspaces: WorkspaceContext[];
+}): Promise<MobileAggregateInboxItem[]> {
+  const items: MobileAggregateInboxItem[] = [];
+  const concurrency = 4;
+  for (let index = 0; index < input.workspaces.length; index += concurrency) {
+    const batch = input.workspaces.slice(index, index + concurrency);
+    const batchItems = await Promise.all(batch.map(async (workspace) => {
+      const workspaceItems = await collectInboxItems({ userId: input.userId, workspace });
+      return workspaceItems.map((item) => ({ ...item, workspaceId: workspace.workspaceId }));
+    }));
+    items.push(...batchItems.flat());
+  }
+  return items.sort((left, right) => (
+    right.occurredAt.localeCompare(left.occurredAt)
+    || right.workspaceId.localeCompare(left.workspaceId)
+    || right.id.localeCompare(left.id)
+  ));
+}
+
+export async function listMobileAggregateInbox(input: {
+  userId: string;
+  workspaces: WorkspaceContext[];
+  filter?: string | null;
+  cursor?: string | null;
+  limit?: number;
+}) {
+  const filter = MOBILE_INBOX_FILTERS.includes(input.filter as MobileInboxFilter)
+    ? input.filter as MobileInboxFilter
+    : 'all';
+  const limit = normalizeLimit(input.limit);
+  const scopeKey = aggregateScopeKey(input.workspaces);
+  const cursor = decodeAggregateCursor(input.cursor, scopeKey, filter);
+  const allItems = await collectAggregateInboxItems(input);
+  const counts = {
+    unread: allItems.filter((item) => item.unread).length,
+    chat: allItems.filter((item) => item.target.kind === 'chat').length,
+    todos: allItems.filter((item) => item.target.kind === 'todo').length,
+    studio: allItems.filter((item) => item.target.kind === 'studio').length,
+    automation: allItems.filter((item) => item.target.kind === 'automation').length,
+  };
+  let filtered = allItems.filter((item) => matchesFilter(item, filter));
+  if (cursor) {
+    filtered = filtered.filter((item) => (
+      item.occurredAt < cursor.occurredAt
+      || (
+        item.occurredAt === cursor.occurredAt
+        && (
+          item.workspaceId < cursor.workspaceId
+          || (item.workspaceId === cursor.workspaceId && item.id < cursor.id)
+        )
+      )
+    ));
+  }
+  const page = filtered.slice(0, limit);
+  const last = page.at(-1);
+  return {
+    scope: {
+      workspaceIds: input.workspaces.map((workspace) => workspace.workspaceId),
+      workspaceCount: input.workspaces.length,
+    },
+    counts,
+    items: page,
+    nextCursor: filtered.length > limit && last
+      ? encodeAggregateCursor({
+          scopeKey,
+          filter,
+          occurredAt: last.occurredAt,
+          workspaceId: last.workspaceId,
+          id: last.id,
+        })
+      : null,
+  };
+}
+
+export async function markMobileAggregateInboxRead(input: {
+  userId: string;
+  workspaces: WorkspaceContext[];
+}) {
+  let readAt = new Date().toISOString();
+  for (const workspace of input.workspaces) {
+    const result = await markMobileInboxRead({
+      userId: input.userId,
+      workspace,
+      action: 'mark_all_read',
+    });
+    if ('readAt' in result && typeof result.readAt === 'string') readAt = result.readAt;
+  }
+  return {
+    readAt,
+    workspaceIds: input.workspaces.map((workspace) => workspace.workspaceId),
+  };
+}
+
 export async function countMobileUnreadMessages(userId: string): Promise<number> {
   const [result] = await db.select({ count: countRows() })
     .from(piSessions)
@@ -399,18 +541,22 @@ export async function markMobileInboxRead(input: {
 }) {
   const now = new Date();
   if (input.action === 'mark_all_read') {
+    const personalTodoRead = input.workspace.workspaceType === 'personal'
+      ? db.update(todoItems).set({ seenAt: now, updatedAt: now }).where(and(
+          eq(todoItems.userId, input.userId),
+          eq(todoItems.workspaceType, 'personal'),
+          workspaceCondition(todoItems.workspaceId, input.workspace),
+          eq(todoItems.status, 'open'),
+          isNull(todoItems.seenAt),
+        ))
+      : Promise.resolve();
     await Promise.all([
       db.update(piSessions).set({ lastViewedAt: piSessionReadCursorSql(), updatedAt: now }).where(and(
         eq(piSessions.userId, input.userId),
         workspaceCondition(piSessions.workspaceId, input.workspace),
         isNotNull(piSessions.lastMessageAt),
       )),
-      db.update(todoItems).set({ seenAt: now, updatedAt: now }).where(and(
-        eq(todoItems.userId, input.userId),
-        eq(todoItems.workspaceType, 'personal'),
-        eq(todoItems.status, 'open'),
-        isNull(todoItems.seenAt),
-      )),
+      personalTodoRead,
       upsertReadState(input.userId, input.workspace.workspaceId, BASELINE_KEY, now),
     ]);
     return { readAt: now.toISOString() };

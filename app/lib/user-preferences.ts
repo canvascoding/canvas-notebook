@@ -97,6 +97,7 @@ function normalizeUserOnboardingState(value: unknown): UserOnboardingState | und
 export type UserPreferences = {
   emailAllowRemoteImages?: boolean;
   emailRemoteImageAllowedSenders?: string[];
+  inboxExcludedWorkspaceIds?: string[];
   lastActiveAgentId?: string;
   locale?: UserLocale;
   onboarding?: UserOnboardingState;
@@ -138,6 +139,21 @@ function normalizeEmailAddressList(value: unknown): string[] {
   return entries;
 }
 
+export function normalizeUserInboxExcludedWorkspaceIds(value: unknown): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const entries: string[] = [];
+  for (const item of value) {
+    if (typeof item !== 'string') continue;
+    const normalized = item.trim();
+    if (!normalized || normalized.length > 200 || seen.has(normalized)) continue;
+    seen.add(normalized);
+    entries.push(normalized);
+    if (entries.length >= 250) break;
+  }
+  return entries;
+}
+
 export function normalizeUserLocale(value: unknown): UserLocale | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim().toLowerCase().split(/[-_]/u)[0];
@@ -157,6 +173,7 @@ function normalizePreferences(value: unknown): UserPreferences {
   const record = value as {
     emailAllowRemoteImages?: unknown;
     emailRemoteImageAllowedSenders?: unknown;
+    inboxExcludedWorkspaceIds?: unknown;
     lastActiveAgentId?: unknown;
     locale?: unknown;
     onboarding?: unknown;
@@ -164,10 +181,12 @@ function normalizePreferences(value: unknown): UserPreferences {
   const locale = normalizeUserLocale(record.locale);
   const lastActiveAgentId = normalizeUserLastActiveAgentId(record.lastActiveAgentId);
   const emailRemoteImageAllowedSenders = normalizeEmailAddressList(record.emailRemoteImageAllowedSenders);
+  const inboxExcludedWorkspaceIds = normalizeUserInboxExcludedWorkspaceIds(record.inboxExcludedWorkspaceIds);
   const onboarding = normalizeUserOnboardingState(record.onboarding);
   return {
     ...(typeof record.emailAllowRemoteImages === 'boolean' ? { emailAllowRemoteImages: record.emailAllowRemoteImages } : {}),
     ...(emailRemoteImageAllowedSenders.length > 0 ? { emailRemoteImageAllowedSenders } : {}),
+    ...(inboxExcludedWorkspaceIds.length > 0 ? { inboxExcludedWorkspaceIds } : {}),
     ...(lastActiveAgentId ? { lastActiveAgentId } : {}),
     ...(locale ? { locale } : {}),
     ...(onboarding ? { onboarding } : {}),
@@ -287,6 +306,15 @@ async function updateUserPreferencesUnlocked(
     }
   }
 
+  if ('inboxExcludedWorkspaceIds' in updates) {
+    const inboxExcludedWorkspaceIds = normalizeUserInboxExcludedWorkspaceIds(updates.inboxExcludedWorkspaceIds);
+    if (inboxExcludedWorkspaceIds.length === 0) {
+      delete nextPreferences.inboxExcludedWorkspaceIds;
+    } else {
+      nextPreferences.inboxExcludedWorkspaceIds = inboxExcludedWorkspaceIds;
+    }
+  }
+
   if ('lastActiveAgentId' in updates) {
     if (updates.lastActiveAgentId === undefined) {
       delete nextPreferences.lastActiveAgentId;
@@ -334,6 +362,26 @@ export async function setUserPreferredLocale(userId: string, locale: unknown): P
     throw new Error('Unsupported locale.');
   }
   return updateUserPreferences(userId, { locale: normalizedLocale });
+}
+
+export async function getUserInboxExcludedWorkspaceIds(userId: string): Promise<string[]> {
+  const preferences = await getUserPreferences(userId);
+  return preferences.inboxExcludedWorkspaceIds ?? [];
+}
+
+export async function setUserInboxExcludedWorkspaceIds(
+  userId: string,
+  workspaceIds: unknown,
+): Promise<string[]> {
+  if (!Array.isArray(workspaceIds) || workspaceIds.length > 250) {
+    throw new Error('Unsupported Inbox workspace selection.');
+  }
+  const normalized = normalizeUserInboxExcludedWorkspaceIds(workspaceIds);
+  if (normalized.length !== workspaceIds.length) {
+    throw new Error('Unsupported Inbox workspace selection.');
+  }
+  const preferences = await updateUserPreferences(userId, { inboxExcludedWorkspaceIds: normalized });
+  return preferences.inboxExcludedWorkspaceIds ?? [];
 }
 
 export async function updateUserOnboardingState(

@@ -117,6 +117,8 @@ export function createMobileBootstrap(input: {
     'files.upload',
     'files.public_share',
     'inbox.feed',
+    'inbox.aggregate',
+    'inbox.sources',
     'inbox.read_state',
     'inbox.dismiss',
     'todos.read',
