@@ -19,6 +19,8 @@ import type { LicenseCert } from './types';
 const COMMUNITY_INSTANCE_TOKEN_DIRECTORY = 'license';
 const COMMUNITY_INSTANCE_TOKEN_FILE = 'community-instance-token.json';
 const COMMUNITY_INSTANCE_TOKEN_SCHEMA_VERSION = 1;
+const COMMUNITY_CLAIM_SESSION_FILE = 'community-claim-session.json';
+const COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION = 1;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 
@@ -61,6 +63,29 @@ export type CommunityInstanceTokenStatus = {
   updatedAt: string | null;
 };
 
+type StoredCommunityClaimSession = {
+  schemaVersion: typeof COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION;
+  protocolVersion: typeof TEAM_SEAT_PROTOCOL_VERSION;
+  claimId: string;
+  instanceId: string;
+  deviceCode: string;
+  userCode: string;
+  verificationUrl: string;
+  expiresAt: string;
+  pollIntervalSeconds: number;
+  consecutiveFailures: number;
+  nextPollAt: string;
+  startedAt: string;
+  lastPolledAt: string | null;
+  lastErrorCode: string | null;
+  updatedAt: string;
+};
+
+export type CommunityClaimSessionSecret = Omit<
+  StoredCommunityClaimSession,
+  'schemaVersion' | 'protocolVersion'
+>;
+
 export class CommunityInstanceTokenStorageError extends Error {
   constructor(
     public readonly code:
@@ -79,7 +104,23 @@ export class CommunityInstanceTokenStorageError extends Error {
   }
 }
 
+export class CommunityClaimSessionStorageError extends Error {
+  constructor(
+    public readonly code:
+      | 'CLAIM_SESSION_INVALID'
+      | 'CLAIM_SESSION_CONFLICT'
+      | 'CLAIM_SESSION_NOT_FOUND'
+      | 'CLAIM_SESSION_STORAGE_CORRUPT',
+    message: string,
+    public readonly status = 409,
+  ) {
+    super(message);
+    this.name = 'CommunityClaimSessionStorageError';
+  }
+}
+
 let tokenMutationQueue: Promise<void> = Promise.resolve();
+let claimSessionMutationQueue: Promise<void> = Promise.resolve();
 
 function normalizeInstanceId(value: string): string {
   const normalized = value.trim();
@@ -170,6 +211,17 @@ function parsePositiveInteger(value: unknown, field: string): number {
   return Number(value);
 }
 
+function parseNonNegativeInteger(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 0) {
+    throw new CommunityClaimSessionStorageError(
+      'CLAIM_SESSION_STORAGE_CORRUPT',
+      `Stored Community claim session ${field} is invalid.`,
+      500,
+    );
+  }
+  return Number(value);
+}
+
 function parseStoredCommunityInstanceToken(value: unknown): StoredCommunityInstanceToken {
   if (!isRecord(value)) {
     throw new CommunityInstanceTokenStorageError(
@@ -212,6 +264,113 @@ function parseStoredCommunityInstanceToken(value: unknown): StoredCommunityInsta
   };
 }
 
+function normalizeClaimText(
+  value: unknown,
+  field: string,
+  options: { min: number; max: number; pattern?: RegExp },
+): string {
+  if (typeof value !== 'string') {
+    throw new CommunityClaimSessionStorageError(
+      'CLAIM_SESSION_STORAGE_CORRUPT',
+      `Stored Community claim session ${field} is invalid.`,
+      500,
+    );
+  }
+  const normalized = value.trim();
+  if (
+    normalized !== value
+    || normalized.length < options.min
+    || normalized.length > options.max
+    || (options.pattern && !options.pattern.test(normalized))
+  ) {
+    throw new CommunityClaimSessionStorageError(
+      'CLAIM_SESSION_STORAGE_CORRUPT',
+      `Stored Community claim session ${field} is invalid.`,
+      500,
+    );
+  }
+  return normalized;
+}
+
+function normalizeClaimTimestamp(value: unknown, field: string, nullable = false): string | null {
+  if (nullable && value === null) return null;
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
+    throw new CommunityClaimSessionStorageError(
+      'CLAIM_SESSION_STORAGE_CORRUPT',
+      `Stored Community claim session ${field} timestamp is invalid.`,
+      500,
+    );
+  }
+  return new Date(value).toISOString();
+}
+
+function parseStoredCommunityClaimSession(value: unknown): StoredCommunityClaimSession {
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION
+    || value.protocolVersion !== TEAM_SEAT_PROTOCOL_VERSION
+  ) {
+    throw new CommunityClaimSessionStorageError(
+      'CLAIM_SESSION_STORAGE_CORRUPT',
+      'Stored Community claim session has an unsupported schema.',
+      500,
+    );
+  }
+  const verificationUrl = normalizeClaimText(value.verificationUrl, 'verificationUrl', {
+    min: 8,
+    max: 2048,
+  });
+  try {
+    const parsedUrl = new URL(verificationUrl);
+    if (parsedUrl.protocol !== 'https:' && parsedUrl.protocol !== 'http:') throw new Error('unsupported');
+  } catch {
+    throw new CommunityClaimSessionStorageError(
+      'CLAIM_SESSION_STORAGE_CORRUPT',
+      'Stored Community claim session verificationUrl is invalid.',
+      500,
+    );
+  }
+  const pollIntervalSeconds = parsePositiveInteger(value.pollIntervalSeconds, 'pollIntervalSeconds');
+  if (pollIntervalSeconds > 300) {
+    throw new CommunityClaimSessionStorageError(
+      'CLAIM_SESSION_STORAGE_CORRUPT',
+      'Stored Community claim session pollIntervalSeconds is invalid.',
+      500,
+    );
+  }
+  return {
+    schemaVersion: COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION,
+    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
+    claimId: normalizeClaimText(value.claimId, 'claimId', {
+      min: 32,
+      max: 128,
+      pattern: /^community-claim-[A-Za-z0-9-]+$/u,
+    }),
+    instanceId: normalizeInstanceId(String(value.instanceId ?? '')),
+    deviceCode: normalizeClaimText(value.deviceCode, 'deviceCode', {
+      min: 32,
+      max: 128,
+      pattern: /^[A-Za-z0-9._~-]+$/u,
+    }),
+    userCode: normalizeClaimText(value.userCode, 'userCode', {
+      min: 8,
+      max: 16,
+      pattern: /^[A-Za-z0-9-]+$/u,
+    }),
+    verificationUrl,
+    expiresAt: normalizeClaimTimestamp(value.expiresAt, 'expiresAt')!,
+    pollIntervalSeconds,
+    consecutiveFailures: parseNonNegativeInteger(value.consecutiveFailures, 'consecutiveFailures'),
+    nextPollAt: normalizeClaimTimestamp(value.nextPollAt, 'nextPollAt')!,
+    startedAt: normalizeClaimTimestamp(value.startedAt, 'startedAt')!,
+    lastPolledAt: normalizeClaimTimestamp(value.lastPolledAt, 'lastPolledAt', true),
+    lastErrorCode: value.lastErrorCode === null
+      ? null
+      : normalizeClaimText(value.lastErrorCode, 'lastErrorCode', { min: 1, max: 128 }),
+    updatedAt: normalizeClaimTimestamp(value.updatedAt, 'updatedAt')!,
+  };
+}
+
 function toSecret(stored: StoredCommunityInstanceToken): CommunityInstanceTokenSecret {
   return {
     instanceId: stored.instanceId,
@@ -246,12 +405,30 @@ async function withTokenMutationLock<T>(operation: () => Promise<T>): Promise<T>
   }
 }
 
+async function withClaimSessionMutationLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = claimSessionMutationQueue;
+  let release = () => {};
+  claimSessionMutationQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
 function communityInstanceTokenDirectory(): string {
   return path.join(resolveSecretsDir(), COMMUNITY_INSTANCE_TOKEN_DIRECTORY);
 }
 
 export function resolveCommunityInstanceTokenPath(): string {
   return path.join(communityInstanceTokenDirectory(), COMMUNITY_INSTANCE_TOKEN_FILE);
+}
+
+export function resolveCommunityClaimSessionPath(): string {
+  return path.join(communityInstanceTokenDirectory(), COMMUNITY_CLAIM_SESSION_FILE);
 }
 
 async function assertOwnedNonSymlink(targetPath: string, expectedType: 'directory' | 'file'): Promise<void> {
@@ -301,18 +478,18 @@ async function syncDirectory(directory: string): Promise<void> {
   }
 }
 
-async function writeStoredTokenAtomic(stored: StoredCommunityInstanceToken): Promise<void> {
+async function writePrivateLicenseFileAtomic(fileName: string, value: unknown): Promise<void> {
   const directory = await ensurePrivateTokenDirectory();
-  const filePath = resolveCommunityInstanceTokenPath();
+  const filePath = path.join(directory, fileName);
   await assertOwnedNonSymlink(filePath, 'file');
   const temporaryPath = path.join(
     directory,
-    `.${COMMUNITY_INSTANCE_TOKEN_FILE}.tmp-${process.pid}-${randomUUID()}`,
+    `.${fileName}.tmp-${process.pid}-${randomUUID()}`,
   );
   let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
   try {
     handle = await fs.open(temporaryPath, 'wx', PRIVATE_FILE_MODE);
-    await handle.writeFile(`${JSON.stringify(stored, null, 2)}\n`, 'utf8');
+    await handle.writeFile(`${JSON.stringify(value, null, 2)}\n`, 'utf8');
     await handle.sync();
     await handle.chmod(PRIVATE_FILE_MODE);
     await handle.close();
@@ -325,6 +502,10 @@ async function writeStoredTokenAtomic(stored: StoredCommunityInstanceToken): Pro
     await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
     throw error;
   }
+}
+
+async function writeStoredTokenAtomic(stored: StoredCommunityInstanceToken): Promise<void> {
+  await writePrivateLicenseFileAtomic(COMMUNITY_INSTANCE_TOKEN_FILE, stored);
 }
 
 async function readStoredTokenIfExists(): Promise<StoredCommunityInstanceToken | null> {
@@ -340,6 +521,26 @@ async function readStoredTokenIfExists(): Promise<StoredCommunityInstanceToken |
       throw new CommunityInstanceTokenStorageError(
         'TOKEN_STORAGE_CORRUPT',
         'Stored Community instance token contains invalid JSON.',
+        500,
+      );
+    }
+    throw error;
+  }
+}
+
+async function readStoredClaimSessionIfExists(): Promise<StoredCommunityClaimSession | null> {
+  const filePath = resolveCommunityClaimSessionPath();
+  try {
+    await assertOwnedNonSymlink(filePath, 'file');
+    const content = await fs.readFile(filePath, 'utf8');
+    await fs.chmod(filePath, PRIVATE_FILE_MODE);
+    return parseStoredCommunityClaimSession(JSON.parse(content) as unknown);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if (error instanceof SyntaxError) {
+      throw new CommunityClaimSessionStorageError(
+        'CLAIM_SESSION_STORAGE_CORRUPT',
+        'Stored Community claim session contains invalid JSON.',
         500,
       );
     }
@@ -540,6 +741,95 @@ export async function removeCommunityInstanceToken(input: {
       );
     }
     await fs.rm(resolveCommunityInstanceTokenPath(), { force: true });
+    await syncDirectory(communityInstanceTokenDirectory());
+    return true;
+  });
+}
+
+export async function loadCommunityClaimSession(
+  expectedInstanceId?: string,
+): Promise<CommunityClaimSessionSecret | null> {
+  const localInstanceId = requireLocalInstanceId(expectedInstanceId);
+  const stored = await readStoredClaimSessionIfExists();
+  if (!stored) return null;
+  if (stored.instanceId !== localInstanceId) {
+    throw new CommunityClaimSessionStorageError(
+      'CLAIM_SESSION_CONFLICT',
+      'Stored Community claim session belongs to another Notebook instance.',
+    );
+  }
+  const {
+    schemaVersion: _schemaVersion,
+    protocolVersion: _protocolVersion,
+    ...session
+  } = stored;
+  return session;
+}
+
+function storedClaimSession(input: CommunityClaimSessionSecret): StoredCommunityClaimSession {
+  const parsed = parseStoredCommunityClaimSession({
+    ...input,
+    schemaVersion: COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION,
+    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
+  });
+  requireLocalInstanceId(parsed.instanceId);
+  return parsed;
+}
+
+export async function saveCommunityClaimSession(
+  input: CommunityClaimSessionSecret,
+): Promise<CommunityClaimSessionSecret> {
+  return withClaimSessionMutationLock(async () => {
+    const next = storedClaimSession(input);
+    const existing = await readStoredClaimSessionIfExists();
+    if (existing && existing.claimId !== next.claimId && Date.parse(existing.expiresAt) > Date.now()) {
+      throw new CommunityClaimSessionStorageError(
+        'CLAIM_SESSION_CONFLICT',
+        'Another Community claim session is already active.',
+      );
+    }
+    await writePrivateLicenseFileAtomic(COMMUNITY_CLAIM_SESSION_FILE, next);
+    return loadCommunityClaimSession(next.instanceId) as Promise<CommunityClaimSessionSecret>;
+  });
+}
+
+export async function updateCommunityClaimSession(
+  expectedClaimId: string,
+  input: CommunityClaimSessionSecret,
+): Promise<CommunityClaimSessionSecret> {
+  return withClaimSessionMutationLock(async () => {
+    const existing = await readStoredClaimSessionIfExists();
+    if (!existing) {
+      throw new CommunityClaimSessionStorageError(
+        'CLAIM_SESSION_NOT_FOUND',
+        'No Community claim session is active.',
+        404,
+      );
+    }
+    if (existing.claimId !== expectedClaimId || input.claimId !== expectedClaimId) {
+      throw new CommunityClaimSessionStorageError(
+        'CLAIM_SESSION_CONFLICT',
+        'The Community claim session changed before it could be updated.',
+      );
+    }
+    const next = storedClaimSession(input);
+    await writePrivateLicenseFileAtomic(COMMUNITY_CLAIM_SESSION_FILE, next);
+    return loadCommunityClaimSession(next.instanceId) as Promise<CommunityClaimSessionSecret>;
+  });
+}
+
+export async function removeCommunityClaimSession(expectedClaimId?: string): Promise<boolean> {
+  return withClaimSessionMutationLock(async () => {
+    const existing = await readStoredClaimSessionIfExists();
+    if (!existing) return false;
+    if (expectedClaimId && existing.claimId !== expectedClaimId) {
+      throw new CommunityClaimSessionStorageError(
+        'CLAIM_SESSION_CONFLICT',
+        'The Community claim session changed before it could be removed.',
+      );
+    }
+    requireLocalInstanceId(existing.instanceId);
+    await fs.rm(resolveCommunityClaimSessionPath(), { force: true });
     await syncDirectory(communityInstanceTokenDirectory());
     return true;
   });

@@ -163,6 +163,7 @@
     "test:team-seat-outbox": "tsx --conditions react-server scripts/team-seat-outbox-test.ts",
     "test:community-instance-token-storage": "tsx --conditions react-server scripts/community-instance-token-storage-test.ts",
     "test:team-seat-legacy-migration": "tsx --conditions react-server scripts/team-seat-legacy-migration-test.ts",
+    "test:community-license-claim": "tsx --conditions react-server scripts/community-license-claim-client-test.ts",
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
     "licenses:generate": "tsx scripts/generate-third-party-notices.ts",
     "licenses:refresh-cache": "tsx scripts/refresh-third-party-license-cache.ts && npm run licenses:generate",

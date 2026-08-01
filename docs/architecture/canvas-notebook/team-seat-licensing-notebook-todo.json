@@ -274,7 +274,7 @@
         {
           "id": "NB-TS-020",
           "title": "Device-Claim-Client implementieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-client",
           "description": "Claim starten, User-Code und Verification URL verarbeiten, Status mit Device-Code pollen und das Instanz-Token einmalig übernehmen.",
