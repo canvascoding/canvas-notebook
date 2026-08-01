@@ -90,6 +90,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'notebook.image_import',
   'notebook.collaboration.yjs',
   'files.browse',
+  'files.html_preview',
   'files.mutate',
   'files.excalidraw_edit',
   'files.copy',

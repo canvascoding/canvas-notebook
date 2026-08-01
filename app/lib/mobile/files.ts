@@ -31,12 +31,12 @@ const WORD_EXTENSIONS = new Set(['doc', 'docx', 'rtf']);
 const SPREADSHEET_EXTENSIONS = new Set(['csv', 'ods', 'tsv', 'xls', 'xlsx']);
 const PRESENTATION_EXTENSIONS = new Set(['odp', 'ppt', 'pptx']);
 const DOCUMENT_EXTENSIONS = new Set([
-  'csv', 'doc', 'docx', 'html', 'json', 'log', 'markdown', 'md', 'odp', 'ods', 'pdf', 'ppt', 'pptx', 'rtf', 'text',
+  'csv', 'doc', 'docx', 'htm', 'html', 'json', 'log', 'markdown', 'md', 'odp', 'ods', 'pdf', 'ppt', 'pptx', 'rtf', 'text',
   'tsv', 'txt', 'xls', 'xlsx', 'xml', 'yaml', 'yml',
 ]);
 const ARCHIVE_EXTENSIONS = new Set(['7z', 'bz2', 'gz', 'rar', 'tar', 'tgz', 'zip']);
 const TEXT_EXTENSIONS = new Set([
-  'css', 'csv', 'html', 'ini', 'js', 'json', 'jsx', 'log', 'markdown', 'md', 'mjs', 'py', 'sh', 'toml', 'ts', 'tsx',
+  'css', 'csv', 'htm', 'html', 'ini', 'js', 'json', 'jsx', 'log', 'markdown', 'md', 'mjs', 'py', 'sh', 'toml', 'ts', 'tsx',
   'tsv', 'txt', 'xml', 'yaml', 'yml',
 ]);
 

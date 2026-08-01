@@ -12,9 +12,16 @@ async function main() {
   try {
     const workspaceRoot = path.join(process.env.DATA, 'workspace');
     await fs.mkdir(path.join(workspaceRoot, 'Projects'), { recursive: true });
+    await fs.mkdir(path.join(workspaceRoot, 'Projects', 'assets'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'Readme.txt'), 'Mobile file preview.');
     await fs.writeFile(path.join(workspaceRoot, 'Cover.png'), Buffer.from([0x89, 0x50, 0x4e, 0x47]));
     await fs.writeFile(path.join(workspaceRoot, 'Projects', 'Brief.md'), '# Brief');
+    await fs.writeFile(
+      path.join(workspaceRoot, 'Projects', 'Dashboard.html'),
+      '<!doctype html><html><head><link rel="stylesheet" href="assets/site.css"></head><body><a href="Details.html">Details</a></body></html>',
+    );
+    await fs.writeFile(path.join(workspaceRoot, 'Projects', 'Details.html'), '<!doctype html><h1>Details</h1>');
+    await fs.writeFile(path.join(workspaceRoot, 'Projects', 'assets', 'site.css'), 'body { color: rebeccapurple; }');
     await fs.writeFile(path.join(workspaceRoot, 'Drawing.excalidraw'), JSON.stringify({
       type: 'excalidraw',
       version: 2,
@@ -77,6 +84,29 @@ async function main() {
     assert.equal(image.previewMode, 'image');
     assert.equal(image.mimeType, 'image/png');
 
+    const html = await readMobileFileDetail({ workspace, fileOptions, path: 'Projects/Dashboard.html' });
+    assert.equal(html.openKind, 'text');
+    assert.equal(html.previewMode, 'text');
+    assert.match(html.content || '', /assets\/site\.css/u);
+    const { createWorkspaceHtmlPreviewResponse } = await import('../app/lib/html-preview-response');
+    const renderedHtml = await createWorkspaceHtmlPreviewResponse({
+      filePath: 'Projects/Dashboard.html',
+      fileOptions,
+      routePrefix: '/api/mobile/v1/files/html-preview/test-ticket',
+    });
+    assert.equal(renderedHtml.headers.get('referrer-policy'), 'no-referrer');
+    assert.match(
+      await renderedHtml.text(),
+      /<base href="\/api\/mobile\/v1\/files\/html-preview\/test-ticket\/Projects\/">/u,
+    );
+    const renderedCss = await createWorkspaceHtmlPreviewResponse({
+      filePath: 'Projects/assets/site.css',
+      fileOptions,
+      routePrefix: '/api/mobile/v1/files/html-preview/test-ticket',
+    });
+    assert.equal(renderedCss.headers.get('content-type'), 'text/css; charset=utf-8');
+    assert.equal(await renderedCss.text(), 'body { color: rebeccapurple; }');
+
     const drawing = await readMobileExcalidrawDocument({
       workspace,
       fileOptions,
@@ -132,7 +162,10 @@ async function main() {
     assert.equal(await fs.readFile(path.join(workspaceRoot, 'Readme.txt'), 'utf8'), 'Mobile file preview.');
 
     assert.equal(mobileFileCategory('clip.mp4', 'file'), 'video');
+    assert.equal(mobileFileCategory('legacy.htm', 'file'), 'document');
     assert.equal(mobileFileOpenKind('note.md', 'file'), 'markdown');
+    assert.equal(mobileFileOpenKind('dashboard.html', 'file'), 'text');
+    assert.equal(mobileFileOpenKind('legacy.htm', 'file'), 'text');
     assert.equal(mobileFileOpenKind('document.docx', 'file'), 'word');
     assert.equal(mobileFileOpenKind('workbook.xlsx', 'file'), 'spreadsheet');
     assert.equal(mobileFileOpenKind('deck.pptx', 'file'), 'presentation');
@@ -155,6 +188,9 @@ async function main() {
     const marpImagesAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/export/marp-images/route.ts'), 'utf8');
     const uploadAlias = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/uploads/[id]/route.ts'), 'utf8');
     const excalidrawRoute = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/excalidraw/route.ts'), 'utf8');
+    const htmlTicketRoute = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/html-preview-ticket/route.ts'), 'utf8');
+    const htmlPreviewRoute = await fs.readFile(path.join(process.cwd(), 'app/api/mobile/v1/files/html-preview/[ticket]/[...path]/route.ts'), 'utf8');
+    const proxy = await fs.readFile(path.join(process.cwd(), 'proxy.ts'), 'utf8');
     assert.match(blobAlias, /api\/files\/download\/route/u);
     assert.match(copyAlias, /api\/files\/copy\/route/u);
     assert.match(markdownPdfAlias, /api\/files\/markdown-pdf\/route/u);
@@ -164,6 +200,51 @@ async function main() {
     assert.match(uploadAlias, /DELETE, GET, PUT/u);
     assert.match(excalidrawRoute, /readMobileExcalidrawDocument/u);
     assert.match(excalidrawRoute, /saveMobileExcalidrawDocument/u);
+    assert.match(htmlTicketRoute, /issueMobileHtmlPreviewTicket/u);
+    assert.match(htmlPreviewRoute, /resolveMobileHtmlPreviewTicket/u);
+    assert.match(proxy, /isMobileHtmlPreviewRoute/u);
+    assert.match(proxy, /html-preview\\\/\[A-Za-z0-9_-\]\{43\}/u);
+    const publicPrefixDeclaration = proxy.match(/const PUBLIC_PREFIX_ROUTES = \[[^\]]*\]/u)?.[0] || '';
+    assert.doesNotMatch(publicPrefixDeclaration, /html-preview/u);
+
+    const {
+      issueMobileHtmlPreviewTicket,
+      mobileHtmlPreviewPath,
+      MOBILE_HTML_PREVIEW_TICKET_TTL_MS,
+      resolveMobileHtmlPreviewTicket,
+    } = await import('../app/lib/mobile/html-preview-ticket');
+    const issuedAt = 10_000;
+    const issued = issueMobileHtmlPreviewTicket({
+      userId: 'files-user',
+      sessionId: 'auth-session',
+      rootHtmlPath: 'Projects/Dashboard.html',
+      workspace,
+    }, issuedAt);
+    assert.match(issued.ticket, /^[A-Za-z0-9_-]{43}$/u);
+    assert.equal(
+      mobileHtmlPreviewPath(issued.ticket, 'Projects/Quarter 2/Dashboard.html'),
+      `/api/mobile/v1/files/html-preview/${issued.ticket}/Projects/Quarter%202/Dashboard.html`,
+    );
+    assert.equal(
+      resolveMobileHtmlPreviewTicket(issued.ticket, issuedAt + 1)?.workspace.workspaceId,
+      workspace.workspaceId,
+    );
+    assert.equal(
+      resolveMobileHtmlPreviewTicket(issued.ticket, issuedAt + MOBILE_HTML_PREVIEW_TICKET_TTL_MS),
+      null,
+    );
+    const { NextRequest } = await import('next/server');
+    const { default: serverProxy } = await import('../proxy');
+    const ticketAssetRequest = new NextRequest(
+      `https://canvas.example/api/mobile/v1/files/html-preview/${issued.ticket}/Projects/assets/site.css`,
+    );
+    const ticketAssetProxyResponse = await serverProxy(ticketAssetRequest);
+    assert.equal(ticketAssetProxyResponse.headers.get('x-middleware-next'), '1');
+    const untrustedTicketIssueResponse = await serverProxy(new NextRequest(
+      'https://canvas.example/api/mobile/v1/files/html-preview-ticket',
+      { method: 'POST' },
+    ));
+    assert.equal(untrustedTicketIssueResponse.status, 401);
 
     await closeDatabaseConnections();
     console.log('mobile-files-test: ok');

@@ -50,6 +50,10 @@ function isPublicShareRoute(pathname: string) {
   return PUBLIC_SHARE_PREFIX_ROUTES.some((route) => pathname.startsWith(route));
 }
 
+function isMobileHtmlPreviewRoute(pathname: string) {
+  return /^\/api\/mobile\/v1\/files\/html-preview\/[A-Za-z0-9_-]{43}(?:\/|$)/u.test(pathname);
+}
+
 function getLocaleFromPathname(pathname: string) {
   for (const locale of routing.locales) {
     if (pathname === `/${locale}` || pathname.startsWith(`/${locale}/`)) {
@@ -310,6 +314,13 @@ export default async function middleware(request: NextRequest) {
   }
 
   if (isPublicShareRoute(pathname)) {
+    return NextResponse.next();
+  }
+
+  // Mobile HTML previews use a short-lived, read-only ticket instead of exposing
+  // the Better Auth session to untrusted WebView content. The route verifies the
+  // opaque ticket and workspace scope before serving HTML or a relative asset.
+  if (isMobileHtmlPreviewRoute(pathname)) {
     return NextResponse.next();
   }
 
