@@ -11,6 +11,25 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.1.2] - 2026-08-01
+
+### Added
+
+- Added cooperative control support for shared Browser Lab sessions and mobile Notebook collaboration tickets.
+
+### Changed
+
+- Optimized Browser Lab controls, layout, and interactions for mobile touch devices.
+
+### Fixed
+
+- Hardened Browser Lab session targeting and ticket-based file-view flows for reliable interactive use.
+
+### Verification
+
+- `npm run licenses:refresh-cache`
+- `npm run verify:release`
+
 ## [2026.8.1.1] - 2026-08-01
 
 ### Added
