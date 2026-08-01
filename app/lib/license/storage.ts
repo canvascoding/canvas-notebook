@@ -1,9 +1,549 @@
 import 'server-only';
 
+import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
+import { promises as fs } from 'node:fs';
+import path from 'node:path';
+
 import { desc, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { licenseCerts } from '@/app/lib/db/schema';
+import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
+import {
+  TEAM_SEAT_INSTANCE_TOKEN_SCOPES,
+  TEAM_SEAT_PROTOCOL_VERSION,
+  type TeamSeatInstanceTokenScope,
+} from './team-seat-contract';
+import { getLicenseInstanceId } from './instance';
 import type { LicenseCert } from './types';
+
+const COMMUNITY_INSTANCE_TOKEN_DIRECTORY = 'license';
+const COMMUNITY_INSTANCE_TOKEN_FILE = 'community-instance-token.json';
+const COMMUNITY_INSTANCE_TOKEN_SCHEMA_VERSION = 1;
+const PRIVATE_DIRECTORY_MODE = 0o700;
+const PRIVATE_FILE_MODE = 0o600;
+
+type StoredCommunityInstanceToken = {
+  schemaVersion: typeof COMMUNITY_INSTANCE_TOKEN_SCHEMA_VERSION;
+  protocolVersion: typeof TEAM_SEAT_PROTOCOL_VERSION;
+  instanceId: string;
+  tokenType: 'Bearer';
+  token: string;
+  scopes: TeamSeatInstanceTokenScope[];
+  expiresAt: string | null;
+  generation: number;
+  createdAt: string;
+  rotatedAt: string | null;
+  updatedAt: string;
+};
+
+export type CommunityInstanceTokenSecret = {
+  instanceId: string;
+  tokenType: 'Bearer';
+  instanceToken: string;
+  scopes: TeamSeatInstanceTokenScope[];
+  expiresAt: string | null;
+  generation: number;
+  createdAt: string;
+  rotatedAt: string | null;
+  updatedAt: string;
+};
+
+export type CommunityInstanceTokenStatus = {
+  configured: boolean;
+  instanceId: string | null;
+  tokenPrefix: string | null;
+  scopes: TeamSeatInstanceTokenScope[];
+  expiresAt: string | null;
+  expired: boolean;
+  generation: number | null;
+  createdAt: string | null;
+  rotatedAt: string | null;
+  updatedAt: string | null;
+};
+
+export class CommunityInstanceTokenStorageError extends Error {
+  constructor(
+    public readonly code:
+      | 'TOKEN_INVALID'
+      | 'TOKEN_ALREADY_STORED'
+      | 'TOKEN_NOT_FOUND'
+      | 'TOKEN_ROTATION_CONFLICT'
+      | 'TOKEN_INSTANCE_MISMATCH'
+      | 'TOKEN_STORAGE_UNSAFE'
+      | 'TOKEN_STORAGE_CORRUPT',
+    message: string,
+    public readonly status = 409,
+  ) {
+    super(message);
+    this.name = 'CommunityInstanceTokenStorageError';
+  }
+}
+
+let tokenMutationQueue: Promise<void> = Promise.resolve();
+
+function normalizeInstanceId(value: string): string {
+  const normalized = value.trim();
+  if (
+    normalized.length < 8
+    || normalized.length > 128
+    || /[\s\0]/u.test(normalized)
+  ) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_INVALID',
+      'A valid Community license instance ID is required.',
+      400,
+    );
+  }
+  return normalized;
+}
+
+function requireLocalInstanceId(value?: string): string {
+  const localInstanceId = normalizeInstanceId(getLicenseInstanceId());
+  if (value !== undefined && normalizeInstanceId(value) !== localInstanceId) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_INSTANCE_MISMATCH',
+      'Community instance token identity does not match this Notebook instance.',
+      409,
+    );
+  }
+  return localInstanceId;
+}
+
+function normalizeToken(value: string): string {
+  const normalized = value.trim();
+  if (
+    normalized !== value
+    || normalized.length < 32
+    || normalized.length > 512
+    || !/^[A-Za-z0-9._~-]+$/u.test(normalized)
+  ) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_INVALID',
+      'The Community instance token has an invalid format.',
+      400,
+    );
+  }
+  return normalized;
+}
+
+function normalizeScopes(value: readonly TeamSeatInstanceTokenScope[]): TeamSeatInstanceTokenScope[] {
+  const validScopes = new Set<string>(TEAM_SEAT_INSTANCE_TOKEN_SCOPES);
+  const normalized = [...new Set(value)];
+  if (
+    normalized.length === 0
+    || normalized.some((scope) => !validScopes.has(scope))
+  ) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_INVALID',
+      'The Community instance token contains unsupported or missing scopes.',
+      400,
+    );
+  }
+  return normalized.sort();
+}
+
+function normalizeTimestamp(value: string | null | undefined, field: string): string | null {
+  if (value === undefined || value === null) return null;
+  const timestamp = Date.parse(value);
+  if (!Number.isFinite(timestamp)) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_INVALID',
+      `The Community instance token ${field} timestamp is invalid.`,
+      400,
+    );
+  }
+  return new Date(timestamp).toISOString();
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === 'object' && !Array.isArray(value));
+}
+
+function parsePositiveInteger(value: unknown, field: string): number {
+  if (!Number.isSafeInteger(value) || Number(value) < 1) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_STORAGE_CORRUPT',
+      `Stored Community instance token ${field} is invalid.`,
+      500,
+    );
+  }
+  return Number(value);
+}
+
+function parseStoredCommunityInstanceToken(value: unknown): StoredCommunityInstanceToken {
+  if (!isRecord(value)) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_STORAGE_CORRUPT',
+      'Stored Community instance token is not a JSON object.',
+      500,
+    );
+  }
+  if (
+    value.schemaVersion !== COMMUNITY_INSTANCE_TOKEN_SCHEMA_VERSION
+    || value.protocolVersion !== TEAM_SEAT_PROTOCOL_VERSION
+    || value.tokenType !== 'Bearer'
+    || typeof value.instanceId !== 'string'
+    || typeof value.token !== 'string'
+    || !Array.isArray(value.scopes)
+    || !value.scopes.every((scope) => typeof scope === 'string')
+    || (value.expiresAt !== null && typeof value.expiresAt !== 'string')
+    || typeof value.createdAt !== 'string'
+    || (value.rotatedAt !== null && typeof value.rotatedAt !== 'string')
+    || typeof value.updatedAt !== 'string'
+  ) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_STORAGE_CORRUPT',
+      'Stored Community instance token has an unsupported schema.',
+      500,
+    );
+  }
+  return {
+    schemaVersion: COMMUNITY_INSTANCE_TOKEN_SCHEMA_VERSION,
+    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
+    instanceId: normalizeInstanceId(value.instanceId),
+    tokenType: 'Bearer',
+    token: normalizeToken(value.token),
+    scopes: normalizeScopes(value.scopes as TeamSeatInstanceTokenScope[]),
+    expiresAt: normalizeTimestamp(value.expiresAt, 'expiry'),
+    generation: parsePositiveInteger(value.generation, 'generation'),
+    createdAt: normalizeTimestamp(value.createdAt, 'createdAt')!,
+    rotatedAt: normalizeTimestamp(value.rotatedAt, 'rotatedAt'),
+    updatedAt: normalizeTimestamp(value.updatedAt, 'updatedAt')!,
+  };
+}
+
+function toSecret(stored: StoredCommunityInstanceToken): CommunityInstanceTokenSecret {
+  return {
+    instanceId: stored.instanceId,
+    tokenType: 'Bearer',
+    instanceToken: stored.token,
+    scopes: [...stored.scopes],
+    expiresAt: stored.expiresAt,
+    generation: stored.generation,
+    createdAt: stored.createdAt,
+    rotatedAt: stored.rotatedAt,
+    updatedAt: stored.updatedAt,
+  };
+}
+
+function tokensEqual(left: string, right: string): boolean {
+  const leftHash = createHash('sha256').update(left).digest();
+  const rightHash = createHash('sha256').update(right).digest();
+  return timingSafeEqual(leftHash, rightHash);
+}
+
+async function withTokenMutationLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = tokenMutationQueue;
+  let release = () => {};
+  tokenMutationQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
+function communityInstanceTokenDirectory(): string {
+  return path.join(resolveSecretsDir(), COMMUNITY_INSTANCE_TOKEN_DIRECTORY);
+}
+
+export function resolveCommunityInstanceTokenPath(): string {
+  return path.join(communityInstanceTokenDirectory(), COMMUNITY_INSTANCE_TOKEN_FILE);
+}
+
+async function assertOwnedNonSymlink(targetPath: string, expectedType: 'directory' | 'file'): Promise<void> {
+  let stats;
+  try {
+    stats = await fs.lstat(targetPath);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return;
+    throw error;
+  }
+  const typeMatches = expectedType === 'directory' ? stats.isDirectory() : stats.isFile();
+  if (stats.isSymbolicLink() || !typeMatches) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_STORAGE_UNSAFE',
+      `Community instance token ${expectedType} is not a regular ${expectedType}.`,
+      500,
+    );
+  }
+  if (typeof process.getuid === 'function' && stats.uid !== process.getuid()) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_STORAGE_UNSAFE',
+      `Community instance token ${expectedType} is owned by another operating-system user.`,
+      500,
+    );
+  }
+}
+
+async function ensurePrivateTokenDirectory(): Promise<string> {
+  const secretsRoot = resolveSecretsDir();
+  const directory = communityInstanceTokenDirectory();
+  await fs.mkdir(secretsRoot, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  await assertOwnedNonSymlink(secretsRoot, 'directory');
+  await fs.chmod(secretsRoot, PRIVATE_DIRECTORY_MODE);
+  await fs.mkdir(directory, { recursive: true, mode: PRIVATE_DIRECTORY_MODE });
+  await assertOwnedNonSymlink(directory, 'directory');
+  await fs.chmod(directory, PRIVATE_DIRECTORY_MODE);
+  return directory;
+}
+
+async function syncDirectory(directory: string): Promise<void> {
+  const handle = await fs.open(directory, 'r').catch(() => null);
+  if (!handle) return;
+  try {
+    await handle.sync().catch(() => undefined);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function writeStoredTokenAtomic(stored: StoredCommunityInstanceToken): Promise<void> {
+  const directory = await ensurePrivateTokenDirectory();
+  const filePath = resolveCommunityInstanceTokenPath();
+  await assertOwnedNonSymlink(filePath, 'file');
+  const temporaryPath = path.join(
+    directory,
+    `.${COMMUNITY_INSTANCE_TOKEN_FILE}.tmp-${process.pid}-${randomUUID()}`,
+  );
+  let handle: Awaited<ReturnType<typeof fs.open>> | null = null;
+  try {
+    handle = await fs.open(temporaryPath, 'wx', PRIVATE_FILE_MODE);
+    await handle.writeFile(`${JSON.stringify(stored, null, 2)}\n`, 'utf8');
+    await handle.sync();
+    await handle.chmod(PRIVATE_FILE_MODE);
+    await handle.close();
+    handle = null;
+    await fs.rename(temporaryPath, filePath);
+    await fs.chmod(filePath, PRIVATE_FILE_MODE);
+    await syncDirectory(directory);
+  } catch (error) {
+    await handle?.close().catch(() => undefined);
+    await fs.rm(temporaryPath, { force: true }).catch(() => undefined);
+    throw error;
+  }
+}
+
+async function readStoredTokenIfExists(): Promise<StoredCommunityInstanceToken | null> {
+  const filePath = resolveCommunityInstanceTokenPath();
+  try {
+    await assertOwnedNonSymlink(filePath, 'file');
+    const content = await fs.readFile(filePath, 'utf8');
+    await fs.chmod(filePath, PRIVATE_FILE_MODE);
+    return parseStoredCommunityInstanceToken(JSON.parse(content) as unknown);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if (error instanceof SyntaxError) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_STORAGE_CORRUPT',
+        'Stored Community instance token contains invalid JSON.',
+        500,
+      );
+    }
+    throw error;
+  }
+}
+
+function statusFromStored(stored: StoredCommunityInstanceToken | null): CommunityInstanceTokenStatus {
+  return {
+    configured: Boolean(stored),
+    instanceId: stored?.instanceId ?? null,
+    tokenPrefix: stored ? communityInstanceTokenPrefix(stored.token) : null,
+    scopes: stored ? [...stored.scopes] : [],
+    expiresAt: stored?.expiresAt ?? null,
+    expired: Boolean(stored?.expiresAt && Date.parse(stored.expiresAt) <= Date.now()),
+    generation: stored?.generation ?? null,
+    createdAt: stored?.createdAt ?? null,
+    rotatedAt: stored?.rotatedAt ?? null,
+    updatedAt: stored?.updatedAt ?? null,
+  };
+}
+
+export function communityInstanceTokenPrefix(token: string): string {
+  const normalized = normalizeToken(token);
+  return `${normalized.slice(0, 12)}…`;
+}
+
+export async function loadCommunityInstanceToken(
+  expectedInstanceId?: string,
+): Promise<CommunityInstanceTokenSecret | null> {
+  const localInstanceId = requireLocalInstanceId(expectedInstanceId);
+  const stored = await readStoredTokenIfExists();
+  if (!stored) return null;
+  if (stored.instanceId !== localInstanceId) {
+    throw new CommunityInstanceTokenStorageError(
+      'TOKEN_INSTANCE_MISMATCH',
+      'Stored Community instance token belongs to another instance.',
+      409,
+    );
+  }
+  return toSecret(stored);
+}
+
+export async function getCommunityInstanceTokenStatus(
+  expectedInstanceId?: string,
+): Promise<CommunityInstanceTokenStatus> {
+  const stored = await loadCommunityInstanceToken(expectedInstanceId);
+  if (!stored) return statusFromStored(null);
+  return {
+    configured: true,
+    instanceId: stored.instanceId,
+    tokenPrefix: communityInstanceTokenPrefix(stored.instanceToken),
+    scopes: [...stored.scopes],
+    expiresAt: stored.expiresAt,
+    expired: Boolean(stored.expiresAt && Date.parse(stored.expiresAt) <= Date.now()),
+    generation: stored.generation,
+    createdAt: stored.createdAt,
+    rotatedAt: stored.rotatedAt,
+    updatedAt: stored.updatedAt,
+  };
+}
+
+export async function saveCommunityInstanceToken(input: {
+  instanceId: string;
+  instanceToken: string;
+  tokenType: 'Bearer';
+  scopes: TeamSeatInstanceTokenScope[];
+  expiresAt: string | null;
+  now?: Date;
+}): Promise<CommunityInstanceTokenStatus> {
+  return withTokenMutationLock(async () => {
+    if (input.tokenType !== 'Bearer') {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_INVALID',
+        'Only Bearer Community instance tokens are supported.',
+        400,
+      );
+    }
+    const instanceId = requireLocalInstanceId(input.instanceId);
+    const token = normalizeToken(input.instanceToken);
+    const scopes = normalizeScopes(input.scopes);
+    const expiresAt = normalizeTimestamp(input.expiresAt, 'expiry');
+    const existing = await readStoredTokenIfExists();
+    if (existing) {
+      if (
+        existing.instanceId === instanceId
+        && tokensEqual(existing.token, token)
+        && existing.expiresAt === expiresAt
+        && JSON.stringify(existing.scopes) === JSON.stringify(scopes)
+      ) {
+        return statusFromStored(existing);
+      }
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_ALREADY_STORED',
+        'A Community instance token already exists. Use the rotation operation to replace it.',
+      );
+    }
+    const now = (input.now ?? new Date()).toISOString();
+    const stored: StoredCommunityInstanceToken = {
+      schemaVersion: COMMUNITY_INSTANCE_TOKEN_SCHEMA_VERSION,
+      protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
+      instanceId,
+      tokenType: 'Bearer',
+      token,
+      scopes,
+      expiresAt,
+      generation: 1,
+      createdAt: now,
+      rotatedAt: null,
+      updatedAt: now,
+    };
+    await writeStoredTokenAtomic(stored);
+    return statusFromStored(stored);
+  });
+}
+
+export async function rotateCommunityInstanceToken(input: {
+  instanceId: string;
+  previousToken: string;
+  instanceToken: string;
+  tokenType: 'Bearer';
+  scopes: TeamSeatInstanceTokenScope[];
+  expiresAt: string | null;
+  now?: Date;
+}): Promise<CommunityInstanceTokenStatus> {
+  return withTokenMutationLock(async () => {
+    if (input.tokenType !== 'Bearer') {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_INVALID',
+        'Only Bearer Community instance tokens are supported.',
+        400,
+      );
+    }
+    const existing = await readStoredTokenIfExists();
+    if (!existing) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_NOT_FOUND',
+        'No Community instance token is stored.',
+        404,
+      );
+    }
+    const instanceId = requireLocalInstanceId(input.instanceId);
+    const previousToken = normalizeToken(input.previousToken);
+    const nextToken = normalizeToken(input.instanceToken);
+    if (existing.instanceId !== instanceId) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_INSTANCE_MISMATCH',
+        'Stored Community instance token belongs to another instance.',
+      );
+    }
+    if (!tokensEqual(existing.token, previousToken)) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_ROTATION_CONFLICT',
+        'The stored Community instance token changed before rotation completed.',
+      );
+    }
+    if (tokensEqual(existing.token, nextToken)) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_ROTATION_CONFLICT',
+        'Community instance token rotation must provide a new token.',
+      );
+    }
+    const now = (input.now ?? new Date()).toISOString();
+    const rotated: StoredCommunityInstanceToken = {
+      ...existing,
+      token: nextToken,
+      scopes: normalizeScopes(input.scopes),
+      expiresAt: normalizeTimestamp(input.expiresAt, 'expiry'),
+      generation: existing.generation + 1,
+      rotatedAt: now,
+      updatedAt: now,
+    };
+    await writeStoredTokenAtomic(rotated);
+    return statusFromStored(rotated);
+  });
+}
+
+export async function removeCommunityInstanceToken(input: {
+  instanceId: string;
+  expectedToken?: string;
+}): Promise<boolean> {
+  return withTokenMutationLock(async () => {
+    const existing = await readStoredTokenIfExists();
+    if (!existing) return false;
+    if (existing.instanceId !== requireLocalInstanceId(input.instanceId)) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_INSTANCE_MISMATCH',
+        'Stored Community instance token belongs to another instance.',
+      );
+    }
+    if (
+      input.expectedToken !== undefined
+      && !tokensEqual(existing.token, normalizeToken(input.expectedToken))
+    ) {
+      throw new CommunityInstanceTokenStorageError(
+        'TOKEN_ROTATION_CONFLICT',
+        'The stored Community instance token changed before deletion completed.',
+      );
+    }
+    await fs.rm(resolveCommunityInstanceTokenPath(), { force: true });
+    await syncDirectory(communityInstanceTokenDirectory());
+    return true;
+  });
+}
 
 export async function loadStoredLicenseCert(instanceId: string): Promise<string | null> {
   const [row] = await db

@@ -211,7 +211,7 @@
         {
           "id": "NB-TS-012",
           "title": "Community-Instanz-Token sicher speichern",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "security-storage",
           "description": "Serverseitige Speicherung, Zugriff, Rotation und Löschung des Community-Instanz-Tokens außerhalb des Browser-Kontexts implementieren.",
