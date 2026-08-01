@@ -4,8 +4,10 @@ import {
   ArrowLeft,
   ArrowLeftRight,
   Bot,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
+  ChevronUp,
   CircleDot,
   CircleStop,
   ClipboardPaste,
@@ -109,7 +111,7 @@ const copy = {
     description: 'Dieselbe Chromium-Seite beobachten und steuern, die der Agent in seiner Session verwendet.',
     liveEyebrow: 'Aktueller Chat',
     liveTitle: 'Live-Browser',
-    liveDescription: 'Verfolge die Browserarbeit des Agenten live oder übernimm die Steuerung, wenn du selbst eingreifen möchtest.',
+    liveDescription: 'Verfolge die Browserarbeit live und interagiere jederzeit, ohne den Agenten anzuhalten.',
     backToChat: 'Zurück zum Chat',
     openChat: 'Chat öffnen',
     currentChat: 'Aktueller Chat',
@@ -118,6 +120,9 @@ const copy = {
     contextUnavailable: 'Dieser Chat ist für die Live-Browser-Ansicht nicht mehr verfügbar.',
     agent: 'Agent',
     session: 'Chat-Session',
+    sessionSetup: 'Browser-Session',
+    showSessionSetup: 'Agent oder Session ändern',
+    hideSessionSetup: 'Session-Auswahl einklappen',
     chooseSession: 'Session auswählen',
     noSessions: 'Keine PI-Chat-Session für diesen Agenten vorhanden.',
     connect: 'Live-Ansicht starten',
@@ -148,13 +153,13 @@ const copy = {
     clipboardReadBlocked: 'Zwischenablage konnte nicht gelesen werden. Fokussiere das Browserbild und verwende ⌘/Ctrl+V.',
     clipboardWriteBlocked: 'Die Auswahl konnte nicht in die Zwischenablage geschrieben werden.',
     clipboardTooLarge: 'Der Zwischenablagentext ist zu groß.',
-    takeControl: 'Übernehmen',
-    giveAgent: 'An Agenten geben',
+    takeControl: 'Interagieren',
+    giveAgent: 'Interaktion beenden',
     viewOnly: 'Nur ansehen',
     modeAgent: 'Agent steuert',
-    modeUser: 'Nutzer steuert',
+    modeUser: 'Gemeinsam aktiv',
     modeView: 'Ansehen',
-    takeoverWarning: 'Eine laufende Agentenantwort wird bei der Übernahme kontrolliert abgebrochen.',
+    takeoverWarning: 'Du kannst klicken und tippen, während der Agent weiterarbeitet. Gleichzeitige Browseraktionen werden automatisch geordnet.',
     emptyTitle: 'Noch kein Browserbild',
     emptyDescription: 'Wähle Agent und Chat-Session aus und starte anschließend die Live-Ansicht.',
     inputHint: 'Klicke in das Browserbild, um Maus und Tastatur dorthin zu senden.',
@@ -216,7 +221,7 @@ const copy = {
     description: 'Observe and control the same Chromium page used by the agent in its session.',
     liveEyebrow: 'Current chat',
     liveTitle: 'Live Browser',
-    liveDescription: 'Follow the agent’s browser work live or take control when you want to step in yourself.',
+    liveDescription: 'Follow the browser work live and interact at any time without stopping the agent.',
     backToChat: 'Back to chat',
     openChat: 'Open chat',
     currentChat: 'Current chat',
@@ -225,6 +230,9 @@ const copy = {
     contextUnavailable: 'This chat is no longer available for the live-browser view.',
     agent: 'Agent',
     session: 'Chat session',
+    sessionSetup: 'Browser session',
+    showSessionSetup: 'Change agent or session',
+    hideSessionSetup: 'Collapse session selection',
     chooseSession: 'Choose a session',
     noSessions: 'No PI chat session exists for this agent.',
     connect: 'Start live view',
@@ -255,13 +263,13 @@ const copy = {
     clipboardReadBlocked: 'The clipboard could not be read. Focus the browser frame and use ⌘/Ctrl+V.',
     clipboardWriteBlocked: 'The selection could not be written to the clipboard.',
     clipboardTooLarge: 'The clipboard text is too large.',
-    takeControl: 'Take control',
-    giveAgent: 'Give to agent',
+    takeControl: 'Interact',
+    giveAgent: 'Stop interacting',
     viewOnly: 'View only',
     modeAgent: 'Agent controls',
-    modeUser: 'User controls',
+    modeUser: 'Working together',
     modeView: 'Viewing',
-    takeoverWarning: 'Taking control cleanly aborts an active agent response.',
+    takeoverWarning: 'You can click and type while the agent keeps working. Simultaneous browser actions are ordered automatically.',
     emptyTitle: 'No browser frame yet',
     emptyDescription: 'Choose an agent and chat session, then start the live view.',
     inputHint: 'Click the browser frame to send mouse and keyboard input.',
@@ -413,6 +421,7 @@ export function BrowserLabClient({
   const [fileSearch, setFileSearch] = useState('');
   const [selectedUploadPath, setSelectedUploadPath] = useState('');
   const [filesLoading, setFilesLoading] = useState(false);
+  const [sessionSetupOpen, setSessionSetupOpen] = useState(true);
   const [clipboardNotice, setClipboardNotice] = useState<{ message: string; tone: 'error' | 'success' } | null>(null);
   const [documentVisible, setDocumentVisible] = useState(true);
   const addressInputRef = useRef<HTMLInputElement | null>(null);
@@ -644,7 +653,11 @@ export function BrowserLabClient({
         method: 'POST',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ agentId: selectedAgentId, sessionId: selectedSessionId }),
+        body: JSON.stringify({
+          agentId: selectedAgentId,
+          sessionId: selectedSessionId,
+          interactionPolicy: 'cooperative',
+        }),
       });
       const payload = await response.json() as ViewTicketResponse;
       if (!response.ok || !payload.success || !payload.data) {
@@ -679,6 +692,7 @@ export function BrowserLabClient({
           }
           setFailure(null);
           setConnectionStatus('live');
+          if (!isLiveView) setSessionSetupOpen(false);
         } else if (message.type === 'frame') {
           setFrameUrl(`data:${message.mimeType};base64,${message.data}`);
           setFrameSequence(message.sequence);
@@ -747,7 +761,7 @@ export function BrowserLabClient({
         error: connectError instanceof Error ? connectError.message : t.errors.CONNECTION_FAILED,
       });
     }
-  }, [connectionStatus, disconnect, frameUrl, selectedAgentId, selectedSessionId, t, viewerEnabled]);
+  }, [connectionStatus, disconnect, frameUrl, isLiveView, selectedAgentId, selectedSessionId, t, viewerEnabled]);
 
   useEffect(() => {
     if (!viewerEnabled || !isLiveView || catalogLoading || !selectedAgentId || !selectedSessionId) return;
@@ -933,15 +947,18 @@ export function BrowserLabClient({
       )}
     >
       {!isEmbedded ? (
-        <section className="shrink-0 border-b border-border/70 px-4 py-4 md:px-6">
-        <div className="mx-auto flex max-w-[1600px] flex-col gap-4 xl:flex-row xl:items-end xl:justify-between">
+        <section className={cn(
+          'shrink-0 border-b border-border/70 px-3 md:px-6',
+          !isLiveView && connectionStatus === 'live' && !sessionSetupOpen ? 'py-2.5 md:py-4' : 'py-4',
+        )}>
+        <div className="mx-auto flex max-w-[1600px] flex-col gap-3 xl:flex-row xl:items-end xl:justify-between">
           <div className="max-w-2xl">
-            <div className="mb-2 flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
+            <div className="mb-1.5 flex items-center gap-2 font-mono text-[10px] font-semibold uppercase tracking-[0.22em] text-primary">
               <CircleDot className="h-3.5 w-3.5" />
               {isLiveView ? t.liveEyebrow : t.eyebrow}
             </div>
-            <h2 className="text-2xl font-semibold tracking-tight md:text-3xl">{isLiveView ? t.liveTitle : t.title}</h2>
-            <p className="mt-1.5 max-w-xl text-sm leading-6 text-muted-foreground">
+            <h2 className="text-xl font-semibold tracking-tight md:text-3xl">{isLiveView ? t.liveTitle : t.title}</h2>
+            <p className="mt-1.5 hidden max-w-xl text-sm leading-6 text-muted-foreground sm:block">
               {isLiveView ? t.liveDescription : t.description}
             </p>
           </div>
@@ -978,8 +995,11 @@ export function BrowserLabClient({
                 ) : null}
               </div>
             </div>
-          ) : (
-            <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(180px,240px)_minmax(240px,360px)_auto]">
+          ) : sessionSetupOpen ? (
+            <div
+              data-testid="browser-lab-session-setup"
+              className="grid min-w-0 gap-3 rounded-lg border border-border/70 bg-background/55 p-3 shadow-sm sm:grid-cols-[minmax(180px,240px)_minmax(240px,360px)] xl:grid-cols-[minmax(180px,240px)_minmax(240px,360px)_auto]"
+            >
               <label className="min-w-0 space-y-1.5 text-xs font-medium text-muted-foreground">
                 <span>{t.agent}</span>
                 <select
@@ -1015,7 +1035,7 @@ export function BrowserLabClient({
                   ))}
                 </select>
               </label>
-              <div className="flex items-end gap-2">
+              <div className="flex flex-wrap items-end gap-2 sm:col-span-2 xl:col-span-1">
                 {selectedSessionId ? (
                   embeddedChat ? (
                     <Button variant="outline" className="h-10 gap-2" onClick={() => openSelectedChat()}>
@@ -1049,7 +1069,63 @@ export function BrowserLabClient({
                     <Unplug className="h-4 w-4" />
                   </Button>
                 ) : null}
+                {selectedSessionId ? (
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="icon"
+                    className="ml-auto h-10 w-10"
+                    aria-label={t.hideSessionSetup}
+                    title={t.hideSessionSetup}
+                    onClick={() => setSessionSetupOpen(false)}
+                  >
+                    <ChevronUp className="h-4 w-4" />
+                  </Button>
+                ) : null}
               </div>
+            </div>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2 xl:max-w-[620px]">
+              <button
+                type="button"
+                data-testid="browser-lab-session-disclosure"
+                aria-expanded="false"
+                aria-label={t.showSessionSetup}
+                title={t.showSessionSetup}
+                onClick={() => setSessionSetupOpen(true)}
+                className="flex min-w-0 flex-1 items-center gap-2 rounded-lg border border-border/70 bg-background/70 px-3 py-2 text-left shadow-sm transition-colors hover:bg-muted/40"
+              >
+                <span className={cn(
+                  'h-2 w-2 shrink-0 rounded-full',
+                  connectionStatus === 'live' ? 'bg-emerald-500' : 'bg-muted-foreground/40',
+                )} aria-label={`${t.status}: ${connectionStatus === 'live' ? t.live : t.disconnected}`} />
+                <Bot className="h-4 w-4 shrink-0 text-primary" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-xs font-medium text-foreground">
+                    {selectedAgent?.name || t.agent}
+                  </span>
+                  <span className="block truncate text-[11px] text-muted-foreground">
+                    {selectedSession?.title || t.sessionSetup}
+                  </span>
+                </span>
+                <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
+              </button>
+              {connectionStatus === 'live' ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="icon"
+                  className="h-10 w-10 shrink-0"
+                  aria-label={t.disconnect}
+                  title={t.disconnect}
+                  onClick={() => {
+                    disconnect();
+                    setSessionSetupOpen(true);
+                  }}
+                >
+                  <Unplug className="h-4 w-4" />
+                </Button>
+              ) : null}
             </div>
           )}
         </div>
@@ -1066,8 +1142,25 @@ export function BrowserLabClient({
           'flex min-w-0 flex-col border-border/70',
           isEmbedded ? 'min-h-0' : 'min-h-[430px] xl:min-h-0 xl:border-r',
         )}>
-          <div className="flex min-h-12 shrink-0 items-center gap-2 border-b border-border/70 bg-muted/25 px-3">
-            <div className="flex min-w-0 flex-1 gap-1 overflow-x-auto py-1.5">
+          <div className="flex min-h-12 shrink-0 items-center gap-1.5 border-b border-border/70 bg-muted/25 px-2 sm:gap-2 sm:px-3">
+            <label className="min-w-0 flex-1 sm:hidden">
+              <span className="sr-only">{t.tabs}</span>
+              <select
+                data-testid="browser-mobile-tab-select"
+                aria-label={t.tabs}
+                value={viewState?.activeTabId ?? ''}
+                disabled={!userControls || !viewState?.tabs.length}
+                onChange={(event) => send({ type: 'tab_select', tabId: event.target.value })}
+                className="h-9 w-full truncate rounded-md border border-border bg-background px-2 text-xs font-medium text-foreground outline-none focus:ring-2 focus:ring-ring disabled:opacity-60"
+              >
+                {(viewState?.tabs ?? []).map((tab) => (
+                  <option key={tab.id} value={tab.id}>
+                    {tab.title || tab.url || 'New tab'}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="hidden min-w-0 flex-1 gap-1 overflow-x-auto py-1.5 sm:flex">
               {(viewState?.tabs ?? []).map((tab) => (
                 <button
                   key={tab.id}
@@ -1111,16 +1204,20 @@ export function BrowserLabClient({
                 <X className="h-3.5 w-3.5" />
               </Button>
             </div>
-            <Badge variant={viewState?.mode === 'user' ? 'default' : 'secondary'} className="shrink-0 gap-1.5">
+            <Badge
+              variant={viewState?.mode === 'user' ? 'default' : 'secondary'}
+              className="h-8 shrink-0 gap-1.5 px-2 sm:px-2.5"
+              title={modeLabel}
+            >
               {viewState?.mode === 'user' ? <UserRound className="h-3 w-3" /> : <Bot className="h-3 w-3" />}
-              {modeLabel}
+              <span className="hidden md:inline">{modeLabel}</span>
             </Badge>
           </div>
 
           <div className="shrink-0 border-b border-border/70 bg-background/70 p-2.5">
             <div className="flex flex-col gap-2 lg:flex-row">
-              <form onSubmit={navigate} className="flex min-w-0 flex-1 gap-2">
-                <div className="flex shrink-0 items-center rounded-md border border-border/70 bg-muted/25 p-0.5">
+              <form onSubmit={navigate} className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex">
+                <div className="order-3 col-span-2 flex shrink-0 items-center rounded-md border border-border/70 bg-muted/25 p-0.5 sm:order-none">
                   <Button
                     type="button"
                     size="icon"
@@ -1170,11 +1267,17 @@ export function BrowserLabClient({
                     <CircleStop className="h-3.5 w-3.5" />
                   </Button>
                 </div>
-                <div className="relative min-w-0 flex-1">
+                <div className="relative order-1 min-w-0 flex-1 sm:order-none">
                   <Globe2 className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                   <Input
                     ref={addressInputRef}
+                    data-testid="browser-address-input"
                     aria-label={t.address}
+                    inputMode="url"
+                    enterKeyHint="go"
+                    autoCapitalize="none"
+                    autoCorrect="off"
+                    spellCheck={false}
                     value={address}
                     disabled={!userControls}
                     onBlur={() => {
@@ -1187,12 +1290,19 @@ export function BrowserLabClient({
                     className="h-9 pl-9 font-mono text-xs"
                   />
                 </div>
-                <Button type="submit" size="sm" variant="outline" disabled={!userControls} className="h-9 gap-2">
+                <Button
+                  type="submit"
+                  size="sm"
+                  variant="outline"
+                  disabled={!userControls}
+                  aria-label={t.navigate}
+                  className="order-2 h-9 gap-2 px-3 sm:order-none"
+                >
                   <ExternalLink className="h-3.5 w-3.5" />
-                  {t.navigate}
+                  <span className="hidden sm:inline">{t.navigate}</span>
                 </Button>
               </form>
-              <div className="flex flex-wrap gap-1.5">
+              <div className="flex flex-wrap items-center gap-1.5">
                 <Button
                   type="button"
                   size="icon"
@@ -1217,14 +1327,19 @@ export function BrowserLabClient({
                 >
                   <ClipboardPaste className="h-3.5 w-3.5" />
                 </Button>
-                <Button size="sm" variant={viewState?.mode === 'view' ? 'secondary' : 'ghost'} disabled={!viewState} onClick={() => requestControl('view')} className="h-9 gap-2">
-                  <SquareMousePointer className="h-3.5 w-3.5" /> {t.viewOnly}
-                </Button>
-                <Button size="sm" variant={viewState?.mode === 'agent' ? 'secondary' : 'ghost'} disabled={!viewState} onClick={() => requestControl('agent')} className="h-9 gap-2">
-                  <Bot className="h-3.5 w-3.5" /> {t.giveAgent}
-                </Button>
-                <Button size="sm" variant={userControls ? 'default' : 'outline'} disabled={!viewState} onClick={() => requestControl('user')} className="h-9 gap-2">
-                  <Hand className="h-3.5 w-3.5" /> {t.takeControl}
+                <span className="hidden min-w-0 flex-1 text-[11px] leading-4 text-muted-foreground sm:block lg:hidden xl:block">
+                  {t.takeoverWarning}
+                </span>
+                <Button
+                  size="sm"
+                  variant={userControls ? 'secondary' : 'default'}
+                  aria-pressed={userControls}
+                  disabled={!viewState || (viewState.mode === 'user' && !userControls)}
+                  onClick={() => requestControl(userControls ? 'agent' : 'user')}
+                  className="ml-auto h-9 gap-2"
+                >
+                  {userControls ? <Bot className="h-3.5 w-3.5" /> : <Hand className="h-3.5 w-3.5" />}
+                  {userControls ? t.giveAgent : t.takeControl}
                 </Button>
               </div>
             </div>

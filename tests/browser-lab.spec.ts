@@ -15,7 +15,7 @@ const labels = {
   disconnected: /^(Nicht verbunden|Disconnected)$/,
   dismissError: /^(Meldung schließen|Dismiss message)$/,
   failureTitle: /^(Die Live-Ansicht braucht Aufmerksamkeit|The live view needs attention)$/,
-  giveAgent: /^(An Agenten geben|Give to agent)$/,
+  giveAgent: /^(Interaktion beenden|Stop interacting)$/,
   live: /^(Live verbunden|Live connected)$/,
   liveBrowser: /^(Live-Browser|Live Browser)$/,
   newTab: /^(Neuer Tab|New tab)$/,
@@ -30,10 +30,8 @@ const labels = {
   retry: /^(Erneut versuchen|Try again)$/,
   session: /^(Chat-Session|Chat session)$/,
   stop: /^(Laden stoppen|Stop loading)$/,
-  takeControl: /^(Übernehmen|Take control)$/,
-  userControls: /^(Nutzer steuert|User controls)$/,
-  viewing: /^(Ansehen|Viewing)$/,
-  viewOnly: /^(Nur ansehen|View only)$/,
+  takeControl: /^(Interagieren|Interact)$/,
+  userControls: /^(Gemeinsam aktiv|Working together)$/,
 };
 
 type AgentSummary = {
@@ -414,8 +412,15 @@ test.describe('Browser Lab', () => {
       await expect(address).toBeDisabled();
       await expect(page.getByRole('button', { name: labels.takeControl })).toBeDisabled();
 
+      const cooperativeTicketRequest = page.waitForRequest((request) => (
+        request.url().endsWith('/api/browser/view') && request.method() === 'POST'
+      ));
       await connectButton.click();
+      const ticketRequest = await cooperativeTicketRequest;
+      expect(ticketRequest.postDataJSON()).toMatchObject({ interactionPolicy: 'cooperative' });
       await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
+      await expect(page.getByTestId('browser-lab-session-disclosure')).toBeVisible();
+      await expect(page.getByTestId('browser-lab-session-setup')).toHaveCount(0);
 
       const frame = page.locator('img[tabindex]');
       await expect(frame).toBeVisible({ timeout: 30_000 });
@@ -469,12 +474,9 @@ test.describe('Browser Lab', () => {
       await page.getByRole('button', { name: labels.reload }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
 
-      await page.getByRole('button', { name: labels.viewOnly }).click();
-      await expect(page.getByText(labels.viewing)).toBeVisible();
-      await expect(address).toBeDisabled();
-
       await page.getByRole('button', { name: labels.giveAgent }).click();
       await expect(page.getByText(labels.agentControls)).toBeVisible();
+      await expect(address).toBeDisabled();
 
       await page.screenshot({ path: 'test-results/browser-lab-desktop.png', fullPage: false });
       const desktopMetrics = await page.evaluate(() => ({
@@ -493,6 +495,21 @@ test.describe('Browser Lab', () => {
 
       await page.setViewportSize({ width: 390, height: 844 });
       await expect(page.getByRole('heading', { name: 'Browser Lab', level: 2 })).toBeVisible();
+      await expect(page.getByTestId('browser-lab-session-disclosure')).toBeVisible();
+      await page.getByRole('button', { name: labels.takeControl }).click();
+      await expect(address).toBeEnabled();
+      const mobileTabSelect = page.getByTestId('browser-mobile-tab-select');
+      await expect(mobileTabSelect).toBeEnabled();
+      await page.getByRole('button', { name: labels.newTab }).click();
+      await expect.poll(() => mobileTabSelect.locator('option').count()).toBeGreaterThan(1);
+      const firstMobileTab = await mobileTabSelect.locator('option').first().getAttribute('value');
+      expect(firstMobileTab).toBeTruthy();
+      await mobileTabSelect.selectOption(firstMobileTab!);
+      await expect(mobileTabSelect).toHaveValue(firstMobileTab!);
+      await address.fill(fixtureUrl);
+      await expect(address).toHaveValue(fixtureUrl);
+      await address.press('Enter');
+      await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
       await page.screenshot({ path: 'test-results/browser-lab-mobile.png', fullPage: false });
       const mobileMetrics = await page.evaluate(() => ({
         innerWidth: window.innerWidth,
