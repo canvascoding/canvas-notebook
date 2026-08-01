@@ -1110,6 +1110,27 @@ export function BrowserLabClient({
                 </span>
                 <ChevronDown className="h-4 w-4 shrink-0 text-muted-foreground" />
               </button>
+              {selectedSessionId ? (
+                embeddedChat ? (
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="icon"
+                    className="h-10 w-10 shrink-0"
+                    aria-label={t.openChat}
+                    title={t.openChat}
+                    onClick={() => openSelectedChat()}
+                  >
+                    <MessageSquare className="h-4 w-4" />
+                  </Button>
+                ) : (
+                  <Button asChild variant="outline" size="icon" className="h-10 w-10 shrink-0">
+                    <Link href={chatHref} aria-label={t.openChat} title={t.openChat}>
+                      <MessageSquare className="h-4 w-4" />
+                    </Link>
+                  </Button>
+                )
+              ) : null}
               {connectionStatus === 'live' ? (
                 <Button
                   type="button"
@@ -1215,9 +1236,9 @@ export function BrowserLabClient({
           </div>
 
           <div className="shrink-0 border-b border-border/70 bg-background/70 p-2.5">
-            <div className="flex flex-col gap-2 lg:flex-row">
-              <form onSubmit={navigate} className="grid min-w-0 flex-1 grid-cols-[minmax(0,1fr)_auto] gap-2 sm:flex">
-                <div className="order-3 col-span-2 flex shrink-0 items-center rounded-md border border-border/70 bg-muted/25 p-0.5 sm:order-none">
+            <div className="flex flex-col gap-2">
+              <form onSubmit={navigate} className="grid min-w-0 flex-1 grid-cols-1 gap-2 sm:flex">
+                <div className="order-2 flex shrink-0 items-center rounded-md border border-border/70 bg-muted/25 p-0.5 sm:order-none">
                   <Button
                     type="button"
                     size="icon"
@@ -1287,20 +1308,20 @@ export function BrowserLabClient({
                     onFocus={() => {
                       addressEditingRef.current = true;
                     }}
-                    className="h-9 pl-9 font-mono text-xs"
+                    className="h-9 pl-9 pr-11 font-mono text-xs"
                   />
+                  <Button
+                    type="submit"
+                    size="icon"
+                    variant="ghost"
+                    disabled={!userControls}
+                    aria-label={t.navigate}
+                    title={t.navigate}
+                    className="absolute right-0.5 top-0.5 z-10 h-8 w-8"
+                  >
+                    <ExternalLink className="h-3.5 w-3.5" />
+                  </Button>
                 </div>
-                <Button
-                  type="submit"
-                  size="sm"
-                  variant="outline"
-                  disabled={!userControls}
-                  aria-label={t.navigate}
-                  className="order-2 h-9 gap-2 px-3 sm:order-none"
-                >
-                  <ExternalLink className="h-3.5 w-3.5" />
-                  <span className="hidden sm:inline">{t.navigate}</span>
-                </Button>
               </form>
               <div className="flex flex-wrap items-center gap-1.5">
                 <Button

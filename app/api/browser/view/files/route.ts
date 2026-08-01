@@ -4,6 +4,7 @@ import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { auth } from '@/app/lib/auth';
 import { getCachedFileReferenceEntries } from '@/app/lib/filesystem/file-reference-cache';
 import { searchFileReferenceEntries } from '@/app/lib/filesystem/file-reference-search';
+import { getFileStats } from '@/app/lib/filesystem/workspace-files';
 import { assertUnambiguousOwnedPiSessionForRuntime } from '@/app/lib/pi/session-runtime-access';
 import {
   resolveAgentExecutionContextForSession,
@@ -50,12 +51,19 @@ export async function GET(request: NextRequest) {
     }
 
     const query = (request.nextUrl.searchParams.get('q') || '').trim().slice(0, 256);
-    const entries = await getCachedFileReferenceEntries(false, workspaceFileOptions(workspace));
-    const files = searchFileReferenceEntries(entries, query).slice(0, MAX_RESULTS).map((entry) => ({
-      name: entry.name,
-      path: entry.path,
-      size: entry.size ?? 0,
-      selectable: typeof entry.size === 'number' && entry.size <= MAX_BROWSER_UPLOAD_FILE_BYTES,
+    const fileOptions = workspaceFileOptions(workspace);
+    const entries = await getCachedFileReferenceEntries(false, fileOptions);
+    const matches = searchFileReferenceEntries(entries, query).slice(0, MAX_RESULTS);
+    const files = await Promise.all(matches.map(async (entry) => {
+      const size = entry.size ?? await getFileStats(entry.path, fileOptions)
+        .then((stats) => stats.size)
+        .catch(() => null);
+      return {
+        name: entry.name,
+        path: entry.path,
+        size: size ?? 0,
+        selectable: size !== null && size <= MAX_BROWSER_UPLOAD_FILE_BYTES,
+      };
     }));
     return NextResponse.json({
       success: true,

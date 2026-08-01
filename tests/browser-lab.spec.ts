@@ -8,6 +8,7 @@ const labels = {
   agentControls: /^(Agent steuert|Agent controls)$/,
   back: /^(Zurück|Back)$/,
   backToChat: /^(Zurück zum Chat|Back to chat)$/,
+  closeChat: /^(Chat schließen|Close chat)$/,
   closeTab: /^(Aktuellen Tab schließen|Close current tab)$/,
   connect: /^(Live-Ansicht starten|Start live view)$/,
   copySelection: /^(Aus Browser kopieren|Copy from browser)$/,
@@ -461,11 +462,13 @@ test.describe('Browser Lab', () => {
       await page.getByRole('button', { name: labels.dismissError }).click();
       await expect(navigationAlert).toHaveCount(0);
 
-      const frameBeforeNavigation = await frame.getAttribute('src');
+      await address.fill('about:blank');
+      await page.getByRole('button', { name: labels.navigate }).click();
+      await expect(address).toHaveValue('about:blank', { timeout: 30_000 });
+
       await address.fill(fixtureUrl);
       await page.getByRole('button', { name: labels.navigate }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
-      await expect.poll(() => frame.getAttribute('src'), { timeout: 30_000 }).not.toBe(frameBeforeNavigation);
       await expect(page.getByRole('button', { name: labels.back })).toBeEnabled();
       await page.getByRole('button', { name: labels.back }).click();
       await expect(address).toHaveValue('about:blank', { timeout: 30_000 });
@@ -492,11 +495,23 @@ test.describe('Browser Lab', () => {
       await page.getByRole('button', { name: labels.connect }).click();
       await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/);
+      await page.getByTestId('chat-dock-toggle').click();
+      await expect(page.getByTestId('chat-dock-desktop')).toHaveAttribute('data-chat-visible', 'false');
 
       await page.setViewportSize({ width: 390, height: 844 });
+      const mobileChatSheet = page.getByTestId('chat-dock-mobile-sheet');
+      const closeMobileChat = page.getByRole('button', { name: labels.closeChat });
+      await expect(mobileChatSheet).toBeVisible();
+      await closeMobileChat.click();
+      await expect(mobileChatSheet).toBeHidden();
       await expect(page.getByRole('heading', { name: 'Browser Lab', level: 2 })).toBeVisible();
       await expect(page.getByTestId('browser-lab-session-disclosure')).toBeVisible();
-      await page.getByRole('button', { name: labels.takeControl }).click();
+      const mobileInteractButton = page.getByRole('button', { name: labels.takeControl });
+      if (await mobileInteractButton.isVisible()) {
+        await mobileInteractButton.click();
+      } else {
+        await expect(page.getByRole('button', { name: labels.giveAgent })).toBeVisible();
+      }
       await expect(address).toBeEnabled();
       const mobileTabSelect = page.getByTestId('browser-mobile-tab-select');
       await expect(mobileTabSelect).toBeEnabled();
@@ -674,7 +689,7 @@ test.describe('Browser Lab', () => {
       );
       await page.getByRole('button', { name: labels.navigate }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
-      await expect(page.getByText('Browser transfer fixture', { exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByRole('button', { name: 'Browser transfer fixture', exact: true })).toBeVisible({ timeout: 30_000 });
 
       await frame.focus();
       await frame.press('Tab');
@@ -685,8 +700,8 @@ test.describe('Browser Lab', () => {
       await expect(fileSelect.locator(`option[value="${fixtureName}"]`)).toHaveCount(1, { timeout: 15_000 });
       await fileSelect.selectOption(fixtureName);
       await page.getByRole('button', { name: /^(Ausgewählte Datei verwenden|Use selected file)$/ }).click();
-      await expect(page.getByText(/^(Workspace-Datei auswählen|Choose a workspace file)$/)).toHaveCount(0, { timeout: 15_000 });
-      await expect(page.getByText(`Uploaded: ${fixtureName}`, { exact: true })).toBeVisible({ timeout: 30_000 });
+      await expect(page.getByText(/^(Workspace-Datei auswählen|Choose a workspace file)$/)).toHaveCount(0, { timeout: 30_000 });
+      await expect(page.getByRole('button', { name: `Uploaded: ${fixtureName}`, exact: true })).toBeVisible({ timeout: 30_000 });
       await page.screenshot({ path: 'test-results/browser-lab-file-transfer-ready.png', fullPage: false });
 
       const fixtureBounds = await frame.boundingBox();

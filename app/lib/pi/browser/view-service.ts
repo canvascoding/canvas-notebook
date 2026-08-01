@@ -1,7 +1,7 @@
 import 'server-only';
 
 import type { Protocol } from 'devtools-protocol';
-import type { CDPSession, FileChooser, KeyInput, Page } from 'puppeteer-core';
+import type { CDPSession, ElementHandle, FileChooser, KeyInput, Page } from 'puppeteer-core';
 
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { control as controlAgentRuntime, getStatus as getAgentRuntimeStatus } from '@/app/lib/pi/runtime-service';
@@ -82,6 +82,45 @@ function collectFrameIds(frameTree: Protocol.Page.FrameTree, frameIds = new Set<
   frameIds.add(frameTree.frame.id);
   for (const child of frameTree.childFrames ?? []) collectFrameIds(child, frameIds);
   return frameIds;
+}
+
+async function resolveFileInputHandle(page: Page): Promise<ElementHandle<Element> | null> {
+  for (const frame of page.frames()) {
+    const focused = await frame.$('input[type="file"]:focus');
+    if (focused) return focused;
+  }
+
+  const candidates: ElementHandle<Element>[] = [];
+  for (const frame of page.frames()) {
+    candidates.push(...await frame.$$('input[type="file"]'));
+  }
+  if (candidates.length === 1) return candidates[0] ?? null;
+  await Promise.all(candidates.map((candidate) => candidate.dispose()));
+  return null;
+}
+
+async function acceptBrowserFileChooser(
+  page: Page,
+  chooser: FileChooser,
+  absolutePaths: string[],
+): Promise<void> {
+  const input = await resolveFileInputHandle(page);
+  if (!input) {
+    await chooser.accept(absolutePaths);
+    return;
+  }
+
+  const client = await page.createCDPSession();
+  try {
+    const backendNodeId = await input.backendNodeId();
+    await client.send('DOM.setFileInputFiles', {
+      backendNodeId,
+      files: absolutePaths,
+    });
+  } finally {
+    await input.dispose().catch(() => undefined);
+    await client.detach().catch(() => undefined);
+  }
 }
 
 function finiteNumber(value: unknown, fallback = 0): number {
@@ -726,7 +765,7 @@ export class BrowserViewService {
         paths,
         pending.chooser.isMultiple(),
       );
-      await pending.chooser.accept(resolved.absolutePaths);
+      await acceptBrowserFileChooser(pending.page, pending.chooser, resolved.absolutePaths);
       recordBrowserUserInteraction(this.context, this.claims.viewId);
       if (this.pendingFileChooser === pending) this.pendingFileChooser = null;
       this.armFileChooser(pending.page);
