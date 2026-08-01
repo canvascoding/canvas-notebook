@@ -32,6 +32,7 @@ import { requireRuntimeCapability, requireTeamRuntimeLicense } from '@/app/lib/l
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
+  MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL,
 } from '@/app/lib/mobile/collaboration-ticket';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
@@ -114,7 +115,12 @@ export function createCollaborationServer(server: http.Server): WebSocketServer 
       if (getDatabaseProvider() !== 'postgres') throw new Error('Collaboration requires Postgres.');
       await requireTeamRuntimeLicense();
       await requireRuntimeCapability('liveCollaboration');
-      const mobileIdentity = consumeMobileCollaborationTicket(token);
+      const protocols = requestHeaders.get('sec-websocket-protocol')
+        ?.split(',')
+        .map((value) => value.trim()) ?? [];
+      const mobileIdentity = protocols.includes(MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL)
+        ? consumeMobileCollaborationTicket(token)
+        : null;
       const claims = mobileIdentity?.claims ?? verifyCollaborationTicket(token);
       if (claims.documentId !== documentName) throw new Error('Collaboration document scope mismatch.');
       let authenticatedUser: {
