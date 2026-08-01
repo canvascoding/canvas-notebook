@@ -3,6 +3,8 @@ import type { LicenseStatus } from './types';
 export type LicenseApiErrorCode =
   | 'UNAUTHORIZED'
   | 'INVALID_REQUEST'
+  | 'LICENSE_ACTIVE'
+  | 'LICENSE_OPTIONAL'
   | 'LICENSE_REGISTRATION_FAILED'
   | 'LICENSE_ACTIVATION_FAILED'
   | 'LICENSE_INVALID'
@@ -25,6 +27,10 @@ export function codeFromLicenseError(error?: LicenseStatus['error']): LicenseApi
     default:
       return undefined;
   }
+}
+
+export function codeFromLicenseStatus(status: LicenseStatus): LicenseApiErrorCode {
+  return codeFromLicenseError(status.error) || (status.licensed ? 'LICENSE_ACTIVE' : 'LICENSE_OPTIONAL');
 }
 
 export function licenseActivationFailureCode(message: string): LicenseApiErrorCode {

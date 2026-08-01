@@ -22,6 +22,9 @@ async function main() {
   assert.match(source, /onRetry=\{\(\) => void openProfileSession\(\)\.catch/u);
   assert.match(source, /fetch\('\/api\/onboarding\/profile-skip'/u);
   assert.match(source, /profileSessionRetry/u);
+  assert.match(source, /function skipLicenseActivation\(\)/u);
+  assert.match(source, /t\('licenseSkip'\)/u);
+  assert.doesNotMatch(source, /onClick=\{onContinue\} disabled=\{!licensed\}/u);
 
   const userManagementSource = await readFile(
     path.join(process.cwd(), 'app', 'components', 'settings', 'UserManagementPanel.tsx'),
@@ -33,6 +36,17 @@ async function main() {
   assert.match(userManagementSource, /setPendingCreatedUser\(\{ id: created\.user\.id, email: created\.user\.email \}\)/u);
   assert.match(userManagementSource, /createDialog\.recoveryDescription/u);
   assert.match(userManagementSource, /createDialog\.retrySetup/u);
+  assert.match(userManagementSource, /includesTeamRuntimeLicense/u);
+  assert.match(userManagementSource, /teamLicenseRequiredTitle/u);
+  assert.match(userManagementSource, /href="\/settings\?tab=license"/u);
+
+  const licenseSettingsSource = await readFile(
+    path.join(process.cwd(), 'app', 'components', 'license', 'LicenseActivationPanel.tsx'),
+    'utf8',
+  );
+  assert.match(licenseSettingsSource, /Die Aktivierung ist freiwillig/u);
+  assert.match(licenseSettingsSource, /Activation is optional/u);
+  assert.doesNotMatch(licenseSettingsSource, /window\.location\.href = '\/'/u);
 
   const waitingActionsSource = await readFile(
     path.join(

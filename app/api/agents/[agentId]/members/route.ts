@@ -6,6 +6,7 @@ import {
   listAgentMembersForManager,
   upsertAgentMemberForManager,
 } from '@/app/lib/agents/access';
+import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type RouteContext = {
@@ -22,6 +23,8 @@ function accessErrorResponse(error: AgentAccessError) {
 export async function GET(request: NextRequest, context: RouteContext) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const licenseResponse = await requireTeamRuntimeRoute();
+  if (licenseResponse) return licenseResponse;
 
   const limited = rateLimit(request, { limit: 60, windowMs: 60_000, keyPrefix: 'agent-members-get' });
   if (!limited.ok) return limited.response;
@@ -42,6 +45,8 @@ export async function GET(request: NextRequest, context: RouteContext) {
 export async function POST(request: NextRequest, context: RouteContext) {
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
+  const licenseResponse = await requireTeamRuntimeRoute();
+  if (licenseResponse) return licenseResponse;
 
   const limited = rateLimit(request, { limit: 30, windowMs: 60_000, keyPrefix: 'agent-members-post' });
   if (!limited.ok) return limited.response;

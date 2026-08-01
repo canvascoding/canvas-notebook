@@ -1,6 +1,6 @@
 import 'server-only';
 
-import { codeFromLicenseError } from '@/app/lib/license/error-codes';
+import { codeFromLicenseStatus } from '@/app/lib/license/error-codes';
 import type { LicenseStatus } from '@/app/lib/license/types';
 import { createPublicMobileInstanceId } from './compatibility';
 
@@ -34,7 +34,7 @@ export function mobileLicenseStatus(input: {
     source: input.status.source,
     deploymentMode: input.status.deploymentMode,
     expiresAt: input.status.expiresAt,
-    code: codeFromLicenseError(input.status.error) || (input.status.licensed ? 'LICENSE_ACTIVE' : 'LICENSE_REQUIRED'),
+    code: codeFromLicenseStatus(input.status),
     activation: {
       mode: input.managedConfigured ? 'managed' : 'community',
       canManage: input.canManage,

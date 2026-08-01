@@ -839,6 +839,11 @@ function LicenseStep({
     }
   }
 
+  function skipLicenseActivation() {
+    clearStoredOnboardingLicenseKey();
+    onContinue();
+  }
+
   const licensed = Boolean(status?.licensed);
   const managed = status?.plan === 'managed';
 
@@ -938,8 +943,8 @@ function LicenseStep({
               {refreshing ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
               {t('licenseCheckAgain')}
             </Button>
-            <Button onClick={onContinue} disabled={!licensed}>
-              {t('licenseContinue')}
+            <Button variant="secondary" onClick={skipLicenseActivation}>
+              {t('licenseSkip')}
             </Button>
           </div>
         </div>

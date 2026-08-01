@@ -131,6 +131,7 @@ async function main() {
   const memberStatus = await memberStatusResponse.json() as Record<string, unknown>;
   assert.equal(memberStatusResponse.status, 200);
   assert.equal(memberStatus.licensed, false);
+  assert.equal(memberStatus.code, 'LICENSE_OPTIONAL');
   assert.equal((memberStatus.activation as Record<string, unknown>).canManage, false);
   assert.equal(JSON.stringify(memberStatus).includes(instanceId), false);
 

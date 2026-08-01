@@ -1,12 +1,12 @@
 import { NextResponse } from 'next/server';
 
 import { getLicenseStatus } from '@/app/lib/license';
-import { codeFromLicenseError } from '@/app/lib/license/error-codes';
+import { codeFromLicenseStatus } from '@/app/lib/license/error-codes';
 import { logLicenseInfoThrottled } from '@/app/lib/license/logging';
 
 export async function GET() {
   const status = await getLicenseStatus();
-  const code = codeFromLicenseError(status.error);
+  const code = codeFromLicenseStatus(status);
   logLicenseInfoThrottled('[license/status/api]', 'returning license status', {
     licensed: status.licensed,
     plan: status.plan,

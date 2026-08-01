@@ -55,19 +55,19 @@ function getActivationCopy(locale: string) {
   const isGerman = locale.startsWith('de');
   return isGerman
     ? {
-        title: 'Lizenz',
-        verified: 'Diese Canvas Notebook Instanz ist verifiziert.',
-        unverified: 'Verifiziere diese selbst gehostete Instanz, bevor du die App nutzt.',
+        title: 'Community-Lizenz',
+        verified: 'Die freiwillige Community-Lizenz ist für diese Instanz aktiv.',
+        unverified: 'Die Aktivierung ist freiwillig. Canvas Notebook kann lokal auch ohne Community-Lizenz genutzt werden.',
         loading: 'Lade',
-        unregistered: 'nicht registriert',
-        activationTitle: 'Was bei der Aktivierung passiert',
+        unregistered: 'Community Solo · nicht registriert',
+        activationTitle: 'Optionale Community-Aktivierung',
         activationDescription:
-          'Die Aktivierung verifiziert diese selbst gehostete Instanz bei Canvas und speichert ein signiertes Lizenzzertifikat lokal. Deine Instance ID und E-Mail werden zur Ausstellung der Lizenz verwendet; Workspace-Dateien, Prompts, API-Keys und lokale Daten werden dabei nicht übertragen.',
+          'Wenn du dich dafür entscheidest, registriert die Aktivierung diese selbst gehostete Instanz bei Canvas und speichert ein signiertes Lizenzzertifikat lokal. Deine Instance ID und E-Mail werden zur Ausstellung verwendet; Workspace-Dateien, Prompts, API-Keys und lokale Daten werden nicht übertragen. Team-Funktionen benötigen weiterhin eine passende Team-Lizenz.',
         termsTitle: 'Lizenzbedingungen',
         termsDescription:
           'Canvas Notebook wird unter der Sustainable Use License 1.0 bereitgestellt. Sie erlaubt selbst gehostete interne geschäftliche Nutzung, private Nutzung und nicht-kommerzielle Nutzung. Nicht erlaubt ist, Canvas Notebook, modifizierte Versionen oder daraus abgeleitete gehostete Dienste Dritten als Managed Service oder konkurrierenden Dienst anzubieten.',
         renewalDescription:
-          'Community-Lizenzen sind standardmäßig ein Jahr gültig und erneuern sich aktuell nicht automatisch. Wenn die Lizenz abläuft, fordere hier einen neuen kostenlosen Key an und aktiviere ihn.',
+          'Community-Lizenzen sind standardmäßig ein Jahr gültig und erneuern sich aktuell nicht automatisch. Wenn die Lizenz abläuft, kannst du hier einen neuen kostenlosen Key anfordern. Die lokalen Core-Funktionen bleiben auch ohne aktive Community-Lizenz verfügbar.',
         managedDescription:
           'Bei Nutzung über den offiziellen Canvas Notebook Vertriebskanal wird die Managed-Lizenz automatisch von Canvas ausgestellt und für diese Instanz aktiviert. Ein separater Aktivierungs-Key ist dafür nicht erforderlich.',
         viewLicense: 'Vollständige Lizenz anzeigen',
@@ -82,19 +82,19 @@ function getActivationCopy(locale: string) {
         activate: 'Aktivieren',
       }
     : {
-        title: 'License',
-        verified: 'This Canvas Notebook instance is verified.',
-        unverified: 'Verify this self-hosted instance before using the app.',
+        title: 'Community license',
+        verified: 'The optional Community license is active for this instance.',
+        unverified: 'Activation is optional. Canvas Notebook can be used locally without a Community license.',
         loading: 'Loading',
-        unregistered: 'unregistered',
-        activationTitle: 'What activation does',
+        unregistered: 'Community Solo · unregistered',
+        activationTitle: 'Optional Community activation',
         activationDescription:
-          'Activation verifies this self-hosted instance with Canvas and stores a signed license certificate locally. Your Instance ID and email are used to issue the license; your workspace files, prompts, API keys, and local data are not sent as part of activation.',
+          'If you choose to activate, this self-hosted instance is registered with Canvas and a signed license certificate is stored locally. Your Instance ID and email are used to issue it; workspace files, prompts, API keys, and local data are not sent. Team features still require an eligible Team license.',
         termsTitle: 'License terms',
         termsDescription:
           'Canvas Notebook is provided under the Sustainable Use License 1.0. It allows self-hosted internal business use, personal use, and non-commercial use. It does not allow offering Canvas Notebook, modified versions, or derived hosted services to third parties as a managed or competing service.',
         renewalDescription:
-          'Community licenses are valid for one year by default and do not renew automatically yet. When the license expires, request a new free key here and activate it.',
+          'Community licenses are valid for one year by default and do not renew automatically yet. If the license expires, you can request a new free key here. Local core features remain available without an active Community license.',
         managedDescription:
           'When Canvas Notebook is provided through the official Canvas Notebook distribution channel, the managed license is issued by Canvas and activated for this instance automatically. No separate activation key is required.',
         viewLicense: 'View full license',
@@ -174,8 +174,8 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
         throw new Error(errorWithCode(payload.error || 'License activation failed', payload.code));
       }
       setStatus(payload);
+      setKey('');
       toast.success('License activated');
-      window.location.href = '/';
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'License activation failed');
     } finally {
@@ -186,6 +186,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
   const isLicensed = Boolean(status?.licensed);
   const isManaged = status?.plan === 'managed';
   const statusCode = status?.code || codeFromLicenseError(status?.error as Parameters<typeof codeFromLicenseError>[0]);
+  const planLabel = status?.plan === 'unregistered' ? copy.unregistered : status?.plan || copy.unregistered;
 
   return (
     <div className="space-y-3 sm:space-y-4">
@@ -204,7 +205,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
               </CardDescription>
             </div>
             <Badge className="w-fit max-w-full truncate" variant={isLicensed ? 'default' : 'secondary'}>
-              {loading ? copy.loading : status?.plan || copy.unregistered}
+              {loading ? copy.loading : planLabel}
             </Badge>
           </div>
         </CardHeader>

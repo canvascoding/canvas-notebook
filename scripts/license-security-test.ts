@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
-import { mkdtempSync, rmSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 
@@ -30,6 +30,22 @@ function signLicense(
 }
 
 async function main() {
+  for (const routePath of [
+    'app/api/auth/[...all]/route.ts',
+    'app/api/onboarding/user-initialize/route.ts',
+    'app/api/agents/[agentId]/members/route.ts',
+    'app/api/agents/[agentId]/members/[userId]/route.ts',
+    'app/api/admin/organization/users/[userId]/permissions/route.ts',
+    'app/api/admin/organization/users/[userId]/role/route.ts',
+    'app/api/admin/organization/users/[userId]/offboarding/route.ts',
+  ]) {
+    assert.match(
+      readFileSync(path.join(process.cwd(), routePath), 'utf8'),
+      /requireTeamRuntimeRoute/u,
+      `${routePath} must enforce the Team license boundary`,
+    );
+  }
+
   const dataDir = mkdtempSync(path.join(tmpdir(), 'canvas-license-security-'));
   process.env.DATA = dataDir;
   process.env.CANVAS_INSTANCE_ID = 'self_license_test';

@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { AlertTriangle, Ban, CheckCircle2, KeyRound, Loader2, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
 
+import { Link } from '@/i18n/navigation';
 import { authClient } from '@/app/lib/auth-client';
 import { UserPermissionsDialog } from './UserPermissionsDialog';
 import {
@@ -69,6 +70,15 @@ type CreateUserDraft = {
 
 type PendingCreatedUser = Pick<ManagedUser, 'id' | 'email'>;
 
+type TeamLicenseState = 'checking' | 'active' | 'required';
+
+type LicenseStatusResponse = {
+  licensed?: boolean;
+  databaseProvider?: string | null;
+  capabilities?: Record<string, boolean>;
+  features?: Record<string, boolean>;
+};
+
 type RoleChangeTarget = {
   user: ManagedUser;
   nextRole: 'admin' | 'user';
@@ -131,6 +141,15 @@ function createEmptyDraft(): CreateUserDraft {
   };
 }
 
+function includesTeamRuntimeLicense(status: LicenseStatusResponse): boolean {
+  const multiUser = status.capabilities?.multiUser ?? status.features?.multiUser;
+  const teamWorkspace = status.capabilities?.teamWorkspace ?? status.features?.teamWorkspace;
+  return status.licensed === true
+    && multiUser === true
+    && teamWorkspace === true
+    && status.databaseProvider === 'postgres';
+}
+
 function getRoleDialogCopy(locale: string, target: RoleChangeTarget | null): {
   title: string;
   description: string;
@@ -174,6 +193,7 @@ export function UserManagementPanel({
   const t = useTranslations('settings.users');
   const locale = useLocale();
   const [users, setUsers] = useState<ManagedUser[]>([]);
+  const [teamLicenseState, setTeamLicenseState] = useState<TeamLicenseState>('checking');
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
@@ -203,7 +223,7 @@ export function UserManagementPanel({
   const canGoNext = offset + PAGE_SIZE < total;
 
   const loadUsers = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!isAdmin || teamLicenseState !== 'active') return;
 
     setIsLoading(true);
     setError(null);
@@ -232,7 +252,25 @@ export function UserManagementPanel({
     } finally {
       setIsLoading(false);
     }
-  }, [isAdmin, offset, searchValue, t]);
+  }, [isAdmin, offset, searchValue, t, teamLicenseState]);
+
+  useEffect(() => {
+    let mounted = true;
+    fetch('/api/license/status', { cache: 'no-store', credentials: 'include' })
+      .then(async (response) => {
+        const payload = await response.json().catch(() => ({})) as LicenseStatusResponse;
+        if (mounted) {
+          setTeamLicenseState(response.ok && includesTeamRuntimeLicense(payload) ? 'active' : 'required');
+        }
+      })
+      .catch(() => {
+        if (mounted) setTeamLicenseState('required');
+      });
+
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -619,6 +657,31 @@ export function UserManagementPanel({
           <CardTitle>{t('title')}</CardTitle>
           <CardDescription>{t('forbidden')}</CardDescription>
         </CardHeader>
+      </Card>
+    );
+  }
+
+  if (teamLicenseState !== 'active') {
+    return (
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            {teamLicenseState === 'checking'
+              ? <Loader2 className="h-5 w-5 animate-spin" />
+              : <Shield className="h-5 w-5" />}
+            {teamLicenseState === 'checking' ? t('teamLicenseChecking') : t('teamLicenseRequiredTitle')}
+          </CardTitle>
+          <CardDescription>
+            {teamLicenseState === 'checking' ? t('teamLicenseCheckingDescription') : t('teamLicenseRequiredDescription')}
+          </CardDescription>
+        </CardHeader>
+        {teamLicenseState === 'required' && (
+          <CardContent>
+            <Button asChild>
+              <Link href="/settings?tab=license">{t('manageLicense')}</Link>
+            </Button>
+          </CardContent>
+        )}
       </Card>
     );
   }
