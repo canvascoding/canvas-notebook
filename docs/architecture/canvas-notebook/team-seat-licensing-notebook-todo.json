@@ -75,7 +75,7 @@
         {
           "id": "NB-TS-001",
           "title": "Alle billable Membership-Pfade inventarisieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "architecture",
           "description": "Direkte User-Erstellung, Invitation, Bootstrap, Import, Reaktivierung, Ban, Offboarding, Rollenwechsel und Login-Gates erfassen und nach Kostenwirkung klassifizieren.",
