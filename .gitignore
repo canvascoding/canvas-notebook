@@ -82,7 +82,12 @@ __pycache__/
 *.py[cod]
 
 /docs
+!/docs/
+docs/*
 !/docs/architecture/
+!/docs/architecture/**
+!/docs/security/
+!/docs/security/**
 /.opencode
 
 # Sentry Config File
