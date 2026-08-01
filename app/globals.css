@@ -823,6 +823,17 @@ li.task-list-item > p {
   -webkit-box-decoration-break: clone;
 }
 
+.tiptap-editor-shell .markdown-search-match {
+  background: color-mix(in oklab, #facc15 38%, transparent);
+  border-radius: 0.15em;
+  box-shadow: 0 0 0 1px color-mix(in oklab, #ca8a04 24%, transparent);
+}
+
+.tiptap-editor-shell .markdown-search-match-current {
+  background: color-mix(in oklab, #fb923c 48%, transparent);
+  box-shadow: 0 0 0 2px color-mix(in oklab, #ea580c 55%, transparent);
+}
+
 .tiptap-editor-shell [data-type='canvas-callout'] {
   --canvas-rich-callout-color: var(--primary);
   background: color-mix(in oklab, var(--canvas-rich-callout-color) 8%, var(--background));

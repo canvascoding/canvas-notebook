@@ -35,6 +35,8 @@ import {
   Bold,
   BadgeInfo,
   ChevronLeft,
+  ChevronDown,
+  ChevronUp,
   Code,
   Code2,
   Columns3,
@@ -62,6 +64,7 @@ import {
   Quote,
   Redo2,
   Rows3,
+  Search,
   Sigma,
   SquareSigma,
   Strikethrough,
@@ -71,6 +74,7 @@ import {
   Type,
   Undo2,
   Unlink,
+  X,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { toast } from 'sonner';
@@ -99,6 +103,16 @@ import {
   isEditorRangeInsideDoc,
   isEditorPositionInsideDoc,
 } from '@/app/lib/editor/prosemirror-ranges';
+import { getMarkdownDocumentStats } from '@/app/lib/editor/markdown-document-stats';
+import {
+  clearMarkdownSearch,
+  getMarkdownSearchState,
+  MarkdownSearchExtension,
+  moveMarkdownSearchSelection,
+  selectMarkdownSearchMatch,
+  setMarkdownSearchQuery,
+  type MarkdownSearchState,
+} from '@/app/lib/editor/markdown-search';
 import {
   hasMobileToolbarPressMoved,
   isMobileToolbarReleaseInside,
@@ -595,6 +609,181 @@ function TooltipIconButton({
 
 function ToolbarDivider() {
   return <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />;
+}
+
+function MarkdownDocumentStatus({
+  onSearch,
+  searchActive = false,
+  value,
+}: {
+  onSearch?: () => void;
+  searchActive?: boolean;
+  value: string;
+}) {
+  const t = useTranslations('notebook');
+  const stats = useMemo(() => getMarkdownDocumentStats(value), [value]);
+
+  return (
+    <div
+      className="flex h-7 shrink-0 items-center justify-end gap-2 border-t border-border bg-background px-2 text-[11px] text-muted-foreground"
+      role="status"
+      aria-label={t('markdownEditorDocumentStatistics')}
+    >
+      {onSearch ? (
+        <Button
+          type="button"
+          variant={searchActive ? 'secondary' : 'ghost'}
+          size="xs"
+          className="mr-auto"
+          aria-label={t('markdownEditorFind')}
+          aria-pressed={searchActive}
+          onClick={onSearch}
+        >
+          <Search />
+          <span>{t('markdownEditorFind')}</span>
+        </Button>
+      ) : null}
+      <span>{t('markdownEditorWords', { count: stats.words })}</span>
+      <span aria-hidden="true">·</span>
+      <span>{t('markdownEditorCharacters', { count: stats.characters })}</span>
+    </div>
+  );
+}
+
+function MarkdownFindBar({
+  editor,
+  onOpenChange,
+  open,
+}: {
+  editor: MarkdownEditorWithMarkdown | null;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+}) {
+  const t = useTranslations('notebook');
+  const inputRef = useRef<HTMLInputElement>(null);
+  const queryRef = useRef('');
+  const [query, setQuery] = useState('');
+  const [search, setSearch] = useState<MarkdownSearchState>({
+    currentIndex: -1,
+    matches: [],
+    query: '',
+  });
+
+  const syncSearchState = useCallback(() => {
+    if (!editor || editor.isDestroyed) return;
+    setSearch(getMarkdownSearchState(editor));
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return undefined;
+    editor.on('transaction', syncSearchState);
+    return () => {
+      editor.off('transaction', syncSearchState);
+    };
+  }, [editor, syncSearchState]);
+
+  useEffect(() => {
+    if (!editor || editor.isDestroyed) return;
+    if (open) {
+      const nextSearch = setMarkdownSearchQuery(editor, queryRef.current);
+      setSearch(nextSearch.matches.length > 0
+        ? selectMarkdownSearchMatch(editor, nextSearch.currentIndex)
+        : nextSearch);
+      window.requestAnimationFrame(() => {
+        inputRef.current?.focus();
+        inputRef.current?.select();
+      });
+      return;
+    }
+    clearMarkdownSearch(editor);
+  }, [editor, open]);
+
+  const updateQuery = useCallback((nextQuery: string) => {
+    queryRef.current = nextQuery;
+    setQuery(nextQuery);
+    if (editor && !editor.isDestroyed) {
+      const nextSearch = setMarkdownSearchQuery(editor, nextQuery);
+      setSearch(nextSearch.matches.length > 0
+        ? selectMarkdownSearchMatch(editor, nextSearch.currentIndex)
+        : nextSearch);
+    }
+  }, [editor]);
+
+  const moveSelection = useCallback((delta: number) => {
+    if (!editor || editor.isDestroyed) return;
+    setSearch(moveMarkdownSearchSelection(editor, delta));
+    window.requestAnimationFrame(() => inputRef.current?.focus());
+  }, [editor]);
+
+  if (!open) return null;
+
+  return (
+    <div
+      className="flex shrink-0 items-center gap-1 border-b border-border bg-muted/30 px-2 py-1.5"
+      role="search"
+      data-testid="markdown-find-bar"
+    >
+      <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+      <Input
+        ref={inputRef}
+        className="h-7 min-w-0 flex-1 md:max-w-sm"
+        value={query}
+        placeholder={t('markdownEditorFindPlaceholder')}
+        aria-label={t('markdownEditorFind')}
+        onChange={(event) => updateQuery(event.target.value)}
+        onKeyDown={(event) => {
+          if (event.key === 'Enter') {
+            event.preventDefault();
+            moveSelection(event.shiftKey ? -1 : 1);
+          } else if (event.key === 'Escape') {
+            event.preventDefault();
+            onOpenChange(false);
+            editor?.commands.focus();
+          }
+        }}
+      />
+      <span
+        className="min-w-14 text-center text-xs tabular-nums text-muted-foreground"
+        aria-live="polite"
+      >
+        {search.matches.length > 0
+          ? t('markdownEditorFindPosition', {
+            current: search.currentIndex + 1,
+            total: search.matches.length,
+          })
+          : t('markdownEditorFindNoMatches')}
+      </span>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={t('markdownEditorFindPrevious')}
+        disabled={search.matches.length === 0}
+        onClick={() => moveSelection(-1)}
+      >
+        <ChevronUp />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={t('markdownEditorFindNext')}
+        disabled={search.matches.length === 0}
+        onClick={() => moveSelection(1)}
+      >
+        <ChevronDown />
+      </Button>
+      <Button
+        type="button"
+        variant="ghost"
+        size="icon-xs"
+        aria-label={t('markdownEditorFindClose')}
+        onClick={() => onOpenChange(false)}
+      >
+        <X />
+      </Button>
+    </div>
+  );
 }
 
 function copyTextToClipboard(value: string) {
@@ -1845,6 +2034,7 @@ function createEditorExtensions(
       filterTransaction: (transaction) => !isChangeOrigin(transaction),
     }),
     MarkdownHeadingAnchors,
+    MarkdownSearchExtension,
     ColorSwatchDecorations,
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
@@ -4071,6 +4261,7 @@ function RichMarkdownEditor({
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
   const [mathEditRequest, setMathEditRequest] = useState<MathEditRequest | null>(null);
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
+  const [findOpen, setFindOpen] = useState(false);
   const [outlinePinned, setOutlinePinned] = useState(false);
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const collaboration = useCollaborationDocument({
@@ -4415,13 +4606,30 @@ function RichMarkdownEditor({
   }, [activeWorkspaceId, editor, filePath, t]);
 
   useEffect(() => {
-    if (!editor || effectiveReadOnly) return undefined;
+    if (!editor) return undefined;
 
     const editorElement = editor.options.element;
     if (!(editorElement instanceof HTMLElement)) return undefined;
 
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (!(event.metaKey || event.ctrlKey) || event.key !== '/') return;
+      if (!(event.metaKey || event.ctrlKey)) return;
+      const key = event.key.toLowerCase();
+
+      if (key === 'f') {
+        event.preventDefault();
+        event.stopPropagation();
+        setFindOpen(true);
+        return;
+      }
+
+      if (key === 'g' && findOpen) {
+        event.preventDefault();
+        event.stopPropagation();
+        moveMarkdownSearchSelection(editor, event.shiftKey ? -1 : 1);
+        return;
+      }
+
+      if (event.key !== '/' || effectiveReadOnly) return;
 
       event.preventDefault();
       event.stopPropagation();
@@ -4430,7 +4638,7 @@ function RichMarkdownEditor({
 
     editorElement.addEventListener('keydown', handleKeyDown, true);
     return () => editorElement.removeEventListener('keydown', handleKeyDown, true);
-  }, [editor, effectiveReadOnly, openCurrentBlockCommandMenu]);
+  }, [editor, effectiveReadOnly, findOpen, openCurrentBlockCommandMenu]);
 
   useEffect(() => {
     if (!effectiveReadOnly) return undefined;
@@ -4474,6 +4682,7 @@ function RichMarkdownEditor({
           visible={isMobileToolbarVisible}
         />
       ) : null}
+      <MarkdownFindBar editor={markdownEditor} onOpenChange={setFindOpen} open={findOpen} />
       <div ref={scrollContainerRef} data-testid="markdown-scroll-container" className="relative min-h-0 flex-1 overflow-auto">
         <div className="pointer-events-none sticky top-3 z-30 ml-auto h-0 w-fit pr-3">
           <MarkdownOutlinePanel
@@ -4534,6 +4743,11 @@ function RichMarkdownEditor({
           ) : null}
         </div>
       </div>
+      <MarkdownDocumentStatus
+        onSearch={() => setFindOpen((current) => !current)}
+        searchActive={findOpen}
+        value={value}
+      />
     </div>
   );
 }
@@ -4626,6 +4840,7 @@ function SourceMarkdownEditor({
           collaborationEnabled={collaborationEnabled}
         />
       </div>
+      <MarkdownDocumentStatus value={value} />
     </div>
   );
 }
