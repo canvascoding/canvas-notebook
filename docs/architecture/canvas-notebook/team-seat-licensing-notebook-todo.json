@@ -300,7 +300,7 @@
         {
           "id": "NB-TS-021",
           "title": "Control-Plane-Verbindung und Team-Upgrade-UI bauen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-ui",
           "description": "Mit-Control-Plane-verbinden, Account erstellen/anmelden, Claim-Code, Status, Upgrade-Preflight und Checkout-Weiterleitung in der lokalen Lizenzverwaltung abbilden.",
@@ -322,7 +322,8 @@
             "Team-Upgrade verlangt einen verifizierten Control-Plane-Account.",
             "Der Claim- und Account-Flow bleibt von der späteren Runtime-Readiness-Prüfung getrennt testbar.",
             "Keine Stripe-ID oder Instanz-Token wird im Browser offengelegt."
-          ]
+          ],
+          "progress": "Der Lizenz-Tab bietet jetzt einen freiwilligen, admin-geschützten Community-Claim mit User-Code, externer Login/Signup-Verifikation, serverseitigem Polling-Backoff, Abbruch und restartfestem Connected-Status. Ein separat auslösbarer Team-Preflight sendet das geschützte Instanz-Token ausschließlich serverseitig an die Control Plane und liefert dem Browser nur Account-, Runtime-, Team- und Blocker-Status sowie bei vollständiger Bereitschaft eine kontrollierte Billing-Weiterleitung. Self-hosted Hosting und Datenhoheit werden ausdrücklich erklärt; bis NB-TS-033 die vollständige Runtime-Readiness liefert, bleibt teamReady konservativ false. Vertrags-, Client-, UI- und Produktions-Build-Prüfungen sind grün."
         },
         {
           "id": "NB-TS-022",

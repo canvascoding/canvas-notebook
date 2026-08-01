@@ -5,6 +5,7 @@ import path from 'path';
 import crypto from 'crypto';
 
 const DEFAULT_LICENSE_CONTROL_PLANE_URL = 'https://api.canvasnotebook.app';
+const DEFAULT_LICENSE_CONTROL_PLANE_WEB_URL = 'https://canvasnotebook.app';
 
 function getDataDir(): string {
   return process.env.DATA || path.resolve(process.cwd(), 'data');
@@ -33,6 +34,29 @@ export function getControlPlaneLicenseBaseUrl(): string {
     process.env.NEXT_PUBLIC_CANVAS_CONTROL_PLANE_URL;
   const trimmed = configured?.trim().replace(/\/+$/, '');
   return trimmed || DEFAULT_LICENSE_CONTROL_PLANE_URL;
+}
+
+export function getControlPlaneLicenseWebUrl(): string {
+  const configured =
+    process.env.CANVAS_LICENSE_CONTROL_PLANE_WEB_URL ||
+    process.env.CANVAS_CONTROL_PLANE_WEB_URL;
+  const trimmed = configured?.trim().replace(/\/+$/, '');
+  if (!trimmed) return DEFAULT_LICENSE_CONTROL_PLANE_WEB_URL;
+  try {
+    const parsed = new URL(trimmed);
+    if (parsed.protocol !== 'https:' && parsed.protocol !== 'http:') {
+      return DEFAULT_LICENSE_CONTROL_PLANE_WEB_URL;
+    }
+    return parsed.toString().replace(/\/+$/, '');
+  } catch {
+    return DEFAULT_LICENSE_CONTROL_PLANE_WEB_URL;
+  }
+}
+
+export function getCommunityTeamManagementUrl(): string {
+  const url = new URL('/dashboard/billing', getControlPlaneLicenseWebUrl());
+  url.searchParams.set('intent', 'community-team-upgrade');
+  return url.toString();
 }
 
 export function getRequestOrigin(request: Request): string {

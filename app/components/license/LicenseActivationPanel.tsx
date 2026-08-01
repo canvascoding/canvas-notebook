@@ -14,6 +14,7 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
+import { CommunityTeamConnectionPanel } from './CommunityTeamConnectionPanel';
 
 type LicenseStatus = {
   licensed: boolean;
@@ -310,6 +311,10 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
           )}
         </CardContent>
       </Card>
+      <CommunityTeamConnectionPanel
+        licensed={isLicensed}
+        licensePlan={status?.plan || 'unregistered'}
+      />
     </div>
   );
 }

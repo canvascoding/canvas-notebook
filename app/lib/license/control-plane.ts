@@ -2,25 +2,32 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
+import packageJson from '@/package.json';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
 import { licenseActivationFailureCode } from './error-codes';
 import { getLicenseInstanceId } from './instance';
 import {
   createTeamSeatClaimPollRequest,
   createTeamSeatClaimStartRequest,
+  createTeamSeatPreflightRequest,
   parseTeamSeatClaimPollResult,
   parseTeamSeatClaimStart,
   parseTeamSeatErrorPayload,
+  parseTeamSeatPreflightResponse,
   TEAM_SEAT_ERROR_CODES,
   TeamSeatContractError,
+  type TeamSeatCommunityPreflightResponse,
 } from './team-seat-contract';
 import {
+  requireTeamSeatClientRollout,
   requireTeamSeatCommunityClaimRollout,
   TeamSeatRolloutError,
 } from './team-seat-rollout';
 import {
   getCommunityInstanceTokenStatus,
   loadCommunityClaimSession,
+  loadCommunityInstanceToken,
   loadStoredLicenseCert,
   removeCommunityClaimSession,
   saveCommunityClaimSession,
@@ -51,12 +58,21 @@ async function postLicenseControlPlane(
     fetchImpl?: typeof fetch;
     timeoutMs?: number;
     unreachableCode?: string;
+    authorization?: {
+      tokenType: 'Bearer';
+      token: string;
+    };
   },
 ): Promise<{ response: Response; payload: Record<string, unknown> }> {
   try {
     const response = await (options?.fetchImpl ?? fetch)(`${getLicenseControlPlaneUrl()}${path}`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+      headers: {
+        'Content-Type': 'application/json',
+        ...(options?.authorization
+          ? { Authorization: `${options.authorization.tokenType} ${options.authorization.token}` }
+          : {}),
+      },
       body: JSON.stringify(body),
       cache: 'no-store',
       signal: AbortSignal.timeout(options?.timeoutMs ?? 10_000),
@@ -166,6 +182,7 @@ type CommunityClaimClientOptions = {
 
 const COMMUNITY_CLAIM_START_PATH = '/v1/license/claim/v1/start';
 const COMMUNITY_CLAIM_POLL_PATH = '/v1/license/claim/v1/poll';
+const COMMUNITY_TEAM_PREFLIGHT_PATH = '/v1/license/community/v1/team/preflight';
 const MAX_CLAIM_BACKOFF_SECONDS = 300;
 let communityClaimOperationQueue: Promise<void> = Promise.resolve();
 
@@ -532,6 +549,87 @@ export async function cancelCommunityLicenseClaim(
     if (session) await removeCommunityClaimSession(session.claimId);
     return { state: 'canceled', claimId };
   });
+}
+
+export type CommunityTeamUpgradeRuntimeSnapshot = {
+  notebookVersion: string;
+  databaseEngine: 'postgres' | 'sqlite' | 'other';
+  teamReady: boolean;
+};
+
+type CommunityTeamUpgradePreflightOptions = {
+  fetchImpl?: typeof fetch;
+  runtime?: CommunityTeamUpgradeRuntimeSnapshot;
+};
+
+export function getCommunityTeamUpgradeRuntimeSnapshot(): CommunityTeamUpgradeRuntimeSnapshot {
+  const databaseProvider = getDatabaseProvider();
+  return {
+    notebookVersion: packageJson.version || '0.0.0',
+    databaseEngine: databaseProvider === 'postgres' ? 'postgres' : 'sqlite',
+    // NB-TS-033 replaces this conservative value with the complete Postgres,
+    // migration, capability, storage and version readiness result.
+    teamReady: false,
+  };
+}
+
+export async function getCommunityTeamUpgradePreflight(
+  options?: CommunityTeamUpgradePreflightOptions,
+): Promise<TeamSeatCommunityPreflightResponse> {
+  requireTeamSeatClientRollout();
+  const instanceId = getLicenseInstanceId();
+  const token = await loadCommunityInstanceToken(instanceId);
+  if (!token) {
+    throw localClaimError(
+      'Connect this Community license to a verified Control Plane account first.',
+      409,
+      TEAM_SEAT_ERROR_CODES.accountRequired,
+    );
+  }
+  if (token.expiresAt && Date.parse(token.expiresAt) <= Date.now()) {
+    throw localClaimError(
+      'The Community instance connection has expired and must be restored.',
+      401,
+      TEAM_SEAT_ERROR_CODES.tokenInvalid,
+    );
+  }
+  if (!token.scopes.includes('seat:prepare')) {
+    throw localClaimError(
+      'The Community instance connection does not permit Team upgrade checks.',
+      403,
+      TEAM_SEAT_ERROR_CODES.tokenScopeDenied,
+    );
+  }
+
+  const runtime = options?.runtime ?? getCommunityTeamUpgradeRuntimeSnapshot();
+  const { response, payload } = await postLicenseControlPlane(
+    COMMUNITY_TEAM_PREFLIGHT_PATH,
+    createTeamSeatPreflightRequest(runtime),
+    {
+      fetchImpl: options?.fetchImpl,
+      unreachableCode: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
+      authorization: {
+        tokenType: token.tokenType,
+        token: token.instanceToken,
+      },
+    },
+  );
+  if (!response.ok) throw claimErrorFromResponse(response, payload);
+
+  try {
+    const preflight = parseTeamSeatPreflightResponse(payload.preflight);
+    if (preflight.license.instanceId !== instanceId) {
+      throw localClaimError(
+        'The Control Plane returned Team readiness for another Notebook instance.',
+        409,
+        TEAM_SEAT_ERROR_CODES.instanceMismatch,
+      );
+    }
+    return preflight;
+  } catch (error) {
+    if (error instanceof LicenseControlPlaneError) throw error;
+    throw contractResponseError(error);
+  }
 }
 
 export function communityLicenseClaimErrorPayload(
