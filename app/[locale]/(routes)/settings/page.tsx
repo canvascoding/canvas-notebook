@@ -20,7 +20,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const params = await searchParams;
   const allowLicenseRecovery = isOnboardingLicenseRecoveryRequest(params);
   const session = await requirePageSession({
-    allowUnlicensed: true,
     allowIncompleteUserOnboarding: allowLicenseRecovery,
   });
   const t = await getTranslations('settings');

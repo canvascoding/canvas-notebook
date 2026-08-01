@@ -2,7 +2,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
 import { activateInstanceLicense, LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
-import { setLicenseGateCookie } from '@/app/lib/license/gate-cookie';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
 
 const LOG_PREFIX = '[license/activate]';
@@ -25,9 +24,7 @@ export async function POST(request: NextRequest) {
     const instanceId = getLicenseInstanceId();
     const status = await activateInstanceLicense(key);
     console.info(`${LOG_PREFIX} license activated`, { instanceId, plan: status.plan, source: status.source });
-    const response = NextResponse.json({ success: true, ...status, code: codeFromLicenseError(status.error) });
-    setLicenseGateCookie(response, status);
-    return response;
+    return NextResponse.json({ success: true, ...status, code: codeFromLicenseError(status.error) });
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) {
       console.warn(`${LOG_PREFIX} control plane rejected activation`, {

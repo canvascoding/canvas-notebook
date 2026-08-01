@@ -3,7 +3,6 @@ import { NextRequest, NextResponse } from 'next/server';
 import { isAdminUser } from '@/app/lib/admin-auth';
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
 import { auth } from '@/app/lib/auth';
-import { getLicenseStatus } from '@/app/lib/license';
 import { deleteOnboardingBootstrapFile } from '@/app/lib/onboarding/profile';
 import { getUserOnboardingState, initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingEnabled, isOnboardingComplete, markOnboardingComplete } from '@/app/lib/onboarding/status';
@@ -34,14 +33,6 @@ export async function POST(request: NextRequest) {
   if (await isOnboardingComplete()) {
     const onboarding = await getUserOnboardingState(session.user.id);
     return NextResponse.json({ success: true, data: { userOnboarding: onboarding } });
-  }
-
-  const licenseStatus = await getLicenseStatus();
-  if (!licenseStatus.licensed) {
-    return NextResponse.json(
-      { error: 'License activation required', code: 'LICENSE_REQUIRED' },
-      { status: 402 },
-    );
   }
 
   const settings = await getServerSettings();

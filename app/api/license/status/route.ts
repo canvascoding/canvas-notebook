@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server';
 
 import { getLicenseStatus } from '@/app/lib/license';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
-import { setLicenseGateCookie } from '@/app/lib/license/gate-cookie';
 import { logLicenseInfoThrottled } from '@/app/lib/license/logging';
 
 export async function GET() {
@@ -17,7 +16,5 @@ export async function GET() {
     error: status.error,
     code,
   });
-  const response = NextResponse.json({ success: true, ...status, code });
-  setLicenseGateCookie(response, status);
-  return response;
+  return NextResponse.json({ success: true, ...status, code });
 }

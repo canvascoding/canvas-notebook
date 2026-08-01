@@ -10,10 +10,8 @@ import { ToolCard } from './ToolCard';
 import { MoreToolsSection } from './MoreToolsSection';
 
 export function HomeWorkspaceView({
-  licenseLocked = false,
   showBrowserLab = false,
 }: {
-  licenseLocked?: boolean;
   showBrowserLab?: boolean;
 }) {
   const locale = useLocale();
@@ -48,7 +46,7 @@ export function HomeWorkspaceView({
 
   return (
     <div className="flex flex-col gap-6 pb-10">
-      <PromptHero licenseLocked={licenseLocked} />
+      <PromptHero />
       <CategoryPills activeCategory={activeCategory} onCategoryClick={handleCategoryClick} />
       {activeCategory && (
         <InspirationPanel

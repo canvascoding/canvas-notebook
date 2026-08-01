@@ -3,8 +3,6 @@ import { getTranslations } from 'next-intl/server';
 import packageJson from '../../../package.json';
 
 import { requirePageSession } from '@/app/lib/auth-guards';
-import { getLicenseStatus } from '@/app/lib/license';
-import { LicenseBanner } from '@/app/components/license/LicenseBanner';
 import { HomeWorkspaceView } from '@/app/components/home/HomeWorkspaceView';
 import { AppLauncher } from '@/app/components/AppLauncher';
 import { NotificationBell } from '@/app/components/notifications/NotificationBell';
@@ -27,8 +25,7 @@ const releaseTagUrl = `${repositoryUrl}/releases/tag/${releaseTag}`;
 export default async function Home() {
   const tHome = await getTranslations('home');
   const onboardingHintsEnabled = isOnboardingHintsEnabled();
-  const session = await requirePageSession({ allowUnlicensed: true });
-  const licenseStatus = await getLicenseStatus();
+  const session = await requirePageSession();
   const userOnboarding = session ? await getUserOnboardingState(session.user.id) : null;
   const showPersonalTour = userOnboarding?.tour === 'started';
 
@@ -36,7 +33,6 @@ export default async function Home() {
     <HomeHintProvider enabled={onboardingHintsEnabled || showPersonalTour}>
       <div className="fixed inset-0 overflow-hidden bg-background text-foreground">
         <div className="flex h-full min-h-0 flex-col">
-          {!licenseStatus.licensed && <LicenseBanner status={licenseStatus} />}
           <header className="sticky top-0 z-20 shrink-0 border-b border-border bg-background/95 pt-[env(safe-area-inset-top)] backdrop-blur supports-[backdrop-filter]:bg-background/85">
             <div className="mx-auto flex min-h-14 max-w-7xl flex-nowrap items-center justify-between gap-2 px-4 py-2 md:px-6">
               <div className="flex min-w-0 flex-1 items-center gap-2 sm:gap-3">
@@ -75,7 +71,6 @@ export default async function Home() {
               {showPersonalTour && <GettingStartedCard />}
 
               <HomeWorkspaceView
-                licenseLocked={!licenseStatus.licensed}
                 showBrowserLab={Boolean(session && isBrowserLabAllowed(session.user))}
               />
             </div>

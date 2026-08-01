@@ -4,7 +4,6 @@ import { isAdminUser } from '@/app/lib/admin-auth';
 import { auth } from '@/app/lib/auth';
 import { isManagedLicenseConfigured } from '@/app/lib/license';
 import { activateInstanceLicense, LicenseControlPlaneError } from '@/app/lib/license/control-plane';
-import { setLicenseGateCookie } from '@/app/lib/license/gate-cookie';
 import { mobileLicenseStatus } from '@/app/lib/mobile/license';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -44,7 +43,7 @@ export async function POST(request: NextRequest) {
 
   try {
     const status = await activateInstanceLicense(key);
-    const response = NextResponse.json(
+    return NextResponse.json(
       mobileLicenseStatus({
         status,
         canManage: true,
@@ -52,8 +51,6 @@ export async function POST(request: NextRequest) {
       }),
       { headers: responseHeaders },
     );
-    setLicenseGateCookie(response, status);
-    return response;
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) {
       return NextResponse.json(

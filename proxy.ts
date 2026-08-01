@@ -2,11 +2,9 @@ import { NextRequest, NextResponse } from 'next/server';
 import { getSessionCookie } from "better-auth/cookies";
 import createIntlMiddleware from 'next-intl/middleware';
 import { routing } from './i18n/routing';
-import { resolveAuthSecret } from './app/lib/security/auth-secret';
 
 // Initialize the next-intl middleware
 const handleI18nRouting = createIntlMiddleware(routing);
-const LICENSE_GATE_COOKIE = 'canvas_license_gate';
 
 // Public routes that don't require authentication
 const PUBLIC_PREFIX_ROUTES = ['/login', '/sign-in', '/sign-up', '/setup', '/api/auth', '/api/license', '/api/setup', '/api/automations/execute', '/api/automations/scheduler'];
@@ -27,21 +25,6 @@ const PUBLIC_SHARE_PREFIX_ROUTES = [
   '/public/markdown-pdf/',
   '/public/marp-preview/',
 ];
-// The initial owner must be able to establish personal language and the
-// server-wide schedule time zone before a license is active. Both routes
-// authenticate and authorize again in their handlers.
-const LICENSE_ALLOWED_API_PREFIXES = [
-  '/api/auth',
-  '/api/health',
-  '/api/license',
-  '/api/mobile/v1/license',
-  '/api/mobile/v1/account/preferences',
-  '/api/legal',
-  '/api/onboarding',
-  '/api/user-preferences',
-  '/api/server-settings',
-];
-
 function isWebSocketRoute(pathname: string) {
   return pathname === '/ws/chat' || /^\/[a-z]{2}(?:-[A-Z]{2})?\/ws\/chat$/u.test(pathname);
 }
@@ -121,165 +104,6 @@ function staleServerActionResponse(request: NextRequest) {
   return response;
 }
 
-function getSecret(): string {
-  return resolveAuthSecret();
-}
-
-function base64Url(bytes: ArrayBuffer): string {
-  const binary = String.fromCharCode(...new Uint8Array(bytes));
-  return btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-}
-
-async function sign(value: string): Promise<string> {
-  const key = await crypto.subtle.importKey(
-    'raw',
-    new TextEncoder().encode(getSecret()),
-    { name: 'HMAC', hash: 'SHA-256' },
-    false,
-    ['sign'],
-  );
-  const signature = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode(value));
-  return base64Url(signature);
-}
-
-async function hasValidLicenseGateCookie(request: NextRequest): Promise<boolean> {
-  const cookie = request.cookies.get(LICENSE_GATE_COOKIE)?.value;
-  if (!cookie) return false;
-  const [payload, signature] = cookie.split('.');
-  if (!payload || !signature) return false;
-  if (await sign(payload) !== signature) return false;
-  try {
-    const normalized = payload.replace(/-/g, '+').replace(/_/g, '/');
-    const padded = normalized.padEnd(normalized.length + ((4 - (normalized.length % 4)) % 4), '=');
-    const parsed = JSON.parse(atob(padded)) as {
-      licensed?: boolean;
-      expiresAt?: number;
-    };
-    return Boolean(parsed.licensed && parsed.expiresAt && parsed.expiresAt > Date.now());
-  } catch {
-    return false;
-  }
-}
-
-async function loadLicenseStatus(request: NextRequest): Promise<{
-  licensed?: boolean;
-  plan?: string;
-  instanceId?: string;
-  expiresAt?: string | null;
-} | null> {
-  try {
-    const statusUrl = resolveLicenseStatusUrl(request);
-    const response = await fetch(statusUrl, {
-      headers: {
-        cookie: request.headers.get('cookie') || '',
-      },
-      cache: 'no-store',
-    });
-    if (!response.ok) return null;
-    return await response.json();
-  } catch {
-    return null;
-  }
-}
-
-function runtimeLoopbackPort(): string | null {
-  const value = process.env.PORT?.trim();
-  if (!value || !/^\d{1,5}$/u.test(value)) return null;
-  const port = Number(value);
-  return port >= 1 && port <= 65_535 ? String(port) : null;
-}
-
-function isLoopbackHostname(hostname: string): boolean {
-  const normalized = hostname.replace(/^\[|\]$/gu, '').toLowerCase();
-  return normalized === 'localhost'
-    || normalized === '::1'
-    || /^127(?:\.\d{1,3}){3}$/u.test(normalized);
-}
-
-function resolveRuntimeReachableUrl(url: URL): URL {
-  const port = runtimeLoopbackPort();
-  if (!port || !isLoopbackHostname(url.hostname)) return url;
-
-  const internalUrl = new URL(url);
-  internalUrl.protocol = 'http:';
-  internalUrl.hostname = '127.0.0.1';
-  internalUrl.port = port;
-  return internalUrl;
-}
-
-export function resolveLicenseStatusUrl(request: NextRequest): URL {
-  for (const configured of [
-    process.env.BETTER_AUTH_BASE_URL,
-    process.env.BASE_URL,
-  ]) {
-    if (!configured?.trim()) continue;
-    try {
-      const url = new URL('/api/license/status', configured);
-      if (url.protocol === 'https:' || url.protocol === 'http:') {
-        return resolveRuntimeReachableUrl(url);
-      }
-    } catch {
-    }
-  }
-
-  const statusUrl = new URL('/api/license/status', request.url);
-  const forwardedProtocol = request.headers
-    .get('x-forwarded-proto')
-    ?.split(',')[0]
-    ?.trim()
-    .toLowerCase();
-  if (forwardedProtocol === 'https' || forwardedProtocol === 'http') {
-    statusUrl.protocol = `${forwardedProtocol}:`;
-  }
-  return resolveRuntimeReachableUrl(statusUrl);
-}
-
-async function buildLicenseGateCookie(status: {
-  licensed?: boolean;
-  plan?: string;
-  instanceId?: string;
-  expiresAt?: string | null;
-}): Promise<string> {
-  const maxAgeMs = 60 * 60 * 12 * 1000;
-  const expiresAt = Math.min(
-    Date.now() + maxAgeMs,
-    status.expiresAt ? new Date(status.expiresAt).getTime() : Date.now() + maxAgeMs,
-  );
-  const payload = btoa(JSON.stringify({
-    licensed: Boolean(status.licensed),
-    plan: status.plan,
-    instanceId: status.instanceId,
-    expiresAt,
-  })).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '');
-  return `${payload}.${await sign(payload)}`;
-}
-
-async function setLicenseGateCookie(response: NextResponse, status: {
-  licensed?: boolean;
-  plan?: string;
-  instanceId?: string;
-  expiresAt?: string | null;
-}) {
-  response.cookies.set(LICENSE_GATE_COOKIE, await buildLicenseGateCookie(status), {
-    httpOnly: true,
-    sameSite: 'lax',
-    secure: process.env.NODE_ENV === 'production',
-    path: '/',
-    maxAge: 60 * 60 * 12,
-  });
-}
-
-async function primeLicenseGateCookie(request: NextRequest, response: NextResponse) {
-  if (await hasValidLicenseGateCookie(request)) return response;
-
-  const status = await loadLicenseStatus(request);
-  if (status?.licensed) {
-    await setLicenseGateCookie(response, status);
-  }
-
-  return response;
-}
-
 function isPublicRoute(pathname: string) {
   // Strip locale prefix if present for checking public routes
   const locales = routing.locales;
@@ -344,25 +168,6 @@ export default async function middleware(request: NextRequest) {
       return errorResponse;
     }
 
-    if (
-      !LICENSE_ALLOWED_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) &&
-      !(await hasValidLicenseGateCookie(request))
-    ) {
-      const status = await loadLicenseStatus(request);
-      if (status?.licensed) {
-        const licensedResponse = nextWithCommonHeaders();
-        await setLicenseGateCookie(licensedResponse, status);
-        return licensedResponse;
-      }
-
-      const errorResponse = NextResponse.json(
-        { success: false, error: 'License activation required', code: 'LICENSE_REQUIRED' },
-        { status: 402 },
-      );
-      setCommonHeaders(errorResponse);
-      return errorResponse;
-    }
-
     return nextWithCommonHeaders();
   }
 
@@ -374,9 +179,6 @@ export default async function middleware(request: NextRequest) {
 
   // 2. Allow public routes and auth API routes
   if (isPublicRoute(pathname)) {
-    if (getSessionCookie(request)) {
-      return primeLicenseGateCookie(request, response);
-    }
     return response;
   }
 
@@ -409,28 +211,7 @@ export default async function middleware(request: NextRequest) {
     return errorResponse;
   }
 
-  if (
-    pathname.startsWith('/api/') &&
-    !LICENSE_ALLOWED_API_PREFIXES.some((prefix) => pathname.startsWith(prefix)) &&
-    !(await hasValidLicenseGateCookie(request))
-  ) {
-    const status = await loadLicenseStatus(request);
-    if (status?.licensed) {
-      const licensedResponse = NextResponse.next();
-      setCommonHeaders(licensedResponse);
-      await setLicenseGateCookie(licensedResponse, status);
-      return licensedResponse;
-    }
-
-    const errorResponse = NextResponse.json(
-      { success: false, error: 'License activation required', code: 'LICENSE_REQUIRED' },
-      { status: 402 },
-    );
-    setCommonHeaders(errorResponse);
-    return errorResponse;
-  }
-
-  return primeLicenseGateCookie(request, response);
+  return response;
 }
 
 export const config = {
@@ -438,7 +219,7 @@ export const config = {
     // Email AI endpoints read their request bodies through a 1 MiB bounded
     // stream reader. Excluding exactly those routes prevents Next.js proxy
     // from cloning each body into the separate 256 MiB upload buffer first.
-    // Their handlers repeat full session and license checks before reading.
+    // Their handlers repeat the full session check before reading.
     '/api/((?!email/compose/(?:ai|agent)(?:/|$)|email/accounts/[^/]+/messages/actions(?:/|$)|email/accounts/[^/]+/messages/[^/]+/(?:summary|ai-reply)(?:/|$)).*)',
     '/((?!api|ws|_next/static|_next/image|favicon.ico|.*\\..*).*)',
   ],

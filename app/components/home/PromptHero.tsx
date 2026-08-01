@@ -51,7 +51,7 @@ function createProgressItems(files: File[]): ImagePreprocessProgressItem[] {
   }));
 }
 
-export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean }) {
+export function PromptHero() {
   const locale = useLocale();
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
@@ -129,10 +129,9 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   }, [activeWorkspaceId]);
 
   const handleAgentSelect = useCallback((agentId: string) => {
-    if (licenseLocked) return;
     setSelectedAgentId(agentId);
     void saveLastActiveAgentId(agentId);
-  }, [licenseLocked]);
+  }, []);
 
   const updateImagePreprocessProgress = useCallback((
     index: number,
@@ -149,7 +148,6 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     convertParams?: (ConvertParams | null)[],
     options: UploadProgressOptions = {},
   ): Promise<boolean> => {
-    if (licenseLocked) return false;
     if (files.length === 0) {
       return true;
     }
@@ -224,7 +222,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     } finally {
       setPendingUploads((count) => Math.max(0, count - 1));
     }
-  }, [licenseLocked, updateImagePreprocessProgress]);
+  }, [updateImagePreprocessProgress]);
 
   const preprocessAndUpload = useCallback(async (files: File[]) => {
     const preprocessFiles: import('@/app/components/shared/ImagePreprocessDialog').PreprocessFileInfo[] = [];
@@ -285,12 +283,11 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   }, [handleFileUploadMultiple, imagePreprocessPendingFiles, updateImagePreprocessProgress]);
 
   const uploadFiles = useCallback((fileList: File[] | FileList | null | undefined) => {
-    if (licenseLocked) return;
     const files = Array.from(fileList || []);
     if (files.length > 0) {
       void preprocessAndUpload(files);
     }
-  }, [licenseLocked, preprocessAndUpload]);
+  }, [preprocessAndUpload]);
 
   const onFileChange = useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     uploadFiles(event.target.files);
@@ -298,7 +295,6 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   }, [uploadFiles]);
 
   const handlePaste = useCallback((event: React.ClipboardEvent) => {
-    if (licenseLocked) return;
     const items = event.clipboardData?.items;
     if (!items) return;
 
@@ -316,14 +312,13 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     if (pastedImages.length > 0) {
       void preprocessAndUpload(pastedImages);
     }
-  }, [licenseLocked, preprocessAndUpload]);
+  }, [preprocessAndUpload]);
 
   const removeAttachment = useCallback((index: number) => {
     setAttachments((prev) => prev.filter((_, itemIndex) => itemIndex !== index));
   }, []);
 
   const fetchFiles = useCallback(async (query: string = '') => {
-    if (licenseLocked) return;
     setIsLoadingFiles(true);
     try {
       if (!activeWorkspaceId) throw new Error('Workspace context is not ready');
@@ -334,7 +329,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
     } finally {
       setIsLoadingFiles(false);
     }
-  }, [activeWorkspaceId, licenseLocked]);
+  }, [activeWorkspaceId]);
 
   const handleInputChange = useCallback((e: React.ChangeEvent<HTMLTextAreaElement>) => {
     const value = e.target.value;
@@ -419,7 +414,6 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   const handleSubmit = async (event?: FormEvent<HTMLFormElement>) => {
     event?.preventDefault();
     const normalizedPrompt = prompt.trim();
-    if (licenseLocked) return;
     if (isUploading) {
       return;
     }
@@ -454,7 +448,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
   }, []);
 
   const { isDraggingFiles, dropHandlers } = useChatFileDrop({
-    disabled: licenseLocked || isUploading,
+    disabled: isUploading,
     onFiles: uploadFiles,
   });
 
@@ -498,12 +492,11 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
             onPaste={handlePaste}
             placeholder={tHome('hero.placeholder')}
             data-prompt-hero-textarea
-            disabled={licenseLocked}
-            className={`min-h-24 w-full resize-y rounded-lg border bg-background p-3 text-base focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'} ${prompt.length === 0 && !licenseLocked ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground'}`}
+            className={`min-h-24 w-full resize-y rounded-lg border bg-background p-3 text-base focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'} ${prompt.length === 0 ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground'}`}
             rows={3}
             {...dropHandlers}
           />
-          {prompt.length === 0 && !licenseLocked ? (
+          {prompt.length === 0 ? (
             <TypewriterPromptSuggestion
               suggestions={promptSuggestions}
               testId="home-prompt-suggestion"
@@ -558,7 +551,6 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
               onClick={() => fileInputRef.current?.click()}
               className="rounded-md border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
               title={tChat('attachImage')}
-              disabled={licenseLocked}
             >
               <Paperclip className="h-5 w-5" />
             </button>
@@ -592,7 +584,7 @@ export function PromptHero({ licenseLocked = false }: { licenseLocked?: boolean 
           <button
             type="submit"
             className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
-            disabled={licenseLocked || isUploading || isSubmitting || (!prompt.trim() && attachments.length === 0)}
+            disabled={isUploading || isSubmitting || (!prompt.trim() && attachments.length === 0)}
           >
             <Send className="h-4 w-4" />
             <span className="sr-only sm:not-sr-only">{tHome('hero.submit')}</span>
