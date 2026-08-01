@@ -15,6 +15,9 @@
   "executionRules": [
     "Phasen werden in der angegebenen Reihenfolge umgesetzt; innerhalb einer Phase dürfen nur Tasks mit erfüllten Dependencies begonnen werden.",
     "Der Control-Plane-Contract wird konsumiert und nicht lokal inkompatibel erweitert.",
+    "Test-, Manual- und kommerzielle Lizenzen durchlaufen denselben Membership-, Seat-, Entitlement- und Zertifikatsflow.",
+    "Eine Production-Runtime lehnt Testzertifikate unabhängig von Signatur oder Client-Request ab.",
+    "Testlizenz-Status wird dauerhaft sichtbar als nicht abrechenbar gekennzeichnet und kann nicht durch den Browser aktiviert werden.",
     "Kein neuer oder reaktivierter Team-User wird produktiv aktiv, bevor Kostenfreigabe, Billing-Erfolg und ein ausreichendes signiertes seatLimit vorliegen.",
     "Direkte Better-Auth-Admin-Aufrufe zur User-Erstellung werden hinter einen serverseitigen Membership-Orchestrator verschoben.",
     "Instanz-Tokens, Device-Codes und vollständige Zertifikate dürfen nicht in Client-State, Browser-Logs oder Analytics gelangen.",
@@ -35,7 +38,7 @@
         "app/lib/license/storage.ts",
         "app/lib/license/entitlements.ts"
       ],
-      "gap": "Community unterstützt Registrierung und Aktivierung, aber keinen Claim, kein Instanz-Token, keinen Team-Refresh und kein seatLimit."
+      "gap": "Community unterstützt Registrierung und Aktivierung, aber keinen Claim, kein Instanz-Token, keinen Team-Refresh, kein seatLimit und keine sichere Trennung zwischen Test-, Manual- und Produktionszertifikaten."
     },
     {
       "area": "user-management",
@@ -99,7 +102,7 @@
           "status": "pending",
           "priority": "P0",
           "ownerArea": "shared-contract",
-          "description": "Versionierte Types und Validatoren für Claim, Token, Quote, Authorization, Seat-Change, Snapshot, Drift und License-Claims aus dem gemeinsamen Contract ableiten.",
+          "description": "Versionierte Types und Validatoren für Claim, Token, Quote, Authorization, Seat-Change, Snapshot, Drift, License Class, License Environment und License-Claims aus dem gemeinsamen Contract ableiten.",
           "dependencies": [
             "NB-TS-001"
           ],
@@ -116,6 +119,7 @@
           "acceptanceCriteria": [
             "Der Client sendet canvas-team-seat-protocol-v1.",
             "Unbekannte Breaking-Versionen werden abgelehnt.",
+            "commercial, manual und test sowie development, test, staging und production sind strikt validiert.",
             "Alle gemeinsamen positiven und negativen Fixtures werden validiert.",
             "Stripe-spezifische Types gelangen nicht in Notebook-Domain-Modelle."
           ]
@@ -353,6 +357,7 @@
       "title": "Lizenz-Claims, Refresh und Runtime",
       "exitCriteria": [
         "Notebook versteht hostingMode, edition, seatLimit und entitlementsVersion.",
+        "Notebook unterscheidet Test-, Manual- und Produktionszertifikate sicher.",
         "Community Team erneuert Zertifikate automatisch.",
         "Seat-Limit und Team-Runtime werden serverseitig durchgesetzt.",
         "Downgrade bewahrt Daten und deaktiviert nur nicht mehr erlaubte Zugriffe."
@@ -364,7 +369,7 @@
           "status": "pending",
           "priority": "P0",
           "ownerArea": "license-domain",
-          "description": "LicenseCert und LicenseStatus um hostingMode, edition, seatLimit und Protokollversion erweitern und Legacy-Claims kompatibel normalisieren.",
+          "description": "LicenseCert und LicenseStatus um hostingMode, edition, licenseClass, licenseEnvironment, seatLimit und Protokollversion erweitern und Legacy-Claims kompatibel normalisieren.",
           "dependencies": [
             "NB-TS-002"
           ],
@@ -378,6 +383,7 @@
           ],
           "acceptanceCriteria": [
             "Community Solo, Community Team, Cloud Solo und Cloud Team sind eindeutig ableitbar.",
+            "Test-, Manual- und Commercial-Lizenzen sind eindeutig ableitbar.",
             "Legacy community und managed Claims bleiben während der Migration lesbar.",
             "seatLimit ist als Ganzzahl größer oder gleich 1 validiert.",
             "Billing-Beträge und Stripe-IDs sind nicht Teil der License-Types."
@@ -389,7 +395,7 @@
           "status": "pending",
           "priority": "P0",
           "ownerArea": "license-security",
-          "description": "Signatur, Issuer, Audience, Subject, Ablauf, Hosting/Edition, seatLimit und monotone entitlementsVersion prüfen.",
+          "description": "Signatur, Key ID, Issuer, Audience, Subject, Ablauf, License Class, License Environment, Hosting/Edition, seatLimit und monotone entitlementsVersion prüfen.",
           "dependencies": [
             "NB-TS-030"
           ],
@@ -404,6 +410,7 @@
           "acceptanceCriteria": [
             "Zertifikat einer anderen Instance-ID wird abgelehnt.",
             "Niedrigere Entitlement-Version kann keinen neueren Zustand überschreiben.",
+            "Production-Runtime lehnt test/development und test/test unabhängig vom verwendeten Requestpfad ab.",
             "Abgelaufene Team-Zertifikate folgen Grace- statt stiller Dauerfreigabe.",
             "Ungültige Claims erzeugen stabile Fehlercodes."
           ]
@@ -485,6 +492,36 @@
             "Genau ein Solo-Owner bleibt produktiv, sofern die Policy nichts anderes festlegt.",
             "Deaktivierte User sind nach Reaktivierung wiederherstellbar.",
             "Fallback ist auditierbar und idempotent."
+          ]
+        },
+        {
+          "id": "NB-TS-035",
+          "title": "Test- und Manual-Lizenz-Isolation implementieren",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-security",
+          "description": "Getrennte Test-/Production-Public-Keys und Audiences auflösen, erwartete Runtime-Environment serverseitig bestimmen und Testzertifikate außerhalb erlaubter Environments hart ablehnen.",
+          "dependencies": [
+            "NB-TS-030",
+            "NB-TS-031",
+            "NB-TS-032"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-005",
+            "CP-TS-053"
+          ],
+          "implementationAreas": [
+            "app/lib/license/public-key.ts",
+            "app/lib/license/jwt.ts",
+            "app/lib/license/index.ts",
+            "app/lib/server-settings.ts"
+          ],
+          "acceptanceCriteria": [
+            "Test- und Production-Keysets sind getrennt gecacht und rotiert.",
+            "Expected Environment stammt aus vertrauenswürdiger Serverkonfiguration.",
+            "Browserparameter können Testmodus nicht aktivieren.",
+            "Manual-Lizenz wird nur mit passender Environment und aktivem Grant akzeptiert.",
+            "Environment-Mismatch liefert einen stabilen Fehlercode."
           ]
         }
       ]
@@ -721,7 +758,8 @@
         "Seat-Änderungen und Snapshots sind retry-sicher.",
         "Control Plane kann observed, billed und licensed Zustand abgleichen.",
         "Notebook reagiert sicher auf Drift und veraltete Zertifikate.",
-        "Owner sehen den letzten erfolgreichen Sync."
+        "Owner sehen den letzten erfolgreichen Sync.",
+        "Test- und Manual-Lizenzstatus ist eindeutig sichtbar und nicht mit echter Abrechnung verwechselbar."
       ],
       "tasks": [
         {
@@ -876,6 +914,34 @@
             "UI trennt observed, billed und licensed verständlich.",
             "Recovery-Aktionen erzeugen keine unbestätigten Kosten."
           ]
+        },
+        {
+          "id": "NB-TS-056",
+          "title": "Test- und Manual-Lizenzstatus in der Notebook-UI kennzeichnen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "license-ui",
+          "description": "License Class, Environment, Ablauf, Seat-Limit und Nicht-abrechenbar-Hinweis für Testlizenzen sowie Manual-Grant-Hinweis für Owner darstellen.",
+          "dependencies": [
+            "NB-TS-035",
+            "NB-TS-055"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-024",
+            "CP-TS-064"
+          ],
+          "implementationAreas": [
+            "app/components/license",
+            "app/components/settings/UserManagementPanel.tsx",
+            "app/api/license/status"
+          ],
+          "acceptanceCriteria": [
+            "Testlizenz ist in License-, Team- und User-Management-Ansicht unübersehbar als nicht abrechenbar markiert.",
+            "UI zeigt Ablauf und verbleibende Grace-Zeit.",
+            "Normale Member sehen keine Admin- oder Grant-Details.",
+            "Browser kann License Class oder Environment nicht umschalten.",
+            "Manual-Lizenz wird nicht fälschlich als Stripe-Abo dargestellt."
+          ]
         }
       ]
     },
@@ -884,6 +950,7 @@
       "title": "Security, Tests und Release",
       "exitCriteria": [
         "Secrets und Membership-Daten sind datensparsam geschützt.",
+        "Der vollständige Team-Lifecycle ist ohne Stripe mit einem environment-gebundenen Testzertifikat geprüft.",
         "Contract-, Migration-, Membership-, Offline- und End-to-End-Tests bestehen.",
         "Build und relevante Repository-Checks sind erfolgreich.",
         "Kompatibilitäts- und Recovery-Dokumentation ist veröffentlicht."
@@ -1124,11 +1191,63 @@
             "Owner-Dokumentation erklärt Account-Pflicht, Kosten, Grace und Downgrade.",
             "Unterstützte Control-Plane- und Notebook-Versionen sind veröffentlicht."
           ]
+        },
+        {
+          "id": "NB-TS-078",
+          "title": "No-Stripe-Testlizenz-End-to-End prüfen",
+          "status": "pending",
+          "priority": "P0",
+          "ownerArea": "tests-e2e",
+          "description": "Test-Grant, getrennte Testsignatur, Claim, Refresh, Quote, User-Aktivierung, Failure-Szenarien, Ablauf, Revocation und Production-Rejection ohne Stripe prüfen.",
+          "dependencies": [
+            "NB-TS-035",
+            "NB-TS-043",
+            "NB-TS-044",
+            "NB-TS-052",
+            "NB-TS-056",
+            "NB-TS-070",
+            "NB-TS-073"
+          ],
+          "crossRepositoryDependencies": [
+            "CP-TS-039",
+            "CP-TS-078"
+          ],
+          "implementationAreas": [
+            "tests",
+            "scripts",
+            "docs"
+          ],
+          "acceptanceCriteria": [
+            "Testlauf benötigt keine Stripe-Environment-Variablen.",
+            "success aktiviert User erst nach passendem Testzertifikat und höherem seatLimit.",
+            "requires_action und payment_failed aktivieren keinen User.",
+            "Ablauf und Revocation führen zum sicheren Fallback ohne Datenlöschung.",
+            "Production-Konfiguration lehnt dasselbe gültig signierte Testzertifikat ab.",
+            "UI kennzeichnet den gesamten Lauf als nicht abrechenbar."
+          ]
         }
       ]
     }
   ],
   "crossRepositoryGates": [
+    {
+      "id": "TS-GATE-0",
+      "title": "Sichere Development-Testlizenz bereit",
+      "controlPlaneTasks": [
+        "CP-TS-005",
+        "CP-TS-017",
+        "CP-TS-024",
+        "CP-TS-039",
+        "CP-TS-064",
+        "CP-TS-078"
+      ],
+      "notebookTasks": [
+        "NB-TS-035",
+        "NB-TS-056",
+        "NB-TS-078"
+      ],
+      "releaseCondition": "Der vollständige Claim-, Seat-, Membership- und Zertifikatsflow ist ohne Stripe testbar; Testzertifikate sind von Production isoliert."
+    },
     {
       "id": "TS-GATE-1",
       "title": "Contract bereit",
