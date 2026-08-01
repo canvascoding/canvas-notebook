@@ -36,6 +36,7 @@ export const DEFAULT_CANVAS_PLUGIN_STORE_REGISTRY_URL =
   'https://raw.githubusercontent.com/canvascoding/canvas-notebook-plugin-marketplace/main/registry.json';
 
 const MAX_STORE_REGISTRY_BYTES = 5 * 1024 * 1024;
+const MAX_STORE_ICON_BYTES = 2 * 1024 * 1024;
 const MAX_STORE_ARCHIVE_BYTES = 250 * 1024 * 1024;
 const MAX_STORE_ARCHIVE_FILES = 2_000;
 const MAX_STORE_EXTRACTED_BYTES = 250 * 1024 * 1024;
@@ -108,6 +109,11 @@ export interface CanvasPluginStoreList {
 export interface CanvasPluginStoreInstallResult extends CanvasPluginInstallResult {
   storePlugin?: CanvasPluginStorePlugin;
   storeVersion?: CanvasPluginStoreVersion;
+}
+
+export interface CanvasPluginStoreIcon {
+  bytes: Buffer;
+  contentType: string;
 }
 
 export type CanvasPluginStoreStateFilter = 'all' | 'available' | 'installed' | 'updates';
@@ -547,6 +553,36 @@ export async function readCanvasPluginStoreRegistry(): Promise<CanvasPluginStore
   };
 }
 
+export async function readCanvasPluginStoreIcon(pluginName: string): Promise<CanvasPluginStoreIcon | null> {
+  if (!isValidCanvasPluginName(pluginName)) return null;
+  const registry = await readCanvasPluginStoreRegistry();
+  const plugin = registry.plugins.find((entry) => entry.name === pluginName);
+  if (!plugin?.iconUrl) return null;
+
+  let pathname: string;
+  try {
+    pathname = new URL(plugin.iconUrl).pathname;
+  } catch {
+    return null;
+  }
+
+  const contentTypes: Record<string, string> = {
+    '.gif': 'image/gif',
+    '.jpeg': 'image/jpeg',
+    '.jpg': 'image/jpeg',
+    '.png': 'image/png',
+    '.svg': 'image/svg+xml',
+    '.webp': 'image/webp',
+  };
+  const contentType = contentTypes[path.extname(pathname).toLowerCase()];
+  if (!contentType) return null;
+
+  return {
+    bytes: await readUrlBytes(plugin.iconUrl, MAX_STORE_ICON_BYTES),
+    contentType,
+  };
+}
+
 async function enrichStorePluginsWithInstalledState(
   registry: CanvasPluginStoreRegistry,
   installedPlugins: CanvasPluginInstallRecord[],
@@ -646,6 +682,30 @@ export async function listCanvasPluginStore(options: CanvasPluginStoreListOption
       filteredTotal: filtered.length,
     },
   };
+}
+
+export async function getCanvasPluginStorePlugin(
+  pluginName: string,
+  scope?: CanvasPluginStorageScope | null,
+): Promise<{
+  registry: Omit<CanvasPluginStoreRegistry, 'plugins'>;
+  plugin: CanvasPluginStorePluginWithState;
+} | null> {
+  if (!isValidCanvasPluginName(pluginName)) return null;
+  const [registry, installedPlugins] = await Promise.all([
+    readCanvasPluginStoreRegistry(),
+    listCanvasPlugins(scope),
+  ]);
+  const plugin = registry.plugins.find((entry) => entry.name === pluginName);
+  if (!plugin) return null;
+  const enriched = await enrichStorePluginsWithInstalledState(
+    { ...registry, plugins: [plugin] },
+    installedPlugins,
+    scope,
+  );
+  return enriched.plugins[0]
+    ? { registry: enriched.registry, plugin: enriched.plugins[0] }
+    : null;
 }
 
 function sanitizeArchivePath(archivePath: string): string {

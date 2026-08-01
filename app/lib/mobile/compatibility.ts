@@ -79,6 +79,9 @@ export type MobileCompatibility = {
       'automations.webhooks',
       'automations.composio_triggers',
       'extensions.store',
+      'extensions.marketplace_v2',
+      'integrations.composio_catalog',
+      'integrations.composio_mobile_auth',
     ];
   };
   auth: {
@@ -179,6 +182,9 @@ export function createMobileCompatibility(input: {
         'automations.webhooks',
         'automations.composio_triggers',
         'extensions.store',
+        'extensions.marketplace_v2',
+        'integrations.composio_catalog',
+        'integrations.composio_mobile_auth',
       ],
     },
     auth: {
