@@ -145,6 +145,8 @@ Paragraph with **bold**, *italic*, ~~strike~~, \`code\`, emoji 😄, and [link](
 
 Workspace links [[Plan#Outcome|the plan]] and ![[Embed]], with a note.^[Inline source]
 
+Workspace member @{Ada Lovelace|user-ada} owns the next step.
+
 Highlighted ==important **context**== stays editable.
 
 > [!warning]+ Verify this
@@ -283,6 +285,7 @@ async function main() {
   assert.match(output, /\[\[Plan#Outcome\|the plan\]\]/);
   assert.match(output, /!\[\[Embed\]\]/);
   assert.match(output, /\^\[Inline source\]/);
+  assert.match(output, /@\{Ada Lovelace\|user-ada\}/u);
   assert.match(output, /==important \*\*context\*\*==/u);
   assert.match(output, /^> \[!warning\]\+ Verify this$/mu);
   assert.match(output, /^> Callout body with \*formatting\*\.$/mu);
@@ -321,6 +324,7 @@ $$`));
     'wiki links and embeds should parse into rich-editor nodes',
   );
   assert.ok(nodeTypes.includes('obsidianInlineFootnote'), 'inline footnotes should parse into rich-editor nodes');
+  assert.ok(nodeTypes.includes('markdownMention'), 'workspace mentions should parse into stable rich-editor nodes');
   assert.ok(markTypes.includes('canvasHighlight'), 'Obsidian highlights should parse into editable marks');
   assert.ok(nodeTypes.includes('canvasCallout'), 'Obsidian callouts should parse into rich-editor blocks');
   assert.ok(nodeTypes.includes('canvasDetails'), 'details blocks should parse into rich-editor blocks');

@@ -66,10 +66,27 @@ export function MarkdownRenderer({
     span: ({
       className: spanClassName,
       ...props
-    }: React.HTMLAttributes<HTMLSpanElement> & { dataColorCode?: string }) => {
+    }: React.HTMLAttributes<HTMLSpanElement> & {
+      'data-canvas-mention-label'?: string;
+      'data-canvas-mention-user-id'?: string;
+      dataColorCode?: string;
+    }) => {
       const colorCode = extractColorCode(props as Record<string, unknown>);
       if (colorCode) {
         return <ColorSwatch color={colorCode} />;
+      }
+      const mentionLabel = props['data-canvas-mention-label'];
+      const mentionUserId = props['data-canvas-mention-user-id'];
+      if (typeof mentionLabel === 'string' && typeof mentionUserId === 'string') {
+        return (
+          <span
+            className={cn('canvas-markdown-mention', spanClassName)}
+            data-canvas-mention-user-id={mentionUserId}
+            title={`@${mentionLabel}`}
+          >
+            @{mentionLabel}
+          </span>
+        );
       }
       return <span className={spanClassName} {...props} />;
     },

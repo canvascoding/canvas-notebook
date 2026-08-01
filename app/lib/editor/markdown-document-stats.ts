@@ -10,6 +10,7 @@ export function markdownTextForStats(markdown: string): string {
     .replace(/<[^>\r\n]+>/gu, ' ')
     .replace(/!\[([^\]]*)\]\([^)]+\)/gu, '$1')
     .replace(/\[([^\]]+)\]\([^)]+\)/gu, '$1')
+    .replace(/@\{([^|{}\r\n]+)\|[^|{}\s\r\n]+\}/gu, '@$1')
     .replace(/!?\[\[([^\]|#]+)(?:#[^\]|]+)?(?:\|([^\]]+))?\]\]/gu, (_match, target, alias) => (
       typeof alias === 'string' && alias.trim() ? alias : target
     ))

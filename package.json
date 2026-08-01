@@ -97,6 +97,7 @@
     "test:editor:outline": "tsx scripts/markdown-outline-test.ts && tsx scripts/markdown-outline-ui-test.ts",
     "test:editor:rich-blocks": "tsx scripts/tiptap-markdown-roundtrip-test.ts && tsx --conditions react-server scripts/markdown-rich-blocks-collaboration-test.ts && tsx scripts/markdown-rich-blocks-ui-test.ts",
     "test:editor:search": "tsx scripts/markdown-search-stats-test.ts && tsx scripts/markdown-search-stats-ui-test.ts",
+    "test:editor:emoji-mentions": "tsx scripts/markdown-emoji-mention-test.ts && tsx scripts/tiptap-markdown-roundtrip-test.ts && tsx scripts/canvas-markdown-rendering-test.ts && tsx --conditions react-server scripts/markdown-rich-blocks-collaboration-test.ts && tsx scripts/markdown-emoji-mention-ui-test.ts",
     "test:editor:mobile-toolbar": "tsx scripts/mobile-toolbar-gesture-test.ts",
     "test:markdown:rendering": "tsx scripts/canvas-markdown-rendering-test.ts",
     "test:markdown:preview-stability": "tsx scripts/markdown-document-preview-stability-test.tsx",

@@ -11,6 +11,8 @@ const markdown = `# Shared note
 
 Highlighted ==collaborative text== remains rich-editable.
 
+Workspace member @{Ada Lovelace|user-ada} remains identifiable.
+
 > [!warning]+ Review together
 > This callout is part of the shared document schema.
 
@@ -30,6 +32,7 @@ const richDocument = createRichMarkdownYDoc(markdown);
 try {
   const serialized = richMarkdownFromYDoc(richDocument);
   assert.match(serialized, /==collaborative text==/u);
+  assert.match(serialized, /@\{Ada Lovelace\|user-ada\}/u);
   assert.match(serialized, /^> \[!warning\]\+ Review together$/mu);
   assert.match(serialized, /another editor\.\[\^1\]/u);
   assert.match(serialized, /^\[\^1\]: Shared footnote definition\.$/mu);

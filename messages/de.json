@@ -724,6 +724,12 @@
     "markdownEditorDocumentStatistics": "Dokumentstatistik",
     "markdownEditorWords": "{count} Wörter",
     "markdownEditorCharacters": "{count} Zeichen",
+    "markdownEditorEmojiTitle": "Emoji einfügen",
+    "markdownEditorEmojiDescription": "Wähle ein Emoji für die aktuelle Cursorposition.",
+    "markdownEditorEmojiSearch": "Emoji suchen",
+    "markdownEditorEmojiNoMatch": "Kein passendes Emoji",
+    "markdownEditorMentionSuggestions": "Workspace-Mitglieder",
+    "markdownEditorMentionNoMatch": "Kein passendes Workspace-Mitglied",
     "markdownEditorImageDialogTitle": "Bild einfügen",
     "markdownEditorImageDialogDescription": "Lade ein Bild in den Ordner dieser Notiz hoch oder importiere ein externes Bild als lokale Markdown-Referenz.",
     "markdownEditorImageTabUpload": "Upload",
@@ -904,6 +910,14 @@
       "image": {
         "title": "Bild",
         "description": "Bild per URL oder Workspace-Pfad"
+      },
+      "emoji": {
+        "title": "Emoji",
+        "description": "Emoji einfügen"
+      },
+      "mention": {
+        "title": "Erwähnung",
+        "description": "Workspace-Mitglied erwähnen"
       },
       "divider": {
         "title": "Trennlinie",

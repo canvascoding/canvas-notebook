@@ -189,12 +189,12 @@ assert.match(mask, /research\/Market Analysis/);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Normal **GFM** with `$code` and $E=mc^2$.'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('A `code` span and\n\n```ts\nconst x = 1\n```'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('See [[Note]].'), false);
-assert.equal(hasObsidianRichEditorUnsupportedSyntax('Use ==highlight==.'), true);
+assert.equal(hasObsidianRichEditorUnsupportedSyntax('Use ==highlight==.'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Claim.^[Inline note]'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Visible %% hidden %% text.'), true);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('Paragraph ^block-id'), true);
-assert.equal(hasObsidianRichEditorUnsupportedSyntax('> [!note] Callout'), true);
-assert.equal(hasObsidianRichEditorUnsupportedSyntax('[^1]: Footnote'), true);
+assert.equal(hasObsidianRichEditorUnsupportedSyntax('> [!note] Callout'), false);
+assert.equal(hasObsidianRichEditorUnsupportedSyntax('[^1]: Footnote'), false);
 assert.equal(hasObsidianRichEditorUnsupportedSyntax('---\ntitle: Test\n---\n'), true);
 
 const workspaceFiles = [

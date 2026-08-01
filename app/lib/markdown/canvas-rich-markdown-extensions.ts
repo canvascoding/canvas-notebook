@@ -3,6 +3,8 @@ import {
   Node,
   markInputRule,
   mergeAttributes,
+  nodeInputRule,
+  nodePasteRule,
   type JSONContent,
   type MarkdownParseHelpers,
   type MarkdownToken,
@@ -14,6 +16,7 @@ declare module '@tiptap/core' {
       insertCanvasCallout: (options?: { title?: string; type?: string }) => ReturnType;
       insertCanvasDetails: (options?: { summary?: string }) => ReturnType;
       insertMarkdownFootnote: (options?: { content?: string }) => ReturnType;
+      insertMarkdownMention: (options: { label: string; userId: string }) => ReturnType;
       toggleCanvasHighlight: () => ReturnType;
     };
   }
@@ -33,6 +36,11 @@ type DetailsToken = MarkdownToken & {
 
 type FootnoteToken = MarkdownToken & {
   footnoteId?: string;
+};
+
+type MentionToken = MarkdownToken & {
+  mentionLabel?: string;
+  mentionUserId?: string;
 };
 
 function safeText(value: unknown, fallback = ''): string {
@@ -98,6 +106,104 @@ export const CanvasHighlight = Mark.create({
 
   addInputRules() {
     return [markInputRule({ find: /(?:^|\s)(==([^=\r\n]+)==)$/u, type: this.type })];
+  },
+});
+
+const MENTION_INPUT_REGEX = /(?:^|\s)(@\{([^|{}\r\n]+)\|([^|{}\s\r\n]+)\})$/u;
+const MENTION_PASTE_REGEX = /@\{([^|{}\r\n]+)\|([^|{}\s\r\n]+)\}/gu;
+
+export const MarkdownMention = Node.create({
+  name: 'markdownMention',
+  group: 'inline',
+  inline: true,
+  atom: true,
+  selectable: true,
+  priority: 1150,
+
+  addAttributes() {
+    return {
+      label: { default: 'Member' },
+      userId: { default: '' },
+    };
+  },
+
+  parseHTML() {
+    return [{
+      tag: 'span[data-type="markdown-mention"]',
+      getAttrs: (element) => element instanceof HTMLElement ? {
+        label: element.dataset.mentionLabel || 'Member',
+        userId: element.dataset.mentionUserId || '',
+      } : false,
+    }];
+  },
+
+  renderHTML({ HTMLAttributes, node }) {
+    const label = safeText(node.attrs.label, 'Member');
+    const userId = safeText(node.attrs.userId);
+    return ['span', mergeAttributes(HTMLAttributes, {
+      'data-type': 'markdown-mention',
+      'data-mention-label': label,
+      'data-mention-user-id': userId,
+      class: 'canvas-markdown-mention',
+      contenteditable: 'false',
+    }), `@${label}`];
+  },
+
+  parseMarkdown(token: MentionToken, helpers) {
+    return helpers.createNode('markdownMention', {
+      label: safeText(token.mentionLabel, 'Member'),
+      userId: safeText(token.mentionUserId),
+    });
+  },
+
+  renderMarkdown(node) {
+    const label = safeText(node.attrs?.label, 'Member').replace(/[|{}\r\n]/gu, ' ').trim();
+    const userId = safeText(node.attrs?.userId).replace(/[|{}\s\r\n]/gu, '').trim();
+    return `@{${label || 'Member'}|${userId}}`;
+  },
+
+  markdownTokenizer: {
+    name: 'markdownMention',
+    level: 'inline',
+    start: (source) => source.indexOf('@{'),
+    tokenize: (source) => {
+      const match = source.match(/^@\{([^|{}\r\n]+)\|([^|{}\s\r\n]+)\}/u);
+      if (!match) return undefined;
+      return {
+        type: 'markdownMention',
+        raw: match[0],
+        mentionLabel: match[1].trim(),
+        mentionUserId: match[2],
+      } satisfies MentionToken;
+    },
+  },
+
+  addCommands() {
+    return {
+      insertMarkdownMention: (options) => ({ commands }) => commands.insertContent({
+        type: this.name,
+        attrs: {
+          label: options.label,
+          userId: options.userId,
+        },
+      }),
+    };
+  },
+
+  addInputRules() {
+    return [nodeInputRule({
+      find: MENTION_INPUT_REGEX,
+      type: this.type,
+      getAttributes: (match) => ({ label: match[2].trim(), userId: match[3] }),
+    })];
+  },
+
+  addPasteRules() {
+    return [nodePasteRule({
+      find: MENTION_PASTE_REGEX,
+      type: this.type,
+      getAttributes: (match) => ({ label: match[1].trim(), userId: match[2] }),
+    })];
   },
 });
 
@@ -511,5 +617,6 @@ export function canvasRichMarkdownExtensions() {
     CanvasDetails,
     MarkdownFootnoteReference,
     MarkdownFootnoteDefinition,
+    MarkdownMention,
   ];
 }

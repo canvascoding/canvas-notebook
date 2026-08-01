@@ -71,6 +71,12 @@ const inlineFootnoteMarkdown = renderMarkdown('Claim.^[Inline source note]');
 assert.match(inlineFootnoteMarkdown, /data-inline-footnote="Inline source note"/);
 assert.match(inlineFootnoteMarkdown, /data-inline-footnote-index="1"/);
 
+const mentionMarkdown = renderMarkdown('Owner: @{Ada Lovelace|user-ada}.');
+assert.match(mentionMarkdown, /class="canvas-markdown-mention"/);
+assert.match(mentionMarkdown, /data-canvas-mention-label="Ada Lovelace"/);
+assert.match(mentionMarkdown, /data-canvas-mention-user-id="user-ada"/);
+assert.doesNotMatch(mentionMarkdown, /@\{Ada Lovelace\|user-ada\}/);
+
 const standaloneEmbedMarkdown = renderMarkdown('![[Plan#Outcome]]');
 assert.match(standaloneEmbedMarkdown, /data-canvas-wiki-transclude="true"/);
 assert.match(standaloneEmbedMarkdown, /canvas-wiki-embed-container/);

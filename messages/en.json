@@ -725,6 +725,12 @@
     "markdownEditorDocumentStatistics": "Document statistics",
     "markdownEditorWords": "{count} words",
     "markdownEditorCharacters": "{count} characters",
+    "markdownEditorEmojiTitle": "Insert emoji",
+    "markdownEditorEmojiDescription": "Choose an emoji to insert at the current cursor position.",
+    "markdownEditorEmojiSearch": "Search emoji",
+    "markdownEditorEmojiNoMatch": "No matching emoji",
+    "markdownEditorMentionSuggestions": "Workspace members",
+    "markdownEditorMentionNoMatch": "No matching workspace member",
     "markdownEditorImageDialogTitle": "Insert image",
     "markdownEditorImageDialogDescription": "Upload an image into this note folder or import an external image as a local Markdown file reference.",
     "markdownEditorImageTabUpload": "Upload",
@@ -905,6 +911,14 @@
       "image": {
         "title": "Image",
         "description": "Image by URL or workspace path"
+      },
+      "emoji": {
+        "title": "Emoji",
+        "description": "Insert an emoji"
+      },
+      "mention": {
+        "title": "Mention",
+        "description": "Mention a workspace member"
       },
       "divider": {
         "title": "Divider",

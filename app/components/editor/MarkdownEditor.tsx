@@ -32,6 +32,7 @@ import {
   AlignCenter,
   AlignLeft,
   AlignRight,
+  AtSign,
   Bold,
   BadgeInfo,
   ChevronLeft,
@@ -66,6 +67,7 @@ import {
   Rows3,
   Search,
   Sigma,
+  SmilePlus,
   SquareSigma,
   Strikethrough,
   Superscript,
@@ -104,6 +106,7 @@ import {
   isEditorPositionInsideDoc,
 } from '@/app/lib/editor/prosemirror-ranges';
 import { getMarkdownDocumentStats } from '@/app/lib/editor/markdown-document-stats';
+import { filterCanvasEmoji } from '@/app/lib/editor/emoji-catalog';
 import {
   clearMarkdownSearch,
   getMarkdownSearchState,
@@ -178,6 +181,7 @@ import { cn } from '@/lib/utils';
 
 import { CodeEditor } from './CodeEditorClient';
 import { MarkdownBacklinksPanel } from './MarkdownBacklinksPanel';
+import { createMarkdownMentionSuggestions } from './MarkdownMentionSuggestions';
 import { MarkdownOutlinePanel } from './MarkdownOutlinePanel';
 import { MarkdownPropertiesPanel } from './MarkdownPropertiesPanel';
 import { createObsidianWikiLinkExtensions } from './ObsidianWikiLinkExtension';
@@ -227,6 +231,7 @@ type ToolbarState = {
 
 type SlashCommandActions = {
   editMath?: (kind: 'inline' | 'block', latex: string, pos: number) => void;
+  openEmojiDialog?: (editor: Editor, range: Range) => void;
   openImageDialog?: (editor: Editor, range: Range) => void;
   openTableDialog?: (editor: Editor, range: Range) => void;
 };
@@ -255,6 +260,8 @@ type SlashCommandItemId =
   | 'blockMath'
   | 'table'
   | 'image'
+  | 'emoji'
+  | 'mention'
   | 'divider'
   | 'bold'
   | 'italic'
@@ -315,6 +322,11 @@ type BlockCommandMenuState = {
 };
 
 type ImageDialogSeed = {
+  id: number;
+  range?: Range;
+};
+
+type EmojiDialogSeed = {
   id: number;
   range?: Range;
 };
@@ -1124,6 +1136,24 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
       const alt = window.prompt(labels.imageAltPrompt) || '';
       runAfterSlashDelete({ actions, editor, labels, range }).setImage({ src: src.trim(), alt: alt.trim() }).run();
     },
+  },
+  {
+    id: 'emoji',
+    keywords: ['smile', 'icon', 'reaction'],
+    Icon: SmilePlus,
+    command: (context) => {
+      if (context.actions?.openEmojiDialog) {
+        context.actions.openEmojiDialog(context.editor, context.range);
+        return;
+      }
+      runAfterSlashDelete(context).insertContent('😀').run();
+    },
+  },
+  {
+    id: 'mention',
+    keywords: ['person', 'member', 'user'],
+    Icon: AtSign,
+    command: (context) => runAfterSlashDelete(context).insertContent('@').run(),
   },
   {
     id: 'divider',
@@ -1987,6 +2017,7 @@ function createEditorExtensions(
   actions?: SlashCommandActions,
   workspaceId: string | null = null,
   wikiLabels: { empty: string; group: string } = { empty: '', group: '' },
+  mentionLabels: { empty: string; group: string } = { empty: '', group: '' },
   collaboration: CollaborationDocument | null = null,
   remoteCaretLabel?: (name: string) => string,
 ) {
@@ -2039,6 +2070,7 @@ function createEditorExtensions(
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
     ...canvasRichMarkdownExtensions(),
+    createMarkdownMentionSuggestions({ labels: mentionLabels, workspaceId }),
     ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
     ObsidianInlineFootnoteExtension,
     Markdown.configure({
@@ -3203,6 +3235,74 @@ function MarkdownTableDialog({
   );
 }
 
+function MarkdownEmojiDialog({
+  editor,
+  onOpenChange,
+  open,
+  range,
+}: {
+  editor: MarkdownEditorWithMarkdown | null;
+  onOpenChange: (open: boolean) => void;
+  open: boolean;
+  range?: Range;
+}) {
+  const t = useTranslations('notebook');
+  const [query, setQuery] = useState('');
+  const items = useMemo(() => filterCanvasEmoji(query), [query]);
+
+  const insertEmoji = useCallback((emoji: string) => {
+    if (!editor || editor.isDestroyed || !editor.isEditable) return;
+    const insertionRange = range ? clampEditorRangeToDoc(editor, range) : null;
+    const chain = editor.chain().focus();
+    if (insertionRange) {
+      chain.insertContentAt(insertionRange, emoji).run();
+    } else {
+      chain.insertContent(emoji).run();
+    }
+    onOpenChange(false);
+  }, [editor, onOpenChange, range]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-md" data-testid="markdown-emoji-dialog">
+        <DialogHeader>
+          <DialogTitle>{t('markdownEditorEmojiTitle')}</DialogTitle>
+          <DialogDescription>{t('markdownEditorEmojiDescription')}</DialogDescription>
+        </DialogHeader>
+        <Input
+          autoFocus
+          value={query}
+          placeholder={t('markdownEditorEmojiSearch')}
+          aria-label={t('markdownEditorEmojiSearch')}
+          onChange={(event) => setQuery(event.target.value)}
+        />
+        {items.length > 0 ? (
+          <div className="grid max-h-72 grid-cols-6 gap-1 overflow-y-auto pr-1 sm:grid-cols-8">
+            {items.map((item) => (
+              <Button
+                key={`${item.emoji}-${item.label}`}
+                type="button"
+                variant="ghost"
+                size="icon"
+                className="text-xl"
+                aria-label={item.label}
+                title={item.label}
+                onClick={() => insertEmoji(item.emoji)}
+              >
+                <span aria-hidden="true">{item.emoji}</span>
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            {t('markdownEditorEmojiNoMatch')}
+          </p>
+        )}
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MarkdownToolbar({
   editor,
   filePath,
@@ -3211,6 +3311,7 @@ function MarkdownToolbar({
   labels,
   onSourceMode,
   showSourceModeSwitch,
+  onOpenEmojiDialog,
   onImageDialogOpenChange,
   onOpenTableDialog,
 }: {
@@ -3221,6 +3322,7 @@ function MarkdownToolbar({
   labels: SlashCommandLabels;
   onSourceMode: () => void;
   showSourceModeSwitch: boolean;
+  onOpenEmojiDialog: (range?: Range) => void;
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
 }) {
@@ -3536,6 +3638,20 @@ function MarkdownToolbar({
           <ImageIcon />
         </TooltipIconButton>
         <TooltipIconButton
+          label={labels.items.emoji.title}
+          disabled={!canUseCommands}
+          onClick={() => onOpenEmojiDialog(getCurrentToolbarRange())}
+        >
+          <SmilePlus />
+        </TooltipIconButton>
+        <TooltipIconButton
+          label={labels.items.mention.title}
+          disabled={!canUseCommands}
+          onClick={() => editor?.chain().focus().insertContent('@').run()}
+        >
+          <AtSign />
+        </TooltipIconButton>
+        <TooltipIconButton
           label={t('markdownEditorTableInsert')}
           disabled={!canUseCommands}
           onClick={() => onOpenTableDialog(getCurrentToolbarRange())}
@@ -3737,6 +3853,8 @@ const MOBILE_STYLE_COMMAND_IDS = new Set<SlashCommandItemId>([
   'quote',
   'codeBlock',
   'highlight',
+  'emoji',
+  'mention',
 ]);
 
 function preserveEditorSelectionOnPointerDown(event: React.PointerEvent<HTMLElement>) {
@@ -3903,6 +4021,7 @@ function MobileMarkdownToolbar({
   keyboardActive,
   labels,
   onImageDialogOpenChange,
+  onOpenEmojiDialog,
   onOpenTableDialog,
   onSourceMode,
   showSourceModeSwitch,
@@ -3914,6 +4033,7 @@ function MobileMarkdownToolbar({
   keyboardActive: boolean;
   labels: SlashCommandLabels;
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
+  onOpenEmojiDialog: (range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
   onSourceMode: () => void;
   showSourceModeSwitch: boolean;
@@ -4149,6 +4269,24 @@ function MobileMarkdownToolbar({
           <LinkIcon className="h-5 w-5" />
         </MobileToolbarButton>
         <MobileToolbarButton
+          label={labels.items.emoji.title}
+          disabled={!canUseCommands}
+          onClick={() => {
+            const range = restoreSavedRange() ?? saveCurrentRange();
+            setSheet(null);
+            onOpenEmojiDialog(range ?? undefined);
+          }}
+        >
+          <SmilePlus className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton
+          label={labels.items.mention.title}
+          disabled={!canUseCommands}
+          onClick={() => runInlineCommand((currentEditor) => currentEditor.chain().focus().insertContent('@').run())}
+        >
+          <AtSign className="h-5 w-5" />
+        </MobileToolbarButton>
+        <MobileToolbarButton
           label={labels.items.inlineMath.title}
           disabled={!canUseCommands || !inlineMathItem}
           onClick={() => {
@@ -4259,6 +4397,8 @@ function RichMarkdownEditor({
   const [tableDialogRange, setTableDialogRange] = useState<Range | null>(null);
   const [imageDialogOpen, setImageDialogOpen] = useState(false);
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
+  const [emojiDialogOpen, setEmojiDialogOpen] = useState(false);
+  const [emojiDialogSeed, setEmojiDialogSeed] = useState<EmojiDialogSeed>({ id: 0 });
   const [mathEditRequest, setMathEditRequest] = useState<MathEditRequest | null>(null);
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
   const [findOpen, setFindOpen] = useState(false);
@@ -4281,11 +4421,19 @@ function RichMarkdownEditor({
     empty: t('markdownEditorWikiNoMatch'),
     group: t('markdownEditorWikiSuggestions'),
   }), [t]);
+  const mentionLabels = useMemo(() => ({
+    empty: t('markdownEditorMentionNoMatch'),
+    group: t('markdownEditorMentionSuggestions'),
+  }), [t]);
   const openImageDialogFromToolbar = useCallback((open: boolean, range?: Range) => {
     if (open) {
       setImageDialogSeed((current) => ({ id: current.id + 1, range }));
     }
     setImageDialogOpen(open);
+  }, []);
+  const openEmojiDialogFromToolbar = useCallback((range?: Range) => {
+    setEmojiDialogSeed((current) => ({ id: current.id + 1, range }));
+    setEmojiDialogOpen(true);
   }, []);
   const openTableDialogAtRange = useCallback((range?: Range | null) => {
     setTableDialogRange(range ?? null);
@@ -4304,6 +4452,15 @@ function RichMarkdownEditor({
       range: { from: insertPosition, to: insertPosition },
     }));
     setImageDialogOpen(true);
+  }, []);
+  const openEmojiDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
+    const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
+    const insertPosition = insertionRange?.from ?? slashEditor.state.selection.from;
+    setEmojiDialogSeed((current) => ({
+      id: current.id + 1,
+      range: { from: insertPosition, to: insertPosition },
+    }));
+    setEmojiDialogOpen(true);
   }, []);
   const openTableDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
     const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
@@ -4325,10 +4482,11 @@ function RichMarkdownEditor({
   const slashCommandActions = useMemo<SlashCommandActions>(
     () => ({
       editMath,
+      openEmojiDialog: openEmojiDialogFromSlash,
       openImageDialog: openImageDialogFromSlash,
       openTableDialog: openTableDialogFromSlash,
     }),
-    [editMath, openImageDialogFromSlash, openTableDialogFromSlash],
+    [editMath, openEmojiDialogFromSlash, openImageDialogFromSlash, openTableDialogFromSlash],
   );
   const remoteCaretLabel = useCallback(
     (name: string) => t('collaboration.remoteCaretLabel', { name }),
@@ -4341,10 +4499,20 @@ function RichMarkdownEditor({
       slashCommandActions,
       activeWorkspaceId,
       wikiLabels,
+      mentionLabels,
       collaboration,
       remoteCaretLabel,
     ),
-    [activeWorkspaceId, collaboration, filePath, labels, remoteCaretLabel, slashCommandActions, wikiLabels],
+    [
+      activeWorkspaceId,
+      collaboration,
+      filePath,
+      labels,
+      mentionLabels,
+      remoteCaretLabel,
+      slashCommandActions,
+      wikiLabels,
+    ],
   );
 
   const editor = useEditor({
@@ -4659,6 +4827,7 @@ function RichMarkdownEditor({
           imageDialogOpen={imageDialogOpen}
           imageDialogSeed={imageDialogSeed}
           labels={labels}
+          onOpenEmojiDialog={openEmojiDialogFromToolbar}
           onSourceMode={onSourceMode}
           showSourceModeSwitch={!collaborationEnabled}
           onImageDialogOpenChange={openImageDialogFromToolbar}
@@ -4669,6 +4838,15 @@ function RichMarkdownEditor({
         <MarkdownTableDialog open={tableDialogOpen} onOpenChange={handleTableDialogOpenChange} onInsert={insertTable} />
       ) : null}
       {!effectiveReadOnly ? (
+        <MarkdownEmojiDialog
+          key={emojiDialogSeed.id}
+          editor={markdownEditor}
+          onOpenChange={setEmojiDialogOpen}
+          open={emojiDialogOpen}
+          range={emojiDialogSeed.range}
+        />
+      ) : null}
+      {!effectiveReadOnly ? (
         <MobileMarkdownToolbar
           actions={slashCommandActions}
           editor={markdownEditor}
@@ -4676,6 +4854,7 @@ function RichMarkdownEditor({
           keyboardActive={isMobileKeyboardActive}
           labels={labels}
           onImageDialogOpenChange={openImageDialogFromToolbar}
+          onOpenEmojiDialog={openEmojiDialogFromToolbar}
           onOpenTableDialog={openTableDialogAtRange}
           onSourceMode={onSourceMode}
           showSourceModeSwitch={!collaborationEnabled}

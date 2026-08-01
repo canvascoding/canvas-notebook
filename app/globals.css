@@ -96,6 +96,20 @@
   --canvas-callout-color: #a855f7;
 }
 
+.canvas-markdown-mention {
+  background: color-mix(in oklab, var(--primary) 11%, transparent);
+  border: 1px solid color-mix(in oklab, var(--primary) 24%, transparent);
+  border-radius: 999px;
+  color: var(--primary);
+  display: inline-block;
+  font-size: 0.9em;
+  font-weight: 600;
+  line-height: 1.35;
+  padding: 0.05em 0.42em;
+  text-decoration: none;
+  vertical-align: baseline;
+}
+
 @custom-variant dark (&:is(.dark *));
 
 @theme inline {
@@ -832,6 +846,10 @@ li.task-list-item > p {
 .tiptap-editor-shell .markdown-search-match-current {
   background: color-mix(in oklab, #fb923c 48%, transparent);
   box-shadow: 0 0 0 2px color-mix(in oklab, #ea580c 55%, transparent);
+}
+
+.tiptap-editor-shell [data-type='markdown-mention'].ProseMirror-selectednode {
+  box-shadow: 0 0 0 2px color-mix(in oklab, var(--primary) 50%, transparent);
 }
 
 .tiptap-editor-shell [data-type='canvas-callout'] {

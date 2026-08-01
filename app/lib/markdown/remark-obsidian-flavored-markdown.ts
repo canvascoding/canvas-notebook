@@ -71,6 +71,21 @@ function inlineFootnoteNode(value: string, index: number): PhrasingContent {
   };
 }
 
+function mentionNode(label: string, userId: string): PhrasingContent {
+  return {
+    type: 'emphasis',
+    children: [textNode(`@${label}`)],
+    data: {
+      hName: 'span',
+      hProperties: {
+        className: ['canvas-markdown-mention'],
+        'data-canvas-mention-label': label,
+        'data-canvas-mention-user-id': userId,
+      },
+    },
+  };
+}
+
 function findEscapedWikiStarts(value: string, sourceValue: string): Set<number> {
   const starts = new Set<number>();
   let sourceIndex = 0;
@@ -184,6 +199,21 @@ function transformText(
         ));
         index = footnoteEnd + 1;
         continue;
+      }
+    }
+
+    if (value.startsWith('@{', index)) {
+      const separator = value.indexOf('|', index + 2);
+      const mentionEnd = separator >= 0 ? value.indexOf('}', separator + 1) : -1;
+      if (separator > index + 2 && mentionEnd > separator + 1) {
+        const label = value.slice(index + 2, separator).trim();
+        const userId = value.slice(separator + 1, mentionEnd).trim();
+        if (label && userId && !/[\s|{}]/u.test(userId)) {
+          flushPlainText();
+          result.push(mentionNode(label, userId));
+          index = mentionEnd + 1;
+          continue;
+        }
       }
     }
 
