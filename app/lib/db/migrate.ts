@@ -486,6 +486,52 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (offboarded_by_user_id) REFERENCES user(id)
     );
 
+    CREATE TABLE IF NOT EXISTS team_memberships (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      candidate_email TEXT NOT NULL,
+      display_name TEXT,
+      user_id TEXT,
+      role TEXT NOT NULL DEFAULT 'member'
+        CHECK (role IN ('owner', 'admin', 'member', 'external')),
+      status TEXT NOT NULL
+        CHECK (status IN ('invited', 'approval_required', 'billing_pending', 'active', 'suspended', 'removed')),
+      external_invitation_id TEXT,
+      control_plane_operation_id TEXT,
+      invited_by_user_id TEXT,
+      invited_at INTEGER,
+      accepted_at INTEGER,
+      activated_at INTEGER,
+      suspended_at INTEGER,
+      removed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (status != 'active' OR (user_id IS NOT NULL AND accepted_at IS NOT NULL)),
+      CHECK (status NOT IN ('invited', 'approval_required', 'billing_pending') OR user_id IS NULL),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE RESTRICT,
+      FOREIGN KEY (invited_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS team_membership_transitions (
+      id TEXT PRIMARY KEY NOT NULL,
+      membership_id TEXT NOT NULL,
+      organization_id TEXT NOT NULL,
+      from_status TEXT
+        CHECK (from_status IS NULL OR from_status IN ('invited', 'approval_required', 'billing_pending', 'active', 'suspended', 'removed')),
+      to_status TEXT NOT NULL
+        CHECK (to_status IN ('invited', 'approval_required', 'billing_pending', 'active', 'suspended', 'removed')),
+      actor_user_id TEXT,
+      source TEXT NOT NULL,
+      reason TEXT,
+      external_operation_id TEXT,
+      metadata_json TEXT,
+      created_at INTEGER NOT NULL,
+      FOREIGN KEY (membership_id) REFERENCES team_memberships(id) ON DELETE CASCADE,
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (actor_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS capability_policies (
       id TEXT PRIMARY KEY NOT NULL,
       organization_id TEXT NOT NULL,
@@ -2409,6 +2455,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_role ON organization_user_permissions (organization_id, role);
     CREATE INDEX IF NOT EXISTS idx_org_user_permissions_status ON organization_user_permissions (organization_id, status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_org_user_permissions_single_owner ON organization_user_permissions (organization_id) WHERE role = 'owner';
+    CREATE INDEX IF NOT EXISTS idx_team_memberships_org_status ON team_memberships (organization_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_team_memberships_org_email ON team_memberships (organization_id, candidate_email);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_team_memberships_org_user ON team_memberships (organization_id, user_id) WHERE user_id IS NOT NULL;
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_team_memberships_external_invitation ON team_memberships (organization_id, external_invitation_id) WHERE external_invitation_id IS NOT NULL;
+    CREATE INDEX IF NOT EXISTS idx_team_memberships_control_plane_operation ON team_memberships (organization_id, control_plane_operation_id);
+    CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_membership_created ON team_membership_transitions (membership_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_org_created ON team_membership_transitions (organization_id, created_at);
+    CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_external_operation ON team_membership_transitions (organization_id, external_operation_id);
     CREATE INDEX IF NOT EXISTS idx_capability_policies_org_resource ON capability_policies (organization_id, resource_type, resource_id);
     CREATE INDEX IF NOT EXISTS idx_capability_policies_org_target ON capability_policies (organization_id, target_type, target_id);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_capability_policies_binding ON capability_policies (organization_id, resource_type, resource_id, target_type, target_id);

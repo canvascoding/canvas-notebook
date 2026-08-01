@@ -163,7 +163,7 @@
         {
           "id": "NB-TS-010",
           "title": "Lokale Team-Membership-Zustände modellieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "database-membership",
           "description": "invited, approval_required, billing_pending, active, suspended und removed als fachlichen Lifecycle ergänzen, ohne vorzeitig einen produktiven Better-Auth-User zu erzeugen.",

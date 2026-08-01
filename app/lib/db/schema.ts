@@ -491,6 +491,56 @@ export const organizationUserPermissions = sqliteTable("organization_user_permis
   singleOwnerIdx: uniqueIndex("idx_org_user_permissions_single_owner").on(table.organizationId).where(sql`${table.role} = 'owner'`),
 }));
 
+export const teamMemberships = sqliteTable("team_memberships", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  candidateEmail: text("candidate_email").notNull(),
+  displayName: text("display_name"),
+  userId: text("user_id").references(() => user.id, { onDelete: 'restrict' }),
+  role: text("role").notNull().default("member"),
+  status: text("status").notNull(),
+  externalInvitationId: text("external_invitation_id"),
+  controlPlaneOperationId: text("control_plane_operation_id"),
+  invitedByUserId: text("invited_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  invitedAt: integer("invited_at", { mode: "timestamp" }),
+  acceptedAt: integer("accepted_at", { mode: "timestamp" }),
+  activatedAt: integer("activated_at", { mode: "timestamp" }),
+  suspendedAt: integer("suspended_at", { mode: "timestamp" }),
+  removedAt: integer("removed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  organizationStatusIdx: index("idx_team_memberships_org_status").on(table.organizationId, table.status),
+  organizationEmailIdx: uniqueIndex("idx_team_memberships_org_email").on(table.organizationId, table.candidateEmail),
+  organizationUserIdx: uniqueIndex("idx_team_memberships_org_user").on(table.organizationId, table.userId).where(sql`${table.userId} IS NOT NULL`),
+  externalInvitationIdx: uniqueIndex("idx_team_memberships_external_invitation").on(table.organizationId, table.externalInvitationId).where(sql`${table.externalInvitationId} IS NOT NULL`),
+  controlPlaneOperationIdx: index("idx_team_memberships_control_plane_operation").on(table.organizationId, table.controlPlaneOperationId),
+  statusCheck: check("team_memberships_status_check", sql`${table.status} IN ('invited', 'approval_required', 'billing_pending', 'active', 'suspended', 'removed')`),
+  roleCheck: check("team_memberships_role_check", sql`${table.role} IN ('owner', 'admin', 'member', 'external')`),
+  activeIdentityCheck: check("team_memberships_active_identity_check", sql`${table.status} != 'active' OR (${table.userId} IS NOT NULL AND ${table.acceptedAt} IS NOT NULL)`),
+  pendingCandidateCheck: check("team_memberships_pending_candidate_check", sql`${table.status} NOT IN ('invited', 'approval_required', 'billing_pending') OR ${table.userId} IS NULL`),
+}));
+
+export const teamMembershipTransitions = sqliteTable("team_membership_transitions", {
+  id: text("id").primaryKey(),
+  membershipId: text("membership_id").notNull().references(() => teamMemberships.id, { onDelete: 'cascade' }),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  fromStatus: text("from_status"),
+  toStatus: text("to_status").notNull(),
+  actorUserId: text("actor_user_id").references(() => user.id, { onDelete: 'set null' }),
+  source: text("source").notNull(),
+  reason: text("reason"),
+  externalOperationId: text("external_operation_id"),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  membershipCreatedIdx: index("idx_team_membership_transitions_membership_created").on(table.membershipId, table.createdAt),
+  organizationCreatedIdx: index("idx_team_membership_transitions_org_created").on(table.organizationId, table.createdAt),
+  externalOperationIdx: index("idx_team_membership_transitions_external_operation").on(table.organizationId, table.externalOperationId),
+  fromStatusCheck: check("team_membership_transitions_from_status_check", sql`${table.fromStatus} IS NULL OR ${table.fromStatus} IN ('invited', 'approval_required', 'billing_pending', 'active', 'suspended', 'removed')`),
+  toStatusCheck: check("team_membership_transitions_to_status_check", sql`${table.toStatus} IN ('invited', 'approval_required', 'billing_pending', 'active', 'suspended', 'removed')`),
+}));
+
 export const capabilityPolicies = sqliteTable("capability_policies", {
   id: text("id").primaryKey(),
   organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
