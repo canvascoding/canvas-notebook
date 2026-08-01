@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { auth } from '@/app/lib/auth';
 import { consumeComposioOAuthFlowState } from '@/app/lib/composio/composio-oauth-state';
 import { clearComposioGatewayCaches } from '@/app/lib/composio/composio-gateway';
 import { composioContextFromEffectiveProfile } from '@/app/lib/composio/composio-context';
@@ -16,26 +15,24 @@ function getBaseUrl(): string {
 
 export async function GET(request: NextRequest) {
   try {
-    const session = await auth.api.getSession({ headers: request.headers });
-    if (!session) {
-      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
-    }
     const url = new URL(request.url);
     const flowState = await consumeComposioOAuthFlowState({
       state: url.searchParams.get('flow') || '',
-      userId: session.user.id,
     });
     const effective = await resolveEffectiveComposioProfile({
-      userId: session.user.id,
+      userId: flowState.userId,
       workspaceId: flowState.workspaceId,
     });
     const context = effective.id === flowState.profileId
-      ? composioContextFromEffectiveProfile(session.user.id, effective)
+      ? composioContextFromEffectiveProfile(flowState.userId, effective)
       : null;
     clearComposioGatewayCaches(context);
 
-    const baseUrl = getBaseUrl();
-    const redirectUrl = new URL(flowState.returnPath, baseUrl);
+    const redirectUrl = flowState.returnPath.startsWith('/')
+      ? new URL(flowState.returnPath, getBaseUrl())
+      : new URL(flowState.returnPath);
+    redirectUrl.searchParams.set('composio', 'returned');
+    redirectUrl.searchParams.set('toolkit', flowState.toolkitSlug);
 
     return NextResponse.redirect(redirectUrl);
   } catch (error) {

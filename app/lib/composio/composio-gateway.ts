@@ -359,17 +359,30 @@ export async function getGatewayToolkitTools(toolkit: string, search: string, co
   return { tools, totalCount: tools.length, hasMore: toolList.length >= 500 };
 }
 
-export async function connectGatewayToolkit(toolkit: string, context: ResolvedComposioContext) {
+export async function connectGatewayToolkit(
+  toolkit: string,
+  context: ResolvedComposioContext,
+  options: { mobileReturnUrl?: string | null } = {},
+) {
   const mode = await getComposioMode(context.storageScope);
   if (mode === 'disabled') throw new Error('Composio not configured');
   if (mode === 'managed') {
-    const flow = await createComposioOAuthFlowState({ context, toolkitSlug: toolkit });
-    return managedRequest<{ redirectUrl: string | null; noAuth?: boolean }>(`/connect/${encodeURIComponent(toolkit)}`, {
+    const flow = await createComposioOAuthFlowState({
+      context,
+      toolkitSlug: toolkit,
+      mobileReturnUrl: options.mobileReturnUrl,
+    });
+    const result = await managedRequest<{ redirectUrl: string | null; noAuth?: boolean }>(`/connect/${encodeURIComponent(toolkit)}`, {
       method: 'POST',
       body: { returnUrl: flow.callbackUrl },
     }, context);
+    return result.noAuth ? result : {
+      ...result,
+      flowId: flow.state,
+      expiresAt: flow.expiresAt.toISOString(),
+    };
   }
-  return initiateConnection(toolkit, context);
+  return initiateConnection(toolkit, context, options);
 }
 
 export async function disconnectGatewayToolkit(toolkit: string, context: ResolvedComposioContext) {

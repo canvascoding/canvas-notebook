@@ -3,6 +3,7 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { createMobileCompatibility } from '../app/lib/mobile/compatibility';
+import { serializeMobileComposioToolkit } from '../app/lib/mobile/composio';
 
 const routeExports = new Map<string, string>([
   ['app/api/mobile/v1/automations/jobs/route.ts', "export { GET, POST } from '@/app/api/automations/jobs/route';"],
@@ -47,11 +48,48 @@ async function main() {
       'automations.composio_triggers',
     ],
   );
+  assert.equal(compatibility.mobileApi.capabilities.includes('integrations.composio_catalog'), true);
+  assert.equal(compatibility.mobileApi.capabilities.includes('integrations.composio_mobile_auth'), true);
 
   for (const [file, expected] of routeExports) {
     const content = (await readFile(path.resolve(process.cwd(), file), 'utf8')).trim();
     assert.equal(content, expected, `${file} must remain a versioned alias of the authorized domain route.`);
   }
+
+  const integrationRouteMarkers = new Map<string, string>([
+    ['app/api/mobile/v1/integrations/composio/status/route.ts', 'serializeMobileComposioStatus'],
+    ['app/api/mobile/v1/integrations/composio/toolkits/route.ts', 'serializeMobileComposioToolkit'],
+    ['app/api/mobile/v1/integrations/composio/toolkits/[slug]/route.ts', 'serializeMobileComposioToolkit'],
+    ['app/api/mobile/v1/integrations/composio/toolkits/[slug]/tools/route.ts', 'serializeMobileComposioTool'],
+    ['app/api/mobile/v1/integrations/composio/connections/route.ts', 'mobileReturnUrl'],
+    ['app/api/mobile/v1/integrations/composio/connections/[flowId]/route.ts', 'readComposioOAuthFlowState'],
+    ['app/api/mobile/v1/integrations/composio/toolkits/[slug]/connection/route.ts', 'disconnectGatewayToolkit'],
+  ]);
+  for (const [file, marker] of integrationRouteMarkers) {
+    const content = await readFile(path.resolve(process.cwd(), file), 'utf8');
+    assert.equal(content.includes(marker), true, `${file} must expose the curated connected-app contract.`);
+  }
+
+  const toolkit = serializeMobileComposioToolkit({
+    slug: 'google_drive',
+    name: 'Google Drive',
+    meta: {
+      logo: 'https://cdn.example/google-drive.png',
+      description: 'Files and documents.',
+      toolsCount: 42,
+    },
+  }, new Map([['google_drive', 'ACTIVE']]));
+  assert.equal(toolkit?.connected, true);
+  assert.equal(toolkit?.logo, 'https://cdn.example/google-drive.png');
+  assert.equal(toolkit?.initials, 'GD');
+  assert.equal('connectedAccountId' in (toolkit || {}), false);
+
+  const callbackRoute = await readFile(
+    path.resolve(process.cwd(), 'app/api/composio/callback/route.ts'),
+    'utf8',
+  );
+  assert.equal(callbackRoute.includes("from '@/app/lib/auth'"), false);
+  assert.equal(callbackRoute.includes("searchParams.set('composio', 'returned')"), true);
 
   console.log('mobile-automations-test: ok');
 }

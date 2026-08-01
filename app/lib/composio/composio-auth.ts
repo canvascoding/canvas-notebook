@@ -19,7 +19,16 @@ type ConnectedAccountListOptions = {
   statuses?: ComposioConnectedAccountStatus[];
 };
 
-export async function initiateConnection(toolkit: string, context: ResolvedComposioContext): Promise<{ redirectUrl: string | null; noAuth?: boolean }> {
+export async function initiateConnection(
+  toolkit: string,
+  context: ResolvedComposioContext,
+  options: { mobileReturnUrl?: string | null } = {},
+): Promise<{
+  redirectUrl: string | null;
+  noAuth?: boolean;
+  flowId?: string;
+  expiresAt?: string;
+}> {
   const composio = await getComposio(context.storageScope);
   if (!composio) throw new Error('Composio not configured');
 
@@ -38,9 +47,17 @@ export async function initiateConnection(toolkit: string, context: ResolvedCompo
   const session = await getComposioSession(context);
   if (!session) throw new Error('Composio not configured');
 
-  const { callbackUrl } = await createComposioOAuthFlowState({ context, toolkitSlug: toolkit });
-  const connectionRequest = await session.authorize(toolkit, { callbackUrl });
-  return { redirectUrl: connectionRequest.redirectUrl };
+  const flow = await createComposioOAuthFlowState({
+    context,
+    toolkitSlug: toolkit,
+    mobileReturnUrl: options.mobileReturnUrl,
+  });
+  const connectionRequest = await session.authorize(toolkit, { callbackUrl: flow.callbackUrl });
+  return {
+    redirectUrl: connectionRequest.redirectUrl,
+    flowId: flow.state,
+    expiresAt: flow.expiresAt.toISOString(),
+  };
 }
 
 export async function disconnectTool(toolkit: string, context: ResolvedComposioContext): Promise<void> {

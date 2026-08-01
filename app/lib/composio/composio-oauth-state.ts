@@ -30,7 +30,7 @@ export interface ComposioOAuthFlowState {
   toolkitSlug: string;
   returnPath: string;
   expiresAt: Date;
-  consumedAt: Date;
+  consumedAt: Date | null;
 }
 
 function hashState(value: string): string {
@@ -63,16 +63,41 @@ function buildReturnPath(context: ResolvedComposioContext, toolkitSlug: string):
   return `/settings?${query.toString()}`;
 }
 
+function normalizeMobileReturnUrl(value: string): string {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new ComposioProfileError('COMPOSIO_RETURN_URL_INVALID', 'The Mobile return URL is invalid.', 400);
+  }
+  if (
+    !['canvasnotebook:', 'canvasnotebook-dev:', 'canvasnotebook-preview:'].includes(url.protocol)
+    || url.username
+    || url.password
+    || url.port
+  ) {
+    throw new ComposioProfileError('COMPOSIO_RETURN_URL_INVALID', 'The Mobile return URL is not allowed.', 400);
+  }
+  const route = `${url.hostname}${url.pathname}`.replace(/^\/+|\/+$/gu, '');
+  if (route !== 'extensions' && !route.startsWith('extensions/')) {
+    throw new ComposioProfileError('COMPOSIO_RETURN_URL_INVALID', 'The Mobile return route is not allowed.', 400);
+  }
+  return url.toString();
+}
+
 export async function createComposioOAuthFlowState(input: {
   context: ResolvedComposioContext;
   toolkitSlug: string;
+  mobileReturnUrl?: string | null;
 }): Promise<{ state: string; callbackUrl: string; returnPath: string; expiresAt: Date }> {
   const toolkitSlug = normalizeToolkitSlug(input.toolkitSlug);
   const state = randomBytes(32).toString('base64url');
   const stateHash = hashState(state);
   const now = Date.now();
   const expiresAt = new Date(now + OAUTH_FLOW_TTL_MS);
-  const returnPath = buildReturnPath(input.context, toolkitSlug);
+  const returnPath = input.mobileReturnUrl
+    ? normalizeMobileReturnUrl(input.mobileReturnUrl)
+    : buildReturnPath(input.context, toolkitSlug);
   const database = await openDb();
   try {
     await database.run(`
@@ -106,11 +131,11 @@ export async function createComposioOAuthFlowState(input: {
 
 export async function consumeComposioOAuthFlowState(input: {
   state: string;
-  userId: string;
+  userId?: string;
 }): Promise<ComposioOAuthFlowState> {
   const state = input.state.trim();
-  const userId = input.userId.trim();
-  if (!state || !userId) {
+  const userId = input.userId?.trim();
+  if (!state) {
     throw new ComposioProfileError('COMPOSIO_OAUTH_STATE_REQUIRED', 'The Composio connection flow is invalid.', 400);
   }
 
@@ -135,9 +160,10 @@ export async function consumeComposioOAuthFlowState(input: {
        AND profile.owner_user_id = flow.user_id
        AND profile.composio_user_id = flow.composio_user_id
        AND profile.status = 'active'
-      WHERE flow.state_hash = ? AND flow.user_id = ?
+      WHERE flow.state_hash = ?
+        ${userId ? 'AND flow.user_id = ?' : ''}
       LIMIT 1
-    `, [hashState(state), userId]) as OAuthFlowRow | undefined;
+    `, userId ? [hashState(state), userId] : [hashState(state)]) as OAuthFlowRow | undefined;
 
     if (!row || row.consumed_at !== null || row.expires_at < now) {
       throw new ComposioProfileError(
@@ -151,7 +177,7 @@ export async function consumeComposioOAuthFlowState(input: {
       UPDATE composio_oauth_flow_states
       SET consumed_at = ?
       WHERE state_hash = ? AND user_id = ? AND consumed_at IS NULL AND expires_at >= ?
-    `, [now, row.state_hash, userId, now]) as { changes?: number };
+    `, [now, row.state_hash, row.user_id, now]) as { changes?: number };
     if (Number(result?.changes || 0) !== 1) {
       throw new ComposioProfileError(
         'COMPOSIO_OAUTH_STATE_INVALID',
@@ -169,6 +195,52 @@ export async function consumeComposioOAuthFlowState(input: {
       returnPath: row.return_path,
       expiresAt: new Date(row.expires_at),
       consumedAt: new Date(now),
+    };
+  } finally {
+    await database.close();
+  }
+}
+
+export async function readComposioOAuthFlowState(input: {
+  state: string;
+  userId: string;
+}): Promise<ComposioOAuthFlowState | null> {
+  const state = input.state.trim();
+  const userId = input.userId.trim();
+  if (!state || !userId) return null;
+  const database = await openDb();
+  try {
+    const row = await database.get(`
+      SELECT
+        flow.state_hash,
+        flow.user_id,
+        flow.workspace_id,
+        flow.profile_id,
+        flow.composio_user_id,
+        flow.toolkit_slug,
+        flow.return_path,
+        flow.expires_at,
+        flow.consumed_at,
+        flow.created_at
+      FROM composio_oauth_flow_states flow
+      INNER JOIN composio_connection_profiles profile
+        ON profile.id = flow.profile_id
+       AND profile.owner_user_id = flow.user_id
+       AND profile.composio_user_id = flow.composio_user_id
+       AND profile.status = 'active'
+      WHERE flow.state_hash = ? AND flow.user_id = ?
+      LIMIT 1
+    `, [hashState(state), userId]) as OAuthFlowRow | undefined;
+    if (!row) return null;
+    return {
+      userId: row.user_id,
+      workspaceId: row.workspace_id,
+      profileId: row.profile_id,
+      composioUserId: row.composio_user_id,
+      toolkitSlug: row.toolkit_slug,
+      returnPath: row.return_path,
+      expiresAt: new Date(row.expires_at),
+      consumedAt: row.consumed_at === null ? null : new Date(row.consumed_at),
     };
   } finally {
     await database.close();

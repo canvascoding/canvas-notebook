@@ -96,6 +96,7 @@ async function main() {
   const {
     createComposioOAuthFlowState,
     consumeComposioOAuthFlowState,
+    readComposioOAuthFlowState,
   } = await import('../app/lib/composio/composio-oauth-state');
   const { getComposioSession } = await import('../app/lib/composio/composio-session');
   const { changeComposioWorkspaceProfile } = await import('../app/lib/composio/composio-workspace-profile-change');
@@ -290,6 +291,28 @@ async function main() {
   await assert.rejects(
     consumeComposioOAuthFlowState({ state: oauthFlow.state, userId: 'user-a' }),
     (error: unknown) => error instanceof ComposioProfileError && error.code === 'COMPOSIO_OAUTH_STATE_INVALID',
+  );
+
+  const mobileFlow = await createComposioOAuthFlowState({
+    context: teamContextA,
+    toolkitSlug: 'instagram',
+    mobileReturnUrl: 'canvasnotebook-dev://extensions?tab=apps',
+  });
+  assert.equal(mobileFlow.returnPath, 'canvasnotebook-dev://extensions?tab=apps');
+  assert.equal(
+    (await readComposioOAuthFlowState({ state: mobileFlow.state, userId: 'user-a' }))?.consumedAt,
+    null,
+  );
+  const consumedMobileFlow = await consumeComposioOAuthFlowState({ state: mobileFlow.state });
+  assert.equal(consumedMobileFlow.userId, 'user-a');
+  assert.ok(consumedMobileFlow.consumedAt instanceof Date);
+  await assert.rejects(
+    createComposioOAuthFlowState({
+      context: teamContextA,
+      toolkitSlug: 'instagram',
+      mobileReturnUrl: 'https://attacker.example/extensions',
+    }),
+    (error: unknown) => error instanceof ComposioProfileError && error.code === 'COMPOSIO_RETURN_URL_INVALID',
   );
 
   const personalA = await resolveEffectiveComposioProfile({ userId: 'user-a', workspaceId: 'ws-personal-a' });
