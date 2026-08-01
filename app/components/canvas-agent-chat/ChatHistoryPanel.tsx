@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   History,
+  Mail,
   MoreHorizontal,
   Pencil,
   Search,
@@ -39,9 +40,11 @@ type ChatHistorySessionRowProps = {
   sessionTitleGenerating: string;
   unreadResponseLabel: string;
   renameSessionLabel: string;
+  markAsUnreadLabel: string;
   deleteSessionLabel: string;
   onLoadSession: (session: AISession) => void | Promise<void>;
   onRenameSession: (session: AISession) => void | Promise<void>;
+  onMarkSessionAsUnread: (session: AISession) => void | Promise<void>;
   onDeleteSession: (sessionId: string) => void | Promise<void>;
 };
 
@@ -67,15 +70,21 @@ function ChatHistorySessionRow({
   sessionTitleGenerating,
   unreadResponseLabel,
   renameSessionLabel,
+  markAsUnreadLabel,
   deleteSessionLabel,
   onLoadSession,
   onRenameSession,
+  onMarkSessionAsUnread,
   onDeleteSession,
 }: ChatHistorySessionRowProps) {
   const [actionsOpen, setActionsOpen] = useState(false);
   const createdAtLabel = new Date(session.createdAt).toLocaleString();
   const title = getSessionDisplayTitle(session.title, newChatTitle);
   const isGeneratingTitle = isSessionTitleGenerating(session.titleGenerationState);
+  const canMarkAsUnread = session.engine === 'pi' && !session.hasUnread && Boolean(session.lastMessageAt);
+  const actionsLabel = canMarkAsUnread
+    ? `${renameSessionLabel} / ${markAsUnreadLabel} / ${deleteSessionLabel}`
+    : `${renameSessionLabel} / ${deleteSessionLabel}`;
 
   return (
     <div
@@ -141,8 +150,8 @@ function ChatHistorySessionRow({
           <button
             type="button"
             className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-transparent text-muted-foreground transition-colors hover:border-border hover:bg-background/80 hover:text-foreground"
-            title={`${renameSessionLabel} / ${deleteSessionLabel}`}
-            aria-label={`${renameSessionLabel} / ${deleteSessionLabel}`}
+            title={actionsLabel}
+            aria-label={actionsLabel}
           >
             <MoreHorizontal size={16} />
           </button>
@@ -159,6 +168,19 @@ function ChatHistorySessionRow({
             <Pencil size={14} className="shrink-0 text-muted-foreground" />
             <span className="min-w-0 truncate">{renameSessionLabel}</span>
           </button>
+          {canMarkAsUnread ? (
+            <button
+              type="button"
+              onClick={() => {
+                setActionsOpen(false);
+                void onMarkSessionAsUnread(session);
+              }}
+              className="flex w-full items-center gap-2 rounded-md px-2 py-2 text-left text-sm text-foreground transition-colors hover:bg-accent"
+            >
+              <Mail size={14} className="shrink-0 text-muted-foreground" />
+              <span className="min-w-0 truncate">{markAsUnreadLabel}</span>
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={() => {
@@ -190,6 +212,7 @@ export type ChatHistoryPanelLabels = {
   sessionTitleGenerating: string;
   unreadResponse: string;
   renameSession: string;
+  markAsUnread: string;
   deleteSession: string;
 };
 
@@ -215,6 +238,7 @@ export type ChatHistoryPanelProps = {
   onBackToChat?: () => void;
   onLoadSession: (session: AISession) => void | Promise<void>;
   onRenameSession: (session: AISession) => void | Promise<void>;
+  onMarkSessionAsUnread: (session: AISession) => void | Promise<void>;
   onDeleteSession: (sessionId: string) => void | Promise<void>;
 };
 
@@ -240,6 +264,7 @@ export function ChatHistoryPanel({
   onBackToChat,
   onLoadSession,
   onRenameSession,
+  onMarkSessionAsUnread,
   onDeleteSession,
 }: ChatHistoryPanelProps) {
   const isOverlay = variant === 'overlay';
@@ -384,9 +409,11 @@ export function ChatHistoryPanel({
                     sessionTitleGenerating={labels.sessionTitleGenerating}
                     unreadResponseLabel={labels.unreadResponse}
                     renameSessionLabel={labels.renameSession}
+                    markAsUnreadLabel={labels.markAsUnread}
                     deleteSessionLabel={labels.deleteSession}
                     onLoadSession={onLoadSession}
                     onRenameSession={onRenameSession}
+                    onMarkSessionAsUnread={onMarkSessionAsUnread}
                     onDeleteSession={onDeleteSession}
                   />
                 );

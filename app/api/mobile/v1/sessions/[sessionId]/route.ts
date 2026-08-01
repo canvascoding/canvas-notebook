@@ -77,6 +77,7 @@ export async function PATCH(
       workspaceId: request.headers.get('x-canvas-workspace-id')?.trim() || '',
       title: typeof payload.title === 'string' ? payload.title : undefined,
       markAsRead: typeof payload.markAsRead === 'boolean' ? payload.markAsRead : undefined,
+      markAsUnread: typeof payload.markAsUnread === 'boolean' ? payload.markAsUnread : undefined,
       archived: typeof payload.archived === 'boolean' ? payload.archived : undefined,
     });
     return NextResponse.json({ success: true, session }, { headers: responseHeaders });

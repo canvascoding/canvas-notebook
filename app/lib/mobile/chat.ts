@@ -481,10 +481,16 @@ export async function updateMobileChatSession(input: ChatActor & {
   sessionId: string;
   title?: string;
   markAsRead?: boolean;
+  markAsUnread?: boolean;
   archived?: boolean;
 }) {
   const { session } = await requireMobileChatSession(input);
-  if (input.title === undefined && input.markAsRead === undefined && input.archived === undefined) {
+  if (
+    input.title === undefined
+    && input.markAsRead === undefined
+    && input.markAsUnread === undefined
+    && input.archived === undefined
+  ) {
     throw new MobileChatError('INVALID_SESSION_UPDATE', 'A session update is required.', 400);
   }
   const title = input.title === undefined ? undefined : input.title.replace(/\s+/gu, ' ').trim();
@@ -497,10 +503,14 @@ export async function updateMobileChatSession(input: ChatActor & {
       throw new MobileChatError('SESSION_ACTIVE', 'Stop the active agent before archiving this conversation.', 409);
     }
   }
+  if (input.markAsUnread === true && !session.lastMessageAt) {
+    throw new MobileChatError('SESSION_HAS_NO_MESSAGES', 'Only conversations with messages can be marked as unread.', 409);
+  }
   const now = new Date();
   const [updatedSession] = await db.update(piSessions).set({
     ...(title === undefined ? {} : { title: title.slice(0, 120), titleGenerationState: 'manual' }),
     ...(input.markAsRead === true ? { lastViewedAt: piSessionReadCursorSql() } : {}),
+    ...(input.markAsUnread === true ? { lastViewedAt: null } : {}),
     ...(input.archived === undefined ? {} : { archivedAt: input.archived ? now : null }),
     updatedAt: now,
   }).where(eq(piSessions.id, session.id)).returning({

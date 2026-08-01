@@ -474,6 +474,7 @@ export function useChatSessionHistory({
     sessionTitleGenerating: t('sessionTitleGenerating'),
     unreadResponse: t('unreadResponse'),
     renameSession: t('renameSession'),
+    markAsUnread: t('markAsUnread'),
     deleteSession: t('deleteSession'),
   }), [t]);
 

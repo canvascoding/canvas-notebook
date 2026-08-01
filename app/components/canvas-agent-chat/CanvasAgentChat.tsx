@@ -860,6 +860,31 @@ export default function CanvasAgentChat({
     }
   }, [selectedAgentId, setHistory, t]);
 
+  const markSessionAsUnread = useCallback(async (session: AISession) => {
+    if (session.engine !== 'pi' || session.hasUnread || !session.lastMessageAt) return;
+
+    try {
+      const data = await patchChatSessions({
+        agentId: session.agentId || selectedAgentId,
+        sessionId: session.sessionId,
+        markAsUnread: true,
+      });
+      if (data?.success) {
+        setHistory((previous) => {
+          const updated = previous.map((item) => (
+            item.sessionId === session.sessionId
+              ? { ...item, lastViewedAt: null, hasUnread: Boolean(data.session?.hasUnread ?? true) }
+              : item
+          ));
+          setTotalUnreadCount(updated.filter((item) => item.hasUnread).length);
+          return updated;
+        });
+      }
+    } catch (error) {
+      console.error('Failed to mark session as unread', error);
+    }
+  }, [selectedAgentId, setHistory, setTotalUnreadCount]);
+
   const handleKeyDown = useCallback((e: React.KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.shiftKey && e.key === 'Tab') {
       e.preventDefault();
@@ -1077,6 +1102,7 @@ export default function CanvasAgentChat({
     onMarkAllAsRead: markAllAsRead,
     onLoadSession: loadSession,
     onRenameSession: renameSession,
+    onMarkSessionAsUnread: markSessionAsUnread,
     onDeleteSession: deleteSession,
   };
 

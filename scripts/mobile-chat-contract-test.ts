@@ -32,6 +32,7 @@ assert.match(listRoute, /archived:\s*url\.searchParams\.get\('archived'\) === 't
 assert.match(listRoute, /error instanceof AiRuntimePolicyError/u);
 assert.match(listRoute, /\{ success: false, code: error\.code, error: error\.message \}/u);
 assert.match(sessionRoute, /updateMobileChatSession/u);
+assert.match(sessionRoute, /markAsUnread:\s*typeof payload\.markAsUnread === 'boolean'/u);
 assert.match(sessionRoute, /export async function GET/u);
 assert.match(sessionRoute, /getMobileChatSession/u);
 assert.match(service, /export async function getMobileChatSession/u);
@@ -44,6 +45,8 @@ assert.match(attachmentRoute, /MAX_ATTACHMENT_BYTES/u);
 assert.match(service, /isNull\(piSessions\.archivedAt\)/u);
 assert.match(service, /isNotNull\(piSessions\.archivedAt\)/u);
 assert.match(service, /SESSION_ACTIVE/u);
+assert.match(service, /markAsUnread\?: boolean/u);
+assert.match(service, /input\.markAsUnread === true \? \{ lastViewedAt: null \}/u);
 assert.match(service, /withRuntimeSessionOperation/u);
 assert.match(service, /replaceSessionRuntimeSnapshot/u);
 assert.match(service, /invalidateRuntime/u);
