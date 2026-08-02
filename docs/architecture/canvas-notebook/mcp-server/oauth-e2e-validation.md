@@ -2,7 +2,8 @@
 
 > Stand: 2026-08-02
 > Zugehöriges Todo: `MCP-OAUTH-08`
-> Status: Externe Prüfung ausstehend
+> Status: In Bearbeitung – lokale Inspector-CLI-Prüfung bestanden, interaktiver
+> OAuth- und HTTPS-Staging-Test ausstehend
 
 Dieses Protokoll ist der verbindliche Nachweis für den OAuth-Flow des direkten
 MCP-V1-Servers. Ein grüner automatisierter Test ersetzt weder den MCP Inspector
@@ -76,6 +77,26 @@ Aktueller lokaler Nachweis:
 | Datum | Git-Revision | Ergebnis |
 |---|---|---|
 | 2026-08-02 | `8e6182e0c9a3` | alle drei Prüfungen grün |
+| 2026-08-02 | `dbe694ac` | Production-Build und HTTP-Smoke auf Port 3000 grün |
+
+### Lokaler Inspector-Zwischenstand
+
+Am 2026-08-02 wurde der offizielle MCP Inspector `2.0.0` gegen den lokalen
+Production-Build geprüft:
+
+- Streamable-HTTP-Verbindung und MCP-Initialisierung bestanden.
+- `tools/list` findet genau `auth_probe`.
+- der anonyme `auth_probe` liefert die erwartete
+  `mcp/www_authenticate`-Challenge und beendet den Inspector-CLI-Aufruf
+  erwartungsgemäß mit `tool_is_error`.
+- der Inspector-TUI verbindet sich und zeigt den Server sowie das Tool an,
+  crasht beim Öffnen des Tool-Testformulars aber innerhalb seiner eigenen
+  React-/Ink-Abhängigkeiten mit `Invalid hook call`. Daher ist dies kein
+  bestandener interaktiver Inspector-OAuth-Test.
+
+Die CLI- und Transportprüfung ist damit bestanden. DCR, Login, Consent,
+Callback, Refresh und Reconnect müssen weiterhin mit der Inspector-Weboberfläche
+oder einer korrigierten Inspector-TUI-Version durchgeführt werden.
 
 ## 3. Discovery-Preflight
 
@@ -224,7 +245,8 @@ Ergebnis:
 - Abweichungen als eigenes Todo erfasst und behoben wurden.
 
 Die aktuelle Ausführung ist noch blockiert: Im Repository ist keine öffentliche
-HTTPS-Staging-Instanz hinterlegt. Außerdem konnte die Inspector-Version in der
-lokalen Arbeitsumgebung wegen fehlender DNS-Auflösung für `registry.npmjs.org`
-nicht geladen werden. Diese beiden Punkte sind keine bestandene externe
-Prüfung.
+HTTPS-Staging-Instanz hinterlegt, und der manuelle ChatGPT-Test benötigt einen
+dafür berechtigten externen ChatGPT-Account. Lokal ist der Inspector-CLI-Test
+bestanden; der interaktive Inspector-Test bleibt wegen des beschriebenen
+Inspector-TUI-Fehlers und der auf diesem Host nicht startfähigen Browser offen.
+Diese Punkte sind keine bestandene externe Prüfung.

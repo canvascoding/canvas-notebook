@@ -154,9 +154,20 @@
     {
       "id": "MCP-OAUTH-08",
       "title": "OAuth Ende-zu-Ende mit Inspector und ChatGPT testen",
-      "status": "pending",
+      "status": "in_progress",
+      "startedAt": "2026-08-02",
       "dependsOn": [
         "MCP-OAUTH-07"
+      ],
+      "evidence": [
+        "MCP Inspector 2.0.0 verbindet sich lokal per Streamable HTTP",
+        "Inspector tools/list und anonyme mcp/www_authenticate-Challenge bestanden",
+        "Production-Build und reproduzierbarer HTTP-Smoke-Test bestanden"
+      ],
+      "externalBlockers": [
+        "Keine öffentliche HTTPS-Staging-Instanz im Repository konfiguriert",
+        "ChatGPT-Developer-Mode-Test benötigt einen berechtigten externen Account",
+        "Inspector 2.0.0 TUI crasht beim Tool-Testformular mit einem React-/Ink-Hook-Fehler; Browser-UI ist auf dem aktuellen Host nicht startfähig"
       ],
       "deliverables": [
         "Protokollierter MCP-Inspector-Test",
