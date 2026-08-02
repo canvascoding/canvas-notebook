@@ -1197,7 +1197,6 @@ export async function completeDirectMembershipActivation(input: {
           'The active membership does not reference a Better Auth identity.',
         );
       }
-      await identity.activate(membership.userId);
       const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
       if (projection.observedQuantity > desiredQuantity) {
         throw new MembershipOrchestratorError(
@@ -1205,6 +1204,7 @@ export async function completeDirectMembershipActivation(input: {
           'The active membership projection exceeds the confirmed Seat quantity.',
         );
       }
+      await identity.activate(membership.userId);
       return {
         stage: 'active',
         membership,

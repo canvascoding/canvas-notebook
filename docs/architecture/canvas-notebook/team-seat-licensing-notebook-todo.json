@@ -807,7 +807,7 @@
         {
           "id": "NB-TS-051",
           "title": "Seat-Prepare- und Execute-Client integrieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "control-plane-client",
           "description": "Membership-Orchestrator mit Quote, Authorization-Status, Seat-Execute, Payment-Status und neuem Zertifikat verbinden.",
@@ -827,7 +827,8 @@
             "Price- oder Quantity-Felder aus dem Browser werden nicht weitergereicht.",
             "Erfolgsantwort wird vor User-Aktivierung vollständig validiert.",
             "Pending-Antwort bleibt wiederaufnehmbar."
-          ]
+          ],
+          "progress": "Direct Create, Invitation Accept und Reactivation berechnen observed und desired Quantity ausschließlich aus der aktiven lokalen Membership-Projektion und persistieren Prepare sowie Execute vor jedem externen Aufruf in der restartfesten Outbox. Browser-Routen akzeptieren nur fachliche Candidate-, Token-, Request-ID- und Passwortfelder; Price, Quantity, Quote-Hash, Authorization und Operation-Key werden ausschließlich aus dem persistierten Serverzustand gelesen. Quote und Authorization werden vollständig gegen Quantity vorher/nachher, Snapshot, Revision, Hash, Preis-Snapshot, Ablauf und Status geprüft. Execute verwendet den gespeicherten idempotenten Operation-Key und akzeptiert eine Aktivierung nur bei applied, übereinstimmender Operation-Art und Quantity, effectiveQuantity, issued-Reissue, neuem Zertifikat und ausreichendem signierten Seat-Limit. Auch ein bereits aktiver Replay validiert die aktuelle Projektion jetzt vor dem Entsperren der Identität. processing, retry_wait, requires_action und andere nicht angewendete Providerzustände bleiben mit Response, Fehlercode, Retry-Zeit und derselben Operation wiederaufnehmbar und erzeugen weder aktiven User noch zusätzliche Membership-Revision. Membership-Orchestrator-, Transport-, Outbox-, Invitation- und Contract-Tests sowie TypeScript, ESLint und die Next.js-Production-Kompilierung im normalen Repository sind erfolgreich; lediglich der vorgeschaltete Third-Party-Compliance-Check von npm run build bleibt durch den noch nicht aktualisierten Cache der pausierten OAuth-Abhängigkeitsänderung blockiert."
         },
         {
           "id": "NB-TS-052",

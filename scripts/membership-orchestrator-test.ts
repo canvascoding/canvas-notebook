@@ -12,6 +12,7 @@ import {
   beginSuspendedMembershipReactivation,
   completeDirectMembershipActivation,
   getDirectMembershipSeatQuote,
+  MembershipOrchestratorError,
   recordDirectMembershipSeatAuthorizationStatus,
   recordDirectMembershipSeatExecutionPending,
   recordDirectMembershipSeatPreparation,
@@ -825,6 +826,43 @@ async function main() {
   assert.equal(
     (await getActiveTeamMembershipProjection(connection, 'organization-1')).observedQuantity,
     3,
+  );
+  let staleReplayIdentityActivated = false;
+  await assert.rejects(
+    completeDirectMembershipActivation({
+      organizationId: 'organization-1',
+      membershipId: started.membership.id,
+      executeOperationId: prepared.executeOperation!.operationId,
+      response: {
+        ...executedPayload,
+        replayed: true,
+      },
+      password: 'correct horse battery staple',
+      actorUserId: 'owner-user',
+      database: connection,
+      databaseProvider: 'sqlite',
+      identity: {
+        ensurePending: async () => {
+          throw new Error('an active replay must not create another identity');
+        },
+        activate: async () => {
+          staleReplayIdentityActivated = true;
+        },
+      },
+      verifyCertificate: async (_response, desiredQuantity) => {
+        assert.equal(desiredQuantity, 2);
+      },
+      now: 7_850,
+    }),
+    (error: unknown) => (
+      error instanceof MembershipOrchestratorError
+      && error.code === 'MEMBERSHIP_SIGNED_LIMIT_INVALID'
+    ),
+  );
+  assert.equal(
+    staleReplayIdentityActivated,
+    false,
+    'a stale successful replay must validate the current projection before enabling identity access',
   );
   const staleIdentity = {
     ensurePending: async (input: {
