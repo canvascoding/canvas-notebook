@@ -80,6 +80,7 @@ export async function executeDirectMembershipActivation(input: {
 
   const execution = await executeCommunityTeamSeatChange(
     getMembershipSeatExecuteRequest(approved.activation.executeOperation),
+    { operationId: approved.activation.executeOperation.operationId },
   );
   if (
     execution.operation.status !== 'applied'

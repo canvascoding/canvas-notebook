@@ -1,6 +1,6 @@
 {
   "title": "Direct V1 MCP OAuth implementation",
-  "updatedAt": "2026-08-01",
+  "updatedAt": "2026-08-02",
   "source": "docs/architecture/canvas-notebook/mcp-server/direct-v1-oauth-plan.md",
   "executionPolicy": {
     "sequential": true,
@@ -14,7 +14,8 @@
     {
       "id": "MCP-OAUTH-01",
       "title": "Versionen festlegen und OAuth-Schema generieren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-02",
       "dependsOn": [],
       "deliverables": [
         "Kompatible Better-Auth- und OAuth-Provider-Versionen",

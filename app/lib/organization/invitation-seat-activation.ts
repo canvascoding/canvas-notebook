@@ -66,6 +66,7 @@ export async function prepareAcceptedInvitationSeat(input: {
     });
     const currentResponse = await getCommunityTeamSeatQuoteStatus(
       stored.preparation.quote.quoteId,
+      { operationId: stored.activation.prepareOperation.operationId },
     );
     const current = await recordDirectMembershipSeatAuthorizationStatus({
       organizationId: accepted.invitation.organizationId,

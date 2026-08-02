@@ -138,6 +138,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
     });
     const currentResponse = await getCommunityTeamSeatQuoteStatus(
       stored.preparation.quote.quoteId,
+      { operationId: stored.activation.prepareOperation.operationId },
     );
     const current = await recordDirectMembershipSeatAuthorizationStatus({
       organizationId: access.organizationId,

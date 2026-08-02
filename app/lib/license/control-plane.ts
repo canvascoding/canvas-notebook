@@ -3,6 +3,11 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 
 import packageJson from '@/package.json';
+import {
+  classifyTeamControlPlaneStatus,
+  requestTeamControlPlane,
+  type TeamControlPlaneFailureCategory,
+} from '@/app/lib/control-plane/team-client';
 import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
 import { licenseActivationFailureCode } from './error-codes';
 import { getLicenseInstanceId } from './instance';
@@ -68,6 +73,8 @@ export class LicenseControlPlaneError extends Error {
     public readonly code: string,
     public readonly retryable = false,
     public readonly retryAfterSeconds: number | null = null,
+    public readonly category: TeamControlPlaneFailureCategory | 'contract' =
+      classifyTeamControlPlaneStatus(status),
   ) {
     super(message);
     this.name = 'LicenseControlPlaneError';
@@ -85,29 +92,34 @@ async function postLicenseControlPlane(
       tokenType: 'Bearer';
       token: string;
     };
+    operationId?: string;
+    maxAttempts?: number;
   },
 ): Promise<{ response: Response; payload: Record<string, unknown> }> {
   try {
-    const response = await (options?.fetchImpl ?? fetch)(`${getLicenseControlPlaneUrl()}${path}`, {
+    const result = await requestTeamControlPlane({
+      baseUrl: getLicenseControlPlaneUrl(),
+      path,
       method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options?.authorization
-          ? { Authorization: `${options.authorization.tokenType} ${options.authorization.token}` }
-          : {}),
-      },
-      body: JSON.stringify(body),
-      cache: 'no-store',
-      signal: AbortSignal.timeout(options?.timeoutMs ?? 10_000),
+      body,
+      instanceToken: options?.authorization?.token,
+      operationId: options?.operationId,
+      fetchImpl: options?.fetchImpl,
+      timeoutMs: options?.timeoutMs,
+      maxAttempts: options?.maxAttempts ?? 1,
     });
-    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-    return { response, payload };
+    return { response: result.response, payload: result.payload };
   } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : 'The license service is unavailable.';
     throw new LicenseControlPlaneError(
-      error instanceof Error ? error.message : 'The license service is unavailable.',
+      message,
       503,
       options?.unreachableCode ?? 'LICENSE_CONTROL_PLANE_UNREACHABLE',
       true,
+      null,
+      'temporary',
     );
   }
 }
@@ -122,25 +134,33 @@ async function getLicenseControlPlane(
       tokenType: 'Bearer';
       token: string;
     };
+    operationId?: string;
+    maxAttempts?: number;
   },
 ): Promise<{ response: Response; payload: Record<string, unknown> }> {
   try {
-    const response = await (options.fetchImpl ?? fetch)(`${getLicenseControlPlaneUrl()}${path}`, {
+    const result = await requestTeamControlPlane({
+      baseUrl: getLicenseControlPlaneUrl(),
+      path,
       method: 'GET',
-      headers: {
-        Authorization: `${options.authorization.tokenType} ${options.authorization.token}`,
-      },
-      cache: 'no-store',
-      signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
+      instanceToken: options.authorization.token,
+      operationId: options.operationId,
+      fetchImpl: options.fetchImpl,
+      timeoutMs: options.timeoutMs,
+      maxAttempts: options.maxAttempts ?? 1,
     });
-    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
-    return { response, payload };
+    return { response: result.response, payload: result.payload };
   } catch (error) {
+    const message = error instanceof Error
+      ? error.message
+      : 'The license service is unavailable.';
     throw new LicenseControlPlaneError(
-      error instanceof Error ? error.message : 'The license service is unavailable.',
+      message,
       503,
       options.unreachableCode ?? 'LICENSE_CONTROL_PLANE_UNREACHABLE',
       true,
+      null,
+      'temporary',
     );
   }
 }
@@ -349,6 +369,8 @@ function claimErrorFromResponse(
       response.status,
       parsed.code,
       parsed.retryable,
+      null,
+      classifyTeamControlPlaneStatus(response.status),
     );
   } catch {
     return new LicenseControlPlaneError(
@@ -356,6 +378,8 @@ function claimErrorFromResponse(
       response.status || 502,
       typeof payload.code === 'string' ? payload.code : TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
       response.status === 429 || response.status >= 500,
+      null,
+      classifyTeamControlPlaneStatus(response.status),
     );
   }
 }
@@ -367,6 +391,8 @@ function contractResponseError(error: unknown): LicenseControlPlaneError {
       502,
       error.code,
       false,
+      null,
+      'contract',
     );
   }
   throw error;
@@ -812,6 +838,7 @@ export async function getCommunityTeamUpgradePreflight(
         tokenType: token.tokenType,
         token: token.instanceToken,
       },
+      maxAttempts: 3,
     },
   );
   if (!response.ok) {
@@ -871,7 +898,7 @@ export async function getCommunityTeamUpgradePreflight(
 
 export async function prepareCommunityTeamSeatChange(
   request: TeamSeatPrepareRequest,
-  options?: { fetchImpl?: typeof fetch; now?: Date },
+  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
 ): Promise<TeamSeatPrepareResponse> {
   requireTeamSeatClientRollout();
   const { instanceId, token } = await requireCommunitySeatToken(
@@ -888,6 +915,8 @@ export async function prepareCommunityTeamSeatChange(
         tokenType: token.tokenType,
         token: token.instanceToken,
       },
+      operationId: options?.operationId,
+      maxAttempts: 3,
     },
   );
   if (!response.ok) {
@@ -907,7 +936,7 @@ export async function prepareCommunityTeamSeatChange(
 
 export async function getCommunityTeamSeatQuoteStatus(
   quoteId: string,
-  options?: { fetchImpl?: typeof fetch; now?: Date },
+  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
 ): Promise<TeamSeatQuoteStatusResponse> {
   requireTeamSeatClientRollout();
   const { instanceId, token } = await requireCommunitySeatToken(
@@ -923,6 +952,8 @@ export async function getCommunityTeamSeatQuoteStatus(
         tokenType: token.tokenType,
         token: token.instanceToken,
       },
+      operationId: options?.operationId ?? quoteId,
+      maxAttempts: 3,
     },
   );
   if (!response.ok) {
@@ -942,7 +973,7 @@ export async function getCommunityTeamSeatQuoteStatus(
 
 export async function executeCommunityTeamSeatChange(
   request: TeamSeatExecuteRequest,
-  options?: { fetchImpl?: typeof fetch; now?: Date },
+  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
 ): Promise<TeamSeatExecuteResponse> {
   requireTeamSeatClientRollout();
   const { instanceId, token } = await requireCommunitySeatToken(
@@ -959,6 +990,8 @@ export async function executeCommunityTeamSeatChange(
         tokenType: token.tokenType,
         token: token.instanceToken,
       },
+      operationId: options?.operationId ?? request.operationKey,
+      maxAttempts: 3,
     },
   );
   if (!response.ok) {
@@ -1025,6 +1058,7 @@ export async function refreshCommunityLicenseCertificate(
         tokenType: token.tokenType,
         token: token.instanceToken,
       },
+      maxAttempts: 3,
     },
   );
   if (!response.ok) {

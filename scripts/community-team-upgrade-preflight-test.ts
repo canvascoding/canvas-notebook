@@ -353,6 +353,15 @@ async function main() {
       'https://api.control.example.test/v1/license/community/v1/team/preflight',
     );
     assert.equal(captured[0]?.headers.get('Authorization'), `Bearer ${instanceToken}`);
+    assert.equal(
+      captured[0]?.headers.get('X-Canvas-Team-Seat-Protocol'),
+      'canvas-team-seat-protocol-v1',
+    );
+    assert.ok(captured[0]?.headers.get('X-Canvas-Operation-Id'));
+    assert.equal(
+      captured[0]?.headers.get('X-Canvas-Notebook-Version'),
+      '2026.8.1.2',
+    );
     assert.deepEqual(captured[0]?.body, {
       protocolVersion: 'canvas-team-seat-protocol-v1',
       notebookVersion: '2026.8.1.2',
@@ -383,6 +392,7 @@ async function main() {
     );
     assert.equal(captured[1]?.method, 'POST');
     assert.equal(captured[1]?.headers.get('Authorization'), `Bearer ${instanceToken}`);
+    assert.ok(captured[1]?.headers.get('X-Canvas-Operation-Id'));
     assert.deepEqual(captured[1]?.body, {
       protocolVersion: 'canvas-team-seat-protocol-v1',
       desiredQuantity: 3,
@@ -427,6 +437,10 @@ async function main() {
     );
     assert.equal(captured[3]?.method, 'POST');
     assert.equal(captured[3]?.headers.get('Authorization'), `Bearer ${instanceToken}`);
+    assert.equal(
+      captured[3]?.headers.get('X-Canvas-Operation-Id'),
+      preparedSeat.authorization.authorizationId,
+    );
     assert.deepEqual(captured[3]?.body, {
       protocolVersion: 'canvas-team-seat-protocol-v1',
       authorizationId: preparedSeat.authorization.authorizationId,

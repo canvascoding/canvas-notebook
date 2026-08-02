@@ -55,6 +55,7 @@ export async function dispatchDirectMembershipSeatPreparation(input: {
     )
     : await prepareCommunityTeamSeatChange(
       getMembershipSeatPrepareRequest(input.activation.prepareOperation),
+      { operationId: input.activation.prepareOperation.operationId },
     );
   const activation = await recordDirectMembershipSeatPreparation({
     organizationId: input.activation.membership.organizationId,
@@ -80,6 +81,7 @@ export async function refreshDirectMembershipSeatAuthorization(input: {
   });
   const response = await getCommunityTeamSeatQuoteStatus(
     stored.preparation.quote.quoteId,
+    { operationId: stored.activation.prepareOperation.operationId },
   );
   return recordDirectMembershipSeatAuthorizationStatus({
     organizationId: input.organizationId,
