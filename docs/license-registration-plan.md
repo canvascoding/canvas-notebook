@@ -2,6 +2,12 @@
 
 > Date: 2026-05-19
 > Status: Draft
+>
+> Historical design note: the mandatory activation and hard-lock behavior
+> described below has been superseded. Current releases allow unlicensed local
+> Solo use and make Community activation optional. Team collaboration remains
+> license-gated. See [Licensing and Team Seats](team-seat-licensing-owner-guide.md)
+> for the supported behavior and operations runbook.
 
 ## 1. Goals
 

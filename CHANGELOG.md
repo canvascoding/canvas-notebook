@@ -9,7 +9,20 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Added
 
-- Nothing yet.
+- Added optional Community license activation during setup and in Settings while preserving offline-capable local Solo use without a license.
+- Added the Community-to-Team Seat flow with account claim, runtime preflight, server-authoritative quotes, explicit approval, idempotent activation, and signed entitlement refresh.
+- Added Team membership management for direct adds, invitations, role changes, suspension, removal, deterministic reconciliation, and data-preserving Solo fallback.
+- Added a Team Seat owner runbook and a published Notebook/Control Plane compatibility matrix.
+
+### Security
+
+- Kept Team access fail-closed outside signed capacity and grace, rejected client-supplied quantities and prices, and revoked sessions when memberships lose access.
+- Isolated non-billable test certificates from production signing and rejected test certificates in production mode.
+
+### Verification
+
+- `npm run build`
+- `tsx scripts/team-seat-release-verification-test.ts`
 
 ## [2026.8.1.2] - 2026-08-01
 

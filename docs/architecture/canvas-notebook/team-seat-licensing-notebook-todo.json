@@ -1196,7 +1196,7 @@
         {
           "id": "NB-TS-077",
           "title": "Build, Dokumentation und Release-Kompatibilität abschließen",
-          "status": "pending",
+          "status": "in_progress",
           "priority": "P1",
           "ownerArea": "release",
           "description": "Build, relevante Tests, Upgrade-Dokumentation, Owner-Hilfe, Recovery-Runbook und Control-Plane-Kompatibilitätsmatrix abschließen.",
@@ -1221,7 +1221,8 @@
             "Alle neuen Contract-, Migration- und Membership-Tests sind erfolgreich.",
             "Owner-Dokumentation erklärt Account-Pflicht, Kosten, Grace und Downgrade.",
             "Unterstützte Control-Plane- und Notebook-Versionen sind veröffentlicht."
-          ]
+          ],
+          "progress": "README und Owner-Runbook dokumentieren die freiwillige Community-Aktivierung während des Setups oder später in Settings, den vollständig offline nutzbaren lokalen Solo-Modus, die ausschließlich für Claim und Team-/Billing-Mutationen notwendige Control-Plane-Verbindung, serverautoritativ angezeigte Kosten mit explizitem Approval, signierte Grace, datenbewahrenden Solo-Fallback, Reaktivierung und ein Recovery-Runbook. Der alte Mandatory-Activation-Entwurf ist deutlich als historisch überholt markiert. Die veröffentlichte Kompatibilitätsmatrix bindet Canvas Notebook 2026.8.1.2 und Control Plane API 1.0.53 an canvas-team-seat-protocol-v1, beschreibt das dynamische Minimum aus dem Preflight und blockiert unbekannte Protokolle ausschließlich für Team-Operationen. CHANGELOG und README verlinken den Vertrag. scripts/team-seat-release-verification-test.ts bündelt Contract-, Migration-, Membership-, Control-Plane-, Upgrade-, Paid-, Offline- und No-Stripe-Suiten und prüft die Dokumentations-/Versionsaussagen. ESLint und Diff-Prüfung für den neuen Runner sind erfolgreich. Die abschließende Ausführung dieses Runners und der erneute npm-Build bleiben gemäß Nutzerreihenfolge bis nach Fertigstellung von NB-TS-078 offen; der erste Build-Versuch erreichte Next und scheiterte ausschließlich am externen Google-Fonts-Abruf."
         },
         {
           "id": "NB-TS-078",

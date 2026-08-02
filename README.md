@@ -49,11 +49,11 @@ After installation:
 
 1. Open the configured domain, or `http://SERVER_IP:3456` without a reverse proxy.
 2. Create the first admin account in the setup flow.
-3. Request and activate a free Community license, or confirm the automatically issued license on a managed instance.
+3. Optionally activate a free Community license now, or skip activation and continue in local Solo mode.
 4. Add and verify an AI provider.
 5. Check the deployment with `canvas-notebook status` and `canvas-notebook health`.
 
-Community activation sends the instance ID and the email address you enter to `api.canvasnotebook.app` so a signed license certificate can be issued. Workspace files, prompts, API keys, and other local data are not part of the activation request.
+License activation is optional and remains available later in **Settings → License**. An unlicensed Notebook keeps its local core features and can run in a private network without internet access. Community activation sends the instance ID and the email address you enter to `api.canvasnotebook.app` so a signed license certificate can be issued. Workspace files, prompts, API keys, and other local data are not part of the activation request.
 
 If you enable Caddy, point your domain's DNS record to the server and allow inbound traffic on ports `80` and `443`. Without Caddy, the application listens on host port `3456` by default.
 
@@ -268,6 +268,6 @@ See [`CONTRIBUTING.md`](CONTRIBUTING.md) before submitting changes and [`CHANGEL
 
 Canvas Notebook is distributed under the [Sustainable Use License 1.0](LICENSE). Personal, non-commercial, and internal business use is permitted under its terms. Offering Canvas Notebook or a derivative as a competing hosted or managed service is not permitted. Read the license before deploying it for a commercial service.
 
-Self-hosted instances also require activation. Free Community certificates are valid for one year by default and can be requested again from the license settings when they expire.
+Self-hosted instances do not require activation for local Solo use. A free Community certificate can be activated voluntarily during setup or later in the license settings. Team collaboration and additional active users require a valid Team Seat entitlement; commercial seat changes also require a claimed Community license and a Control Plane connection. See the [licensing and Team Seats owner guide](docs/team-seat-licensing-owner-guide.md) for offline behavior, costs, grace periods, downgrade recovery, and supported versions.
 
 Copyright © [Frank Alexander Weber](https://github.com/canvascoding)
