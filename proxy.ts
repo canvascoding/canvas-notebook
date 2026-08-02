@@ -17,8 +17,10 @@ const PUBLIC_EXACT_ROUTES = [
   '/manifest.webmanifest',
   '/.well-known/oauth-protected-resource',
   '/.well-known/oauth-protected-resource/mcp',
-  '/mcp',
   '/oauth/consent',
+];
+const PUBLIC_NON_LOCALIZED_EXACT_ROUTES = [
+  '/mcp',
 ];
 const PUBLIC_SHARE_PREFIX_ROUTES = [
   '/p/',
@@ -172,6 +174,10 @@ export default async function middleware(request: NextRequest) {
       return errorResponse;
     }
 
+    return nextWithCommonHeaders();
+  }
+
+  if (PUBLIC_NON_LOCALIZED_EXACT_ROUTES.includes(pathname)) {
     return nextWithCommonHeaders();
   }
 

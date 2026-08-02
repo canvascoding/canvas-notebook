@@ -101,15 +101,25 @@ async function main(): Promise<void> {
         DIRECT_MCP_AUTH_PROBE_SCOPE,
         DIRECT_MCP_AUTH_PROBE_TOOL,
       },
+      { default: appProxy },
+      { NextRequest },
     ] = await Promise.all([
       import('../app/lib/auth'),
       import('../app/lib/mcp/server/oauth-request-policy'),
       import('../app/lib/db'),
       import('../app/mcp/route'),
       import('../app/lib/mcp/server/auth-probe'),
+      import('../proxy'),
+      import('next/server'),
     ]);
     const { issuer, resource, protectedResourceMetadataUrl } =
       resolveDirectMcpServerConfig();
+    const proxyResponse = await appProxy(new NextRequest(`${ORIGIN}/mcp`, {
+      method: 'POST',
+    }));
+    assert.equal(proxyResponse.status, 200);
+    assert.equal(proxyResponse.headers.get('x-middleware-next'), '1');
+    assert.equal(proxyResponse.headers.get('x-middleware-rewrite'), null);
 
     const registrationRequest = new Request(`${issuer}/oauth2/register`, {
       method: 'POST',
