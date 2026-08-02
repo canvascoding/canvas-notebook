@@ -394,6 +394,11 @@ Ergebnis:
 - vollständiger DCR-, Authorization-, Token-, Refresh- und Revocation-Ablauf.
 - Negativtests sind reproduzierbar.
 
+Implementiert als `scripts/mcp-server-oauth-client-test.ts` beziehungsweise
+`npm run test:mcp:server-oauth-client`. Der Test verwendet die produktiven
+Next.js-Auth-Route-Handler mit einer isolierten SQLite-Datenbank und einem
+öffentlichen PKCE-S256-Client.
+
 Pflichtfälle:
 
 - Discovery und DCR erfolgreich.

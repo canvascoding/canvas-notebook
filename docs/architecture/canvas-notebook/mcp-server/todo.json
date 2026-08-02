@@ -114,7 +114,8 @@
     {
       "id": "MCP-OAUTH-06",
       "title": "OAuth isoliert mit einem automatisierten PKCE-Client testen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-02",
       "dependsOn": [
         "MCP-OAUTH-05"
       ],
