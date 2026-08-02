@@ -200,12 +200,14 @@ follow_until_healthy() {
 
 cleanup_docker_artifacts() {
   local prune_output reclaimed
-  prune_output="$(docker_cmd image prune -f 2>&1 || true)"
+  section "Docker cleanup"
+  info "Removing unused Docker images after update..."
+  prune_output="$(docker_cmd image prune -af 2>&1 || true)"
   reclaimed="$(printf '%s' "$prune_output" | grep -oE '[0-9]+(\.[0-9]+)?(kB|MB|GB)' | tail -1 || true)"
   if [[ -n "$reclaimed" ]]; then
-    ok "Cleaned up dangling images (reclaimed ${reclaimed})"
+    ok "Cleaned up unused Docker images (reclaimed ${reclaimed})"
   else
-    ok "No dangling images to clean up"
+    ok "No unused Docker images to clean up"
   fi
-  log_msg "docker image prune completed reclaimed=${reclaimed:-0}"
+  log_msg "docker image prune completed flags=-af reclaimed=${reclaimed:-0}"
 }

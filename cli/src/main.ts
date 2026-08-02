@@ -545,6 +545,7 @@ export async function update(
       await writeConfig(persisted);
       await writeEnvFiles(persisted, composePath(persisted.dataDir, context.platform));
     }
+    await docker.pruneUnusedImages(remainingUpdateTime(deadline, true));
     await appendLog(context, 'update completed');
     if (json) console.log(JSON.stringify({ success: true, recreated, healthy: true, rolledBack: false }));
     else console.log(`Canvas Notebook is healthy: ${docker.healthUrl(runConfig)}`);

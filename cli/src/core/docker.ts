@@ -70,6 +70,13 @@ export class DockerManager {
     return result.status === 0 ? result.stdout.trim() : '';
   }
 
+  async pruneUnusedImages(timeoutMs?: number): Promise<void> {
+    const result = await this.docker(['image', 'prune', '-af'], { stdio: 'pipe', timeoutMs });
+    if (result.status !== 0) {
+      console.warn(`Docker image prune completed with status ${result.status}: ${result.stderr.trim() || result.stdout.trim()}`);
+    }
+  }
+
   async isContainerRunning(containerId: string): Promise<boolean> {
     if (!containerId) return false;
     const result = await this.docker(['inspect', '--format', '{{.State.Running}}', containerId]);
