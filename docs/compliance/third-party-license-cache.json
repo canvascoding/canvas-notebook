@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "lockfileSha256": "44433c39a96063393ec74a152fbc2a59aa265dc578c1c0b421c6f6dbc7e7ae4c",
+  "lockfileSha256": "0317b2259837c8de4c36a5954c1a4f85a39f9bc8d645358bb0927c73bb832b5b",
   "entries": {
     "node_modules/@aws-sdk/credential-provider-http@3.972.59": {
       "packagePath": "node_modules/@aws-sdk/credential-provider-http",

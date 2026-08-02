@@ -11,6 +11,19 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.2.5] - 2026-08-02
+
+### Fixed
+
+- Cast `next_attempt_at` and `completed_at` retry/failure parameters to `bigint` in Postgres `team_seat_outbox` updates, resolving type-mismatch errors when `CASE` expressions mixed `NULL` with bound numeric values.
+- Strip Postgres type casts (`::bigint`) in the SQLite adapter so shared SQL works with both SQLite and Postgres.
+
+### Verification
+
+- `npm run build`
+- `npm run test:cli:postgres-recovery`
+- `npm run test:cli:operation-lock`
+
 ## [2026.8.2.4] - 2026-08-02
 
 ### Fixed
