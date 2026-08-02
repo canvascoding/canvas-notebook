@@ -1167,7 +1167,7 @@
         {
           "id": "NB-TS-076",
           "title": "Offline-, Drift- und Downgrade-End-to-End prüfen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "tests-e2e",
           "description": "Control-Plane-Ausfall, Token-Revocation, stale Snapshot, Zertifikatsablauf, Grace, Nichtzahlung, Kündigung und Solo-Fallback prüfen.",
@@ -1190,7 +1190,8 @@
             "Grace-Ablauf deaktiviert zusätzliche Zugriffe deterministisch.",
             "Kein Test löscht Userdaten oder Workspaces.",
             "Reaktivierung verwendet bestehende Lizenz und lokale Daten."
-          ]
+          ],
+          "progress": "Der neue Offline-/Downgrade-End-to-End-Runner bündelt Refresh-Ausfall und Backoff, gültige Grace, Grace-Ablauf, Token-Revocation und Reconnect, Snapshot-Retry, stale Snapshot, Quantity-Drift, Nichtzahlung/Kündigung, Solo-Fallback und anschließende Team-Reaktivierung. Temporäre Netzfehler behalten das zuletzt gültige Zertifikat und verwenden den dokumentierten exponentiellen Backoff; Team-Zugriff bleibt nur innerhalb der signierten Grace aktiv. Nach Grace-Ablauf oder explizitem Solo-Downgrade bleibt genau der deterministisch priorisierte Owner aktiv, weitere Memberships werden suspended, ihre Sessions entzogen und ausschließlich lizenzbedingt gesperrte Identitäten deaktiviert. stale Snapshot führt zu support_required, past_due und canceled erzwingen einen License Refresh, und Mengen-Drift kann Zugriff einschränken, aber nie automatisch Seats kaufen. Der Lifecycle enthält keine User-/Workspace-DELETE- oder Dateilöschoperationen; die Runtime-Suite verifiziert vor Fallback, nach Fallback, nach Team-Reaktivierung und nach erneutem Downgrade weiterhin vier User, denselben Workspace-Datensatz und byte-identische Workspace-Datei. Reaktivierung verwendet die bestehenden Memberships, Identitäten, Lizenzdaten und Dateien. Der Entry-Point scripts/team-seat-offline-downgrade-e2e-test.ts läuft ohne Browser, externes Netzwerk oder Container."
         },
         {
           "id": "NB-TS-077",

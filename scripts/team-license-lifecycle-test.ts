@@ -311,6 +311,13 @@ async function main() {
         { user_id: 'owner-user' },
       ],
     );
+    assert.equal(
+      (await database.get('SELECT COUNT(*) AS count FROM "user"') as { count: number }).count,
+      4,
+      'Team reactivation must reuse the preserved user identities',
+    );
+    assert.equal(existsSync(workspaceFile), true);
+    assert.equal(readFileSync(workspaceFile, 'utf8'), 'preserve team data\n');
     assert.deepEqual(
       await database.get('SELECT banned, ban_reason FROM "user" WHERE id = ?', ['security-user']),
       { banned: 1, ban_reason: 'security_policy' },
@@ -355,6 +362,14 @@ async function main() {
     );
     assert.equal(existsSync(workspaceFile), true);
     assert.equal(readFileSync(workspaceFile, 'utf8'), 'preserve team data\n');
+    assert.equal(
+      (await database.get('SELECT COUNT(*) AS count FROM "user"') as { count: number }).count,
+      4,
+    );
+    assert.equal(
+      (await database.get('SELECT COUNT(*) AS count FROM canvas_workspaces') as { count: number }).count,
+      1,
+    );
 
     const serverSource = readFileSync(path.join(process.cwd(), 'server.js'), 'utf8');
     const instrumentationSource = readFileSync(

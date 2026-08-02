@@ -377,6 +377,46 @@ async function main(): Promise<void> {
   assert.equal(concurrentLocalIncrease.restrictionSeatLimit, 3);
   assert.ok(concurrentLocalIncrease.reasons.includes('local_observed_above_approved'));
 
+  const staleSnapshot = classifyTeamSeatReconciliation({
+    state: {
+      ...state!,
+      currentObservedQuantity: 2,
+      controlPlaneObservedQuantity: 2,
+      approvedQuantity: 2,
+      billedQuantity: 2,
+      licensedQuantity: 2,
+      expectedLicensedQuantity: 2,
+      billingStatus: 'active',
+      driftStatus: 'stale',
+    },
+    licenseStatus: teamLicense(2),
+  });
+  assert.equal(staleSnapshot.status, 'support_required');
+  assert.equal(staleSnapshot.action, 'contact_support');
+  assert.ok(staleSnapshot.reasons.includes('control_plane_drift_stale'));
+
+  for (const billingStatus of ['past_due', 'canceled']) {
+    const nonpayment = classifyTeamSeatReconciliation({
+      state: {
+        ...state!,
+        currentObservedQuantity: 2,
+        controlPlaneObservedQuantity: 2,
+        approvedQuantity: 2,
+        billedQuantity: 2,
+        licensedQuantity: 2,
+        expectedLicensedQuantity: 2,
+        billingStatus,
+        driftStatus: 'in_sync',
+      },
+      licenseStatus: teamLicense(2),
+    });
+    assert.equal(nonpayment.status, 'refresh_required');
+    assert.equal(nonpayment.action, 'refresh_license');
+    assert.equal(nonpayment.refreshRequired, true);
+    assert.ok(nonpayment.reasons.includes(`billing_${billingStatus}`));
+    assert.equal(nonpayment.restrictionSeatLimit, null);
+  }
+
   console.log('team-seat-reconciliation-test: ok');
 }
 
