@@ -413,6 +413,7 @@ export async function adoptActiveTeamMembership(
     reason?: string | null;
     metadata?: unknown;
     seatOperationType?: TeamSeatChangeType;
+    transactionMode?: 'managed' | 'existing';
     now?: number;
     databaseProvider?: DatabaseProvider;
   },
@@ -432,7 +433,7 @@ export async function adoptActiveTeamMembership(
 
   const candidateEmail = normalizeTeamMembershipCandidateEmail(user.email);
   const id = `team-membership-${randomUUID()}`;
-  return withMembershipTransaction(database, async () => {
+  const adopt = async () => {
     await database.run(`
       INSERT INTO team_memberships (
         id,
@@ -490,7 +491,14 @@ export async function adoptActiveTeamMembership(
     });
 
     return membership;
-  }, input.databaseProvider ?? getDatabaseProvider());
+  };
+  return input.transactionMode === 'existing'
+    ? adopt()
+    : withMembershipTransaction(
+      database,
+      adopt,
+      input.databaseProvider ?? getDatabaseProvider(),
+    );
 }
 
 export async function transitionTeamMembership(

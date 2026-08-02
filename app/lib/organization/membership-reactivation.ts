@@ -3,6 +3,9 @@ import 'server-only';
 import { assertTeamMembershipIdentityReactivatable } from '@/app/lib/auth';
 import { openDb } from '@/app/lib/db';
 import {
+  assertOrganizationSeatProjectionNotOverLimit,
+} from '@/app/lib/license/seat-limit';
+import {
   executeDirectMembershipActivation,
   type MembershipSeatActivationResult,
 } from './membership-seat-activation';
@@ -62,6 +65,9 @@ export async function prepareTeamMembershipReactivation(input: {
     input.organizationId,
     input.userId,
   );
+  await assertOrganizationSeatProjectionNotOverLimit({
+    organizationId: input.organizationId,
+  });
   const activation = await beginSuspendedMembershipReactivation({
     organizationId: input.organizationId,
     membershipId: membership.id,

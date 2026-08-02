@@ -281,6 +281,18 @@ async function clearOauthFiles(): Promise<void> {
   await fs.mkdir(path.join(DATA_ROOT, 'pi-oauth-states'), { recursive: true }).catch(() => undefined);
 }
 
+async function enforceRestoredSeatLimit(): Promise<void> {
+  const [{ getLicenseStatus }, { reconcileTeamLicenseLifecycle }] = await Promise.all([
+    import('../app/lib/license'),
+    import('../app/lib/license/team-license-lifecycle'),
+  ]);
+  const result = await reconcileTeamLicenseLifecycle(await getLicenseStatus());
+  log(
+    `Seat limit reconciled after restore: mode=${result.mode}, limit=${result.seatLimit}, `
+    + `suspended=${result.suspendedMemberships}, remainingFallbackUsers=${result.remainingFallbackUsers}`,
+  );
+}
+
 async function applyFileComponents(params: {
   extractDataRoot: string;
   components: MigrationComponents;
@@ -354,6 +366,9 @@ async function applyPendingRestore(pending: PendingMigrationRestore): Promise<vo
 
   if (pending.clearOAuthTokens) {
     await clearOauthFiles();
+  }
+  if (pending.components.database) {
+    await enforceRestoredSeatLimit();
   }
 
   await writeJsonPrivate(path.join(MIGRATION_ROOT, 'last-restore.json'), {

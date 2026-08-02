@@ -7,6 +7,10 @@ import {
   licenseEntitlementErrorPayload,
 } from '@/app/lib/license/entitlements';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
+import {
+  assertUserSeatAccess,
+  SeatLimitGuardError,
+} from '@/app/lib/license/seat-limit';
 import { createMobileBootstrap } from '@/app/lib/mobile/bootstrap';
 import { createMobileCompatibility } from '@/app/lib/mobile/compatibility';
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
@@ -34,6 +38,7 @@ export async function GET(request: Request) {
         { status: 401, headers: responseHeaders },
       );
     }
+    await assertUserSeatAccess({ userId: session.user.id });
 
     const actor = resolveWorkspaceActor({
       id: session.user.id,
@@ -57,6 +62,17 @@ export async function GET(request: Request) {
       return NextResponse.json(
         licenseEntitlementErrorPayload(error),
         { status: error.statusCode, headers: responseHeaders },
+      );
+    }
+    if (error instanceof SeatLimitGuardError) {
+      return NextResponse.json(
+        {
+          success: false,
+          error: error.message,
+          code: error.code,
+          ...error.details,
+        },
+        { status: error.status, headers: responseHeaders },
       );
     }
     if (error instanceof WorkspaceListingError) {

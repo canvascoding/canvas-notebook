@@ -6,6 +6,10 @@ import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
 import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import {
+  assertOrganizationSeatProjectionNotOverLimit,
+  SeatLimitGuardError,
+} from '@/app/lib/license/seat-limit';
+import {
   dispatchDirectMembershipSeatPreparation,
   membershipSeatQuotePayload,
 } from '@/app/lib/organization/membership-seat-quote';
@@ -22,7 +26,11 @@ import {
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function errorResponse(error: unknown) {
-  if (error instanceof MembershipOrchestratorError || error instanceof TeamMembershipError) {
+  if (
+    error instanceof MembershipOrchestratorError
+    || error instanceof SeatLimitGuardError
+    || error instanceof TeamMembershipError
+  ) {
     return NextResponse.json({
       success: false,
       code: error.code,
@@ -78,6 +86,9 @@ export async function POST(request: NextRequest) {
         error: 'An active organization owner or administrator is required.',
       }, { status: 403 });
     }
+    await assertOrganizationSeatProjectionNotOverLimit({
+      organizationId: state.organizationId,
+    });
 
     const body = await request.json().catch(() => ({})) as {
       name?: unknown;

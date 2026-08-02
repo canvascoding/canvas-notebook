@@ -63,6 +63,19 @@ function assertOrganizationBootstrapState(
 
   const owner = sqlite.prepare('SELECT email FROM user WHERE id = ?').get(expectedUserId) as { email: string };
   assert.equal(owner.email, expectedEmail);
+  const membership = sqlite.prepare(`
+    SELECT role, status, accepted_at AS acceptedAt
+    FROM team_memberships
+    WHERE organization_id = ? AND user_id = ?
+    LIMIT 1
+  `).get(organization.organizationId, expectedUserId) as {
+    role: string;
+    status: string;
+    acceptedAt: number | null;
+  };
+  assert.equal(membership.role, 'owner');
+  assert.equal(membership.status, 'active');
+  assert.equal(typeof membership.acceptedAt, 'number');
 
   const workspaces = sqlite.prepare(`
     SELECT type, owner_user_id AS ownerUserId, root_relative_path AS rootRelativePath, display_name AS displayName, status

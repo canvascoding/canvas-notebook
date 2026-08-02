@@ -6,7 +6,10 @@ import path from 'node:path';
 import { randomUUID } from 'node:crypto';
 import { hashPassword } from 'better-auth/crypto';
 
-import { runMigrations } from '@/app/lib/db/migrate';
+import {
+  runMigrations,
+  runTeamSeatLegacyBackfill,
+} from '@/app/lib/db/migrate';
 import { openDb } from '@/app/lib/db';
 import { coerceDatabaseUnavailableError } from '@/app/lib/db/errors';
 import {
@@ -20,6 +23,7 @@ import {
   ensureOrganizationBootstrapForUser,
   getDeploymentMode,
 } from '@/app/lib/organization/bootstrap';
+import { adoptActiveTeamMembership } from '@/app/lib/organization/team-membership';
 import {
   ensurePostgresCredentialPassword,
   ensurePostgresOrganizationBootstrapForUser,
@@ -195,7 +199,24 @@ async function createInitialOwnerPostgres(input: InitialOwnerInput): Promise<Ini
     await insertPostgresAuthUser(database, { userId, name, email });
     await ensurePostgresCredentialPassword(database, { userId, passwordHash, accountId });
 
-    await ensurePostgresOrganizationBootstrapForUser(database, userId);
+    const bootstrap = await ensurePostgresOrganizationBootstrapForUser(database, userId);
+    if (!bootstrap.organizationId) {
+      throw new InitialOwnerSetupError(
+        'DATABASE_ERROR',
+        'Could not create the initial owner membership.',
+      );
+    }
+    await adoptActiveTeamMembership(database, {
+      organizationId: bootstrap.organizationId,
+      userId,
+      role: 'owner',
+      source: 'first_owner',
+      actorUserId: userId,
+      seatOperationType: 'reconcile',
+      transactionMode: 'existing',
+      databaseProvider: 'postgres',
+      now: Date.now(),
+    });
 
     await database.run('COMMIT');
     return { id: userId, name, email };
@@ -253,6 +274,7 @@ export async function createInitialOwner(input: unknown): Promise<InitialOwner> 
     `).run(accountId, userId, 'credential', userId, passwordHash, now, now);
 
     ensureOrganizationBootstrapForUser(sqlite, userId);
+    runTeamSeatLegacyBackfill(sqlite);
 
     sqlite.exec('COMMIT');
     return { id: userId, name, email };

@@ -1,6 +1,7 @@
 import 'server-only';
 
 import { getDatabaseProvider } from '@/app/lib/db/provider';
+import { assertUserSeatAccess } from '@/app/lib/license/seat-limit';
 import {
   ensureOrganizationBootstrapForUser,
   openOrganizationBootstrapDatabase,
@@ -16,6 +17,7 @@ import type { WorkspaceActor } from './types';
 export async function ensureWorkspaceBootstrapForActor(
   actor: WorkspaceActor,
 ): Promise<OrganizationBootstrapStatus> {
+  await assertUserSeatAccess({ userId: actor.userId });
   if (getDatabaseProvider() === 'postgres') {
     return (await getPostgresWorkspaceState(actor)).status;
   }

@@ -4,6 +4,9 @@ import {
   getCommunityTeamSeatQuoteStatus,
 } from '@/app/lib/license/control-plane';
 import {
+  assertOrganizationSeatProjectionNotOverLimit,
+} from '@/app/lib/license/seat-limit';
+import {
   dispatchDirectMembershipSeatPreparation,
   refreshDirectMembershipSeatAuthorization,
 } from './membership-seat-quote';
@@ -33,6 +36,9 @@ export async function prepareAcceptedInvitationSeat(input: {
   const accepted = await acceptTeamMembershipInvitation({
     token: input.token,
     requestId: input.requestId,
+  });
+  await assertOrganizationSeatProjectionNotOverLimit({
+    organizationId: accepted.invitation.organizationId,
   });
   const activation = accepted.membership.status === 'approval_required'
     ? await beginInvitationMembershipActivation({

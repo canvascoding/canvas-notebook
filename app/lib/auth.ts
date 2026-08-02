@@ -4,13 +4,17 @@ import { drizzleAdapter } from "better-auth/adapters/drizzle";
 import { eq } from "drizzle-orm";
 import { db } from "@/app/lib/db";
 import { getDatabaseProvider } from "@/app/lib/db/provider";
-import { user } from "@/app/lib/db/schema";
+import { session as authSession, user } from "@/app/lib/db/schema";
 import { nextCookies } from "better-auth/next-js";
 import { admin, bearer } from "better-auth/plugins";
 import { expo } from '@better-auth/expo';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import { getConfiguredTrustedOrigins } from '@/app/lib/security/trusted-origins';
 import { TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
+import {
+  assertUserSeatAccess,
+  SeatLimitGuardError,
+} from '@/app/lib/license/seat-limit';
 
 const authBaseURL =
   process.env.BETTER_AUTH_BASE_URL ||
@@ -28,6 +32,10 @@ const emailAndPasswordConfig = {
 };
 
 const trustedOrigins = getConfiguredTrustedOrigins();
+
+async function revokeSeatGuardSessions(userId: string): Promise<void> {
+  await db.delete(authSession).where(eq(authSession.userId, userId));
+}
 
 export const auth = betterAuth({
   secret: authSecret,
@@ -55,6 +63,25 @@ export const auth = betterAuth({
         throw APIError.from("FORBIDDEN", {
           code: "MEMBERSHIP_ORCHESTRATOR_REQUIRED",
           message: "Suspend or reactivate users through the server-side membership orchestrator.",
+        });
+      }
+    }),
+    after: createAuthMiddleware(async (context) => {
+      const seatSession = context.context.newSession
+        ?? (context.path === "/get-session" ? context.context.session : null);
+      if (!seatSession) return;
+      try {
+        await assertUserSeatAccess({ userId: seatSession.user.id });
+      } catch (error) {
+        if (!(error instanceof SeatLimitGuardError)) throw error;
+        await revokeSeatGuardSessions(seatSession.user.id);
+        context.context.setNewSession(null);
+        if (context.path === "/get-session") {
+          return context.json(null);
+        }
+        throw APIError.from("FORBIDDEN", {
+          code: error.code,
+          message: error.message,
         });
       }
     }),

@@ -4,6 +4,7 @@ import { LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
 import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
+import { SeatLimitGuardError } from '@/app/lib/license/seat-limit';
 import {
   prepareAcceptedInvitationSeat,
 } from '@/app/lib/organization/invitation-seat-activation';
@@ -58,6 +59,7 @@ export async function POST(request: NextRequest) {
     if (
       error instanceof TeamInvitationError
       || error instanceof MembershipOrchestratorError
+      || error instanceof SeatLimitGuardError
       || error instanceof TeamMembershipError
     ) {
       return NextResponse.json({

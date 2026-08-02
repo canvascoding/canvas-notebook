@@ -7,6 +7,7 @@ import { LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
 import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
+import { SeatLimitGuardError } from '@/app/lib/license/seat-limit';
 import {
   executeTeamMembershipReactivation,
   prepareTeamMembershipReactivation,
@@ -33,6 +34,7 @@ function errorResponse(error: unknown) {
     error instanceof MembershipIdentityError
     || error instanceof MembershipOrchestratorError
     || error instanceof MembershipSeatActivationError
+    || error instanceof SeatLimitGuardError
     || error instanceof TeamMembershipError
   ) {
     return NextResponse.json({

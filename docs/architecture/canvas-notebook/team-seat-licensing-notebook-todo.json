@@ -738,7 +738,7 @@
         {
           "id": "NB-TS-047",
           "title": "seatLimit an allen Aktivierungs- und Zugriffspfaden erzwingen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership-security",
           "description": "Serverseitige Guards für Create, Accept, Reactivate, Bootstrap, Import, Mobile und Login ergänzen.",
@@ -762,7 +762,8 @@
             "Clientseitige Umgehung wird serverseitig blockiert.",
             "Community Solo bleibt auf genau einen aktiven User begrenzt.",
             "Bereits vorhandene Überbelegung wird erkannt und nicht still erweitert."
-          ]
+          ],
+          "progress": "Ein zentraler serverseitiger Seat-Limit-Guard leitet die effektive Policy ausschließlich aus dem verifizierten Lizenzstatus ab: aktive/grace Team-Zertifikate verwenden das signierte seatLimit, alle nicht lizenzierten, Solo-, abgelaufenen oder ungültigen Zustände fallen sicher auf Community Solo mit exakt einem Owner-User zurück. Better-Auth erzwingt diese Policy sowohl nach erfolgreichem Sign-in als auch bei jedem get-session-Aufruf; abgewiesene Web-, Bearer- und Expo-Sessions werden serverseitig gelöscht. Mobile Bootstrap und Workspace-Bootstrap wiederholen den Guard an ihren Eintrittspunkten. Create, Invitation Accept und Reactivation verweigern neue Quotes, solange die bestehende aktive Projektion bereits über dem signierten Limit liegt. Nach Control-Plane-Execute werden signedSeatLimit, gewünschte Quantity und aktuelle lokale Projektion unter einer serialisierten Datenbanktransaktion erneut verglichen; erst danach darf pending/suspended→active wechseln. Dadurch bleiben konkurrierende oder veraltete Aktivierungen gesperrt und rollen ohne zusätzliche aktive Membership-Revision zurück. Der erste lokale Owner wird bereits im Setup als genau eine aktive Membership adoptiert. SQLite-Migration-Restores führen vor Abschluss unmittelbar die bestehende datenhaltende Team-/Solo-Reconciliation aus, sodass importierte Überbelegung keine Session behält. Reale Better-Auth-Sign-in- und Session-Restore-Tests belegen, dass der unlizenzierte Owner weiterarbeiten kann, während ein zweiter Web-/Expo-User SEAT_LIMIT_EXCEEDED erhält. Seat-Guard-, Auth-, Mobile-, Bootstrap-, Orchestrator-, Invitation-, Lifecycle-, Membership-, Permission-, Suspension-, Offboarding-, Restore-, Outbox- und License-Tests sowie TypeScript, ESLint und Production-Build sind erfolgreich; der Build meldet lediglich die bereits bekannten Turbopack-Warnungen zu dynamischen Workspace-Pfaden."
         }
       ]
     },

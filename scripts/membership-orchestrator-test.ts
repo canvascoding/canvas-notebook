@@ -17,6 +17,7 @@ import {
   recordDirectMembershipSeatPreparation,
 } from '../app/lib/organization/membership-orchestrator';
 import { isOrganizationBillingApprover } from '../app/lib/organization/permissions';
+import { SeatLimitGuardError } from '../app/lib/license/seat-limit';
 import {
   adoptActiveTeamMembership,
   getActiveTeamMembershipProjection,
@@ -802,6 +803,98 @@ async function main() {
     `).pluck().get(suspended.id)),
     activeTransitionCountBefore + 1,
     'a reactivation replay must not create another active transition or Seat revision',
+  );
+
+  insertUser({
+    id: 'racing-member-user',
+    name: 'Racing Member',
+    email: 'racing.member@example.test',
+    role: 'user',
+    now: 7_800,
+  });
+  await adoptActiveTeamMembership(connection, {
+    organizationId: 'organization-1',
+    userId: 'racing-member-user',
+    role: 'member',
+    source: 'migration',
+    actorUserId: 'owner-user',
+    seatOperationType: 'reconcile',
+    databaseProvider: 'sqlite',
+    now: 7_800,
+  });
+  assert.equal(
+    (await getActiveTeamMembershipProjection(connection, 'organization-1')).observedQuantity,
+    3,
+  );
+  const staleIdentity = {
+    ensurePending: async (input: {
+      name: string;
+      email: string;
+      password: string;
+      role: 'admin' | 'user';
+    }) => {
+      assert.equal(input.email, 'billing.pending@example.test');
+      insertUser({
+        id: 'billing-pending-user',
+        name: input.name,
+        email: input.email,
+        role: input.role,
+        banned: 1,
+        banReason: 'canvas_team_membership_pending',
+        now: 7_900,
+      });
+      return {
+        id: 'billing-pending-user',
+        email: input.email,
+      };
+    },
+    activate: async () => {
+      throw new Error('a stale activation must not enable the pending identity');
+    },
+  };
+  await assert.rejects(
+    completeDirectMembershipActivation({
+      organizationId: 'organization-1',
+      membershipId: pendingStart.membership.id,
+      executeOperationId: approved.activation.executeOperation!.operationId,
+      response: executeResponse({
+        operationKey: approved.activation.executeOperation!.operationId,
+        desiredQuantity: 3,
+      }),
+      password: 'correct horse battery staple',
+      actorUserId: 'owner-user',
+      database: connection,
+      databaseProvider: 'sqlite',
+      identity: staleIdentity,
+      verifyCertificate: async (_response, desiredQuantity) => {
+        assert.equal(desiredQuantity, 3);
+      },
+      now: 7_900,
+    }),
+    (error: unknown) => (
+      error instanceof SeatLimitGuardError
+      && error.code === 'SEAT_LIMIT_EXCEEDED'
+    ),
+  );
+  assert.equal(
+    (await getTeamMembershipByCandidateEmail(
+      connection,
+      'organization-1',
+      'billing.pending@example.test',
+    ))?.status,
+    'billing_pending',
+    'a stale concurrent activation must roll back without increasing the active projection',
+  );
+  assert.deepEqual(
+    sqlite.prepare('SELECT banned, ban_reason FROM "user" WHERE id = ?').get('billing-pending-user'),
+    {
+      banned: 1,
+      ban_reason: 'canvas_team_membership_pending',
+    },
+  );
+  assert.equal(
+    (await getActiveTeamMembershipProjection(connection, 'organization-1')).observedQuantity,
+    3,
   );
 
   const panelSource = readFileSync(

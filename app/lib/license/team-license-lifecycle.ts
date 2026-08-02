@@ -13,6 +13,10 @@ import {
 import {
   recordTeamMembershipProjectionChange,
 } from './team-seat-outbox';
+import {
+  resolveEffectiveSeatPolicy,
+  type EffectiveSeatPolicy,
+} from './seat-limit';
 import type { LicenseStatus } from './types';
 
 const LOG_PREFIX = '[license/team-lifecycle]';
@@ -74,11 +78,7 @@ type TeamLicenseLifecycleOptions = {
   now?: Date;
 };
 
-type TeamLicensePolicy = {
-  mode: TeamLicenseLifecycleMode;
-  seatLimit: number;
-  reason: string;
-};
+type TeamLicensePolicy = EffectiveSeatPolicy;
 
 type TeamLicenseLifecycleRuntime = {
   timer: ReturnType<typeof setTimeout> | null;
@@ -101,31 +101,6 @@ function changesFromRunResult(result: unknown): number {
     return Number((result as { changes?: unknown }).changes || 0);
   }
   return 0;
-}
-
-function policyFromLicense(status: LicenseStatus): TeamLicensePolicy {
-  const teamActive = status.licensed
-    && (status.licenseState === 'active' || status.licenseState === 'grace')
-    && status.edition === 'team'
-    && typeof status.seatLimit === 'number'
-    && Number.isSafeInteger(status.seatLimit)
-    && status.seatLimit >= 1;
-  if (teamActive) {
-    return {
-      mode: 'team',
-      seatLimit: status.seatLimit!,
-      reason: status.licenseState === 'grace'
-        ? 'team_license_offline_grace'
-        : 'team_license_active',
-    };
-  }
-  if (status.licenseState === 'expired') {
-    return { mode: 'solo', seatLimit: 1, reason: 'team_license_grace_expired' };
-  }
-  if (status.edition === 'solo' && status.licensed) {
-    return { mode: 'solo', seatLimit: 1, reason: 'team_license_downgraded' };
-  }
-  return { mode: 'solo', seatLimit: 1, reason: 'team_license_inactive' };
 }
 
 async function rollbackQuietly(database: LifecycleDatabase): Promise<void> {
@@ -681,7 +656,7 @@ export async function reconcileTeamLicenseLifecycle(
   status: LicenseStatus,
   options: TeamLicenseLifecycleOptions = {},
 ): Promise<TeamLicenseLifecycleResult> {
-  const policy = policyFromLicense(status);
+  const policy = resolveEffectiveSeatPolicy(status);
   const databaseProvider = options.databaseProvider ?? getDatabaseProvider();
   const database = options.database ?? await (await import('@/app/lib/db')).openDb();
   const ownsDatabase = !options.database;

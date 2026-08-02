@@ -11,6 +11,7 @@ import {
   type DatabaseProvider,
 } from '@/app/lib/db/provider';
 import { activateLicenseCert } from '@/app/lib/license';
+import { assertSeatActivationCapacity } from '@/app/lib/license/seat-limit';
 import {
   createTeamSeatExecuteRequest,
   createTeamSeatPrepareRequest,
@@ -75,6 +76,30 @@ export class MembershipOrchestratorError extends Error {
   ) {
     super(message);
     this.name = 'MembershipOrchestratorError';
+  }
+}
+
+async function rollbackQuietly(database: Pick<SqlConnection, 'run'>): Promise<void> {
+  try {
+    await database.run('ROLLBACK');
+  } catch {
+    return;
+  }
+}
+
+async function withActivationTransaction<T>(
+  database: Pick<SqlConnection, 'run'>,
+  databaseProvider: DatabaseProvider,
+  operation: () => Promise<T>,
+): Promise<T> {
+  await database.run(databaseProvider === 'sqlite' ? 'BEGIN IMMEDIATE' : 'BEGIN');
+  try {
+    const result = await operation();
+    await database.run('COMMIT');
+    return result;
+  } catch (error) {
+    await rollbackQuietly(database);
+    throw error;
   }
 }
 
@@ -1198,34 +1223,66 @@ export async function completeDirectMembershipActivation(input: {
           'The suspended membership cannot be finalized by this Seat operation.',
         );
       }
-      membership = await transitionTeamMembership(database, {
-        organizationId: input.organizationId,
-        membershipId: input.membershipId,
-        expectedStatus: 'suspended',
-        toStatus: 'active',
-        userId: membership.userId,
-        acceptedAt: membership.acceptedAt ?? now,
-        actorUserId: input.actorUserId,
-        source: 'control_plane',
-        reason: 'team_membership_reactivated',
-        controlPlaneOperationId: executed.operation.operationId,
-        seatOperationType: 'member_create',
-        now,
-        databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
-      });
+      const reactivated = await withActivationTransaction(
+        database,
+        input.databaseProvider ?? getDatabaseProvider(),
+        async () => {
+          const current = await getTeamMembershipById(
+            database,
+            input.organizationId,
+            input.membershipId,
+          );
+          if (
+            !current
+            || current.status !== 'suspended'
+            || !current.userId
+          ) {
+            throw new MembershipOrchestratorError(
+              'MEMBERSHIP_OPERATION_CONFLICT',
+              'The suspended membership changed before Seat activation.',
+            );
+          }
+          await assertSeatActivationCapacity(database, {
+            organizationId: input.organizationId,
+            desiredQuantity,
+            signedSeatLimit: executed.license!.details.quotas.users,
+          });
+          const activated = await transitionTeamMembership(database, {
+            organizationId: input.organizationId,
+            membershipId: input.membershipId,
+            expectedStatus: 'suspended',
+            toStatus: 'active',
+            userId: current.userId,
+            acceptedAt: current.acceptedAt ?? now,
+            actorUserId: input.actorUserId,
+            source: 'control_plane',
+            reason: 'team_membership_reactivated',
+            controlPlaneOperationId: executed.operation.operationId,
+            seatOperationType: 'member_create',
+            transactionMode: 'existing',
+            now,
+            databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+          });
+          const projection = await getActiveTeamMembershipProjection(
+            database,
+            input.organizationId,
+          );
+          if (projection.observedQuantity !== desiredQuantity) {
+            throw new MembershipOrchestratorError(
+              'MEMBERSHIP_SIGNED_LIMIT_INVALID',
+              'The reactivated membership projection does not match the confirmed Seat quantity.',
+            );
+          }
+          return { membership: activated, projection };
+        },
+      );
+      membership = reactivated.membership;
       await identity.activate(membership.userId!);
-      const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
-      if (projection.observedQuantity !== desiredQuantity) {
-        throw new MembershipOrchestratorError(
-          'MEMBERSHIP_SIGNED_LIMIT_INVALID',
-          'The reactivated membership projection does not match the confirmed Seat quantity.',
-        );
-      }
       return {
         stage: 'active',
         membership,
         desiredQuantity,
-        observedQuantity: projection.observedQuantity,
+        observedQuantity: reactivated.projection.observedQuantity,
         prepareOperation: persistedPrepare,
         executeOperation: (await getTeamSeatOutboxOperation(database, operation.operationId))!,
         requiresBillingApproval: null,
@@ -1245,59 +1302,88 @@ export async function completeDirectMembershipActivation(input: {
       );
     }
 
-    if (membership.status === 'approval_required') {
-      membership = await transitionTeamMembership(database, {
-        organizationId: input.organizationId,
-        membershipId: input.membershipId,
-        expectedStatus: 'approval_required',
-        toStatus: 'billing_pending',
-        actorUserId: input.actorUserId,
-        source: 'control_plane',
-        reason: 'team_seat_execution_confirmed',
-        controlPlaneOperationId: executed.operation.operationId,
-        now,
-        databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+    const activated = await withActivationTransaction(
+      database,
+      input.databaseProvider ?? getDatabaseProvider(),
+      async () => {
+        let current = await getTeamMembershipById(
+          database,
+          input.organizationId,
+          input.membershipId,
+        );
+        if (!current) {
+          throw new MembershipOrchestratorError(
+            'MEMBERSHIP_OPERATION_NOT_FOUND',
+            'The membership candidate was not found.',
+            404,
+          );
+        }
+        if (current.status === 'approval_required') {
+          current = await transitionTeamMembership(database, {
+            organizationId: input.organizationId,
+            membershipId: input.membershipId,
+            expectedStatus: 'approval_required',
+            toStatus: 'billing_pending',
+            actorUserId: input.actorUserId,
+            source: 'control_plane',
+            reason: 'team_seat_execution_confirmed',
+            controlPlaneOperationId: executed.operation.operationId,
+            transactionMode: 'existing',
+            now,
+            databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+          });
+        }
+        if (current.status === 'billing_pending') {
+          await assertSeatActivationCapacity(database, {
+            organizationId: input.organizationId,
+            desiredQuantity,
+            signedSeatLimit: executed.license!.details.quotas.users,
+          });
+          current = await transitionTeamMembership(database, {
+            organizationId: input.organizationId,
+            membershipId: input.membershipId,
+            expectedStatus: 'billing_pending',
+            toStatus: 'active',
+            userId: pendingIdentity.id,
+            acceptedAt: now,
+            actorUserId: input.actorUserId,
+            source: 'control_plane',
+            reason: 'team_seat_and_certificate_confirmed',
+            controlPlaneOperationId: executed.operation.operationId,
+            seatOperationType: operation.operationType!,
+            transactionMode: 'existing',
+            now,
+            databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+          });
+        } else if (
+          current.status !== 'active'
+          || current.userId !== pendingIdentity.id
+        ) {
+          throw new MembershipOrchestratorError(
+            'MEMBERSHIP_OPERATION_CONFLICT',
+            `Membership cannot be finalized from status ${current.status}.`,
+          );
+        }
+        const projection = await getActiveTeamMembershipProjection(
+          database,
+          input.organizationId,
+        );
+        if (projection.observedQuantity !== desiredQuantity) {
+          throw new MembershipOrchestratorError(
+            'MEMBERSHIP_SIGNED_LIMIT_INVALID',
+            'The active membership projection does not match the confirmed Seat quantity.',
+          );
+        }
+        return { membership: current, projection };
       });
-    }
-    if (membership.status === 'billing_pending') {
-      membership = await transitionTeamMembership(database, {
-        organizationId: input.organizationId,
-        membershipId: input.membershipId,
-        expectedStatus: 'billing_pending',
-        toStatus: 'active',
-        userId: pendingIdentity.id,
-        acceptedAt: now,
-        actorUserId: input.actorUserId,
-        source: 'control_plane',
-        reason: 'team_seat_and_certificate_confirmed',
-        controlPlaneOperationId: executed.operation.operationId,
-        seatOperationType: operation.operationType!,
-        now,
-        databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
-      });
-    } else if (
-      membership.status !== 'active'
-      || membership.userId !== pendingIdentity.id
-    ) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_OPERATION_CONFLICT',
-        `Membership cannot be finalized from status ${membership.status}.`,
-      );
-    }
+    membership = activated.membership;
     await identity.activate(pendingIdentity.id);
-    const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
-    if (projection.observedQuantity > desiredQuantity) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_SIGNED_LIMIT_INVALID',
-        'The active membership projection exceeds the confirmed Seat quantity.',
-      );
-    }
 
     return {
       stage: 'active',
       membership,
       desiredQuantity,
-      observedQuantity: projection.observedQuantity,
+      observedQuantity: activated.projection.observedQuantity,
       prepareOperation: persistedPrepare,
       executeOperation: (await getTeamSeatOutboxOperation(database, operation.operationId))!,
       requiresBillingApproval: null,
