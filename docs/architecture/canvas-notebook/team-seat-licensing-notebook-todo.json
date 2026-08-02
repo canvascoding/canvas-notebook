@@ -1085,7 +1085,7 @@
         {
           "id": "NB-TS-073",
           "title": "Control-Plane-Integration mit Mock-Server testen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "tests-integration",
           "description": "Claim, Quote, Approval, Execute, Snapshot, Refresh, Retry und Drift gegen deterministische Mock-Antworten testen.",
@@ -1104,7 +1104,8 @@
             "401/403 führen zu Reconnect oder terminalem Zustand.",
             "requires_action aktiviert keinen User.",
             "Verlorene Erfolgsantwort kann reconciled werden."
-          ]
+          ],
+          "progress": "Ein deterministischer lokaler HTTP-Mock-Server bildet jetzt die vollständige Notebook-Control-Plane-Kette über die echten Produktionsclients ab: Community Claim Start/Poll speichert das Instanz-Token; Seat Prepare beantwortet den ersten Versuch mit 503 und akzeptiert den identischen zweiten Versuch mit derselben Operation-ID; Quote wechselt kontrolliert von pending auf approved; Execute liefert sowohl requires_action ohne effektive Quantity, Zertifikat oder Aktivierungsfreigabe als auch den Replay-Fall einer serverseitig bereits angewandten Operation, deren erste Erfolgsantwort durch Verbindungsabbruch verloren ging. Der zweite Execute-Versuch verwendet denselben Operation-Key und wird als replayed erfolgreich reconciled. Snapshot-Antworten transportieren einen deterministischen licensed_below_approved-Drift, und Refresh aktiviert ein lokal signiertes, instanzgebundenes Team-Zertifikat mit höherem Entitlements-Stand. Ein echter Abort-Timeout wiederholt dieselbe Operation genau bis zum konfigurierten Limit. 401 mit TEAM_SEAT_TOKEN_INVALID entfernt das verworfene Token und setzt reconnect_required/revoked, während 403 TEAM_SEAT_TOKEN_SCOPE_DENIED terminal bleibt und kein Token still ersetzt. Die bestehende Membership-Orchestrator-Suite friert ergänzend ein, dass requires_action weder Better-Auth-User erzeugt noch aktiviert. Der Mock-Test benötigt weder externes Netzwerk noch Stripe-Environment-Variablen und liegt unter scripts/team-control-plane-mock-integration-test.ts."
         },
         {
           "id": "NB-TS-074",
