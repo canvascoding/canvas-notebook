@@ -136,6 +136,32 @@ function insertMembership(input: {
   );
 }
 
+function insertPendingMembership(input: {
+  id: string;
+  email: string;
+  status: 'invited' | 'approval_required' | 'billing_pending';
+  acceptedAt?: number | null;
+}) {
+  sqlite.prepare(`
+    INSERT INTO team_memberships (
+      id,
+      organization_id,
+      candidate_email,
+      role,
+      status,
+      invited_at,
+      accepted_at,
+      created_at,
+      updated_at
+    ) VALUES (?, 'organization-1', ?, 'member', ?, 1000, ?, 1000, 1000)
+  `).run(
+    input.id,
+    input.email,
+    input.status,
+    input.acceptedAt ?? null,
+  );
+}
+
 async function expectSeatError(
   operation: () => Promise<unknown>,
   code: SeatLimitGuardError['code'],
@@ -218,12 +244,51 @@ async function main() {
   assert.equal(soloOwner.observedQuantity, 3);
   assert.equal(soloOwner.overallocated, true);
   await expectSeatError(
+    () => assertOrganizationSeatProjectionNotOverLimit({
+      organizationId: 'organization-1',
+      database: connection,
+      licenseStatus: solo,
+    }),
+    'SEAT_LIMIT_EXCEEDED',
+  );
+  await expectSeatError(
     () => assertUserSeatAccess({
       userId: 'admin-user',
       database: connection,
       licenseStatus: solo,
     }),
     'SEAT_LIMIT_EXCEEDED',
+  );
+
+  insertPendingMembership({
+    id: 'membership-invited',
+    email: 'invited@example.test',
+    status: 'invited',
+  });
+  insertPendingMembership({
+    id: 'membership-approval-required',
+    email: 'approval-required@example.test',
+    status: 'approval_required',
+    acceptedAt: 1_300,
+  });
+  insertPendingMembership({
+    id: 'membership-billing-pending',
+    email: 'billing-pending@example.test',
+    status: 'billing_pending',
+    acceptedAt: 1_400,
+  });
+  assert.deepEqual(
+    await assertOrganizationSeatProjectionNotOverLimit({
+      organizationId: 'organization-1',
+      database: connection,
+      licenseStatus: licenseStatus({
+        edition: 'team',
+        seatLimit: 3,
+        licensed: true,
+      }),
+    }),
+    { seatLimit: 3, observedQuantity: 3 },
+    'invited, approval_required, and billing_pending memberships must not consume active Seats',
   );
 
   const teamTwo = licenseStatus({

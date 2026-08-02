@@ -1061,7 +1061,7 @@
         {
           "id": "NB-TS-072",
           "title": "Membership-State- und seatLimit-Tests ergänzen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "tests-membership",
           "description": "Add, Invite, Accept, Reactivate, Role, Suspend, Remove, Bootstrap, Import und Login gegen alle Seat-Zustände testen.",
@@ -1079,7 +1079,8 @@
             "Pending Invitation zählt nicht.",
             "Rollenwechsel verändert Seat-Zahl nicht.",
             "Community Solo kann keinen zweiten aktiven User erzeugen."
-          ]
+          ],
+          "progress": "Die neue ausführbare Team-Seat-Membership-Matrix bündelt die bereits produktionsnahen Datenbank- und Service-Suites für Direct Add, Invitation, Accept, Approval, requires_action, Aktivierung, Reactivate, Rollenwechsel, Suspend, Remove, Bootstrap, Legacy-Import und Login in einem deterministischen Entry-Point. Der zentrale Seat-Limit-Test friert zusätzlich explizit ein, dass invited, approval_required und billing_pending trotz akzeptierter Einladung keine aktive Seat-Projektion erhöhen; nur active mit gebundener Identität zählt. Community Solo verwirft jede Organization-Aktivierungsprojektion oberhalb des Owners, und der Auth-Test beweist denselben Schutz bei Login und Session-Restore ohne wiederverwendbare Session. Rollenwechsel zwischen member, external und admin halten observedQuantity konstant, erzeugen keine billable seat_prepare-Operation und sind bei Replay revisionsstabil. Reaktivierungs- und Parallelitätsfälle verwenden vor Aktivierung erneut die signierte Kapazitätsprüfung, während Suspend und Remove den Zugriff samt Sessions entziehen. Bootstrap- und Importpfade sind über dieselbe Matrix eingebunden und bewahren die Solo-Owner-Grenze beziehungsweise migrieren ohne abrechenbare Mutation. Die Matrix ist als scripts/team-seat-membership-state-matrix-test.ts implementiert und benötigt weder Browser noch Netzwerk oder Stripe."
         },
         {
           "id": "NB-TS-073",
