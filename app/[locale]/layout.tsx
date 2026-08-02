@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from "next";
 import { Suspense } from 'react';
 
-import { Geist, Geist_Mono } from "next/font/google";
 import "@xterm/xterm/css/xterm.css";
 import "@excalidraw/excalidraw/index.css";
 import "../globals.css";
+import { geistMono, geistSans } from '@/app/lib/fonts';
 import { Toaster } from "@/components/ui/sonner";
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
 import { WorkspaceAppearanceProvider } from '@/app/components/WorkspaceAppearanceProvider';
@@ -14,16 +14,6 @@ import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
 import {routing} from '@/i18n/routing';
 import {notFound} from 'next/navigation';
-
-const geistSans = Geist({
-  variable: "--font-geist-sans",
-  subsets: ["latin"],
-});
-
-const geistMono = Geist_Mono({
-  variable: "--font-geist-mono",
-  subsets: ["latin"],
-});
 
 export const viewport: Viewport = {
   width: 'device-width',
