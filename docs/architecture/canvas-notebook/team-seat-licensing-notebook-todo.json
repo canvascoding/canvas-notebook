@@ -1227,7 +1227,7 @@
         {
           "id": "NB-TS-078",
           "title": "No-Stripe-Testlizenz-End-to-End prüfen",
-          "status": "pending",
+          "status": "in_progress",
           "priority": "P0",
           "ownerArea": "tests-e2e",
           "description": "Test-Grant, getrennte Testsignatur, Claim, Refresh, Quote, User-Aktivierung, Failure-Szenarien, Ablauf, Revocation und Production-Rejection ohne Stripe prüfen.",
@@ -1256,7 +1256,8 @@
             "Ablauf und Revocation führen zum sicheren Fallback ohne Datenlöschung.",
             "Production-Konfiguration lehnt dasselbe gültig signierte Testzertifikat ab.",
             "UI kennzeichnet den gesamten Lauf als nicht abrechenbar."
-          ]
+          ],
+          "progress": "Der neue No-Stripe-Runner entfernt alle Stripe-Secrets aus den Child-Environments und verbindet getrennte Test-Key-/Audience-Prüfung, Claim/Refresh/Quote gegen den lokalen Control-Plane-Mock, die v1-Test-Provider-Fixtures, eine echte lokal signierte Testlizenz-Aktivierung und die Non-Billable-Owner-UI. Der fokussierte Aktivierungstest startet mit seatLimit 1, verarbeitet ausschließlich provider=test/environment=development/nonBillable=true sowie Nullbeträge und beweist, dass ein gültiges, aber zu kleines Testzertifikat weder Identität noch Membership aktiviert. Erst das separat signierte Testzertifikat mit höherer Entitlements-Version und seatLimit 2 durchläuft den produktiven Zertifikats-Verifier und schaltet die zuvor gesperrte Identität aktiv. requires_action und payment_failed bleiben mit null Zertifikat, null neuem User und unveränderter aktiver Projektion billing_pending. Ablauf und Test-Grant-Revocation führen über den produktiven Lifecycle zum deterministischen Solo-Fallback, entziehen die zusätzliche Session und erhalten beide User, Workspace-Datensatz und Datei; eine erneute gültige Testlizenz reaktiviert dieselben Daten. Derselbe im Development-Lauf gültige Test-JWT wird von der Production-Runtime explizit abgelehnt. TeamSeatHealthPanel sowie User- und Invitation-UI werden auf TEST LICENSE/NON-BILLABLE beziehungsweise nonBillable geprüft. TypeScript, ESLint und Diff-Prüfung sind erfolgreich; die gebündelte Runtime-Ausführung folgt jetzt im gemeinsamen Abschlusslauf."
         }
       ]
     }

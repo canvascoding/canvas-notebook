@@ -171,6 +171,17 @@ async function main() {
     }
 
     process.env.CANVAS_LICENSE_RUNTIME_ENVIRONMENT = 'production';
+    const productionRejectsExactTestCertificate = await verifyLicenseJwtDetailed(
+      validTest,
+      'license-isolation-instance',
+    );
+    assert.equal(productionRejectsExactTestCertificate.ok, false);
+    if (!productionRejectsExactTestCertificate.ok) {
+      assert.equal(
+        productionRejectsExactTestCertificate.code,
+        'LICENSE_CERT_ENVIRONMENT_INVALID',
+      );
+    }
     const productionRejectsTest = await verifyLicenseJwtDetailed(
       signLicense(productionOne.privateKey, productionOne.productionKid, {
         ...testPayload,
