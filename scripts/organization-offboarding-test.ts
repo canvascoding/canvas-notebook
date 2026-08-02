@@ -7,6 +7,10 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
 import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/bootstrap';
+import {
+  adoptActiveTeamMembership,
+  getTeamMembershipByUserId,
+} from '../app/lib/organization/team-membership';
 import { resolveWorkspaceActor } from '../app/lib/workspaces/context';
 import {
   createWorkspaceRecord,
@@ -142,9 +146,37 @@ async function main() {
     sqlite.exec('COMMIT');
     assert.ok(ownerStatus.organizationId);
     const organizationId = ownerStatus.organizationId;
+    const connection = {
+      get: (sql: string, params?: unknown[]) => (
+        params ? sqlite.prepare(sql).get(...params) : sqlite.prepare(sql).get()
+      ),
+      run: (sql: string, params?: unknown[]) => (
+        params ? sqlite.prepare(sql).run(...params) : sqlite.prepare(sql).run()
+      ),
+      all: (sql: string, params?: unknown[]) => (
+        params ? sqlite.prepare(sql).all(...params) : sqlite.prepare(sql).all()
+      ),
+    };
 
     insertPermission(sqlite, organizationId, 'user-admin', 'admin', true);
     insertPermission(sqlite, organizationId, 'user-member', 'member', false);
+    for (const membership of [
+      { userId: 'user-owner', role: 'owner' as const },
+      { userId: 'user-admin', role: 'admin' as const },
+      { userId: 'user-member', role: 'member' as const },
+    ]) {
+      if (!await getTeamMembershipByUserId(connection, organizationId, membership.userId)) {
+        await adoptActiveTeamMembership(connection, {
+          organizationId,
+          userId: membership.userId,
+          role: membership.role,
+          source: 'migration',
+          actorUserId: 'user-owner',
+          seatOperationType: 'reconcile',
+          databaseProvider: 'sqlite',
+        });
+      }
+    }
     ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-admin' });
     ensureDefaultWorkspaceRecords(sqlite, { organizationId, userId: 'user-member' });
     createWorkspaceRecord(sqlite, {
@@ -370,7 +402,42 @@ async function main() {
     assert.equal(result.actions.personalWorkspacesLocked, 2);
     assert.equal(result.actions.teamWorkspaceMembershipsRemoved, 1);
     assert.equal(result.actions.projectWorkspaceMembershipsRemoved, 1);
+    assert.equal(result.actions.teamMembershipRemoved, 1);
+    assert.equal(result.actions.seatReductionQueued, 1);
     assert.equal(await fs.stat(result.manifestPath).then((stat) => stat.isFile()), true);
+    const removedMembership = await getTeamMembershipByUserId(
+      connection,
+      organizationId,
+      'user-member',
+    );
+    assert.equal(removedMembership?.status, 'removed');
+    const reduction = getRequiredRow<{
+      operation_type: string;
+      membership_revision: number;
+      request_json: string;
+    }>(sqlite, `
+      SELECT operation_type, membership_revision, request_json
+      FROM team_seat_outbox
+      WHERE membership_id = ?
+        AND operation_kind = 'seat_prepare'
+        AND operation_type = 'member_remove'
+      LIMIT 1
+    `, removedMembership!.id);
+    assert.equal(reduction.operation_type, 'member_remove');
+    assert.deepEqual(JSON.parse(reduction.request_json), {
+      desiredQuantity: 2,
+      externalReference: removedMembership!.id,
+      protocolVersion: 'canvas-team-seat-protocol-v1',
+      triggerType: 'member_remove',
+    });
+    assert.equal(
+      getRequiredRow<{ current_revision: number; current_observed_quantity: number }>(
+        sqlite,
+        'SELECT current_revision, current_observed_quantity FROM team_membership_sync_state WHERE organization_id = ?',
+        organizationId,
+      ).current_observed_quantity,
+      2,
+    );
 
     const member = getRequiredRow<{ banned: number; ban_reason: string }>(sqlite, `
       SELECT banned, ban_reason FROM user WHERE id = 'user-member'

@@ -47,6 +47,15 @@ export const auth = betterAuth({
           message: "Create users through the server-side membership orchestrator.",
         });
       }
+      if (
+        (context.path === "/admin/ban-user" || context.path === "/admin/unban-user")
+        && (context.request || context.headers)
+      ) {
+        throw APIError.from("FORBIDDEN", {
+          code: "MEMBERSHIP_ORCHESTRATOR_REQUIRED",
+          message: "Suspend or reactivate users through the server-side membership orchestrator.",
+        });
+      }
     }),
   },
   plugins: [

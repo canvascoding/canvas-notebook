@@ -38,6 +38,7 @@ async function main() {
     'app/api/admin/organization/users/[userId]/permissions/route.ts',
     'app/api/admin/organization/users/[userId]/role/route.ts',
     'app/api/admin/organization/users/[userId]/offboarding/route.ts',
+    'app/api/admin/organization/users/[userId]/suspension/route.ts',
   ]) {
     assert.match(
       readFileSync(path.join(process.cwd(), routePath), 'utf8'),

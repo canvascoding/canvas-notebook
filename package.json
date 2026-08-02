@@ -157,6 +157,7 @@
     "test:account:credentials": "tsx --conditions react-server scripts/account-credentials-route-test.ts",
     "test:organization:permissions": "tsx --conditions react-server scripts/organization-permission-guards-test.ts",
     "test:organization:offboarding": "tsx --conditions react-server scripts/organization-offboarding-test.ts",
+    "test:membership-suspension": "tsx --conditions react-server scripts/membership-suspension-test.ts",
     "test:team-seat-contract": "tsx scripts/team-seat-contract-test.ts",
     "test:team-seat-rollout": "tsx --conditions react-server scripts/team-seat-rollout-test.ts",
     "test:team-membership-model": "tsx --conditions react-server scripts/team-membership-model-test.ts",

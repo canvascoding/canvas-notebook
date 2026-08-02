@@ -101,7 +101,7 @@ export async function POST(request: NextRequest, context: RouteContext) {
         targetUserId: userId,
         reasonProvided: typeof body.reason === 'string' && body.reason.trim().length > 0,
         acknowledgeWarnings: body.acknowledgeWarnings === true,
-        actionCount: result.actions.length,
+        actionCount: Object.keys(result.actions).length,
         blockers: result.preflight.blockers.length,
         warnings: result.preflight.warnings.length,
       },

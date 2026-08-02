@@ -686,7 +686,7 @@
         {
           "id": "NB-TS-045",
           "title": "Suspend, Ban, Offboarding und Seat-Reduktion verbinden",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership-offboarding",
           "description": "Zugriff sofort entziehen, lokale Revision erhöhen und idempotente Seat-Reduktion anstoßen, ohne Daten vorzeitig zu löschen.",
@@ -707,7 +707,8 @@
             "Seat-Reduktion ist retry-sicher.",
             "Userdaten folgen weiterhin der bestehenden Retention-Policy.",
             "Letzter Owner kann nicht entfernt oder gesperrt werden."
-          ]
+          ],
+          "progress": "Ban/Suspend läuft nicht mehr direkt über Better Auth, sondern über eine Team-lizenzgeschützte serverseitige Membership-Route. User-Ban, Session-Revocation, active→suspended-Transition, monotone Membership-Revision, anonymisierter Snapshot und serverberechnetes member_remove-Prepare werden atomar in derselben Datenbanktransaktion persistiert. Ein Control-Plane- oder späterer Worker-Ausfall kann den lokalen Zugriffsentzug damit nicht zurückrollen; die stabile Outbox-Dedupe-ID aus Membership und Revision macht die Reduktion restart- und retry-sicher. Direkte Better-Auth-create-, ban- und unban-Aufrufe werden mit MEMBERSHIP_ORCHESTRATOR_REQUIRED blockiert. Vollständiges Offboarding verbindet denselben Pfad mit der bestehenden Datenhaltung: active wird mit genau einer Reduktion nach removed verschoben, bereits suspended wird ohne zweite Reduktion nach removed finalisiert, während Credentials, Automationen, Zuweisungen und persönliche Workspaces weiterhin der vorhandenen Retention-/Recovery-Policy folgen. Self-Suspension, Organization-Owner und der letzte aktive admin-fähige User sind geschützt. Ein simulierter Outbox-Fehler bestätigt den vollständigen Rollback von Ban, Session-Löschung, Membership und Revision. Suspension-, Offboarding-, Security-, Membership-, Outbox- und Orchestrator-Tests sowie TypeScript, ESLint und Production-Build sind erfolgreich; der Build meldet lediglich bestehende Turbopack-Warnungen zu dynamischen Workspace-Pfaden."
         },
         {
           "id": "NB-TS-046",

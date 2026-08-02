@@ -623,13 +623,24 @@ export function UserManagementPanel({
     await runAction(
       `ban:${user.id}`,
       async () => {
-        unwrapAuthResult<{ user: ManagedUser }>(
-          await authClient.admin.banUser({
-            userId: user.id,
-            banReason: banReason.trim() || t('defaultBanReason'),
-          }),
-          t('errors.ban'),
+        const response = await fetch(
+          `/api/admin/organization/users/${encodeURIComponent(user.id)}/suspension`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              reason: banReason.trim() || t('defaultBanReason'),
+            }),
+          },
         );
+        const payload = await response.json().catch(() => ({})) as {
+          success?: boolean;
+          error?: string;
+        };
+        if (!response.ok || payload.success !== true) {
+          throw new Error(payload.error || t('errors.ban'));
+        }
         setBanTarget(null);
         setBanReason('');
       },

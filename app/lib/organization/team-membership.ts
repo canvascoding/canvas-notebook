@@ -8,9 +8,13 @@ import {
   type DatabaseProvider,
 } from '@/app/lib/db/provider';
 import {
+  enqueueTeamSeatOutboxOperation,
   recordTeamMembershipProjectionChange,
 } from '@/app/lib/license/team-seat-outbox';
-import type { TeamSeatChangeType } from '@/app/lib/license/team-seat-contract';
+import {
+  createTeamSeatPrepareRequest,
+  type TeamSeatChangeType,
+} from '@/app/lib/license/team-seat-contract';
 
 export const TEAM_MEMBERSHIP_STATUSES = [
   'invited',
@@ -507,13 +511,15 @@ export async function transitionTeamMembership(
     seatOperationType?: TeamSeatChangeType;
     role?: TeamMembershipRole;
     displayName?: string | null;
+    enqueueSeatReduction?: boolean;
+    transactionMode?: 'managed' | 'existing';
     now?: number;
     databaseProvider?: DatabaseProvider;
   },
 ): Promise<TeamMembership> {
   const now = input.now ?? Date.now();
 
-  return withMembershipTransaction(database, async () => {
+  const transition = async () => {
     const membership = await readMembership(database, input.organizationId, input.membershipId);
     if (!membership) {
       throw new TeamMembershipError('MEMBERSHIP_NOT_FOUND', 'Team membership not found.', 404);
@@ -641,16 +647,49 @@ export async function transitionTeamMembership(
     }
 
     const affectsActiveSeatProjection = membership.status === 'active' || input.toStatus === 'active';
-    const revision = affectsActiveSeatProjection
-      ? (await recordTeamMembershipProjectionChange(database, {
+    const projection = affectsActiveSeatProjection
+      ? await getActiveTeamMembershipProjection(database, input.organizationId)
+      : null;
+    const projectionChange = projection
+      ? await recordTeamMembershipProjectionChange(database, {
           organizationId: input.organizationId,
           membershipId: membership.id,
           operationType: input.seatOperationType
             ?? (input.toStatus === 'active' ? 'invitation_accept' : 'member_remove'),
-          projection: await getActiveTeamMembershipProjection(database, input.organizationId),
+          projection,
           now,
-        })).revision
+        })
       : null;
+    const revision = projectionChange?.revision ?? null;
+    if (input.enqueueSeatReduction) {
+      if (
+        membership.status !== 'active'
+        || (input.toStatus !== 'suspended' && input.toStatus !== 'removed')
+        || input.seatOperationType !== 'member_remove'
+        || !projectionChange
+      ) {
+        throw new TeamMembershipError(
+          'INVALID_TRANSITION',
+          'A Seat reduction requires an active membership transitioning to suspended or removed.',
+          409,
+        );
+      }
+      await enqueueTeamSeatOutboxOperation(database, {
+        organizationId: input.organizationId,
+        dedupeKey: `membership:${membership.id}:seat-reduction:${projectionChange.revision}`,
+        operationKind: 'seat_prepare',
+        operationType: 'member_remove',
+        membershipId: membership.id,
+        membershipRevision: projectionChange.revision,
+        request: createTeamSeatPrepareRequest({
+          desiredQuantity: projectionChange.snapshot.observedQuantity,
+          triggerType: 'member_remove',
+          externalReference: membership.id,
+        }),
+        nextAttemptAt: now,
+        now,
+      });
+    }
 
     await appendTransition(database, {
       membershipId: membership.id,
@@ -671,7 +710,14 @@ export async function transitionTeamMembership(
       throw new TeamMembershipError('MEMBERSHIP_CONFLICT', 'Membership disappeared during transition.', 409);
     }
     return updated;
-  }, input.databaseProvider ?? getDatabaseProvider());
+  };
+  return input.transactionMode === 'existing'
+    ? transition()
+    : withMembershipTransaction(
+      database,
+      transition,
+      input.databaseProvider ?? getDatabaseProvider(),
+    );
 }
 
 export async function getActiveTeamMembershipProjection(
@@ -727,6 +773,21 @@ export async function getTeamMembershipById(
   membershipId: string,
 ): Promise<TeamMembership | null> {
   return readMembership(database, organizationId, membershipId);
+}
+
+export async function getTeamMembershipByUserId(
+  database: Pick<SqlConnection, 'get'>,
+  organizationId: string,
+  userId: string,
+): Promise<TeamMembership | null> {
+  const row = await database.get(
+    `${MEMBERSHIP_SELECT}
+      WHERE organization_id = ? AND user_id = ?
+      ORDER BY updated_at DESC, id DESC
+      LIMIT 1`,
+    [organizationId, userId],
+  ) as MembershipRow | undefined;
+  return row ? mapMembership(row) : null;
 }
 
 export async function getTeamMembershipByCandidateEmail(

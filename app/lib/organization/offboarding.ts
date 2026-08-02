@@ -13,6 +13,11 @@ import {
   resolveUserSkillsDir,
 } from '@/app/lib/runtime-data-paths';
 import { openDb, type SqlConnection } from '@/app/lib/db';
+import { getDatabaseProvider } from '@/app/lib/db/provider';
+import {
+  getTeamMembershipByUserId,
+  transitionTeamMembership,
+} from '@/app/lib/organization/team-membership';
 
 type OffboardingDatabase = SqlConnection;
 
@@ -916,6 +921,56 @@ export async function offboardUser(options: {
       WHERE organization_id = ?
         AND user_id = ?
     `, [preflight.organizationId, options.targetUserId]);
+    const teamMembership = await getTeamMembershipByUserId(
+      database,
+      preflight.organizationId,
+      options.targetUserId,
+    );
+    if (teamMembership?.status === 'active') {
+      await transitionTeamMembership(database, {
+        organizationId: preflight.organizationId,
+        membershipId: teamMembership.id,
+        expectedStatus: 'active',
+        toStatus: 'removed',
+        actorUserId: options.requestedByUserId,
+        source: 'local_admin',
+        reason,
+        seatOperationType: 'member_remove',
+        enqueueSeatReduction: true,
+        transactionMode: 'existing',
+        metadata: {
+          dataRetention: 'preserved',
+          offboarding: true,
+        },
+        now,
+        databaseProvider: getDatabaseProvider(),
+      });
+      actions.teamMembershipRemoved = 1;
+      actions.seatReductionQueued = 1;
+    } else if (teamMembership?.status === 'suspended') {
+      await transitionTeamMembership(database, {
+        organizationId: preflight.organizationId,
+        membershipId: teamMembership.id,
+        expectedStatus: 'suspended',
+        toStatus: 'removed',
+        actorUserId: options.requestedByUserId,
+        source: 'local_admin',
+        reason,
+        transactionMode: 'existing',
+        metadata: {
+          dataRetention: 'preserved',
+          offboarding: true,
+          seatReductionAlreadyQueued: true,
+        },
+        now,
+        databaseProvider: getDatabaseProvider(),
+      });
+      actions.teamMembershipRemoved = 1;
+      actions.seatReductionQueued = 0;
+    } else {
+      actions.teamMembershipRemoved = 0;
+      actions.seatReductionQueued = 0;
+    }
 
     const reportJson = JSON.stringify({
       generatedAt: nowIso,
