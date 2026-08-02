@@ -20,6 +20,7 @@ import type {
   TeamSeatSnapshotRequest,
   TeamSeatSnapshotResponse,
 } from '../app/lib/license/team-seat-contract';
+import type { LicenseStatus } from '../app/lib/license/types';
 import {
   adoptActiveTeamMembership,
 } from '../app/lib/organization/team-membership';
@@ -42,6 +43,35 @@ const connection = {
   ),
   close: () => undefined,
 };
+
+function teamLicenseStatus(seatLimit: number): LicenseStatus {
+  return {
+    plan: 'community',
+    licensed: true,
+    instanceId: 'self_team_membership_sync_test',
+    licenseState: 'active',
+    protocolVersion: 'canvas-team-seat-protocol-v1',
+    hostingMode: 'community',
+    edition: 'team',
+    licenseClass: 'commercial',
+    licenseEnvironment: 'production',
+    seatLimit,
+    deploymentMode: 'community',
+    databaseProvider: 'postgres',
+    vectorProvider: 'pgvector',
+    postgresRequired: true,
+    capabilities: { multiUser: true, teamWorkspace: true },
+    organizationId: 'organization-1',
+    entitlementsVersion: seatLimit,
+    expiresAt: '2030-01-01T00:00:00.000Z',
+    features: { multiUser: true, teamWorkspace: true },
+    quotas: { users: seatLimit },
+    source: 'stored',
+    refresh: null,
+    graceStartedAt: null,
+    graceExpiresAt: null,
+  };
+}
 
 function insertUser(id: string, email: string, role = 'user'): void {
   sqlite.prepare(`
@@ -128,6 +158,7 @@ async function main(): Promise<void> {
     database: connection,
     databaseProvider: 'sqlite',
     sendSnapshot: sender,
+    licenseStatus: teamLicenseStatus(1),
     entitlementsVersion: 1,
     now: 2_000,
     forceReport: true,
@@ -135,6 +166,8 @@ async function main(): Promise<void> {
   assert.equal(initial.organizations, 1);
   assert.equal(initial.attempted, 1);
   assert.equal(initial.acknowledged, 1);
+  assert.equal(initial.reconciled, 1);
+  assert.equal(initial.reconciliationFailed, 0);
   assert.equal(sent.length, 1);
   assert.equal(sent[0].request.revision, 1);
   assert.equal(sent[0].request.observedQuantity, 1);
@@ -158,6 +191,7 @@ async function main(): Promise<void> {
     database: connection,
     databaseProvider: 'sqlite',
     sendSnapshot: sender,
+    licenseStatus: teamLicenseStatus(1),
     entitlementsVersion: 1,
     now: 3_000,
     forceReport: true,
@@ -183,11 +217,13 @@ async function main(): Promise<void> {
     database: connection,
     databaseProvider: 'sqlite',
     sendSnapshot: sender,
+    licenseStatus: teamLicenseStatus(2),
     entitlementsVersion: 2,
     now: 4_100,
   });
   assert.equal(afterChange.attempted, 1);
   assert.equal(afterChange.acknowledged, 1);
+  assert.equal(afterChange.reconciled, 1);
   assert.equal(sent.length, 3);
   assert.equal(sent[2].request.revision, 2);
   assert.equal(sent[2].request.observedQuantity, 2);
@@ -205,6 +241,7 @@ async function main(): Promise<void> {
       failedOperationId = operationId;
       throw new Error('temporary network failure');
     },
+    licenseStatus: teamLicenseStatus(2),
     now: 5_000,
     forceReport: true,
   });
@@ -220,6 +257,7 @@ async function main(): Promise<void> {
     database: connection,
     databaseProvider: 'sqlite',
     sendSnapshot: sender,
+    licenseStatus: teamLicenseStatus(2),
     entitlementsVersion: 2,
     now: 20_000,
   });
@@ -240,6 +278,7 @@ async function main(): Promise<void> {
         'authentication',
       );
     },
+    licenseStatus: teamLicenseStatus(2),
     now: 30_000,
     forceReport: true,
   });
@@ -255,6 +294,7 @@ async function main(): Promise<void> {
     sendSnapshot: async () => {
       throw new Error('A terminal snapshot must stay dormant without an explicit recovery signal.');
     },
+    licenseStatus: teamLicenseStatus(2),
     now: 90_000,
   })).attempted, 0);
 
@@ -262,6 +302,7 @@ async function main(): Promise<void> {
     database: connection,
     databaseProvider: 'sqlite',
     sendSnapshot: sender,
+    licenseStatus: teamLicenseStatus(2),
     entitlementsVersion: 3,
     now: 90_001,
     forceReport: true,

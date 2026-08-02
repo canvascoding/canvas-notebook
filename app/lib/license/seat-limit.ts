@@ -13,6 +13,7 @@ export type EffectiveSeatPolicy = {
   reason:
     | 'team_license_active'
     | 'team_license_offline_grace'
+    | 'team_reconciliation_restriction'
     | 'team_license_grace_expired'
     | 'team_license_downgraded'
     | 'team_license_inactive';
@@ -81,6 +82,55 @@ export function resolveEffectiveSeatPolicy(status: LicenseStatus): EffectiveSeat
     mode: 'solo',
     seatLimit: 1,
     reason: 'team_license_inactive',
+  };
+}
+
+export async function getTeamSeatReconciliationSeatLimit(
+  database: Pick<SqlConnection, 'get'>,
+  organizationId?: string,
+): Promise<number | null> {
+  const row = await database.get(
+    organizationId
+      ? `
+          SELECT reconciliation_seat_limit
+          FROM team_membership_sync_state
+          WHERE organization_id = ?
+          LIMIT 1
+        `
+      : `
+          SELECT sync.reconciliation_seat_limit
+          FROM team_membership_sync_state sync
+          INNER JOIN canvas_organization_settings organization
+            ON organization.organization_id = sync.organization_id
+          ORDER BY organization.created_at ASC
+          LIMIT 1
+        `,
+    organizationId ? [organizationId] : [],
+  ) as { reconciliation_seat_limit?: number | string | null } | undefined;
+  const value = Number(row?.reconciliation_seat_limit);
+  return Number.isSafeInteger(value) && value >= 1 ? value : null;
+}
+
+export async function applyTeamSeatReconciliationRestriction(
+  database: Pick<SqlConnection, 'get'>,
+  policy: EffectiveSeatPolicy,
+  organizationId?: string,
+): Promise<EffectiveSeatPolicy> {
+  if (policy.mode !== 'team') return policy;
+  const reconciliationLimit = await getTeamSeatReconciliationSeatLimit(
+    database,
+    organizationId,
+  );
+  if (
+    reconciliationLimit === null
+    || reconciliationLimit >= policy.seatLimit
+  ) {
+    return policy;
+  }
+  return {
+    mode: 'team',
+    seatLimit: reconciliationLimit,
+    reason: 'team_reconciliation_restriction',
   };
 }
 
@@ -257,8 +307,11 @@ export async function assertUserSeatAccess(input: {
   const ownsDatabase = !input.database;
   try {
     await requireUserAccount(database, input.userId);
-    const policy = resolveEffectiveSeatPolicy(
-      input.licenseStatus ?? await getLicenseStatus(),
+    const policy = await applyTeamSeatReconciliationRestriction(
+      database,
+      resolveEffectiveSeatPolicy(
+        input.licenseStatus ?? await getLicenseStatus(),
+      ),
     );
     return await (policy.mode === 'team'
       ? assertTeamUserAccess(database, input.userId, policy)
@@ -279,8 +332,12 @@ export async function assertOrganizationSeatProjectionNotOverLimit(input: {
   const database = input.database ?? await openDb();
   const ownsDatabase = !input.database;
   try {
-    const policy = resolveEffectiveSeatPolicy(
-      input.licenseStatus ?? await getLicenseStatus(),
+    const policy = await applyTeamSeatReconciliationRestriction(
+      database,
+      resolveEffectiveSeatPolicy(
+        input.licenseStatus ?? await getLicenseStatus(),
+      ),
+      input.organizationId,
     );
     const observedQuantity = await activeMembershipQuantity(
       database,
@@ -320,22 +377,31 @@ export async function assertSeatActivationCapacity(
     database,
     input.organizationId,
   );
+  const reconciliationLimit = await getTeamSeatReconciliationSeatLimit(
+    database,
+    input.organizationId,
+  );
+  const effectiveSeatLimit = reconciliationLimit === null
+    ? input.signedSeatLimit
+    : Math.min(input.signedSeatLimit, reconciliationLimit);
   if (
-    !Number.isSafeInteger(input.signedSeatLimit)
-    || input.signedSeatLimit < input.desiredQuantity
-    || observedQuantity >= input.signedSeatLimit
+    !Number.isSafeInteger(effectiveSeatLimit)
+    || effectiveSeatLimit < input.desiredQuantity
+    || observedQuantity >= effectiveSeatLimit
     || observedQuantity + 1 !== input.desiredQuantity
   ) {
     throw new SeatLimitGuardError(
-      observedQuantity >= input.signedSeatLimit
+      observedQuantity >= effectiveSeatLimit
         ? 'SEAT_LIMIT_EXCEEDED'
         : 'SEAT_ACTIVATION_STALE',
-      observedQuantity >= input.signedSeatLimit
-        ? 'The signed Seat limit has no capacity for another active user.'
+      observedQuantity >= effectiveSeatLimit
+        ? 'The effective Seat limit has no capacity for another active user.'
         : 'The active membership projection changed after the Seat quote was prepared.',
       409,
       {
         signedSeatLimit: input.signedSeatLimit,
+        reconciliationSeatLimit: reconciliationLimit,
+        effectiveSeatLimit,
         desiredQuantity: input.desiredQuantity,
         observedQuantity,
       },

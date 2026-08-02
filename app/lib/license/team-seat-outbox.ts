@@ -83,6 +83,12 @@ export type TeamMembershipSyncState = {
   entitlementsVersion: number | null;
   billingStatus: string | null;
   driftStatus: string | null;
+  reconciliationStatus: string | null;
+  reconciliationAction: string | null;
+  reconciliationReason: string | null;
+  reconciliationSeatLimit: number | null;
+  reconciliationSupportRequired: boolean;
+  reconciledAt: number | null;
   nextReportAt: number | null;
   lastSyncErrorCode: string | null;
   lastSyncError: string | null;
@@ -147,6 +153,12 @@ type SyncStateRow = {
   entitlements_version: number | null;
   billing_status: string | null;
   drift_status: string | null;
+  reconciliation_status: string | null;
+  reconciliation_action: string | null;
+  reconciliation_reason: string | null;
+  reconciliation_seat_limit: number | null;
+  reconciliation_support_required: number | boolean | string;
+  reconciled_at: number | null;
   next_report_at: number | null;
   last_sync_error_code: string | null;
   last_sync_error: string | null;
@@ -211,6 +223,12 @@ const SYNC_STATE_SELECT = `
     entitlements_version,
     billing_status,
     drift_status,
+    reconciliation_status,
+    reconciliation_action,
+    reconciliation_reason,
+    reconciliation_seat_limit,
+    reconciliation_support_required,
+    reconciled_at,
     next_report_at,
     last_sync_error_code,
     last_sync_error,
@@ -313,6 +331,14 @@ function mapSyncState(row: SyncStateRow): TeamMembershipSyncState {
     entitlementsVersion: row.entitlements_version,
     billingStatus: row.billing_status,
     driftStatus: row.drift_status,
+    reconciliationStatus: row.reconciliation_status,
+    reconciliationAction: row.reconciliation_action,
+    reconciliationReason: row.reconciliation_reason,
+    reconciliationSeatLimit: row.reconciliation_seat_limit,
+    reconciliationSupportRequired: row.reconciliation_support_required === true
+      || row.reconciliation_support_required === 1
+      || row.reconciliation_support_required === '1',
+    reconciledAt: row.reconciled_at,
     nextReportAt: row.next_report_at,
     lastSyncErrorCode: row.last_sync_error_code,
     lastSyncError: row.last_sync_error,

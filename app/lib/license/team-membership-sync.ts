@@ -33,8 +33,13 @@ import {
   registerTeamMembershipSyncSignal,
 } from './team-membership-sync-signal';
 import {
+  reconcileAcknowledgedTeamSeatSnapshot,
+  type TeamSeatReconciliationResult,
+} from './team-seat-reconciliation';
+import {
   getActiveTeamMembershipProjection,
 } from '@/app/lib/organization/team-membership';
+import type { LicenseStatus } from './types';
 
 const LOG_PREFIX = '[license/team-membership-sync]';
 const DEFAULT_INTERVAL_MS = 60_000;
@@ -70,6 +75,8 @@ export type TeamMembershipSnapshotSyncResult = {
   requeued: number;
   attempted: number;
   acknowledged: number;
+  reconciled: number;
+  reconciliationFailed: number;
   deferred: number;
   failed: number;
 };
@@ -228,6 +235,16 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
   databaseProvider?: DatabaseProvider;
   sendSnapshot?: TeamMembershipSnapshotSender;
   entitlementsVersion?: number | null;
+  licenseStatus?: LicenseStatus;
+  reconcileSnapshot?: (
+    organizationId: string,
+    input: {
+      database: TeamMembershipSyncDatabase;
+      databaseProvider: DatabaseProvider;
+      licenseStatus?: LicenseStatus;
+      now: number;
+    },
+  ) => Promise<TeamSeatReconciliationResult>;
   now?: number;
   forceReport?: boolean;
   leaseMs?: number;
@@ -249,6 +266,8 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
     requeued: 0,
     attempted: 0,
     acknowledged: 0,
+    reconciled: 0,
+    reconciliationFailed: 0,
     deferred: 0,
     failed: 0,
   };
@@ -287,6 +306,46 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
           databaseProvider,
         });
         result.acknowledged += 1;
+        try {
+          await (options.reconcileSnapshot ?? (
+            (organizationId, input) => reconcileAcknowledgedTeamSeatSnapshot(
+              organizationId,
+              input,
+            )
+          ))(operation.organizationId, {
+            database,
+            databaseProvider,
+            licenseStatus: options.licenseStatus,
+            now,
+          });
+          result.reconciled += 1;
+        } catch (reconciliationError) {
+          result.reconciliationFailed += 1;
+          await database.run(`
+            UPDATE team_membership_sync_state
+            SET
+              reconciliation_status = 'support_required',
+              reconciliation_action = 'contact_support',
+              reconciliation_reason = 'local_reconciliation_failed',
+              reconciliation_support_required = 1,
+              reconciled_at = ?,
+              updated_at = ?
+            WHERE organization_id = ?
+              AND acknowledged_revision = ?
+          `, [
+            now,
+            now,
+            operation.organizationId,
+            operation.membershipRevision,
+          ]);
+          console.error(`${LOG_PREFIX} local reconciliation failed`, {
+            organizationId: operation.organizationId,
+            operationId: operation.operationId,
+            error: reconciliationError instanceof Error
+              ? reconciliationError.message
+              : String(reconciliationError),
+          });
+        }
       } catch (error) {
         const failure = classifyTeamSeatOutboxFailure(error);
         if (failure.terminal) {

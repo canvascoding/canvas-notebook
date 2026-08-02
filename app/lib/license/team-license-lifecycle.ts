@@ -14,6 +14,7 @@ import {
   recordTeamMembershipProjectionChange,
 } from './team-seat-outbox';
 import {
+  applyTeamSeatReconciliationRestriction,
   resolveEffectiveSeatPolicy,
   type EffectiveSeatPolicy,
 } from './seat-limit';
@@ -328,7 +329,7 @@ async function remainingFallbackUsers(
 async function reconcileWithinTransaction(
   database: LifecycleDatabase,
   status: LicenseStatus,
-  policy: TeamLicensePolicy,
+  basePolicy: TeamLicensePolicy,
   now: number,
 ): Promise<TeamLicenseLifecycleResult> {
   const organization = await database.get(`
@@ -339,11 +340,11 @@ async function reconcileWithinTransaction(
   `) as OrganizationRow | undefined;
   if (!organization) {
     return {
-      mode: policy.mode,
-      reason: policy.reason,
+      mode: basePolicy.mode,
+      reason: basePolicy.reason,
       organizationId: null,
       ownerUserId: null,
-      seatLimit: policy.seatLimit,
+      seatLimit: basePolicy.seatLimit,
       suspendedMemberships: 0,
       restoredMemberships: 0,
       disabledUsers: 0,
@@ -354,6 +355,11 @@ async function reconcileWithinTransaction(
       changed: false,
     };
   }
+  const policy = await applyTeamSeatReconciliationRestriction(
+    database,
+    basePolicy,
+    organization.organization_id,
+  );
 
   const activeMemberships = await database.all(`
     SELECT

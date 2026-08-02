@@ -888,7 +888,7 @@
         {
           "id": "NB-TS-054",
           "title": "Drift- und Reconciliation-Antworten lokal behandeln",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-reconciliation",
           "description": "observed, billed und licensed Abweichungen klassifizieren und sichere Refresh-, Approval-, Suspend- oder Support-Aktionen auslösen.",
@@ -909,7 +909,8 @@
             "licensed größer als billed führt zu Refresh oder sicherer Einschränkung.",
             "Unautorisierte Erhöhung wird niemals automatisch gekauft.",
             "Supportpflichtige Drift bleibt sichtbar und auditierbar."
-          ]
+          ],
+          "progress": "Bestätigte Membership-Snapshots werden unmittelbar lokal klassifiziert und speichern einen dauerhaften Reconciliation-Status, die sichere Aktion, maschinenlesbare Gründe, einen optionalen lokalen Seat-Cap sowie Supportbedarf. observed über approved beziehungsweise licensed erzeugt niemals Prepare oder Execute, sondern begrenzt Zugriffe über denselben fail-closed Seat-Guard und Lifecycle, der Überhänge ohne Datenlöschung suspendiert; der Cap gilt auch für Route-Zugriffe, neue Aktivierungen und periodische Lifecycle-Läufe und wird erst durch einen später bestätigten sicheren Snapshot aufgehoben. Kommerzielles licensed über billed, abweichende erwartete oder signierte Limits und problematische Billing-Zustände erzeugen ausschließlich einen deduplizierten license_refresh in der bestehenden Crash-Recovery-Outbox. Manual- und Test-Grants mit absichtlich billed=0 bleiben davon ausgenommen. Jede Entscheidung wird ohne Personen- oder Kontaktdaten idempotent in audit_events protokolliert, inklusive Quantity-Snapshot und dem expliziten Nachweis automaticPurchaseAttempted=false; lokale Reconciliation-Fehler bleiben als support_required in der Sync-State sichtbar. SQLite-Fresh-Schema, bestehende SQLite-Migration, Bootstrap-Admin-Schema und das automatisch migrierte PostgreSQL-Schema enthalten die neuen Felder. Reconciliation-, Snapshot-, Lifecycle-, Outbox-, Worker-, Orchestrator-, Invitation-, Legacy-, Refresh- und Preflight-Tests sowie TypeScript, ESLint und die Next.js-Production-Kompilierung im normalen Repository sind erfolgreich. npm run build erreicht weiterhin nicht die Kompilierung, weil der Third-Party-License-Cache durch die pausierten OAuth-Abhängigkeitsänderungen stale ist; diese fachfremden Compliance-Dateien wurden bewusst nicht verändert."
         },
         {
           "id": "NB-TS-055",

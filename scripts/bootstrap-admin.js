@@ -391,6 +391,13 @@ CREATE TABLE IF NOT EXISTS team_membership_sync_state (
   entitlements_version INTEGER,
   billing_status TEXT,
   drift_status TEXT,
+  reconciliation_status TEXT,
+  reconciliation_action TEXT,
+  reconciliation_reason TEXT,
+  reconciliation_seat_limit INTEGER
+    CHECK (reconciliation_seat_limit IS NULL OR reconciliation_seat_limit >= 1),
+  reconciliation_support_required INTEGER NOT NULL DEFAULT 0,
+  reconciled_at INTEGER,
   next_report_at INTEGER,
   last_sync_error_code TEXT,
   last_sync_error TEXT,

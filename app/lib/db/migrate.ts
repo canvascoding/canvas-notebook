@@ -587,6 +587,13 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       entitlements_version INTEGER,
       billing_status TEXT,
       drift_status TEXT,
+      reconciliation_status TEXT,
+      reconciliation_action TEXT,
+      reconciliation_reason TEXT,
+      reconciliation_seat_limit INTEGER
+        CHECK (reconciliation_seat_limit IS NULL OR reconciliation_seat_limit >= 1),
+      reconciliation_support_required INTEGER NOT NULL DEFAULT 0,
+      reconciled_at INTEGER,
       next_report_at INTEGER,
       last_sync_error_code TEXT,
       last_sync_error TEXT,
@@ -2703,6 +2710,14 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'team_membership_transitions', {
     membership_revision: 'INTEGER',
+  });
+  addColumns(sqlite, 'team_membership_sync_state', {
+    reconciliation_status: 'TEXT',
+    reconciliation_action: 'TEXT',
+    reconciliation_reason: 'TEXT',
+    reconciliation_seat_limit: 'INTEGER',
+    reconciliation_support_required: 'INTEGER NOT NULL DEFAULT 0',
+    reconciled_at: 'INTEGER',
   });
   addColumns(sqlite, 'channel_active_sessions', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",
