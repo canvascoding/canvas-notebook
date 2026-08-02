@@ -1139,7 +1139,7 @@
         {
           "id": "NB-TS-075",
           "title": "Kostenpflichtige User-Aktivierung End-to-End prüfen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "tests-e2e",
           "description": "Direct Add, Invitation, Preauthorization, Approval, stale Quote, requires_action, Erfolg, Suspend und Remove prüfen.",
@@ -1161,7 +1161,8 @@
             "Ohne Approval wird kein User aktiv.",
             "Payment Failure erzeugt keinen produktiven Zugriff.",
             "Nach Erfolg stimmen active users und seatLimit überein."
-          ]
+          ],
+          "progress": "Der neue Paid-Activation-End-to-End-Runner verbindet Direct Add, Invitation/Accept, Reaktivierung, stale Requote, requires_action, payment_failed, erfolgreiche Zertifikatsaktivierung, Suspend, Remove sowie die abschließenden Seat-/Login-Grenzen. UserManagementPanel und öffentliche Invitation-Acceptance-UI rendern vor jeder Aktivierung die serverberechneten Mengen, Preis pro Seat, wiederkehrende Kosten, sofort fälligen Betrag, Billable-/Non-Billable-Status und Ablaufzeit; der Browser sendet weder Quantity, Preis noch quoteHash zurück. Ohne approved/consumed Authorization existiert keine Execute-Freigabe und kein Better-Auth-User. requires_action bleibt billing_pending. Zusätzlich persistiert die Orchestrator-Suite jetzt explizit payment_failed mit fehlendem Zertifikat, unveränderter aktiver Seat-Projektion und null erzeugten beziehungsweise aktivierten Usern. Nur eine applied-Operation mit passendem Reissue-Zertifikat, aktueller signierter Kapazität und exakter Projektion schaltet die Identität aktiv; stale Quotes werden neu vorbereitet und parallele Überschreitungen zurückgerollt. Suspend und Remove entziehen Zugriff und Sessions. Der Entry-Point scripts/team-seat-paid-activation-e2e-test.ts ist browserfrei; eine spätere visuelle UI-Prüfung bleibt bis zur expliziten Browserfreigabe ausgesetzt."
         },
         {
           "id": "NB-TS-076",

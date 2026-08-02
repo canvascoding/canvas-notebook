@@ -530,6 +530,40 @@ async function main() {
     0,
     'requires_action must not create or activate a Better Auth user',
   );
+  const paymentFailedPayload = {
+    ...requiresActionPayload,
+    operation: {
+      ...requiresActionPayload.operation,
+      status: 'failed',
+      paymentStatus: 'payment_failed',
+      lastError: 'The payment method was declined.',
+      certificateReissueStatus: 'failed',
+      updatedAt: '2026-08-01T10:06:30.000Z',
+    },
+  };
+  const paymentFailed = await recordDirectMembershipSeatExecutionPending({
+    organizationId: 'organization-1',
+    membershipId: pendingStart.membership.id,
+    executeOperationId: approved.activation.executeOperation!.operationId,
+    response: paymentFailedPayload,
+    database: connection,
+    now: 5_500,
+  });
+  assert.equal(paymentFailed.activation.stage, 'billing_pending');
+  assert.equal(paymentFailed.activation.membership.status, 'billing_pending');
+  assert.equal(paymentFailed.execution.operation.status, 'failed');
+  assert.equal(paymentFailed.execution.operation.paymentStatus, 'payment_failed');
+  assert.equal(paymentFailed.execution.license, null);
+  assert.equal(
+    sqlite.prepare('SELECT COUNT(*) FROM "user" WHERE email = ?').pluck().get('billing.pending@example.test'),
+    0,
+    'payment_failed must not create or activate a Better Auth user',
+  );
+  assert.equal(
+    (await getActiveTeamMembershipProjection(connection, 'organization-1')).observedQuantity,
+    2,
+    'payment_failed must not increase the active Seat projection',
+  );
 
   const staleStart = await beginDirectMembershipActivation({
     organizationId: 'organization-1',
