@@ -451,7 +451,7 @@
         {
           "id": "NB-TS-033",
           "title": "Team-Runtime-Readiness vor Upgrade prüfen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "runtime-readiness",
           "description": "Postgres, pgvector, Migrationen, Team-Capabilities, Storage und unterstützte Notebook-Version als Preflight zusammenfassen.",
@@ -470,7 +470,8 @@
             "Readiness ist ohne Team-Kauf prüfbar.",
             "Fehler unterscheiden Datenbank, Migration, Capability und Version.",
             "Control Plane kann das Ergebnis im Upgrade-Preflight anzeigen."
-          ]
+          ],
+          "progress": "Der admin-geschützte Upgrade-Preflight erzeugt jetzt vor jedem Control-Plane-Aufruf einen serverseitigen, nicht kaufenden Runtime-Readiness-Bericht. Er unterscheidet PostgreSQL-Konfiguration und -Erreichbarkeit, das erforderliche Team-Membership-/Workspace-Schema, konfigurierte und tatsächlich installierte pgvector-Erweiterung, Multi-User-/Team-Workspace-/Vector-/Collaboration-Capabilities, einen aktiven lokalen Owner sowie einen echten Schreibtest im DATA-Speicher. SQLite-Installationen erhalten einen klaren PostgreSQL-/pgvector-Migrationsblocker. An die Control Plane werden weiterhin ausschließlich Protokollversion, Notebook-Version, Datenbanktyp und das zusammengefasste teamReady gesendet; die zurückgespiegelten Runtime-Werte werden gegen den Request geprüft. Die Control Plane bleibt für die minimale Notebook-Version autoritativ, deren Ergebnis als separater lokaler Versionscheck ergänzt wird. API und bestehende UI erhalten stabile bereichsspezifische Blocker und den vollständigen Check-Status, Checkout bleibt bei jedem lokalen, externen oder Rollout-Blocker geschlossen. SQLite-, vollständig bereite PostgreSQL-, fehlende-Migration-, fehlende-pgvector-, Capability-, Storage- und Versionsfälle sowie Claim-, Recovery-, Refresh-, Rollout-, Mobile- und Provider-Regressionspfade sind getestet; ESLint, TypeScript und Production-Build sind erfolgreich."
         },
         {
           "id": "NB-TS-034",

@@ -3,11 +3,15 @@ import 'server-only';
 import { randomUUID } from 'node:crypto';
 
 import packageJson from '@/package.json';
-import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
 import { licenseActivationFailureCode } from './error-codes';
 import { getLicenseInstanceId } from './instance';
 import { LicenseCertificateValidationError } from './jwt';
+import {
+  getCommunityTeamRuntimeReadiness,
+  withCommunityTeamVersionReadiness,
+  type TeamRuntimeReadinessStatus,
+} from './team-runtime-readiness';
 import {
   createTeamSeatClaimPollRequest,
   createTeamSeatClaimStartRequest,
@@ -654,22 +658,37 @@ export type CommunityTeamUpgradeRuntimeSnapshot = {
 type CommunityTeamUpgradePreflightOptions = {
   fetchImpl?: typeof fetch;
   runtime?: CommunityTeamUpgradeRuntimeSnapshot;
+  runtimeReadiness?: TeamRuntimeReadinessStatus;
 };
 
-export function getCommunityTeamUpgradeRuntimeSnapshot(): CommunityTeamUpgradeRuntimeSnapshot {
-  const databaseProvider = getDatabaseProvider();
+function runtimeSnapshot(
+  readiness: TeamRuntimeReadinessStatus,
+): CommunityTeamUpgradeRuntimeSnapshot {
   return {
     notebookVersion: packageJson.version || '0.0.0',
-    databaseEngine: databaseProvider === 'postgres' ? 'postgres' : 'sqlite',
-    // NB-TS-033 replaces this conservative value with the complete Postgres,
-    // migration, capability, storage and version readiness result.
-    teamReady: false,
+    databaseEngine: readiness.databaseEngine,
+    teamReady: readiness.ready,
   };
 }
 
+export async function getCommunityTeamUpgradeRuntimeSnapshot():
+Promise<CommunityTeamUpgradeRuntimeSnapshot> {
+  return runtimeSnapshot(await getCommunityTeamRuntimeReadiness());
+}
+
+export type CommunityTeamUpgradePreflight = Omit<
+  TeamSeatCommunityPreflightResponse,
+  'runtime' | 'blockers'
+> & {
+  runtime: TeamSeatCommunityPreflightResponse['runtime'] & {
+    readiness: TeamRuntimeReadinessStatus;
+  };
+  blockers: Array<{ code: string; message: string }>;
+};
+
 export async function getCommunityTeamUpgradePreflight(
   options?: CommunityTeamUpgradePreflightOptions,
-): Promise<TeamSeatCommunityPreflightResponse> {
+): Promise<CommunityTeamUpgradePreflight> {
   requireTeamSeatClientRollout();
   const instanceId = getLicenseInstanceId();
   const token = await loadCommunityInstanceToken(instanceId);
@@ -700,7 +719,9 @@ export async function getCommunityTeamUpgradePreflight(
     );
   }
 
-  const runtime = options?.runtime ?? getCommunityTeamUpgradeRuntimeSnapshot();
+  const localReadiness = options?.runtimeReadiness
+    ?? await getCommunityTeamRuntimeReadiness();
+  const runtime = options?.runtime ?? runtimeSnapshot(localReadiness);
   const { response, payload } = await postLicenseControlPlane(
     COMMUNITY_TEAM_PREFLIGHT_PATH,
     createTeamSeatPreflightRequest(runtime),
@@ -731,7 +752,37 @@ export async function getCommunityTeamUpgradePreflight(
         TEAM_SEAT_ERROR_CODES.instanceMismatch,
       );
     }
-    return preflight;
+    if (
+      preflight.runtime.notebookVersion !== runtime.notebookVersion
+      || preflight.runtime.databaseEngine !== runtime.databaseEngine
+      || preflight.runtime.teamReady !== runtime.teamReady
+    ) {
+      throw new TeamSeatContractError(
+        TEAM_SEAT_ERROR_CODES.invalidRequest,
+        'The Control Plane preflight runtime does not match the submitted Notebook runtime.',
+        'preflight.runtime',
+      );
+    }
+    const readiness = withCommunityTeamVersionReadiness(localReadiness, {
+      current: preflight.runtime.notebookVersion,
+      minimum: preflight.runtime.minimumNotebookVersion,
+      supported: preflight.runtime.versionSupported,
+    });
+    const blockers = [
+      ...preflight.blockers,
+      ...readiness.blockers,
+    ];
+    const ready = preflight.ready && readiness.ready;
+    return {
+      ...preflight,
+      ready,
+      nextAction: ready ? preflight.nextAction : 'resolve_blockers',
+      runtime: {
+        ...preflight.runtime,
+        readiness,
+      },
+      blockers,
+    };
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) throw error;
     throw contractResponseError(error);

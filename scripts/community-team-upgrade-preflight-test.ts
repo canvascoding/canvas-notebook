@@ -13,6 +13,8 @@ const previousEnvironment = {
   CANVAS_LICENSE_CONTROL_PLANE_WEB_URL: process.env.CANVAS_LICENSE_CONTROL_PLANE_WEB_URL,
   CANVAS_TEAM_SEAT_CLIENT_ENABLED: process.env.CANVAS_TEAM_SEAT_CLIENT_ENABLED,
   CANVAS_TEAM_SEAT_MEMBERSHIP_MUTATIONS_ENABLED: process.env.CANVAS_TEAM_SEAT_MEMBERSHIP_MUTATIONS_ENABLED,
+  DATABASE_URL: process.env.DATABASE_URL,
+  CANVAS_POSTGRES_VECTOR_ENABLED: process.env.CANVAS_POSTGRES_VECTOR_ENABLED,
 };
 
 process.env.DATA = dataRoot;
@@ -110,6 +112,10 @@ async function main() {
       getCommunityTeamUpgradePreflight,
       getCommunityTeamUpgradeRuntimeSnapshot,
     } = await import('../app/lib/license/control-plane');
+    const {
+      getCommunityTeamRuntimeReadiness,
+      withCommunityTeamVersionReadiness,
+    } = await import('../app/lib/license/team-runtime-readiness');
     const { getCommunityTeamManagementUrl } = await import('../app/lib/license/instance');
     const {
       removeCommunityInstanceToken,
@@ -125,11 +131,68 @@ async function main() {
       now: new Date('2026-08-01T12:00:00.000Z'),
     });
 
-    assert.deepEqual(getCommunityTeamUpgradeRuntimeSnapshot(), {
+    assert.deepEqual(await getCommunityTeamUpgradeRuntimeSnapshot(), {
       notebookVersion: '2026.8.1.2',
       databaseEngine: 'sqlite',
       teamReady: false,
     });
+    const sqliteReadiness = await getCommunityTeamRuntimeReadiness({
+      storageProbe: async () => true,
+    });
+    assert.equal(sqliteReadiness.ready, false);
+    assert.ok(sqliteReadiness.blockers.some(
+      (blocker) => blocker.code === 'TEAM_RUNTIME_DATABASE_POSTGRES_REQUIRED',
+    ));
+    assert.ok(sqliteReadiness.blockers.some(
+      (blocker) => blocker.code === 'TEAM_RUNTIME_PGVECTOR_NOT_CONFIGURED',
+    ));
+
+    process.env.CANVAS_DATABASE_PROVIDER = 'postgres';
+    process.env.DATABASE_URL = 'postgresql://canvas:test@postgres:5432/canvas';
+    process.env.CANVAS_POSTGRES_VECTOR_ENABLED = 'true';
+    const readyRuntime = await getCommunityTeamRuntimeReadiness({
+      now: new Date('2026-08-01T12:00:00.000Z'),
+      postgresProbe: async () => ({
+        databaseReachable: true,
+        migrationsReady: true,
+        pgvectorAvailable: true,
+        pgvectorVersion: '0.8.3',
+        organizationReady: true,
+      }),
+      storageProbe: async () => true,
+    });
+    assert.equal(readyRuntime.ready, true);
+    assert.equal(readyRuntime.pgvectorVersion, '0.8.3');
+    assert.equal(readyRuntime.checks.length, 6);
+
+    const blockedRuntime = await getCommunityTeamRuntimeReadiness({
+      postgresProbe: async () => ({
+        databaseReachable: true,
+        migrationsReady: false,
+        pgvectorAvailable: false,
+        pgvectorVersion: null,
+        organizationReady: false,
+      }),
+      storageProbe: async () => false,
+    });
+    assert.deepEqual(
+      new Set(blockedRuntime.blockers.map((blocker) => blocker.code)),
+      new Set([
+        'TEAM_RUNTIME_MIGRATIONS_INCOMPLETE',
+        'TEAM_RUNTIME_PGVECTOR_UNAVAILABLE',
+        'TEAM_RUNTIME_CAPABILITIES_UNAVAILABLE',
+        'TEAM_RUNTIME_STORAGE_UNWRITABLE',
+      ]),
+    );
+    const outdatedRuntime = withCommunityTeamVersionReadiness(readyRuntime, {
+      current: '2026.8.1.2',
+      minimum: '2026.9.0',
+      supported: false,
+    });
+    assert.equal(outdatedRuntime.ready, false);
+    assert.ok(outdatedRuntime.blockers.some(
+      (blocker) => blocker.code === 'TEAM_RUNTIME_NOTEBOOK_UPDATE_REQUIRED',
+    ));
     assert.equal(
       getCommunityTeamManagementUrl(),
       'https://control.example.test/dashboard/billing?intent=community-team-upgrade',
@@ -142,10 +205,13 @@ async function main() {
         databaseEngine: 'postgres',
         teamReady: true,
       },
+      runtimeReadiness: readyRuntime,
     });
     assert.equal(result.ready, true);
     assert.equal(result.license.claimed, true);
     assert.equal(result.nextAction, 'start_checkout');
+    assert.equal(result.runtime.readiness.ready, true);
+    assert.equal(result.runtime.readiness.checks.at(-1)?.area, 'version');
     assert.equal(captured.length, 1);
     assert.equal(
       captured[0]?.url,
@@ -173,6 +239,7 @@ async function main() {
           databaseEngine: 'postgres',
           teamReady: true,
         },
+        runtimeReadiness: readyRuntime,
       }),
       (error: unknown) => (
         error instanceof Error
