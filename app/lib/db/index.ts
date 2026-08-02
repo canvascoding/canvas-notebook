@@ -139,6 +139,10 @@ function translateSqlitePlaceholders(sql: string): string {
   return sql.replace(/\?/g, () => `$${++index}`);
 }
 
+function stripPostgresCasts(sql: string): string {
+  return sql.replace(/::[a-zA-Z_][a-zA-Z0-9_]*/g, '');
+}
+
 function runSqliteOperation<T>(sqlitePath: string, operation: () => T): T {
   try {
     return operation();
@@ -192,15 +196,15 @@ export async function openDb(): Promise<SqlConnection> {
   return {
     get: (sql: string, params?: unknown[]) => runSqliteOperation(
       sqlitePath,
-      () => bindSqlite(freshSqlite.prepare(sql), params).get(),
+      () => bindSqlite(freshSqlite.prepare(stripPostgresCasts(sql)), params).get(),
     ),
     run: (sql: string, params?: unknown[]) => runSqliteOperation(
       sqlitePath,
-      () => bindSqlite(freshSqlite.prepare(sql), params).run(),
+      () => bindSqlite(freshSqlite.prepare(stripPostgresCasts(sql)), params).run(),
     ),
     all: (sql: string, params?: unknown[]) => runSqliteOperation(
       sqlitePath,
-      () => bindSqlite(freshSqlite.prepare(sql), params).all(),
+      () => bindSqlite(freshSqlite.prepare(stripPostgresCasts(sql)), params).all(),
     ),
     close: () => {
       freshSqlite.close();
