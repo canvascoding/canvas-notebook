@@ -11,6 +11,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.2.2] - 2026-08-02
+
+### Changed
+
+- Disabled autonomous auto-update in Control Plane managed mode so host-managed instances do not self-update outside the Control Plane lifecycle.
+
+### Fixed
+
+- Ensured GitHub Releases for tagged builds automatically receive the portable CLI, host CLI, and native compliance bundle assets instead of leaving releases empty.
+
+### Verification
+
+- `npm run build`
+- `npm run licenses:refresh-cache`
+
 ## [2026.8.2.1] - 2026-08-02
 
 ### Added
