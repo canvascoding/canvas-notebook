@@ -489,6 +489,13 @@ function scheduleBackgroundMaintenance() {
     runOrphanedAssetsCleanup();
     runStudioPresetSeeding();
     scheduleExpiredSessionCleanup();
+    import('./app/lib/license/refresh.ts')
+      .then(({ initializeCommunityLicenseRefreshRuntime }) => {
+        initializeCommunityLicenseRefreshRuntime();
+      })
+      .catch((err) => {
+        console.warn('[Startup] Community license refresh could not be initialized:', err.message);
+      });
   }, 1500);
   timer.unref?.();
   console.log('[Startup] Background maintenance scheduled');

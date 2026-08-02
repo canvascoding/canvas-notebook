@@ -16,11 +16,13 @@ import {
   parseTeamSeatClaimPollResult,
   parseTeamSeatClaimStart,
   parseTeamSeatErrorPayload,
+  parseTeamSeatLicenseRefresh,
   parseTeamSeatPreflightResponse,
   parseTeamSeatTokenRotation,
   TEAM_SEAT_ERROR_CODES,
   TeamSeatContractError,
   type TeamSeatCommunityPreflightResponse,
+  type TeamSeatLicenseRefresh,
 } from './team-seat-contract';
 import {
   requireTeamSeatClientRollout,
@@ -209,6 +211,7 @@ const COMMUNITY_CLAIM_START_PATH = '/v1/license/claim/v1/start';
 const COMMUNITY_CLAIM_POLL_PATH = '/v1/license/claim/v1/poll';
 const COMMUNITY_TEAM_PREFLIGHT_PATH = '/v1/license/community/v1/team/preflight';
 const COMMUNITY_TOKEN_ROTATE_PATH = '/v1/license/community/v1/token/rotate';
+const COMMUNITY_LICENSE_REFRESH_PATH = '/v1/license/community/v1/refresh';
 const MAX_CLAIM_BACKOFF_SECONDS = 300;
 let communityClaimOperationQueue: Promise<void> = Promise.resolve();
 
@@ -732,6 +735,109 @@ export async function getCommunityTeamUpgradePreflight(
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) throw error;
     throw contractResponseError(error);
+  }
+}
+
+export type CommunityLicenseRefreshResult = {
+  status: LicenseStatus;
+  details: TeamSeatLicenseRefresh['details'];
+};
+
+export async function refreshCommunityLicenseCertificate(
+  options?: { fetchImpl?: typeof fetch; now?: Date },
+): Promise<CommunityLicenseRefreshResult> {
+  const instanceId = getLicenseInstanceId();
+  const token = await loadCommunityInstanceToken(instanceId);
+  if (!token) {
+    throw localClaimError(
+      'Connect this Community license before automatic refresh can run.',
+      409,
+      TEAM_SEAT_ERROR_CODES.accountRequired,
+    );
+  }
+  const now = options?.now ?? new Date();
+  if (token.expiresAt && Date.parse(token.expiresAt) <= now.getTime()) {
+    await markCommunityConnectionReconnectRequired({
+      instanceId,
+      expectedToken: token.instanceToken,
+      reason: 'expired',
+      now,
+    });
+    throw localClaimError(
+      'The Community instance connection expired and must be restored.',
+      401,
+      TEAM_SEAT_ERROR_CODES.tokenInvalid,
+    );
+  }
+  if (!token.scopes.includes('license:refresh')) {
+    throw localClaimError(
+      'The Community instance connection does not permit license refresh.',
+      403,
+      TEAM_SEAT_ERROR_CODES.tokenScopeDenied,
+    );
+  }
+
+  const { response, payload } = await postLicenseControlPlane(
+    COMMUNITY_LICENSE_REFRESH_PATH,
+    createTeamSeatTokenLifecycleRequest(),
+    {
+      fetchImpl: options?.fetchImpl,
+      unreachableCode: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
+      authorization: {
+        tokenType: token.tokenType,
+        token: token.instanceToken,
+      },
+    },
+  );
+  if (!response.ok) {
+    const error = claimErrorFromResponse(response, payload);
+    await recordRejectedCommunityToken(error, {
+      instanceId,
+      instanceToken: token.instanceToken,
+    });
+    throw error;
+  }
+
+  let refreshed: TeamSeatLicenseRefresh;
+  try {
+    refreshed = parseTeamSeatLicenseRefresh(payload, 'refresh');
+  } catch (error) {
+    throw contractResponseError(error);
+  }
+  if (refreshed.details.instanceId !== instanceId) {
+    throw localClaimError(
+      'The Control Plane refreshed a license for another Notebook instance.',
+      409,
+      TEAM_SEAT_ERROR_CODES.instanceMismatch,
+    );
+  }
+
+  try {
+    const status = await activateLicenseCert(refreshed.license, {
+      licenseId: refreshed.details.id,
+      instanceId: refreshed.details.instanceId,
+      plan: refreshed.details.plan,
+      status: refreshed.details.status,
+      hostingMode: refreshed.details.hostingMode,
+      edition: refreshed.details.edition,
+      licenseClass: refreshed.details.licenseClass,
+      licenseEnvironment: refreshed.details.licenseEnvironment,
+      entitlementsVersion: refreshed.details.entitlementsVersion,
+    });
+    return { status, details: refreshed.details };
+  } catch (error) {
+    if (
+      error instanceof LicenseCertificateValidationError
+      || error instanceof LicenseCertificateStorageError
+    ) {
+      throw new LicenseControlPlaneError(
+        error.message,
+        error instanceof LicenseCertificateStorageError ? 409 : 502,
+        error.code,
+        false,
+      );
+    }
+    throw error;
   }
 }
 

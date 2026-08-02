@@ -27,6 +27,7 @@ import {
   parseTeamSeatLicenseClaims,
   parseTeamSeatLicenseClass,
   parseTeamSeatLicenseEnvironment,
+  parseTeamSeatLicenseRefresh,
   parseTeamSeatMembershipSnapshot,
   parseTeamSeatPreflightResponse,
   parseTeamSeatPrepareResponse,
@@ -130,6 +131,29 @@ async function main() {
   const entitlements = parseTeamSeatEntitlements(fixtures.positive.entitlements);
   assert.equal(entitlements.provider, 'test');
   assert.equal(entitlements.nonBillable, true);
+
+  const refresh = parseTeamSeatLicenseRefresh({
+    license: 'signed-license-certificate'.padEnd(96, 'x'),
+    details: {
+      id: 'license-community',
+      plan: 'community',
+      status: 'active',
+      instanceId: 'instance-community',
+      hostingMode: 'community',
+      edition: 'team',
+      licenseClass: 'commercial',
+      licenseEnvironment: 'production',
+      billingOrganizationId: 'organization-community',
+      entitlementsVersion: 4,
+      deploymentMode: 'community',
+      features: { teamWorkspace: true },
+      quotas: { users: 3 },
+      activatedAt: '2030-01-01T00:00:00.000Z',
+      expiresAt: '2030-01-02T00:00:00.000Z',
+    },
+  });
+  assert.equal(refresh.details.entitlementsVersion, 4);
+  assert.equal(refresh.details.edition, 'team');
 
   const quote = parseTeamSeatQuote(fixtures.positive.quote);
   assert.equal(quote.quantityAfter - quote.quantityBefore, quote.quantityDelta);

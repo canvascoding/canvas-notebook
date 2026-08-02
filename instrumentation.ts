@@ -16,6 +16,8 @@ export async function register() {
       void initializeDelegationDispatcher().catch((error) => {
         console.error("[Instrumentation] Delegation dispatcher initialization failed:", error);
       });
+      const { initializeCommunityLicenseRefreshRuntime } = await import("./app/lib/license/refresh");
+      initializeCommunityLicenseRefreshRuntime();
     }
   }
 

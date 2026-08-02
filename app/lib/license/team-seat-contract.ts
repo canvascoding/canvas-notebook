@@ -916,7 +916,10 @@ export function parseTeamSeatOperation(value: unknown, path = 'operation'): Team
   };
 }
 
-function parseTeamSeatLicenseRefresh(value: unknown, path: string): TeamSeatLicenseRefresh {
+export function parseTeamSeatLicenseRefresh(
+  value: unknown,
+  path = 'licenseRefresh',
+): TeamSeatLicenseRefresh {
   const input = record(value, path);
   const details = record(input.details, `${path}.details`);
   const licenseClass = parseTeamSeatLicenseClass(details.licenseClass, `${path}.details.licenseClass`);

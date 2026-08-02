@@ -422,7 +422,7 @@
         {
           "id": "NB-TS-032",
           "title": "Automatischen Community-Team-Refresh und Offline-Grace bauen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-runtime",
           "description": "Periodischen authentifizierten Refresh mit Backoff, Cache, Ablaufwarnung, Grace-State und Recovery implementieren.",
@@ -445,7 +445,8 @@
             "Temporäre Netzfehler verwenden begrenzten Backoff.",
             "Grace-Ablauf ist im Status sichtbar und testbar.",
             "Erfolgreicher Refresh aktualisiert Zertifikat und Entitlement-Version atomar."
-          ]
+          ],
+          "progress": "Ein idempotenter serverseitiger Background-Worker startet sowohl über Next-Instrumentation als auch den Custom Server und erneuert verbundene Community-Team-Zertifikate ohne Browser-Session über den authentifizierten Protokoll-v1-Refresh-Endpunkt. Terminierte oder widerrufene Instanz-Tokens werden entfernt und führen ohne Grace in einen restartfesten Reconnect-Zustand; temporäre Netz- und Control-Plane-Fehler verwenden einen konfigurierbaren, exponentiellen und begrenzten Backoff. Refresh-Zustand, Fehlversuche, nächster Versuch sowie Grace-Beginn und -Ablauf werden atomar und mit privaten Dateirechten persistiert und im Lizenzstatus veröffentlicht. Offline Grace gilt ausschließlich für Commercial Community Team, standardmäßig 24 Stunden und höchstens sieben Tage, und ist exakt an Ablaufzeit und entitlementsVersion des signierten Zertifikats gebunden; Test- und Manual-Lizenzen erhalten keine Grace. Erfolgreiche Responses werden gegen die signierten Claims abgeglichen und aktualisieren das revisionsgeschützte Zertifikat atomar. Positive und negative Refresh-, Backoff-, Rollback-, Claim-Mismatch-, Stale-Grace-, Ablauf- und Token-Recovery-Fälle sowie die vorhandenen Lizenz-, Claim-, Recovery-, Preflight-, Rollout-, Mobile- und Startup-Flows sind getestet; ESLint, TypeScript und Production-Build sind erfolgreich."
         },
         {
           "id": "NB-TS-033",

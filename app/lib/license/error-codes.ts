@@ -1,4 +1,8 @@
-import type { LicenseStatus, LicenseValidationErrorCode } from './types';
+import type {
+  LicenseRuntimeErrorCode,
+  LicenseStatus,
+  LicenseValidationErrorCode,
+} from './types';
 
 export type LicenseApiErrorCode =
   | 'UNAUTHORIZED'
@@ -12,7 +16,8 @@ export type LicenseApiErrorCode =
   | 'LICENSE_PUBLIC_KEY_UNAVAILABLE'
   | 'LICENSE_CONTROL_PLANE_UNREACHABLE'
   | 'LICENSE_UNTRUSTED_PUBLIC_KEY'
-  | LicenseValidationErrorCode;
+  | LicenseValidationErrorCode
+  | LicenseRuntimeErrorCode;
 
 export function codeFromLicenseError(error?: LicenseStatus['error']): LicenseApiErrorCode | undefined {
   switch (error) {

@@ -11,6 +11,7 @@ import { logLicenseInfoThrottled } from './logging';
 import { resolveLicensePublicKeys } from './public-key';
 import {
   LicenseCertificateStorageError,
+  loadCommunityLicenseRefreshState,
   loadStoredLicenseCert,
   saveLicenseCert,
 } from './storage';
@@ -72,6 +73,9 @@ function statusFromPayload(
     features: payload.features || {},
     quotas: payload.quotas || {},
     source,
+    refresh: null,
+    graceStartedAt: null,
+    graceExpiresAt: null,
   };
 }
 
@@ -103,21 +107,96 @@ function unresolvedStatus(
     licenseEnvironment: product?.licenseEnvironment ?? null,
     seatLimit: product?.seatLimit ?? null,
     deploymentMode: payload?.deploymentMode || null,
-    databaseProvider: null,
-    vectorProvider: null,
-    postgresRequired: false,
-    capabilities: {},
+    databaseProvider: payload?.databaseProvider || null,
+    vectorProvider: payload?.vectorProvider || null,
+    postgresRequired: payload?.postgresRequired === true,
+    capabilities: payload?.capabilities || {},
     organizationId: payload?.organizationId || null,
     entitlementsVersion: typeof payload?.entitlementsVersion === 'number'
       ? payload.entitlementsVersion
       : null,
     expiresAt: payload?.exp ? new Date(payload.exp * 1000).toISOString() : null,
-    features: {},
-    quotas: {},
+    features: payload?.features || {},
+    quotas: payload?.quotas || {},
     source: failure?.source ?? 'none',
+    refresh: null,
+    graceStartedAt: null,
+    graceExpiresAt: null,
     error: publicKeyError || (failure ? errorFromValidationCode(failure.code) : undefined),
     code: publicKeyError ? undefined : failure?.code,
   };
+}
+
+async function withRefreshRuntimeState(status: LicenseStatus): Promise<LicenseStatus> {
+  const state = await loadCommunityLicenseRefreshState(status.instanceId).catch((error) => {
+    console.warn(`${LOG_PREFIX} failed to load Community refresh state`, {
+      instanceId: status.instanceId,
+      error: error instanceof Error ? error.message : String(error),
+    });
+    return null;
+  });
+  if (!state) return status;
+  const appliesToCurrentCertificate = status.hostingMode === 'community'
+    && status.edition === 'team'
+    && status.licenseClass === 'commercial'
+    && state.certificateExpiresAt === status.expiresAt
+    && state.entitlementsVersion === status.entitlementsVersion;
+  if (!appliesToCurrentCertificate) return status;
+
+  const refresh = {
+    phase: state.phase,
+    lastAttemptAt: state.lastAttemptAt,
+    lastSuccessAt: state.lastSuccessAt,
+    nextAttemptAt: state.nextAttemptAt,
+    consecutiveFailures: state.consecutiveFailures,
+    lastErrorCode: state.lastErrorCode,
+    retryable: state.retryable,
+  };
+  const decorated: LicenseStatus = {
+    ...status,
+    refresh,
+    graceStartedAt: state.graceStartedAt,
+    graceExpiresAt: state.graceExpiresAt,
+  };
+
+  if (status.licenseState === 'grace_required') {
+    const graceStartedAt = state.graceStartedAt ? Date.parse(state.graceStartedAt) : Number.NaN;
+    const graceExpiresAt = state.graceExpiresAt ? Date.parse(state.graceExpiresAt) : Number.NaN;
+    if (
+      state.phase === 'backoff'
+      && state.retryable
+      && Number.isFinite(graceStartedAt)
+      && Number.isFinite(graceExpiresAt)
+      && Date.now() >= graceStartedAt
+      && Date.now() < graceExpiresAt
+    ) {
+      return {
+        ...decorated,
+        licensed: true,
+        licenseState: 'grace',
+        error: 'control_plane_unreachable',
+        code: 'LICENSE_REFRESH_GRACE_ACTIVE',
+      };
+    }
+    if (Number.isFinite(graceExpiresAt) && Date.now() >= graceExpiresAt) {
+      return {
+        ...decorated,
+        licensed: false,
+        licenseState: 'expired',
+        error: 'license_expired',
+        code: 'LICENSE_REFRESH_GRACE_EXPIRED',
+      };
+    }
+  }
+
+  if (status.licensed && state.phase === 'backoff' && state.retryable) {
+    return {
+      ...decorated,
+      error: 'control_plane_unreachable',
+      code: 'LICENSE_REFRESH_BACKOFF',
+    };
+  }
+  return decorated;
 }
 
 function storageFailure(
@@ -270,7 +349,7 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
             expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
             managedConfigured: isManagedLicenseConfigured(),
           });
-          return status;
+          return withRefreshRuntimeState(status);
         } catch (error) {
           const failure = storageFailure(error, payload, 'env');
           if (!failure) throw error;
@@ -316,7 +395,7 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
           expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
           managedConfigured: isManagedLicenseConfigured(),
         });
-        return status;
+        return withRefreshRuntimeState(status);
       }
       lastFailure = {
         ok: false,
@@ -339,7 +418,7 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
   }
 
   const managed = await getManagedLicenseStatus(instanceId);
-  if (managed.status) return managed.status;
+  if (managed.status) return withRefreshRuntimeState(managed.status);
   if (managed.failure) lastFailure = managed.failure;
   const keyError = lastFailure?.code === 'LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE'
     ? await publicKeyUnavailableError()
@@ -357,26 +436,63 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
     controlPlaneHost: getControlPlaneHost(),
   });
 
-  return status;
+  return withRefreshRuntimeState(status);
 }
 
 export async function requireLicenseStatus(): Promise<LicenseStatus> {
   return getLicenseStatus();
 }
 
-export async function activateLicenseCert(cert: string): Promise<LicenseStatus> {
+export type LicenseActivationExpectation = {
+  licenseId: string;
+  instanceId: string;
+  plan: string;
+  status: string;
+  hostingMode: string;
+  edition: string;
+  licenseClass: string;
+  licenseEnvironment: string;
+  entitlementsVersion: number;
+};
+
+function certificateMatchesExpectation(
+  payload: LicenseCert,
+  expected: LicenseActivationExpectation,
+): boolean {
+  return payload.licenseId === expected.licenseId
+    && payload.sub === expected.instanceId
+    && payload.instanceId === expected.instanceId
+    && payload.plan === expected.plan
+    && payload.status === expected.status
+    && payload.hostingMode === expected.hostingMode
+    && payload.edition === expected.edition
+    && payload.licenseClass === expected.licenseClass
+    && payload.licenseEnvironment === expected.licenseEnvironment
+    && payload.entitlementsVersion === expected.entitlementsVersion;
+}
+
+export async function activateLicenseCert(
+  cert: string,
+  expected?: LicenseActivationExpectation,
+): Promise<LicenseStatus> {
   const instanceId = getLicenseInstanceId();
   const verification = await verifyLicenseJwtDetailed(cert, instanceId);
   if (!verification.ok) {
     throw new LicenseCertificateValidationError(verification.code);
   }
   const payload = verification.payload;
+  if (expected && !certificateMatchesExpectation(payload, expected)) {
+    throw new LicenseCertificateValidationError(
+      'LICENSE_CERT_CLAIMS_INVALID',
+      'License certificate does not match the Control Plane refresh response.',
+    );
+  }
   const status = statusFromPayload(payload, instanceId, 'stored');
   if (!status) {
     throw new LicenseCertificateValidationError('LICENSE_CERT_CLAIMS_INVALID');
   }
   await saveLicenseCert(cert, payload);
-  return status;
+  return withRefreshRuntimeState(status);
 }
 
 export function getLicenseControlPlaneUrl(): string {

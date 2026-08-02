@@ -20,7 +20,19 @@ export type LicenseClass = TeamSeatLicenseClass;
 export type LicenseEnvironment = TeamSeatLicenseEnvironment;
 export type LicenseProtocolVersion = typeof TEAM_SEAT_PROTOCOL_VERSION | 'legacy';
 export type LicenseProductVariant = 'community-solo' | 'community-team' | 'cloud-solo' | 'cloud-team';
-export type LicenseRuntimeState = 'active' | 'grace_required' | 'inactive';
+export type LicenseRuntimeState = 'active' | 'grace' | 'grace_required' | 'expired' | 'inactive';
+export type CommunityLicenseRefreshPhase =
+  | 'idle'
+  | 'scheduled'
+  | 'refreshing'
+  | 'active'
+  | 'backoff'
+  | 'blocked'
+  | 'reconnect_required';
+export type LicenseRuntimeErrorCode =
+  | 'LICENSE_REFRESH_BACKOFF'
+  | 'LICENSE_REFRESH_GRACE_ACTIVE'
+  | 'LICENSE_REFRESH_GRACE_EXPIRED';
 export type LicenseValidationErrorCode =
   | 'LICENSE_CERT_MALFORMED'
   | 'LICENSE_CERT_ALGORITHM_INVALID'
@@ -99,6 +111,17 @@ export interface LicenseStatus {
   features: Record<string, boolean>;
   quotas: Record<string, number>;
   source: 'env' | 'stored' | 'managed' | 'none';
+  refresh: {
+    phase: CommunityLicenseRefreshPhase;
+    lastAttemptAt: string | null;
+    lastSuccessAt: string | null;
+    nextAttemptAt: string | null;
+    consecutiveFailures: number;
+    lastErrorCode: string | null;
+    retryable: boolean;
+  } | null;
+  graceStartedAt: string | null;
+  graceExpiresAt: string | null;
   error?:
     | 'missing_public_key'
     | 'public_key_unavailable'
@@ -108,7 +131,7 @@ export interface LicenseStatus {
     | 'license_invalid'
     | 'license_environment_invalid'
     | 'license_rollback';
-  code?: LicenseValidationErrorCode;
+  code?: LicenseValidationErrorCode | LicenseRuntimeErrorCode;
 }
 
 function includesValue<const T extends readonly string[]>(values: T, value: unknown): value is T[number] {

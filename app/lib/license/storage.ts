@@ -15,7 +15,11 @@ import {
 } from './team-seat-contract';
 import { getLicenseInstanceId } from './instance';
 import { decodeLicenseJwt } from './jwt';
-import type { LicenseCert, LicenseValidationErrorCode } from './types';
+import type {
+  CommunityLicenseRefreshPhase,
+  LicenseCert,
+  LicenseValidationErrorCode,
+} from './types';
 
 const COMMUNITY_INSTANCE_TOKEN_DIRECTORY = 'license';
 const COMMUNITY_INSTANCE_TOKEN_FILE = 'community-instance-token.json';
@@ -24,6 +28,8 @@ const COMMUNITY_CLAIM_SESSION_FILE = 'community-claim-session.json';
 const COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION = 1;
 const COMMUNITY_CONNECTION_RECOVERY_FILE = 'community-connection-recovery.json';
 const COMMUNITY_CONNECTION_RECOVERY_SCHEMA_VERSION = 1;
+const COMMUNITY_LICENSE_REFRESH_STATE_FILE = 'community-license-refresh-state.json';
+const COMMUNITY_LICENSE_REFRESH_STATE_SCHEMA_VERSION = 1;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
 
@@ -96,6 +102,29 @@ export type CommunityConnectionRecoveryState = Omit<
   'schemaVersion' | 'protocolVersion'
 >;
 
+type StoredCommunityLicenseRefreshState = {
+  schemaVersion: typeof COMMUNITY_LICENSE_REFRESH_STATE_SCHEMA_VERSION;
+  protocolVersion: typeof TEAM_SEAT_PROTOCOL_VERSION;
+  instanceId: string;
+  phase: CommunityLicenseRefreshPhase;
+  lastAttemptAt: string | null;
+  lastSuccessAt: string | null;
+  nextAttemptAt: string | null;
+  consecutiveFailures: number;
+  lastErrorCode: string | null;
+  retryable: boolean;
+  certificateExpiresAt: string | null;
+  entitlementsVersion: number | null;
+  graceStartedAt: string | null;
+  graceExpiresAt: string | null;
+  updatedAt: string;
+};
+
+export type CommunityLicenseRefreshState = Omit<
+  StoredCommunityLicenseRefreshState,
+  'schemaVersion' | 'protocolVersion'
+>;
+
 type StoredCommunityClaimSession = {
   schemaVersion: typeof COMMUNITY_CLAIM_SESSION_SCHEMA_VERSION;
   protocolVersion: typeof TEAM_SEAT_PROTOCOL_VERSION;
@@ -152,8 +181,23 @@ export class CommunityClaimSessionStorageError extends Error {
   }
 }
 
+export class CommunityLicenseRefreshStorageError extends Error {
+  constructor(
+    public readonly code:
+      | 'REFRESH_STATE_INVALID'
+      | 'REFRESH_STATE_INSTANCE_MISMATCH'
+      | 'REFRESH_STATE_STORAGE_CORRUPT',
+    message: string,
+    public readonly status = 409,
+  ) {
+    super(message);
+    this.name = 'CommunityLicenseRefreshStorageError';
+  }
+}
+
 let tokenMutationQueue: Promise<void> = Promise.resolve();
 let claimSessionMutationQueue: Promise<void> = Promise.resolve();
+let refreshStateMutationQueue: Promise<void> = Promise.resolve();
 
 function normalizeInstanceId(value: string): string {
   const normalized = value.trim();
@@ -430,6 +474,87 @@ function parseStoredCommunityConnectionRecoveryState(
   };
 }
 
+function normalizeRefreshTimestamp(
+  value: unknown,
+  field: string,
+  nullable = true,
+): string | null {
+  if (nullable && value === null) return null;
+  if (typeof value !== 'string' || !Number.isFinite(Date.parse(value))) {
+    throw new CommunityLicenseRefreshStorageError(
+      'REFRESH_STATE_STORAGE_CORRUPT',
+      `Stored Community license refresh ${field} is invalid.`,
+      500,
+    );
+  }
+  return new Date(Date.parse(value)).toISOString();
+}
+
+function parseStoredCommunityLicenseRefreshState(
+  value: unknown,
+): StoredCommunityLicenseRefreshState {
+  const phases: CommunityLicenseRefreshPhase[] = [
+    'idle',
+    'scheduled',
+    'refreshing',
+    'active',
+    'backoff',
+    'blocked',
+    'reconnect_required',
+  ];
+  if (
+    !isRecord(value)
+    || value.schemaVersion !== COMMUNITY_LICENSE_REFRESH_STATE_SCHEMA_VERSION
+    || value.protocolVersion !== TEAM_SEAT_PROTOCOL_VERSION
+    || typeof value.instanceId !== 'string'
+    || !phases.includes(value.phase as CommunityLicenseRefreshPhase)
+    || !Number.isSafeInteger(value.consecutiveFailures)
+    || Number(value.consecutiveFailures) < 0
+    || typeof value.retryable !== 'boolean'
+    || (
+      value.lastErrorCode !== null
+      && (
+        typeof value.lastErrorCode !== 'string'
+        || value.lastErrorCode.length < 1
+        || value.lastErrorCode.length > 128
+      )
+    )
+    || (
+      value.entitlementsVersion !== null
+      && (
+        !Number.isSafeInteger(value.entitlementsVersion)
+        || Number(value.entitlementsVersion) < 0
+      )
+    )
+  ) {
+    throw new CommunityLicenseRefreshStorageError(
+      'REFRESH_STATE_STORAGE_CORRUPT',
+      'Stored Community license refresh state has an unsupported schema.',
+      500,
+    );
+  }
+  return {
+    schemaVersion: COMMUNITY_LICENSE_REFRESH_STATE_SCHEMA_VERSION,
+    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
+    instanceId: normalizeInstanceId(value.instanceId),
+    phase: value.phase as CommunityLicenseRefreshPhase,
+    lastAttemptAt: normalizeRefreshTimestamp(value.lastAttemptAt, 'lastAttemptAt'),
+    lastSuccessAt: normalizeRefreshTimestamp(value.lastSuccessAt, 'lastSuccessAt'),
+    nextAttemptAt: normalizeRefreshTimestamp(value.nextAttemptAt, 'nextAttemptAt'),
+    consecutiveFailures: Number(value.consecutiveFailures),
+    lastErrorCode: value.lastErrorCode as string | null,
+    retryable: value.retryable,
+    certificateExpiresAt: normalizeRefreshTimestamp(
+      value.certificateExpiresAt,
+      'certificateExpiresAt',
+    ),
+    entitlementsVersion: value.entitlementsVersion as number | null,
+    graceStartedAt: normalizeRefreshTimestamp(value.graceStartedAt, 'graceStartedAt'),
+    graceExpiresAt: normalizeRefreshTimestamp(value.graceExpiresAt, 'graceExpiresAt'),
+    updatedAt: normalizeRefreshTimestamp(value.updatedAt, 'updatedAt', false)!,
+  };
+}
+
 function toSecret(stored: StoredCommunityInstanceToken): CommunityInstanceTokenSecret {
   return {
     instanceId: stored.instanceId,
@@ -478,6 +603,20 @@ async function withClaimSessionMutationLock<T>(operation: () => Promise<T>): Pro
   }
 }
 
+async function withRefreshStateMutationLock<T>(operation: () => Promise<T>): Promise<T> {
+  const previous = refreshStateMutationQueue;
+  let release = () => {};
+  refreshStateMutationQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  await previous;
+  try {
+    return await operation();
+  } finally {
+    release();
+  }
+}
+
 function communityInstanceTokenDirectory(): string {
   return path.join(resolveSecretsDir(), COMMUNITY_INSTANCE_TOKEN_DIRECTORY);
 }
@@ -492,6 +631,10 @@ export function resolveCommunityClaimSessionPath(): string {
 
 export function resolveCommunityConnectionRecoveryPath(): string {
   return path.join(communityInstanceTokenDirectory(), COMMUNITY_CONNECTION_RECOVERY_FILE);
+}
+
+export function resolveCommunityLicenseRefreshStatePath(): string {
+  return path.join(communityInstanceTokenDirectory(), COMMUNITY_LICENSE_REFRESH_STATE_FILE);
 }
 
 async function assertOwnedNonSymlink(targetPath: string, expectedType: 'directory' | 'file'): Promise<void> {
@@ -577,6 +720,12 @@ async function writeCommunityConnectionRecoveryStateAtomic(
   await writePrivateLicenseFileAtomic(COMMUNITY_CONNECTION_RECOVERY_FILE, state);
 }
 
+async function writeCommunityLicenseRefreshStateAtomic(
+  state: StoredCommunityLicenseRefreshState,
+): Promise<void> {
+  await writePrivateLicenseFileAtomic(COMMUNITY_LICENSE_REFRESH_STATE_FILE, state);
+}
+
 async function readStoredTokenIfExists(): Promise<StoredCommunityInstanceToken | null> {
   const filePath = resolveCommunityInstanceTokenPath();
   try {
@@ -611,6 +760,27 @@ Promise<StoredCommunityConnectionRecoveryState | null> {
       throw new CommunityInstanceTokenStorageError(
         'TOKEN_STORAGE_CORRUPT',
         'Stored Community connection recovery state contains invalid JSON.',
+        500,
+      );
+    }
+    throw error;
+  }
+}
+
+async function readCommunityLicenseRefreshStateIfExists():
+Promise<StoredCommunityLicenseRefreshState | null> {
+  const filePath = resolveCommunityLicenseRefreshStatePath();
+  try {
+    await assertOwnedNonSymlink(filePath, 'file');
+    const content = await fs.readFile(filePath, 'utf8');
+    await fs.chmod(filePath, PRIVATE_FILE_MODE);
+    return parseStoredCommunityLicenseRefreshState(JSON.parse(content) as unknown);
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === 'ENOENT') return null;
+    if (error instanceof SyntaxError) {
+      throw new CommunityLicenseRefreshStorageError(
+        'REFRESH_STATE_STORAGE_CORRUPT',
+        'Stored Community license refresh state contains invalid JSON.',
         500,
       );
     }
@@ -715,6 +885,61 @@ export async function loadCommunityConnectionRecoveryState(
     reason: state.reason,
     detectedAt: state.detectedAt,
   };
+}
+
+export async function loadCommunityLicenseRefreshState(
+  expectedInstanceId?: string,
+): Promise<CommunityLicenseRefreshState | null> {
+  const localInstanceId = requireLocalInstanceId(expectedInstanceId);
+  const stored = await readCommunityLicenseRefreshStateIfExists();
+  if (!stored) return null;
+  if (stored.instanceId !== localInstanceId) {
+    throw new CommunityLicenseRefreshStorageError(
+      'REFRESH_STATE_INSTANCE_MISMATCH',
+      'Stored Community license refresh state belongs to another instance.',
+    );
+  }
+  const {
+    schemaVersion: _schemaVersion,
+    protocolVersion: _protocolVersion,
+    ...state
+  } = stored;
+  return state;
+}
+
+export async function saveCommunityLicenseRefreshState(
+  input: CommunityLicenseRefreshState,
+): Promise<CommunityLicenseRefreshState> {
+  return withRefreshStateMutationLock(async () => {
+    const instanceId = requireLocalInstanceId(input.instanceId);
+    const stored = parseStoredCommunityLicenseRefreshState({
+      ...input,
+      instanceId,
+      schemaVersion: COMMUNITY_LICENSE_REFRESH_STATE_SCHEMA_VERSION,
+      protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
+    });
+    await writeCommunityLicenseRefreshStateAtomic(stored);
+    return loadCommunityLicenseRefreshState(instanceId) as Promise<CommunityLicenseRefreshState>;
+  });
+}
+
+export async function removeCommunityLicenseRefreshState(
+  expectedInstanceId?: string,
+): Promise<boolean> {
+  return withRefreshStateMutationLock(async () => {
+    const instanceId = requireLocalInstanceId(expectedInstanceId);
+    const existing = await readCommunityLicenseRefreshStateIfExists();
+    if (!existing) return false;
+    if (existing.instanceId !== instanceId) {
+      throw new CommunityLicenseRefreshStorageError(
+        'REFRESH_STATE_INSTANCE_MISMATCH',
+        'Stored Community license refresh state belongs to another instance.',
+      );
+    }
+    await fs.rm(resolveCommunityLicenseRefreshStatePath(), { force: true });
+    await syncDirectory(communityInstanceTokenDirectory());
+    return true;
+  });
 }
 
 export async function markCommunityConnectionReconnectRequired(input: {
