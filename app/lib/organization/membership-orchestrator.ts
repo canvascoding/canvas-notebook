@@ -41,6 +41,9 @@ import {
   type TeamMembership,
   type TeamMembershipRole,
 } from './team-membership';
+import {
+  ensureOrganizationPermissionRow,
+} from './permission-provisioning';
 
 type MembershipOrchestratorDatabase = Pick<SqlConnection, 'get' | 'run' | 'all' | 'close'>;
 
@@ -1276,6 +1279,13 @@ export async function completeDirectMembershipActivation(input: {
           'The active membership projection exceeds the confirmed Seat quantity.',
         );
       }
+      await ensureOrganizationPermissionRow(database, {
+        organizationId: input.organizationId,
+        userId: membership.userId,
+        role: membership.role,
+        activateExisting: true,
+        now,
+      });
       await identity.activate(membership.userId);
       return {
         stage: 'active',
@@ -1318,6 +1328,13 @@ export async function completeDirectMembershipActivation(input: {
             organizationId: input.organizationId,
             desiredQuantity,
             signedSeatLimit: executed.license!.details.quotas.users,
+          });
+          await ensureOrganizationPermissionRow(database, {
+            organizationId: input.organizationId,
+            userId: current.userId,
+            role: current.role,
+            activateExisting: true,
+            now,
           });
           const activated = await transitionTeamMembership(database, {
             organizationId: input.organizationId,
@@ -1410,6 +1427,13 @@ export async function completeDirectMembershipActivation(input: {
             organizationId: input.organizationId,
             desiredQuantity,
             signedSeatLimit: executed.license!.details.quotas.users,
+          });
+          await ensureOrganizationPermissionRow(database, {
+            organizationId: input.organizationId,
+            userId: pendingIdentity.id,
+            role: current.role,
+            activateExisting: true,
+            now,
           });
           current = await transitionTeamMembership(database, {
             organizationId: input.organizationId,

@@ -13,6 +13,10 @@ import {
   type OrganizationPermissionSnapshot,
   type OrganizationPermissionState,
 } from '@/app/lib/organization/bootstrap';
+import {
+  ensureOrganizationPermissionRow,
+  organizationPermissionDefaults,
+} from '@/app/lib/organization/permission-provisioning';
 import { updateTeamMembershipRole } from '@/app/lib/organization/team-membership';
 import {
   findPostgresPermissionUserCandidate,
@@ -350,26 +354,6 @@ function normalizeOrganizationStatus(status: unknown): OrganizationPermissionSna
   return 'active';
 }
 
-function permissionDefaults(role: OrganizationPermissionSnapshot['role']): OrganizationPermissionSnapshot {
-  const isAdminLikeRole = role === 'owner' || role === 'admin';
-  const isInternal = role !== 'external';
-  return {
-    role,
-    status: 'active',
-    canWriteTeamWorkspace: isAdminLikeRole,
-    canCreatePublicLinks: isInternal,
-    canCreateTeamAutomations: isAdminLikeRole,
-    canSharePluginsAndSkills: isAdminLikeRole,
-    canExport: isAdminLikeRole,
-    canDeleteTeamFiles: isAdminLikeRole,
-    canDeleteStudioAssets: isInternal,
-    canManageBackups: isAdminLikeRole,
-    canMigrateDatabase: isAdminLikeRole,
-    canEnableKnowledge: isAdminLikeRole,
-    canRecoverWorkspaces: isAdminLikeRole,
-  };
-}
-
 function snapshotPermissions(snapshot: OrganizationPermissionSnapshot): Record<OrganizationPermissionKey, boolean> {
   return ORGANIZATION_PERMISSION_KEYS.reduce((permissions, key) => {
     permissions[key] = snapshot[key] === true;
@@ -485,47 +469,15 @@ async function ensurePermissionDetails(
   organization: OrganizationRow,
   user: PermissionUserRow,
 ): Promise<OrganizationPermissionUserDetails> {
-  const existing = await database.get(`
-    SELECT user_id
-    FROM organization_user_permissions
-    WHERE organization_id = ? AND user_id = ?
-    LIMIT 1
-  `, [organization.organization_id, user.id]) as { user_id: string } | undefined;
-
-  if (!existing) {
-    const defaultRole = organization.owner_user_id === user.id
-      ? 'owner'
-      : isAdminUser(user) ? 'admin' : 'member';
-    const defaults = permissionDefaults(defaultRole);
-    const now = Date.now();
-    await database.run(`
-      INSERT INTO organization_user_permissions (
-        organization_id, user_id, role, status,
-        can_write_team_workspace, can_create_public_links, can_create_team_automations,
-        can_share_plugins_and_skills, can_export, can_delete_team_files, can_delete_studio_assets,
-        can_manage_backups, can_migrate_database, can_enable_knowledge, can_recover_workspaces,
-        created_at, updated_at
-      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `, [
-      organization.organization_id,
-      user.id,
-      defaults.role,
-      defaults.status,
-      defaults.canWriteTeamWorkspace ? 1 : 0,
-      defaults.canCreatePublicLinks ? 1 : 0,
-      defaults.canCreateTeamAutomations ? 1 : 0,
-      defaults.canSharePluginsAndSkills ? 1 : 0,
-      defaults.canExport ? 1 : 0,
-      defaults.canDeleteTeamFiles ? 1 : 0,
-      defaults.canDeleteStudioAssets ? 1 : 0,
-      defaults.canManageBackups ? 1 : 0,
-      defaults.canMigrateDatabase ? 1 : 0,
-      defaults.canEnableKnowledge ? 1 : 0,
-      defaults.canRecoverWorkspaces ? 1 : 0,
-      now,
-      now,
-    ]);
-  }
+  const defaultRole = organization.owner_user_id === user.id
+    ? 'owner'
+    : isAdminUser(user) ? 'admin' : 'member';
+  await ensureOrganizationPermissionRow(database, {
+    organizationId: organization.organization_id,
+    userId: user.id,
+    role: defaultRole,
+    activateExisting: false,
+  });
 
   return getPermissionDetails(database, organization.organization_id, user.id);
 }
@@ -757,7 +709,7 @@ export async function updateOrganizationRole(params: {
         await assertAnotherAdminLikeExists(database, organization.organization_id, params.targetUserId);
       }
 
-      const defaults = permissionDefaults(role);
+      const defaults = organizationPermissionDefaults(role);
       const now = Date.now();
       await database.run(`
         UPDATE organization_user_permissions

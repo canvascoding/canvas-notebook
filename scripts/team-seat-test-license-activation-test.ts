@@ -465,7 +465,7 @@ async function main(): Promise<void> {
       licenseId,
       operationKey: prepared.executeOperation!.operationId,
       desiredQuantity: 2,
-      entitlementsVersion: 2,
+      entitlementsVersion: 1,
     });
     await assert.rejects(
       completeDirectMembershipActivation({
@@ -663,6 +663,15 @@ async function main(): Promise<void> {
         entitlementsVersion: 2,
       },
     );
+    assert.equal(activeTestStatus.seatLimit, 2);
+    assert.equal(
+      sqlite.prepare(`
+        SELECT reconciliation_seat_limit
+        FROM team_membership_sync_state
+        WHERE organization_id = 'organization-no-stripe'
+      `).pluck().get(),
+      null,
+    );
     const expired = await reconcileTeamLicenseLifecycle(
       lifecycleStatus(activeTestStatus),
       {
@@ -689,6 +698,35 @@ async function main(): Promise<void> {
     );
     assert.equal(existsSync(workspaceFile), true);
     assert.equal(readFileSync(workspaceFile, 'utf8'), 'preserve no-stripe data\n');
+    assert.deepEqual(
+      sqlite.prepare(`
+        SELECT
+          membership.status,
+          user_account.banned,
+          user_account.ban_reason,
+          permission.status AS permission_status,
+          (
+            SELECT transition.reason
+            FROM team_membership_transitions transition
+            WHERE transition.membership_id = membership.id
+            ORDER BY transition.created_at DESC, transition.id DESC
+            LIMIT 1
+          ) AS transition_reason
+        FROM team_memberships membership
+        INNER JOIN "user" user_account ON user_account.id = membership.user_id
+        INNER JOIN organization_user_permissions permission
+          ON permission.organization_id = membership.organization_id
+          AND permission.user_id = membership.user_id
+        WHERE membership.user_id = 'test-member-user'
+      `).get(),
+      {
+        status: 'suspended',
+        banned: 1,
+        ban_reason: 'canvas_team_license_fallback',
+        permission_status: 'disabled',
+        transition_reason: 'team_license_solo_fallback',
+      },
+    );
 
     const restored = await reconcileTeamLicenseLifecycle(
       activeTestStatus,

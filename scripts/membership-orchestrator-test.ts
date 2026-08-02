@@ -346,6 +346,24 @@ async function main() {
     sqlite.prepare('SELECT banned, ban_reason FROM "user" WHERE id = ?').get('member-user'),
     { banned: 0, ban_reason: null },
   );
+  assert.deepEqual(
+    sqlite.prepare(`
+      SELECT
+        role,
+        status,
+        can_write_team_workspace,
+        can_create_public_links
+      FROM organization_user_permissions
+      WHERE organization_id = 'organization-1' AND user_id = 'member-user'
+    `).get(),
+    {
+      role: 'member',
+      status: 'active',
+      can_write_team_workspace: 0,
+      can_create_public_links: 1,
+    },
+    'Seat activation must provision an active organization permission atomically',
+  );
 
   const resumedCompletion = await completeDirectMembershipActivation({
     organizationId: 'organization-1',
