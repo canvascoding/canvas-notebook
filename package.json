@@ -166,6 +166,7 @@
     "test:community-license-claim": "tsx --conditions react-server scripts/community-license-claim-client-test.ts",
     "test:community-license-recovery": "tsx --conditions react-server scripts/community-license-connection-recovery-test.ts",
     "test:community-license-refresh": "tsx --conditions react-server scripts/community-license-refresh-test.ts",
+    "test:license-environment-isolation": "tsx --conditions react-server scripts/license-environment-isolation-test.ts",
     "test:team-license-lifecycle": "tsx --conditions react-server scripts/team-license-lifecycle-test.ts",
     "test:community-team-preflight": "tsx --conditions react-server scripts/community-team-upgrade-preflight-test.ts",
     "test:community-license-ui": "tsx scripts/community-license-connection-ui-test.ts",

@@ -504,7 +504,7 @@
         {
           "id": "NB-TS-035",
           "title": "Test- und Manual-Lizenz-Isolation implementieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-security",
           "description": "Getrennte Test-/Production-Public-Keys und Audiences auflösen, erwartete Runtime-Environment serverseitig bestimmen und Testzertifikate außerhalb erlaubter Environments hart ablehnen.",
@@ -529,7 +529,8 @@
             "Browserparameter können Testmodus nicht aktivieren.",
             "Manual-Lizenz wird nur mit passender Environment und aktivem Grant akzeptiert.",
             "Environment-Mismatch liefert einen stabilen Fehlercode."
-          ]
+          ],
+          "progress": "Die Zertifikatsprüfung verwendet jetzt strikt getrennte Production- und Test-Keysets mit getrennten Env-Variablen, Trust-Fingerprints, Control-Plane-Endpunkten, Memory-Caches und persistenten Cache-Namespaces. Bis zu fünf vertrauenswürdige rotierte Keys bleiben pro Keyset verfügbar; ein unbekannter kid erzwingt einen frischen Abruf und übernimmt den neuen Key ohne Prozessneustart. Gleiche Fingerprints, Test-kids oder Test-Metadaten im Production-Keyset und umgekehrt werden fail-closed verworfen. Das erwartete License-Environment stammt ausschließlich aus CANVAS_LICENSE_RUNTIME_ENVIRONMENT beziehungsweise dem serverseitigen NODE_ENV-Fallback; die Verifikations-API bietet keinen clientseitig setzbaren Environment-Schalter. Testzertifikate benötigen den separaten Test-Key, eine vom Production-Wert verschiedene Test-Audience, ein nichtproduktives exakt passendes Environment sowie test-Provider und aktiven Grant-Claim. Manual-Zertifikate verwenden Production-Key und -Audience, benötigen ein exakt passendes Environment, nonBillable, einen nichtleeren Grant-Claim und provider=manual; Legacy-Test-/Manual-Zertifikate werden abgelehnt. Environment-Abweichungen liefern stabil LICENSE_CERT_ENVIRONMENT_INVALID, Production lehnt Testzertifikate bereits vor Keyauflösung ab. Die Control Plane liefert bei Refresh zusätzlich die effektiven signierten Grant-Klasse/-Environment/-Version in details zurück. Isolation, Key-Verwechslung, Rotation, Cache-Trennung, Browser-Override, Manual-Aktivierung, Claim-, Refresh-, Recovery-, Mobile-, Contract-, Lifecycle- und Domain-Regressionspfade sowie ESLint, TypeScript und Production-Build sind erfolgreich."
         }
       ]
     },

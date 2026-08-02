@@ -4,6 +4,7 @@ import {
   TEAM_SEAT_LICENSE_CLASSES,
   TEAM_SEAT_LICENSE_ENVIRONMENTS,
   TEAM_SEAT_PROTOCOL_VERSION,
+  type TeamSeatBillingProviderName,
   type TeamSeatEdition,
   type TeamSeatHostingMode,
   type TeamSeatLicenseClass,
@@ -63,6 +64,7 @@ export interface LicenseCert {
   licenseClass?: LicenseClass | string;
   licenseEnvironment?: LicenseEnvironment | string;
   seatLimit?: number;
+  provider?: TeamSeatBillingProviderName | string;
   grantId?: string;
   nonBillable?: boolean;
   deploymentMode?: LicenseDeploymentMode;

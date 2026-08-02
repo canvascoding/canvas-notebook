@@ -215,8 +215,12 @@ function storageFailure(
   return null;
 }
 
-async function publicKeyUnavailableError(): Promise<LicenseStatus['error'] | undefined> {
-  const resolution = await resolveLicensePublicKeys();
+async function publicKeyUnavailableError(
+  payload?: LicenseCert,
+): Promise<LicenseStatus['error'] | undefined> {
+  const resolution = await resolveLicensePublicKeys({
+    keyset: payload?.licenseClass === 'test' ? 'test' : 'production',
+  });
   if (resolution.keys.length > 0) return undefined;
   if (resolution.error === 'untrusted_key') return 'untrusted_public_key';
   if (resolution.error === 'unreachable') return 'control_plane_unreachable';
@@ -421,7 +425,7 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
   if (managed.status) return withRefreshRuntimeState(managed.status);
   if (managed.failure) lastFailure = managed.failure;
   const keyError = lastFailure?.code === 'LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE'
-    ? await publicKeyUnavailableError()
+    ? await publicKeyUnavailableError(lastFailure.payload)
     : undefined;
   const status = unresolvedStatus(instanceId, lastFailure, keyError);
 

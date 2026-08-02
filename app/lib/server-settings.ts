@@ -10,6 +10,8 @@ const SERVER_SETTINGS_FILE = 'server-preferences.json';
 
 export const INSTANCE_ONBOARDING_STEPS = ['server', 'license', 'provider', 'workspace', 'review'] as const;
 export type InstanceOnboardingStep = typeof INSTANCE_ONBOARDING_STEPS[number];
+export const LICENSE_RUNTIME_ENVIRONMENTS = ['development', 'test', 'staging', 'production'] as const;
+export type LicenseRuntimeEnvironment = typeof LICENSE_RUNTIME_ENVIRONMENTS[number];
 
 export type ServerSettings = {
   timeZone?: string;
@@ -28,6 +30,20 @@ type ServerSettingsFile = {
   version: 1;
   settings: ServerSettings;
 };
+
+export function getExpectedLicenseRuntimeEnvironment(
+  environment: NodeJS.ProcessEnv = process.env,
+): LicenseRuntimeEnvironment | null {
+  const configured = environment.CANVAS_LICENSE_RUNTIME_ENVIRONMENT?.trim().toLowerCase();
+  if (configured) {
+    return (LICENSE_RUNTIME_ENVIRONMENTS as readonly string[]).includes(configured)
+      ? configured as LicenseRuntimeEnvironment
+      : null;
+  }
+  if (environment.NODE_ENV === 'development') return 'development';
+  if (environment.NODE_ENV === 'test') return 'test';
+  return 'production';
+}
 
 function emptyServerSettingsFile(): ServerSettingsFile {
   return { version: 1, settings: {} };

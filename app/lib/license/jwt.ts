@@ -1,7 +1,11 @@
 import 'server-only';
 
 import crypto from 'crypto';
-import { resolveLicensePublicKeys } from './public-key';
+import { getExpectedLicenseRuntimeEnvironment } from '@/app/lib/server-settings';
+import {
+  resolveLicensePublicKeys,
+  type LicensePublicKeySet,
+} from './public-key';
 import {
   normalizeLicenseProductClaims,
   type LicenseCert,
@@ -10,6 +14,7 @@ import {
 
 const LICENSE_ISSUER = 'canvas-control-plane';
 const LICENSE_AUDIENCE = 'canvas-notebook';
+const DEFAULT_TEST_LICENSE_AUDIENCE = 'canvas-notebook-test';
 const MAX_IAT_SKEW_MS = 5 * 60 * 1000;
 
 type LicenseJwtHeader = {
@@ -94,11 +99,21 @@ function nonEmptyString(value: unknown): value is string {
   return typeof value === 'string' && value.trim().length > 0;
 }
 
-function productionRuntimeRejects(payload: LicenseCert): boolean {
-  if (process.env.NODE_ENV !== 'production') return false;
-  return payload.licenseClass === 'test'
-    || payload.licenseEnvironment === 'development'
-    || payload.licenseEnvironment === 'test';
+function expectedAudience(payload: LicenseCert): string | null {
+  if (payload.licenseClass !== 'test') return LICENSE_AUDIENCE;
+  const audience = process.env.CANVAS_LICENSE_TEST_AUDIENCE?.trim()
+    || DEFAULT_TEST_LICENSE_AUDIENCE;
+  return audience && audience !== LICENSE_AUDIENCE ? audience : null;
+}
+
+function keysetForPayload(payload: LicenseCert): LicensePublicKeySet {
+  return payload.licenseClass === 'test' ? 'test' : 'production';
+}
+
+function runtimeEnvironmentAccepts(payload: LicenseCert): boolean {
+  const expected = getExpectedLicenseRuntimeEnvironment();
+  if (!expected || payload.licenseEnvironment !== expected) return false;
+  return payload.licenseClass !== 'test' || expected !== 'production';
 }
 
 function modernClaimsAreConsistent(payload: LicenseCert): boolean {
@@ -110,9 +125,19 @@ function modernClaimsAreConsistent(payload: LicenseCert): boolean {
   if (product.hostingMode === 'cloud' && payload.plan !== 'managed') return false;
   if (product.edition === 'solo' && product.seatLimit !== 1) return false;
   if (payload.licenseClass === 'commercial') {
-    return payload.nonBillable === false && payload.grantId === undefined;
+    return payload.nonBillable === false
+      && payload.grantId === undefined
+      && payload.provider !== 'manual'
+      && payload.provider !== 'test';
   }
-  return payload.nonBillable === true && nonEmptyString(payload.grantId);
+  if (payload.licenseClass === 'manual') {
+    return payload.nonBillable === true
+      && nonEmptyString(payload.grantId)
+      && payload.provider === 'manual';
+  }
+  return payload.nonBillable === true
+    && nonEmptyString(payload.grantId)
+    && payload.provider === 'test';
 }
 
 export function decodeLicenseJwt(token: string): LicenseCert | null {
@@ -141,14 +166,37 @@ export async function verifyLicenseJwtDetailed(
   if (declaresModernProtocol && !nonEmptyString(header.kid)) {
     return failure('LICENSE_CERT_KEY_ID_MISSING', payload);
   }
+  if (
+    product
+    && (
+      declaresModernProtocol
+      || payload.licenseClass === 'manual'
+      || payload.licenseClass === 'test'
+      || payload.licenseEnvironment !== undefined
+    )
+    && !runtimeEnvironmentAccepts(payload)
+  ) {
+    return failure('LICENSE_CERT_ENVIRONMENT_INVALID', payload);
+  }
+  if (
+    !declaresModernProtocol
+    && (payload.licenseClass === 'manual' || payload.licenseClass === 'test')
+  ) {
+    return failure('LICENSE_CERT_CLAIMS_INVALID', payload);
+  }
 
-  const resolution = await resolveLicensePublicKeys();
+  const keyset = keysetForPayload(payload);
+  let resolution = await resolveLicensePublicKeys({ keyset });
   if (resolution.keys.length === 0) {
     return failure('LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE', payload);
   }
-  const candidateKeys = nonEmptyString(header.kid)
+  let candidateKeys = nonEmptyString(header.kid)
     ? resolution.keys.filter((key) => key.kid === header.kid)
     : resolution.keys;
+  if (candidateKeys.length === 0 && nonEmptyString(header.kid)) {
+    resolution = await resolveLicensePublicKeys({ keyset, forceRefresh: true });
+    candidateKeys = resolution.keys.filter((key) => key.kid === header.kid);
+  }
   if (candidateKeys.length === 0) {
     return failure('LICENSE_CERT_KEY_ID_UNKNOWN', payload);
   }
@@ -173,8 +221,10 @@ export async function verifyLicenseJwtDetailed(
   if (!signatureValid) return failure('LICENSE_CERT_SIGNATURE_INVALID', payload);
 
   if (payload.iss !== LICENSE_ISSUER) return failure('LICENSE_CERT_ISSUER_INVALID', payload);
-  if (productionRuntimeRejects(payload)) return failure('LICENSE_CERT_ENVIRONMENT_INVALID', payload);
-  if (payload.aud !== LICENSE_AUDIENCE) return failure('LICENSE_CERT_AUDIENCE_INVALID', payload);
+  const audience = expectedAudience(payload);
+  if (!audience || payload.aud !== audience) {
+    return failure('LICENSE_CERT_AUDIENCE_INVALID', payload);
+  }
   if (
     payload.sub !== expectedInstanceId
     || (payload.instanceId !== undefined && payload.instanceId !== expectedInstanceId)
