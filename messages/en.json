@@ -113,7 +113,27 @@
     "loggingIn": "Logging in...",
     "loginFailed": "Login failed",
     "unexpectedError": "An unexpected error occurred",
-    "loginSuccessful": "Login successful"
+    "loginSuccessful": "Login successful",
+    "oauthContinuationFailed": "The secure OAuth request could not be continued. Start the connection again."
+  },
+  "oauthConsent": {
+    "logoAlt": "Canvas logo",
+    "title": "Connect {clientName}?",
+    "description": "{clientName} wants to access selected content in this Canvas Notebook instance ({instanceHost}).",
+    "permissionsTitle": "Requested permissions",
+    "scopes": {
+      "identity": "Confirm your local user identity",
+      "offlineAccess": "Keep the connection active until you revoke it",
+      "workspaceList": "List workspaces you currently have permission to read",
+      "knowledgeTree": "View the folder and file structure of permitted knowledge areas",
+      "knowledgeSearch": "Search permitted knowledge content",
+      "knowledgeRead": "Read content from permitted knowledge sources"
+    },
+    "securityTitle": "Direct, local connection",
+    "securityDescription": "Sign-in, permissions, and data stay on {instanceHost}. The client receives read-only access limited by your current local permissions.",
+    "deny": "Deny",
+    "accept": "Allow access",
+    "requestFailed": "The OAuth request could not be processed. Start the connection again."
   },
   "signIn": {
     "title": "Sign In",

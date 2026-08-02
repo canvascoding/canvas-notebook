@@ -1,7 +1,7 @@
 # Direct V1 MCP OAuth Implementation Plan
 
 > Stand: 2026-08-02
-> Status: Umsetzung läuft – MCP-OAUTH-01 bis MCP-OAUTH-03 abgeschlossen
+> Status: Umsetzung läuft – MCP-OAUTH-01 bis MCP-OAUTH-04 abgeschlossen
 > Scope: ausschließlich direkte OAuth- und MCP-Anbindung einer einzelnen Canvas-Notebook-Instanz
 
 ## 1. Ziel und Reihenfolge
@@ -351,7 +351,11 @@ Prüfung:
 - manipulierte oder abgelaufene OAuth-Query wird abgewiesen.
 - bestehender normaler Login funktioniert unverändert.
 
-Für einen Playwright-Lauf wird entsprechend den Repository-Regeln vorab die ausdrückliche Freigabe des Nutzers eingeholt.
+Die ausdrückliche Freigabe für den Playwright-Lauf wurde am 2026-08-02 erteilt.
+Der funktionale OAuth-Flow, die servergerenderten deutschen und englischen
+UI-Zustände sowie Build, Typen und Lint sind geprüft. Der lokale macOS-Host
+beendet Chromium jedoch vor dem ersten Tab; der echte Screenshot-Lauf bleibt
+deshalb als abschließender QA-Nachweis in `MCP-OAUTH-09` offen.
 
 ### MCP-OAUTH-05 – Protected Resource Metadata und Token-Verifier
 

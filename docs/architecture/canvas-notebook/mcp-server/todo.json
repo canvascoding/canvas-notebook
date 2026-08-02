@@ -72,7 +72,8 @@
     {
       "id": "MCP-OAUTH-04",
       "title": "Lokalen Login-Flow und Consent OAuth-fähig machen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-02",
       "dependsOn": [
         "MCP-OAUTH-03"
       ],

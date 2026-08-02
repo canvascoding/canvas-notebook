@@ -50,7 +50,11 @@ async function persistPreferredLocale(locale: string): Promise<boolean> {
   return false;
 }
 
-export function LanguageSwitcher() {
+export function LanguageSwitcher({
+  preserveSearch = false,
+}: {
+  preserveSearch?: boolean;
+}) {
   const [isSaving, setIsSaving] = useState(false);
   const pathname = usePathname();
   const locale = useLocale();
@@ -71,7 +75,8 @@ export function LanguageSwitcher() {
     }
     // A full navigation avoids React clearing a mutated document during
     // locale transitions on public pages (see the Sentry hydration failure).
-    window.location.assign(buildLocalePath(nextLocale, pathname));
+    const search = preserveSearch ? window.location.search : '';
+    window.location.assign(`${buildLocalePath(nextLocale, pathname)}${search}`);
   }
 
   return (

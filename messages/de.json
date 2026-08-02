@@ -113,7 +113,27 @@
     "loggingIn": "Wird angemeldet...",
     "loginFailed": "Anmeldung fehlgeschlagen",
     "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
-    "loginSuccessful": "Anmeldung erfolgreich"
+    "loginSuccessful": "Anmeldung erfolgreich",
+    "oauthContinuationFailed": "Die sichere OAuth-Anfrage konnte nicht fortgesetzt werden. Starte die Verbindung erneut."
+  },
+  "oauthConsent": {
+    "logoAlt": "Canvas Logo",
+    "title": "{clientName} verbinden?",
+    "description": "{clientName} möchte auf ausgewählte Inhalte dieser Canvas-Notebook-Instanz ({instanceHost}) zugreifen.",
+    "permissionsTitle": "Angeforderte Berechtigungen",
+    "scopes": {
+      "identity": "Deine lokale Benutzeridentität bestätigen",
+      "offlineAccess": "Die Verbindung aufrechterhalten, bis du sie widerrufst",
+      "workspaceList": "Arbeitsbereiche auflisten, auf die du aktuell Lesezugriff hast",
+      "knowledgeTree": "Die Ordner- und Dateistruktur erlaubter Wissensbereiche anzeigen",
+      "knowledgeSearch": "In erlaubten Wissensinhalten suchen",
+      "knowledgeRead": "Inhalte erlaubter Wissensquellen lesen"
+    },
+    "securityTitle": "Direkte, lokale Verbindung",
+    "securityDescription": "Anmeldung, Berechtigungen und Daten bleiben auf {instanceHost}. Der Client erhält nur Lesezugriff im Umfang deiner aktuellen lokalen Rechte.",
+    "deny": "Ablehnen",
+    "accept": "Zugriff erlauben",
+    "requestFailed": "Die OAuth-Anfrage konnte nicht verarbeitet werden. Starte die Verbindung erneut."
   },
   "signIn": {
     "title": "Anmelden",

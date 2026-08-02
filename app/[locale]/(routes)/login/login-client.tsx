@@ -37,6 +37,14 @@ function resolvePostAuthRedirect(locale: string, from: string | null) {
   return buildLocalePath(locale, from);
 }
 
+function readOAuthRedirect(data: unknown): string | null {
+  if (!data || typeof data !== 'object') return null;
+  const record = data as Record<string, unknown>;
+  return record.redirect === true && typeof record.url === 'string' && record.url
+    ? record.url
+    : null;
+}
+
 async function resolvePreferredLocale(fallbackLocale: string): Promise<string> {
   try {
     const response = await fetch('/api/user-preferences', { credentials: 'include', cache: 'no-store' });
@@ -57,13 +65,15 @@ function LoginForm() {
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const passwordToggleLabel = showPassword ? t('hidePassword') : t('showPassword');
+  const isOAuthContinuation = searchParams.has('sig')
+    && searchParams.getAll('ba_param').length > 0;
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoading(true);
 
     try {
-      const { error } = await authClient.signIn.email({
+      const { data, error } = await authClient.signIn.email({
         email,
         password,
       });
@@ -73,6 +83,15 @@ function LoginForm() {
       } else {
         toast.success(t('loginSuccessful'));
         window.dispatchEvent(new CustomEvent('ws-auth-success'));
+        if (isOAuthContinuation) {
+          const oauthRedirect = readOAuthRedirect(data);
+          if (!oauthRedirect) {
+            toast.error(t('oauthContinuationFailed'));
+            return;
+          }
+          window.location.assign(oauthRedirect);
+          return;
+        }
         const preferredLocale = await resolvePreferredLocale(locale);
         window.location.assign(resolvePostAuthRedirect(preferredLocale, searchParams.get('from')));
       }
@@ -87,7 +106,7 @@ function LoginForm() {
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
       <div className="absolute right-4 top-4">
-        <LanguageSwitcher />
+        <LanguageSwitcher preserveSearch={isOAuthContinuation} />
       </div>
       <div className="w-full max-w-md border border-border bg-card p-8 shadow-sm">
         <div className="mb-8 flex flex-col items-center justify-center gap-3 sm:flex-row">
