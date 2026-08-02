@@ -37,7 +37,7 @@ export type MembershipSeatActivationResult = {
 export async function executeDirectMembershipActivation(input: {
   organizationId: string;
   membershipId: string;
-  actorUserId: string;
+  actorUserId?: string | null;
   password: string;
 }): Promise<MembershipSeatActivationResult> {
   if (input.password.length < 8 || input.password.length > 128) {

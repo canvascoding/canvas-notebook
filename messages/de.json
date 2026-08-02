@@ -2210,6 +2210,58 @@
       "categorySaveFailed": "Kategorie konnte nicht gespeichert werden."
     }
   },
+  "invitationAcceptance": {
+    "eyebrow": "Private Team-Einladung",
+    "title": "Dein Workspace wartet",
+    "description": "Prüfe zuerst die Einladung. Bei der Annahme entsteht nur eine ausstehende Mitgliedschaft; dein Account bleibt gesperrt, bis der Billing-Owner die exakten Seat-Kosten freigibt.",
+    "loading": "Einladung wird sicher geprüft...",
+    "email": "Eingeladene E-Mail",
+    "role": "Team-Rolle",
+    "expires": "Einladung gültig bis {date}",
+    "consent": "Mit der Annahme bestätigst du, dass diese E-Mail-Adresse dir gehört. In diesem Schritt wird noch kein kostenpflichtiger Seat aktiviert.",
+    "accept": "Einladung annehmen",
+    "resume": "Aktivierung fortsetzen",
+    "refresh": "Neues Angebot laden",
+    "check": "Freigabe prüfen",
+    "activate": "Passwort setzen und aktivieren",
+    "retry": "Billing und Aktivierung erneut versuchen",
+    "password": "Wähle dein Passwort",
+    "passwordHint": "Der Account wird erst nach bestätigtem Billing und signiertem Seat-Limit loginfähig.",
+    "billingPendingHint": "Beim Billing ist noch eine Aktion erforderlich. Dein Account bleibt gesperrt; versuche es erneut, nachdem der Billing-Owner den Provider-Status geklärt hat.",
+    "waitingHint": "Das exakte Seat-Angebot wartet im Control Plane auf einen Organisations-Owner oder eine Billing-Rolle. Du kannst diese Seite sicher schließen und mit demselben Link zurückkehren.",
+    "expiredHint": "Der vorherige Preis ist nicht mehr gültig. Lade ein aktuelles serverseitig berechnetes Angebot; der Billing-Owner muss es erneut bestätigen.",
+    "completeTitle": "Mitgliedschaft aktiviert",
+    "completeDescription": "Seat, signiertes Lizenzlimit, lokaler Account, Workspace und Onboarding-Status sind bereit.",
+    "login": "Weiter zur Anmeldung",
+    "security": "Das Einladungs-Token bleibt in diesem Browser. Preis, Menge, Authorization und Billing-Operationen werden ausschließlich serverseitig berechnet und geprüft.",
+    "roles": {
+      "admin": "Administrator",
+      "member": "Mitglied",
+      "external": "Extern"
+    },
+    "states": {
+      "waiting": "Freigabe ausstehend",
+      "approved": "Freigegeben",
+      "billingPending": "Billing ausstehend",
+      "expired": "Angebot abgelaufen",
+      "active": "Aktiv"
+    },
+    "quote": {
+      "title": "Team-Seat-Angebot",
+      "quantity": "Seat-Anzahl",
+      "perSeat": "Preis pro Seat",
+      "recurring": "Wiederkehrender Gesamtbetrag",
+      "dueNow": "Jetzt fällig",
+      "dueLater": "Wird beim Billing berechnet",
+      "month": "Monat"
+    },
+    "errors": {
+      "preview": "Diese Einladung konnte nicht geladen werden.",
+      "accept": "Die Einladung konnte nicht angenommen werden.",
+      "activate": "Der eingeladene Account konnte nicht aktiviert werden.",
+      "password": "Wähle ein Passwort mit 8 bis 128 Zeichen."
+    }
+  },
   "settings": {
     "title": "Einstellungen",
     "tabs": {
@@ -2472,11 +2524,14 @@
         "submit": "Einladung erstellen",
         "done": "Fertig"
       },
-      "invitations": {
-        "title": "Einladungen",
-        "description": "Ausstehende, angenommene, widerrufene und abgelaufene Einladungen verbrauchen keinen aktiven Seat.",
-        "revoke": "Widerrufen",
-        "status": {
+    "invitations": {
+      "title": "Einladungen",
+      "description": "Ausstehende, angenommene, widerrufene und abgelaufene Einladungen verbrauchen keinen aktiven Seat.",
+      "revoke": "Widerrufen",
+      "decline": "Aktivierung ablehnen",
+      "billingStatus": "Billing-Status",
+      "billingOwnerOnly": "Nur ein Organisations-Owner kann die Billing-Freigabe von dieser Instanz aus öffnen.",
+      "status": {
           "pending": "Ausstehend",
           "accepted": "Angenommen",
           "revoked": "Widerrufen",

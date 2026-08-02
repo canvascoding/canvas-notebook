@@ -47,7 +47,7 @@ export type MembershipSeatQuotePayload = {
 
 export async function dispatchDirectMembershipSeatPreparation(input: {
   activation: MembershipActivation;
-  actorUserId: string;
+  actorUserId?: string | null;
 }): Promise<DirectMembershipSeatQuote> {
   const response = input.activation.prepareOperation.responseJson
     ? parseTeamSeatPrepareResponse(
@@ -72,7 +72,7 @@ export async function dispatchDirectMembershipSeatPreparation(input: {
 export async function refreshDirectMembershipSeatAuthorization(input: {
   organizationId: string;
   membershipId: string;
-  actorUserId: string;
+  actorUserId?: string | null;
 }): Promise<DirectMembershipSeatQuote> {
   const stored = await getDirectMembershipSeatQuote({
     organizationId: input.organizationId,

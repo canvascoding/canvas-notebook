@@ -79,15 +79,20 @@ export class MembershipOrchestratorError extends Error {
 }
 
 function parsePrepareRequest(operation: TeamSeatOutboxOperation) {
+  const operationType = operation.operationType;
   const value = JSON.parse(operation.requestJson) as {
     desiredQuantity?: unknown;
     triggerType?: unknown;
     externalReference?: unknown;
   };
   if (
-    value.triggerType !== 'member_create'
+    (operationType !== 'member_create' && operationType !== 'invitation_accept')
+    || value.triggerType !== operationType
     || typeof value.externalReference !== 'string'
-    || value.externalReference !== operation.membershipId
+    || (
+      operationType === 'member_create'
+      && value.externalReference !== operation.membershipId
+    )
   ) {
     throw new MembershipOrchestratorError(
       'MEMBERSHIP_OPERATION_CONFLICT',
@@ -96,7 +101,7 @@ function parsePrepareRequest(operation: TeamSeatOutboxOperation) {
   }
   return createTeamSeatPrepareRequest({
     desiredQuantity: Number(value.desiredQuantity),
-    triggerType: value.triggerType,
+    triggerType: operationType,
     externalReference: value.externalReference,
   });
 }
@@ -114,7 +119,11 @@ function parseExecuteRequest(operation: TeamSeatOutboxOperation) {
   if (
     typeof value.authorizationId !== 'string'
     || typeof value.operationKey !== 'string'
-    || value.operationType !== 'member_create'
+    || (
+      value.operationType !== 'member_create'
+      && value.operationType !== 'invitation_accept'
+    )
+    || value.operationType !== operation.operationType
   ) {
     throw new MembershipOrchestratorError(
       'MEMBERSHIP_OPERATION_CONFLICT',
@@ -139,6 +148,7 @@ function assertPendingCandidateMatches(
   if (
     !['approval_required', 'billing_pending'].includes(membership.status)
     || membership.userId !== null
+    || membership.externalInvitationId !== null
     || membership.displayName !== input.displayName
     || membership.role !== input.role
   ) {
@@ -164,7 +174,7 @@ async function requireMembershipOperation(
     || operation.organizationId !== input.organizationId
     || operation.membershipId !== input.membershipId
     || operation.operationKind !== input.kind
-    || operation.operationType !== 'member_create'
+    || !['member_create', 'invitation_accept'].includes(operation.operationType || '')
   ) {
     throw new MembershipOrchestratorError(
       'MEMBERSHIP_OPERATION_NOT_FOUND',
@@ -284,14 +294,14 @@ async function enqueueMembershipSeatExecution(
   const executeRequest = createTeamSeatExecuteRequest({
     authorizationId: input.authorizationId,
     operationKey: input.authorizationId,
-    operationType: 'member_create',
+    operationType: input.prepareOperation.operationType!,
   });
   return (await enqueueTeamSeatOutboxOperation(database, {
     organizationId: input.organizationId,
     operationId: input.authorizationId,
     dedupeKey: `membership:${input.membership.id}:seat-execute:${input.authorizationId}`,
     operationKind: 'seat_execute',
-    operationType: 'member_create',
+    operationType: input.prepareOperation.operationType,
     membershipId: input.membership.id,
     membershipRevision: input.prepareOperation.membershipRevision,
     request: executeRequest,
@@ -404,6 +414,77 @@ export async function beginDirectMembershipActivation(input: {
       executeOperation: null,
       requiresBillingApproval: null,
       replayed: replayed || enqueued.replayed,
+    };
+  } finally {
+    if (closeDatabase) await database.close();
+  }
+}
+
+export async function beginInvitationMembershipActivation(input: {
+  organizationId: string;
+  membershipId: string;
+  invitationId: string;
+  database?: MembershipOrchestratorDatabase;
+  now?: number;
+}): Promise<MembershipActivation> {
+  const database = input.database ?? await openDb();
+  const closeDatabase = input.database === undefined;
+  const now = input.now ?? Date.now();
+  try {
+    const membership = await getTeamMembershipById(
+      database,
+      input.organizationId,
+      input.membershipId,
+    );
+    if (
+      !membership
+      || membership.status !== 'approval_required'
+      || membership.userId !== null
+      || membership.externalInvitationId !== input.invitationId
+    ) {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_OPERATION_CONFLICT',
+        'The accepted invitation does not match an approval-pending membership.',
+      );
+    }
+    const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
+    const desiredQuantity = projection.observedQuantity + 1;
+    const syncState = await getTeamMembershipSyncState(database, input.organizationId);
+    const request = createTeamSeatPrepareRequest({
+      desiredQuantity,
+      triggerType: 'invitation_accept',
+      externalReference: input.invitationId,
+    });
+    const enqueued = await enqueueTeamSeatOutboxOperation(database, {
+      organizationId: input.organizationId,
+      dedupeKey: `invitation:${input.invitationId}:seat-prepare`,
+      operationKind: 'seat_prepare',
+      operationType: 'invitation_accept',
+      membershipId: input.membershipId,
+      membershipRevision: syncState?.currentRevision ?? 0,
+      request,
+      now,
+      nextAttemptAt: now,
+    });
+    const prepareOperation = enqueued.replayed
+      ? await latestMembershipPrepareOperation(database, input.organizationId, input.membershipId)
+      : enqueued.operation;
+    if (!prepareOperation) {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_OPERATION_NOT_FOUND',
+        'The persisted invitation Seat preparation was not found.',
+        404,
+      );
+    }
+    return {
+      stage: 'seat_prepare_pending',
+      membership,
+      desiredQuantity,
+      observedQuantity: projection.observedQuantity,
+      prepareOperation,
+      executeOperation: null,
+      requiresBillingApproval: null,
+      replayed: enqueued.replayed,
     };
   } finally {
     if (closeDatabase) await database.close();
@@ -608,6 +689,16 @@ export async function recordDirectMembershipSeatAuthorizationStatus(input: {
         databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
       });
     }
+    if (
+      current.authorization.status === 'approved'
+      && membership.status !== 'billing_pending'
+      && membership.status !== 'active'
+    ) {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_OPERATION_CONFLICT',
+        `Membership cannot execute an approved Seat change from status ${membership.status}.`,
+      );
+    }
     const executeOperation = current.authorization.status === 'approved'
       ? await enqueueMembershipSeatExecution(database, {
         organizationId: input.organizationId,
@@ -646,7 +737,7 @@ export async function beginDirectMembershipSeatRequote(input: {
   membershipId: string;
   staleQuoteId: string;
   currentResponse?: unknown;
-  actorUserId: string;
+  actorUserId?: string | null;
   database?: MembershipOrchestratorDatabase;
   databaseProvider?: DatabaseProvider;
   now?: number;
@@ -692,6 +783,8 @@ export async function beginDirectMembershipSeatRequote(input: {
     const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
     const desiredQuantity = projection.observedQuantity + 1;
     const syncState = await getTeamMembershipSyncState(database, input.organizationId);
+    const previousRequest = parsePrepareRequest(stored.activation.prepareOperation);
+    const operationType = stored.activation.prepareOperation.operationType!;
     const count = await database.get(`
       SELECT COUNT(*) AS count
       FROM team_seat_outbox
@@ -701,14 +794,14 @@ export async function beginDirectMembershipSeatRequote(input: {
     `, [input.organizationId, input.membershipId]) as { count: number } | undefined;
     const request = createTeamSeatPrepareRequest({
       desiredQuantity,
-      triggerType: 'member_create',
-      externalReference: input.membershipId,
+      triggerType: operationType,
+      externalReference: previousRequest.externalReference,
     });
     const enqueued = await enqueueTeamSeatOutboxOperation(database, {
       organizationId: input.organizationId,
-      dedupeKey: `membership:${input.membershipId}:seat-prepare:${Number(count?.count || 0) + 1}`,
+      dedupeKey: `${operationType}:${input.membershipId}:seat-prepare:${Number(count?.count || 0) + 1}`,
       operationKind: 'seat_prepare',
-      operationType: 'member_create',
+      operationType,
       membershipId: input.membershipId,
       membershipRevision: syncState?.currentRevision ?? 0,
       request,
@@ -1040,7 +1133,7 @@ export async function completeDirectMembershipActivation(input: {
         source: 'control_plane',
         reason: 'team_seat_and_certificate_confirmed',
         controlPlaneOperationId: executed.operation.operationId,
-        seatOperationType: 'member_create',
+        seatOperationType: operation.operationType!,
         now,
         databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
       });

@@ -658,7 +658,7 @@
         {
           "id": "NB-TS-044",
           "title": "Invitation Acceptance zweiphasig umstellen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership",
           "description": "Annahme einer Einladung gegen Vorabfreigabe oder Billing-Owner-Approval prüfen und erst nach Seat-Erfolg aktivieren.",
@@ -680,7 +680,8 @@
             "Invited User sieht einen verständlichen Pending-Zustand.",
             "Billing-Owner kann die Aktivierung freigeben oder ablehnen.",
             "Erfolgreiche Annahme erhöht Membership-Revision genau einmal."
-          ]
+          ],
+          "progress": "Die öffentliche Invitation-Seite prüft den Einmal-Token zunächst ausschließlich über einen nicht mutierenden, rate-limitierten POST-Preview und konsumiert die Einladung erst nach expliziter Annahme. Acceptance-Request-ID, Candidate, Invitation und Seat-Prepare-/Execute-Operation bleiben restartfest verknüpft; ein erneuter Aufruf mit demselben Token stellt selbst nach Response-Verlust den approval_required-, billing_pending- oder active-Zustand wieder her. Die angenommene Einladung erzeugt serverseitig eine invitation_accept-Quote aus der aktuellen aktiven Membership-Projektion, zeigt dem eingeladenen User Quantity, Einzelpreis, wiederkehrende und sofortige Kosten sowie Pending-, Stale-, Approval- und Billing-Zustände, legt aber weder User noch aktiven Seat an. Lokale Owner öffnen die unveränderliche Control-Plane-Quote zur Billing-Freigabe; lokale Admins sehen nur den Status. Eine angenommene Einladung kann vor Beginn von seat_execute ausdrücklich abgelehnt werden und wechselt ohne Billing-Operation oder aktive Revision nach removed. Nach bestätigter Authorization verwendet die Aktivierung dieselbe zweiphasige Execute-, Zertifikats-, Better-Auth- und Onboarding-Pipeline wie Direct Create; erst ein ausreichendes signiertes seatLimit macht den zunächst gesperrten Account loginfähig. Idempotente Replays erzeugen exakt eine active-Transition und Membership-Revision. Invitation-, Orchestrator-, Preflight-, Contract- und Outbox-Tests sowie TypeScript, ESLint und Production-Build sind erfolgreich; der Build meldet lediglich bestehende Turbopack-Warnungen zu dynamischen Workspace-Pfaden."
         },
         {
           "id": "NB-TS-045",

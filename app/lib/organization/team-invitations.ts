@@ -422,6 +422,42 @@ export async function listTeamMembershipInvitations(input: {
   }
 }
 
+export async function previewTeamMembershipInvitation(input: {
+  token: string;
+  database?: InvitationDatabase;
+  now?: number;
+}): Promise<{
+  invitation: TeamMembershipInvitation;
+  resumeRequestId: string | null;
+}> {
+  const database = input.database ?? await openDb();
+  const closeDatabase = input.database === undefined;
+  const now = input.now ?? Date.now();
+  try {
+    const invitation = await readInvitationByToken(database, input.token);
+    if (!invitation) {
+      throw new TeamInvitationError('INVITATION_NOT_FOUND', 'Invitation not found.', 404);
+    }
+    if (invitation.status === 'revoked') {
+      throw new TeamInvitationError('INVITATION_REVOKED', 'Invitation was revoked.', 410);
+    }
+    if (
+      invitation.status === 'expired'
+      || (invitation.status === 'pending' && invitation.expiresAt <= now)
+    ) {
+      throw new TeamInvitationError('INVITATION_EXPIRED', 'Invitation has expired.', 410);
+    }
+    return {
+      invitation,
+      resumeRequestId: invitation.status === 'accepted'
+        ? invitation.acceptedRequestId
+        : null,
+    };
+  } finally {
+    if (closeDatabase) await database.close();
+  }
+}
+
 export async function revokeTeamMembershipInvitation(input: {
   organizationId: string;
   invitationId: string;
@@ -440,10 +476,56 @@ export async function revokeTeamMembershipInvitation(input: {
       throw new TeamInvitationError('INVITATION_NOT_FOUND', 'Invitation not found.', 404);
     }
     if (current.status === 'accepted') {
-      throw new TeamInvitationError(
-        'INVITATION_ALREADY_USED',
-        'An accepted invitation cannot be revoked.',
+      const membership = await getTeamMembershipById(
+        database,
+        input.organizationId,
+        current.membershipId,
       );
+      const executeOperation = await database.get(`
+        SELECT operation_id
+        FROM team_seat_outbox
+        WHERE organization_id = ?
+          AND membership_id = ?
+          AND operation_kind = 'seat_execute'
+        LIMIT 1
+      `, [input.organizationId, current.membershipId]) as { operation_id: string } | undefined;
+      if (
+        !membership
+        || membership.status !== 'approval_required'
+        || membership.userId !== null
+        || executeOperation
+      ) {
+        throw new TeamInvitationError(
+          'INVITATION_CONFLICT',
+          'An invitation with started Seat execution can no longer be declined.',
+        );
+      }
+      await transitionTeamMembership(database, {
+        organizationId: input.organizationId,
+        membershipId: membership.id,
+        expectedStatus: 'approval_required',
+        toStatus: 'removed',
+        actorUserId: input.actorUserId,
+        source: 'invitation',
+        reason: 'team_invitation_revoked',
+        externalInvitationId: current.id,
+        metadata: {
+          billableOperation: false,
+          declinedBeforeSeatExecution: true,
+        },
+        now,
+        databaseProvider,
+      });
+      await database.run(`
+        UPDATE team_membership_invitations
+        SET status = 'revoked', revoked_at = ?, updated_at = ?
+        WHERE organization_id = ? AND id = ? AND status = 'accepted'
+      `, [now, now, input.organizationId, input.invitationId]);
+      return (await readInvitationById(
+        database,
+        input.organizationId,
+        input.invitationId,
+      ))!;
     }
     if (current.status === 'pending') {
       await database.run(`
@@ -537,8 +619,16 @@ export async function acceptTeamMembershipInvitation(input: {
       !membership
       || membership.candidateEmail !== invitation.email
       || membership.role !== invitation.role
-      || !['invited', 'approval_required'].includes(membership.status)
-      || membership.userId !== null
+      || !(
+        replayed
+          ? ['approval_required', 'billing_pending', 'active'].includes(membership.status)
+          : ['invited', 'approval_required'].includes(membership.status)
+      )
+      || (
+        membership.status === 'active'
+          ? membership.userId === null
+          : membership.userId !== null
+      )
     ) {
       throw new TeamInvitationError(
         'INVITATION_CONFLICT',

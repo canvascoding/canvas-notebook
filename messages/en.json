@@ -2211,6 +2211,58 @@
       "categorySaveFailed": "Could not save category."
     }
   },
+  "invitationAcceptance": {
+    "eyebrow": "Private Team invitation",
+    "title": "Your workspace is waiting",
+    "description": "Review the invitation first. Accepting it creates a pending membership; your account stays locked until the billing owner approves the exact Seat cost.",
+    "loading": "Checking this invitation securely...",
+    "email": "Invited email",
+    "role": "Team role",
+    "expires": "Invitation valid until {date}",
+    "consent": "By accepting, you confirm that this email address belongs to you. No paid Seat is activated at this step.",
+    "accept": "Accept invitation",
+    "resume": "Resume activation",
+    "refresh": "Load a new quote",
+    "check": "Check approval",
+    "activate": "Set password and activate",
+    "retry": "Retry billing and activation",
+    "password": "Choose your password",
+    "passwordHint": "The account becomes sign-in capable only after billing and the signed Seat limit are confirmed.",
+    "billingPendingHint": "Billing still needs action. Your account remains locked; retry after the billing owner has resolved the provider state.",
+    "waitingHint": "The exact Seat quote is waiting for an organization owner or billing role in the Control Plane. You can safely close this page and return with the same link.",
+    "expiredHint": "The previous price is no longer valid. Load a current server-calculated quote; the billing owner must confirm it again.",
+    "completeTitle": "Membership activated",
+    "completeDescription": "The Seat, signed license limit, local account, workspace, and onboarding state are ready.",
+    "login": "Continue to sign in",
+    "security": "The invitation token stays in this browser. Price, quantity, authorization, and billing operations are calculated and verified server-side.",
+    "roles": {
+      "admin": "Administrator",
+      "member": "Member",
+      "external": "External"
+    },
+    "states": {
+      "waiting": "Approval pending",
+      "approved": "Approved",
+      "billingPending": "Billing pending",
+      "expired": "Quote expired",
+      "active": "Active"
+    },
+    "quote": {
+      "title": "Team Seat quote",
+      "quantity": "Seat quantity",
+      "perSeat": "Price per Seat",
+      "recurring": "Recurring total",
+      "dueNow": "Due now",
+      "dueLater": "Calculated during billing",
+      "month": "month"
+    },
+    "errors": {
+      "preview": "This invitation could not be loaded.",
+      "accept": "The invitation could not be accepted.",
+      "activate": "The invited account could not be activated.",
+      "password": "Choose a password between 8 and 128 characters."
+    }
+  },
   "settings": {
     "title": "Settings",
     "tabs": {
@@ -2473,11 +2525,14 @@
         "submit": "Create invitation",
         "done": "Done"
       },
-      "invitations": {
-        "title": "Invitations",
-        "description": "Pending, accepted, revoked, and expired invitations do not consume an active Seat.",
-        "revoke": "Revoke",
-        "status": {
+    "invitations": {
+      "title": "Invitations",
+      "description": "Pending, accepted, revoked, and expired invitations do not consume an active Seat.",
+      "revoke": "Revoke",
+      "decline": "Decline activation",
+      "billingStatus": "Billing status",
+      "billingOwnerOnly": "Only an organization owner can open billing approval from this instance.",
+      "status": {
           "pending": "Pending",
           "accepted": "Accepted",
           "revoked": "Revoked",

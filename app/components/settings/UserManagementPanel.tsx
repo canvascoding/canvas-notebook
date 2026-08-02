@@ -71,6 +71,7 @@ type TeamLicenseState = 'checking' | 'active' | 'required';
 
 type TeamInvitation = {
   id: string;
+  membershipId: string;
   email: string;
   role: 'admin' | 'member' | 'external';
   status: 'pending' | 'accepted' | 'revoked' | 'expired';
@@ -258,6 +259,7 @@ export function UserManagementPanel({
   const [inviteDraft, setInviteDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
   const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
+  const [invitationSeatQuotes, setInvitationSeatQuotes] = useState<Record<string, MembershipSeatQuote>>({});
   const [permissionsTarget, setPermissionsTarget] = useState<ManagedUser | null>(null);
   const [passwordTarget, setPasswordTarget] = useState<ManagedUser | null>(null);
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -535,6 +537,31 @@ export function UserManagementPanel({
         }
       },
       t('messages.invitationRevoked', { email: invitation.email }),
+    );
+  };
+
+  const loadInvitationSeatQuote = async (invitation: TeamInvitation) => {
+    await runAction(
+      `invite:quote:${invitation.id}`,
+      async () => {
+        const response = await fetch(
+          `/api/admin/organization/memberships/${encodeURIComponent(invitation.membershipId)}/quote`,
+          { cache: 'no-store', credentials: 'include' },
+        );
+        const payload = await response.json().catch(() => ({})) as {
+          success?: boolean;
+          data?: MembershipSeatQuote;
+          error?: string;
+        };
+        if (!response.ok || payload.success !== true || !payload.data) {
+          throw new Error(payload.error || t('errors.quoteLoad'));
+        }
+        setInvitationSeatQuotes((current) => ({
+          ...current,
+          [invitation.id]: payload.data!,
+        }));
+      },
+      t('messages.quoteChecked'),
     );
   };
 
@@ -952,21 +979,70 @@ export function UserManagementPanel({
                       <p className="text-xs text-muted-foreground">
                         {t(`roles.${invitation.role}`)} · {t(`invitations.status.${invitation.status}`)} · {formatDate(invitation.expiresAt, locale)}
                       </p>
+                      {invitationSeatQuotes[invitation.id] && (
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+                          <span>
+                            {invitationSeatQuotes[invitation.id].quote.quantityBefore}
+                            {' → '}
+                            {invitationSeatQuotes[invitation.id].quote.quantityAfter}
+                            {' · '}
+                            {formatMoney(
+                              invitationSeatQuotes[invitation.id].quote.recurringAmountCents,
+                              invitationSeatQuotes[invitation.id].quote.currency,
+                              locale,
+                            )}
+                            {' / '}
+                            {t('seatQuote.month')}
+                          </span>
+                          {invitationSeatQuotes[invitation.id].approval.url ? (
+                            <Button asChild size="sm" variant="link" className="h-auto px-0 text-xs">
+                              <a
+                                href={invitationSeatQuotes[invitation.id].approval.url!}
+                                target="_blank"
+                                rel="noreferrer"
+                              >
+                                <ExternalLink data-icon="inline-start" />
+                                {t('seatQuote.openApproval')}
+                              </a>
+                            </Button>
+                          ) : (
+                            <span>{t('invitations.billingOwnerOnly')}</span>
+                          )}
+                        </div>
+                      )}
                     </div>
-                    {invitation.status === 'pending' && (
-                      <Button
-                        type="button"
-                        size="sm"
-                        variant="outline"
-                        disabled={activeAction !== null}
-                        onClick={() => void revokeInvitation(invitation)}
-                      >
-                        {activeAction === `invite:revoke:${invitation.id}`
-                          ? <Loader2 data-icon="inline-start" className="animate-spin" />
-                          : <Ban data-icon="inline-start" />}
-                        {t('invitations.revoke')}
-                      </Button>
-                    )}
+                    <div className="flex flex-wrap gap-2">
+                      {invitation.status === 'accepted' && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={activeAction !== null}
+                          onClick={() => void loadInvitationSeatQuote(invitation)}
+                        >
+                          {activeAction === `invite:quote:${invitation.id}`
+                            ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                            : <RefreshCw data-icon="inline-start" />}
+                          {t('invitations.billingStatus')}
+                        </Button>
+                      )}
+                      {(invitation.status === 'pending' || invitation.status === 'accepted') && (
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          disabled={activeAction !== null}
+                          onClick={() => void revokeInvitation(invitation)}
+                        >
+                          {activeAction === `invite:revoke:${invitation.id}`
+                            ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                            : <Ban data-icon="inline-start" />}
+                          {invitation.status === 'accepted'
+                            ? t('invitations.decline')
+                            : t('invitations.revoke')}
+                        </Button>
+                      )}
+                    </div>
                   </div>
                 ))}
               </div>
