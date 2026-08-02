@@ -268,15 +268,36 @@ async function main(): Promise<void> {
   assert.equal(secondRetry.operationId, latestOperation.operationId);
   assert.equal(secondRetry.attemptCount, 2);
 
+  const validAcknowledgement = snapshotResponse(secondRetry, {
+    observedQuantity: 1,
+    approvedQuantity: 2,
+    billedQuantity: 2,
+    licensedQuantity: 2,
+  });
+  await assert.rejects(
+    recordTeamSeatSnapshotAcknowledgement(connection, {
+      organizationId: 'organization-1',
+      operationId: latestOperation.operationId,
+      response: {
+        ...validAcknowledgement,
+        snapshot: {
+          ...validAcknowledgement.snapshot,
+          roleSummary: { owner: 0, admin: 1, member: 0, external: 0 },
+        },
+      },
+      entitlementsVersion: 9,
+      now: 6_000,
+      databaseProvider: 'sqlite',
+    }),
+    (error: unknown) => (
+      error instanceof TeamSeatOutboxError
+      && error.code === 'TEAM_SEAT_SNAPSHOT_CONFLICT'
+    ),
+  );
   const acknowledged = await recordTeamSeatSnapshotAcknowledgement(connection, {
     organizationId: 'organization-1',
     operationId: latestOperation.operationId,
-    response: snapshotResponse(secondRetry, {
-      observedQuantity: 1,
-      approvedQuantity: 2,
-      billedQuantity: 2,
-      licensedQuantity: 2,
-    }),
+    response: validAcknowledgement,
     entitlementsVersion: 9,
     now: 6_000,
     databaseProvider: 'sqlite',

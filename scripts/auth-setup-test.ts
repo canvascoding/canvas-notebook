@@ -76,6 +76,27 @@ function assertOrganizationBootstrapState(
   assert.equal(membership.role, 'owner');
   assert.equal(membership.status, 'active');
   assert.equal(typeof membership.acceptedAt, 'number');
+  const membershipCounts = sqlite.prepare(`
+    SELECT
+      (
+        SELECT COUNT(*)
+        FROM team_memberships
+        WHERE organization_id = ? AND user_id = ?
+      ) AS memberships,
+      (
+        SELECT COUNT(*)
+        FROM team_membership_transitions transition
+        INNER JOIN team_memberships membership ON membership.id = transition.membership_id
+        WHERE membership.organization_id = ? AND membership.user_id = ?
+      ) AS transitions
+  `).get(
+    organization.organizationId,
+    expectedUserId,
+    organization.organizationId,
+    expectedUserId,
+  ) as { memberships: number; transitions: number };
+  assert.equal(membershipCounts.memberships, 1);
+  assert.equal(membershipCounts.transitions, 1);
 
   const workspaces = sqlite.prepare(`
     SELECT type, owner_user_id AS ownerUserId, root_relative_path AS rootRelativePath, display_name AS displayName, status

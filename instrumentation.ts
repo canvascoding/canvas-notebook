@@ -20,6 +20,8 @@ export async function register() {
       initializeCommunityLicenseRefreshRuntime();
       const { initializeTeamLicenseLifecycleRuntime } = await import("./app/lib/license/team-license-lifecycle");
       initializeTeamLicenseLifecycleRuntime();
+      const { initializeTeamMembershipSnapshotSyncRuntime } = await import("./app/lib/license/team-membership-sync");
+      initializeTeamMembershipSnapshotSyncRuntime();
     }
   }
 

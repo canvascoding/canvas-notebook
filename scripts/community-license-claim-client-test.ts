@@ -122,6 +122,13 @@ async function main(): Promise<void> {
     resolveCommunityClaimSessionPath,
     resolveCommunityInstanceTokenPath,
   } = await import('../app/lib/license/storage');
+  const {
+    registerTeamMembershipSyncSignal,
+  } = await import('../app/lib/license/team-membership-sync-signal');
+  let membershipSyncSignals = 0;
+  registerTeamMembershipSyncSignal(() => {
+    membershipSyncSignals += 1;
+  });
 
   const startedAt = new Date('2026-08-01T10:00:00.000Z');
   const claimExpiresAt = '2026-08-01T10:10:00.000Z';
@@ -213,6 +220,7 @@ async function main(): Promise<void> {
   assert.equal(await loadCommunityClaimSession('self_claim_client_test'), null);
   assert.equal((await stat(resolveCommunityInstanceTokenPath())).mode & 0o777, 0o600);
   assert.equal((await loadCommunityInstanceToken('self_claim_client_test'))?.instanceToken, instanceToken);
+  assert.equal(membershipSyncSignals, 1);
 
   const recoveredConnected = await pollCommunityLicenseClaim(started.claimId, {
     fetchImpl: mockFetch,
@@ -331,6 +339,7 @@ async function main(): Promise<void> {
   )));
   assert.equal(routeSources.some((source) => source.includes('deviceCode')), false);
   assert.equal(routeSources.some((source) => source.includes('instanceToken')), false);
+  registerTeamMembershipSyncSignal(null);
 
   console.log('community license claim client tests passed');
   } finally {

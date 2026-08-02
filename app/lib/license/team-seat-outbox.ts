@@ -15,6 +15,7 @@ import {
   type TeamSeatSnapshotRequest,
 } from '@/app/lib/license/team-seat-contract';
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
+import { signalTeamMembershipSnapshotSync } from './team-membership-sync-signal';
 
 export const TEAM_SEAT_OUTBOX_OPERATION_KINDS = [
   'membership_snapshot',
@@ -397,12 +398,9 @@ export function teamSeatSnapshotHash(
   );
   return sha256(JSON.stringify({
     protocolVersion: input.protocolVersion,
-    revision: input.revision,
     observedQuantity: input.observedQuantity,
     roleSummary,
     memberHashes: [...input.memberHashes].sort(),
-    generatedAt: input.generatedAt,
-    notebookVersion: input.notebookVersion || null,
   }));
 }
 
@@ -614,12 +612,141 @@ export async function recordTeamMembershipProjectionChange(
       `Membership revision ${snapshot.revision} already has an outbox operation.`,
     );
   }
+  signalTeamMembershipSnapshotSync();
 
   return {
     revision: snapshot.revision,
     snapshot,
     outboxOperation: outbox.operation,
   };
+}
+
+export async function getLatestTeamMembershipSnapshotOperation(
+  database: Pick<SqlConnection, 'get'>,
+  organizationId: string,
+): Promise<TeamSeatOutboxOperation | null> {
+  const row = await database.get(`
+    ${OUTBOX_SELECT}
+    WHERE organization_id = ?
+      AND operation_kind = 'membership_snapshot'
+    ORDER BY membership_revision DESC, created_at DESC, id DESC
+    LIMIT 1
+  `, [organizationId]) as OutboxRow | undefined;
+  return row ? mapOutbox(row) : null;
+}
+
+export async function requeueTeamMembershipSnapshotOperation(
+  database: Pick<SqlConnection, 'get' | 'run'>,
+  input: {
+    operationId: string;
+    now?: number;
+  },
+): Promise<TeamSeatOutboxOperation> {
+  const now = input.now ?? Date.now();
+  const result = await database.run(`
+    UPDATE team_seat_outbox
+    SET
+      status = 'pending',
+      response_json = NULL,
+      attempt_count = 0,
+      next_attempt_at = ?,
+      last_attempt_at = NULL,
+      last_error_code = NULL,
+      last_error = NULL,
+      completed_at = NULL,
+      updated_at = ?
+    WHERE operation_id = ?
+      AND operation_kind = 'membership_snapshot'
+      AND status IN ('succeeded', 'failed')
+  `, [now, now, input.operationId]);
+  if (changesFromRunResult(result) !== 1) {
+    const existing = await getTeamSeatOutboxOperation(database, input.operationId);
+    if (
+      existing
+      && existing.operationKind === 'membership_snapshot'
+      && ['pending', 'processing', 'retry_wait'].includes(existing.status)
+    ) {
+      return existing;
+    }
+    throw new TeamSeatOutboxError(
+      existing ? 'TEAM_SEAT_OUTBOX_TERMINAL' : 'TEAM_SEAT_OUTBOX_NOT_FOUND',
+      existing
+        ? `Snapshot outbox operation cannot be requeued from status ${existing.status}.`
+        : 'Snapshot outbox operation not found.',
+      existing ? 409 : 404,
+    );
+  }
+  const operation = await getTeamSeatOutboxOperation(database, input.operationId);
+  if (!operation) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_NOT_FOUND',
+      'Snapshot outbox operation not found.',
+      404,
+    );
+  }
+  signalTeamMembershipSnapshotSync();
+  return operation;
+}
+
+export async function claimDueTeamMembershipSnapshotOperations(
+  database: Pick<SqlConnection, 'all' | 'get' | 'run'>,
+  input: {
+    now?: number;
+    leaseMs?: number;
+    limit?: number;
+  } = {},
+): Promise<TeamSeatOutboxOperation[]> {
+  const now = input.now ?? Date.now();
+  const leaseMs = Math.max(1_000, input.leaseMs ?? 60_000);
+  const limit = Math.max(1, Math.min(100, input.limit ?? 20));
+  const candidates = await database.all(`
+    ${OUTBOX_SELECT}
+    WHERE operation_kind = 'membership_snapshot'
+      AND (
+        (
+          status IN ('pending', 'retry_wait')
+          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+        )
+        OR (
+          status = 'processing'
+          AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+        )
+      )
+    ORDER BY membership_revision ASC, created_at ASC, id ASC
+    LIMIT ?
+  `, [now, now - leaseMs, limit]) as OutboxRow[];
+  const claimed: TeamSeatOutboxOperation[] = [];
+  for (const candidate of candidates) {
+    const result = await database.run(`
+      UPDATE team_seat_outbox
+      SET
+        status = 'processing',
+        last_attempt_at = ?,
+        updated_at = ?
+      WHERE operation_id = ?
+        AND operation_kind = 'membership_snapshot'
+        AND (
+          (
+            status IN ('pending', 'retry_wait')
+            AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+          )
+          OR (
+            status = 'processing'
+            AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+          )
+        )
+    `, [
+      now,
+      now,
+      candidate.operation_id,
+      now,
+      now - leaseMs,
+    ]);
+    if (changesFromRunResult(result) !== 1) continue;
+    const operation = await getTeamSeatOutboxOperation(database, candidate.operation_id);
+    if (operation) claimed.push(operation);
+  }
+  return claimed;
 }
 
 export async function scheduleTeamSeatOutboxRetry(
@@ -873,6 +1000,13 @@ export async function recordTeamSeatSnapshotAcknowledgement(
     if (
       request.snapshotHash !== response.snapshot.snapshotHash
       || request.revision !== response.snapshot.revision
+      || request.protocolVersion !== response.snapshot.protocolVersion
+      || request.observedQuantity !== response.snapshot.observedQuantity
+      || canonicalJson(request.roleSummary) !== canonicalJson(response.snapshot.roleSummary)
+      || canonicalJson([...request.memberHashes].sort())
+        !== canonicalJson([...response.snapshot.memberHashes].sort())
+      || request.generatedAt !== response.snapshot.generatedAt
+      || (request.notebookVersion ?? null) !== (response.snapshot.notebookVersion ?? null)
     ) {
       throw new TeamSeatOutboxError(
         'TEAM_SEAT_SNAPSHOT_CONFLICT',

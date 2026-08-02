@@ -221,6 +221,31 @@ const mockFetch = (async (input: string | URL | Request, init?: RequestInit) => 
       headers: { 'Content-Type': 'application/json' },
     });
   }
+  if (String(input).includes('/seats/snapshot')) {
+    const request = typeof init?.body === 'string'
+      ? JSON.parse(init.body) as Record<string, unknown>
+      : {};
+    return new Response(JSON.stringify({
+      snapshot: {
+        ...request,
+        snapshotId: 'snapshot-community-preflight',
+        receivedAt: '2026-08-01T12:07:00.000Z',
+        reconciledAt: '2026-08-01T12:07:00.000Z',
+        driftStatus: 'in_sync',
+      },
+      observedQuantity: 3,
+      approvedQuantity: 3,
+      billedQuantity: 3,
+      licensedQuantity: 3,
+      expectedLicensedQuantity: 3,
+      billingStatus: 'active',
+      nextReportAt: '2026-08-01T12:12:00.000Z',
+      replayed: false,
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
   return new Response(JSON.stringify(preflightPayload()), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -242,11 +267,16 @@ async function main() {
       getCommunityTeamUpgradePreflight,
       getCommunityTeamUpgradeRuntimeSnapshot,
       prepareCommunityTeamSeatChange,
+      submitCommunityTeamMembershipSnapshot,
     } = await import('../app/lib/license/control-plane');
     const {
       createTeamSeatExecuteRequest,
       createTeamSeatPrepareRequest,
+      createTeamSeatSnapshotRequest,
     } = await import('../app/lib/license/team-seat-contract');
+    const {
+      teamSeatSnapshotHash,
+    } = await import('../app/lib/license/team-seat-outbox');
     const {
       getCommunityTeamRuntimeReadiness,
       withCommunityTeamVersionReadiness,
@@ -449,6 +479,39 @@ async function main() {
     });
     assert.equal(JSON.stringify(captured[3]?.body).includes(instanceToken), false);
 
+    const snapshotWithoutHash = {
+      protocolVersion: 'canvas-team-seat-protocol-v1' as const,
+      revision: 9,
+      observedQuantity: 3,
+      roleSummary: { owner: 1, admin: 1, member: 1, external: 0 },
+      memberHashes: ['a'.repeat(64), 'b'.repeat(64), 'c'.repeat(64)],
+      generatedAt: '2026-08-01T12:07:00.000Z',
+      notebookVersion: '2026.8.1.2',
+    };
+    const snapshotRequest = createTeamSeatSnapshotRequest({
+      ...snapshotWithoutHash,
+      snapshotHash: teamSeatSnapshotHash(snapshotWithoutHash),
+    });
+    const snapshot = await submitCommunityTeamMembershipSnapshot(
+      snapshotRequest,
+      {
+        fetchImpl: mockFetch,
+        now: new Date('2026-08-01T12:07:00.000Z'),
+        operationId: 'e45d6480-12a2-4bd5-a6d3-ec190014cfae',
+      },
+    );
+    assert.equal(snapshot.snapshot.snapshotHash, snapshotRequest.snapshotHash);
+    assert.equal(snapshot.observedQuantity, 3);
+    assert.equal(
+      captured[4]?.url,
+      'https://api.control.example.test/v1/license/community/v1/seats/snapshot',
+    );
+    assert.equal(
+      captured[4]?.headers.get('X-Canvas-Operation-Id'),
+      'e45d6480-12a2-4bd5-a6d3-ec190014cfae',
+    );
+    assert.equal(JSON.stringify(captured[4]?.body).includes(instanceToken), false);
+
     await removeCommunityInstanceToken({
       instanceId: 'self_community_team_preflight_test',
       expectedToken: instanceToken,
@@ -469,7 +532,7 @@ async function main() {
         && error.code === 'TEAM_SEAT_ACCOUNT_REQUIRED'
       ),
     );
-    assert.equal(captured.length, 4);
+    assert.equal(captured.length, 5);
   } finally {
     restoreEnvironment();
     await rm(dataRoot, { recursive: true, force: true });

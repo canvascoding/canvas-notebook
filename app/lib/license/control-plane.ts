@@ -24,6 +24,7 @@ import {
   parseTeamSeatPrepareResponse,
   parseTeamSeatQuoteStatusResponse,
   parseTeamSeatExecuteResponse,
+  parseTeamSeatSnapshotResponse,
   createTeamSeatTokenLifecycleRequest,
   parseTeamSeatClaimPollResult,
   parseTeamSeatClaimStart,
@@ -40,6 +41,8 @@ import {
   type TeamSeatQuoteStatusResponse,
   type TeamSeatExecuteRequest,
   type TeamSeatExecuteResponse,
+  type TeamSeatSnapshotRequest,
+  type TeamSeatSnapshotResponse,
 } from './team-seat-contract';
 import {
   requireTeamSeatClientRollout,
@@ -64,6 +67,7 @@ import {
   CommunityInstanceTokenStorageError,
   LicenseCertificateStorageError,
 } from './storage';
+import { signalTeamMembershipSnapshotSync } from './team-membership-sync-signal';
 import type { LicenseStatus } from './types';
 
 export class LicenseControlPlaneError extends Error {
@@ -278,13 +282,14 @@ const COMMUNITY_TEAM_PREFLIGHT_PATH = '/v1/license/community/v1/team/preflight';
 const COMMUNITY_SEAT_PREPARE_PATH = '/v1/license/community/v1/seats/prepare';
 const COMMUNITY_SEAT_EXECUTE_PATH = '/v1/license/community/v1/seats/execute';
 const COMMUNITY_SEAT_QUOTE_PATH = '/v1/license/community/v1/seats/quotes';
+const COMMUNITY_SEAT_SNAPSHOT_PATH = '/v1/license/community/v1/seats/snapshot';
 const COMMUNITY_TOKEN_ROTATE_PATH = '/v1/license/community/v1/token/rotate';
 const COMMUNITY_LICENSE_REFRESH_PATH = '/v1/license/community/v1/refresh';
 const MAX_CLAIM_BACKOFF_SECONDS = 300;
 let communityClaimOperationQueue: Promise<void> = Promise.resolve();
 
 async function requireCommunitySeatToken(
-  scope: 'seat:prepare' | 'seat:execute',
+  scope: 'seat:prepare' | 'seat:execute' | 'seat:snapshot',
   now = new Date(),
 ) {
   const instanceId = getLicenseInstanceId();
@@ -729,6 +734,7 @@ export async function pollCommunityLicenseClaim(
       now,
     });
     await removeCommunityClaimSession(session.claimId);
+    signalTeamMembershipSnapshotSync();
     return {
       state: 'connected',
       claimId: session.claimId,
@@ -1004,6 +1010,44 @@ export async function executeCommunityTeamSeatChange(
   }
   try {
     return parseTeamSeatExecuteResponse(payload);
+  } catch (error) {
+    throw contractResponseError(error);
+  }
+}
+
+export async function submitCommunityTeamMembershipSnapshot(
+  request: TeamSeatSnapshotRequest,
+  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
+): Promise<TeamSeatSnapshotResponse> {
+  requireTeamSeatClientRollout();
+  const { instanceId, token } = await requireCommunitySeatToken(
+    'seat:snapshot',
+    options?.now,
+  );
+  const { response, payload } = await postLicenseControlPlane(
+    COMMUNITY_SEAT_SNAPSHOT_PATH,
+    { ...request },
+    {
+      fetchImpl: options?.fetchImpl,
+      unreachableCode: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
+      authorization: {
+        tokenType: token.tokenType,
+        token: token.instanceToken,
+      },
+      operationId: options?.operationId,
+      maxAttempts: 3,
+    },
+  );
+  if (!response.ok) {
+    const error = claimErrorFromResponse(response, payload);
+    await recordRejectedCommunityToken(error, {
+      instanceId,
+      instanceToken: token.instanceToken,
+    });
+    throw error;
+  }
+  try {
+    return parseTeamSeatSnapshotResponse(payload);
   } catch (error) {
     throw contractResponseError(error);
   }

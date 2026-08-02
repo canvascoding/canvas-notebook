@@ -833,7 +833,7 @@
         {
           "id": "NB-TS-052",
           "title": "Datensparsamen vollständigen Membership-Snapshot erzeugen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership-sync",
           "description": "Aktive angenommene Mitglieder, Rollen-Summary, pseudonymisierte stabile Referenzen, Revision und Snapshot-Hash erzeugen und senden.",
@@ -854,7 +854,8 @@
             "Gleicher Membership-Zustand erzeugt einen stabilen Hash.",
             "Revision ist monoton.",
             "Snapshot wird beim Start, nach Änderung und periodisch gesendet."
-          ]
+          ],
+          "progress": "Eine server-only Snapshot-Runtime erzeugt aus ausschließlich aktiven, angenommenen Memberships observed Quantity, Rollen-Summary und stabile SHA-256-Referenzen aus Organization- und Membership-ID; Namen, E-Mails und Better-Auth-User-IDs verlassen die Instanz nicht. Der kanonische Content-Hash umfasst nur Protokollversion, Quantity, sortierte Rollen und sortierte Member-Hashes, sodass Revision, Zeit und Notebook-Version denselben Membership-Zustand nicht verändern. Revisionen werden in team_membership_sync_state monoton vergeben und Snapshot plus Outbox-Eintrag atomar persistiert. Beim Serverstart wird der jüngste Snapshot mit derselben Operation-ID erneut gemeldet, lokale Membership-Änderungen signalisieren den Worker unmittelbar, die vom Control Plane gelieferte nextReportAt steuert periodische Meldungen und eine neu aktivierte Community-Verbindung triggert ausstehende Synchronisation. Ein CAS-basierter Lease-Claim verhindert parallele Übernahme desselben Snapshot-Eintrags; vollständige Control-Plane-Antworten werden vor der Bestätigung gegen den persistierten Request validiert. Der SQLite-Bootstrap legt das vollständige Team-Schema an und adoptiert den ersten Owner idempotent als aktive Membership, damit auch Fresh Installs vor dem regulären App-Start konsistent sind. Das Control Plane verwendet im Commit fc4e95d denselben stabilen Hash-Vertrag und spiegelt die Notebook-Version zurück. Snapshot-, Outbox-, Bootstrap-, Claim-, Preflight-, Membership-, Orchestrator- und License-Lifecycle-Tests sowie TypeScript, ESLint und die Next.js-Production-Kompilierung im normalen Repository sind erfolgreich. npm run build erreicht weiterhin nicht die Kompilierung, weil der Third-Party-License-Cache durch die pausierten OAuth-Abhängigkeitsänderungen stale ist; diese fachfremden Compliance-Dateien wurden bewusst nicht verändert."
         },
         {
           "id": "NB-TS-053",
