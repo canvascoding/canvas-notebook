@@ -11,6 +11,25 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.2.3] - 2026-08-02
+
+### Added
+
+- Added automatic GitHub Release creation during tag builds so releases no longer need to be created manually before assets are uploaded.
+
+### Changed
+
+- Cleaned up unused Docker images after successful canvas-notebook updates to prevent disk bloat on managed hosts.
+
+### Fixed
+
+- Added the missing `next_attempt_at` column to the Team membership sync state table, ensuring deterministic retry scheduling for membership reconciliation.
+
+### Verification
+
+- `npm run build`
+- `npm run licenses:refresh-cache`
+
 ## [2026.8.2.2] - 2026-08-02
 
 ### Changed

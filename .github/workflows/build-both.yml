@@ -462,24 +462,6 @@ jobs:
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.sha256
 
-      - name: Ensure GitHub Release exists
-        if: startsWith(github.ref, 'refs/tags/v')
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
-          RELEASE_VERSION: ${{ needs.source.outputs.release_version }}
-        run: |
-          set -euo pipefail
-          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "Creating GitHub Release $RELEASE_TAG"
-            gh release create "$RELEASE_TAG" \
-              --repo "$GITHUB_REPOSITORY" \
-              --title "Canvas Notebook $RELEASE_VERSION" \
-              --notes "Automated release for $RELEASE_VERSION."
-          else
-            echo "GitHub Release $RELEASE_TAG already exists."
-          fi
-
       - name: Attach release assets to GitHub Release
         if: startsWith(github.ref, 'refs/tags/v')
         env:
