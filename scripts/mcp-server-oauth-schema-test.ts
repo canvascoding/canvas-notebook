@@ -2,9 +2,11 @@ import assert from 'node:assert/strict';
 
 import { PGlite } from '@electric-sql/pglite';
 import Database from 'better-sqlite3';
+import { getTableConfig } from 'drizzle-orm/sqlite-core';
 
 import { runMigrations } from '../app/lib/db/migrate';
 import { runPostgresMigrations } from '../app/lib/db/postgres';
+import { oauthClient } from '../app/lib/db/schema';
 
 const OAUTH_TABLES = [
   'jwks',
@@ -176,6 +178,26 @@ function seedSqliteAuthData(sqlite: Database.Database): void {
 }
 
 function assertSqliteFreshIdempotentAndUpgrade(): void {
+  const oauthClientConfig = getTableConfig(oauthClient);
+  for (const columnName of [
+    'scopes',
+    'contacts',
+    'redirect_uris',
+    'post_logout_redirect_uris',
+    'grant_types',
+    'response_types',
+    'metadata',
+  ]) {
+    const column = oauthClientConfig.columns.find(
+      (candidate) => candidate.name === columnName,
+    );
+    assert.equal(
+      column?.columnType,
+      'SQLiteText',
+      `${columnName} must remain plain text because Better Auth owns serialization.`,
+    );
+  }
+
   const sqlite = new Database(':memory:');
   try {
     runMigrations(sqlite);
