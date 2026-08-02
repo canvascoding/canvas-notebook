@@ -14,6 +14,10 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 - Added Team membership management for direct adds, invitations, role changes, suspension, removal, deterministic reconciliation, and data-preserving Solo fallback.
 - Added a Team Seat owner runbook and a published Notebook/Control Plane compatibility matrix.
 
+### Changed
+
+- Bundled the application fonts locally so production builds and private-network deployments do not depend on Google Fonts availability.
+
 ### Security
 
 - Kept Team access fail-closed outside signed capacity and grace, rejected client-supplied quantities and prices, and revoked sessions when memberships lose access.
