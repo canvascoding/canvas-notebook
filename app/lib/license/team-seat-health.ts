@@ -48,6 +48,25 @@ function claimSummary(claim: CommunityLicenseClaimPublicStatus): TeamSeatHealth[
   };
 }
 
+function licenseSummary(status: LicenseStatus): TeamSeatHealth['license'] {
+  const licenseClass = status.licenseClass;
+  const nonBillable = licenseClass === 'manual' || licenseClass === 'test';
+  return {
+    class: licenseClass,
+    environment: status.licenseEnvironment,
+    seatLimit: status.seatLimit,
+    expiresAt: status.expiresAt,
+    nonBillable,
+    billingMode: licenseClass === 'manual'
+      ? 'manual_grant'
+      : licenseClass === 'test'
+        ? 'test_grant'
+        : licenseClass === 'commercial'
+          ? 'commercial'
+          : 'unlicensed',
+  };
+}
+
 function syncHealthState(input: {
   diagnostics: TeamSeatSyncDiagnostics;
   staleAfterAt: number | null;
@@ -104,6 +123,7 @@ export function buildTeamSeatHealth(input: {
   return {
     organizationId: input.organizationId,
     generatedAt: new Date(now).toISOString(),
+    license: licenseSummary(input.licenseStatus),
     claim,
     sync: {
       state: syncHealthState({

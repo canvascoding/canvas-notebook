@@ -3,6 +3,14 @@ export type TeamSeatHealthState = 'healthy' | 'stale' | 'attention' | 'never';
 export type TeamSeatHealth = {
   organizationId: string;
   generatedAt: string;
+  license: {
+    class: 'commercial' | 'manual' | 'test' | null;
+    environment: 'development' | 'test' | 'staging' | 'production' | null;
+    seatLimit: number | null;
+    expiresAt: string | null;
+    nonBillable: boolean;
+    billingMode: 'commercial' | 'manual_grant' | 'test_grant' | 'unlicensed';
+  };
   claim: {
     state: 'idle' | 'canceled' | 'authorization_pending' | 'connected' | 'reconnect_required';
     connectionExpiresAt: string | null;

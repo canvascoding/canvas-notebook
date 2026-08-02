@@ -940,7 +940,7 @@
         {
           "id": "NB-TS-056",
           "title": "Test- und Manual-Lizenzstatus in der Notebook-UI kennzeichnen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-ui",
           "description": "License Class, Environment, Ablauf, Seat-Limit und Nicht-abrechenbar-Hinweis für Testlizenzen sowie Manual-Grant-Hinweis für Owner darstellen.",
@@ -963,7 +963,8 @@
             "Normale Member sehen keine Admin- oder Grant-Details.",
             "Browser kann License Class oder Environment nicht umschalten.",
             "Manual-Lizenz wird nicht fälschlich als Stripe-Abo dargestellt."
-          ]
+          ],
+          "progress": "Die gemeinsame owner-geschützte TeamSeatHealthPanel-Ansicht zeigt in Lizenz- und User-Management nun die signierte License Class, Environment, das Seat-Limit und den Zertifikatsablauf. Testlizenzen erhalten einen unübersehbaren TESTLIZENZ/TEST LICENSE- und NICHT ABRECHENBAR/NON-BILLABLE-Hinweis; Manual-Grants werden ebenfalls als nicht abrechenbar und ausdrücklich nicht als Stripe-Abonnement beschrieben. Ablaufdatum und die bereits vorhandene verbleibende Offline-Grace-Zeit werden getrennt dargestellt. Der allgemeine Status-Endpunkt und die Aktivierungsantwort verwenden jetzt eine explizite Browser-Allowlist statt das vollständige interne LicenseStatus-Objekt zu spreaden; License Class, Environment, Seat-Limit, Organization-ID, Entitlements-Version, Source, Quotas sowie Refresh- und Grace-Interna gelangen dadurch weder an anonyme Aufrufe noch an normale Member. Owner erhalten die benötigte Teilmenge ausschließlich nach serverseitiger Organisations- und Billing-Approver-Prüfung. Browseraktionen senden weiterhin nur Activation Key oder die eng begrenzte Recovery-Action und können License Class oder Environment nicht setzen. Commercial-, Test- und Manual-Summaries, Redaction, Owner-Grenze, UI-Kennzeichnung und fehlende Umschaltfelder sind durch den Team-Seat-Health-Test abgedeckt; Lizenz-Security-, Environment-Isolation-, Mobile-License-, Contract- und Lifecycle-Tests, TypeScript, ESLint sowie die direkte Next.js-Produktionskompilierung sind erfolgreich. Gemäß AGENTS.md wurde ohne ausdrückliche Freigabe kein Playwright- oder Browserlauf gestartet. npm run build bleibt vor der Kompilierung am stale Third-Party-License-Cache der pausierten OAuth-Abhängigkeitsänderungen hängen; diese fachfremden Compliance-Dateien wurden bewusst nicht verändert."
         }
       ]
     },

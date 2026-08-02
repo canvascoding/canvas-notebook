@@ -6,6 +6,7 @@ import { getLicenseStatus } from '@/app/lib/license';
 import { getCommunityLicenseClaimStatus } from '@/app/lib/license/control-plane';
 import { codeFromLicenseStatus } from '@/app/lib/license/error-codes';
 import { logLicenseInfoThrottled } from '@/app/lib/license/logging';
+import { publicLicenseStatus } from '@/app/lib/license/status-response';
 import { buildTeamSeatHealth } from '@/app/lib/license/team-seat-health';
 import { readTeamSeatSyncDiagnostics } from '@/app/lib/license/team-seat-outbox';
 import { resolveTeamSeatRolloutStatus } from '@/app/lib/license/team-seat-rollout';
@@ -72,8 +73,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json(
     {
       success: true,
-      ...status,
-      code,
+      ...publicLicenseStatus(status, code),
       teamSeatRollout,
       ...ownerHealth,
     },

@@ -37,6 +37,33 @@ function copyFor(locale: string) {
         ownerOnly: 'Diese Betriebs- und Billing-Ansicht ist ausschließlich für den Organisations-Owner sichtbar.',
         unavailable: 'Der lokale Team-Lizenzzustand konnte nicht geladen werden.',
         reload: 'Neu laden',
+        licenseDetails: 'Lizenzidentität',
+        licenseClass: 'Lizenzklasse',
+        environment: 'Umgebung',
+        seatLimit: 'Seat-Limit',
+        expires: 'Läuft ab',
+        classLabels: {
+          commercial: 'Kommerziell',
+          manual: 'Manual Grant',
+          test: 'Testlizenz',
+          unlicensed: 'Nicht lizenziert',
+        },
+        environmentLabels: {
+          development: 'Development',
+          test: 'Test',
+          staging: 'Staging',
+          production: 'Production',
+        },
+        testLicense: 'TESTLIZENZ',
+        manualGrant: 'MANUAL GRANT',
+        nonBillable: 'NICHT ABRECHENBAR',
+        commercialLicense: 'Kommerzielle Lizenz',
+        testLicenseNotice:
+          'Diese environment-gebundene Testlizenz erzeugt keine Abrechnung und ist kein produktives Stripe-Abo.',
+        manualGrantNotice:
+          'Diese Lizenz wurde manuell gewährt, ist nicht abrechenbar und wird nicht als Stripe-Abonnement dargestellt.',
+        commercialLicenseNotice:
+          'Kommerzielle Seats werden mit dem bestätigten Billing-Stand abgeglichen.',
         health: {
           healthy: 'Synchron',
           stale: 'Synchronisierung überfällig',
@@ -87,6 +114,33 @@ function copyFor(locale: string) {
         ownerOnly: 'This operations and billing view is visible only to the organization owner.',
         unavailable: 'The local Team license health could not be loaded.',
         reload: 'Reload',
+        licenseDetails: 'License identity',
+        licenseClass: 'License class',
+        environment: 'Environment',
+        seatLimit: 'Seat limit',
+        expires: 'Expires',
+        classLabels: {
+          commercial: 'Commercial',
+          manual: 'Manual grant',
+          test: 'Test license',
+          unlicensed: 'Unlicensed',
+        },
+        environmentLabels: {
+          development: 'Development',
+          test: 'Test',
+          staging: 'Staging',
+          production: 'Production',
+        },
+        testLicense: 'TEST LICENSE',
+        manualGrant: 'MANUAL GRANT',
+        nonBillable: 'NON-BILLABLE',
+        commercialLicense: 'Commercial license',
+        testLicenseNotice:
+          'This environment-bound test license never creates billing and is not a production Stripe subscription.',
+        manualGrantNotice:
+          'This license was granted manually, is non-billable, and is not represented as a Stripe subscription.',
+        commercialLicenseNotice:
+          'Commercial Seats are reconciled with the confirmed billing state.',
         health: {
           healthy: 'In sync',
           stale: 'Sync overdue',
@@ -280,6 +334,33 @@ export function TeamSeatHealthPanel({
           icon: <Clock3 className="h-5 w-5" />,
         };
   const graceRemaining = formatDuration(health.grace.remainingSeconds, locale);
+  const licenseClass = health.license.class;
+  const licenseLabel = licenseClass
+    ? copy.classLabels[licenseClass]
+    : copy.classLabels.unlicensed;
+  const environmentLabel = health.license.environment
+    ? copy.environmentLabels[health.license.environment]
+    : copy.unknown;
+  const licenseBanner = licenseClass === 'test'
+    ? {
+        title: copy.testLicense,
+        notice: copy.testLicenseNotice,
+        className: 'border-amber-500/40 bg-amber-500/[0.08]',
+        badgeClassName: 'border-amber-600/40 bg-amber-500/15 text-amber-900 dark:text-amber-100',
+      }
+    : licenseClass === 'manual'
+      ? {
+          title: copy.manualGrant,
+          notice: copy.manualGrantNotice,
+          className: 'border-sky-500/35 bg-sky-500/[0.07]',
+          badgeClassName: 'border-sky-600/35 bg-sky-500/15 text-sky-900 dark:text-sky-100',
+        }
+      : {
+          title: copy.commercialLicense,
+          notice: copy.commercialLicenseNotice,
+          className: 'border-border/80 bg-background/50',
+          badgeClassName: 'border-border bg-muted/50 text-foreground',
+        };
 
   return (
     <Card className="overflow-hidden border-border/80 bg-card py-0">
@@ -306,6 +387,56 @@ export function TeamSeatHealthPanel({
       </CardHeader>
 
       <CardContent className="space-y-4 px-4 pb-5 pt-4 sm:px-6 sm:pb-6">
+        <section
+          className={`border p-4 ${licenseBanner.className}`}
+          aria-label={copy.licenseDetails}
+        >
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+            <div className="min-w-0">
+              <div className="flex flex-wrap items-center gap-2">
+                <Badge variant="outline" className={licenseBanner.badgeClassName}>
+                  {licenseBanner.title}
+                </Badge>
+                {health.license.nonBillable ? (
+                  <Badge
+                    variant="outline"
+                    className="border-rose-500/40 bg-rose-500/10 font-bold tracking-wide text-rose-800 dark:text-rose-100"
+                  >
+                    {copy.nonBillable}
+                  </Badge>
+                ) : null}
+              </div>
+              <p className="mt-2 max-w-3xl text-sm leading-5 text-muted-foreground">
+                {licenseBanner.notice}
+              </p>
+            </div>
+          </div>
+          <dl className="mt-4 grid gap-3 border-t border-current/10 pt-3 text-sm sm:grid-cols-2 xl:grid-cols-4">
+            <div>
+              <dt className="text-xs text-muted-foreground">{copy.licenseClass}</dt>
+              <dd className="mt-1 font-semibold">{licenseLabel}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">{copy.environment}</dt>
+              <dd className="mt-1 font-mono font-semibold uppercase tracking-wide">
+                {environmentLabel}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">{copy.seatLimit}</dt>
+              <dd className="mt-1 font-mono font-semibold tabular-nums">
+                {health.license.seatLimit ?? '—'}
+              </dd>
+            </div>
+            <div>
+              <dt className="text-xs text-muted-foreground">{copy.expires}</dt>
+              <dd className="mt-1 font-semibold">
+                {formatDate(health.license.expiresAt, locale, copy.unknown)}
+              </dd>
+            </div>
+          </dl>
+        </section>
+
         <div className="grid gap-3 sm:grid-cols-3">
           <SeatMetric
             label={copy.seats.observed}

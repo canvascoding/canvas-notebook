@@ -3,6 +3,7 @@ import { auth } from '@/app/lib/auth';
 import { activateInstanceLicense, LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { codeFromLicenseStatus } from '@/app/lib/license/error-codes';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
+import { publicLicenseStatus } from '@/app/lib/license/status-response';
 
 const LOG_PREFIX = '[license/activate]';
 
@@ -24,7 +25,10 @@ export async function POST(request: NextRequest) {
     const instanceId = getLicenseInstanceId();
     const status = await activateInstanceLicense(key);
     console.info(`${LOG_PREFIX} license activated`, { instanceId, plan: status.plan, source: status.source });
-    return NextResponse.json({ success: true, ...status, code: codeFromLicenseStatus(status) });
+    return NextResponse.json({
+      success: true,
+      ...publicLicenseStatus(status, codeFromLicenseStatus(status)),
+    });
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) {
       console.warn(`${LOG_PREFIX} control plane rejected activation`, {
