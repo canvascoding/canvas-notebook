@@ -2830,6 +2830,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     reconciliation_seat_limit: 'INTEGER',
     reconciliation_support_required: 'INTEGER NOT NULL DEFAULT 0',
     reconciled_at: 'INTEGER',
+    next_attempt_at: 'INTEGER',
   });
   addColumns(sqlite, 'channel_active_sessions', {
     agent_id: "TEXT NOT NULL DEFAULT 'canvas-agent'",

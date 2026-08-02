@@ -673,6 +673,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query("ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS status text NOT NULL DEFAULT 'active'");
   await pool.query('ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS compacted_at bigint');
   await pool.query('ALTER TABLE collaboration_yjs_states ADD COLUMN IF NOT EXISTS compaction_count bigint NOT NULL DEFAULT 0');
+  await pool.query('ALTER TABLE team_membership_sync_state ADD COLUMN IF NOT EXISTS next_attempt_at bigint');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_workspace_path ON collaboration_yjs_states (workspace_id, path)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_collaboration_yjs_persisted ON collaboration_yjs_states (persisted_at)');
   await pool.query(`
