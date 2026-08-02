@@ -8,6 +8,7 @@ import {
   type LicenseVerificationResult,
 } from './jwt';
 import { logLicenseInfoThrottled } from './logging';
+import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import { resolveLicensePublicKeys } from './public-key';
 import {
   LicenseCertificateStorageError,
@@ -131,7 +132,9 @@ async function withRefreshRuntimeState(status: LicenseStatus): Promise<LicenseSt
   const state = await loadCommunityLicenseRefreshState(status.instanceId).catch((error) => {
     console.warn(`${LOG_PREFIX} failed to load Community refresh state`, {
       instanceId: status.instanceId,
-      error: error instanceof Error ? error.message : String(error),
+      error: redactTeamControlPlaneLogText(
+        error instanceof Error ? error.message : String(error),
+      ),
     });
     return null;
   });
@@ -266,7 +269,9 @@ async function fetchManagedLicenseCert(instanceId: string): Promise<string | nul
         instanceId,
         status: response.status,
         code: payload.code,
-        error: payload.error,
+        error: payload.error
+          ? redactTeamControlPlaneLogText(payload.error, [token])
+          : undefined,
       });
       return null;
     }
@@ -280,7 +285,10 @@ async function fetchManagedLicenseCert(instanceId: string): Promise<string | nul
     console.warn(`${MANAGED_LOG_PREFIX} failed to resolve managed license`, {
       instanceId,
       controlPlaneHost: getControlPlaneHost(),
-      error: error instanceof Error ? error.message : String(error),
+      error: redactTeamControlPlaneLogText(
+        error instanceof Error ? error.message : String(error),
+        [token],
+      ),
     });
     return null;
   }
@@ -503,7 +511,9 @@ export async function activateLicenseCert(
     })
     .catch((error) => {
       console.warn(`${LOG_PREFIX} failed to trigger Team license lifecycle reconciliation`, {
-        error: error instanceof Error ? error.message : String(error),
+        error: redactTeamControlPlaneLogText(
+          error instanceof Error ? error.message : String(error),
+        ),
       });
     });
   return activated;

@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
 import {
@@ -275,7 +276,9 @@ function scheduleRuntime(
     void runTeamSeatOutboxWorkerCycle({ leaseMs: runtime.leaseMs })
       .catch((error) => {
         console.error(`${LOG_PREFIX} runtime cycle failed`, {
-          error: error instanceof Error ? error.message : String(error),
+          error: redactTeamControlPlaneLogText(
+            error instanceof Error ? error.message : String(error),
+          ),
         });
       })
       .finally(() => {

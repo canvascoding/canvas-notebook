@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import {
   LicenseControlPlaneError,
   refreshCommunityLicenseCertificate,
@@ -210,7 +211,9 @@ function terminalConnectionError(error: LicenseControlPlaneError): boolean {
 function asRefreshError(error: unknown): LicenseControlPlaneError {
   if (error instanceof LicenseControlPlaneError) return error;
   return new LicenseControlPlaneError(
-    error instanceof Error ? error.message : 'Community license refresh failed.',
+    redactTeamControlPlaneLogText(
+      error instanceof Error ? error.message : 'Community license refresh failed.',
+    ),
     500,
     'LICENSE_REFRESH_INTERNAL_ERROR',
     false,
@@ -352,7 +355,9 @@ function scheduleRuntimeCycle(runtime: RefreshRuntime, delayMs: number): void {
       })
       .catch((error) => {
         console.error(`${LOG_PREFIX} runtime cycle crashed`, {
-          error: error instanceof Error ? error.message : String(error),
+          error: redactTeamControlPlaneLogText(
+            error instanceof Error ? error.message : String(error),
+          ),
         });
         scheduleRuntimeCycle(runtime, runtime.policy.backoffMaximumSeconds * 1000);
       })

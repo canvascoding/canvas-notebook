@@ -13,6 +13,7 @@ import {
   isOrganizationAdminLike,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 async function organizationAdmin(request: NextRequest) {
@@ -74,6 +75,9 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const guard = await organizationAdmin(request);
   if (!guard.ok) return guard.response;
   const licenseResponse = await requireTeamRuntimeRoute();

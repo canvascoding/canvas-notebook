@@ -2,6 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
+import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import type { SqlConnection } from '@/app/lib/db';
 import {
   getDatabaseProvider,
@@ -754,7 +755,9 @@ function scheduleLifecycleRuntime(
       })
       .catch((error) => {
         console.error(`${LOG_PREFIX} lifecycle cycle failed`, {
-          error: error instanceof Error ? error.message : String(error),
+          error: redactTeamControlPlaneLogText(
+            error instanceof Error ? error.message : String(error),
+          ),
         });
         scheduleLifecycleRuntime(runtime, runtime.intervalMs);
       })

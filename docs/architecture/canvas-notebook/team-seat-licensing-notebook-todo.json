@@ -982,7 +982,7 @@
         {
           "id": "NB-TS-060",
           "title": "Token-, Snapshot- und Log-Sicherheit prüfen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "security",
           "description": "Secret Storage, Dateirechte, Server/Client-Grenze, Redaction, Pseudonymisierung, CSRF und Rate Limits prüfen.",
@@ -1003,7 +1003,8 @@
             "Logs und Errors enthalten keine Secrets oder PII-Snapshots.",
             "Kostenpflichtige lokale Aktionen verlangen authentifizierte und berechtigte Actor.",
             "Snapshot-Pseudonyme sind außerhalb der Instanz nicht auf E-Mail-Adressen zurückführbar."
-          ]
+          ],
+          "progress": "Cookie-authentifizierte Team-, Membership-, Invitation- und Lizenz-Mutationsrouten erzwingen jetzt vor Authentifizierung und Geschäftslogik eine explizite CSRF-Grenze über konfigurierte Trusted Origins und lehnen fehlende, fremde oder browserseitig als cross-site markierte Origins mit einem stabilen Fehlercode ab. Die bisher unlimitierten Web-Endpunkte für Community-Registrierung und Lizenzaktivierung sind zusätzlich rate-limitiert; die mobilen Pendants behalten ihre bestehende Admin- und Rate-Limit-Grenze. Der gemeinsame Control-Plane-Transport redigiert Bearer-Tokens, Device-/Activation-Secrets, Zertifikate, vollständige Member-Hashes, E-Mail-Adressen, URL-Credentials und aufruferspezifisch bekannte Secrets zentral aus Logs, Exceptions und zurückgegebenen Control-Plane-Fehlern. Laufzeit-Logs der License-, Refresh-, Public-Key-, Lifecycle-, Snapshot- und Outbox-Pfade verwenden dieselbe Redaction. Claim-, Poll- und Rotation-Antworten liefern dem Browser vom gespeicherten Instanz-Token nur noch configured, expiresAt und expired; Prefix, Scopes, Instanz-ID, Generation und Storage-Zeitstempel bleiben server-only. Der private Token-Speicher bleibt mit server-only-Grenze, 0700-Verzeichnis, 0600-Datei, Owner-/Symlink-Prüfung und atomarem Schreiben geschützt. Membership-Snapshots verwenden ausschließlich stabile SHA-256-Pseudonyme aus Organization- und der lokalen opaken Membership-ID; E-Mail, Name und Better-Auth-User-ID gehen weder in Hash noch Payload ein und sind außerhalb der Instanz nicht auflösbar. Kostenrelevante Create-, Invitation- und Reactivation-Aktionen berechnen Price, Quantity, Quote und Operation serverseitig und verlangen serverseitig geprüfte Admin-/Owner-/Billing-Berechtigungen. Ein eigener Security-Test deckt Redaction, Browser-Allowlist, CSRF, Rate Limits, Storage, Pseudonymisierung und Actor-/Browser-Grenzen ab. Security-, Control-Plane-, Claim-, Recovery-, Refresh-, Health-, Reconciliation-, Outbox-, Membership-, Invitation-, Permission-, Offboarding-, Mobile-, Lifecycle- und Upgrade-Regressionstests sowie ESLint, TypeScript und die direkte Next.js-Produktionskompilierung sind erfolgreich. npm run build bleibt vor der Kompilierung ausschließlich am stale Third-Party-License-Cache der pausierten OAuth/MCP-Abhängigkeitsänderungen hängen; diese fachfremden Dateien wurden bewusst nicht verändert. Gemäß AGENTS.md wurden ohne ausdrückliche Freigabe weder Playwright/Browser noch Dev-Server oder Container gestartet."
         },
         {
           "id": "NB-TS-070",

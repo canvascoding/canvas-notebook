@@ -16,6 +16,11 @@ const DEFAULT_MAX_BACKOFF_MS = 2_000;
 const MAX_ATTEMPTS = 5;
 const MEMBER_HASH_PATTERN = /\b[a-f0-9]{64}\b/giu;
 const BEARER_TOKEN_PATTERN = /\bBearer\s+[A-Za-z0-9._~+/=-]+\b/giu;
+const JWT_PATTERN = /\beyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}\b/gu;
+const LICENSE_SECRET_PATTERN =
+  /\b(?:cinst|dc|lit|lic|license|activation)[_-][A-Za-z0-9._~-]{16,}\b/giu;
+const EMAIL_PATTERN = /\b[A-Z0-9.!#$%&'*+/=?^_`{|}~-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/giu;
+const URL_CREDENTIAL_PATTERN = /\b([a-z][a-z0-9+.-]*:\/\/[^:\s/@]+:)[^@\s/]+@/giu;
 
 export type TeamControlPlaneFailureCategory =
   | 'authentication'
@@ -54,15 +59,25 @@ export function classifyTeamControlPlaneStatus(
   return 'business';
 }
 
-export function redactTeamControlPlaneLogText(value: string): string {
-  return value
+export function redactTeamControlPlaneLogText(
+  value: string,
+  knownSecrets: readonly string[] = [],
+): string {
+  let redacted = value
     .replace(BEARER_TOKEN_PATTERN, 'Bearer [redacted]')
-    .replace(MEMBER_HASH_PATTERN, '[member-hash-redacted]');
+    .replace(JWT_PATTERN, '[certificate-redacted]')
+    .replace(LICENSE_SECRET_PATTERN, '[secret-redacted]')
+    .replace(MEMBER_HASH_PATTERN, '[member-hash-redacted]')
+    .replace(EMAIL_PATTERN, '[email-redacted]')
+    .replace(URL_CREDENTIAL_PATTERN, '$1[redacted]@');
+  for (const secret of knownSecrets) {
+    if (secret) redacted = redacted.replaceAll(secret, '[redacted]');
+  }
+  return redacted;
 }
 
 function redactKnownSecret(value: string, secret: string | undefined): string {
-  const redacted = redactTeamControlPlaneLogText(value);
-  return secret ? redacted.replaceAll(secret, '[redacted]') : redacted;
+  return redactTeamControlPlaneLogText(value, secret ? [secret] : []);
 }
 
 function defaultLogger(): TeamControlPlaneLogger {

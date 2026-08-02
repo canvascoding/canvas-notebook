@@ -23,6 +23,7 @@ import {
   isOrganizationBillingApprover,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function errorResponse(error: unknown) {
@@ -60,6 +61,9 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: NextRequest) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const admin = await requireInstanceAdmin(request);
   if (!admin.ok) return admin.response;
 

@@ -10,6 +10,7 @@ import {
   isOrganizationAdminLike,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type RouteContext = {
@@ -17,6 +18,9 @@ type RouteContext = {
 };
 
 export async function DELETE(request: NextRequest, context: RouteContext) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const admin = await requireInstanceAdmin(request);
   if (!admin.ok) return admin.response;
   const licenseResponse = await requireTeamRuntimeRoute();

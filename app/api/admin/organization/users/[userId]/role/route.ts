@@ -10,6 +10,7 @@ import {
   revokeOrganizationPermissionSessions,
   updateOrganizationRole,
 } from '@/app/lib/organization/permissions';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type RouteContext = {
@@ -39,6 +40,9 @@ function normalizeRequestedRole(value: unknown): 'admin' | 'member' | 'external'
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });

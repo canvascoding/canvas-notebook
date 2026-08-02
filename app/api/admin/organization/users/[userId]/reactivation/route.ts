@@ -21,6 +21,7 @@ import {
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type RouteContext = {
@@ -94,6 +95,9 @@ async function requireReactivationAdmin(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const access = await requireReactivationAdmin(request);
   if (!access.ok) return access.response;
   const limited = rateLimit(request, {
@@ -123,6 +127,9 @@ export async function POST(request: NextRequest, context: RouteContext) {
 }
 
 export async function PATCH(request: NextRequest, context: RouteContext) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const access = await requireReactivationAdmin(request);
   if (!access.ok) return access.response;
   const limited = rateLimit(request, {

@@ -21,6 +21,7 @@ import {
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 type RouteContext = {
@@ -64,6 +65,9 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: NextRequest, context: RouteContext) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const admin = await requireInstanceAdmin(request);
   if (!admin.ok) return admin.response;
   const licenseResponse = await requireTeamRuntimeRoute();

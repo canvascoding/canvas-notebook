@@ -2,6 +2,7 @@ import 'server-only';
 
 import crypto from 'crypto';
 import { desc, eq, inArray } from 'drizzle-orm';
+import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import { db } from '@/app/lib/db';
 import { licensePublicKeys } from '@/app/lib/db/schema';
 import { getControlPlaneLicenseBaseUrl } from './instance';
@@ -339,7 +340,9 @@ async function resolveFromControlPlane(
       console.warn(`${LOG_PREFIX} failed to persist public key cache`, {
         kid: key.kid,
         keyset,
-        error: error instanceof Error ? error.message : String(error),
+        error: redactTeamControlPlaneLogText(
+          error instanceof Error ? error.message : String(error),
+        ),
       });
     });
     logLicenseInfoThrottled(LOG_PREFIX, 'resolved from control plane', {
@@ -357,7 +360,9 @@ async function resolveFromControlPlane(
     console.warn(`${LOG_PREFIX} control plane public key request unreachable`, {
       keyset,
       controlPlaneHost: getControlPlaneHost(),
-      error: error instanceof Error ? error.message : String(error),
+      error: redactTeamControlPlaneLogText(
+        error instanceof Error ? error.message : String(error),
+      ),
     });
     cacheNegativeResolution(resolution);
     return resolution;

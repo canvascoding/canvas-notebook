@@ -18,6 +18,7 @@ import {
   isOrganizationBillingApprover,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 const RECOVERY_ACTIONS = ['sync_snapshot', 'refresh_license'] as const;
@@ -29,6 +30,9 @@ function isRecoveryAction(value: unknown): value is RecoveryAction {
 }
 
 export async function POST(request: NextRequest) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     return NextResponse.json(

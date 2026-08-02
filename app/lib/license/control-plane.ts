@@ -5,6 +5,7 @@ import { randomUUID } from 'node:crypto';
 import packageJson from '@/package.json';
 import {
   classifyTeamControlPlaneStatus,
+  redactTeamControlPlaneLogText,
   requestTeamControlPlane,
   type TeamControlPlaneFailureCategory,
 } from '@/app/lib/control-plane/team-client';
@@ -80,7 +81,7 @@ export class LicenseControlPlaneError extends Error {
     public readonly category: TeamControlPlaneFailureCategory | 'contract' =
       classifyTeamControlPlaneStatus(status),
   ) {
-    super(message);
+    super(redactTeamControlPlaneLogText(message));
     this.name = 'LicenseControlPlaneError';
   }
 }
@@ -187,8 +188,11 @@ export async function requestCommunityLicenseRegistration(input: {
     marketingOptIn: input.marketingOptIn,
   });
   if (!response.ok) {
+    const message = typeof payload.error === 'string'
+      ? redactTeamControlPlaneLogText(payload.error, [input.email])
+      : 'License registration failed.';
     throw new LicenseControlPlaneError(
-      typeof payload.error === 'string' ? payload.error : 'License registration failed.',
+      message,
       response.status,
       typeof payload.code === 'string' ? payload.code : 'LICENSE_REGISTRATION_FAILED',
     );
@@ -207,7 +211,9 @@ export async function activateInstanceLicense(key: string): Promise<LicenseStatu
   });
   const certificate = typeof payload.license === 'string' ? payload.license : null;
   if (!response.ok || !certificate) {
-    const message = typeof payload.error === 'string' ? payload.error : 'License activation failed.';
+    const message = typeof payload.error === 'string'
+      ? redactTeamControlPlaneLogText(payload.error, [key])
+      : 'License activation failed.';
     throw new LicenseControlPlaneError(
       message,
       response.status || 400,
@@ -248,8 +254,13 @@ export type CommunityLicenseClaimConnected = {
   state: 'connected';
   claimId: string | null;
   organizationId: string | null;
-  token: CommunityInstanceTokenStatus;
+  token: CommunityInstanceConnectionStatus;
 };
+
+export type CommunityInstanceConnectionStatus = Pick<
+  CommunityInstanceTokenStatus,
+  'configured' | 'expiresAt' | 'expired'
+>;
 
 export type CommunityLicenseClaimIdle = {
   state: 'idle' | 'canceled';
@@ -363,6 +374,16 @@ function publicPending(
   };
 }
 
+export function publicCommunityInstanceTokenStatus(
+  status: CommunityInstanceTokenStatus,
+): CommunityInstanceConnectionStatus {
+  return {
+    configured: status.configured,
+    expiresAt: status.expiresAt,
+    expired: status.expired,
+  };
+}
+
 function claimErrorFromResponse(
   response: Response,
   payload: Record<string, unknown>,
@@ -370,7 +391,7 @@ function claimErrorFromResponse(
   try {
     const parsed = parseTeamSeatErrorPayload(payload);
     return new LicenseControlPlaneError(
-      parsed.error,
+      redactTeamControlPlaneLogText(parsed.error),
       response.status,
       parsed.code,
       parsed.retryable,
@@ -379,7 +400,9 @@ function claimErrorFromResponse(
     );
   } catch {
     return new LicenseControlPlaneError(
-      typeof payload.error === 'string' ? payload.error : 'The Community claim request failed.',
+      typeof payload.error === 'string'
+        ? redactTeamControlPlaneLogText(payload.error)
+        : 'The Community claim request failed.',
       response.status || 502,
       typeof payload.code === 'string' ? payload.code : TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
       response.status === 429 || response.status >= 500,
@@ -528,7 +551,7 @@ export async function getCommunityLicenseClaimStatus(
       state: 'connected',
       claimId: session?.claimId ?? null,
       organizationId: null,
-      token,
+      token: publicCommunityInstanceTokenStatus(token),
     };
   }
   if (!session) {
@@ -644,7 +667,7 @@ export async function pollCommunityLicenseClaim(
           state: 'connected',
           claimId,
           organizationId: null,
-          token,
+          token: publicCommunityInstanceTokenStatus(token),
         };
       }
       throw localClaimError(
@@ -739,7 +762,7 @@ export async function pollCommunityLicenseClaim(
       state: 'connected',
       claimId: session.claimId,
       organizationId: result.organizationId,
-      token,
+      token: publicCommunityInstanceTokenStatus(token),
     };
   });
 }
@@ -1263,7 +1286,7 @@ export async function rotateCommunityLicenseConnection(
     state: 'connected',
     claimId: null,
     organizationId: null,
-    token: status,
+    token: publicCommunityInstanceTokenStatus(status),
   };
 }
 

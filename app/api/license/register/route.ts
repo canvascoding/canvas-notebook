@@ -1,19 +1,32 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import {
   LicenseControlPlaneError,
   requestCommunityLicenseRegistration,
 } from '@/app/lib/license/control-plane';
 import { getRequestOrigin } from '@/app/lib/license/instance';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
+import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 const LOG_PREFIX = '[license/register]';
 
 export async function POST(request: NextRequest) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const session = await auth.api.getSession({ headers: request.headers });
   if (!session) {
     console.warn(`${LOG_PREFIX} unauthorized request`);
     return NextResponse.json({ success: false, error: 'Unauthorized', code: 'UNAUTHORIZED' }, { status: 401 });
   }
+
+  const limited = rateLimit(request, {
+    limit: 5,
+    windowMs: 10 * 60_000,
+    keyPrefix: 'license-registration',
+  });
+  if (!limited.ok) return limited.response;
 
   const body = await request.json().catch(() => ({})) as { email?: string; activationPath?: string; marketingOptIn?: boolean };
   const email = body.email?.trim() || session.user.email;
@@ -34,22 +47,27 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: true, email, ...registration });
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) {
+      const message = redactTeamControlPlaneLogText(error.message, [email]);
       console.warn(`${LOG_PREFIX} control plane rejected registration`, {
         status: error.status,
         code: error.code,
       });
       return NextResponse.json(
-        { success: false, error: error.message, code: error.code },
+        { success: false, error: message, code: error.code },
         { status: error.status },
       );
     }
+    const message = redactTeamControlPlaneLogText(
+      error instanceof Error ? error.message : 'License registration failed',
+      [email],
+    );
     console.error(`${LOG_PREFIX} control plane request failed`, {
-      error: error instanceof Error ? error.message : String(error),
+      error: message,
     });
     return NextResponse.json(
       {
         success: false,
-        error: error instanceof Error ? error.message : 'License registration failed',
+        error: message,
         code: 'LICENSE_CONTROL_PLANE_UNREACHABLE',
       },
       { status: 503 },

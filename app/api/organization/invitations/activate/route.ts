@@ -17,6 +17,7 @@ import {
   TeamInvitationError,
 } from '@/app/lib/organization/team-invitations';
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 function errorResponse(error: unknown) {
@@ -57,6 +58,9 @@ function errorResponse(error: unknown) {
 }
 
 export async function POST(request: NextRequest) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const licenseResponse = await requireTeamRuntimeRoute();
   if (licenseResponse) return licenseResponse;
   const limited = rateLimit(request, {

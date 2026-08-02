@@ -8,9 +8,13 @@ import {
 } from '@/app/lib/license/control-plane';
 import { TeamSeatRolloutError } from '@/app/lib/license/team-seat-rollout';
 import { CommunityInstanceTokenStorageError } from '@/app/lib/license/storage';
+import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export async function POST(request: NextRequest) {
+  const origin = requireTrustedMutationOrigin(request);
+  if (!origin.ok) return origin.response;
+
   const admin = await requireInstanceAdmin(request);
   if (!admin.ok) return admin.response;
 

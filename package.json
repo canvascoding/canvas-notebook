@@ -169,6 +169,7 @@
     "test:team-seat-outbox-worker": "tsx --conditions react-server scripts/team-seat-outbox-worker-test.ts",
     "test:team-seat-reconciliation": "tsx --conditions react-server scripts/team-seat-reconciliation-test.ts",
     "test:team-seat-health": "tsx --conditions react-server scripts/team-seat-health-test.ts",
+    "test:team-seat-security": "tsx --conditions react-server scripts/team-seat-security-test.ts",
     "test:team-membership-sync": "tsx --conditions react-server scripts/team-membership-sync-test.ts",
     "test:community-instance-token-storage": "tsx --conditions react-server scripts/community-instance-token-storage-test.ts",
     "test:team-seat-legacy-migration": "tsx --conditions react-server scripts/team-seat-legacy-migration-test.ts",

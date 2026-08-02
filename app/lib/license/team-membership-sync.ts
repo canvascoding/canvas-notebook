@@ -1,5 +1,6 @@
 import 'server-only';
 
+import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import type { SqlConnection } from '@/app/lib/db';
 import { openDb } from '@/app/lib/db';
 import {
@@ -341,9 +342,11 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
           console.error(`${LOG_PREFIX} local reconciliation failed`, {
             organizationId: operation.organizationId,
             operationId: operation.operationId,
-            error: reconciliationError instanceof Error
-              ? reconciliationError.message
-              : String(reconciliationError),
+            error: redactTeamControlPlaneLogText(
+              reconciliationError instanceof Error
+                ? reconciliationError.message
+                : String(reconciliationError),
+            ),
           });
         }
       } catch (error) {
@@ -413,7 +416,9 @@ function scheduleRuntime(
     void runTeamMembershipSnapshotSyncCycle({ forceReport })
       .catch((error) => {
         console.error(`${LOG_PREFIX} runtime cycle failed`, {
-          error: error instanceof Error ? error.message : String(error),
+          error: redactTeamControlPlaneLogText(
+            error instanceof Error ? error.message : String(error),
+          ),
         });
       })
       .finally(() => {

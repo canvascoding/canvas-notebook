@@ -91,7 +91,9 @@ async function main() {
       now: new Date('2026-08-01T10:05:00.000Z'),
     });
     assert.equal(rotated.state, 'connected');
-    assert.equal(rotated.token.generation, 2);
+    assert.equal('generation' in rotated.token, false);
+    assert.equal('tokenPrefix' in rotated.token, false);
+    assert.equal('scopes' in rotated.token, false);
     assert.equal(captured[0]?.authorization, `Bearer ${oldToken}`);
     assert.equal(
       (await loadCommunityInstanceToken('self_community_recovery_test'))?.instanceToken,
