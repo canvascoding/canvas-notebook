@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { AlertTriangle, Ban, CheckCircle2, KeyRound, Loader2, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, Copy, KeyRound, Loader2, MailPlus, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
 
 import { Link } from '@/i18n/navigation';
 import { authClient } from '@/app/lib/auth-client';
@@ -69,6 +69,14 @@ type CreateUserDraft = {
 
 type TeamLicenseState = 'checking' | 'active' | 'required';
 
+type TeamInvitation = {
+  id: string;
+  email: string;
+  role: 'admin' | 'member' | 'external';
+  status: 'pending' | 'accepted' | 'revoked' | 'expired';
+  expiresAt: number;
+};
+
 type LicenseStatusResponse = {
   licensed?: boolean;
   databaseProvider?: string | null;
@@ -119,7 +127,7 @@ function normalizeRole(role: string | null | undefined): 'admin' | 'user' {
   return role?.split(',').map((part) => part.trim()).includes('admin') ? 'admin' : 'user';
 }
 
-function formatDate(value: Date | string | null | undefined, locale: string): string {
+function formatDate(value: Date | string | number | null | undefined, locale: string): string {
   if (!value) return '-';
   const date = value instanceof Date ? value : new Date(value);
   if (Number.isNaN(date.getTime())) return '-';
@@ -200,6 +208,10 @@ export function UserManagementPanel({
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
+  const [inviteOpen, setInviteOpen] = useState(false);
+  const [inviteDraft, setInviteDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
+  const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
+  const [invitations, setInvitations] = useState<TeamInvitation[]>([]);
   const [permissionsTarget, setPermissionsTarget] = useState<ManagedUser | null>(null);
   const [passwordTarget, setPasswordTarget] = useState<ManagedUser | null>(null);
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -235,13 +247,29 @@ export function UserManagementPanel({
         query.searchOperator = 'contains';
       }
 
-      const data = unwrapAuthResult<ListUsersResponse>(
-        await authClient.admin.listUsers({ query }),
-        t('errors.load'),
-      );
+      const [data, invitationResponse] = await Promise.all([
+        authClient.admin.listUsers({ query }).then((result) => (
+          unwrapAuthResult<ListUsersResponse>(result, t('errors.load'))
+        )),
+        fetch('/api/admin/organization/memberships/invitations', {
+          cache: 'no-store',
+          credentials: 'include',
+        }),
+      ]);
+      const invitationPayload = await invitationResponse.json().catch(() => ({})) as {
+        success?: boolean;
+        data?: { invitations?: TeamInvitation[] };
+        error?: string;
+      };
+      if (!invitationResponse.ok || invitationPayload.success !== true) {
+        throw new Error(invitationPayload.error || t('errors.invitationsLoad'));
+      }
 
       setUsers(Array.isArray(data.users) ? data.users : []);
       setTotal(typeof data.total === 'number' ? data.total : 0);
+      setInvitations(Array.isArray(invitationPayload.data?.invitations)
+        ? invitationPayload.data.invitations
+        : []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t('errors.load'));
     } finally {
@@ -332,6 +360,60 @@ export function UserManagementPanel({
         setCreateDraft(createEmptyDraft());
       },
       t('messages.activationStarted', { email }),
+    );
+  };
+
+  const createInvitation = async () => {
+    const name = inviteDraft.name.trim();
+    const email = inviteDraft.email.trim().toLowerCase();
+    if (!name || !email) {
+      setError(t('errors.createValidation'));
+      return;
+    }
+    await runAction(
+      'invite:create',
+      async () => {
+        const response = await fetch('/api/admin/organization/memberships/invitations', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            name,
+            email,
+            role: inviteDraft.isAdmin ? 'admin' : 'member',
+          }),
+        });
+        const payload = await response.json().catch(() => ({})) as {
+          success?: boolean;
+          data?: { acceptancePath?: string };
+          error?: string;
+        };
+        if (!response.ok || payload.success !== true || !payload.data?.acceptancePath) {
+          throw new Error(payload.error || t('errors.invitationCreate'));
+        }
+        setCreatedInviteLink(new URL(payload.data.acceptancePath, window.location.origin).toString());
+      },
+      t('messages.invitationCreated', { email }),
+    );
+  };
+
+  const revokeInvitation = async (invitation: TeamInvitation) => {
+    await runAction(
+      `invite:revoke:${invitation.id}`,
+      async () => {
+        const response = await fetch(
+          `/api/admin/organization/memberships/invitations/${encodeURIComponent(invitation.id)}`,
+          { method: 'DELETE', credentials: 'include' },
+        );
+        const payload = await response.json().catch(() => ({})) as {
+          success?: boolean;
+          error?: string;
+        };
+        if (!response.ok || payload.success !== true) {
+          throw new Error(payload.error || t('errors.invitationRevoke'));
+        }
+      },
+      t('messages.invitationRevoked', { email: invitation.email }),
     );
   };
 
@@ -670,6 +752,10 @@ export function UserManagementPanel({
                 {isLoading ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <RefreshCw data-icon="inline-start" />}
                 {t('reload')}
               </Button>
+              <Button type="button" variant="outline" onClick={() => setInviteOpen(true)} disabled={activeAction !== null}>
+                <MailPlus data-icon="inline-start" />
+                {t('inviteUser')}
+              </Button>
               <Button type="button" onClick={() => setCreateOpen(true)} disabled={activeAction !== null}>
                 <Plus data-icon="inline-start" />
                 {t('createUser')}
@@ -712,6 +798,41 @@ export function UserManagementPanel({
           </div>
           {error && <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
           {message && <div className="rounded-md border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
+
+          {invitations.length > 0 && (
+            <div className="rounded-md border">
+              <div className="border-b px-3 py-2">
+                <p className="font-medium text-foreground">{t('invitations.title')}</p>
+                <p className="text-xs text-muted-foreground">{t('invitations.description')}</p>
+              </div>
+              <div className="divide-y">
+                {invitations.map((invitation) => (
+                  <div key={invitation.id} className="flex flex-col gap-2 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                    <div className="min-w-0">
+                      <p className="truncate text-sm font-medium text-foreground">{invitation.email}</p>
+                      <p className="text-xs text-muted-foreground">
+                        {t(`roles.${invitation.role}`)} · {t(`invitations.status.${invitation.status}`)} · {formatDate(invitation.expiresAt, locale)}
+                      </p>
+                    </div>
+                    {invitation.status === 'pending' && (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        disabled={activeAction !== null}
+                        onClick={() => void revokeInvitation(invitation)}
+                      >
+                        {activeAction === `invite:revoke:${invitation.id}`
+                          ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                          : <Ban data-icon="inline-start" />}
+                        {t('invitations.revoke')}
+                      </Button>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex flex-col gap-3 md:hidden">
             {isLoading ? (
@@ -919,6 +1040,97 @@ export function UserManagementPanel({
               {activeAction === 'create' ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <UserCog data-icon="inline-start" />}
               {t('createDialog.submit')}
             </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={inviteOpen}
+        onOpenChange={(open) => {
+          setInviteOpen(open);
+          if (!open) {
+            setInviteDraft(createEmptyDraft());
+            setCreatedInviteLink(null);
+          }
+        }}
+      >
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{t('invitationDialog.title')}</DialogTitle>
+            <DialogDescription>{t('invitationDialog.description')}</DialogDescription>
+          </DialogHeader>
+          {createdInviteLink ? (
+            <div className="flex flex-col gap-3">
+              <Label htmlFor="team-invitation-link">{t('invitationDialog.linkLabel')}</Label>
+              <div className="flex gap-2">
+                <Input id="team-invitation-link" readOnly value={createdInviteLink} />
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => void navigator.clipboard.writeText(createdInviteLink)}
+                >
+                  <Copy data-icon="inline-start" />
+                  {t('invitationDialog.copy')}
+                </Button>
+              </div>
+              <p className="text-xs text-muted-foreground">{t('invitationDialog.linkHint')}</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="invite-user-name">{t('fields.name')}</Label>
+                <Input
+                  id="invite-user-name"
+                  value={inviteDraft.name}
+                  onChange={(event) => setInviteDraft((current) => ({ ...current, name: event.target.value }))}
+                  disabled={activeAction === 'invite:create'}
+                />
+              </div>
+              <div className="flex flex-col gap-2">
+                <Label htmlFor="invite-user-email">{t('fields.email')}</Label>
+                <Input
+                  id="invite-user-email"
+                  type="email"
+                  value={inviteDraft.email}
+                  onChange={(event) => setInviteDraft((current) => ({ ...current, email: event.target.value }))}
+                  disabled={activeAction === 'invite:create'}
+                />
+              </div>
+              <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                <div className="min-w-0">
+                  <Label htmlFor="invite-user-admin">{t('createDialog.adminLabel')}</Label>
+                  <p className="text-xs text-muted-foreground">{t('createDialog.adminDescription')}</p>
+                </div>
+                <Switch
+                  id="invite-user-admin"
+                  checked={inviteDraft.isAdmin}
+                  onCheckedChange={(checked) => setInviteDraft((current) => ({ ...current, isAdmin: checked }))}
+                  disabled={activeAction === 'invite:create'}
+                />
+              </div>
+            </div>
+          )}
+          <DialogFooter>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => setInviteOpen(false)}
+              disabled={activeAction === 'invite:create'}
+            >
+              {createdInviteLink ? t('invitationDialog.done') : t('cancel')}
+            </Button>
+            {!createdInviteLink && (
+              <Button
+                type="button"
+                onClick={() => void createInvitation()}
+                disabled={activeAction === 'invite:create'}
+              >
+                {activeAction === 'invite:create'
+                  ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                  : <MailPlus data-icon="inline-start" />}
+                {t('invitationDialog.submit')}
+              </Button>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>

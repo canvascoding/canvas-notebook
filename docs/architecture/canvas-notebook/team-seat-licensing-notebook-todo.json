@@ -575,7 +575,7 @@
         {
           "id": "NB-TS-041",
           "title": "Lokale Invitations und Candidate-Accounts implementieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership",
           "description": "Einladungen getrennt von aktiven Usern speichern, Ablauf und Widerruf abbilden und Annahme an einen Pending Candidate binden.",
@@ -595,7 +595,8 @@
             "Ablauf und Widerruf verändern Stripe nicht.",
             "Invitation kann genau einmal angenommen werden.",
             "E-Mail und Role werden bei Annahme erneut validiert."
-          ]
+          ],
+          "progress": "Lokale Team-Einladungen werden in einer eigenen team_membership_invitations-Tabelle getrennt von Better-Auth-Usern und aktiven Memberships gespeichert. Persistiert werden ausschließlich ein SHA-256-Hash des hochentropischen Einmal-Tokens, E-Mail-/Rollen-Snapshots, Ablauf, Status und eine Acceptance-Idempotency-ID; der Klartext-Token wird nur einmal an den erstellenden Admin zurückgegeben. Erstellung, Liste und Widerruf sind über Team-lizenzgeschützte Admin-Routen verfügbar und in der Benutzerverwaltung mit Einladungslink, Status und Revoke-Aktion integriert. Die öffentliche Annahme ist rate-limited, atomar konsumierbar und bei gleichem Request restartfähig; sie revalidiert Token, Ablauf, Candidate-E-Mail, Rolle, Membership-Status und fehlende User-Identität, bevor invited nach approval_required wechselt. Andere Request-IDs erhalten stabil INVITATION_ALREADY_USED. Widerruf und Ablauf verschieben ausschließlich den lokalen Candidate nach removed, erzeugen weder aktive Membership-Revision noch Seat-Outbox-/Stripe-Operation; Reissue rotiert das Token und invalidiert das alte. Die Postgres-Readiness prüft die neue Tabelle und korrigiert zugleich die vorher fälschlich erwartete membership_revision-Spalte auf team_memberships. Invitations-, Membership-, Outbox-, Orchestrator- und Team-Preflight-Tests sowie TypeScript, ESLint und Production-Build sind erfolgreich."
         },
         {
           "id": "NB-TS-042",

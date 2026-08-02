@@ -527,6 +527,30 @@ export const teamMemberships = sqliteTable("team_memberships", {
   pendingCandidateCheck: check("team_memberships_pending_candidate_check", sql`${table.status} NOT IN ('invited', 'approval_required', 'billing_pending') OR ${table.userId} IS NULL`),
 }));
 
+export const teamMembershipInvitations = sqliteTable("team_membership_invitations", {
+  id: text("id").primaryKey(),
+  organizationId: text("organization_id").notNull().references(() => canvasOrganizationSettings.organizationId, { onDelete: 'cascade' }),
+  membershipId: text("membership_id").notNull().unique().references(() => teamMemberships.id, { onDelete: 'cascade' }),
+  tokenHash: text("token_hash").notNull().unique(),
+  emailSnapshot: text("email_snapshot").notNull(),
+  roleSnapshot: text("role_snapshot").notNull(),
+  status: text("status").notNull().default("pending"),
+  invitedByUserId: text("invited_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  expiresAt: integer("expires_at", { mode: "timestamp" }).notNull(),
+  acceptedRequestId: text("accepted_request_id"),
+  acceptedAt: integer("accepted_at", { mode: "timestamp" }),
+  revokedAt: integer("revoked_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  organizationStatusIdx: index("idx_team_membership_invitations_org_status").on(table.organizationId, table.status, table.createdAt),
+  expiryIdx: index("idx_team_membership_invitations_expiry").on(table.status, table.expiresAt),
+  acceptedRequestIdx: uniqueIndex("idx_team_membership_invitations_accept_request").on(table.acceptedRequestId).where(sql`${table.acceptedRequestId} IS NOT NULL`),
+  statusCheck: check("team_membership_invitations_status_check", sql`${table.status} IN ('pending', 'accepted', 'revoked', 'expired')`),
+  roleCheck: check("team_membership_invitations_role_check", sql`${table.roleSnapshot} IN ('admin', 'member', 'external')`),
+  acceptedCheck: check("team_membership_invitations_accepted_check", sql`${table.status} != 'accepted' OR (${table.acceptedRequestId} IS NOT NULL AND ${table.acceptedAt} IS NOT NULL)`),
+}));
+
 export const teamMembershipTransitions = sqliteTable("team_membership_transitions", {
   id: text("id").primaryKey(),
   membershipId: text("membership_id").notNull().references(() => teamMemberships.id, { onDelete: 'cascade' }),

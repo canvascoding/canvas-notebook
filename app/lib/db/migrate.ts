@@ -544,6 +544,29 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       FOREIGN KEY (actor_user_id) REFERENCES user(id) ON DELETE SET NULL
     );
 
+    CREATE TABLE IF NOT EXISTS team_membership_invitations (
+      id TEXT PRIMARY KEY NOT NULL,
+      organization_id TEXT NOT NULL,
+      membership_id TEXT NOT NULL UNIQUE,
+      token_hash TEXT NOT NULL UNIQUE,
+      email_snapshot TEXT NOT NULL,
+      role_snapshot TEXT NOT NULL
+        CHECK (role_snapshot IN ('admin', 'member', 'external')),
+      status TEXT NOT NULL DEFAULT 'pending'
+        CHECK (status IN ('pending', 'accepted', 'revoked', 'expired')),
+      invited_by_user_id TEXT,
+      expires_at INTEGER NOT NULL,
+      accepted_request_id TEXT,
+      accepted_at INTEGER,
+      revoked_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      CHECK (status != 'accepted' OR (accepted_request_id IS NOT NULL AND accepted_at IS NOT NULL)),
+      FOREIGN KEY (organization_id) REFERENCES canvas_organization_settings(organization_id) ON DELETE CASCADE,
+      FOREIGN KEY (membership_id) REFERENCES team_memberships(id) ON DELETE CASCADE,
+      FOREIGN KEY (invited_by_user_id) REFERENCES user(id) ON DELETE SET NULL
+    );
+
     CREATE TABLE IF NOT EXISTS team_membership_sync_state (
       organization_id TEXT PRIMARY KEY NOT NULL,
       current_revision INTEGER NOT NULL DEFAULT 0,
@@ -2538,6 +2561,9 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_team_memberships_org_user ON team_memberships (organization_id, user_id) WHERE user_id IS NOT NULL;
     CREATE UNIQUE INDEX IF NOT EXISTS idx_team_memberships_external_invitation ON team_memberships (organization_id, external_invitation_id) WHERE external_invitation_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_team_memberships_control_plane_operation ON team_memberships (organization_id, control_plane_operation_id);
+    CREATE INDEX IF NOT EXISTS idx_team_membership_invitations_org_status ON team_membership_invitations (organization_id, status, created_at);
+    CREATE INDEX IF NOT EXISTS idx_team_membership_invitations_expiry ON team_membership_invitations (status, expires_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_team_membership_invitations_accept_request ON team_membership_invitations (accepted_request_id) WHERE accepted_request_id IS NOT NULL;
     CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_membership_created ON team_membership_transitions (membership_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_org_created ON team_membership_transitions (organization_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_team_membership_transitions_org_revision ON team_membership_transitions (organization_id, membership_revision);
