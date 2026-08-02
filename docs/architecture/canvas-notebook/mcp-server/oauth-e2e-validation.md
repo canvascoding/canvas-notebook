@@ -58,6 +58,13 @@ npm run test:mcp:server-auth-probe
 npm run test:mcp:server-resource
 ```
 
+Gegen einen bereits laufenden Build wird zusätzlich der reale HTTP-Pfad
+geprüft:
+
+```bash
+MCP_TEST_ORIGIN=https://<instanz> npm run test:mcp:server-http-smoke
+```
+
 Der Auth-Probe-Test blockiert jeden ausgehenden `fetch`-Aufruf. Damit weist er
 für eine nicht verwaltete Direct-V1-Konfiguration zusätzlich nach, dass der
 OAuth- und MCP-Request keine Canvas Control Plane und keinen anderen Remote-
