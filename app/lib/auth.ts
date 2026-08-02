@@ -6,11 +6,17 @@ import { db } from "@/app/lib/db";
 import { getDatabaseProvider } from "@/app/lib/db/provider";
 import { session as authSession, user } from "@/app/lib/db/schema";
 import { nextCookies } from "better-auth/next-js";
-import { admin, bearer } from "better-auth/plugins";
+import { admin, bearer, jwt } from "better-auth/plugins";
+import { oauthProvider } from "@better-auth/oauth-provider";
 import { expo } from '@better-auth/expo';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import { getConfiguredTrustedOrigins } from '@/app/lib/security/trusted-origins';
 import { TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
+import {
+  DIRECT_MCP_OAUTH_SCOPES,
+  isDirectMcpEnabled,
+  resolveDirectMcpServerConfig,
+} from '@/app/lib/mcp/server/config';
 import {
   assertUserSeatAccess,
   SeatLimitGuardError,
@@ -32,6 +38,49 @@ const emailAndPasswordConfig = {
 };
 
 const trustedOrigins = getConfiguredTrustedOrigins();
+const directMcpEnabled = isDirectMcpEnabled();
+const directMcpConfig = directMcpEnabled
+  ? resolveDirectMcpServerConfig()
+  : null;
+
+const directMcpOAuthPlugins = directMcpConfig
+  ? [
+      jwt({
+        jwt: {
+          issuer: directMcpConfig.issuer,
+        },
+      }),
+      oauthProvider({
+        loginPage: "/login",
+        consentPage: "/oauth/consent",
+        allowDynamicClientRegistration: true,
+        allowUnauthenticatedClientRegistration: true,
+        allowPublicClientPrelogin: false,
+        grantTypes: ["authorization_code", "refresh_token"],
+        scopes: [...DIRECT_MCP_OAUTH_SCOPES],
+        clientRegistrationDefaultScopes: ["openid"],
+        clientRegistrationAllowedScopes: [...DIRECT_MCP_OAUTH_SCOPES],
+        validAudiences: [directMcpConfig.resource],
+        codeExpiresIn: 5 * 60,
+        accessTokenExpiresIn: 15 * 60,
+        refreshTokenExpiresIn: 30 * 24 * 60 * 60,
+        storeClientSecret: "hashed",
+        storeTokens: "hashed",
+        clientPrivileges: () => false,
+        rateLimit: {
+          token: { window: 60, max: 20 },
+          authorize: { window: 60, max: 30 },
+          introspect: { window: 60, max: 100 },
+          revoke: { window: 60, max: 30 },
+          register: { window: 60, max: 5 },
+          userinfo: { window: 60, max: 60 },
+        },
+        silenceWarnings: {
+          oauthAuthServerConfig: true,
+        },
+      }),
+    ]
+  : [];
 
 async function revokeSeatGuardSessions(userId: string): Promise<void> {
   await db.delete(authSession).where(eq(authSession.userId, userId));
@@ -90,6 +139,7 @@ export const auth = betterAuth({
     admin(),
     bearer(),
     expo(),
+    ...directMcpOAuthPlugins,
     nextCookies(),
   ],
   session: {

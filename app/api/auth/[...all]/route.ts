@@ -5,6 +5,7 @@ import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
+import { enforceDirectMcpOAuthRequestPolicy } from '@/app/lib/mcp/server/oauth-request-policy';
 
 function hasAuthPathSegment(pathname: string, segment: string): boolean {
   return new RegExp(`/${segment}(?:/|$)`).test(pathname);
@@ -95,6 +96,9 @@ async function initializeCreatedUserOnboarding(pathname: string, response: Respo
 }
 
 export async function GET(request: NextRequest) {
+  const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
+  if (policyResponse) return policyResponse;
+
   if (isTeamUserManagementPath(request.nextUrl.pathname)) {
     const licenseResponse = await requireTeamRuntimeRoute();
     if (licenseResponse) return licenseResponse;
@@ -104,6 +108,9 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
+  const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
+  if (policyResponse) return policyResponse;
+
   const action = authAuditAction(pathname);
   const beforeUserId = action ? await getCurrentAuthUserId(request) : null;
 

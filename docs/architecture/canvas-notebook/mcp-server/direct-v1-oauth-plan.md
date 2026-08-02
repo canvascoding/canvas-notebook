@@ -1,7 +1,7 @@
 # Direct V1 MCP OAuth Implementation Plan
 
 > Stand: 2026-08-02
-> Status: Umsetzung läuft – MCP-OAUTH-01 und MCP-OAUTH-02 abgeschlossen
+> Status: Umsetzung läuft – MCP-OAUTH-01 bis MCP-OAUTH-03 abgeschlossen
 > Scope: ausschließlich direkte OAuth- und MCP-Anbindung einer einzelnen Canvas-Notebook-Instanz
 
 ## 1. Ziel und Reihenfolge

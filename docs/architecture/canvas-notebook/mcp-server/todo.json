@@ -51,7 +51,8 @@
     {
       "id": "MCP-OAUTH-03",
       "title": "Better Auth OAuth Provider und Discovery konfigurieren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-02",
       "dependsOn": [
         "MCP-OAUTH-02"
       ],
