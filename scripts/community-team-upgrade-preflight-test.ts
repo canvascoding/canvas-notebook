@@ -462,6 +462,11 @@ async function main() {
     assert.equal(executedSeat.operation.effectiveQuantity, 3);
     assert.equal(executedSeat.license?.details.quotas.users, 3);
     assert.equal(
+      executedSeat.license?.details.instanceId,
+      'self_community_team_preflight_test',
+      'the Team certificate must remain bound to the same claimed Notebook instance',
+    );
+    assert.equal(
       captured[3]?.url,
       'https://api.control.example.test/v1/license/community/v1/seats/execute',
     );
@@ -533,6 +538,13 @@ async function main() {
       ),
     );
     assert.equal(captured.length, 5);
+    assert.equal(
+      captured.some((request) => (
+        /migration|prepare-postgres|database/u.test(request.url)
+      )),
+      false,
+      'preflight, checkout handoff, and Seat activation must not start a VM migration',
+    );
   } finally {
     restoreEnvironment();
     await rm(dataRoot, { recursive: true, force: true });

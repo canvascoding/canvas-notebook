@@ -1110,7 +1110,7 @@
         {
           "id": "NB-TS-074",
           "title": "Community Claim und Team-Upgrade End-to-End prüfen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "tests-e2e",
           "description": "Bestehende Solo-Instanz verbinden, Control-Plane-Account erstellen, claimen, Preflight und Checkout bis zum Team-Zertifikat prüfen.",
@@ -1133,7 +1133,8 @@
             "Checkout erzeugt keine VM-Migration.",
             "Team-Zertifikat gilt für dieselbe Instance-ID.",
             "Abbruch lässt Community Solo vollständig nutzbar."
-          ]
+          ],
+          "progress": "Ein eigener browserfreier End-to-End-Runner verbindet jetzt die realen Claim-/Cancel-, Preflight-, Settings-, Mock-Control-Plane- und Solo-Auth-Suites. Ohne gespeichertes, geclaimtes Instanz-Token endet der Team-Preflight stabil mit TEAM_SEAT_ACCOUNT_REQUIRED und es wird keine Control-Plane-Anfrage gestartet. Nach Claim prüft der Preflight dieselbe Instance-ID, die Notebook-/Postgres-/pgvector-Readiness und liefert ausschließlich eine explizite externe managementUrl; die Settings-UI öffnet diese per noopener/noreferrer in der Control Plane. UI, Preflight-Route und License-Client enthalten keine Migration-, prepare-postgres- oder Restore-Aufrufe, und die aufgezeichnete Upgrade-Kette sendet keine VM-/Datenbankmigration. Der ausgeführte Seat-/Zertifikatsvertrag friert die identische Notebook-Instance-ID ein; auch Refresh verwirft fremde Instanzen. Claim-Abbruch entfernt nur die kurzlebige Claim-Session, während der unabhängige Community-Solo-Auth-Vertrag den Owner-Login und seine lokale Nutzung weiterhin erlaubt. Der neue Entry-Point scripts/team-seat-community-upgrade-e2e-test.ts benötigt keinen Browser; der spätere visuelle Playwright-Lauf bleibt bis zu einer expliziten Freigabe zurückgestellt."
         },
         {
           "id": "NB-TS-075",
