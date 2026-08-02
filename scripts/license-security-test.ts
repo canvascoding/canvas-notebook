@@ -157,6 +157,12 @@ async function main() {
   assert.equal((await requireLicensePlan(['managed'])).plan, 'managed');
   assert.equal((await requireLicenseQuota('users', 5)).quotas.users, 10);
   const teamRuntimeStatus = await requireTeamRuntimeLicense();
+  assert.equal(teamRuntimeStatus.protocolVersion, 'legacy');
+  assert.equal(teamRuntimeStatus.hostingMode, 'cloud');
+  assert.equal(teamRuntimeStatus.edition, 'team');
+  assert.equal(teamRuntimeStatus.licenseClass, 'commercial');
+  assert.equal(teamRuntimeStatus.licenseEnvironment, 'production');
+  assert.equal(teamRuntimeStatus.seatLimit, 10);
   assert.equal(teamRuntimeStatus.databaseProvider, 'postgres');
   assert.equal(teamRuntimeStatus.vectorProvider, 'pgvector');
   assert.equal(teamRuntimeStatus.postgresRequired, true);
@@ -185,7 +191,7 @@ async function main() {
   });
   await assert.rejects(
     () => requireTeamRuntimeLicense(),
-    (error) => error instanceof LicenseEntitlementError && error.code === 'LICENSE_FEATURE_REQUIRED',
+    (error) => error instanceof LicenseEntitlementError && error.code === 'LICENSE_TEAM_REQUIRED',
   );
 
   delete process.env.CANVAS_LICENSE_CERT;

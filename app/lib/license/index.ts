@@ -5,7 +5,7 @@ import { decodeLicenseJwt, verifyLicenseJwt } from './jwt';
 import { logLicenseInfoThrottled } from './logging';
 import { resolveLicensePublicKeys } from './public-key';
 import { loadStoredLicenseCert, saveLicenseCert } from './storage';
-import type { LicenseCert, LicenseStatus } from './types';
+import { normalizeLicenseProductClaims, type LicenseCert, type LicenseStatus } from './types';
 
 const LOG_PREFIX = '[license/status]';
 const MANAGED_LOG_PREFIX = '[license/managed]';
@@ -29,11 +29,19 @@ function certLogContext(token: string | null, instanceId: string) {
   };
 }
 
-function statusFromPayload(payload: LicenseCert, instanceId: string, source: LicenseStatus['source']): LicenseStatus {
+function statusFromPayload(
+  payload: LicenseCert,
+  instanceId: string,
+  source: LicenseStatus['source'],
+): LicenseStatus | null {
+  const product = normalizeLicenseProductClaims(payload);
+  if (!product) return null;
+
   return {
     plan: payload.plan,
     licensed: true,
     instanceId,
+    ...product,
     deploymentMode: payload.deploymentMode || null,
     databaseProvider: payload.databaseProvider || null,
     vectorProvider: payload.vectorProvider || null,
@@ -133,13 +141,18 @@ async function getManagedLicenseStatus(instanceId: string): Promise<LicenseStatu
     console.warn(`${MANAGED_LOG_PREFIX} managed license certificate is invalid for this instance`, certLogContext(cert, instanceId));
     return null;
   }
+  const status = statusFromPayload(payload, instanceId, 'managed');
+  if (!status) {
+    console.warn(`${MANAGED_LOG_PREFIX} managed license certificate has invalid product claims`, certLogContext(cert, instanceId));
+    return null;
+  }
   await saveLicenseCert(cert, payload);
   logLicenseInfoThrottled(MANAGED_LOG_PREFIX, 'managed license verified and stored', {
     instanceId,
     plan: payload.plan,
     expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
   });
-  return statusFromPayload(payload, instanceId, 'managed');
+  return status;
 }
 
 export async function getLicenseStatus(): Promise<LicenseStatus> {
@@ -149,37 +162,55 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
   if (envCert) {
     const payload = await verifyLicenseJwt(envCert, instanceId);
     if (payload) {
-      await saveLicenseCert(envCert, payload);
-      logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env certificate', {
-        instanceId,
-        plan: payload.plan,
-        expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+      const status = statusFromPayload(payload, instanceId, 'env');
+      if (status) {
+        await saveLicenseCert(envCert, payload);
+        logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env certificate', {
+          instanceId,
+          plan: payload.plan,
+          expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+          managedConfigured: isManagedLicenseConfigured(),
+        });
+        return status;
+      }
+      console.warn(`${LOG_PREFIX} env certificate has invalid product claims`, {
+        ...certLogContext(envCert, instanceId),
         managedConfigured: isManagedLicenseConfigured(),
       });
-      return statusFromPayload(payload, instanceId, 'env');
     }
-    console.warn(`${LOG_PREFIX} env certificate did not verify`, {
-      ...certLogContext(envCert, instanceId),
-      managedConfigured: isManagedLicenseConfigured(),
-    });
+    if (!payload) {
+      console.warn(`${LOG_PREFIX} env certificate did not verify`, {
+        ...certLogContext(envCert, instanceId),
+        managedConfigured: isManagedLicenseConfigured(),
+      });
+    }
   }
 
   const stored = await loadStoredLicenseCert(instanceId);
   if (stored) {
     const payload = await verifyLicenseJwt(stored, instanceId);
     if (payload) {
-      logLicenseInfoThrottled(LOG_PREFIX, 'resolved from stored certificate', {
-        instanceId,
-        plan: payload.plan,
-        expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+      const status = statusFromPayload(payload, instanceId, 'stored');
+      if (status) {
+        logLicenseInfoThrottled(LOG_PREFIX, 'resolved from stored certificate', {
+          instanceId,
+          plan: payload.plan,
+          expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+          managedConfigured: isManagedLicenseConfigured(),
+        });
+        return status;
+      }
+      console.warn(`${LOG_PREFIX} stored certificate has invalid product claims`, {
+        ...certLogContext(stored, instanceId),
         managedConfigured: isManagedLicenseConfigured(),
       });
-      return statusFromPayload(payload, instanceId, 'stored');
     }
-    console.warn(`${LOG_PREFIX} stored certificate did not verify`, {
-      ...certLogContext(stored, instanceId),
-      managedConfigured: isManagedLicenseConfigured(),
-    });
+    if (!payload) {
+      console.warn(`${LOG_PREFIX} stored certificate did not verify`, {
+        ...certLogContext(stored, instanceId),
+        managedConfigured: isManagedLicenseConfigured(),
+      });
+    }
   }
 
   const managedStatus = await getManagedLicenseStatus(instanceId);
@@ -200,6 +231,12 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
     plan: 'unregistered',
     licensed: false,
     instanceId,
+    protocolVersion: null,
+    hostingMode: null,
+    edition: null,
+    licenseClass: null,
+    licenseEnvironment: null,
+    seatLimit: null,
     deploymentMode: null,
     databaseProvider: null,
     vectorProvider: null,
@@ -225,8 +262,12 @@ export async function activateLicenseCert(cert: string): Promise<LicenseStatus> 
   if (!payload) {
     throw new Error('License certificate is invalid for this instance.');
   }
+  const status = statusFromPayload(payload, instanceId, 'stored');
+  if (!status) {
+    throw new Error('License certificate has invalid product claims.');
+  }
   await saveLicenseCert(cert, payload);
-  return statusFromPayload(payload, instanceId, 'stored');
+  return status;
 }
 
 export function getLicenseControlPlaneUrl(): string {

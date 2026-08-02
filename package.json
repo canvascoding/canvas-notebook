@@ -168,6 +168,7 @@
     "test:community-team-preflight": "tsx --conditions react-server scripts/community-team-upgrade-preflight-test.ts",
     "test:community-license-ui": "tsx scripts/community-license-connection-ui-test.ts",
     "test:license": "tsx --conditions react-server scripts/license-security-test.ts",
+    "test:license-domain": "tsx scripts/license-domain-normalization-test.ts",
     "licenses:generate": "tsx scripts/generate-third-party-notices.ts",
     "licenses:refresh-cache": "tsx scripts/refresh-third-party-license-cache.ts && npm run licenses:generate",
     "test:licenses": "tsx scripts/third-party-license-compliance-test.ts && tsx scripts/generate-third-party-notices.ts --check",

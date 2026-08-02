@@ -108,6 +108,10 @@ function licenseRuntimeProfile(status: LicenseStatus) {
   });
 }
 
+export function includesTeamLicense(status: LicenseStatus): boolean {
+  return status.licensed && status.edition === 'team';
+}
+
 function assertRuntimeCapability(status: LicenseStatus, capability: NotebookRuntimeCapabilityKey): void {
   const capabilities = licenseCapabilities(status);
   if (capabilities[capability] !== true) {
@@ -118,6 +122,10 @@ function assertRuntimeCapability(status: LicenseStatus, capability: NotebookRunt
       {
         feature: capability,
         plan: status.plan,
+        hostingMode: status.hostingMode,
+        edition: status.edition,
+        licenseClass: status.licenseClass,
+        licenseEnvironment: status.licenseEnvironment,
         deploymentMode: status.deploymentMode,
         databaseProvider: status.databaseProvider,
         vectorProvider: status.vectorProvider,
@@ -143,6 +151,8 @@ export async function requireDatabaseProvider(provider: NotebookDatabaseProvider
       {
         provider,
         plan: status.plan,
+        hostingMode: status.hostingMode,
+        edition: status.edition,
         deploymentMode: status.deploymentMode,
         databaseProvider: status.databaseProvider,
         postgresRequired: status.postgresRequired,
@@ -162,6 +172,8 @@ export async function requireVectorProvider(provider: NotebookVectorProvider): P
       {
         provider,
         plan: status.plan,
+        hostingMode: status.hostingMode,
+        edition: status.edition,
         deploymentMode: status.deploymentMode,
         databaseProvider: status.databaseProvider,
         vectorProvider: status.vectorProvider,
@@ -181,6 +193,21 @@ export async function requireTeamRuntimeLicense(): Promise<LicenseStatus> {
       { feature: 'teamWorkspace', plan: status.plan, source: status.source, error: status.error },
     );
   }
+  if (!includesTeamLicense(status)) {
+    throw new LicenseEntitlementError(
+      'A Team license is required for this feature',
+      'LICENSE_TEAM_REQUIRED',
+      402,
+      {
+        feature: 'teamWorkspace',
+        plan: status.plan,
+        hostingMode: status.hostingMode,
+        edition: status.edition,
+        licenseClass: status.licenseClass,
+        licenseEnvironment: status.licenseEnvironment,
+      },
+    );
+  }
   assertRuntimeCapability(status, 'teamWorkspace');
   assertRuntimeCapability(status, 'multiUser');
   const profile = licenseRuntimeProfile(status);
@@ -193,6 +220,10 @@ export async function requireTeamRuntimeLicense(): Promise<LicenseStatus> {
       {
         feature: 'teamWorkspace',
         plan: status.plan,
+        hostingMode: status.hostingMode,
+        edition: status.edition,
+        licenseClass: status.licenseClass,
+        licenseEnvironment: status.licenseEnvironment,
         deploymentMode: status.deploymentMode,
         databaseProvider: status.databaseProvider,
         vectorProvider: status.vectorProvider,

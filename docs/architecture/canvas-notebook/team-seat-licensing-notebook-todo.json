@@ -368,7 +368,7 @@
         {
           "id": "NB-TS-030",
           "title": "Lizenztypen auf Hosting und Edition umstellen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-domain",
           "description": "LicenseCert und LicenseStatus um hostingMode, edition, licenseClass, licenseEnvironment, seatLimit und Protokollversion erweitern und Legacy-Claims kompatibel normalisieren.",
@@ -389,7 +389,8 @@
             "Legacy community und managed Claims bleiben während der Migration lesbar.",
             "seatLimit ist als Ganzzahl größer oder gleich 1 validiert.",
             "Billing-Beträge und Stripe-IDs sind nicht Teil der License-Types."
-          ]
+          ],
+          "progress": "LicenseCert und LicenseStatus bilden Protokollversion, Hosting-Modus, Edition, Lizenzklasse, Lizenzumgebung und seatLimit explizit ab. Protokoll-v1-Zertifikate werden nur mit vollständigen gültigen Produkt-Claims normalisiert; seatLimit akzeptiert ausschließlich Ganzzahlen ab 1. Legacy community, pro und managed Zertifikate werden deterministisch auf Community/Cloud und Solo/Team sowie commercial/production abgebildet, ohne Billing-Beträge oder Stripe-IDs in den Lizenztypen. Team-Entitlements verlangen nun zusätzlich eine normalisierte Team-Edition. Die vier Produktvarianten, alle drei Lizenzklassen, Legacy-Kompatibilität und ungültige Claims sind automatisiert getestet; Lizenz-, Contract-, Rollout-, Mobile- und Preflight-Tests sowie ESLint und Production-Build sind erfolgreich."
         },
         {
           "id": "NB-TS-031",
