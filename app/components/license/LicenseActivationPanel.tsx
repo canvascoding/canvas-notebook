@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { useSearchParams } from 'next/navigation';
 import { useLocale } from 'next-intl';
 import { CheckCircle2, ExternalLink, Info, KeyRound, Loader2, Mail, ShieldAlert } from 'lucide-react';
@@ -14,7 +14,9 @@ import { Badge } from '@/components/ui/badge';
 import { Switch } from '@/components/ui/switch';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
+import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
 import { CommunityTeamConnectionPanel } from './CommunityTeamConnectionPanel';
+import { TeamSeatHealthPanel } from './TeamSeatHealthPanel';
 
 type LicenseStatus = {
   licensed: boolean;
@@ -23,6 +25,7 @@ type LicenseStatus = {
   expiresAt: string | null;
   error?: string;
   code?: string;
+  teamSeatHealth?: TeamSeatHealth | null;
 };
 
 function licenseErrorMessage(error?: string) {
@@ -111,7 +114,13 @@ function getActivationCopy(locale: string) {
       };
 }
 
-export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string }) {
+export function LicenseActivationPanel({
+  defaultEmail,
+  canViewTeamSeatHealth = false,
+}: {
+  defaultEmail: string;
+  canViewTeamSeatHealth?: boolean;
+}) {
   const searchParams = useSearchParams();
   const locale = useLocale();
   const copy = getActivationCopy(locale);
@@ -127,11 +136,20 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
     scrubLicenseKeyFromBrowserUrl();
   }, []);
 
+  const loadStatus = useCallback(async () => {
+    const response = await fetch('/api/license/status', {
+      cache: 'no-store',
+      credentials: 'include',
+    });
+    const payload = await response.json().catch(() => ({})) as LicenseStatus;
+    setStatus(payload);
+  }, []);
+
   useEffect(() => {
     let mounted = true;
-    fetch('/api/license/status', { cache: 'no-store' })
+    fetch('/api/license/status', { cache: 'no-store', credentials: 'include' })
       .then((response) => response.json())
-      .then((payload) => {
+      .then((payload: LicenseStatus) => {
         if (mounted) setStatus(payload);
       })
       .finally(() => {
@@ -176,6 +194,7 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
       }
       setStatus(payload);
       setKey('');
+      await loadStatus();
       toast.success('License activated');
     } catch (error) {
       toast.error(error instanceof Error ? error.message : 'License activation failed');
@@ -311,6 +330,12 @@ export function LicenseActivationPanel({ defaultEmail }: { defaultEmail: string 
           )}
         </CardContent>
       </Card>
+      {canViewTeamSeatHealth ? (
+        <TeamSeatHealthPanel
+          health={status ? status.teamSeatHealth ?? null : undefined}
+          onReload={loadStatus}
+        />
+      ) : null}
       <CommunityTeamConnectionPanel
         licensed={isLicensed}
         licensePlan={status?.plan || 'unregistered'}

@@ -269,6 +269,7 @@ type UsageAnalyticsClientProps = {
 };
 type LicenseActivationPanelProps = {
   defaultEmail: string;
+  canViewTeamSeatHealth?: boolean;
 };
 type AiProvidersModelsPanelProps = {
   locale?: string;
@@ -287,6 +288,7 @@ type AgentSettingsPanelProps = {
 type UserManagementPanelProps = {
   currentUserId: string;
   isAdmin: boolean;
+  canViewTeamSeatHealth?: boolean;
 };
 type CodeEditorProps = {
   value: string;
@@ -2293,6 +2295,8 @@ export function IntegrationsSettingsClient({
   const canManageOrganizationBrand = organizationPermission?.role === 'owner'
     || organizationPermission?.role === 'admin'
     || (isAdmin && !organizationPermission);
+  const canViewTeamSeatHealth = organizationPermission?.status === 'active'
+    && organizationPermission.role === 'owner';
   const visibleSettingsTabItems = useMemo(
     () => SETTINGS_TAB_ITEMS.filter((tab) => {
       if (tab.value === 'user-management') return isAdmin;
@@ -3110,7 +3114,11 @@ export function IntegrationsSettingsClient({
           ))}
 
           {renderLazyTabContent('user-management',
-            <UserManagementPanel currentUserId={currentUserId} isAdmin={isAdmin} />,
+            <UserManagementPanel
+              currentUserId={currentUserId}
+              isAdmin={isAdmin}
+              canViewTeamSeatHealth={canViewTeamSeatHealth}
+            />,
           )}
 
           {renderLazyTabContent('ai-providers', (
@@ -3137,7 +3145,12 @@ export function IntegrationsSettingsClient({
 
           {renderLazyTabContent('skills', <SkillsPanel />)}
 
-          {renderLazyTabContent('license', <LicenseActivationPanel defaultEmail={userEmail} />)}
+          {renderLazyTabContent('license', (
+            <LicenseActivationPanel
+              defaultEmail={userEmail}
+              canViewTeamSeatHealth={canViewTeamSeatHealth}
+            />
+          ))}
 
           {renderLazyTabContent('legal', <LegalSettingsPanel />)}
         </div>

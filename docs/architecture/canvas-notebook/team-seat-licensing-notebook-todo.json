@@ -915,7 +915,7 @@
         {
           "id": "NB-TS-055",
           "title": "Lokale Sync- und Billing-Gesundheit anzeigen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P1",
           "ownerArea": "license-ui",
           "description": "Ownern Claim-Status, observed/billed/licensed Seats, letzte Synchronisation, Pending-Operationen, Grace und Recovery-Aktionen anzeigen.",
@@ -934,7 +934,8 @@
             "Owner erkennt stale sync und Grace-Ablauf.",
             "UI trennt observed, billed und licensed verständlich.",
             "Recovery-Aktionen erzeugen keine unbestätigten Kosten."
-          ]
+          ],
+          "progress": "Die License-Status-API ergänzt Team-Seat-Gesundheit ausschließlich für einen authentifizierten aktiven Organisations-Owner; normale Member und nicht angemeldete Aufrufe erhalten weder observed/billed/licensed-Zahlen noch Claim-, Outbox- oder Token-Metadaten. Selbst im Owner-Payload werden Token-Prefix, Scopes, Device-Code und Tokenwert nicht übertragen. Eine gemeinsame TeamSeatHealthPanel-Ansicht ist im Lizenz-Tab und in der Team-Benutzerverwaltung verdrahtet und trennt aktive/gemeldete, vom Provider abgerechnete und signiert lizenzierte Seats deutlich. Sie zeigt Claim-Zustand, letzten/nächsten Sync, stale/attention/never, Pending- und Failed-Outbox-Zähler, Reconciliation-Grund und lokalen Cap sowie License-State, Refresh-Phase, Grace-Ende und verbleibende Zeit. Owner können einen datensparsamen Snapshot-Sync oder einen idempotenten Zertifikats-Refresh anstoßen; beide serverseitig owner-geschützten und rate-limitierten Recovery-Aktionen protokollieren, dass keine Kosten bestätigt und kein automatischer Kauf versucht wurde. Der Recovery-Endpunkt importiert oder erzeugt keine seat_prepare-/seat_execute-Operation. Der Frontend-Design-Skill führte zu einer kompakten, betriebsorientierten Statusanzeige innerhalb des vorhandenen Canvas-Designsystems mit tabellarischen Seat-Metriken, klarer Zustandsfarbe, responsivem Layout und zugänglichen Live-/Alert-Meldungen. Gemäß AGENTS.md wurde ohne ausdrückliche Freigabe kein Playwright- oder Browserlauf gestartet. Health-, Reconciliation-, Snapshot-, Outbox-Worker- und Rollout-Tests sowie TypeScript, ESLint und die Next.js-Production-Kompilierung sind erfolgreich. npm run build bleibt vor der Kompilierung ausschließlich am stale Third-Party-License-Cache der pausierten OAuth-Abhängigkeitsänderungen hängen; die fachfremden Compliance-Dateien wurden bewusst nicht verändert."
         },
         {
           "id": "NB-TS-056",

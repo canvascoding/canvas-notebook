@@ -440,7 +440,7 @@ export function CommunityTeamConnectionPanel({
   const canConnect = licensed && !isManaged && !pending && !connected;
 
   return (
-    <Card className="overflow-hidden border-border/80 bg-card py-0">
+    <Card id="community-team-connection" className="scroll-mt-6 overflow-hidden border-border/80 bg-card py-0">
       <div className="h-1 bg-[linear-gradient(90deg,var(--primary)_0_38%,transparent_38%_40%,var(--muted-foreground)_40%_41%,transparent_41%)] opacity-70" />
       <CardHeader className="gap-4 px-4 pb-0 pt-5 sm:px-6 sm:pt-6">
         <div className="flex min-w-0 flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">

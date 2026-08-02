@@ -6,6 +6,8 @@ import { AlertTriangle, Ban, CheckCircle2, Copy, ExternalLink, KeyRound, Loader2
 
 import { Link } from '@/i18n/navigation';
 import { authClient } from '@/app/lib/auth-client';
+import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
+import { TeamSeatHealthPanel } from '@/app/components/license/TeamSeatHealthPanel';
 import { UserPermissionsDialog } from './UserPermissionsDialog';
 import {
   AlertDialog,
@@ -119,6 +121,7 @@ type LicenseStatusResponse = {
   databaseProvider?: string | null;
   capabilities?: Record<string, boolean>;
   features?: Record<string, boolean>;
+  teamSeatHealth?: TeamSeatHealth | null;
 };
 
 type RoleChangeTarget = {
@@ -234,14 +237,17 @@ function getRoleDialogCopy(locale: string, target: RoleChangeTarget | null): {
 export function UserManagementPanel({
   currentUserId,
   isAdmin,
+  canViewTeamSeatHealth = false,
 }: {
   currentUserId: string;
   isAdmin: boolean;
+  canViewTeamSeatHealth?: boolean;
 }) {
   const t = useTranslations('settings.users');
   const locale = useLocale();
   const [users, setUsers] = useState<ManagedUser[]>([]);
   const [teamLicenseState, setTeamLicenseState] = useState<TeamLicenseState>('checking');
+  const [teamSeatHealth, setTeamSeatHealth] = useState<TeamSeatHealth | null | undefined>(undefined);
   const [total, setTotal] = useState(0);
   const [offset, setOffset] = useState(0);
   const [searchDraft, setSearchDraft] = useState('');
@@ -326,23 +332,29 @@ export function UserManagementPanel({
     }
   }, [isAdmin, offset, searchValue, t, teamLicenseState]);
 
-  useEffect(() => {
-    let mounted = true;
-    fetch('/api/license/status', { cache: 'no-store', credentials: 'include' })
-      .then(async (response) => {
-        const payload = await response.json().catch(() => ({})) as LicenseStatusResponse;
-        if (mounted) {
-          setTeamLicenseState(response.ok && includesTeamRuntimeLicense(payload) ? 'active' : 'required');
-        }
-      })
-      .catch(() => {
-        if (mounted) setTeamLicenseState('required');
+  const loadLicenseStatus = useCallback(async () => {
+    try {
+      const response = await fetch('/api/license/status', {
+        cache: 'no-store',
+        credentials: 'include',
       });
+      const payload = await response.json().catch(() => ({})) as LicenseStatusResponse;
+      setTeamLicenseState(response.ok && includesTeamRuntimeLicense(payload) ? 'active' : 'required');
+      if (canViewTeamSeatHealth) {
+        setTeamSeatHealth(payload.teamSeatHealth ?? null);
+      }
+    } catch {
+      setTeamLicenseState('required');
+      if (canViewTeamSeatHealth) setTeamSeatHealth(null);
+    }
+  }, [canViewTeamSeatHealth]);
 
-    return () => {
-      mounted = false;
-    };
-  }, []);
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      void loadLicenseStatus();
+    }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [loadLicenseStatus]);
 
   useEffect(() => {
     const timeout = window.setTimeout(() => {
@@ -915,31 +927,45 @@ export function UserManagementPanel({
 
   if (teamLicenseState !== 'active') {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2">
-            {teamLicenseState === 'checking'
-              ? <Loader2 className="h-5 w-5 animate-spin" />
-              : <Shield className="h-5 w-5" />}
-            {teamLicenseState === 'checking' ? t('teamLicenseChecking') : t('teamLicenseRequiredTitle')}
-          </CardTitle>
-          <CardDescription>
-            {teamLicenseState === 'checking' ? t('teamLicenseCheckingDescription') : t('teamLicenseRequiredDescription')}
-          </CardDescription>
-        </CardHeader>
-        {teamLicenseState === 'required' && (
-          <CardContent>
-            <Button asChild>
-              <Link href="/settings?tab=license">{t('manageLicense')}</Link>
-            </Button>
-          </CardContent>
-        )}
-      </Card>
+      <div className="flex flex-col gap-4">
+        {canViewTeamSeatHealth ? (
+          <TeamSeatHealthPanel
+            health={teamSeatHealth}
+            onReload={loadLicenseStatus}
+          />
+        ) : null}
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              {teamLicenseState === 'checking'
+                ? <Loader2 className="h-5 w-5 animate-spin" />
+                : <Shield className="h-5 w-5" />}
+              {teamLicenseState === 'checking' ? t('teamLicenseChecking') : t('teamLicenseRequiredTitle')}
+            </CardTitle>
+            <CardDescription>
+              {teamLicenseState === 'checking' ? t('teamLicenseCheckingDescription') : t('teamLicenseRequiredDescription')}
+            </CardDescription>
+          </CardHeader>
+          {teamLicenseState === 'required' && (
+            <CardContent>
+              <Button asChild>
+                <Link href="/settings?tab=license">{t('manageLicense')}</Link>
+              </Button>
+            </CardContent>
+          )}
+        </Card>
+      </div>
     );
   }
 
   return (
     <div className="flex flex-col gap-4">
+      {canViewTeamSeatHealth ? (
+        <TeamSeatHealthPanel
+          health={teamSeatHealth}
+          onReload={loadLicenseStatus}
+        />
+      ) : null}
       <Card>
         <CardHeader className="gap-3">
           <div className="flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
