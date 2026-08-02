@@ -67,6 +67,7 @@
     "test:mcp:server-schema": "tsx scripts/mcp-server-oauth-schema-test.ts",
     "test:mcp:server-provider": "tsx --conditions react-server scripts/mcp-server-oauth-provider-test.ts",
     "test:mcp:server-login-consent": "tsx --conditions react-server scripts/mcp-server-oauth-login-consent-test.ts",
+    "test:mcp:server-resource": "tsx --conditions react-server scripts/mcp-server-protected-resource-test.ts",
     "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
     "test:studio:usage": "tsx scripts/studio-usage-test.ts",

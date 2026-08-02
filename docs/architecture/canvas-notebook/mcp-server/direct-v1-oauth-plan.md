@@ -243,8 +243,6 @@ Die Metadaten enthalten mindestens:
     "https://{instance-domain}/api/auth"
   ],
   "scopes_supported": [
-    "openid",
-    "offline_access",
     "workspace:list",
     "knowledge:tree",
     "knowledge:search",
@@ -255,6 +253,9 @@ Die Metadaten enthalten mindestens:
 ```
 
 Die kanonische path-aware URL wird bevorzugt. Der Root-Alias liefert denselben fachlichen Inhalt.
+Die Protected-Resource-Metadaten nennen ausschließlich Resource-Scopes.
+`openid` und `offline_access` bleiben in den Authorization-Server-Metadaten,
+weil sie vom Authorization Server und nicht von der MCP Resource verarbeitet werden.
 
 ### 4.2 Token-Prüfung
 
@@ -263,7 +264,10 @@ Jeder geschützte MCP-Request prüft:
 1. Bearer Token vorhanden.
 2. Signatur gegen das lokale JWKS gültig.
 3. Issuer entspricht exakt `https://{instance-domain}/api/auth`.
-4. Audience/Resource entspricht exakt `https://{instance-domain}/mcp`.
+4. Audience enthält exakt die kanonische MCP Resource
+   `https://{instance-domain}/mcp`. Bei `openid` darf Better Auth zusätzlich nur
+   die Userinfo-Audience derselben Instanz ergänzen; fremde Audiences bleiben
+   unzulässig.
 5. Token ist noch nicht abgelaufen.
 6. Token oder zugehöriger Grant ist nicht widerrufen.
 7. benötigter Scope ist enthalten.
@@ -271,6 +275,14 @@ Jeder geschützte MCP-Request prüft:
 9. lokale Workspace-ACL erlaubt die konkrete Operation.
 
 Die Prüfung verwendet nach Möglichkeit den Better-Auth-Resource-Client beziehungsweise dessen `verifyAccessToken`-Helper mit expliziter Audience. Eigene JWT-Logik wird nur ergänzt, wenn die Bibliothek eine erforderliche MCP-Prüfung nicht abdeckt.
+
+Better Auth `1.6.23` prüft eine JWT-Revocation kryptografisch, speichert den
+Widerruf eines selbst enthaltenen JWTs aber nicht. V1 bindet deshalb jeden
+MCP-Access-Token zusätzlich an seine lokale Better-Auth-Session. Eine
+erfolgreiche Access- oder Refresh-Token-Revocation sperrt atomar die zugehörigen
+Refresh-Grants und entfernt diese Session. Der gemeinsame Verifier verlangt die
+weiterhin aktive Session; ein widerrufenes Token ist dadurch sofort und auch
+nach einem Refresh-Versuch unbrauchbar.
 
 ### 4.3 Auth-Challenge
 

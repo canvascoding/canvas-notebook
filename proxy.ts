@@ -15,6 +15,8 @@ const PUBLIC_EXACT_ROUTES = [
   '/api/health',
   '/api/mobile/v1/compatibility',
   '/manifest.webmanifest',
+  '/.well-known/oauth-protected-resource',
+  '/.well-known/oauth-protected-resource/mcp',
   '/oauth/consent',
 ];
 const PUBLIC_SHARE_PREFIX_ROUTES = [

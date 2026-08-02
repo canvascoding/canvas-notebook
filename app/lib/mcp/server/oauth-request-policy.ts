@@ -3,6 +3,7 @@ import {
   isDirectMcpEnabled,
   resolveDirectMcpServerConfig,
 } from '@/app/lib/mcp/server/config';
+import { directMcpRefreshGrantIsActive } from '@/app/lib/mcp/server/oauth-grant-revocation';
 
 function oauthError(error: string, description: string): Response {
   return Response.json(
@@ -115,7 +116,20 @@ export async function enforceDirectMcpOAuthRequestPolicy(
     if (grantType === 'authorization_code' || grantType === 'refresh_token') {
       const resourceValues = form.getAll('resource')
         .filter((value): value is string => typeof value === 'string');
-      return validateResourceValues(resourceValues);
+      const resourceError = validateResourceValues(resourceValues);
+      if (resourceError) return resourceError;
+      if (grantType === 'refresh_token') {
+        const refreshGrantActive = await directMcpRefreshGrantIsActive(
+          form,
+          request.headers,
+        );
+        if (refreshGrantActive === false) {
+          return oauthError(
+            'invalid_grant',
+            'The refresh grant is inactive.',
+          );
+        }
+      }
     }
   }
 

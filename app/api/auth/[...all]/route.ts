@@ -6,6 +6,10 @@ import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
 import { initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { isOnboardingComplete, isOnboardingEnabled } from '@/app/lib/onboarding/status';
 import { enforceDirectMcpOAuthRequestPolicy } from '@/app/lib/mcp/server/oauth-request-policy';
+import {
+  applyDirectMcpRevocation,
+  prepareDirectMcpRevocation,
+} from '@/app/lib/mcp/server/oauth-grant-revocation';
 
 function hasAuthPathSegment(pathname: string, segment: string): boolean {
   return new RegExp(`/${segment}(?:/|$)`).test(pathname);
@@ -110,6 +114,7 @@ export async function POST(request: NextRequest) {
   const pathname = request.nextUrl.pathname;
   const policyResponse = await enforceDirectMcpOAuthRequestPolicy(request);
   if (policyResponse) return policyResponse;
+  const revocationCandidate = await prepareDirectMcpRevocation(request);
 
   const action = authAuditAction(pathname);
   const beforeUserId = action ? await getCurrentAuthUserId(request) : null;
@@ -126,6 +131,26 @@ export async function POST(request: NextRequest) {
   }
 
   const response = await auth.handler(request);
+  if (response.ok && revocationCandidate) {
+    try {
+      await applyDirectMcpRevocation(revocationCandidate);
+    } catch (error) {
+      console.error('[auth] Failed to revoke the local Direct MCP grant:', error);
+      return NextResponse.json(
+        {
+          error: 'temporarily_unavailable',
+          error_description: 'The local OAuth grant could not be revoked.',
+        },
+        {
+          status: 503,
+          headers: {
+            'cache-control': 'no-store',
+            pragma: 'no-cache',
+          },
+        },
+      );
+    }
+  }
   try {
     await initializeCreatedUserOnboarding(pathname, response);
   } catch (error) {

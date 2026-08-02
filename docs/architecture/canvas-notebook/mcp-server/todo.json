@@ -93,7 +93,8 @@
     {
       "id": "MCP-OAUTH-05",
       "title": "Protected Resource Metadata und gemeinsamen Token-Verifier umsetzen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-02",
       "dependsOn": [
         "MCP-OAUTH-04"
       ],
