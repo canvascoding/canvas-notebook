@@ -9,24 +9,40 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 ### Added
 
+- Nothing yet.
+
+## [2026.8.2.1] - 2026-08-02
+
+### Added
+
 - Added optional Community license activation during setup and in Settings while preserving offline-capable local Solo use without a license.
 - Added the Community-to-Team Seat flow with account claim, runtime preflight, server-authoritative quotes, explicit approval, idempotent activation, and signed entitlement refresh.
 - Added Team membership management for direct adds, invitations, role changes, suspension, removal, deterministic reconciliation, and data-preserving Solo fallback.
 - Added a Team Seat owner runbook and a published Notebook/Control Plane compatibility matrix.
+- Added a Direct MCP server with OAuth 2.0 authorization-server metadata, resource token verification, conformance tests, HTTP smoke tests, and MCP Inspector validation.
+- Added rich Markdown editing: callouts, footnotes, emoji picker, member mentions, document outline, search, and statistics.
+- Added a curated mobile plugin marketplace API, installed-plugin details, and secure Composio connected-app flows for mobile automations.
+- Added cooperative Browser Lab control and mobile collaboration-session tickets.
 
 ### Changed
 
 - Bundled the application fonts locally so production builds and private-network deployments do not depend on Google Fonts availability.
+- Optimized Browser Lab controls, layout, and interactions for mobile touch devices.
+- Refreshed third-party dependency notices for OAuth-related libraries.
 
 ### Security
 
 - Kept Team access fail-closed outside signed capacity and grace, rejected client-supplied quantities and prices, and revoked sessions when memberships lose access.
 - Isolated non-billable test certificates from production signing and rejected test certificates in production mode.
+- Enforced signed seat limits globally across activation, quote, invitation, and offboarding paths.
+- Hardened Team Seat certificate validation, security boundaries, and migration coverage.
 
 ### Verification
 
 - `npm run build`
 - `tsx scripts/team-seat-release-verification-test.ts`
+- `tsx scripts/mcp-server-auth-probe-test.ts`
+- `tsx scripts/mcp-server-http-smoke-test.ts`
 
 ## [2026.8.1.2] - 2026-08-01
 
