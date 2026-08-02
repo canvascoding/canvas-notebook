@@ -448,6 +448,10 @@ async function copyFileAtomically(sourcePath: string, requestedOutputPath: strin
 
 async function install(context: RuntimeContext, docker: DockerManager, config: CanvasCliConfig): Promise<void> {
   await appendLog(context, 'install started');
+  if (managedByControlPlane(config)) {
+    console.log('Note: This installation is managed by Control Plane; autonomous CLI auto-update is disabled.');
+    await appendLog(context, 'managed mode: autonomous auto-update disabled');
+  }
   const next = await syncFiles(context, config, { allowPostgresSecretGeneration: true });
   await docker.pull(next);
   await preparePostgresManagedRuntime({ docker, config: next, stdio: 'inherit' });
@@ -465,6 +469,12 @@ export async function update(
   options: UpdateOptions,
 ): Promise<void> {
   await appendLog(context, 'update started');
+  if (managedByControlPlane(config)) {
+    await appendLog(context, 'managed mode: update coordinated by Control Plane');
+    if (!json) {
+      console.log('Managed mode: this update is coordinated by the Control Plane; autonomous auto-update remains disabled.');
+    }
+  }
   const previousConfigImage = config.image;
   const targetImage = options.image || previousConfigImage;
   if ((options.requirePinned || managedByControlPlane(config)) && !isPinnedImageReference(targetImage)) {

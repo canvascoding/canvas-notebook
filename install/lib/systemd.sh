@@ -51,6 +51,14 @@ install_manager_config_unlocked() {
   fi
   _config_json_raw_write "$config_json_path" "dataDir" "\"$data_dir_val\"" || return 1
   config_json_write_swap "$swap_enabled_val" "${CANVAS_SWAP_SIZE:-2G}" "${CANVAS_SWAP_FILE:-/swapfile}" "${CANVAS_SWAP_SWAPPINESS:-10}" || return 1
+
+  if declare -f config_json_managed_by_control_plane > /dev/null 2>&1 && config_json_managed_by_control_plane; then
+    if [[ "$auto_update_enabled_val" != "false" ]]; then
+      warn "Managed by Control Plane — ignoring CANVAS_AUTO_UPDATE_ENABLED=true and forcing autoUpdate.enabled=false"
+    fi
+    auto_update_enabled_val=false
+  fi
+
   _config_json_raw_write "$config_json_path" "autoUpdate.enabled" "$auto_update_enabled_val" || return 1
   _config_json_raw_write "$config_json_path" "autoUpdate.schedule" "\"${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}\""
 }
@@ -159,7 +167,7 @@ install_update_timer() {
 
   require_jq
 
-  local update_enabled update_schedule
+  local update_enabled update_schedule managed_by_control_plane
   if [[ -f "$config_json_path" ]]; then
     update_enabled="$(jq -r '.autoUpdate.enabled // false' "$config_json_path")"
     update_schedule="$(jq -r '.autoUpdate.schedule // "*-*-* 04:00:00"' "$config_json_path")"
@@ -168,8 +176,34 @@ install_update_timer() {
     update_schedule="${CANVAS_AUTO_UPDATE_SCHEDULE:-*-*-* 04:00:00}"
   fi
 
+  managed_by_control_plane=false
+  if declare -f config_json_managed_by_control_plane >/dev/null 2>&1 && config_json_managed_by_control_plane; then
+    managed_by_control_plane=true
+  fi
+
   if ! command -v systemctl >/dev/null 2>&1; then
     warn "systemd not found — skipping auto-update timer installation."
+    return 0
+  fi
+
+  if [[ "$managed_by_control_plane" == "true" ]]; then
+    warn "Managed by Control Plane — autonomous auto-update timer must stay disabled."
+    update_enabled=false
+    if [[ -f "$config_json_path" ]]; then
+      _config_json_raw_write "$config_json_path" "autoUpdate.enabled" "false" >/dev/null 2>&1 || true
+      info "Set autoUpdate.enabled=false in ${config_json_path}"
+    fi
+    if [[ -f "$timer_path" || -f "$service_path" ]]; then
+      info "Stopping and removing legacy auto-update systemd units..."
+      run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true
+      run_root systemctl stop canvas-notebook-update.service >/dev/null 2>&1 || true
+      run_root systemctl disable canvas-notebook-update.timer >/dev/null 2>&1 || true
+      run_root systemctl disable canvas-notebook-update.service >/dev/null 2>&1 || true
+      run_root rm -f "$timer_path" "$service_path"
+      run_root systemctl daemon-reload
+      run_root systemctl reset-failed canvas-notebook-update.timer canvas-notebook-update.service >/dev/null 2>&1 || true
+      ok "Removed legacy auto-update systemd units (managed mode)"
+    fi
     return 0
   fi
 

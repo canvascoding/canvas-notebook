@@ -37,7 +37,9 @@ show_auto_update_status() {
 
   local config_true
   config_true="$(is_false "$enabled_val" && printf 'false' || printf 'true')"
-  if [[ "$config_true" == "true" && "$timer_active" != "active" ]]; then
+  if config_json_managed_by_control_plane; then
+    info "Auto-update is under Control Plane management; local timer state is intentionally ignored."
+  elif [[ "$config_true" == "true" && "$timer_active" != "active" ]]; then
     warn "Config says enabled but timer is inactive — run: canvas-notebook auto-update-enable"
   elif [[ "$config_true" == "false" && "$timer_active" == "active" ]]; then
     warn "Config says disabled but timer is active — run: canvas-notebook auto-update-disable"
@@ -74,12 +76,13 @@ enable_auto_update() {
   fi
 
   if config_json_managed_by_control_plane; then
-    fail "Managed installations are updated by the Control Plane; autonomous updates cannot be enabled."
+    warn "This installation is managed by the Canvas Control Plane."
+    fail "Autonomous auto-update cannot be enabled because Control Plane handles updates."
   fi
   local configured_image
   configured_image="$(config_json_read image)"
   if ! config_json_image_is_pinned "$configured_image"; then
-    fail "Auto-update requires config.image to be pinned to a sha256 digest."
+    fail "Auto-update requires config.image to be pinned to a sha256 digest. Current image: ${configured_image}"
   fi
 
   if [[ -n "$schedule_arg" ]]; then
@@ -118,6 +121,10 @@ disable_auto_update() {
     fail "systemd not found — auto-update timer requires systemd"
   fi
 
+  if config_json_managed_by_control_plane; then
+    info "Managed by Control Plane — disabling any autonomous auto-update timer as a safety measure."
+  fi
+
   if [[ -f /etc/systemd/system/canvas-notebook-update.timer ]]; then
     run_root systemctl stop canvas-notebook-update.timer >/dev/null 2>&1 || true
     run_root systemctl disable canvas-notebook-update.timer >/dev/null 2>&1 || true
@@ -129,12 +136,21 @@ disable_auto_update() {
 }
 
 sync_auto_update() {
-  local enabled_val timer_active
+  local enabled_val timer_active managed_by_control_plane
   enabled_val="$(config_json_read autoUpdate.enabled)"
   enabled_val="${enabled_val:-false}"
   timer_active="$(systemctl is-active canvas-notebook-update.timer 2>/dev/null || true)"
+  managed_by_control_plane=false
+  if config_json_managed_by_control_plane; then
+    managed_by_control_plane=true
+  fi
 
-  if config_json_managed_by_control_plane || ! config_json_image_is_pinned "$(config_json_read image)"; then
+  if [[ "$managed_by_control_plane" == "true" ]] || ! config_json_image_is_pinned "$(config_json_read image)"; then
+    if [[ "$managed_by_control_plane" == "true" ]]; then
+      warn "Managed by Control Plane — autonomous auto-update must remain disabled."
+    else
+      warn "Image is not pinned to a sha256 digest — autonomous auto-update must remain disabled."
+    fi
     if [[ "$timer_active" == "active" ]]; then
       disable_auto_update
     else

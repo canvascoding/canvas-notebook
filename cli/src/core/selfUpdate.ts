@@ -24,6 +24,11 @@ function isFalse(value: string | undefined): boolean {
   return ['false', '0', 'no', 'off', 'disabled'].includes(String(value || '').trim().toLowerCase());
 }
 
+function isManagedByControlPlane(env: NodeJS.ProcessEnv): boolean {
+  const managed = String(env.CANVAS_MANAGED_SERVICES_ENABLED || '').trim().toLowerCase();
+  return ['true', '1', 'yes', 'on'].includes(managed) || String(env.CANVAS_CONTROL_PLANE_URL || '').trim().length > 0;
+}
+
 function assetUrl(env: NodeJS.ProcessEnv, asset: string): string {
   const repo = env.CANVAS_REPO || 'canvascoding/canvas-notebook';
   const version = env.CANVAS_VERSION || env.CANVAS_CLI_VERSION || 'latest';
@@ -147,6 +152,9 @@ export async function updatePortableCli(params: {
   const currentRoot = resolvePortableCliRoot(env, params.argvMain);
   const mainPath = currentRoot ? path.join(currentRoot, 'dist-cli', 'main.js') : '';
   const beforeVersion = currentRoot ? await readVersion(currentRoot) : '';
+  if (isManagedByControlPlane(env)) {
+    return { skipped: true, changed: false, currentRoot, mainPath, beforeVersion, afterVersion: beforeVersion };
+  }
   if (isFalse(env.CANVAS_CLI_SELF_UPDATE) || env.CANVAS_CLI_SELF_UPDATE_REEXEC === 'true') {
     return { skipped: true, changed: false, currentRoot, mainPath, beforeVersion, afterVersion: beforeVersion };
   }
@@ -214,6 +222,10 @@ export async function reexecPortableCliIfUpdated(params: {
     result = await updatePortableCli(params);
   } catch (error) {
     console.warn(`Could not update portable CLI before ${params.command}: ${error instanceof Error ? error.message : String(error)}`);
+    return;
+  }
+  if (result.skipped && isManagedByControlPlane(process.env)) {
+    console.log('Portable CLI self-update skipped: installation is managed by Control Plane.');
     return;
   }
   if (!result.changed) return;
