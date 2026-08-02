@@ -11,6 +11,17 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.2.4] - 2026-08-02
+
+### Fixed
+
+- Cast retry timestamp parameters to `bigint` in Postgres `team_seat_outbox` retry/failure updates so the `next_attempt_at` column accepts the value instead of raising a type mismatch.
+
+### Verification
+
+- `npm run build`
+- `npm run licenses:refresh-cache`
+
 ## [2026.8.2.3] - 2026-08-02
 
 ### Added
