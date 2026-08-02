@@ -781,7 +781,7 @@
         {
           "id": "NB-TS-050",
           "title": "Authentifizierten Control-Plane-Team-Client bauen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "control-plane-client",
           "description": "Gemeinsamen Server-Client mit Instanz-Token, Protokollheader, Timeouts, Backoff, Fehler-Mapping und Log-Redaction implementieren.",
@@ -801,7 +801,8 @@
             "4xx-Fachfehler und temporäre 5xx/Netzfehler werden getrennt behandelt.",
             "Retries verwenden dieselbe Operation-ID.",
             "Logs enthalten keine Secrets oder vollständige Member-Hashes."
-          ]
+          ],
+          "progress": "Ein gemeinsamer server-only Team-Control-Plane-Client fügt Community-Instanz-Token ausschließlich im Backend an und sendet bei jedem Request explizite Protocol-, Notebook-Version- und Operation-ID-Header. Netzwerk-, Timeout-, 408-, 425-, 429- und 5xx-Fehler werden mit begrenztem exponentiellem Backoff retried; 401/403 sind separat als Authentication und übrige 4xx als fachliche Fehler klassifiziert. Alle Versuche innerhalb einer logischen Operation verwenden dieselbe persistierte Outbox-Operation-ID beziehungsweise denselben idempotenten Operation-Key. Prepare-, Execute-, Quote-, Preflight- und Refresh-Pfade verwenden den gemeinsamen Transport, während nicht idempotente Claim- und Token-Rotation weiterhin keinen automatischen Transport-Retry erhalten. Retry-Responses werden geschlossen, bekannte Tokens, Bearer-Werte und vollständige SHA-256-Member-Hashes aus Fehlermeldungen redigiert; Request-Bodies und Authorization-Header werden nie protokolliert. Der Transporttest deckt Netzwerk- und 503-Retry, identische Operation-IDs, Backoff, 401/409-Terminalität, Header, serverseitige Token-Injektion und Redaction ab. Claim-, Refresh-, Recovery-, Preflight-, Membership-, Invitations- und Contract-Regressionsprüfungen sowie TypeScript, ESLint und ein isolierter Production-Build auf dem sauberen Repository-Stand plus Lizenz-Patch sind erfolgreich. Der reguläre Worktree-Prebuild bleibt ausschließlich durch den parallel geänderten, noch nicht aktualisierten Third-Party-License-Cache der pausierten MCP/OAuth-Arbeit blockiert."
         },
         {
           "id": "NB-TS-051",
