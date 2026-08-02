@@ -2425,13 +2425,13 @@
       },
       "createDialog": {
         "title": "Create user",
-        "description": "The new user can sign in with email and password afterward.",
+        "description": "A local membership is staged first. A sign-in capable account is created only after the Seat limit is confirmed.",
         "adminLabel": "Administrator access",
         "adminDescription": "Admins can manage other users.",
-        "passwordHint": "This password is not sent by email. Share it with the user through a secure channel.",
-        "submit": "Create",
-        "recoveryDescription": "The account {email} was created, but personal onboarding could not be initialized yet. Retrying will not create another account.",
-        "retrySetup": "Retry setup"
+        "passwordHint": "The initial password is set only during final activation.",
+        "submit": "Prepare activation",
+        "recoveryDescription": "Activation for {email} is already staged and can be resumed safely.",
+        "retrySetup": "Resume activation"
       },
       "passwordDialog": {
         "title": "Set password",
@@ -2514,6 +2514,7 @@
       },
       "messages": {
         "created": "{email} was created.",
+        "activationStarted": "Activation for {email} was staged. The Seat limit will be confirmed before account creation.",
         "roleUpdated": "Role for {email} was updated.",
         "permissionsUpdated": "Permissions for {email} were saved.",
         "passwordUpdated": "Password for {email} was updated.",
@@ -2526,7 +2527,7 @@
         "load": "Could not load users.",
         "action": "Could not complete action.",
         "create": "Could not create user.",
-        "createValidation": "Name, email, and a password of at least 8 characters are required.",
+        "createValidation": "Name and email are required.",
         "role": "Could not change role.",
         "selfRole": "You cannot change your own role here.",
         "permissionsLoad": "Could not load permissions.",

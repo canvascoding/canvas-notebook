@@ -547,7 +547,7 @@
         {
           "id": "NB-TS-040",
           "title": "Serverseitigen Membership-Orchestrator einführen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership-core",
           "description": "Zentralen Service vor Better Auth setzen, der Candidate, Revision, Quote, Authorization, Billing-Operation, Zertifikat und endgültige Aktivierung koordiniert.",
@@ -569,7 +569,8 @@
             "Aktiver Better-Auth-User entsteht erst nach bestätigtem Seat-Limit.",
             "Operation kann nach Crash oder Timeout fortgesetzt werden.",
             "Alle Pfade verwenden dieselbe aktive-Seat-Definition."
-          ]
+          ],
+          "progress": "Ein zentraler serverseitiger Membership-Orchestrator persistiert Direct-Create-Candidates vor jeder Identitätserstellung als approval_required und legt die serverseitig aus der einheitlichen Active-Membership-Projektion berechnete Seat-Prepare-Operation in der Outbox ab. Prepare- und Execute-Antworten werden gegen Desired Quantity, Quote-Hash, Authorization, Snapshot, Operation-Key, Effective Quantity und Zertifikatsstatus validiert; erst ein verifiziertes signiertes Team-Zertifikat mit ausreichendem seatLimit erlaubt die Erstellung einer zunächst eindeutig gesperrten Better-Auth-Identität. Membership-Aktivierung, Revision und Snapshot entstehen vor der Entsperrung, sodass Crash-Retries weder doppelte User noch doppelte aktive Seats erzeugen. Direkte HTTP-Aufrufe des Better-Auth-create-user-Endpunkts werden mit MEMBERSHIP_ORCHESTRATOR_REQUIRED blockiert; die Benutzerverwaltung startet ausschließlich die wiederaufnehmbare Membership-Operation über /api/admin/organization/memberships und legt noch kein Login-Passwort an. Kandidat, Prepare- und Execute-Operation besitzen stabile Dedupe-/Operation-IDs und überleben Prozessneustarts. Der isolierte Orchestrator-Test deckt Restart nach Candidate und Prepare, sichere pending Identität, Zertifikats-Gate, finale Aktivierung und idempotenten Completion-Retry ab; Membership-/Outbox-Regressionsprüfungen, TypeScript, ESLint und Production-Build sind erfolgreich."
         },
         {
           "id": "NB-TS-041",

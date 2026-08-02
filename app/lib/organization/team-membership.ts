@@ -161,7 +161,7 @@ export class TeamMembershipError extends Error {
   }
 }
 
-function normalizeCandidateEmail(value: string): string {
+export function normalizeTeamMembershipCandidateEmail(value: string): string {
   const normalized = value.trim().toLowerCase();
   if (!normalized || normalized.length > 320 || !normalized.includes('@')) {
     throw new TeamMembershipError('INVALID_CANDIDATE', 'A valid candidate email address is required.');
@@ -342,7 +342,7 @@ export async function createTeamMembershipCandidate(
   const id = `team-membership-${randomUUID()}`;
   const status = input.status ?? 'invited';
   const role = input.role ?? 'member';
-  const candidateEmail = normalizeCandidateEmail(input.email);
+  const candidateEmail = normalizeTeamMembershipCandidateEmail(input.email);
   const now = input.now ?? Date.now();
 
   return withMembershipTransaction(database, async () => {
@@ -426,7 +426,7 @@ export async function adoptActiveTeamMembership(
     );
   }
 
-  const candidateEmail = normalizeCandidateEmail(user.email);
+  const candidateEmail = normalizeTeamMembershipCandidateEmail(user.email);
   const id = `team-membership-${randomUUID()}`;
   return withMembershipTransaction(database, async () => {
     await database.run(`
@@ -575,7 +575,7 @@ export async function transitionTeamMembership(
           409,
         );
       }
-      if (normalizeCandidateEmail(user.email) !== membership.candidateEmail) {
+      if (normalizeTeamMembershipCandidateEmail(user.email) !== membership.candidateEmail) {
         throw new TeamMembershipError(
           'ACTIVE_IDENTITY_MISMATCH',
           'The Better Auth user email does not match the accepted Team membership candidate.',
@@ -719,4 +719,63 @@ export async function getActiveTeamMembershipProjection(
     roleSummary,
     members,
   };
+}
+
+export async function getTeamMembershipById(
+  database: Pick<SqlConnection, 'get'>,
+  organizationId: string,
+  membershipId: string,
+): Promise<TeamMembership | null> {
+  return readMembership(database, organizationId, membershipId);
+}
+
+export async function getTeamMembershipByCandidateEmail(
+  database: Pick<SqlConnection, 'get'>,
+  organizationId: string,
+  email: string,
+): Promise<TeamMembership | null> {
+  const candidateEmail = normalizeTeamMembershipCandidateEmail(email);
+  const row = await database.get(
+    `${MEMBERSHIP_SELECT} WHERE organization_id = ? AND candidate_email = ? LIMIT 1`,
+    [organizationId, candidateEmail],
+  ) as MembershipRow | undefined;
+  return row ? mapMembership(row) : null;
+}
+
+export async function linkTeamMembershipControlPlaneOperation(
+  database: Pick<SqlConnection, 'get' | 'run'>,
+  input: {
+    organizationId: string;
+    membershipId: string;
+    controlPlaneOperationId: string;
+    now?: number;
+  },
+): Promise<TeamMembership> {
+  const operationId = optionalText(input.controlPlaneOperationId, 500);
+  if (!operationId) {
+    throw new TeamMembershipError(
+      'MEMBERSHIP_CONFLICT',
+      'A Control Plane operation ID is required.',
+      400,
+    );
+  }
+  const now = input.now ?? Date.now();
+  const result = await database.run(`
+    UPDATE team_memberships
+    SET control_plane_operation_id = ?, updated_at = ?
+    WHERE organization_id = ? AND id = ?
+  `, [
+    operationId,
+    now,
+    input.organizationId,
+    input.membershipId,
+  ]);
+  if (changesFromRunResult(result) !== 1) {
+    throw new TeamMembershipError('MEMBERSHIP_NOT_FOUND', 'Team membership not found.', 404);
+  }
+  const membership = await readMembership(database, input.organizationId, input.membershipId);
+  if (!membership) {
+    throw new TeamMembershipError('MEMBERSHIP_NOT_FOUND', 'Team membership not found.', 404);
+  }
+  return membership;
 }

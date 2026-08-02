@@ -2424,13 +2424,13 @@
       },
       "createDialog": {
         "title": "Benutzer anlegen",
-        "description": "Der neue Benutzer kann sich danach mit E-Mail und Passwort anmelden.",
+        "description": "Zuerst wird eine lokale Mitgliedschaft vorgemerkt. Ein loginfähiges Konto entsteht erst nach bestätigtem Seat-Limit.",
         "adminLabel": "Administratorrechte",
         "adminDescription": "Admins können andere Benutzer verwalten.",
-        "passwordHint": "Dieses Passwort wird nicht per E-Mail verschickt. Teile es dem Benutzer über einen sicheren Kanal mit.",
-        "submit": "Anlegen",
-        "recoveryDescription": "Das Konto {email} wurde bereits angelegt, aber das persönliche Onboarding konnte noch nicht initialisiert werden. Beim erneuten Versuch wird kein weiteres Konto erstellt.",
-        "retrySetup": "Einrichtung erneut versuchen"
+        "passwordHint": "Das Startpasswort wird erst bei der finalen Aktivierung gesetzt.",
+        "submit": "Aktivierung vorbereiten",
+        "recoveryDescription": "Die Aktivierung für {email} wurde bereits vorgemerkt und kann sicher fortgesetzt werden.",
+        "retrySetup": "Aktivierung fortsetzen"
       },
       "passwordDialog": {
         "title": "Passwort setzen",
@@ -2513,6 +2513,7 @@
       },
       "messages": {
         "created": "{email} wurde angelegt.",
+        "activationStarted": "Die Aktivierung für {email} wurde vorgemerkt. Vor der Kontoerstellung wird das Seat-Limit bestätigt.",
         "roleUpdated": "Rolle für {email} wurde aktualisiert.",
         "permissionsUpdated": "Berechtigungen für {email} wurden gespeichert.",
         "passwordUpdated": "Passwort für {email} wurde aktualisiert.",
@@ -2525,7 +2526,7 @@
         "load": "Benutzer konnten nicht geladen werden.",
         "action": "Aktion konnte nicht ausgeführt werden.",
         "create": "Benutzer konnte nicht angelegt werden.",
-        "createValidation": "Name, E-Mail und ein Passwort mit mindestens 8 Zeichen sind erforderlich.",
+        "createValidation": "Name und E-Mail sind erforderlich.",
         "role": "Rolle konnte nicht geändert werden.",
         "selfRole": "Du kannst deine eigene Rolle hier nicht ändern.",
         "permissionsLoad": "Berechtigungen konnten nicht geladen werden.",

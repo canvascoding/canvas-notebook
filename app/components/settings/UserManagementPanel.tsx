@@ -64,11 +64,8 @@ type AuthResult<T> = {
 type CreateUserDraft = {
   name: string;
   email: string;
-  password: string;
   isAdmin: boolean;
 };
-
-type PendingCreatedUser = Pick<ManagedUser, 'id' | 'email'>;
 
 type TeamLicenseState = 'checking' | 'active' | 'required';
 
@@ -136,7 +133,6 @@ function createEmptyDraft(): CreateUserDraft {
   return {
     name: '',
     email: '',
-    password: '',
     isAdmin: false,
   };
 }
@@ -204,7 +200,6 @@ export function UserManagementPanel({
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
-  const [pendingCreatedUser, setPendingCreatedUser] = useState<PendingCreatedUser | null>(null);
   const [permissionsTarget, setPermissionsTarget] = useState<ManagedUser | null>(null);
   const [passwordTarget, setPasswordTarget] = useState<ManagedUser | null>(null);
   const [passwordDraft, setPasswordDraft] = useState('');
@@ -304,40 +299,11 @@ export function UserManagementPanel({
     setSearchValue(searchDraft.trim());
   };
 
-  const initializeCreatedUser = async (userId: string) => {
-    const onboardingResponse = await fetch('/api/onboarding/user-initialize', {
-      method: 'POST',
-      credentials: 'include',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId }),
-    });
-    const onboardingPayload = await onboardingResponse.json().catch(() => ({})) as { error?: string };
-    if (!onboardingResponse.ok) {
-      throw new Error(onboardingPayload.error || t('errors.create'));
-    }
-  };
-
   const createUser = async () => {
-    if (pendingCreatedUser) {
-      const pendingUser = pendingCreatedUser;
-      await runAction(
-        'create',
-        async () => {
-          await initializeCreatedUser(pendingUser.id);
-          setPendingCreatedUser(null);
-          setCreateOpen(false);
-          setCreateDraft(createEmptyDraft());
-        },
-        t('messages.created', { email: pendingUser.email }),
-      );
-      return;
-    }
-
     const name = createDraft.name.trim();
     const email = createDraft.email.trim().toLowerCase();
-    const password = createDraft.password;
 
-    if (!name || !email || password.length < 8) {
+    if (!name || !email) {
       setError(t('errors.createValidation'));
       return;
     }
@@ -345,23 +311,27 @@ export function UserManagementPanel({
     await runAction(
       'create',
       async () => {
-        const created = unwrapAuthResult<{ user: ManagedUser }>(
-          await authClient.admin.createUser({
+        const response = await fetch('/api/admin/organization/memberships', {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
             name,
             email,
-            password,
-            role: createDraft.isAdmin ? 'admin' : 'user',
+            role: createDraft.isAdmin ? 'admin' : 'member',
           }),
-          t('errors.create'),
-        );
-        setPendingCreatedUser({ id: created.user.id, email: created.user.email });
-        setCreateDraft((current) => ({ ...current, password: '' }));
-        await initializeCreatedUser(created.user.id);
-        setPendingCreatedUser(null);
+        });
+        const payload = await response.json().catch(() => ({})) as {
+          success?: boolean;
+          error?: string;
+        };
+        if (!response.ok || payload.success !== true) {
+          throw new Error(payload.error || t('errors.create'));
+        }
         setCreateOpen(false);
         setCreateDraft(createEmptyDraft());
       },
-      t('messages.created', { email }),
+      t('messages.activationStarted', { email }),
     );
   };
 
@@ -909,21 +879,13 @@ export function UserManagementPanel({
             <DialogDescription>{t('createDialog.description')}</DialogDescription>
           </DialogHeader>
           <div className="flex flex-col gap-4">
-            {pendingCreatedUser && (
-              <div
-                role="status"
-                className="rounded-md border border-amber-500/40 bg-amber-500/10 px-3 py-2 text-sm text-foreground"
-              >
-                {t('createDialog.recoveryDescription', { email: pendingCreatedUser.email })}
-              </div>
-            )}
             <div className="flex flex-col gap-2">
               <Label htmlFor="user-create-name">{t('fields.name')}</Label>
               <Input
                 id="user-create-name"
                 value={createDraft.name}
                 onChange={(event) => setCreateDraft((current) => ({ ...current, name: event.target.value }))}
-                disabled={activeAction === 'create' || Boolean(pendingCreatedUser)}
+                disabled={activeAction === 'create'}
               />
             </div>
             <div className="flex flex-col gap-2">
@@ -933,19 +895,8 @@ export function UserManagementPanel({
                 type="email"
                 value={createDraft.email}
                 onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))}
-                disabled={activeAction === 'create' || Boolean(pendingCreatedUser)}
+                disabled={activeAction === 'create'}
               />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="user-create-password">{t('fields.password')}</Label>
-              <Input
-                id="user-create-password"
-                type="password"
-                value={createDraft.password}
-                onChange={(event) => setCreateDraft((current) => ({ ...current, password: event.target.value }))}
-                disabled={activeAction === 'create' || Boolean(pendingCreatedUser)}
-              />
-              <p className="text-xs text-muted-foreground">{t('createDialog.passwordHint')}</p>
             </div>
             <div className="flex items-center justify-between gap-4 rounded-md border p-3">
               <div className="min-w-0">
@@ -956,7 +907,7 @@ export function UserManagementPanel({
                 id="user-create-admin"
                 checked={createDraft.isAdmin}
                 onCheckedChange={(checked) => setCreateDraft((current) => ({ ...current, isAdmin: checked }))}
-                disabled={activeAction === 'create' || Boolean(pendingCreatedUser)}
+                disabled={activeAction === 'create'}
               />
             </div>
           </div>
@@ -966,7 +917,7 @@ export function UserManagementPanel({
             </Button>
             <Button type="button" onClick={() => void createUser()} disabled={activeAction === 'create'}>
               {activeAction === 'create' ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <UserCog data-icon="inline-start" />}
-              {pendingCreatedUser ? t('createDialog.retrySetup') : t('createDialog.submit')}
+              {t('createDialog.submit')}
             </Button>
           </DialogFooter>
         </DialogContent>

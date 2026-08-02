@@ -682,6 +682,86 @@ export async function scheduleTeamSeatOutboxRetry(
   return operation;
 }
 
+export async function recordTeamSeatOutboxOperationSuccess(
+  database: Pick<SqlConnection, 'get' | 'run'>,
+  input: {
+    operationId: string;
+    response: unknown;
+    controlPlaneOperationId?: string | null;
+    now?: number;
+  },
+): Promise<TeamSeatOutboxOperation> {
+  const now = input.now ?? Date.now();
+  const operation = await getTeamSeatOutboxOperation(database, input.operationId);
+  if (!operation) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_NOT_FOUND',
+      'Team Seat outbox operation not found.',
+      404,
+    );
+  }
+
+  const responseJson = serializeResponse(input.response);
+  const controlPlaneOperationId = optionalText(input.controlPlaneOperationId, 500);
+  if (operation.status === 'succeeded') {
+    if (
+      operation.responseJson !== responseJson
+      || operation.controlPlaneOperationId !== controlPlaneOperationId
+    ) {
+      throw new TeamSeatOutboxError(
+        'TEAM_SEAT_OUTBOX_CONFLICT',
+        'The completed Team Seat operation cannot be replaced with a different response.',
+      );
+    }
+    return operation;
+  }
+  if (operation.status === 'failed' || operation.status === 'canceled') {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_TERMINAL',
+      `Team Seat outbox operation is already ${operation.status}.`,
+    );
+  }
+
+  const result = await database.run(`
+    UPDATE team_seat_outbox
+    SET
+      status = 'succeeded',
+      response_json = ?,
+      control_plane_operation_id = ?,
+      attempt_count = CASE WHEN attempt_count = 0 THEN 1 ELSE attempt_count END,
+      next_attempt_at = NULL,
+      last_attempt_at = ?,
+      last_error_code = NULL,
+      last_error = NULL,
+      completed_at = ?,
+      updated_at = ?
+    WHERE operation_id = ?
+      AND status NOT IN ('succeeded', 'failed', 'canceled')
+  `, [
+    responseJson,
+    controlPlaneOperationId,
+    now,
+    now,
+    now,
+    input.operationId,
+  ]);
+  if (changesFromRunResult(result) !== 1) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_CONFLICT',
+      'The Team Seat outbox operation changed concurrently.',
+    );
+  }
+  const completed = await getTeamSeatOutboxOperation(database, input.operationId);
+  if (!completed) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_NOT_FOUND',
+      'Team Seat outbox operation not found.',
+      404,
+    );
+  }
+  return completed;
+}
+
 export async function getTeamMembershipSyncState(
   database: Pick<SqlConnection, 'get'>,
   organizationId: string,
