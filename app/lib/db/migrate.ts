@@ -179,6 +179,118 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       updated_at INTEGER
     );
 
+    CREATE TABLE IF NOT EXISTS jwks (
+      id TEXT PRIMARY KEY NOT NULL,
+      public_key TEXT NOT NULL,
+      private_key TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      expires_at INTEGER
+    );
+
+    CREATE TABLE IF NOT EXISTS oauth_client (
+      id TEXT PRIMARY KEY NOT NULL,
+      client_id TEXT NOT NULL UNIQUE,
+      client_secret TEXT,
+      disabled INTEGER DEFAULT 0,
+      skip_consent INTEGER,
+      enable_end_session INTEGER,
+      subject_type TEXT,
+      scopes TEXT,
+      user_id TEXT,
+      created_at INTEGER,
+      updated_at INTEGER,
+      name TEXT,
+      uri TEXT,
+      icon TEXT,
+      contacts TEXT,
+      tos TEXT,
+      policy TEXT,
+      software_id TEXT,
+      software_version TEXT,
+      software_statement TEXT,
+      redirect_uris TEXT NOT NULL,
+      post_logout_redirect_uris TEXT,
+      token_endpoint_auth_method TEXT,
+      grant_types TEXT,
+      response_types TEXT,
+      public INTEGER,
+      type TEXT,
+      require_pkce INTEGER,
+      reference_id TEXT,
+      metadata TEXT,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_oauth_client_user
+      ON oauth_client (user_id);
+
+    CREATE TABLE IF NOT EXISTS oauth_refresh_token (
+      id TEXT PRIMARY KEY NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      client_id TEXT NOT NULL,
+      session_id TEXT,
+      user_id TEXT NOT NULL,
+      reference_id TEXT,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      revoked INTEGER,
+      auth_time INTEGER,
+      scopes TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE SET NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_oauth_refresh_token_client
+      ON oauth_refresh_token (client_id);
+    CREATE INDEX IF NOT EXISTS idx_oauth_refresh_token_session
+      ON oauth_refresh_token (session_id);
+    CREATE INDEX IF NOT EXISTS idx_oauth_refresh_token_user
+      ON oauth_refresh_token (user_id);
+
+    CREATE TABLE IF NOT EXISTS oauth_access_token (
+      id TEXT PRIMARY KEY NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      client_id TEXT NOT NULL,
+      session_id TEXT,
+      user_id TEXT,
+      reference_id TEXT,
+      refresh_id TEXT,
+      expires_at INTEGER NOT NULL,
+      created_at INTEGER NOT NULL,
+      scopes TEXT NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (session_id) REFERENCES session(id) ON DELETE SET NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (refresh_id) REFERENCES oauth_refresh_token(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_oauth_access_token_client
+      ON oauth_access_token (client_id);
+    CREATE INDEX IF NOT EXISTS idx_oauth_access_token_session
+      ON oauth_access_token (session_id);
+    CREATE INDEX IF NOT EXISTS idx_oauth_access_token_user
+      ON oauth_access_token (user_id);
+    CREATE INDEX IF NOT EXISTS idx_oauth_access_token_refresh
+      ON oauth_access_token (refresh_id);
+
+    CREATE TABLE IF NOT EXISTS oauth_consent (
+      id TEXT PRIMARY KEY NOT NULL,
+      client_id TEXT NOT NULL,
+      user_id TEXT,
+      reference_id TEXT,
+      scopes TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (client_id) REFERENCES oauth_client(client_id) ON DELETE CASCADE,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_oauth_consent_client
+      ON oauth_consent (client_id);
+    CREATE INDEX IF NOT EXISTS idx_oauth_consent_user
+      ON oauth_consent (user_id);
+
     CREATE TABLE IF NOT EXISTS canvas_organization_settings (
       organization_id TEXT PRIMARY KEY NOT NULL,
       owner_user_id TEXT NOT NULL,

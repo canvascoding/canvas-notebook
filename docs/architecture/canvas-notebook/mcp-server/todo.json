@@ -31,7 +31,8 @@
     {
       "id": "MCP-OAUTH-02",
       "title": "SQLite- und PostgreSQL-Migrationen integrieren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-02",
       "dependsOn": [
         "MCP-OAUTH-01"
       ],

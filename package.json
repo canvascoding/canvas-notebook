@@ -64,6 +64,7 @@
     "test:mcp:oauth": "tsx scripts/mcp-oauth-test.ts",
     "test:mcp:direct": "tsx scripts/mcp-direct-tools-test.ts",
     "test:mcp:icons": "tsx scripts/mcp-icons-test.ts",
+    "test:mcp:server-schema": "tsx scripts/mcp-server-oauth-schema-test.ts",
     "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
     "test:studio:usage": "tsx scripts/studio-usage-test.ts",
@@ -423,6 +424,7 @@
     "zustand": "^5.0.9"
   },
   "devDependencies": {
+    "@electric-sql/pglite": "0.5.4",
     "@playwright/test": "^1.61.1",
     "@tailwindcss/postcss": "^4",
     "@types/bcryptjs": "^2.4.6",
