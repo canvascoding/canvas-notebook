@@ -166,6 +166,7 @@
     "test:membership-orchestrator": "tsx --conditions react-server scripts/membership-orchestrator-test.ts",
     "test:team-invitations": "tsx --conditions react-server scripts/team-invitations-test.ts",
     "test:team-seat-outbox": "tsx --conditions react-server scripts/team-seat-outbox-test.ts",
+    "test:team-seat-outbox-worker": "tsx --conditions react-server scripts/team-seat-outbox-worker-test.ts",
     "test:team-membership-sync": "tsx --conditions react-server scripts/team-membership-sync-test.ts",
     "test:community-instance-token-storage": "tsx --conditions react-server scripts/community-instance-token-storage-test.ts",
     "test:team-seat-legacy-migration": "tsx --conditions react-server scripts/team-seat-legacy-migration-test.ts",

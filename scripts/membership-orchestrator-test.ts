@@ -14,6 +14,7 @@ import {
   getDirectMembershipSeatQuote,
   MembershipOrchestratorError,
   recordDirectMembershipSeatAuthorizationStatus,
+  recordDirectMembershipSeatExecutionApplied,
   recordDirectMembershipSeatExecutionPending,
   recordDirectMembershipSeatPreparation,
 } from '../app/lib/organization/membership-orchestrator';
@@ -523,7 +524,7 @@ async function main() {
   assert.equal(billingPending.activation.stage, 'billing_pending');
   assert.equal(billingPending.activation.membership.status, 'billing_pending');
   assert.equal(billingPending.activation.executeOperation?.status, 'retry_wait');
-  assert.equal(billingPending.activation.executeOperation?.attemptCount, 0);
+  assert.equal(billingPending.activation.executeOperation?.attemptCount, 1);
   assert.equal(
     sqlite.prepare('SELECT COUNT(*) FROM "user" WHERE email = ?').pluck().get('billing.pending@example.test'),
     0,
@@ -745,6 +746,29 @@ async function main() {
     operationKey: approvedReactivation.activation.executeOperation!.operationId,
     desiredQuantity: 2,
   });
+  const workerPersistedExecution = await recordDirectMembershipSeatExecutionApplied({
+    organizationId: 'organization-1',
+    membershipId: suspended.id,
+    executeOperationId: approvedReactivation.activation.executeOperation!.operationId,
+    response: reactivationExecution,
+    database: connection,
+    verifyCertificate: async (_response, desiredQuantity) => {
+      assert.equal(desiredQuantity, 2);
+    },
+    now: 7_550,
+  });
+  assert.equal(workerPersistedExecution.status, 'succeeded');
+  assert.equal(
+    (await getTeamMembershipByCandidateEmail(
+      connection,
+      'organization-1',
+      suspended.candidateEmail,
+    ))?.status,
+    'suspended',
+    'background billing recovery must not activate identity access without the local activation step',
+  );
+  assert.equal(reactivationIdentityCreations, 0);
+  assert.equal(reactivationIdentityActivations, 0);
   const reactivated = await completeDirectMembershipActivation({
     organizationId: 'organization-1',
     membershipId: suspended.id,

@@ -22,6 +22,8 @@ export async function register() {
       initializeTeamLicenseLifecycleRuntime();
       const { initializeTeamMembershipSnapshotSyncRuntime } = await import("./app/lib/license/team-membership-sync");
       initializeTeamMembershipSnapshotSyncRuntime();
+      const { initializeTeamSeatOutboxWorkerRuntime } = await import("./app/lib/license/team-seat-outbox-worker");
+      initializeTeamSeatOutboxWorkerRuntime();
     }
   }
 

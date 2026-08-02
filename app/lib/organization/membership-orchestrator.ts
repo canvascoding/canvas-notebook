@@ -604,12 +604,6 @@ export async function recordDirectMembershipSeatPreparation(input: {
     });
     const prepared = parseTeamSeatPrepareResponse(input.response);
     const request = assertPreparedResponse(operation, prepared);
-    await recordTeamSeatOutboxOperationSuccess(database, {
-      operationId: operation.operationId,
-      response: prepared,
-      controlPlaneOperationId: prepared.authorization.authorizationId,
-      now,
-    });
     let membership = await linkTeamMembershipControlPlaneOperation(database, {
       organizationId: input.organizationId,
       membershipId: input.membershipId,
@@ -658,6 +652,12 @@ export async function recordDirectMembershipSeatPreparation(input: {
         now,
       })
       : null;
+    await recordTeamSeatOutboxOperationSuccess(database, {
+      operationId: operation.operationId,
+      response: prepared,
+      controlPlaneOperationId: prepared.authorization.authorizationId,
+      now,
+    });
 
     return {
       stage: prepared.authorization.status === 'approved'
@@ -1086,6 +1086,134 @@ async function activateAndVerifyTeamCertificate(
   }
 }
 
+async function persistAppliedTeamSeatExecution(
+  database: MembershipOrchestratorDatabase,
+  input: {
+    organizationId: string;
+    membershipId: string;
+    executeOperationId: string;
+    response: unknown;
+    verifyCertificate?: (
+      response: TeamSeatExecuteResponse,
+      desiredQuantity: number,
+    ) => Promise<void>;
+    now: number;
+  },
+): Promise<{
+  operation: TeamSeatOutboxOperation;
+  executed: TeamSeatExecuteResponse;
+  prepareOperation: TeamSeatOutboxOperation;
+  desiredQuantity: number;
+}> {
+  const operation = await requireMembershipOperation(database, {
+    organizationId: input.organizationId,
+    membershipId: input.membershipId,
+    operationId: input.executeOperationId,
+    kind: 'seat_execute',
+  });
+  const request = parseExecuteRequest(operation);
+  const executed = parseTeamSeatExecuteResponse(input.response);
+  if (
+    executed.operation.operationKey !== request.operationKey
+    || executed.operation.operationType !== request.operationType
+    || executed.operation.requestedQuantity < 1
+    || executed.operation.status !== 'applied'
+    || executed.operation.effectiveQuantity !== executed.operation.requestedQuantity
+    || executed.operation.certificateReissueStatus !== 'issued'
+    || !executed.license
+  ) {
+    throw new MembershipOrchestratorError(
+      'MEMBERSHIP_SEAT_NOT_CONFIRMED',
+      'The Seat operation has not confirmed a usable signed limit.',
+    );
+  }
+
+  const prepareOperation = await latestMembershipPrepareOperation(
+    database,
+    input.organizationId,
+    input.membershipId,
+  );
+  if (!prepareOperation) {
+    throw new MembershipOrchestratorError(
+      'MEMBERSHIP_OPERATION_NOT_FOUND',
+      'The corresponding Seat preparation was not found.',
+      404,
+    );
+  }
+  const desiredQuantity = parsePrepareRequest(prepareOperation).desiredQuantity;
+  if (executed.operation.requestedQuantity !== desiredQuantity) {
+    throw new MembershipOrchestratorError(
+      'MEMBERSHIP_SEAT_RESPONSE_INVALID',
+      'The executed Seat quantity does not match the server-calculated membership change.',
+      502,
+    );
+  }
+  await (input.verifyCertificate ?? activateAndVerifyTeamCertificate)(
+    executed,
+    desiredQuantity,
+  );
+  if (operation.status !== 'succeeded') {
+    await recordTeamSeatOutboxOperationSuccess(database, {
+      operationId: operation.operationId,
+      response: {
+        ...executed,
+        license: {
+          details: executed.license.details,
+          certificatePersisted: true,
+        },
+      },
+      controlPlaneOperationId: executed.operation.operationId,
+      now: input.now,
+    });
+  }
+  return {
+    operation,
+    executed,
+    prepareOperation,
+    desiredQuantity,
+  };
+}
+
+export async function recordDirectMembershipSeatExecutionApplied(input: {
+  organizationId: string;
+  membershipId: string;
+  executeOperationId: string;
+  response: unknown;
+  database?: MembershipOrchestratorDatabase;
+  verifyCertificate?: (
+    response: TeamSeatExecuteResponse,
+    desiredQuantity: number,
+  ) => Promise<void>;
+  now?: number;
+}): Promise<TeamSeatOutboxOperation> {
+  const database = input.database ?? await openDb();
+  const closeDatabase = input.database === undefined;
+  try {
+    await persistAppliedTeamSeatExecution(database, {
+      organizationId: input.organizationId,
+      membershipId: input.membershipId,
+      executeOperationId: input.executeOperationId,
+      response: input.response,
+      verifyCertificate: input.verifyCertificate,
+      now: input.now ?? Date.now(),
+    });
+    const operation = await getTeamSeatOutboxOperation(
+      database,
+      input.executeOperationId,
+    );
+    if (!operation) {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_OPERATION_NOT_FOUND',
+        'The persisted Seat execution was not found.',
+        404,
+      );
+    }
+    return operation;
+  } finally {
+    if (closeDatabase) await database.close();
+  }
+}
+
 export async function completeDirectMembershipActivation(input: {
   organizationId: string;
   membershipId: string;
@@ -1107,76 +1235,20 @@ export async function completeDirectMembershipActivation(input: {
     activate: activatePendingTeamMembershipIdentity,
   };
   try {
-    const operation = await requireMembershipOperation(database, {
+    const persistedExecution = await persistAppliedTeamSeatExecution(database, {
       organizationId: input.organizationId,
       membershipId: input.membershipId,
-      operationId: input.executeOperationId,
-      kind: 'seat_execute',
+      executeOperationId: input.executeOperationId,
+      response: input.response,
+      verifyCertificate: input.verifyCertificate,
+      now,
     });
-    const request = parseExecuteRequest(operation);
-    const executed = parseTeamSeatExecuteResponse(input.response);
-    if (
-      executed.operation.operationKey !== request.operationKey
-      || executed.operation.operationType !== request.operationType
-      || executed.operation.requestedQuantity < 1
-      || executed.operation.status !== 'applied'
-      || executed.operation.effectiveQuantity !== executed.operation.requestedQuantity
-      || executed.operation.certificateReissueStatus !== 'issued'
-      || !executed.license
-    ) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_SEAT_NOT_CONFIRMED',
-        'The Seat operation has not confirmed a usable signed limit.',
-      );
-    }
-
-    const prepareOperation = await database.get(`
-      SELECT operation_id
-      FROM team_seat_outbox
-      WHERE organization_id = ?
-        AND membership_id = ?
-        AND operation_kind = 'seat_prepare'
-      ORDER BY created_at DESC, id DESC
-      LIMIT 1
-    `, [input.organizationId, input.membershipId]) as { operation_id: string } | undefined;
-    if (!prepareOperation) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_OPERATION_NOT_FOUND',
-        'The corresponding Seat preparation was not found.',
-        404,
-      );
-    }
-    const persistedPrepare = await getTeamSeatOutboxOperation(database, prepareOperation.operation_id);
-    if (!persistedPrepare) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_OPERATION_NOT_FOUND',
-        'The corresponding Seat preparation was not found.',
-        404,
-      );
-    }
-    const desiredQuantity = parsePrepareRequest(persistedPrepare).desiredQuantity;
-    if (executed.operation.requestedQuantity !== desiredQuantity) {
-      throw new MembershipOrchestratorError(
-        'MEMBERSHIP_SEAT_RESPONSE_INVALID',
-        'The executed Seat quantity does not match the server-calculated membership change.',
-        502,
-      );
-    }
-    await (input.verifyCertificate ?? activateAndVerifyTeamCertificate)(executed, desiredQuantity);
-    if (operation.status !== 'succeeded') {
-      await recordTeamSeatOutboxOperationSuccess(database, {
-        operationId: operation.operationId,
-        response: {
-          ...executed,
-          license: {
-            details: executed.license.details,
-            certificatePersisted: true,
-          },
-        },
-        controlPlaneOperationId: executed.operation.operationId,
-        now,
-      });
-    }
+    const {
+      operation,
+      executed,
+      prepareOperation: persistedPrepare,
+      desiredQuantity,
+    } = persistedExecution;
 
     let membership = await getTeamMembershipById(
       database,

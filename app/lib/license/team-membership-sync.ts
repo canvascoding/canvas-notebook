@@ -8,7 +8,6 @@ import {
 } from '@/app/lib/db/provider';
 import {
   createTeamSeatSnapshotRequest,
-  TEAM_SEAT_ERROR_CODES,
   TEAM_SEAT_PROTOCOL_VERSION,
   type TeamSeatSnapshotRequest,
   type TeamSeatSnapshotResponse,
@@ -18,13 +17,17 @@ import {
   getLatestTeamMembershipSnapshotOperation,
   getTeamMembershipSyncState,
   recordTeamMembershipProjectionChange,
+  recordTeamSeatOutboxOperationFailure,
   recordTeamSeatSnapshotAcknowledgement,
   requeueTeamMembershipSnapshotOperation,
   scheduleTeamSeatOutboxRetry,
   teamSeatMemberHash,
   teamSeatSnapshotHash,
-  type TeamSeatOutboxOperation,
 } from './team-seat-outbox';
+import {
+  classifyTeamSeatOutboxFailure,
+  teamSeatOutboxRetryDelay,
+} from './team-seat-outbox-errors';
 import { submitCommunityTeamMembershipSnapshot } from './control-plane';
 import {
   registerTeamMembershipSyncSignal,
@@ -37,8 +40,6 @@ const LOG_PREFIX = '[license/team-membership-sync]';
 const DEFAULT_INTERVAL_MS = 60_000;
 const DEFAULT_INITIAL_DELAY_MS = 5_000;
 const DEFAULT_TRIGGER_DELAY_MS = 100;
-const DEFAULT_RETRY_BASE_MS = 15_000;
-const DEFAULT_RETRY_MAX_MS = 15 * 60_000;
 
 type TeamMembershipSyncDatabase = Pick<
   SqlConnection,
@@ -54,6 +55,7 @@ type TeamMembershipSyncRuntime = {
   timer: ReturnType<typeof setTimeout> | null;
   running: boolean;
   pending: boolean;
+  pendingForceReport: boolean;
   stopped: boolean;
   intervalMs: number;
 };
@@ -69,6 +71,7 @@ export type TeamMembershipSnapshotSyncResult = {
   attempted: number;
   acknowledged: number;
   deferred: number;
+  failed: number;
 };
 
 function integerEnvironment(
@@ -204,8 +207,11 @@ async function ensureSnapshotOperation(
     }
     const reportDue = state.nextReportAt !== null && state.nextReportAt <= input.now;
     if (
-      (input.forceReport || reportDue)
-      && (latest.status === 'succeeded' || latest.status === 'failed')
+      (
+        input.forceReport
+        && (latest.status === 'succeeded' || latest.status === 'failed')
+      )
+      || (reportDue && latest.status === 'succeeded')
     ) {
       await requeueTeamMembershipSnapshotOperation(database, {
         operationId: latest.operationId,
@@ -215,32 +221,6 @@ async function ensureSnapshotOperation(
     }
     return 'unchanged';
   });
-}
-
-function retryDelay(operation: TeamSeatOutboxOperation): number {
-  return Math.min(
-    DEFAULT_RETRY_MAX_MS,
-    DEFAULT_RETRY_BASE_MS * (2 ** Math.min(operation.attemptCount, 6)),
-  );
-}
-
-function errorDetails(error: unknown): {
-  code: string;
-  message: string;
-} {
-  if (error && typeof error === 'object') {
-    const code = 'code' in error && typeof error.code === 'string'
-      ? error.code
-      : TEAM_SEAT_ERROR_CODES.temporaryUnavailable;
-    const message = error instanceof Error
-      ? error.message
-      : 'The membership snapshot could not be synchronized.';
-    return { code, message };
-  }
-  return {
-    code: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
-    message: 'The membership snapshot could not be synchronized.',
-  };
 }
 
 export async function runTeamMembershipSnapshotSyncCycle(options: {
@@ -270,6 +250,7 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
     attempted: 0,
     acknowledged: 0,
     deferred: 0,
+    failed: 0,
   };
   try {
     const organizations = await organizationIds(database);
@@ -307,21 +288,46 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
         });
         result.acknowledged += 1;
       } catch (error) {
-        const details = errorDetails(error);
-        await scheduleTeamSeatOutboxRetry(database, {
-          operationId: operation.operationId,
-          errorCode: details.code,
-          error: details.message,
-          retryAt: now + retryDelay(operation),
-          now,
-        });
-        result.deferred += 1;
-        console.warn(`${LOG_PREFIX} snapshot deferred`, {
-          organizationId: operation.organizationId,
-          operationId: operation.operationId,
-          code: details.code,
-          retryAt: new Date(now + retryDelay(operation)).toISOString(),
-        });
+        const failure = classifyTeamSeatOutboxFailure(error);
+        if (failure.terminal) {
+          await recordTeamSeatOutboxOperationFailure(database, {
+            operationId: operation.operationId,
+            errorCode: failure.code,
+            error: failure.message,
+            now,
+          });
+          result.failed += 1;
+          console.warn(`${LOG_PREFIX} snapshot failed terminally`, {
+            organizationId: operation.organizationId,
+            operationId: operation.operationId,
+            code: failure.code,
+          });
+        } else {
+          const retryDelay = teamSeatOutboxRetryDelay(
+            operation,
+            failure.retryAfterMs,
+          );
+          const retry = await scheduleTeamSeatOutboxRetry(database, {
+            operationId: operation.operationId,
+            errorCode: failure.code,
+            error: failure.message,
+            retryAt: now + retryDelay,
+            now,
+          });
+          if (retry.status === 'failed') result.failed += 1;
+          else result.deferred += 1;
+          console.warn(
+            `${LOG_PREFIX} snapshot ${retry.status === 'failed' ? 'exhausted' : 'deferred'}`,
+            {
+            organizationId: operation.organizationId,
+            operationId: operation.operationId,
+            code: failure.code,
+              retryAt: retry.nextAttemptAt === null
+                ? null
+                : new Date(retry.nextAttemptAt).toISOString(),
+            },
+          );
+        }
       }
     }
     return result;
@@ -341,6 +347,7 @@ function scheduleRuntime(
     runtime.timer = null;
     if (runtime.running || runtime.stopped) {
       runtime.pending = true;
+      runtime.pendingForceReport ||= forceReport;
       return;
     }
     runtime.running = true;
@@ -353,19 +360,29 @@ function scheduleRuntime(
       .finally(() => {
         runtime.running = false;
         const pending = runtime.pending;
+        const pendingForceReport = runtime.pendingForceReport;
         runtime.pending = false;
-        scheduleRuntime(runtime, pending ? 0 : runtime.intervalMs, false);
+        runtime.pendingForceReport = false;
+        scheduleRuntime(
+          runtime,
+          pending ? 0 : runtime.intervalMs,
+          pending ? pendingForceReport : false,
+        );
       });
   }, Math.max(0, delayMs));
   runtime.timer.unref?.();
 }
 
-export function triggerTeamMembershipSnapshotSync(): boolean {
+export function triggerTeamMembershipSnapshotSync(forceReport = false): boolean {
   const runtime = (globalThis as TeamMembershipSyncRuntimeGlobal)
     .__canvasTeamMembershipSyncRuntime;
   if (!runtime || runtime.stopped) return false;
-  if (runtime.running) runtime.pending = true;
-  else scheduleRuntime(runtime, DEFAULT_TRIGGER_DELAY_MS, false);
+  if (runtime.running) {
+    runtime.pending = true;
+    runtime.pendingForceReport ||= forceReport;
+  } else {
+    scheduleRuntime(runtime, DEFAULT_TRIGGER_DELAY_MS, forceReport);
+  }
   return true;
 }
 
@@ -397,6 +414,7 @@ export function initializeTeamMembershipSnapshotSyncRuntime(): {
     timer: null,
     running: false,
     pending: false,
+    pendingForceReport: false,
     stopped: false,
     intervalMs: integerEnvironment(
       'CANVAS_TEAM_MEMBERSHIP_SYNC_INTERVAL_SECONDS',
@@ -406,8 +424,8 @@ export function initializeTeamMembershipSnapshotSyncRuntime(): {
     ) * 1_000,
   };
   globalRuntime.__canvasTeamMembershipSyncRuntime = runtime;
-  registerTeamMembershipSyncSignal(() => {
-    triggerTeamMembershipSnapshotSync();
+  registerTeamMembershipSyncSignal((options) => {
+    triggerTeamMembershipSnapshotSync(options?.forceReport === true);
   });
   const initialDelayMs = integerEnvironment(
     'CANVAS_TEAM_MEMBERSHIP_SYNC_INITIAL_DELAY_SECONDS',

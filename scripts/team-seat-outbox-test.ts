@@ -11,6 +11,7 @@ import {
   getTeamMembershipSyncState,
   getTeamSeatOutboxOperation,
   readTeamSeatSyncDiagnostics,
+  recordTeamSeatOutboxOperationPending,
   recordTeamSeatSnapshotAcknowledgement,
   scheduleTeamSeatOutboxRetry,
   teamSeatSnapshotHash,
@@ -385,6 +386,38 @@ async function main(): Promise<void> {
   assert.equal(diagnostics.outbox.pending, 2);
   assert.equal(diagnostics.outbox.retryWait, 0);
   assert.equal(diagnostics.outbox.failed, 0);
+
+  const boundedPending = (await enqueueTeamSeatOutboxOperation(connection, {
+    organizationId: 'organization-1',
+    dedupeKey: 'seat-execute:organization-1:bounded-pending',
+    operationKind: 'seat_execute',
+    operationType: 'member_create',
+    membershipId: owner.id,
+    request: { operationKey: 'bounded-pending' },
+    maxAttempts: 2,
+    now: 9_000,
+  })).operation;
+  const firstPending = await recordTeamSeatOutboxOperationPending(connection, {
+    operationId: boundedPending.operationId,
+    response: { status: 'pending' },
+    errorCode: 'TEAM_SEAT_PROCESSING',
+    error: 'The provider is still processing.',
+    retryAt: 10_000,
+    now: 9_000,
+  });
+  assert.equal(firstPending.status, 'retry_wait');
+  assert.equal(firstPending.attemptCount, 1);
+  const exhaustedPending = await recordTeamSeatOutboxOperationPending(connection, {
+    operationId: boundedPending.operationId,
+    response: { status: 'pending' },
+    errorCode: 'TEAM_SEAT_PROCESSING',
+    error: 'The provider is still processing.',
+    retryAt: 11_000,
+    now: 10_000,
+  });
+  assert.equal(exhaustedPending.status, 'failed');
+  assert.equal(exhaustedPending.attemptCount, 2);
+  assert.equal(exhaustedPending.nextAttemptAt, null);
 
   console.log('team-seat-outbox-test: ok');
 }

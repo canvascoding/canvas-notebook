@@ -6,6 +6,7 @@ import path from 'node:path';
 import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
+import { LicenseControlPlaneError } from '../app/lib/license/control-plane';
 import {
   getLatestTeamMembershipSnapshotOperation,
   getTeamMembershipSyncState,
@@ -225,6 +226,49 @@ async function main(): Promise<void> {
   assert.equal(retry.attempted, 1);
   assert.equal(retry.acknowledged, 1);
   assert.equal(sent.at(-1)?.operationId, failedOperationId);
+
+  const terminal = await runTeamMembershipSnapshotSyncCycle({
+    database: connection,
+    databaseProvider: 'sqlite',
+    sendSnapshot: async () => {
+      throw new LicenseControlPlaneError(
+        'The instance token is no longer valid.',
+        401,
+        'TEAM_SEAT_TOKEN_INVALID',
+        false,
+        null,
+        'authentication',
+      );
+    },
+    now: 30_000,
+    forceReport: true,
+  });
+  assert.equal(terminal.failed, 1);
+  const terminalOperation = await getLatestTeamMembershipSnapshotOperation(
+    connection,
+    'organization-1',
+  );
+  assert.equal(terminalOperation?.status, 'failed');
+  assert.equal((await runTeamMembershipSnapshotSyncCycle({
+    database: connection,
+    databaseProvider: 'sqlite',
+    sendSnapshot: async () => {
+      throw new Error('A terminal snapshot must stay dormant without an explicit recovery signal.');
+    },
+    now: 90_000,
+  })).attempted, 0);
+
+  const connectionRecovered = await runTeamMembershipSnapshotSyncCycle({
+    database: connection,
+    databaseProvider: 'sqlite',
+    sendSnapshot: sender,
+    entitlementsVersion: 3,
+    now: 90_001,
+    forceReport: true,
+  });
+  assert.equal(connectionRecovered.requeued, 1);
+  assert.equal(connectionRecovered.acknowledged, 1);
+  assert.equal(sent.at(-1)?.operationId, terminalOperation?.operationId);
 
   const instrumentationSource = readFileSync(
     path.join(process.cwd(), 'instrumentation.ts'),

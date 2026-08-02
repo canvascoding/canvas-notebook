@@ -1,7 +1,7 @@
 import 'server-only';
 
 type TeamMembershipSyncSignalRuntime = {
-  listener: (() => void) | null;
+  listener: ((options?: { forceReport?: boolean }) => void) | null;
 };
 
 type TeamMembershipSyncSignalGlobal = typeof globalThis & {
@@ -14,13 +14,17 @@ function signalRuntime(): TeamMembershipSyncSignalRuntime {
   return globalRuntime.__canvasTeamMembershipSyncSignal;
 }
 
-export function registerTeamMembershipSyncSignal(listener: (() => void) | null): void {
+export function registerTeamMembershipSyncSignal(
+  listener: ((options?: { forceReport?: boolean }) => void) | null,
+): void {
   signalRuntime().listener = listener;
 }
 
-export function signalTeamMembershipSnapshotSync(): boolean {
+export function signalTeamMembershipSnapshotSync(
+  options?: { forceReport?: boolean },
+): boolean {
   const listener = signalRuntime().listener;
   if (!listener) return false;
-  listener();
+  listener(options);
   return true;
 }

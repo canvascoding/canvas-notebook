@@ -860,7 +860,7 @@
         {
           "id": "NB-TS-053",
           "title": "Durable Outbox, Retry und Crash-Recovery implementieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership-sync",
           "description": "Seat-Operationen und Snapshots aus persistierter Outbox mit Lease, Backoff, Retry und terminalen Fehlerzuständen verarbeiten.",
@@ -882,7 +882,8 @@
             "Parallele Worker verarbeiten denselben Eintrag nicht gleichzeitig.",
             "Terminale Auth- oder Contract-Fehler werden nicht endlos retried.",
             "Erfolgreich bestätigte Operationen werden nicht erneut abgerechnet."
-          ]
+          ],
+          "progress": "Ein server-only Outbox-Worker verarbeitet persistierte Seat-Prepare-, explizit aktivierte Seat-Execute- und License-Refresh-Operationen periodisch und nach Wake-up-Signalen. Pending Prepare wird mit kurzem Admission-Fenster übernommen; Pending Execute bleibt bewusst inaktiv, bis der lokale Passwort-/Identity-Check und der explizite Aktivierungsversuch die Operation per CAS auf processing setzt. Danach stellen dieselbe persistierte Operation-ID und derselbe Operation-Key sicher, dass Crash-Recovery und Control-Plane-Replays keine zweite Abrechnung erzeugen. Processing-Einträge besitzen eine zeitbasierte Lease und werden nach Ablauf von einem anderen Prozess übernommen; konkurrierende SQLite-Verbindungen bestätigen im Test, dass nur ein Worker denselben Eintrag dispatcht. Netzwerk- und temporäre Fehler wechseln mit begrenztem exponentiellem Backoff nach retry_wait und nach maxAttempts nach failed. Authentifizierungs-, fachliche 4xx-, Contract- und lokale Orchestratorfehler werden unmittelbar terminal gespeichert, sensible Bearer- und Member-Hash-Werte werden vor Persistenz und Logging redigiert; eine bewusste lokale Wiederholung kann einen behobenen terminalen Fehler mit derselben idempotenten Operation-ID reaktivieren. Provider-Pending-Antworten erhöhen den Versuchszähler und enden ebenfalls begrenzt. Erfolgreiche Execute-Recovery validiert und persistiert zuerst das neue signierte Zertifikat, lässt neue beziehungsweise suspendierte Identitäten aber bis zum lokalen Aktivierungsschritt gesperrt. Prepare wird erst nach Membership-Link, Statusübergang und idempotentem Execute-Enqueue als erfolgreich markiert, sodass ein Crash in der lokalen Nachbearbeitung wiederaufnehmbar bleibt. Snapshot-Sync verwendet dieselbe Terminal-/Backoff-Klassifikation; terminal fehlgeschlagene Snapshots bleiben bis Serverstart oder erneuter Community-Verbindung dormant. Worker-, Outbox-, Snapshot-, Membership-Orchestrator-, Invitation-, Lifecycle-, Legacy- und License-Refresh-Tests sowie TypeScript, ESLint und die Next.js-Production-Kompilierung im normalen Repository sind erfolgreich. npm run build bleibt vor der Kompilierung ausschließlich am stale Third-Party-License-Cache der pausierten OAuth-Abhängigkeitsänderungen hängen; die fachfremden Compliance-Dateien wurden nicht verändert."
         },
         {
           "id": "NB-TS-054",

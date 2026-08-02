@@ -1,11 +1,17 @@
 import 'server-only';
 
+import { openDb } from '@/app/lib/db';
 import {
   getCommunityTeamSeatQuoteStatus,
   prepareCommunityTeamSeatChange,
 } from '@/app/lib/license/control-plane';
 import { getCommunityTeamSeatApprovalUrl } from '@/app/lib/license/instance';
 import { parseTeamSeatPrepareResponse } from '@/app/lib/license/team-seat-contract';
+import {
+  claimTeamSeatOutboxOperation,
+  TeamSeatOutboxError,
+  type TeamSeatOutboxOperation,
+} from '@/app/lib/license/team-seat-outbox';
 import {
   getDirectMembershipSeatQuote,
   getMembershipSeatPrepareRequest,
@@ -14,6 +20,29 @@ import {
   type DirectMembershipSeatQuote,
   type MembershipActivation,
 } from './membership-orchestrator';
+
+async function claimSeatPreparation(
+  operation: TeamSeatOutboxOperation,
+): Promise<TeamSeatOutboxOperation> {
+  const database = await openDb();
+  try {
+    const claimed = await claimTeamSeatOutboxOperation(database, {
+      operationId: operation.operationId,
+      allowPending: true,
+      allowFailed: true,
+    });
+    if (claimed.claimed || claimed.operation.status === 'succeeded') {
+      return claimed.operation;
+    }
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_CONFLICT',
+      `Seat preparation is already ${claimed.operation.status}.`,
+      409,
+    );
+  } finally {
+    await database.close();
+  }
+}
 
 export type MembershipSeatQuotePayload = {
   stage: MembershipActivation['stage'];
@@ -49,18 +78,21 @@ export async function dispatchDirectMembershipSeatPreparation(input: {
   activation: MembershipActivation;
   actorUserId?: string | null;
 }): Promise<DirectMembershipSeatQuote> {
-  const response = input.activation.prepareOperation.responseJson
+  const prepareOperation = input.activation.prepareOperation.responseJson
+    ? input.activation.prepareOperation
+    : await claimSeatPreparation(input.activation.prepareOperation);
+  const response = prepareOperation.responseJson
     ? parseTeamSeatPrepareResponse(
-      JSON.parse(input.activation.prepareOperation.responseJson),
+      JSON.parse(prepareOperation.responseJson),
     )
     : await prepareCommunityTeamSeatChange(
-      getMembershipSeatPrepareRequest(input.activation.prepareOperation),
-      { operationId: input.activation.prepareOperation.operationId },
+      getMembershipSeatPrepareRequest(prepareOperation),
+      { operationId: prepareOperation.operationId },
     );
   const activation = await recordDirectMembershipSeatPreparation({
     organizationId: input.activation.membership.organizationId,
     membershipId: input.activation.membership.id,
-    prepareOperationId: input.activation.prepareOperation.operationId,
+    prepareOperationId: prepareOperation.operationId,
     response,
     actorUserId: input.actorUserId,
   });

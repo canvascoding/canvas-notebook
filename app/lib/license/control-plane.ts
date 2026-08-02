@@ -734,7 +734,7 @@ export async function pollCommunityLicenseClaim(
       now,
     });
     await removeCommunityClaimSession(session.claimId);
-    signalTeamMembershipSnapshotSync();
+    signalTeamMembershipSnapshotSync({ forceReport: true });
     return {
       state: 'connected',
       claimId: session.claimId,
@@ -1059,7 +1059,7 @@ export type CommunityLicenseRefreshResult = {
 };
 
 export async function refreshCommunityLicenseCertificate(
-  options?: { fetchImpl?: typeof fetch; now?: Date },
+  options?: { fetchImpl?: typeof fetch; now?: Date; operationId?: string },
 ): Promise<CommunityLicenseRefreshResult> {
   const instanceId = getLicenseInstanceId();
   const token = await loadCommunityInstanceToken(instanceId);
@@ -1102,6 +1102,7 @@ export async function refreshCommunityLicenseCertificate(
         tokenType: token.tokenType,
         token: token.instanceToken,
       },
+      operationId: options?.operationId,
       maxAttempts: 3,
     },
   );

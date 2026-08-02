@@ -16,6 +16,7 @@ import {
 } from '@/app/lib/license/team-seat-contract';
 import { getCurrentAppVersion } from '@/app/lib/migration/app-version';
 import { signalTeamMembershipSnapshotSync } from './team-membership-sync-signal';
+import { signalTeamSeatOutboxWorker } from './team-seat-outbox-worker-signal';
 
 export const TEAM_SEAT_OUTBOX_OPERATION_KINDS = [
   'membership_snapshot',
@@ -506,6 +507,7 @@ export async function enqueueTeamSeatOutboxOperation(
       'The Team Seat dedupe key was reused with a different request.',
     );
   }
+  signalTeamSeatOutboxWorker();
   return { operation, replayed };
 }
 
@@ -684,7 +686,6 @@ export async function requeueTeamMembershipSnapshotOperation(
       404,
     );
   }
-  signalTeamMembershipSnapshotSync();
   return operation;
 }
 
@@ -739,6 +740,140 @@ export async function claimDueTeamMembershipSnapshotOperations(
       now,
       now,
       candidate.operation_id,
+      now,
+      now - leaseMs,
+    ]);
+    if (changesFromRunResult(result) !== 1) continue;
+    const operation = await getTeamSeatOutboxOperation(database, candidate.operation_id);
+    if (operation) claimed.push(operation);
+  }
+  return claimed;
+}
+
+export async function claimTeamSeatOutboxOperation(
+  database: Pick<SqlConnection, 'get' | 'run'>,
+  input: {
+    operationId: string;
+    allowPending: boolean;
+    allowFailed?: boolean;
+    now?: number;
+    leaseMs?: number;
+  },
+): Promise<{ operation: TeamSeatOutboxOperation; claimed: boolean }> {
+  const now = input.now ?? Date.now();
+  const leaseMs = Math.max(1_000, input.leaseMs ?? 60_000);
+  const result = await database.run(`
+    UPDATE team_seat_outbox
+    SET
+      status = 'processing',
+      response_json = CASE WHEN status = 'failed' THEN NULL ELSE response_json END,
+      attempt_count = CASE WHEN status = 'failed' THEN 0 ELSE attempt_count END,
+      next_attempt_at = NULL,
+      last_attempt_at = ?,
+      last_error_code = CASE WHEN status = 'failed' THEN NULL ELSE last_error_code END,
+      last_error = CASE WHEN status = 'failed' THEN NULL ELSE last_error END,
+      completed_at = NULL,
+      updated_at = ?
+    WHERE operation_id = ?
+      AND (
+        (status = 'pending' AND ? = 1)
+        OR (status = 'failed' AND ? = 1)
+        OR (
+          status = 'retry_wait'
+          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+        )
+        OR (
+          status = 'processing'
+          AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+        )
+      )
+  `, [
+    now,
+    now,
+    input.operationId,
+    input.allowPending ? 1 : 0,
+    input.allowFailed ? 1 : 0,
+    now,
+    now - leaseMs,
+  ]);
+  const operation = await getTeamSeatOutboxOperation(database, input.operationId);
+  if (!operation) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_NOT_FOUND',
+      'Team Seat outbox operation not found.',
+      404,
+    );
+  }
+  return {
+    operation,
+    claimed: changesFromRunResult(result) === 1,
+  };
+}
+
+export async function claimDueTeamSeatWorkOperations(
+  database: Pick<SqlConnection, 'all' | 'get' | 'run'>,
+  input: {
+    now?: number;
+    leaseMs?: number;
+    limit?: number;
+    pendingDelayMs?: number;
+  } = {},
+): Promise<TeamSeatOutboxOperation[]> {
+  const now = input.now ?? Date.now();
+  const leaseMs = Math.max(1_000, input.leaseMs ?? 60_000);
+  const pendingDelayMs = Math.max(0, input.pendingDelayMs ?? 1_000);
+  const limit = Math.max(1, Math.min(100, input.limit ?? 20));
+  const candidates = await database.all(`
+    ${OUTBOX_SELECT}
+    WHERE operation_kind IN ('seat_prepare', 'seat_execute', 'license_refresh')
+      AND (
+        (
+          status = 'pending'
+          AND operation_kind IN ('seat_prepare', 'license_refresh')
+          AND created_at <= ?
+        )
+        OR (
+          status = 'retry_wait'
+          AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+        )
+        OR (
+          status = 'processing'
+          AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+        )
+      )
+    ORDER BY created_at ASC, id ASC
+    LIMIT ?
+  `, [now - pendingDelayMs, now, now - leaseMs, limit]) as OutboxRow[];
+  const claimed: TeamSeatOutboxOperation[] = [];
+  for (const candidate of candidates) {
+    const result = await database.run(`
+      UPDATE team_seat_outbox
+      SET
+        status = 'processing',
+        last_attempt_at = ?,
+        updated_at = ?
+      WHERE operation_id = ?
+        AND operation_kind IN ('seat_prepare', 'seat_execute', 'license_refresh')
+        AND (
+          (
+            status = 'pending'
+            AND operation_kind IN ('seat_prepare', 'license_refresh')
+            AND created_at <= ?
+          )
+          OR (
+            status = 'retry_wait'
+            AND (next_attempt_at IS NULL OR next_attempt_at <= ?)
+          )
+          OR (
+            status = 'processing'
+            AND (last_attempt_at IS NULL OR last_attempt_at <= ?)
+          )
+        )
+    `, [
+      now,
+      now,
+      candidate.operation_id,
+      now - pendingDelayMs,
       now,
       now - leaseMs,
     ]);
@@ -809,6 +944,66 @@ export async function scheduleTeamSeatOutboxRetry(
   return operation;
 }
 
+export async function recordTeamSeatOutboxOperationFailure(
+  database: Pick<SqlConnection, 'get' | 'run'>,
+  input: {
+    operationId: string;
+    errorCode: string;
+    error: string;
+    response?: unknown;
+    controlPlaneOperationId?: string | null;
+    now?: number;
+  },
+): Promise<TeamSeatOutboxOperation> {
+  const now = input.now ?? Date.now();
+  const responseJson = input.response === undefined
+    ? null
+    : serializeResponse(input.response);
+  const result = await database.run(`
+    UPDATE team_seat_outbox
+    SET
+      status = 'failed',
+      response_json = COALESCE(?, response_json),
+      control_plane_operation_id = COALESCE(?, control_plane_operation_id),
+      attempt_count = CASE
+        WHEN attempt_count < max_attempts THEN attempt_count + 1
+        ELSE attempt_count
+      END,
+      next_attempt_at = NULL,
+      last_attempt_at = ?,
+      last_error_code = ?,
+      last_error = ?,
+      completed_at = ?,
+      updated_at = ?
+    WHERE operation_id = ?
+      AND status NOT IN ('succeeded', 'failed', 'canceled')
+  `, [
+    responseJson,
+    optionalText(input.controlPlaneOperationId, 500),
+    now,
+    optionalText(input.errorCode, 120),
+    optionalText(input.error, 2000),
+    now,
+    now,
+    input.operationId,
+  ]);
+  const operation = await getTeamSeatOutboxOperation(database, input.operationId);
+  if (!operation) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_NOT_FOUND',
+      'Team Seat outbox operation not found.',
+      404,
+    );
+  }
+  if (changesFromRunResult(result) !== 1 && operation.status !== 'failed') {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_TERMINAL',
+      `Team Seat outbox operation is already ${operation.status}.`,
+    );
+  }
+  return operation;
+}
+
 export async function recordTeamSeatOutboxOperationPending(
   database: Pick<SqlConnection, 'get' | 'run'>,
   input: {
@@ -839,17 +1034,28 @@ export async function recordTeamSeatOutboxOperationPending(
   const result = await database.run(`
     UPDATE team_seat_outbox
     SET
-      status = 'retry_wait',
+      status = CASE
+        WHEN attempt_count + 1 >= max_attempts THEN 'failed'
+        ELSE 'retry_wait'
+      END,
       response_json = ?,
       control_plane_operation_id = ?,
-      next_attempt_at = ?,
+      attempt_count = attempt_count + 1,
+      next_attempt_at = CASE
+        WHEN attempt_count + 1 >= max_attempts THEN NULL
+        ELSE ?
+      END,
       last_attempt_at = ?,
       last_error_code = ?,
       last_error = ?,
-      completed_at = NULL,
+      completed_at = CASE
+        WHEN attempt_count + 1 >= max_attempts THEN ?
+        ELSE NULL
+      END,
       updated_at = ?
     WHERE operation_id = ?
       AND status NOT IN ('succeeded', 'failed', 'canceled')
+      AND attempt_count < max_attempts
   `, [
     serializeResponse(input.response),
     optionalText(input.controlPlaneOperationId, 500),
@@ -857,6 +1063,7 @@ export async function recordTeamSeatOutboxOperationPending(
     now,
     optionalText(input.errorCode, 120),
     optionalText(input.error, 2000),
+    now,
     now,
     input.operationId,
   ]);

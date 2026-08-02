@@ -4,8 +4,13 @@ import {
   assertTeamMembershipIdentityAvailable,
   assertTeamMembershipIdentityReactivatable,
 } from '@/app/lib/auth';
+import { openDb } from '@/app/lib/db';
 import { executeCommunityTeamSeatChange } from '@/app/lib/license/control-plane';
 import type { TeamSeatExecuteResponse } from '@/app/lib/license/team-seat-contract';
+import {
+  claimTeamSeatOutboxOperation,
+  TeamSeatOutboxError,
+} from '@/app/lib/license/team-seat-outbox';
 import { initializeUserOnboarding } from '@/app/lib/user-preferences';
 import { ensureWorkspaceBootstrapForActor } from '@/app/lib/workspaces/bootstrap-service';
 import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
@@ -78,9 +83,30 @@ export async function executeDirectMembershipActivation(input: {
     );
   }
 
+  let executeOperation = approved.activation.executeOperation;
+  if (executeOperation.status !== 'succeeded') {
+    const database = await openDb();
+    try {
+      const claimed = await claimTeamSeatOutboxOperation(database, {
+        operationId: executeOperation.operationId,
+        allowPending: true,
+        allowFailed: true,
+      });
+      if (!claimed.claimed) {
+        throw new TeamSeatOutboxError(
+          'TEAM_SEAT_OUTBOX_CONFLICT',
+          `Seat execution is already ${claimed.operation.status}.`,
+          409,
+        );
+      }
+      executeOperation = claimed.operation;
+    } finally {
+      await database.close();
+    }
+  }
   const execution = await executeCommunityTeamSeatChange(
-    getMembershipSeatExecuteRequest(approved.activation.executeOperation),
-    { operationId: approved.activation.executeOperation.operationId },
+    getMembershipSeatExecuteRequest(executeOperation),
+    { operationId: executeOperation.operationId },
   );
   if (
     execution.operation.status !== 'applied'
@@ -91,7 +117,7 @@ export async function executeDirectMembershipActivation(input: {
     const pending = await recordDirectMembershipSeatExecutionPending({
       organizationId: input.organizationId,
       membershipId: input.membershipId,
-      executeOperationId: approved.activation.executeOperation.operationId,
+      executeOperationId: executeOperation.operationId,
       response: execution,
     });
     return {
@@ -107,7 +133,7 @@ export async function executeDirectMembershipActivation(input: {
   const activation = await completeDirectMembershipActivation({
     organizationId: input.organizationId,
     membershipId: input.membershipId,
-    executeOperationId: approved.activation.executeOperation.operationId,
+    executeOperationId: executeOperation.operationId,
     response: execution,
     password: input.password || '',
     actorUserId: input.actorUserId,
