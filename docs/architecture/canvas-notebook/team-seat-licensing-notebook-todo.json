@@ -395,7 +395,7 @@
         {
           "id": "NB-TS-031",
           "title": "Zertifikatsprüfung gegen Rollback und falsche Instanz härten",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-security",
           "description": "Signatur, Key ID, Issuer, Audience, Subject, Ablauf, License Class, License Environment, Hosting/Edition, seatLimit und monotone entitlementsVersion prüfen.",
@@ -416,7 +416,8 @@
             "Production-Runtime lehnt test/development und test/test unabhängig vom verwendeten Requestpfad ab.",
             "Abgelaufene Team-Zertifikate folgen Grace- statt stiller Dauerfreigabe.",
             "Ungültige Claims erzeugen stabile Fehlercodes."
-          ]
+          ],
+          "progress": "Die zentrale JWT-Prüfung validiert jetzt RS256/typ, den zur vertrauenswürdigen Public-Key-Auflösung passenden kid, Signatur, Issuer, Audience, Subject und den redundanten instanceId-Claim, Status, Plan, Zeitgrenzen sowie alle Protokoll-v1-Produktclaims. Production lehnt Testlizenzen und development/test-Environments zentral ab, sodass Status-, Aktivierungs-, Managed- und Mobile-Pfade denselben Guard verwenden. Der Zertifikatsspeicher wählt revisionssicher den höchsten Stand und weist niedrigere entitlementsVersionen sowie zeitlich ältere oder identische gleichversionierte Zertifikate mit LICENSE_CERT_ROLLBACK zurück. Abgelaufene signaturgeprüfte Team-Zertifikate werden ohne Feature-Freigabe als grace_required markiert; die zeitliche Refresh-/Grace-Policy folgt in NB-TS-032. Ungültige Fälle liefern stabile LICENSE_CERT_* Codes, unbestätigte Claims werden nicht im Status gespiegelt. Positive und negative Signatur-, kid-, Instance-, Environment-, Ablauf- und Rollback-Fälle sowie die vorhandenen Claim-, Recovery-, Preflight-, Rollout- und Mobile-Flows sind getestet; ESLint, TypeScript und Production-Build sind erfolgreich."
         },
         {
           "id": "NB-TS-032",

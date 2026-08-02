@@ -7,6 +7,7 @@ import { getDatabaseProvider } from '@/app/lib/db/provider';
 import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
 import { licenseActivationFailureCode } from './error-codes';
 import { getLicenseInstanceId } from './instance';
+import { LicenseCertificateValidationError } from './jwt';
 import {
   createTeamSeatClaimPollRequest,
   createTeamSeatClaimStartRequest,
@@ -42,6 +43,7 @@ import {
   type CommunityConnectionRecoveryReason,
   type CommunityInstanceTokenStatus,
   CommunityInstanceTokenStorageError,
+  LicenseCertificateStorageError,
 } from './storage';
 import type { LicenseStatus } from './types';
 
@@ -144,11 +146,17 @@ export async function activateInstanceLicense(key: string): Promise<LicenseStatu
   try {
     return await activateLicenseCert(certificate);
   } catch (error) {
+    if (
+      error instanceof LicenseCertificateValidationError
+      || error instanceof LicenseCertificateStorageError
+    ) {
+      throw new LicenseControlPlaneError(error.message, 400, error.code);
+    }
     const message = error instanceof Error ? error.message : 'License activation failed.';
     throw new LicenseControlPlaneError(
       message,
-      message.includes('invalid for this instance') ? 400 : 503,
-      message.includes('invalid for this instance') ? 'LICENSE_INVALID' : 'LICENSE_CONTROL_PLANE_UNREACHABLE',
+      503,
+      'LICENSE_CONTROL_PLANE_UNREACHABLE',
     );
   }
 }

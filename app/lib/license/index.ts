@@ -1,14 +1,32 @@
 import 'server-only';
 
 import { getControlPlaneLicenseBaseUrl, getLicenseInstanceId } from './instance';
-import { decodeLicenseJwt, verifyLicenseJwt } from './jwt';
+import {
+  decodeLicenseJwt,
+  LicenseCertificateValidationError,
+  verifyLicenseJwtDetailed,
+  type LicenseVerificationResult,
+} from './jwt';
 import { logLicenseInfoThrottled } from './logging';
 import { resolveLicensePublicKeys } from './public-key';
-import { loadStoredLicenseCert, saveLicenseCert } from './storage';
-import { normalizeLicenseProductClaims, type LicenseCert, type LicenseStatus } from './types';
+import {
+  LicenseCertificateStorageError,
+  loadStoredLicenseCert,
+  saveLicenseCert,
+} from './storage';
+import {
+  normalizeLicenseProductClaims,
+  type LicenseCert,
+  type LicenseStatus,
+  type LicenseValidationErrorCode,
+} from './types';
 
 const LOG_PREFIX = '[license/status]';
 const MANAGED_LOG_PREFIX = '[license/managed]';
+
+type LicenseResolutionFailure = Extract<LicenseVerificationResult, { ok: false }> & {
+  source: LicenseStatus['source'];
+};
 
 function getControlPlaneHost(): string {
   try {
@@ -41,6 +59,7 @@ function statusFromPayload(
     plan: payload.plan,
     licensed: true,
     instanceId,
+    licenseState: 'active',
     ...product,
     deploymentMode: payload.deploymentMode || null,
     databaseProvider: payload.databaseProvider || null,
@@ -56,13 +75,65 @@ function statusFromPayload(
   };
 }
 
-function expiredLicenseError(token: string | null, instanceId: string): LicenseStatus['error'] | undefined {
-  if (!token) return undefined;
-  const decoded = decodeLicenseJwt(token);
-  if (decoded?.sub === instanceId && decoded.exp && decoded.exp * 1000 <= Date.now()) {
-    return 'license_expired';
+function errorFromValidationCode(code: LicenseValidationErrorCode): LicenseStatus['error'] {
+  if (code === 'LICENSE_CERT_EXPIRED') return 'license_expired';
+  if (code === 'LICENSE_CERT_ENVIRONMENT_INVALID') return 'license_environment_invalid';
+  if (code === 'LICENSE_CERT_ROLLBACK') return 'license_rollback';
+  if (code === 'LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE') return 'public_key_unavailable';
+  return 'license_invalid';
+}
+
+function unresolvedStatus(
+  instanceId: string,
+  failure?: LicenseResolutionFailure,
+  publicKeyError?: LicenseStatus['error'],
+): LicenseStatus {
+  const payload = failure?.code === 'LICENSE_CERT_EXPIRED' ? failure.payload : undefined;
+  const product = payload ? normalizeLicenseProductClaims(payload) : null;
+  const graceRequired = failure?.code === 'LICENSE_CERT_EXPIRED' && product?.edition === 'team';
+  return {
+    plan: payload?.plan ?? 'unregistered',
+    licensed: false,
+    instanceId,
+    licenseState: graceRequired ? 'grace_required' : 'inactive',
+    protocolVersion: product?.protocolVersion ?? null,
+    hostingMode: product?.hostingMode ?? null,
+    edition: product?.edition ?? null,
+    licenseClass: product?.licenseClass ?? null,
+    licenseEnvironment: product?.licenseEnvironment ?? null,
+    seatLimit: product?.seatLimit ?? null,
+    deploymentMode: payload?.deploymentMode || null,
+    databaseProvider: null,
+    vectorProvider: null,
+    postgresRequired: false,
+    capabilities: {},
+    organizationId: payload?.organizationId || null,
+    entitlementsVersion: typeof payload?.entitlementsVersion === 'number'
+      ? payload.entitlementsVersion
+      : null,
+    expiresAt: payload?.exp ? new Date(payload.exp * 1000).toISOString() : null,
+    features: {},
+    quotas: {},
+    source: failure?.source ?? 'none',
+    error: publicKeyError || (failure ? errorFromValidationCode(failure.code) : undefined),
+    code: publicKeyError ? undefined : failure?.code,
+  };
+}
+
+function storageFailure(
+  error: unknown,
+  payload: LicenseCert,
+  source: LicenseStatus['source'],
+): LicenseResolutionFailure | null {
+  if (error instanceof LicenseCertificateStorageError) {
+    return {
+      ok: false,
+      code: error.code,
+      payload,
+      source,
+    };
   }
-  return undefined;
+  return null;
 }
 
 async function publicKeyUnavailableError(): Promise<LicenseStatus['error'] | undefined> {
@@ -132,55 +203,101 @@ async function fetchManagedLicenseCert(instanceId: string): Promise<string | nul
   }
 }
 
-async function getManagedLicenseStatus(instanceId: string): Promise<LicenseStatus | null> {
-  if (!isManagedLicenseConfigured()) return null;
+async function getManagedLicenseStatus(instanceId: string): Promise<{
+  status: LicenseStatus | null;
+  failure?: LicenseResolutionFailure;
+}> {
+  if (!isManagedLicenseConfigured()) return { status: null };
   const cert = await fetchManagedLicenseCert(instanceId);
-  if (!cert) return null;
-  const payload = await verifyLicenseJwt(cert, instanceId);
-  if (!payload) {
-    console.warn(`${MANAGED_LOG_PREFIX} managed license certificate is invalid for this instance`, certLogContext(cert, instanceId));
-    return null;
+  if (!cert) return { status: null };
+  const verification = await verifyLicenseJwtDetailed(cert, instanceId);
+  if (!verification.ok) {
+    console.warn(`${MANAGED_LOG_PREFIX} managed license certificate was rejected`, {
+      ...certLogContext(cert, instanceId),
+      code: verification.code,
+    });
+    return { status: null, failure: { ...verification, source: 'managed' } };
   }
+  const payload = verification.payload;
   const status = statusFromPayload(payload, instanceId, 'managed');
   if (!status) {
     console.warn(`${MANAGED_LOG_PREFIX} managed license certificate has invalid product claims`, certLogContext(cert, instanceId));
-    return null;
+    return {
+      status: null,
+      failure: {
+        ok: false,
+        code: 'LICENSE_CERT_CLAIMS_INVALID',
+        payload,
+        source: 'managed',
+      },
+    };
   }
-  await saveLicenseCert(cert, payload);
+  try {
+    await saveLicenseCert(cert, payload);
+  } catch (error) {
+    const failure = storageFailure(error, payload, 'managed');
+    if (!failure) throw error;
+    console.warn(`${MANAGED_LOG_PREFIX} managed license certificate rollback rejected`, {
+      ...certLogContext(cert, instanceId),
+      code: failure.code,
+    });
+    return { status: null, failure };
+  }
   logLicenseInfoThrottled(MANAGED_LOG_PREFIX, 'managed license verified and stored', {
     instanceId,
     plan: payload.plan,
     expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
   });
-  return status;
+  return { status };
 }
 
 export async function getLicenseStatus(): Promise<LicenseStatus> {
   const instanceId = getLicenseInstanceId();
+  let lastFailure: LicenseResolutionFailure | undefined;
 
   const envCert = process.env.CANVAS_LICENSE_CERT?.trim();
   if (envCert) {
-    const payload = await verifyLicenseJwt(envCert, instanceId);
-    if (payload) {
+    const verification = await verifyLicenseJwtDetailed(envCert, instanceId);
+    if (verification.ok) {
+      const payload = verification.payload;
       const status = statusFromPayload(payload, instanceId, 'env');
       if (status) {
-        await saveLicenseCert(envCert, payload);
-        logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env certificate', {
-          instanceId,
-          plan: payload.plan,
-          expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+        try {
+          await saveLicenseCert(envCert, payload);
+          logLicenseInfoThrottled(LOG_PREFIX, 'resolved from env certificate', {
+            instanceId,
+            plan: payload.plan,
+            expiresAt: payload.exp ? new Date(payload.exp * 1000).toISOString() : null,
+            managedConfigured: isManagedLicenseConfigured(),
+          });
+          return status;
+        } catch (error) {
+          const failure = storageFailure(error, payload, 'env');
+          if (!failure) throw error;
+          lastFailure = failure;
+          console.warn(`${LOG_PREFIX} env certificate rollback rejected`, {
+            ...certLogContext(envCert, instanceId),
+            code: failure.code,
+            managedConfigured: isManagedLicenseConfigured(),
+          });
+        }
+      } else {
+        lastFailure = {
+          ok: false,
+          code: 'LICENSE_CERT_CLAIMS_INVALID',
+          payload,
+          source: 'env',
+        };
+        console.warn(`${LOG_PREFIX} env certificate has invalid product claims`, {
+          ...certLogContext(envCert, instanceId),
           managedConfigured: isManagedLicenseConfigured(),
         });
-        return status;
       }
-      console.warn(`${LOG_PREFIX} env certificate has invalid product claims`, {
+    } else {
+      lastFailure = { ...verification, source: 'env' };
+      console.warn(`${LOG_PREFIX} env certificate was rejected`, {
         ...certLogContext(envCert, instanceId),
-        managedConfigured: isManagedLicenseConfigured(),
-      });
-    }
-    if (!payload) {
-      console.warn(`${LOG_PREFIX} env certificate did not verify`, {
-        ...certLogContext(envCert, instanceId),
+        code: verification.code,
         managedConfigured: isManagedLicenseConfigured(),
       });
     }
@@ -188,8 +305,9 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
 
   const stored = await loadStoredLicenseCert(instanceId);
   if (stored) {
-    const payload = await verifyLicenseJwt(stored, instanceId);
-    if (payload) {
+    const verification = await verifyLicenseJwtDetailed(stored, instanceId);
+    if (verification.ok) {
+      const payload = verification.payload;
       const status = statusFromPayload(payload, instanceId, 'stored');
       if (status) {
         logLicenseInfoThrottled(LOG_PREFIX, 'resolved from stored certificate', {
@@ -200,56 +318,46 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
         });
         return status;
       }
+      lastFailure = {
+        ok: false,
+        code: 'LICENSE_CERT_CLAIMS_INVALID',
+        payload,
+        source: 'stored',
+      };
       console.warn(`${LOG_PREFIX} stored certificate has invalid product claims`, {
         ...certLogContext(stored, instanceId),
         managedConfigured: isManagedLicenseConfigured(),
       });
-    }
-    if (!payload) {
-      console.warn(`${LOG_PREFIX} stored certificate did not verify`, {
+    } else {
+      lastFailure = { ...verification, source: 'stored' };
+      console.warn(`${LOG_PREFIX} stored certificate was rejected`, {
         ...certLogContext(stored, instanceId),
+        code: verification.code,
         managedConfigured: isManagedLicenseConfigured(),
       });
     }
   }
 
-  const managedStatus = await getManagedLicenseStatus(instanceId);
-  if (managedStatus) return managedStatus;
-
-  const error = expiredLicenseError(envCert || stored, instanceId) || await publicKeyUnavailableError();
+  const managed = await getManagedLicenseStatus(instanceId);
+  if (managed.status) return managed.status;
+  if (managed.failure) lastFailure = managed.failure;
+  const keyError = lastFailure?.code === 'LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE'
+    ? await publicKeyUnavailableError()
+    : undefined;
+  const status = unresolvedStatus(instanceId, lastFailure, keyError);
 
   console.warn(`${LOG_PREFIX} unresolved license status`, {
     instanceId,
-    error,
+    error: status.error,
+    code: status.code,
+    licenseState: status.licenseState,
     managedConfigured: isManagedLicenseConfigured(),
     hasEnvCert: Boolean(envCert),
     hasStoredCert: Boolean(stored),
     controlPlaneHost: getControlPlaneHost(),
   });
 
-  return {
-    plan: 'unregistered',
-    licensed: false,
-    instanceId,
-    protocolVersion: null,
-    hostingMode: null,
-    edition: null,
-    licenseClass: null,
-    licenseEnvironment: null,
-    seatLimit: null,
-    deploymentMode: null,
-    databaseProvider: null,
-    vectorProvider: null,
-    postgresRequired: false,
-    capabilities: {},
-    organizationId: null,
-    entitlementsVersion: null,
-    expiresAt: null,
-    features: {},
-    quotas: {},
-    source: 'none',
-    error,
-  };
+  return status;
 }
 
 export async function requireLicenseStatus(): Promise<LicenseStatus> {
@@ -258,13 +366,14 @@ export async function requireLicenseStatus(): Promise<LicenseStatus> {
 
 export async function activateLicenseCert(cert: string): Promise<LicenseStatus> {
   const instanceId = getLicenseInstanceId();
-  const payload = await verifyLicenseJwt(cert, instanceId);
-  if (!payload) {
-    throw new Error('License certificate is invalid for this instance.');
+  const verification = await verifyLicenseJwtDetailed(cert, instanceId);
+  if (!verification.ok) {
+    throw new LicenseCertificateValidationError(verification.code);
   }
+  const payload = verification.payload;
   const status = statusFromPayload(payload, instanceId, 'stored');
   if (!status) {
-    throw new Error('License certificate has invalid product claims.');
+    throw new LicenseCertificateValidationError('LICENSE_CERT_CLAIMS_INVALID');
   }
   await saveLicenseCert(cert, payload);
   return status;

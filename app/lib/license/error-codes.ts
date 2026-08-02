@@ -1,4 +1,4 @@
-import type { LicenseStatus } from './types';
+import type { LicenseStatus, LicenseValidationErrorCode } from './types';
 
 export type LicenseApiErrorCode =
   | 'UNAUTHORIZED'
@@ -11,7 +11,8 @@ export type LicenseApiErrorCode =
   | 'LICENSE_EXPIRED'
   | 'LICENSE_PUBLIC_KEY_UNAVAILABLE'
   | 'LICENSE_CONTROL_PLANE_UNREACHABLE'
-  | 'LICENSE_UNTRUSTED_PUBLIC_KEY';
+  | 'LICENSE_UNTRUSTED_PUBLIC_KEY'
+  | LicenseValidationErrorCode;
 
 export function codeFromLicenseError(error?: LicenseStatus['error']): LicenseApiErrorCode | undefined {
   switch (error) {
@@ -30,7 +31,7 @@ export function codeFromLicenseError(error?: LicenseStatus['error']): LicenseApi
 }
 
 export function codeFromLicenseStatus(status: LicenseStatus): LicenseApiErrorCode {
-  return codeFromLicenseError(status.error) || (status.licensed ? 'LICENSE_ACTIVE' : 'LICENSE_OPTIONAL');
+  return status.code || codeFromLicenseError(status.error) || (status.licensed ? 'LICENSE_ACTIVE' : 'LICENSE_OPTIONAL');
 }
 
 export function licenseActivationFailureCode(message: string): LicenseApiErrorCode {

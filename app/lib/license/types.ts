@@ -20,6 +20,24 @@ export type LicenseClass = TeamSeatLicenseClass;
 export type LicenseEnvironment = TeamSeatLicenseEnvironment;
 export type LicenseProtocolVersion = typeof TEAM_SEAT_PROTOCOL_VERSION | 'legacy';
 export type LicenseProductVariant = 'community-solo' | 'community-team' | 'cloud-solo' | 'cloud-team';
+export type LicenseRuntimeState = 'active' | 'grace_required' | 'inactive';
+export type LicenseValidationErrorCode =
+  | 'LICENSE_CERT_MALFORMED'
+  | 'LICENSE_CERT_ALGORITHM_INVALID'
+  | 'LICENSE_CERT_KEY_ID_MISSING'
+  | 'LICENSE_CERT_KEY_ID_UNKNOWN'
+  | 'LICENSE_CERT_SIGNATURE_INVALID'
+  | 'LICENSE_CERT_ISSUER_INVALID'
+  | 'LICENSE_CERT_AUDIENCE_INVALID'
+  | 'LICENSE_CERT_INSTANCE_MISMATCH'
+  | 'LICENSE_CERT_STATUS_INVALID'
+  | 'LICENSE_CERT_NOT_YET_VALID'
+  | 'LICENSE_CERT_EXPIRED'
+  | 'LICENSE_CERT_PLAN_INVALID'
+  | 'LICENSE_CERT_CLAIMS_INVALID'
+  | 'LICENSE_CERT_ENVIRONMENT_INVALID'
+  | 'LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE'
+  | 'LICENSE_CERT_ROLLBACK';
 
 export interface LicenseCert {
   sub: string;
@@ -63,6 +81,7 @@ export interface LicenseStatus {
   plan: LicensePlan;
   licensed: boolean;
   instanceId: string;
+  licenseState: LicenseRuntimeState;
   protocolVersion: LicenseProtocolVersion | null;
   hostingMode: LicenseHostingMode | null;
   edition: LicenseEdition | null;
@@ -80,8 +99,16 @@ export interface LicenseStatus {
   features: Record<string, boolean>;
   quotas: Record<string, number>;
   source: 'env' | 'stored' | 'managed' | 'none';
-  error?: 'missing_public_key' | 'public_key_unavailable' | 'control_plane_unreachable' | 'untrusted_public_key' | 'license_expired';
-  code?: string;
+  error?:
+    | 'missing_public_key'
+    | 'public_key_unavailable'
+    | 'control_plane_unreachable'
+    | 'untrusted_public_key'
+    | 'license_expired'
+    | 'license_invalid'
+    | 'license_environment_invalid'
+    | 'license_rollback';
+  code?: LicenseValidationErrorCode;
 }
 
 function includesValue<const T extends readonly string[]>(values: T, value: unknown): value is T[number] {

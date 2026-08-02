@@ -4,7 +4,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { desc, eq } from 'drizzle-orm';
+import { eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { licenseCerts } from '@/app/lib/db/schema';
 import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
@@ -14,7 +14,8 @@ import {
   type TeamSeatInstanceTokenScope,
 } from './team-seat-contract';
 import { getLicenseInstanceId } from './instance';
-import type { LicenseCert } from './types';
+import { decodeLicenseJwt } from './jwt';
+import type { LicenseCert, LicenseValidationErrorCode } from './types';
 
 const COMMUNITY_INSTANCE_TOKEN_DIRECTORY = 'license';
 const COMMUNITY_INSTANCE_TOKEN_FILE = 'community-instance-token.json';
@@ -25,6 +26,16 @@ const COMMUNITY_CONNECTION_RECOVERY_FILE = 'community-connection-recovery.json';
 const COMMUNITY_CONNECTION_RECOVERY_SCHEMA_VERSION = 1;
 const PRIVATE_DIRECTORY_MODE = 0o700;
 const PRIVATE_FILE_MODE = 0o600;
+
+export class LicenseCertificateStorageError extends Error {
+  constructor(
+    public readonly code: Extract<LicenseValidationErrorCode, 'LICENSE_CERT_ROLLBACK'>,
+    message: string,
+  ) {
+    super(message);
+    this.name = 'LicenseCertificateStorageError';
+  }
+}
 
 type StoredCommunityInstanceToken = {
   schemaVersion: typeof COMMUNITY_INSTANCE_TOKEN_SCHEMA_VERSION;
@@ -978,16 +989,72 @@ export async function removeCommunityClaimSession(expectedClaimId?: string): Pro
 }
 
 export async function loadStoredLicenseCert(instanceId: string): Promise<string | null> {
-  const [row] = await db
+  const rows = await db
     .select({ cert: licenseCerts.cert })
     .from(licenseCerts)
-    .where(eq(licenseCerts.instanceId, instanceId))
-    .orderBy(desc(licenseCerts.updatedAt))
-    .limit(1);
-  return row?.cert ?? null;
+    .where(eq(licenseCerts.instanceId, instanceId));
+  return rows
+    .map((row) => {
+      const decoded = decodeLicenseJwt(row.cert);
+      return decoded?.sub === instanceId ? certificateRevision(row.cert, decoded) : null;
+    })
+    .filter((revision): revision is CertificateRevision => revision !== null)
+    .sort((left, right) => compareCertificateRevision(right, left))[0]?.cert ?? null;
 }
 
-export async function saveLicenseCert(cert: string, payload: LicenseCert): Promise<void> {
+type CertificateRevision = {
+  entitlementsVersion: number;
+  issuedAt: number;
+  expiresAt: number;
+  cert: string;
+};
+
+let licenseCertificateMutationQueue: Promise<unknown> = Promise.resolve();
+
+function certificateRevision(cert: string, payload: LicenseCert): CertificateRevision {
+  return {
+    entitlementsVersion: typeof payload.entitlementsVersion === 'number'
+      && Number.isSafeInteger(payload.entitlementsVersion)
+      && payload.entitlementsVersion >= 0
+      ? payload.entitlementsVersion
+      : 0,
+    issuedAt: typeof payload.iat === 'number' && Number.isSafeInteger(payload.iat) ? payload.iat : 0,
+    expiresAt: typeof payload.exp === 'number' && Number.isSafeInteger(payload.exp) ? payload.exp : 0,
+    cert,
+  };
+}
+
+function compareCertificateRevision(left: CertificateRevision, right: CertificateRevision): number {
+  if (left.entitlementsVersion !== right.entitlementsVersion) {
+    return left.entitlementsVersion - right.entitlementsVersion;
+  }
+  if (left.issuedAt !== right.issuedAt) return left.issuedAt - right.issuedAt;
+  if (left.expiresAt !== right.expiresAt) return left.expiresAt - right.expiresAt;
+  return 0;
+}
+
+async function saveLicenseCertLocked(cert: string, payload: LicenseCert): Promise<void> {
+  const existingRows = await db
+    .select({ cert: licenseCerts.cert })
+    .from(licenseCerts)
+    .where(eq(licenseCerts.instanceId, payload.sub));
+  const current = existingRows
+    .map((row) => {
+      const decoded = decodeLicenseJwt(row.cert);
+      return decoded?.sub === payload.sub ? certificateRevision(row.cert, decoded) : null;
+    })
+    .filter((revision): revision is CertificateRevision => revision !== null)
+    .sort((left, right) => compareCertificateRevision(right, left))[0];
+  const next = certificateRevision(cert, payload);
+
+  if (current?.cert === cert) return;
+  if (current && compareCertificateRevision(next, current) <= 0) {
+    throw new LicenseCertificateStorageError(
+      'LICENSE_CERT_ROLLBACK',
+      'License certificate would replace a newer entitlement state.',
+    );
+  }
+
   const now = new Date();
   await db.insert(licenseCerts).values({
     cert,
@@ -997,4 +1064,13 @@ export async function saveLicenseCert(cert: string, payload: LicenseCert): Promi
     createdAt: now,
     updatedAt: now,
   });
+}
+
+export async function saveLicenseCert(cert: string, payload: LicenseCert): Promise<void> {
+  const mutation = licenseCertificateMutationQueue.then(
+    () => saveLicenseCertLocked(cert, payload),
+    () => saveLicenseCertLocked(cert, payload),
+  );
+  licenseCertificateMutationQueue = mutation.catch(() => undefined);
+  await mutation;
 }

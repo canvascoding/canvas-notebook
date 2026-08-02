@@ -56,7 +56,16 @@ async function main() {
   process.env.CANVAS_LICENSE_PUBLIC_KEY = publicKeyPem;
   process.env.CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS = fingerprint;
 
-  const { verifyLicenseJwt } = await import('../app/lib/license/jwt');
+  const {
+    verifyLicenseJwt,
+    verifyLicenseJwtDetailed,
+  } = await import('../app/lib/license/jwt');
+  const {
+    LicenseCertificateStorageError,
+    loadStoredLicenseCert,
+    saveLicenseCert,
+  } = await import('../app/lib/license/storage');
+  const { getLicenseStatus } = await import('../app/lib/license');
   const {
     LicenseEntitlementError,
     requireLicenseFeature,
@@ -152,6 +161,149 @@ async function main() {
   assert.equal(await verifyLicenseJwt(forgedToken, 'self_license_test'), null);
 
   process.env.CANVAS_LICENSE_PUBLIC_KEY = publicKeyPem;
+  const trustedKid = fingerprint.slice(0, 16);
+  const modernPayload = {
+    ...basePayload,
+    protocolVersion: 'canvas-team-seat-protocol-v1',
+    licenseId: 'license-modern',
+    instanceId: 'self_license_test',
+    hostingMode: 'cloud',
+    edition: 'team',
+    licenseClass: 'commercial',
+    licenseEnvironment: 'production',
+    seatLimit: 10,
+    entitlementsVersion: 5,
+    nonBillable: false,
+  };
+  const modernToken = signLicense(privateKey, modernPayload, {
+    alg: 'RS256',
+    typ: 'JWT',
+    kid: trustedKid,
+  });
+  assert.equal((await verifyLicenseJwtDetailed(modernToken, 'self_license_test')).ok, true);
+
+  async function expectVerificationCode(
+    token: string,
+    code: string,
+    expectedInstanceId = 'self_license_test',
+  ) {
+    const result = await verifyLicenseJwtDetailed(token, expectedInstanceId);
+    assert.equal(result.ok, false);
+    if (!result.ok) assert.equal(result.code, code);
+  }
+
+  await expectVerificationCode('not-a-jwt', 'LICENSE_CERT_MALFORMED');
+  await expectVerificationCode(
+    signLicense(privateKey, modernPayload, { alg: 'HS256', typ: 'JWT', kid: trustedKid }),
+    'LICENSE_CERT_ALGORITHM_INVALID',
+  );
+  await expectVerificationCode(
+    signLicense(forgedPrivateKey, modernPayload, { alg: 'RS256', typ: 'JWT', kid: trustedKid }),
+    'LICENSE_CERT_SIGNATURE_INVALID',
+  );
+  await expectVerificationCode(
+    signLicense(privateKey, { ...modernPayload, iss: 'other' }, { alg: 'RS256', typ: 'JWT', kid: trustedKid }),
+    'LICENSE_CERT_ISSUER_INVALID',
+  );
+  await expectVerificationCode(
+    signLicense(privateKey, { ...modernPayload, aud: 'other' }, { alg: 'RS256', typ: 'JWT', kid: trustedKid }),
+    'LICENSE_CERT_AUDIENCE_INVALID',
+  );
+  await expectVerificationCode(
+    signLicense(privateKey, { ...modernPayload, status: 'issued' }, { alg: 'RS256', typ: 'JWT', kid: trustedKid }),
+    'LICENSE_CERT_STATUS_INVALID',
+  );
+  await expectVerificationCode(
+    signLicense(privateKey, { ...modernPayload, plan: 'enterprise' }, { alg: 'RS256', typ: 'JWT', kid: trustedKid }),
+    'LICENSE_CERT_PLAN_INVALID',
+  );
+  await expectVerificationCode(
+    signLicense(privateKey, {
+      ...modernPayload,
+      iat: Math.floor(Date.now() / 1000) - 3600,
+      exp: Math.floor(Date.now() / 1000) - 1,
+    }, { alg: 'RS256', typ: 'JWT', kid: trustedKid }),
+    'LICENSE_CERT_EXPIRED',
+  );
+
+  const wrongInstance = await verifyLicenseJwtDetailed(modernToken, 'other_instance');
+  assert.equal(wrongInstance.ok, false);
+  if (!wrongInstance.ok) assert.equal(wrongInstance.code, 'LICENSE_CERT_INSTANCE_MISMATCH');
+
+  const missingKid = await verifyLicenseJwtDetailed(
+    signLicense(privateKey, modernPayload),
+    'self_license_test',
+  );
+  assert.equal(missingKid.ok, false);
+  if (!missingKid.ok) assert.equal(missingKid.code, 'LICENSE_CERT_KEY_ID_MISSING');
+
+  const unknownKid = await verifyLicenseJwtDetailed(
+    signLicense(privateKey, modernPayload, { alg: 'RS256', typ: 'JWT', kid: 'unknown-key' }),
+    'self_license_test',
+  );
+  assert.equal(unknownKid.ok, false);
+  if (!unknownKid.ok) assert.equal(unknownKid.code, 'LICENSE_CERT_KEY_ID_UNKNOWN');
+
+  const invalidSeatLimit = await verifyLicenseJwtDetailed(
+    signLicense(privateKey, { ...modernPayload, seatLimit: 1.5 }, {
+      alg: 'RS256',
+      typ: 'JWT',
+      kid: trustedKid,
+    }),
+    'self_license_test',
+  );
+  assert.equal(invalidSeatLimit.ok, false);
+  if (!invalidSeatLimit.ok) assert.equal(invalidSeatLimit.code, 'LICENSE_CERT_CLAIMS_INVALID');
+
+  const originalNodeEnv = process.env.NODE_ENV;
+  Reflect.set(process.env, 'NODE_ENV', 'production');
+  for (const licenseEnvironment of ['development', 'test']) {
+    const productionTestCertificate = await verifyLicenseJwtDetailed(
+      signLicense(privateKey, {
+        ...modernPayload,
+        licenseClass: 'test',
+        licenseEnvironment,
+        nonBillable: true,
+        grantId: `grant-${licenseEnvironment}`,
+      }, {
+        alg: 'RS256',
+        typ: 'JWT',
+        kid: trustedKid,
+      }),
+      'self_license_test',
+    );
+    assert.equal(productionTestCertificate.ok, false);
+    if (!productionTestCertificate.ok) {
+      assert.equal(productionTestCertificate.code, 'LICENSE_CERT_ENVIRONMENT_INVALID');
+    }
+  }
+  const productionTestInstanceId = 'production_test_license_instance';
+  process.env.CANVAS_INSTANCE_ID = productionTestInstanceId;
+  process.env.CANVAS_LICENSE_CERT = signLicense(privateKey, {
+    ...modernPayload,
+    sub: productionTestInstanceId,
+    instanceId: productionTestInstanceId,
+    licenseId: 'license-production-test-rejected',
+    licenseClass: 'test',
+    licenseEnvironment: 'test',
+    nonBillable: true,
+    grantId: 'grant-production-test-rejected',
+  }, {
+    alg: 'RS256',
+    typ: 'JWT',
+    kid: trustedKid,
+  });
+  const productionTestStatus = await getLicenseStatus();
+  assert.equal(productionTestStatus.licensed, false);
+  assert.equal(productionTestStatus.plan, 'unregistered');
+  assert.equal(productionTestStatus.hostingMode, null);
+  assert.equal(productionTestStatus.code, 'LICENSE_CERT_ENVIRONMENT_INVALID');
+  assert.equal(productionTestStatus.error, 'license_environment_invalid');
+  process.env.CANVAS_INSTANCE_ID = 'self_license_test';
+  delete process.env.CANVAS_LICENSE_CERT;
+  if (originalNodeEnv === undefined) Reflect.deleteProperty(process.env, 'NODE_ENV');
+  else Reflect.set(process.env, 'NODE_ENV', originalNodeEnv);
+
   process.env.CANVAS_LICENSE_CERT = validToken;
   assert.equal((await requireLicenseFeature('teamWorkspace')).features.teamWorkspace, true);
   assert.equal((await requireLicensePlan(['managed'])).plan, 'managed');
@@ -171,6 +323,61 @@ async function main() {
     () => requireLicenseFeature('teamKnowledgeBase'),
     (error) => error instanceof LicenseEntitlementError && error.code === 'LICENSE_FEATURE_REQUIRED',
   );
+
+  const rollbackInstanceId = 'license_rollback_instance';
+  const rollbackBase = {
+    ...modernPayload,
+    sub: rollbackInstanceId,
+    instanceId: rollbackInstanceId,
+    licenseId: 'license-rollback',
+    hostingMode: 'community',
+    plan: 'community',
+    deploymentMode: 'community',
+    databaseProvider: 'postgres',
+    edition: 'team',
+    seatLimit: 5,
+  };
+  const versionFiveToken = signLicense(privateKey, {
+    ...rollbackBase,
+    entitlementsVersion: 5,
+    iat: basePayload.iat + 10,
+  }, { alg: 'RS256', typ: 'JWT', kid: trustedKid });
+  const versionFive = await verifyLicenseJwtDetailed(versionFiveToken, rollbackInstanceId);
+  if (!versionFive.ok) assert.fail(versionFive.code);
+  await saveLicenseCert(versionFiveToken, versionFive.payload);
+
+  const versionFourToken = signLicense(privateKey, {
+    ...rollbackBase,
+    entitlementsVersion: 4,
+    iat: basePayload.iat + 20,
+  }, { alg: 'RS256', typ: 'JWT', kid: trustedKid });
+  const versionFour = await verifyLicenseJwtDetailed(versionFourToken, rollbackInstanceId);
+  if (!versionFour.ok) assert.fail(versionFour.code);
+  await assert.rejects(
+    () => saveLicenseCert(versionFourToken, versionFour.payload),
+    (error) => error instanceof LicenseCertificateStorageError
+      && error.code === 'LICENSE_CERT_ROLLBACK',
+  );
+  assert.equal(await loadStoredLicenseCert(rollbackInstanceId), versionFiveToken);
+
+  const versionSixToken = signLicense(privateKey, {
+    ...rollbackBase,
+    entitlementsVersion: 6,
+    iat: basePayload.iat + 5,
+  }, { alg: 'RS256', typ: 'JWT', kid: trustedKid });
+  const versionSix = await verifyLicenseJwtDetailed(versionSixToken, rollbackInstanceId);
+  if (!versionSix.ok) assert.fail(versionSix.code);
+  await saveLicenseCert(versionSixToken, versionSix.payload);
+  assert.equal(await loadStoredLicenseCert(rollbackInstanceId), versionSixToken);
+  process.env.CANVAS_INSTANCE_ID = rollbackInstanceId;
+  process.env.CANVAS_LICENSE_CERT = versionFourToken;
+  const rollbackProtectedStatus = await getLicenseStatus();
+  assert.equal(rollbackProtectedStatus.licensed, true);
+  assert.equal(rollbackProtectedStatus.source, 'stored');
+  assert.equal(rollbackProtectedStatus.entitlementsVersion, 6);
+  assert.equal(await loadStoredLicenseCert(rollbackInstanceId), versionSixToken);
+  process.env.CANVAS_INSTANCE_ID = 'self_license_test';
+  process.env.CANVAS_LICENSE_CERT = validToken;
   await assert.rejects(
     () => requireLicensePlan(['pro']),
     (error) => error instanceof LicenseEntitlementError && error.code === 'LICENSE_PLAN_REQUIRED',
@@ -188,6 +395,7 @@ async function main() {
     postgresRequired: false,
     capabilities: { teamWorkspace: false, multiUser: false, vectorSearch: false, liveCollaboration: false },
     features: { teamWorkspace: false },
+    iat: basePayload.iat + 1,
   });
   await assert.rejects(
     () => requireTeamRuntimeLicense(),
@@ -203,6 +411,25 @@ async function main() {
       && error.statusCode === 402,
   );
 
+  const expiredInstanceId = 'expired_team_license_instance';
+  process.env.CANVAS_INSTANCE_ID = expiredInstanceId;
+  process.env.CANVAS_LICENSE_CERT = signLicense(privateKey, {
+    ...rollbackBase,
+    sub: expiredInstanceId,
+    instanceId: expiredInstanceId,
+    licenseId: 'license-expired-team',
+    entitlementsVersion: 7,
+    iat: Math.floor(Date.now() / 1000) - 7200,
+    exp: Math.floor(Date.now() / 1000) - 60,
+  }, { alg: 'RS256', typ: 'JWT', kid: trustedKid });
+  const expiredStatus = await getLicenseStatus();
+  assert.equal(expiredStatus.licensed, false);
+  assert.equal(expiredStatus.licenseState, 'grace_required');
+  assert.equal(expiredStatus.edition, 'team');
+  assert.equal(expiredStatus.error, 'license_expired');
+  assert.equal(expiredStatus.code, 'LICENSE_CERT_EXPIRED');
+
+  delete process.env.CANVAS_LICENSE_CERT;
   rmSync(dataDir, { recursive: true, force: true });
 }
 

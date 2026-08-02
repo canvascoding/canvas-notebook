@@ -2,11 +2,62 @@ import 'server-only';
 
 import crypto from 'crypto';
 import { resolveLicensePublicKeys } from './public-key';
-import type { LicenseCert } from './types';
+import {
+  normalizeLicenseProductClaims,
+  type LicenseCert,
+  type LicenseValidationErrorCode,
+} from './types';
 
 const LICENSE_ISSUER = 'canvas-control-plane';
 const LICENSE_AUDIENCE = 'canvas-notebook';
 const MAX_IAT_SKEW_MS = 5 * 60 * 1000;
+
+type LicenseJwtHeader = {
+  alg?: string;
+  typ?: string;
+  kid?: string;
+};
+
+export type LicenseVerificationResult =
+  | {
+      ok: true;
+      payload: LicenseCert;
+      header: LicenseJwtHeader;
+    }
+  | {
+      ok: false;
+      code: LicenseValidationErrorCode;
+      payload?: LicenseCert;
+    };
+
+const LICENSE_VALIDATION_MESSAGES: Record<LicenseValidationErrorCode, string> = {
+  LICENSE_CERT_MALFORMED: 'License certificate is malformed.',
+  LICENSE_CERT_ALGORITHM_INVALID: 'License certificate uses an unsupported signing algorithm.',
+  LICENSE_CERT_KEY_ID_MISSING: 'License certificate is missing its signing key ID.',
+  LICENSE_CERT_KEY_ID_UNKNOWN: 'License certificate references an unknown signing key.',
+  LICENSE_CERT_SIGNATURE_INVALID: 'License certificate signature is invalid.',
+  LICENSE_CERT_ISSUER_INVALID: 'License certificate issuer is invalid.',
+  LICENSE_CERT_AUDIENCE_INVALID: 'License certificate audience is invalid.',
+  LICENSE_CERT_INSTANCE_MISMATCH: 'License certificate belongs to another instance.',
+  LICENSE_CERT_STATUS_INVALID: 'License certificate is not active.',
+  LICENSE_CERT_NOT_YET_VALID: 'License certificate is not valid yet.',
+  LICENSE_CERT_EXPIRED: 'License certificate has expired.',
+  LICENSE_CERT_PLAN_INVALID: 'License certificate plan is invalid.',
+  LICENSE_CERT_CLAIMS_INVALID: 'License certificate contains invalid product claims.',
+  LICENSE_CERT_ENVIRONMENT_INVALID: 'License certificate is not allowed in this runtime environment.',
+  LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE: 'License certificate signing key is unavailable.',
+  LICENSE_CERT_ROLLBACK: 'License certificate would roll back a newer entitlement state.',
+};
+
+export class LicenseCertificateValidationError extends Error {
+  constructor(
+    public readonly code: LicenseValidationErrorCode,
+    message = LICENSE_VALIDATION_MESSAGES[code],
+  ) {
+    super(message);
+    this.name = 'LicenseCertificateValidationError';
+  }
+}
 
 function base64UrlDecode(value: string): Buffer {
   const normalized = value.replace(/-/g, '+').replace(/_/g, '/');
@@ -14,49 +65,151 @@ function base64UrlDecode(value: string): Buffer {
   return Buffer.from(padded, 'base64');
 }
 
-export function decodeLicenseJwt(token: string): LicenseCert | null {
-  const parts = token.split('.');
-  if (parts.length !== 3) return null;
+function decodeJsonObject<T>(value: string): T | null {
   try {
-    return JSON.parse(base64UrlDecode(parts[1]).toString('utf8')) as LicenseCert;
+    const parsed = JSON.parse(base64UrlDecode(value).toString('utf8')) as unknown;
+    if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return null;
+    return parsed as T;
   } catch {
     return null;
   }
 }
 
-export async function verifyLicenseJwt(token: string, expectedInstanceId: string): Promise<LicenseCert | null> {
+function failure(
+  code: LicenseValidationErrorCode,
+  payload?: LicenseCert,
+): LicenseVerificationResult {
+  return payload ? { ok: false, code, payload } : { ok: false, code };
+}
+
+function validTimestamp(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function validEntitlementsVersion(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value >= 0;
+}
+
+function nonEmptyString(value: unknown): value is string {
+  return typeof value === 'string' && value.trim().length > 0;
+}
+
+function productionRuntimeRejects(payload: LicenseCert): boolean {
+  if (process.env.NODE_ENV !== 'production') return false;
+  return payload.licenseClass === 'test'
+    || payload.licenseEnvironment === 'development'
+    || payload.licenseEnvironment === 'test';
+}
+
+function modernClaimsAreConsistent(payload: LicenseCert): boolean {
+  const product = normalizeLicenseProductClaims(payload);
+  if (!product || product.protocolVersion === 'legacy') return false;
+  if (!nonEmptyString(payload.licenseId) || payload.instanceId !== payload.sub) return false;
+  if (!validEntitlementsVersion(payload.entitlementsVersion)) return false;
+  if (product.hostingMode === 'community' && payload.plan !== 'community') return false;
+  if (product.hostingMode === 'cloud' && payload.plan !== 'managed') return false;
+  if (product.edition === 'solo' && product.seatLimit !== 1) return false;
+  if (payload.licenseClass === 'commercial') {
+    return payload.nonBillable === false && payload.grantId === undefined;
+  }
+  return payload.nonBillable === true && nonEmptyString(payload.grantId);
+}
+
+export function decodeLicenseJwt(token: string): LicenseCert | null {
   const parts = token.split('.');
   if (parts.length !== 3) return null;
-  const [encodedHeader, encodedPayload, encodedSignature] = parts;
-  let header: { alg?: string };
-  try {
-    header = JSON.parse(base64UrlDecode(encodedHeader).toString('utf8')) as { alg?: string };
-  } catch {
-    return null;
-  }
-  if (header.alg !== 'RS256') return null;
+  return decodeJsonObject<LicenseCert>(parts[1]);
+}
 
-  const payload = decodeLicenseJwt(token);
-  if (!payload || payload.sub !== expectedInstanceId) return null;
-  if (payload.iss !== LICENSE_ISSUER) return null;
-  if (payload.aud !== LICENSE_AUDIENCE) return null;
-  if (payload.status !== 'active') return null;
-  if (payload.iat && payload.iat * 1000 > Date.now() + MAX_IAT_SKEW_MS) return null;
-  if (!payload.exp || payload.exp * 1000 <= Date.now()) return null;
-  if (!['community', 'pro', 'managed'].includes(payload.plan)) return null;
+export async function verifyLicenseJwtDetailed(
+  token: string,
+  expectedInstanceId: string,
+  options: { nowMs?: number } = {},
+): Promise<LicenseVerificationResult> {
+  const parts = token.split('.');
+  if (parts.length !== 3) return failure('LICENSE_CERT_MALFORMED');
+  const [encodedHeader, encodedPayload, encodedSignature] = parts;
+  const header = decodeJsonObject<LicenseJwtHeader>(encodedHeader);
+  const payload = decodeJsonObject<LicenseCert>(encodedPayload);
+  if (!header || !payload) return failure('LICENSE_CERT_MALFORMED');
+  if (header.alg !== 'RS256' || (header.typ !== undefined && header.typ !== 'JWT')) {
+    return failure('LICENSE_CERT_ALGORITHM_INVALID');
+  }
+
+  const product = normalizeLicenseProductClaims(payload);
+  const declaresModernProtocol = payload.protocolVersion !== undefined;
+  if (declaresModernProtocol && !nonEmptyString(header.kid)) {
+    return failure('LICENSE_CERT_KEY_ID_MISSING', payload);
+  }
+
+  const resolution = await resolveLicensePublicKeys();
+  if (resolution.keys.length === 0) {
+    return failure('LICENSE_CERT_PUBLIC_KEY_UNAVAILABLE', payload);
+  }
+  const candidateKeys = nonEmptyString(header.kid)
+    ? resolution.keys.filter((key) => key.kid === header.kid)
+    : resolution.keys;
+  if (candidateKeys.length === 0) {
+    return failure('LICENSE_CERT_KEY_ID_UNKNOWN', payload);
+  }
 
   const signed = `${encodedHeader}.${encodedPayload}`;
-  const signature = base64UrlDecode(encodedSignature);
-  const resolution = await resolveLicensePublicKeys();
-  for (const publicKey of resolution.keys) {
+  let signature: Buffer;
+  try {
+    signature = base64UrlDecode(encodedSignature);
+  } catch {
+    return failure('LICENSE_CERT_MALFORMED');
+  }
+  const signatureValid = candidateKeys.some((publicKey) => {
     try {
       const verifier = crypto.createVerify('RSA-SHA256');
       verifier.update(signed);
       verifier.end();
-      if (verifier.verify(publicKey.publicKey, signature)) return payload;
+      return verifier.verify(publicKey.publicKey, signature);
     } catch {
+      return false;
     }
-  }
+  });
+  if (!signatureValid) return failure('LICENSE_CERT_SIGNATURE_INVALID', payload);
 
-  return null;
+  if (payload.iss !== LICENSE_ISSUER) return failure('LICENSE_CERT_ISSUER_INVALID', payload);
+  if (productionRuntimeRejects(payload)) return failure('LICENSE_CERT_ENVIRONMENT_INVALID', payload);
+  if (payload.aud !== LICENSE_AUDIENCE) return failure('LICENSE_CERT_AUDIENCE_INVALID', payload);
+  if (
+    payload.sub !== expectedInstanceId
+    || (payload.instanceId !== undefined && payload.instanceId !== expectedInstanceId)
+  ) {
+    return failure('LICENSE_CERT_INSTANCE_MISMATCH', payload);
+  }
+  if (payload.status !== 'active') return failure('LICENSE_CERT_STATUS_INVALID', payload);
+  if (!['community', 'pro', 'managed'].includes(payload.plan)) {
+    return failure('LICENSE_CERT_PLAN_INVALID', payload);
+  }
+  if (!product) return failure('LICENSE_CERT_CLAIMS_INVALID', payload);
+  if (declaresModernProtocol && !modernClaimsAreConsistent(payload)) {
+    return failure('LICENSE_CERT_CLAIMS_INVALID', payload);
+  }
+  if (
+    payload.entitlementsVersion !== undefined
+    && !validEntitlementsVersion(payload.entitlementsVersion)
+  ) {
+    return failure('LICENSE_CERT_CLAIMS_INVALID', payload);
+  }
+  if (payload.iat !== undefined && !validTimestamp(payload.iat)) {
+    return failure('LICENSE_CERT_CLAIMS_INVALID', payload);
+  }
+  if (!validTimestamp(payload.exp)) return failure('LICENSE_CERT_CLAIMS_INVALID', payload);
+
+  const nowMs = options.nowMs ?? Date.now();
+  if (payload.iat && payload.iat * 1000 > nowMs + MAX_IAT_SKEW_MS) {
+    return failure('LICENSE_CERT_NOT_YET_VALID', payload);
+  }
+  if (payload.exp * 1000 <= nowMs) return failure('LICENSE_CERT_EXPIRED', payload);
+
+  return { ok: true, payload, header };
+}
+
+export async function verifyLicenseJwt(token: string, expectedInstanceId: string): Promise<LicenseCert | null> {
+  const result = await verifyLicenseJwtDetailed(token, expectedInstanceId);
+  return result.ok ? result.payload : null;
 }
