@@ -59,6 +59,12 @@ export function getCommunityTeamManagementUrl(): string {
   return url.toString();
 }
 
+export function getCommunityTeamSeatApprovalUrl(quoteId: string): string {
+  const url = new URL('/dashboard/billing', getControlPlaneLicenseWebUrl());
+  url.searchParams.set('teamSeatQuote', quoteId);
+  return url.toString();
+}
+
 export function getRequestOrigin(request: Request): string {
   const forwardedProto = request.headers.get('x-forwarded-proto');
   const forwardedHost = request.headers.get('x-forwarded-host');

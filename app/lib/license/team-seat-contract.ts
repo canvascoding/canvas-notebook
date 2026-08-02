@@ -135,6 +135,7 @@ export type TeamSeatQuote = {
   subject: TeamSeatSubject;
   provider?: Exclude<TeamSeatBillingProviderName, 'disabled'>;
   environment?: TeamSeatLicenseEnvironment;
+  priceVersionId?: string;
   quantityBefore: number;
   quantityAfter: number;
   quantityDelta: number;
@@ -325,6 +326,11 @@ export type TeamSeatPrepareResponse = {
   authorization: TeamSeatChangeAuthorization;
   requiresBillingApproval: boolean;
   snapshot: TeamSeatChangeSnapshotState;
+};
+
+export type TeamSeatQuoteStatusResponse = {
+  quote: TeamSeatQuote;
+  authorization: TeamSeatChangeAuthorization;
 };
 
 export type TeamSeatExecuteRequest = {
@@ -624,6 +630,9 @@ export function parseTeamSeatQuote(value: unknown, path = 'quote'): TeamSeatQuot
     subject: parseTeamSeatSubject(input.subject, `${path}.subject`),
     provider,
     environment,
+    priceVersionId: input.priceVersionId === undefined
+      ? undefined
+      : stringValue(input.priceVersionId, `${path}.priceVersionId`),
     quantityBefore,
     quantityAfter,
     quantityDelta,
@@ -882,6 +891,17 @@ export function parseTeamSeatPrepareResponse(value: unknown, path = 'prepare'): 
     authorization: parseTeamSeatAuthorization(input.authorization, `${path}.authorization`),
     requiresBillingApproval: booleanValue(input.requiresBillingApproval, `${path}.requiresBillingApproval`),
     snapshot: parseTeamSeatChangeSnapshotState(input.snapshot, `${path}.snapshot`),
+  };
+}
+
+export function parseTeamSeatQuoteStatusResponse(
+  value: unknown,
+  path = 'quoteStatus',
+): TeamSeatQuoteStatusResponse {
+  const input = record(value, path);
+  return {
+    quote: parseTeamSeatQuote(input.quote, `${path}.quote`),
+    authorization: parseTeamSeatAuthorization(input.authorization, `${path}.authorization`),
   };
 }
 

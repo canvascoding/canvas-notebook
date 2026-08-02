@@ -28,6 +28,7 @@ process.env.CANVAS_TEAM_SEAT_MEMBERSHIP_MUTATIONS_ENABLED = 'true';
 const instanceToken = `lit_${'p'.repeat(64)}`;
 const captured: Array<{
   url: string;
+  method: string;
   headers: Headers;
   body: Record<string, unknown>;
 }> = [];
@@ -85,14 +86,84 @@ function preflightPayload() {
   };
 }
 
+function seatPreparePayload() {
+  return {
+    quote: {
+      protocolVersion: 'canvas-team-seat-protocol-v1',
+      quoteId: 'c2c5d3e2-09ea-44a9-92ca-d5816b98c62b',
+      subject: {
+        type: 'license',
+        licenseId: 'license-community-preflight',
+      },
+      provider: 'stripe',
+      environment: 'production',
+      priceVersionId: 'price-version-2026-08',
+      quantityBefore: 2,
+      quantityAfter: 3,
+      quantityDelta: 1,
+      unitAmountCents: 1_500,
+      currency: 'eur',
+      billingInterval: 'month',
+      immediateAmountCents: 500,
+      recurringAmountCents: 4_500,
+      status: 'active',
+      expiresAt: '2026-08-01T12:30:00.000Z',
+      quoteHash: 'seat-quote-hash',
+      nonBillable: false,
+    },
+    authorization: {
+      protocolVersion: 'canvas-team-seat-protocol-v1',
+      authorizationId: '9186284d-9c7e-4555-904b-5cd60ef8d413',
+      quoteId: 'c2c5d3e2-09ea-44a9-92ca-d5816b98c62b',
+      quoteHash: 'seat-quote-hash',
+      quantityBefore: 2,
+      quantityAfter: 3,
+      status: 'pending',
+      expiresAt: '2026-08-01T12:30:00.000Z',
+      approvedAt: null,
+      consumedAt: null,
+    },
+    requiresBillingApproval: true,
+    snapshot: {
+      revision: 8,
+      observedQuantity: 2,
+      licensedQuantity: 2,
+      approvedQuantity: 2,
+      billedQuantity: 2,
+      billingStatus: 'active',
+    },
+  };
+}
+
 const mockFetch = (async (input: string | URL | Request, init?: RequestInit) => {
   captured.push({
     url: String(input),
+    method: init?.method ?? 'GET',
     headers: new Headers(init?.headers),
     body: typeof init?.body === 'string'
       ? JSON.parse(init.body) as Record<string, unknown>
       : {},
   });
+  if (String(input).includes('/seats/prepare')) {
+    return new Response(JSON.stringify(seatPreparePayload()), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
+  if (String(input).includes('/seats/quotes/')) {
+    const prepared = seatPreparePayload();
+    return new Response(JSON.stringify({
+      quote: prepared.quote,
+      authorization: {
+        ...prepared.authorization,
+        status: 'approved',
+        approvedAt: '2026-08-01T12:05:00.000Z',
+      },
+    }), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
   return new Response(JSON.stringify(preflightPayload()), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -109,9 +180,12 @@ function restoreEnvironment() {
 async function main() {
   try {
     const {
+      getCommunityTeamSeatQuoteStatus,
       getCommunityTeamUpgradePreflight,
       getCommunityTeamUpgradeRuntimeSnapshot,
+      prepareCommunityTeamSeatChange,
     } = await import('../app/lib/license/control-plane');
+    const { createTeamSeatPrepareRequest } = await import('../app/lib/license/team-seat-contract');
     const {
       getCommunityTeamRuntimeReadiness,
       withCommunityTeamVersionReadiness,
@@ -227,6 +301,51 @@ async function main() {
     assert.equal(JSON.stringify(captured[0]?.body).includes(instanceToken), false);
     assert.equal(JSON.stringify(result).includes(instanceToken), false);
 
+    const preparedSeat = await prepareCommunityTeamSeatChange(
+      createTeamSeatPrepareRequest({
+        desiredQuantity: 3,
+        triggerType: 'member_create',
+        externalReference: 'membership-local-1',
+      }),
+      {
+        fetchImpl: mockFetch,
+        now: new Date('2026-08-01T12:00:00.000Z'),
+      },
+    );
+    assert.equal(preparedSeat.quote.quantityBefore, 2);
+    assert.equal(preparedSeat.quote.quantityAfter, 3);
+    assert.equal(preparedSeat.quote.priceVersionId, 'price-version-2026-08');
+    assert.equal(preparedSeat.authorization.status, 'pending');
+    assert.equal(
+      captured[1]?.url,
+      'https://api.control.example.test/v1/license/community/v1/seats/prepare',
+    );
+    assert.equal(captured[1]?.method, 'POST');
+    assert.equal(captured[1]?.headers.get('Authorization'), `Bearer ${instanceToken}`);
+    assert.deepEqual(captured[1]?.body, {
+      protocolVersion: 'canvas-team-seat-protocol-v1',
+      desiredQuantity: 3,
+      triggerType: 'member_create',
+      externalReference: 'membership-local-1',
+    });
+
+    const currentSeat = await getCommunityTeamSeatQuoteStatus(
+      preparedSeat.quote.quoteId,
+      {
+        fetchImpl: mockFetch,
+        now: new Date('2026-08-01T12:05:00.000Z'),
+      },
+    );
+    assert.equal(currentSeat.authorization.status, 'approved');
+    assert.equal(currentSeat.quote.quoteHash, preparedSeat.quote.quoteHash);
+    assert.equal(
+      captured[2]?.url,
+      `https://api.control.example.test/v1/license/community/v1/seats/quotes/${preparedSeat.quote.quoteId}`,
+    );
+    assert.equal(captured[2]?.method, 'GET');
+    assert.equal(captured[2]?.headers.get('Authorization'), `Bearer ${instanceToken}`);
+    assert.deepEqual(captured[2]?.body, {});
+
     await removeCommunityInstanceToken({
       instanceId: 'self_community_team_preflight_test',
       expectedToken: instanceToken,
@@ -247,7 +366,7 @@ async function main() {
         && error.code === 'TEAM_SEAT_ACCOUNT_REQUIRED'
       ),
     );
-    assert.equal(captured.length, 1);
+    assert.equal(captured.length, 3);
   } finally {
     restoreEnvironment();
     await rm(dataRoot, { recursive: true, force: true });

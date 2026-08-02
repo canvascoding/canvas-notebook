@@ -16,6 +16,8 @@ import {
   createTeamSeatClaimPollRequest,
   createTeamSeatClaimStartRequest,
   createTeamSeatPreflightRequest,
+  parseTeamSeatPrepareResponse,
+  parseTeamSeatQuoteStatusResponse,
   createTeamSeatTokenLifecycleRequest,
   parseTeamSeatClaimPollResult,
   parseTeamSeatClaimStart,
@@ -27,6 +29,9 @@ import {
   TeamSeatContractError,
   type TeamSeatCommunityPreflightResponse,
   type TeamSeatLicenseRefresh,
+  type TeamSeatPrepareRequest,
+  type TeamSeatPrepareResponse,
+  type TeamSeatQuoteStatusResponse,
 } from './team-seat-contract';
 import {
   requireTeamSeatClientRollout,
@@ -99,6 +104,39 @@ async function postLicenseControlPlane(
       error instanceof Error ? error.message : 'The license service is unavailable.',
       503,
       options?.unreachableCode ?? 'LICENSE_CONTROL_PLANE_UNREACHABLE',
+      true,
+    );
+  }
+}
+
+async function getLicenseControlPlane(
+  path: string,
+  options: {
+    fetchImpl?: typeof fetch;
+    timeoutMs?: number;
+    unreachableCode?: string;
+    authorization: {
+      tokenType: 'Bearer';
+      token: string;
+    };
+  },
+): Promise<{ response: Response; payload: Record<string, unknown> }> {
+  try {
+    const response = await (options.fetchImpl ?? fetch)(`${getLicenseControlPlaneUrl()}${path}`, {
+      method: 'GET',
+      headers: {
+        Authorization: `${options.authorization.tokenType} ${options.authorization.token}`,
+      },
+      cache: 'no-store',
+      signal: AbortSignal.timeout(options.timeoutMs ?? 10_000),
+    });
+    const payload = await response.json().catch(() => ({})) as Record<string, unknown>;
+    return { response, payload };
+  } catch (error) {
+    throw new LicenseControlPlaneError(
+      error instanceof Error ? error.message : 'The license service is unavailable.',
+      503,
+      options.unreachableCode ?? 'LICENSE_CONTROL_PLANE_UNREACHABLE',
       true,
     );
   }
@@ -214,10 +252,48 @@ type CommunityClaimClientOptions = {
 const COMMUNITY_CLAIM_START_PATH = '/v1/license/claim/v1/start';
 const COMMUNITY_CLAIM_POLL_PATH = '/v1/license/claim/v1/poll';
 const COMMUNITY_TEAM_PREFLIGHT_PATH = '/v1/license/community/v1/team/preflight';
+const COMMUNITY_SEAT_PREPARE_PATH = '/v1/license/community/v1/seats/prepare';
+const COMMUNITY_SEAT_QUOTE_PATH = '/v1/license/community/v1/seats/quotes';
 const COMMUNITY_TOKEN_ROTATE_PATH = '/v1/license/community/v1/token/rotate';
 const COMMUNITY_LICENSE_REFRESH_PATH = '/v1/license/community/v1/refresh';
 const MAX_CLAIM_BACKOFF_SECONDS = 300;
 let communityClaimOperationQueue: Promise<void> = Promise.resolve();
+
+async function requireCommunitySeatToken(
+  scope: 'seat:prepare' | 'seat:execute',
+  now = new Date(),
+) {
+  const instanceId = getLicenseInstanceId();
+  const token = await loadCommunityInstanceToken(instanceId);
+  if (!token) {
+    throw localClaimError(
+      'Connect this Community license before changing Team Seats.',
+      409,
+      TEAM_SEAT_ERROR_CODES.accountRequired,
+    );
+  }
+  if (token.expiresAt && Date.parse(token.expiresAt) <= now.getTime()) {
+    await markCommunityConnectionReconnectRequired({
+      instanceId,
+      expectedToken: token.instanceToken,
+      reason: 'expired',
+      now,
+    });
+    throw localClaimError(
+      'The Community instance connection expired and must be restored.',
+      401,
+      TEAM_SEAT_ERROR_CODES.tokenInvalid,
+    );
+  }
+  if (!token.scopes.includes(scope)) {
+    throw localClaimError(
+      `The Community instance connection does not permit ${scope}.`,
+      403,
+      TEAM_SEAT_ERROR_CODES.tokenScopeDenied,
+    );
+  }
+  return { instanceId, token };
+}
 
 async function withCommunityClaimOperationLock<T>(operation: () => Promise<T>): Promise<T> {
   const previous = communityClaimOperationQueue;
@@ -785,6 +861,77 @@ export async function getCommunityTeamUpgradePreflight(
     };
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) throw error;
+    throw contractResponseError(error);
+  }
+}
+
+export async function prepareCommunityTeamSeatChange(
+  request: TeamSeatPrepareRequest,
+  options?: { fetchImpl?: typeof fetch; now?: Date },
+): Promise<TeamSeatPrepareResponse> {
+  requireTeamSeatClientRollout();
+  const { instanceId, token } = await requireCommunitySeatToken(
+    'seat:prepare',
+    options?.now,
+  );
+  const { response, payload } = await postLicenseControlPlane(
+    COMMUNITY_SEAT_PREPARE_PATH,
+    { ...request },
+    {
+      fetchImpl: options?.fetchImpl,
+      unreachableCode: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
+      authorization: {
+        tokenType: token.tokenType,
+        token: token.instanceToken,
+      },
+    },
+  );
+  if (!response.ok) {
+    const error = claimErrorFromResponse(response, payload);
+    await recordRejectedCommunityToken(error, {
+      instanceId,
+      instanceToken: token.instanceToken,
+    });
+    throw error;
+  }
+  try {
+    return parseTeamSeatPrepareResponse(payload);
+  } catch (error) {
+    throw contractResponseError(error);
+  }
+}
+
+export async function getCommunityTeamSeatQuoteStatus(
+  quoteId: string,
+  options?: { fetchImpl?: typeof fetch; now?: Date },
+): Promise<TeamSeatQuoteStatusResponse> {
+  requireTeamSeatClientRollout();
+  const { instanceId, token } = await requireCommunitySeatToken(
+    'seat:prepare',
+    options?.now,
+  );
+  const { response, payload } = await getLicenseControlPlane(
+    `${COMMUNITY_SEAT_QUOTE_PATH}/${encodeURIComponent(quoteId)}`,
+    {
+      fetchImpl: options?.fetchImpl,
+      unreachableCode: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
+      authorization: {
+        tokenType: token.tokenType,
+        token: token.instanceToken,
+      },
+    },
+  );
+  if (!response.ok) {
+    const error = claimErrorFromResponse(response, payload);
+    await recordRejectedCommunityToken(error, {
+      instanceId,
+      instanceToken: token.instanceToken,
+    });
+    throw error;
+  }
+  try {
+    return parseTeamSeatQuoteStatusResponse(payload);
+  } catch (error) {
     throw contractResponseError(error);
   }
 }

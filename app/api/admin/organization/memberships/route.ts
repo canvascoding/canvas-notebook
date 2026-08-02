@@ -1,7 +1,14 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
+import { LicenseControlPlaneError } from '@/app/lib/license/control-plane';
+import { TeamSeatContractError } from '@/app/lib/license/team-seat-contract';
+import { TeamSeatOutboxError } from '@/app/lib/license/team-seat-outbox';
 import { requireTeamRuntimeRoute } from '@/app/lib/license/team-route-guard';
+import {
+  dispatchDirectMembershipSeatPreparation,
+  membershipSeatQuotePayload,
+} from '@/app/lib/organization/membership-seat-quote';
 import {
   beginDirectMembershipActivation,
   MembershipOrchestratorError,
@@ -9,6 +16,7 @@ import {
 import { TeamMembershipError } from '@/app/lib/organization/team-membership';
 import {
   isOrganizationAdminLike,
+  isOrganizationBillingApprover,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -20,6 +28,20 @@ function errorResponse(error: unknown) {
       code: error.code,
       error: error.message,
     }, { status: error.status });
+  }
+  if (error instanceof LicenseControlPlaneError || error instanceof TeamSeatOutboxError) {
+    return NextResponse.json({
+      success: false,
+      code: error.code,
+      error: error.message,
+    }, { status: error.status });
+  }
+  if (error instanceof TeamSeatContractError) {
+    return NextResponse.json({
+      success: false,
+      code: error.code,
+      error: error.message,
+    }, { status: 502 });
   }
   console.error('[admin/organization/memberships] Request failed:', error);
   return NextResponse.json({
@@ -80,17 +102,17 @@ export async function POST(request: NextRequest) {
       displayName: name,
       role,
     });
+    const prepared = await dispatchDirectMembershipSeatPreparation({
+      activation,
+      actorUserId: admin.session.user.id,
+    });
     return NextResponse.json({
       success: true,
-      data: {
-        stage: activation.stage,
-        membershipId: activation.membership.id,
-        operationId: activation.prepareOperation.operationId,
-        desiredQuantity: activation.desiredQuantity,
-        observedQuantity: activation.observedQuantity,
-        replayed: activation.replayed,
-      },
-    }, { status: activation.replayed ? 200 : 202 });
+      data: membershipSeatQuotePayload(
+        prepared,
+        isOrganizationBillingApprover(state.permission),
+      ),
+    }, { status: prepared.activation.replayed ? 200 : 202 });
   } catch (error) {
     return errorResponse(error);
   }

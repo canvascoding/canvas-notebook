@@ -7,10 +7,14 @@ import Database from 'better-sqlite3';
 
 import { runMigrations } from '../app/lib/db/migrate';
 import {
+  beginDirectMembershipSeatRequote,
   beginDirectMembershipActivation,
   completeDirectMembershipActivation,
+  getDirectMembershipSeatQuote,
+  recordDirectMembershipSeatAuthorizationStatus,
   recordDirectMembershipSeatPreparation,
 } from '../app/lib/organization/membership-orchestrator';
+import { isOrganizationBillingApprover } from '../app/lib/organization/permissions';
 import {
   adoptActiveTeamMembership,
   getActiveTeamMembershipProjection,
@@ -64,43 +68,53 @@ function insertUser(input: {
 function prepareResponse(input: {
   desiredQuantity: number;
   authorizationId: string;
+  quoteId?: string;
+  provider?: 'stripe' | 'manual';
+  requiresBillingApproval?: boolean;
+  authorizationStatus?: 'pending' | 'approved';
+  expiresAt?: string;
 }) {
+  const quoteId = input.quoteId ?? 'd49f0ef7-92c7-4ea9-b9cc-ab3659dc4056';
+  const provider = input.provider ?? 'manual';
+  const requiresBillingApproval = input.requiresBillingApproval ?? false;
+  const authorizationStatus = input.authorizationStatus ?? 'approved';
+  const expiresAt = input.expiresAt ?? '2026-08-01T12:00:00.000Z';
   return {
     quote: {
       protocolVersion: 'canvas-team-seat-protocol-v1',
-      quoteId: 'd49f0ef7-92c7-4ea9-b9cc-ab3659dc4056',
+      quoteId,
       subject: {
         type: 'license',
         licenseId: '1f9ee6ae-0f74-4314-918f-881ef4b9282c',
       },
-      provider: 'manual',
+      provider,
       environment: 'production',
       quantityBefore: input.desiredQuantity - 1,
       quantityAfter: input.desiredQuantity,
       quantityDelta: 1,
-      unitAmountCents: 0,
+      unitAmountCents: provider === 'stripe' ? 1_500 : 0,
       currency: 'eur',
       billingInterval: 'month',
-      immediateAmountCents: 0,
-      recurringAmountCents: 0,
+      immediateAmountCents: provider === 'stripe' ? 500 : 0,
+      recurringAmountCents: provider === 'stripe' ? input.desiredQuantity * 1_500 : 0,
       status: 'active',
-      expiresAt: '2026-08-01T12:00:00.000Z',
-      quoteHash: 'quote-hash',
-      nonBillable: true,
+      expiresAt,
+      quoteHash: `quote-hash-${quoteId}`,
+      nonBillable: provider !== 'stripe',
     },
     authorization: {
       protocolVersion: 'canvas-team-seat-protocol-v1',
       authorizationId: input.authorizationId,
-      quoteId: 'd49f0ef7-92c7-4ea9-b9cc-ab3659dc4056',
-      quoteHash: 'quote-hash',
+      quoteId,
+      quoteHash: `quote-hash-${quoteId}`,
       quantityBefore: input.desiredQuantity - 1,
       quantityAfter: input.desiredQuantity,
-      status: 'approved',
-      expiresAt: '2026-08-01T12:00:00.000Z',
-      approvedAt: '2026-08-01T10:00:00.000Z',
+      status: authorizationStatus,
+      expiresAt,
+      approvedAt: authorizationStatus === 'approved' ? '2026-08-01T10:00:00.000Z' : null,
       consumedAt: null,
     },
-    requiresBillingApproval: false,
+    requiresBillingApproval,
     snapshot: {
       revision: 1,
       observedQuantity: input.desiredQuantity - 1,
@@ -364,12 +378,184 @@ async function main() {
     'crash recovery must not allocate a second active membership revision',
   );
 
+  const pendingStart = await beginDirectMembershipActivation({
+    organizationId: 'organization-1',
+    actorUserId: 'owner-user',
+    email: 'billing.pending@example.test',
+    displayName: 'Billing Pending',
+    role: 'admin',
+    database: connection,
+    databaseProvider: 'sqlite',
+    now: 5_000,
+  });
+  const pendingPayload = prepareResponse({
+    desiredQuantity: 3,
+    authorizationId: 'd75e5bbd-b843-4eb2-826a-72e811f78427',
+    quoteId: '5270ff4a-a3c7-4836-a64b-fdaf01b6af18',
+    provider: 'stripe',
+    requiresBillingApproval: true,
+    authorizationStatus: 'pending',
+  });
+  const pending = await recordDirectMembershipSeatPreparation({
+    organizationId: 'organization-1',
+    membershipId: pendingStart.membership.id,
+    prepareOperationId: pendingStart.prepareOperation.operationId,
+    response: pendingPayload,
+    actorUserId: 'owner-user',
+    database: connection,
+    databaseProvider: 'sqlite',
+    now: 5_100,
+  });
+  assert.equal(pending.stage, 'approval_required');
+  assert.equal(pending.membership.status, 'approval_required');
+  assert.equal(pending.executeOperation, null);
+  const storedPending = await getDirectMembershipSeatQuote({
+    organizationId: 'organization-1',
+    membershipId: pendingStart.membership.id,
+    database: connection,
+  });
+  assert.equal(storedPending.preparation.quote.quantityAfter, 3);
+  assert.equal(storedPending.preparation.quote.unitAmountCents, 1_500);
+
+  const ownerPermission = {
+    role: 'owner',
+    status: 'active',
+    canWriteTeamWorkspace: true,
+    canCreatePublicLinks: true,
+    canCreateTeamAutomations: true,
+    canSharePluginsAndSkills: true,
+    canExport: true,
+    canDeleteTeamFiles: true,
+    canDeleteStudioAssets: true,
+    canManageBackups: true,
+    canMigrateDatabase: true,
+    canEnableKnowledge: true,
+    canRecoverWorkspaces: true,
+  } as const;
+  assert.equal(isOrganizationBillingApprover(ownerPermission), true);
+  assert.equal(isOrganizationBillingApprover({ ...ownerPermission, role: 'admin' }), false);
+
+  const tamperedStatus = {
+    quote: {
+      ...pendingPayload.quote,
+      quantityAfter: 4,
+      quantityDelta: 2,
+    },
+    authorization: pendingPayload.authorization,
+  };
+  await assert.rejects(
+    recordDirectMembershipSeatAuthorizationStatus({
+      organizationId: 'organization-1',
+      membershipId: pendingStart.membership.id,
+      response: tamperedStatus,
+      actorUserId: 'owner-user',
+      database: connection,
+      databaseProvider: 'sqlite',
+      now: 5_200,
+    }),
+    (error: unknown) => (
+      error instanceof Error
+      && 'code' in error
+      && error.code === 'MEMBERSHIP_SEAT_RESPONSE_INVALID'
+    ),
+  );
+
+  const approvedStatus = {
+    quote: pendingPayload.quote,
+    authorization: {
+      ...pendingPayload.authorization,
+      status: 'approved',
+      approvedAt: '2026-08-01T10:05:00.000Z',
+    },
+  };
+  const approved = await recordDirectMembershipSeatAuthorizationStatus({
+    organizationId: 'organization-1',
+    membershipId: pendingStart.membership.id,
+    response: approvedStatus,
+    actorUserId: 'owner-user',
+    database: connection,
+    databaseProvider: 'sqlite',
+    now: 5_300,
+  });
+  assert.equal(approved.activation.stage, 'seat_execute_pending');
+  assert.equal(approved.activation.membership.status, 'billing_pending');
+
+  const staleStart = await beginDirectMembershipActivation({
+    organizationId: 'organization-1',
+    actorUserId: 'owner-user',
+    email: 'stale.quote@example.test',
+    displayName: 'Stale Quote',
+    role: 'member',
+    database: connection,
+    databaseProvider: 'sqlite',
+    now: 6_000,
+  });
+  const stalePayload = prepareResponse({
+    desiredQuantity: 3,
+    authorizationId: 'f122c818-96af-4915-ac2b-13c0d08c0941',
+    quoteId: '4bab2bc9-8992-4997-ac34-9d77107512f8',
+    provider: 'stripe',
+    requiresBillingApproval: true,
+    authorizationStatus: 'pending',
+    expiresAt: '2026-08-01T10:10:00.000Z',
+  });
+  await recordDirectMembershipSeatPreparation({
+    organizationId: 'organization-1',
+    membershipId: staleStart.membership.id,
+    prepareOperationId: staleStart.prepareOperation.operationId,
+    response: stalePayload,
+    actorUserId: 'owner-user',
+    database: connection,
+    databaseProvider: 'sqlite',
+    now: 6_100,
+  });
+  const expiredStatus = {
+    quote: {
+      ...stalePayload.quote,
+      status: 'expired',
+    },
+    authorization: {
+      ...stalePayload.authorization,
+      status: 'expired',
+    },
+  };
+  const requoted = await beginDirectMembershipSeatRequote({
+    organizationId: 'organization-1',
+    membershipId: staleStart.membership.id,
+    staleQuoteId: stalePayload.quote.quoteId,
+    currentResponse: expiredStatus,
+    actorUserId: 'owner-user',
+    database: connection,
+    databaseProvider: 'sqlite',
+    now: 6_200,
+  });
+  assert.equal(requoted.stage, 'seat_prepare_pending');
+  assert.notEqual(requoted.prepareOperation.operationId, staleStart.prepareOperation.operationId);
+  assert.equal(JSON.parse(requoted.prepareOperation.requestJson).desiredQuantity, 3);
+
   const panelSource = readFileSync(
     path.join(process.cwd(), 'app/components/settings/UserManagementPanel.tsx'),
     'utf8',
   );
   assert.doesNotMatch(panelSource, /authClient\.admin\.createUser/u);
   assert.match(panelSource, /\/api\/admin\/organization\/memberships/u);
+  assert.doesNotMatch(
+    panelSource,
+    /body:\s*JSON\.stringify\(\{[^}]*\b(?:quantity|price|quoteHash)\b/u,
+    'the browser must not submit billable Seat quantity, price, or quote hashes',
+  );
+  const quoteRouteSource = readFileSync(
+    path.join(
+      process.cwd(),
+      'app/api/admin/organization/memberships/[membershipId]/quote/route.ts',
+    ),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    quoteRouteSource,
+    /request\.json\(/u,
+    'requotes must derive all billable fields from persisted server state',
+  );
   const authSource = readFileSync(path.join(process.cwd(), 'app/lib/auth.ts'), 'utf8');
   assert.match(authSource, /MEMBERSHIP_ORCHESTRATOR_REQUIRED/u);
   assert.match(authSource, /context\.path === "\/admin\/create-user"/u);

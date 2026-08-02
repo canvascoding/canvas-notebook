@@ -601,7 +601,7 @@
         {
           "id": "NB-TS-042",
           "title": "Seat-Quote und Billing-Approval in lokaler UI integrieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership-ui",
           "description": "Kosten-Vorschau vom Control Plane anzeigen, Billing-Owner-Deep-Link unterstützen und Approval-/Stale-/Pending-Zustände darstellen.",
@@ -624,7 +624,8 @@
             "Nicht billing-berechtigte lokale Admins können keine Ausgabe final bestätigen.",
             "Stale Quote muss neu geladen und bestätigt werden.",
             "Browser kann Price und Quantity nicht manipulieren."
-          ]
+          ],
+          "progress": "Der direkte Membership-Flow fordert das serverseitig aus aktiver Membership-Projektion berechnete Seat-Angebot über das sichere Community-Instanz-Token beim Control Plane an und persistiert Quote, Authorization und die genaue Outbox-Operation restartfähig. Die lokale UI zeigt Quantity vorher/nachher, Einzelpreis, Intervall, wiederkehrenden Gesamtbetrag, Sofortbetrag, Billable-Status und Ablauf; nur lokale Owner erhalten den Control-Plane-Deep-Link, während lokale Admins den Status ausschließlich lesen können und keine Billing-Freigabe besitzen. Die endgültige Kostenfreigabe erfolgt authentifiziert im Control Plane durch Owner/Billing-Rollen. Status-Polling akzeptiert ausschließlich eine zum gespeicherten Quote-Hash, Preis, Mengenstand, Ablauf und Authorization passende Antwort; manipulierte oder abweichende Antworten werden verworfen. Abgelaufene oder widerrufene Quotes werden ausschließlich aus persistiertem Serverzustand neu berechnet, ohne Price, Quantity oder Quote-Hash aus dem Browser zu übernehmen, und müssen im Control Plane erneut bestätigt werden. Eine seat_execute-Operation entsteht erst nach bestätigter Authorization. Contract-, Control-Plane-Client-, Outbox- und Membership-Orchestrator-Tests, TypeScript, ESLint und Production-Build sind erfolgreich; der Build meldet lediglich bestehende Turbopack-Warnungen zu dynamischen Workspace-Pfaden."
         },
         {
           "id": "NB-TS-043",

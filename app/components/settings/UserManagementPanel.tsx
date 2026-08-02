@@ -2,7 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { AlertTriangle, Ban, CheckCircle2, Copy, KeyRound, Loader2, MailPlus, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
+import { AlertTriangle, Ban, CheckCircle2, Copy, ExternalLink, KeyRound, Loader2, MailPlus, Plus, RefreshCw, Search, Shield, UserCog, UserMinus } from 'lucide-react';
 
 import { Link } from '@/i18n/navigation';
 import { authClient } from '@/app/lib/auth-client';
@@ -77,6 +77,36 @@ type TeamInvitation = {
   expiresAt: number;
 };
 
+type MembershipSeatQuote = {
+  stage: 'seat_prepare_pending' | 'approval_required' | 'seat_execute_pending' | 'billing_pending' | 'active';
+  membershipId: string;
+  prepareOperationId: string;
+  desiredQuantity: number;
+  observedQuantity: number;
+  replayed: boolean;
+  quote: {
+    id: string;
+    quantityBefore: number;
+    quantityAfter: number;
+    quantityDelta: number;
+    unitAmountCents: number;
+    currency: string;
+    billingInterval: 'month';
+    immediateAmountCents: number | null;
+    recurringAmountCents: number;
+    provider: string | null;
+    nonBillable: boolean;
+    status: string;
+    expiresAt: string;
+  };
+  approval: {
+    required: boolean;
+    status: string;
+    canApprove: boolean;
+    url: string | null;
+  };
+};
+
 type LicenseStatusResponse = {
   licensed?: boolean;
   databaseProvider?: string | null;
@@ -135,6 +165,13 @@ function formatDate(value: Date | string | number | null | undefined, locale: st
     dateStyle: 'medium',
     timeStyle: 'short',
   }).format(date);
+}
+
+function formatMoney(cents: number, currency: string, locale: string): string {
+  return new Intl.NumberFormat(locale, {
+    style: 'currency',
+    currency: currency.toUpperCase(),
+  }).format(cents / 100);
 }
 
 function createEmptyDraft(): CreateUserDraft {
@@ -208,6 +245,8 @@ export function UserManagementPanel({
   const [error, setError] = useState<string | null>(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
+  const [membershipSeatQuote, setMembershipSeatQuote] = useState<MembershipSeatQuote | null>(null);
+  const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteDraft, setInviteDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
   const [createdInviteLink, setCreatedInviteLink] = useState<string | null>(null);
@@ -302,6 +341,13 @@ export function UserManagementPanel({
     return () => window.clearTimeout(timeout);
   }, [loadUsers]);
 
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      setCurrentTime(Date.now());
+    }, 30_000);
+    return () => window.clearInterval(interval);
+  }, []);
+
   const resetTransientState = () => {
     setError(null);
     setMessage(null);
@@ -351,15 +397,44 @@ export function UserManagementPanel({
         });
         const payload = await response.json().catch(() => ({})) as {
           success?: boolean;
+          data?: MembershipSeatQuote;
           error?: string;
         };
-        if (!response.ok || payload.success !== true) {
+        if (!response.ok || payload.success !== true || !payload.data) {
           throw new Error(payload.error || t('errors.create'));
         }
-        setCreateOpen(false);
-        setCreateDraft(createEmptyDraft());
+        setMembershipSeatQuote(payload.data);
       },
-      t('messages.activationStarted', { email }),
+      t('messages.quotePrepared', { email }),
+    );
+  };
+
+  const updateMembershipSeatQuote = async (method: 'GET' | 'POST') => {
+    if (!membershipSeatQuote) return;
+    await runAction(
+      `quote:${method}:${membershipSeatQuote.membershipId}`,
+      async () => {
+        const response = await fetch(
+          `/api/admin/organization/memberships/${encodeURIComponent(membershipSeatQuote.membershipId)}/quote`,
+          {
+            method,
+            credentials: 'include',
+            cache: 'no-store',
+          },
+        );
+        const payload = await response.json().catch(() => ({})) as {
+          success?: boolean;
+          data?: MembershipSeatQuote;
+          error?: string;
+        };
+        if (!response.ok || payload.success !== true || !payload.data) {
+          throw new Error(payload.error || (
+            method === 'POST' ? t('errors.quoteRefresh') : t('errors.quoteLoad')
+          ));
+        }
+        setMembershipSeatQuote(payload.data);
+      },
+      method === 'POST' ? t('messages.quoteRefreshed') : t('messages.quoteChecked'),
     );
   };
 
@@ -602,6 +677,14 @@ export function UserManagementPanel({
     !activeAction?.startsWith('offboard:') &&
     (!offboardingHasWarnings || offboardingAcknowledge),
   );
+  const membershipQuoteIsStale = Boolean(
+    membershipSeatQuote && (
+      ['expired', 'revoked'].includes(membershipSeatQuote.quote.status)
+      || ['expired', 'revoked'].includes(membershipSeatQuote.approval.status)
+      || Date.parse(membershipSeatQuote.quote.expiresAt) <= currentTime
+    ),
+  );
+  const membershipQuoteIsApproved = membershipSeatQuote?.approval.status === 'approved';
 
   const renderUserActions = (user: ManagedUser, options: { compact?: boolean } = {}) => {
     const role = normalizeRole(user.role);
@@ -993,54 +1076,209 @@ export function UserManagementPanel({
         }}
       />
 
-      <Dialog open={createOpen} onOpenChange={setCreateOpen}>
+      <Dialog
+        open={createOpen}
+        onOpenChange={(open) => {
+          setCreateOpen(open);
+          if (!open) {
+            setCreateDraft(createEmptyDraft());
+            setMembershipSeatQuote(null);
+          }
+        }}
+      >
         <DialogContent>
           <DialogHeader>
             <DialogTitle>{t('createDialog.title')}</DialogTitle>
             <DialogDescription>{t('createDialog.description')}</DialogDescription>
           </DialogHeader>
-          <div className="flex flex-col gap-4">
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="user-create-name">{t('fields.name')}</Label>
-              <Input
-                id="user-create-name"
-                value={createDraft.name}
-                onChange={(event) => setCreateDraft((current) => ({ ...current, name: event.target.value }))}
-                disabled={activeAction === 'create'}
-              />
-            </div>
-            <div className="flex flex-col gap-2">
-              <Label htmlFor="user-create-email">{t('fields.email')}</Label>
-              <Input
-                id="user-create-email"
-                type="email"
-                value={createDraft.email}
-                onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))}
-                disabled={activeAction === 'create'}
-              />
-            </div>
-            <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-              <div className="min-w-0">
-                <Label htmlFor="user-create-admin">{t('createDialog.adminLabel')}</Label>
-                <p className="text-xs text-muted-foreground">{t('createDialog.adminDescription')}</p>
+          {membershipSeatQuote ? (
+            <div className="flex flex-col gap-4">
+              <div className="rounded-md border bg-muted/30 p-4">
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <p className="font-medium">{t('seatQuote.title')}</p>
+                    <p className="mt-1 text-sm text-muted-foreground">{t('seatQuote.description')}</p>
+                  </div>
+                  <Badge variant={membershipQuoteIsApproved ? 'default' : 'outline'}>
+                    {membershipQuoteIsApproved
+                      ? t('seatQuote.approved')
+                      : membershipQuoteIsStale
+                        ? t('seatQuote.stale')
+                        : t('seatQuote.pending')}
+                  </Badge>
+                </div>
+                <dl className="mt-4 grid grid-cols-1 gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-muted-foreground">{t('seatQuote.quantity')}</dt>
+                    <dd className="font-medium">
+                      {membershipSeatQuote.quote.quantityBefore} → {membershipSeatQuote.quote.quantityAfter}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('seatQuote.perSeat')}</dt>
+                    <dd className="font-medium">
+                      {formatMoney(
+                        membershipSeatQuote.quote.unitAmountCents,
+                        membershipSeatQuote.quote.currency,
+                        locale,
+                      )} / {t('seatQuote.month')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('seatQuote.recurring')}</dt>
+                    <dd className="font-medium">
+                      {formatMoney(
+                        membershipSeatQuote.quote.recurringAmountCents,
+                        membershipSeatQuote.quote.currency,
+                        locale,
+                      )} / {t('seatQuote.month')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('seatQuote.dueNow')}</dt>
+                    <dd className="font-medium">
+                      {membershipSeatQuote.quote.immediateAmountCents === null
+                        ? t('seatQuote.calculatedAtCheckout')
+                        : formatMoney(
+                          membershipSeatQuote.quote.immediateAmountCents,
+                          membershipSeatQuote.quote.currency,
+                          locale,
+                        )}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('seatQuote.billing')}</dt>
+                    <dd className="font-medium">
+                      {membershipSeatQuote.quote.nonBillable
+                        ? t('seatQuote.nonBillable')
+                        : t('seatQuote.billable')}
+                    </dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('seatQuote.validUntil')}</dt>
+                    <dd className="font-medium">
+                      {formatDate(membershipSeatQuote.quote.expiresAt, locale)}
+                    </dd>
+                  </div>
+                </dl>
               </div>
-              <Switch
-                id="user-create-admin"
-                checked={createDraft.isAdmin}
-                onCheckedChange={(checked) => setCreateDraft((current) => ({ ...current, isAdmin: checked }))}
-                disabled={activeAction === 'create'}
-              />
+
+              {membershipQuoteIsApproved ? (
+                <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-200">
+                  <p className="font-medium">{t('seatQuote.approved')}</p>
+                  <p className="mt-1">{t('seatQuote.pendingExecution')}</p>
+                </div>
+              ) : membershipQuoteIsStale ? (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
+                  <p className="font-medium">{t('seatQuote.stale')}</p>
+                  <p className="mt-1">{t('seatQuote.refreshHint')}</p>
+                </div>
+              ) : (
+                <div className="rounded-md border p-3 text-sm">
+                  <p className="font-medium">{t('seatQuote.pending')}</p>
+                  <p className="mt-1 text-muted-foreground">
+                    {membershipSeatQuote.approval.canApprove
+                      ? t('seatQuote.approvalHint')
+                      : t('seatQuote.billingOwnerRequired')}
+                  </p>
+                </div>
+              )}
+
+              <DialogFooter>
+                <Button
+                  type="button"
+                  variant="outline"
+                  onClick={() => setCreateOpen(false)}
+                  disabled={activeAction !== null}
+                >
+                  {t('cancel')}
+                </Button>
+                {membershipQuoteIsStale ? (
+                  <Button
+                    type="button"
+                    onClick={() => void updateMembershipSeatQuote('POST')}
+                    disabled={activeAction !== null}
+                  >
+                    {activeAction?.startsWith('quote:POST:')
+                      ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                      : <RefreshCw data-icon="inline-start" />}
+                    {t('seatQuote.refresh')}
+                  </Button>
+                ) : !membershipQuoteIsApproved ? (
+                  <>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      onClick={() => void updateMembershipSeatQuote('GET')}
+                      disabled={activeAction !== null}
+                    >
+                      {activeAction?.startsWith('quote:GET:')
+                        ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                        : <RefreshCw data-icon="inline-start" />}
+                      {t('seatQuote.checkApproval')}
+                    </Button>
+                    {membershipSeatQuote.approval.url && (
+                      <Button asChild>
+                        <a
+                          href={membershipSeatQuote.approval.url}
+                          target="_blank"
+                          rel="noreferrer"
+                        >
+                          <ExternalLink data-icon="inline-start" />
+                          {t('seatQuote.openApproval')}
+                        </a>
+                      </Button>
+                    )}
+                  </>
+                ) : null}
+              </DialogFooter>
             </div>
-          </div>
-          <DialogFooter>
-            <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={activeAction === 'create'}>
-              {t('cancel')}
-            </Button>
-            <Button type="button" onClick={() => void createUser()} disabled={activeAction === 'create'}>
-              {activeAction === 'create' ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <UserCog data-icon="inline-start" />}
-              {t('createDialog.submit')}
-            </Button>
-          </DialogFooter>
+          ) : (
+            <>
+              <div className="flex flex-col gap-4">
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="user-create-name">{t('fields.name')}</Label>
+                  <Input
+                    id="user-create-name"
+                    value={createDraft.name}
+                    onChange={(event) => setCreateDraft((current) => ({ ...current, name: event.target.value }))}
+                    disabled={activeAction === 'create'}
+                  />
+                </div>
+                <div className="flex flex-col gap-2">
+                  <Label htmlFor="user-create-email">{t('fields.email')}</Label>
+                  <Input
+                    id="user-create-email"
+                    type="email"
+                    value={createDraft.email}
+                    onChange={(event) => setCreateDraft((current) => ({ ...current, email: event.target.value }))}
+                    disabled={activeAction === 'create'}
+                  />
+                </div>
+                <div className="flex items-center justify-between gap-4 rounded-md border p-3">
+                  <div className="min-w-0">
+                    <Label htmlFor="user-create-admin">{t('createDialog.adminLabel')}</Label>
+                    <p className="text-xs text-muted-foreground">{t('createDialog.adminDescription')}</p>
+                  </div>
+                  <Switch
+                    id="user-create-admin"
+                    checked={createDraft.isAdmin}
+                    onCheckedChange={(checked) => setCreateDraft((current) => ({ ...current, isAdmin: checked }))}
+                    disabled={activeAction === 'create'}
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button type="button" variant="outline" onClick={() => setCreateOpen(false)} disabled={activeAction === 'create'}>
+                  {t('cancel')}
+                </Button>
+                <Button type="button" onClick={() => void createUser()} disabled={activeAction === 'create'}>
+                  {activeAction === 'create' ? <Loader2 data-icon="inline-start" className="animate-spin" /> : <UserCog data-icon="inline-start" />}
+                  {t('createDialog.submit')}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
         </DialogContent>
       </Dialog>
 

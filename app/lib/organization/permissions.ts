@@ -305,6 +305,12 @@ export function isOrganizationAdminLike(permission: OrganizationPermissionSnapsh
   return permission?.status === 'active' && (permission?.role === 'owner' || permission?.role === 'admin');
 }
 
+export function isOrganizationBillingApprover(
+  permission: OrganizationPermissionSnapshot | null | undefined,
+): boolean {
+  return permission?.status === 'active' && permission.role === 'owner';
+}
+
 /**
  * Guards host-level capabilities that are not safe to delegate through a
  * granular member permission. Examples include configuring MCP stdio servers,
