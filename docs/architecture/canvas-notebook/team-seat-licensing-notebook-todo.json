@@ -476,7 +476,7 @@
         {
           "id": "NB-TS-034",
           "title": "Team-Downgrade und Solo-Fallback ohne Datenverlust implementieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "license-lifecycle",
           "description": "Bei Kündigung, Nichtzahlung oder Grace-Ablauf zusätzliche Team-Zugriffe deterministisch deaktivieren und Daten unverändert erhalten.",
@@ -498,7 +498,8 @@
             "Genau ein Solo-Owner bleibt produktiv, sofern die Policy nichts anderes festlegt.",
             "Deaktivierte User sind nach Reaktivierung wiederherstellbar.",
             "Fallback ist auditierbar und idempotent."
-          ]
+          ],
+          "progress": "Ein serverseitiger, restartfester Lifecycle-Worker gleicht den lokalen Membership-Zustand periodisch und unmittelbar nach Zertifikatsaktivierung mit der verifizierten Edition, dem Lizenzzustand und dem signierten seatLimit ab. Nach Downgrade, Widerruf oder Grace-Ablauf bleibt ausschließlich der bestehende Owner aktiv; zusätzliche Memberships werden deterministisch suspendiert, ihre Daten und Workspaces bleiben unverändert, Sessions werden sofort widerrufen und nur lizenzbedingt deaktivierte Accounts mit einem eindeutigen Marker versehen. Die Better-Auth-Cookie-Session wird nicht mehr clientseitig gecacht, damit Revocation ohne Zeitfenster greift. Eine erneute Team-Aktivierung stellt markierte User prioritätsstabil nur innerhalb des signierten Seat-Limits wieder her und verändert unabhängige Security-Bans nicht. Jede logische Änderung erzeugt Membership-Transition, Revision, Outbox-Snapshot und Audit-Event in derselben Transaktion; Wiederholungen ohne Zustandsänderung sind No-ops. Der vorhandene Workspace-Core-Fallback hält persönliche Daten für den Owner produktiv erreichbar, während erhaltene Team-Workspaces ohne gültige Team-Lizenz nicht gelistet werden. SQLite-Lifecycle-, Datenhaltungs-, Idempotenz-, Seat-Reduktions-, Reaktivierungs-, Security-Ban-, Auth-, Refresh-, Mobile-, Startup- und Organisationsregressionen sowie ESLint, TypeScript und Production-Build sind erfolgreich."
         },
         {
           "id": "NB-TS-035",

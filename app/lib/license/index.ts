@@ -492,7 +492,17 @@ export async function activateLicenseCert(
     throw new LicenseCertificateValidationError('LICENSE_CERT_CLAIMS_INVALID');
   }
   await saveLicenseCert(cert, payload);
-  return withRefreshRuntimeState(status);
+  const activated = await withRefreshRuntimeState(status);
+  void import('./team-license-lifecycle')
+    .then(({ triggerTeamLicenseLifecycleReconciliation }) => {
+      triggerTeamLicenseLifecycleReconciliation();
+    })
+    .catch((error) => {
+      console.warn(`${LOG_PREFIX} failed to trigger Team license lifecycle reconciliation`, {
+        error: error instanceof Error ? error.message : String(error),
+      });
+    });
+  return activated;
 }
 
 export function getLicenseControlPlaneUrl(): string {

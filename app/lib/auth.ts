@@ -41,8 +41,10 @@ export const auth = betterAuth({
   ],
   session: {
     cookieCache: {
-      enabled: true,
-      maxAge: 5 * 60, // 5 minutes cache
+      // License downgrade, offboarding and security revocation delete sessions
+      // in the database. A client-side session cache would keep those sessions
+      // usable until the cache expires, so authorization stays database-backed.
+      enabled: false,
     }
   },
   advanced: {

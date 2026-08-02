@@ -496,6 +496,13 @@ function scheduleBackgroundMaintenance() {
       .catch((err) => {
         console.warn('[Startup] Community license refresh could not be initialized:', err.message);
       });
+    import('./app/lib/license/team-license-lifecycle.ts')
+      .then(({ initializeTeamLicenseLifecycleRuntime }) => {
+        initializeTeamLicenseLifecycleRuntime();
+      })
+      .catch((err) => {
+        console.warn('[Startup] Team license lifecycle could not be initialized:', err.message);
+      });
   }, 1500);
   timer.unref?.();
   console.log('[Startup] Background maintenance scheduled');
