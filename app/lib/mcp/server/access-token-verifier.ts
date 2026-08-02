@@ -59,7 +59,16 @@ function buildChallenge(
   const parameters = [
     `resource_metadata="${escapeChallengeValue(config.protectedResourceMetadataUrl)}"`,
   ];
-  if (error) parameters.push(`error="${error}"`);
+  if (error) {
+    parameters.push(`error="${error}"`);
+    parameters.push(
+      `error_description="${escapeChallengeValue(
+        error === 'insufficient_scope'
+          ? 'Additional authorization is required.'
+          : 'The access token is invalid or expired.',
+      )}"`,
+    );
+  }
   if (scope) parameters.push(`scope="${escapeChallengeValue(scope)}"`);
   return `Bearer ${parameters.join(', ')}`;
 }

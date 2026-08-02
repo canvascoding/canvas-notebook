@@ -17,6 +17,7 @@ const PUBLIC_EXACT_ROUTES = [
   '/manifest.webmanifest',
   '/.well-known/oauth-protected-resource',
   '/.well-known/oauth-protected-resource/mcp',
+  '/mcp',
   '/oauth/consent',
 ];
 const PUBLIC_SHARE_PREFIX_ROUTES = [

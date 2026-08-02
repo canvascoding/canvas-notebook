@@ -135,7 +135,8 @@
     {
       "id": "MCP-OAUTH-07",
       "title": "Minimalen MCP-Auth-Probe bereitstellen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-02",
       "dependsOn": [
         "MCP-OAUTH-06"
       ],

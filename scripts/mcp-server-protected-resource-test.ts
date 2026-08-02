@@ -364,9 +364,11 @@ async function main(): Promise<void> {
         },
       },
     });
-    const tampered = `${tokenSet.accessToken.slice(0, -1)}${
-      tokenSet.accessToken.endsWith('a') ? 'b' : 'a'
-    }`;
+    const tokenSegments = tokenSet.accessToken.split('.');
+    assert.equal(tokenSegments.length, 3);
+    const signature = tokenSegments[2];
+    tokenSegments[2] = `${signature.startsWith('a') ? 'b' : 'a'}${signature.slice(1)}`;
+    const tampered = tokenSegments.join('.');
     for (const invalid of [
       wrongIssuer.token,
       wrongResource.token,
@@ -463,7 +465,11 @@ async function main(): Promise<void> {
     assert.equal(errorResponse.status, 401);
     assert.equal(
       errorResponse.headers.get('www-authenticate'),
-      `Bearer resource_metadata="${protectedResourceMetadataUrl}", error="invalid_token"`,
+      (
+        `Bearer resource_metadata="${protectedResourceMetadataUrl}", `
+        + 'error="invalid_token", '
+        + 'error_description="The access token is invalid or expired."'
+      ),
     );
     assert.equal(errorResponse.headers.get('cache-control'), 'no-store');
 

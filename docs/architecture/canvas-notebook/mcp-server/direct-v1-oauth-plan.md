@@ -426,6 +426,15 @@ Ergebnis:
 - Tool-Security-Schema und MCP-Auth-Challenge korrekt.
 - der Probe gibt nur lokale Benutzer-ID in redigierter Form und bestätigte Scopes zurück, keine Workspace-Daten.
 
+Implementiert wird ein stateless Web-Standard-Transport aus dem gepinnten MCP
+TypeScript SDK. `initialize` und `tools/list` bleiben anonym und greifen auf
+keine Nutzerdaten zu. `auth_probe` deklariert OAuth pro Tool sowohl als
+erstklassiges `securitySchemes`-Feld als auch als Kompatibilitäts-Mirror unter
+`_meta.securitySchemes`. Fehlende oder unzureichende Autorisierung liefert
+`_meta["mcp/www_authenticate"]` mit `error` und `error_description`. Da V1 keine
+Server-Notifications oder Resumability benötigt, unterstützt der Transport
+POST-JSON-Antworten; GET und DELETE antworten standardkonform mit `405`.
+
 Prüfung:
 
 - MCP-Initialisierung ohne Datenzugriff.
