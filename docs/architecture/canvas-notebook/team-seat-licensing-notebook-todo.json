@@ -1036,7 +1036,7 @@
         {
           "id": "NB-TS-071",
           "title": "Migration und Upgrade aus bestehenden Installationen testen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "tests-migration",
           "description": "Community Solo, Managed Single, Managed Team und Teilmigrationen mit realistischen Datenständen prüfen.",
@@ -1055,7 +1055,8 @@
             "Solo-Owner bleibt aktiv.",
             "Migration erzeugt keine Stripe- oder Seat-Mutation.",
             "Wiederholung ist idempotent."
-          ]
+          ],
+          "progress": "Der bestehende Legacy-Backfill-Test bildet nun Community Solo, Managed Single, Managed Team, vorab gesperrte und archivierte Benutzer, eine teilweise bereits angelegte Membership sowie einen zunächst fehlschlagenden und anschließend reparierten Datenstand realistisch ab. Vor und nach der Migration werden nicht nur Membership-Zähler, sondern vollständige Bestandsprojektionen von Usern, Organisationen, Berechtigungen, bestehenden To-dos und gespeicherten Lizenzzertifikaten verglichen; alle fachfremden Daten bleiben unverändert. Der Community- und Managed-Single-Owner bleibt aktiv, Managed-Team-Mitglieder werden gemäß bestehendem Ban-/Archivstatus als active, suspended oder removed übernommen. Eine Teilmigration erhält die bereits vorhandene Membership-ID und ergänzt ausschließlich fehlende Datensätze. Ein Identitätskonflikt rollt Savepoint, Memberships, Transitionen und Marker vollständig zurück, ohne Bestandsdaten zu verändern, und kann nach Korrektur sicher wiederholt werden. Der vollständige Team-Seat-Zustand aus Memberships, Transitionen, Sync-State, Outbox und Migrationsmarker ist beim zweiten Lauf logisch identisch. Alle Migrationstransitionen sind non-billable, besitzen keine Membership-Revision und erzeugen weder Seat-Outbox- noch Stripe-Operationen; derselbe Vertrag ist im PostgreSQL-Backfill mit Advisory Lock und ON CONFLICT DO NOTHING eingefroren. Der fokussierte SQLite-/PostgreSQL-Migrationsvertrag und die direkte Next.js-Produktionskompilierung sind erfolgreich. npm run build bleibt ausschließlich vor der Kompilierung am bekannten stale Third-Party-License-Cache der pausierten OAuth/MCP-Abhängigkeiten hängen. Die gleichzeitig sichtbaren fremden MCP/OAuth-Änderungen an DB- und Paketdateien wurden nicht angefasst oder gestaged; Browser, Dev-Server und Container wurden nicht gestartet."
         },
         {
           "id": "NB-TS-072",

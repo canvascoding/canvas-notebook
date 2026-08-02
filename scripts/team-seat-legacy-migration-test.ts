@@ -13,6 +13,7 @@ import {
 } from '../app/lib/db/postgres';
 
 type MembershipRow = {
+  id: string;
   organization_id: string;
   user_id: string;
   role: string;
@@ -127,6 +128,7 @@ function insertPermission(
 function getMemberships(sqlite: Database.Database): MembershipRow[] {
   return sqlite.prepare(`
     SELECT
+      id,
       organization_id,
       user_id,
       role,
@@ -137,6 +139,66 @@ function getMemberships(sqlite: Database.Database): MembershipRow[] {
     FROM team_memberships
     ORDER BY organization_id, user_id
   `).all() as MembershipRow[];
+}
+
+function getLegacyData(sqlite: Database.Database) {
+  return {
+    users: sqlite.prepare(`
+      SELECT id, name, email, role, banned, created_at, updated_at
+      FROM "user"
+      ORDER BY id
+    `).all(),
+    organizations: sqlite.prepare(`
+      SELECT organization_id, owner_user_id, deployment_mode, team_features_enabled
+      FROM canvas_organization_settings
+      ORDER BY organization_id
+    `).all(),
+    permissions: sqlite.prepare(`
+      SELECT organization_id, user_id, role, status, created_at, updated_at
+      FROM organization_user_permissions
+      ORDER BY organization_id, user_id
+    `).all(),
+    todos: sqlite.prepare(`
+      SELECT id, user_id, title, description, status, priority, created_at, updated_at
+      FROM todo_items
+      ORDER BY id
+    `).all(),
+    certificates: sqlite.prepare(`
+      SELECT cert, plan, instance_id, expires_at, created_at, updated_at
+      FROM license_certs
+      ORDER BY id
+    `).all(),
+  };
+}
+
+function getTeamSeatMigrationState(sqlite: Database.Database) {
+  return {
+    memberships: sqlite.prepare(`
+      SELECT *
+      FROM team_memberships
+      ORDER BY organization_id, user_id, id
+    `).all(),
+    transitions: sqlite.prepare(`
+      SELECT *
+      FROM team_membership_transitions
+      ORDER BY membership_id, id
+    `).all(),
+    sync: sqlite.prepare(`
+      SELECT *
+      FROM team_membership_sync_state
+      ORDER BY organization_id
+    `).all(),
+    outbox: sqlite.prepare(`
+      SELECT *
+      FROM team_seat_outbox
+      ORDER BY operation_id
+    `).all(),
+    marker: sqlite.prepare(`
+      SELECT *
+      FROM canvas_data_migrations
+      WHERE migration_key = ?
+    `).get(TEAM_SEAT_LEGACY_MIGRATION_KEY),
+  };
 }
 
 function assertNoSyntheticBilling(sqlite: Database.Database): void {
@@ -238,8 +300,50 @@ function testLegacyDeploymentModes(): void {
       role: 'external',
       status: 'archived',
     });
+    sqlite.prepare(`
+      INSERT INTO todo_items (
+        id,
+        user_id,
+        title,
+        description,
+        status,
+        priority,
+        source_type,
+        created_at,
+        updated_at
+      ) VALUES (?, ?, ?, ?, 'open', 'high', 'user', ?, ?)
+    `).run(
+      'legacy-team-todo',
+      'managed-team-active',
+      'Keep this existing task',
+      'Migration must preserve unrelated user data.',
+      TEST_NOW,
+      TEST_NOW,
+    );
+    sqlite.prepare(`
+      INSERT INTO license_certs (
+        cert,
+        plan,
+        instance_id,
+        expires_at,
+        created_at,
+        updated_at
+      ) VALUES (?, 'managed', ?, ?, ?, ?)
+    `).run(
+      'legacy-certificate-payload',
+      'legacy-managed-instance',
+      TEST_NOW + 86_400_000,
+      TEST_NOW,
+      TEST_NOW,
+    );
 
+    const legacyDataBefore = getLegacyData(sqlite);
     runMigrations(sqlite);
+    assert.deepEqual(
+      getLegacyData(sqlite),
+      legacyDataBefore,
+      'Team Seat adoption must preserve existing users, permissions, application data, and license state',
+    );
 
     const memberships = getMemberships(sqlite);
     assert.equal(memberships.length, 6);
@@ -272,16 +376,14 @@ function testLegacyDeploymentModes(): void {
     ]);
     assertNoSyntheticBilling(sqlite);
 
-    const beforeRetry = {
-      memberships: memberships.length,
-      transitions: (sqlite.prepare('SELECT COUNT(*) AS count FROM team_membership_transitions').get() as { count: number }).count,
-    };
+    const beforeRetry = getTeamSeatMigrationState(sqlite);
     runMigrations(sqlite);
-    assert.equal(getMemberships(sqlite).length, beforeRetry.memberships);
-    assert.equal(
-      (sqlite.prepare('SELECT COUNT(*) AS count FROM team_membership_transitions').get() as { count: number }).count,
-      beforeRetry.transitions,
+    assert.deepEqual(
+      getTeamSeatMigrationState(sqlite),
+      beforeRetry,
+      're-running the completed migration must be a byte-for-byte logical no-op',
     );
+    assert.deepEqual(getLegacyData(sqlite), legacyDataBefore);
   } finally {
     sqlite.close();
   }
@@ -335,8 +437,15 @@ function testPartialMigrationRecovery(): void {
       TEST_NOW,
     );
 
+    const legacyDataBefore = getLegacyData(sqlite);
     runMigrations(sqlite);
     assert.equal(getMemberships(sqlite).length, 2);
+    assert.equal(
+      getMemberships(sqlite).find((membership) => membership.user_id === 'partial-owner')?.id,
+      'partial-owner-membership',
+      'partial recovery must preserve the already-created membership identity',
+    );
+    assert.deepEqual(getLegacyData(sqlite), legacyDataBefore);
     assert.equal(
       (sqlite.prepare('SELECT COUNT(*) AS count FROM team_membership_transitions').get() as { count: number }).count,
       2,
@@ -370,9 +479,15 @@ function testFailedMigrationCanRetry(): void {
       status: 'active',
     });
 
+    const legacyDataBefore = getLegacyData(sqlite);
     assert.throws(
       () => runMigrations(sqlite),
       /duplicate Team Seat identity/u,
+    );
+    assert.deepEqual(
+      getLegacyData(sqlite),
+      legacyDataBefore,
+      'a failed migration must roll back Team Seat state without touching legacy data',
     );
     assert.equal(getMemberships(sqlite).length, 0);
     assert.equal(
