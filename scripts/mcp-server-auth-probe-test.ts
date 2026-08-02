@@ -30,6 +30,10 @@ function configureRuntime(dataDir: string): void {
   environment.BETTER_AUTH_SECRET = 'mcp-auth-probe-test-secret-at-least-32-characters';
   delete environment.DATABASE_URL;
   delete environment.NEXT_PHASE;
+  delete environment.CANVAS_INSTANCE_TOKEN;
+  delete environment.CANVAS_MANAGED_SERVICES_ENABLED;
+  delete environment.CANVAS_LICENSE_CERT;
+  delete environment.CANVAS_LICENSE_PUBLIC_KEY;
 }
 
 async function readJson(response: Response): Promise<JsonRecord> {
@@ -68,6 +72,17 @@ function resultFromRpc(body: JsonRecord): JsonRecord {
 async function main(): Promise<void> {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'canvas-mcp-auth-probe-'));
   configureRuntime(dataDir);
+  const originalFetch = globalThis.fetch;
+  const outboundRequests: string[] = [];
+  globalThis.fetch = (async (input: Parameters<typeof fetch>[0]) => {
+    const url = typeof input === 'string'
+      ? input
+      : input instanceof URL
+        ? input.href
+        : input.url;
+    outboundRequests.push(url);
+    throw new Error(`Unexpected outbound request during Direct MCP test: ${url}`);
+  }) as typeof fetch;
 
   try {
     const { createInitialOwner } = await import('../app/lib/auth-setup');
@@ -390,9 +405,15 @@ async function main(): Promise<void> {
       },
     });
     assert.equal(disabled.status, 404);
+    assert.deepEqual(
+      outboundRequests,
+      [],
+      'Direct V1 auth must not call the Canvas Control Plane or another remote service.',
+    );
 
     console.log('mcp-server-auth-probe-test: ok');
   } finally {
+    globalThis.fetch = originalFetch;
     await rm(dataDir, { recursive: true, force: true });
   }
 }

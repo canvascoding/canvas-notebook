@@ -460,6 +460,10 @@ Prüfung:
 - keine Canvas Control Plane wird aufgerufen.
 
 Der ChatGPT-Test ist manuell zu protokollieren, da der Client außerhalb dieses Repositorys liegt.
+Das verbindliche Ablauf- und Evidenzschema liegt unter
+[`oauth-e2e-validation.md`](./oauth-e2e-validation.md). Das Todo bleibt
+`pending`, bis sowohl der Inspector- als auch der ChatGPT-Abschnitt auf einer
+öffentlichen HTTPS-Testinstanz vollständig bestanden wurden.
 
 ### MCP-OAUTH-09 – Security-, Build- und Release-Gate
 
