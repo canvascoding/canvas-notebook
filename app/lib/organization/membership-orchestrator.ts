@@ -25,6 +25,7 @@ import {
   enqueueTeamSeatOutboxOperation,
   getTeamMembershipSyncState,
   getTeamSeatOutboxOperation,
+  recordTeamSeatOutboxOperationPending,
   recordTeamSeatOutboxOperationSuccess,
   type TeamSeatOutboxOperation,
 } from '@/app/lib/license/team-seat-outbox';
@@ -125,6 +126,10 @@ function parseExecuteRequest(operation: TeamSeatOutboxOperation) {
     operationKey: value.operationKey,
     operationType: value.operationType,
   });
+}
+
+export function getMembershipSeatExecuteRequest(operation: TeamSeatOutboxOperation) {
+  return parseExecuteRequest(operation);
 }
 
 function assertPendingCandidateMatches(
@@ -617,11 +622,13 @@ export async function recordDirectMembershipSeatAuthorizationStatus(input: {
         ...stored.activation,
         membership,
         executeOperation,
-        stage: current.authorization.status === 'approved'
-          ? 'seat_execute_pending'
-          : membership.status === 'billing_pending'
-            ? 'billing_pending'
-            : 'approval_required',
+        stage: membership.status === 'active'
+          ? 'active'
+          : current.authorization.status === 'approved'
+            ? 'seat_execute_pending'
+            : membership.status === 'billing_pending'
+              ? 'billing_pending'
+              : 'approval_required',
       },
       preparation: {
         ...stored.preparation,
@@ -717,6 +724,99 @@ export async function beginDirectMembershipSeatRequote(input: {
       executeOperation: null,
       requiresBillingApproval: null,
       replayed: enqueued.replayed,
+    };
+  } finally {
+    if (closeDatabase) await database.close();
+  }
+}
+
+export type DirectMembershipSeatExecutionPending = {
+  activation: MembershipActivation;
+  execution: TeamSeatExecuteResponse;
+};
+
+export async function recordDirectMembershipSeatExecutionPending(input: {
+  organizationId: string;
+  membershipId: string;
+  executeOperationId: string;
+  response: unknown;
+  database?: MembershipOrchestratorDatabase;
+  now?: number;
+}): Promise<DirectMembershipSeatExecutionPending> {
+  const database = input.database ?? await openDb();
+  const closeDatabase = input.database === undefined;
+  const now = input.now ?? Date.now();
+  try {
+    const operation = await requireMembershipOperation(database, {
+      organizationId: input.organizationId,
+      membershipId: input.membershipId,
+      operationId: input.executeOperationId,
+      kind: 'seat_execute',
+    });
+    const request = parseExecuteRequest(operation);
+    const execution = parseTeamSeatExecuteResponse(input.response);
+    const prepareOperation = await latestMembershipPrepareOperation(
+      database,
+      input.organizationId,
+      input.membershipId,
+    );
+    if (!prepareOperation) {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_OPERATION_NOT_FOUND',
+        'The corresponding Seat preparation was not found.',
+        404,
+      );
+    }
+    const desiredQuantity = parsePrepareRequest(prepareOperation).desiredQuantity;
+    if (
+      execution.operation.operationKey !== request.operationKey
+      || execution.operation.operationType !== request.operationType
+      || execution.operation.requestedQuantity !== desiredQuantity
+      || execution.operation.status === 'applied'
+      || execution.license !== null
+    ) {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_SEAT_RESPONSE_INVALID',
+        'The pending Seat execution does not match the server-calculated membership change.',
+        502,
+      );
+    }
+    const membership = await getTeamMembershipById(
+      database,
+      input.organizationId,
+      input.membershipId,
+    );
+    if (!membership || membership.status !== 'billing_pending') {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_OPERATION_CONFLICT',
+        'Only a billing-pending membership can persist a pending Seat execution.',
+      );
+    }
+    const pendingOperation = await recordTeamSeatOutboxOperationPending(database, {
+      operationId: operation.operationId,
+      response: execution,
+      controlPlaneOperationId: execution.operation.operationId,
+      errorCode: `TEAM_SEAT_${execution.operation.status.toUpperCase()}`,
+      error: execution.operation.lastError
+        || execution.operation.paymentStatus
+        || 'The Seat execution is still pending.',
+      retryAt: now + 30_000,
+      now,
+    });
+    return {
+      activation: {
+        stage: 'billing_pending',
+        membership,
+        desiredQuantity,
+        observedQuantity: parseTeamSeatPrepareResponse(
+          JSON.parse(prepareOperation.responseJson || '{}'),
+        ).snapshot.observedQuantity,
+        prepareOperation,
+        executeOperation: pendingOperation,
+        requiresBillingApproval: true,
+        replayed: execution.replayed,
+      },
+      execution,
     };
   } finally {
     if (closeDatabase) await database.close();
@@ -848,18 +948,20 @@ export async function completeDirectMembershipActivation(input: {
       );
     }
     await (input.verifyCertificate ?? activateAndVerifyTeamCertificate)(executed, desiredQuantity);
-    await recordTeamSeatOutboxOperationSuccess(database, {
-      operationId: operation.operationId,
-      response: {
-        ...executed,
-        license: {
-          details: executed.license.details,
-          certificatePersisted: true,
+    if (operation.status !== 'succeeded') {
+      await recordTeamSeatOutboxOperationSuccess(database, {
+        operationId: operation.operationId,
+        response: {
+          ...executed,
+          license: {
+            details: executed.license.details,
+            certificatePersisted: true,
+          },
         },
-      },
-      controlPlaneOperationId: executed.operation.operationId,
-      now,
-    });
+        controlPlaneOperationId: executed.operation.operationId,
+        now,
+      });
+    }
 
     let membership = await getTeamMembershipById(
       database,
@@ -872,6 +974,32 @@ export async function completeDirectMembershipActivation(input: {
         'The membership candidate was not found.',
         404,
       );
+    }
+    if (membership.status === 'active') {
+      if (!membership.userId) {
+        throw new MembershipOrchestratorError(
+          'MEMBERSHIP_OPERATION_CONFLICT',
+          'The active membership does not reference a Better Auth identity.',
+        );
+      }
+      await identity.activate(membership.userId);
+      const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
+      if (projection.observedQuantity > desiredQuantity) {
+        throw new MembershipOrchestratorError(
+          'MEMBERSHIP_SIGNED_LIMIT_INVALID',
+          'The active membership projection exceeds the confirmed Seat quantity.',
+        );
+      }
+      return {
+        stage: 'active',
+        membership,
+        desiredQuantity,
+        observedQuantity: projection.observedQuantity,
+        prepareOperation: persistedPrepare,
+        executeOperation: (await getTeamSeatOutboxOperation(database, operation.operationId))!,
+        requiresBillingApproval: null,
+        replayed: true,
+      };
     }
     const pendingIdentity = await identity.ensurePending({
       name: membership.displayName || membership.candidateEmail,

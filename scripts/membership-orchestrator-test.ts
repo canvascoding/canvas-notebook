@@ -12,6 +12,7 @@ import {
   completeDirectMembershipActivation,
   getDirectMembershipSeatQuote,
   recordDirectMembershipSeatAuthorizationStatus,
+  recordDirectMembershipSeatExecutionPending,
   recordDirectMembershipSeatPreparation,
 } from '../app/lib/organization/membership-orchestrator';
 import { isOrganizationBillingApprover } from '../app/lib/organization/permissions';
@@ -345,7 +346,10 @@ async function main() {
     organizationId: 'organization-1',
     membershipId: started.membership.id,
     executeOperationId: prepared.executeOperation!.operationId,
-    response: executedPayload,
+    response: {
+      ...executedPayload,
+      replayed: true,
+    },
     password: 'correct horse battery staple',
     actorUserId: 'owner-user',
     database: connection,
@@ -479,6 +483,48 @@ async function main() {
   });
   assert.equal(approved.activation.stage, 'seat_execute_pending');
   assert.equal(approved.activation.membership.status, 'billing_pending');
+  assert.ok(approved.activation.executeOperation);
+  const requiresActionPayload = {
+    operation: {
+      protocolVersion: 'canvas-team-seat-protocol-v1',
+      operationId: 'd9916299-1906-49b2-83d1-04c164190e24',
+      operationKey: approved.activation.executeOperation!.operationId,
+      operationType: 'member_create',
+      provider: 'stripe',
+      environment: 'production',
+      status: 'requires_action',
+      paymentStatus: 'requires_action',
+      previousQuantity: 2,
+      requestedQuantity: 3,
+      effectiveQuantity: null,
+      retryCount: 0,
+      lastError: null,
+      effectiveAt: null,
+      entitlementsVersion: null,
+      certificateReissueStatus: 'pending',
+      createdAt: '2026-08-01T10:06:00.000Z',
+      updatedAt: '2026-08-01T10:06:00.000Z',
+    },
+    replayed: false,
+    license: null,
+  };
+  const billingPending = await recordDirectMembershipSeatExecutionPending({
+    organizationId: 'organization-1',
+    membershipId: pendingStart.membership.id,
+    executeOperationId: approved.activation.executeOperation!.operationId,
+    response: requiresActionPayload,
+    database: connection,
+    now: 5_400,
+  });
+  assert.equal(billingPending.activation.stage, 'billing_pending');
+  assert.equal(billingPending.activation.membership.status, 'billing_pending');
+  assert.equal(billingPending.activation.executeOperation?.status, 'retry_wait');
+  assert.equal(billingPending.activation.executeOperation?.attemptCount, 0);
+  assert.equal(
+    sqlite.prepare('SELECT COUNT(*) FROM "user" WHERE email = ?').pluck().get('billing.pending@example.test'),
+    0,
+    'requires_action must not create or activate a Better Auth user',
+  );
 
   const staleStart = await beginDirectMembershipActivation({
     organizationId: 'organization-1',
@@ -556,9 +602,48 @@ async function main() {
     /request\.json\(/u,
     'requotes must derive all billable fields from persisted server state',
   );
+  const activationRouteSource = readFileSync(
+    path.join(
+      process.cwd(),
+      'app/api/admin/organization/memberships/[membershipId]/activate/route.ts',
+    ),
+    'utf8',
+  );
+  assert.doesNotMatch(
+    activationRouteSource,
+    /\b(?:quantity|price|quoteHash)\s*:\s*body\./u,
+    'Seat execution must not accept billable fields from the browser',
+  );
+  const activationServiceSource = readFileSync(
+    path.join(process.cwd(), 'app/lib/organization/membership-seat-activation.ts'),
+    'utf8',
+  );
+  const identityPreflightIndex = activationServiceSource.indexOf(
+    'assertTeamMembershipIdentityAvailable(',
+  );
+  const seatExecutionIndex = activationServiceSource.indexOf(
+    'executeCommunityTeamSeatChange(',
+    identityPreflightIndex,
+  );
+  const membershipCompletionIndex = activationServiceSource.indexOf(
+    'completeDirectMembershipActivation({',
+    seatExecutionIndex,
+  );
+  const onboardingIndex = activationServiceSource.indexOf(
+    'initializeUserOnboarding(',
+    membershipCompletionIndex,
+  );
+  assert.ok(identityPreflightIndex > 0);
+  assert.ok(seatExecutionIndex > identityPreflightIndex);
+  assert.ok(membershipCompletionIndex > seatExecutionIndex);
+  assert.ok(
+    onboardingIndex > membershipCompletionIndex,
+    'onboarding must start only after confirmed Seat and membership activation',
+  );
   const authSource = readFileSync(path.join(process.cwd(), 'app/lib/auth.ts'), 'utf8');
   assert.match(authSource, /MEMBERSHIP_ORCHESTRATOR_REQUIRED/u);
   assert.match(authSource, /context\.path === "\/admin\/create-user"/u);
+  assert.match(authSource, /auth\.api\.setUserPassword/u);
 }
 
 main()

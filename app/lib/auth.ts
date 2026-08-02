@@ -113,6 +113,23 @@ async function findMembershipIdentity(email: string): Promise<MembershipIdentity
     : null;
 }
 
+export async function assertTeamMembershipIdentityAvailable(
+  email: string,
+  expectedUserId?: string | null,
+): Promise<void> {
+  const existing = await findMembershipIdentity(email);
+  if (existing?.id === expectedUserId) return;
+  if (
+    existing
+    && (!existing.banned || existing.banReason !== PENDING_TEAM_MEMBERSHIP_BAN_REASON)
+  ) {
+    throw new MembershipIdentityError(
+      "MEMBERSHIP_IDENTITY_CONFLICT",
+      "An unrelated Better Auth user already uses this email address.",
+    );
+  }
+}
+
 export async function ensurePendingTeamMembershipIdentity(input: {
   name: string;
   email: string;
@@ -123,6 +140,20 @@ export async function ensurePendingTeamMembershipIdentity(input: {
   const existing = await findMembershipIdentity(email);
   if (existing) {
     if (existing.banned && existing.banReason === PENDING_TEAM_MEMBERSHIP_BAN_REASON) {
+      try {
+        await auth.api.setUserPassword({
+          body: {
+            userId: existing.id,
+            newPassword: input.password,
+          },
+        });
+      } catch (error) {
+        throw new MembershipIdentityError(
+          "MEMBERSHIP_IDENTITY_CREATE_FAILED",
+          error instanceof Error ? error.message : "Could not update the pending Better Auth password.",
+          500,
+        );
+      }
       return existing;
     }
     throw new MembershipIdentityError(

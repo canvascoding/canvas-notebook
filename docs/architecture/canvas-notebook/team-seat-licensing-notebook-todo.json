@@ -630,7 +630,7 @@
         {
           "id": "NB-TS-043",
           "title": "Direkte User-Erstellung zweiphasig umstellen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "membership",
           "description": "Create-User-Flow in Candidate, Quote/Approval, Seat-Execute, Zertifikatprüfung, Better-Auth-Erstellung und Onboarding aufteilen.",
@@ -652,7 +652,8 @@
             "Onboarding startet erst nach erfolgreicher Aktivierung.",
             "requires_action bleibt billing_pending.",
             "Retry erzeugt weder doppelten User noch doppelten Seat."
-          ]
+          ],
+          "progress": "Die direkte User-Erstellung ist vollständig in Candidate/Quote, externe Approval, idempotentes Seat-Execute, Zertifikatsprüfung, Better-Auth-Aktivierung und anschließendes User-Onboarding getrennt. Der Browser sendet beim finalen Aktivierungsschritt ausschließlich das Startpasswort; Authorization, Operation-Key, Operation-Type und Quantity werden aus der persistierten Outbox gelesen. Vor dem externen Billing-Call wird ein bestehender fremder Better-Auth-Account serverseitig erkannt. Nicht angewendete Provider-Ergebnisse wie requires_action werden mit Operation und Payment-Status restartfähig als billing_pending gespeichert, ohne einen loginfähigen User anzulegen oder die lokale Membership-Revision zu erhöhen. Erst ein applied-Ergebnis mit übereinstimmender Quantity, issued-Reissue und neuem signierten Zertifikat wird akzeptiert; dessen Team-Edition, aktiver/grace Status und seatLimit müssen die serverberechnete Zielmenge bestätigen. Danach wird eine zunächst gesperrte Better-Auth-Identität idempotent erstellt, die Membership genau einmal aktiv gesetzt, die Identität freigeschaltet und erst anschließend Workspace sowie persönliches Onboarding initialisiert. Wiederholungen nach Prozessabbrüchen verwenden dieselbe Seat-Operation, denselben User und dieselbe Membership-Revision; ein bereits persistiertes Seat-Ergebnis kann auch nach einem späteren Onboarding-Fehler sicher fortgesetzt werden. Control-Plane-Client-, Contract-, Outbox- und Membership-Orchestrator-Tests, TypeScript, ESLint und Production-Build sind erfolgreich; der Build meldet lediglich bestehende Turbopack-Warnungen zu dynamischen Workspace-Pfaden."
         },
         {
           "id": "NB-TS-044",

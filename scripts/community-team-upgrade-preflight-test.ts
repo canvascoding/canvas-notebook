@@ -135,6 +135,57 @@ function seatPreparePayload() {
   };
 }
 
+function seatExecutePayload() {
+  return {
+    operation: {
+      protocolVersion: 'canvas-team-seat-protocol-v1',
+      operationId: '4aa503af-dbbd-4b79-ae47-ec67a11ca90c',
+      operationKey: '9186284d-9c7e-4555-904b-5cd60ef8d413',
+      operationType: 'member_create',
+      provider: 'stripe',
+      environment: 'production',
+      status: 'applied',
+      paymentStatus: 'paid',
+      previousQuantity: 2,
+      requestedQuantity: 3,
+      effectiveQuantity: 3,
+      retryCount: 0,
+      lastError: null,
+      effectiveAt: '2026-08-01T12:06:00.000Z',
+      entitlementsVersion: 9,
+      certificateReissueStatus: 'issued',
+      createdAt: '2026-08-01T12:06:00.000Z',
+      updatedAt: '2026-08-01T12:06:00.000Z',
+    },
+    replayed: false,
+    license: {
+      license: 'x'.repeat(128),
+      details: {
+        id: 'license-community-preflight',
+        plan: 'team',
+        status: 'active',
+        instanceId: 'self_community_team_preflight_test',
+        hostingMode: 'community',
+        edition: 'team',
+        licenseClass: 'commercial',
+        licenseEnvironment: 'production',
+        billingOrganizationId: 'organization-community-preflight',
+        entitlementsVersion: 9,
+        deploymentMode: 'self_hosted',
+        features: {
+          multiUser: true,
+          teamWorkspace: true,
+        },
+        quotas: {
+          users: 3,
+        },
+        activatedAt: '2026-08-01T12:06:00.000Z',
+        expiresAt: '2026-08-08T12:06:00.000Z',
+      },
+    },
+  };
+}
+
 const mockFetch = (async (input: string | URL | Request, init?: RequestInit) => {
   captured.push({
     url: String(input),
@@ -164,6 +215,12 @@ const mockFetch = (async (input: string | URL | Request, init?: RequestInit) => 
       headers: { 'Content-Type': 'application/json' },
     });
   }
+  if (String(input).includes('/seats/execute')) {
+    return new Response(JSON.stringify(seatExecutePayload()), {
+      status: 200,
+      headers: { 'Content-Type': 'application/json' },
+    });
+  }
   return new Response(JSON.stringify(preflightPayload()), {
     status: 200,
     headers: { 'Content-Type': 'application/json' },
@@ -180,12 +237,16 @@ function restoreEnvironment() {
 async function main() {
   try {
     const {
+      executeCommunityTeamSeatChange,
       getCommunityTeamSeatQuoteStatus,
       getCommunityTeamUpgradePreflight,
       getCommunityTeamUpgradeRuntimeSnapshot,
       prepareCommunityTeamSeatChange,
     } = await import('../app/lib/license/control-plane');
-    const { createTeamSeatPrepareRequest } = await import('../app/lib/license/team-seat-contract');
+    const {
+      createTeamSeatExecuteRequest,
+      createTeamSeatPrepareRequest,
+    } = await import('../app/lib/license/team-seat-contract');
     const {
       getCommunityTeamRuntimeReadiness,
       withCommunityTeamVersionReadiness,
@@ -346,6 +407,34 @@ async function main() {
     assert.equal(captured[2]?.headers.get('Authorization'), `Bearer ${instanceToken}`);
     assert.deepEqual(captured[2]?.body, {});
 
+    const executedSeat = await executeCommunityTeamSeatChange(
+      createTeamSeatExecuteRequest({
+        authorizationId: preparedSeat.authorization.authorizationId,
+        operationKey: preparedSeat.authorization.authorizationId,
+        operationType: 'member_create',
+      }),
+      {
+        fetchImpl: mockFetch,
+        now: new Date('2026-08-01T12:06:00.000Z'),
+      },
+    );
+    assert.equal(executedSeat.operation.status, 'applied');
+    assert.equal(executedSeat.operation.effectiveQuantity, 3);
+    assert.equal(executedSeat.license?.details.quotas.users, 3);
+    assert.equal(
+      captured[3]?.url,
+      'https://api.control.example.test/v1/license/community/v1/seats/execute',
+    );
+    assert.equal(captured[3]?.method, 'POST');
+    assert.equal(captured[3]?.headers.get('Authorization'), `Bearer ${instanceToken}`);
+    assert.deepEqual(captured[3]?.body, {
+      protocolVersion: 'canvas-team-seat-protocol-v1',
+      authorizationId: preparedSeat.authorization.authorizationId,
+      operationKey: preparedSeat.authorization.authorizationId,
+      operationType: 'member_create',
+    });
+    assert.equal(JSON.stringify(captured[3]?.body).includes(instanceToken), false);
+
     await removeCommunityInstanceToken({
       instanceId: 'self_community_team_preflight_test',
       expectedToken: instanceToken,
@@ -366,7 +455,7 @@ async function main() {
         && error.code === 'TEAM_SEAT_ACCOUNT_REQUIRED'
       ),
     );
-    assert.equal(captured.length, 3);
+    assert.equal(captured.length, 4);
   } finally {
     restoreEnvironment();
     await rm(dataRoot, { recursive: true, force: true });

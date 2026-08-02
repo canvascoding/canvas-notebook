@@ -105,6 +105,12 @@ type MembershipSeatQuote = {
     canApprove: boolean;
     url: string | null;
   };
+  execution?: {
+    status: string;
+    paymentStatus: string | null;
+    replayed: boolean;
+    onboardingInitialized: boolean;
+  };
 };
 
 type LicenseStatusResponse = {
@@ -246,6 +252,7 @@ export function UserManagementPanel({
   const [createOpen, setCreateOpen] = useState(false);
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
   const [membershipSeatQuote, setMembershipSeatQuote] = useState<MembershipSeatQuote | null>(null);
+  const [activationPassword, setActivationPassword] = useState('');
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteDraft, setInviteDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
@@ -435,6 +442,45 @@ export function UserManagementPanel({
         setMembershipSeatQuote(payload.data);
       },
       method === 'POST' ? t('messages.quoteRefreshed') : t('messages.quoteChecked'),
+    );
+  };
+
+  const activateMembership = async () => {
+    if (!membershipSeatQuote) return;
+    if (activationPassword.length < 8 || activationPassword.length > 128) {
+      setError(t('errors.passwordLength'));
+      return;
+    }
+    await runAction(
+      `activate:${membershipSeatQuote.membershipId}`,
+      async () => {
+        const response = await fetch(
+          `/api/admin/organization/memberships/${encodeURIComponent(membershipSeatQuote.membershipId)}/activate`,
+          {
+            method: 'POST',
+            credentials: 'include',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ password: activationPassword }),
+          },
+        );
+        const payload = await response.json().catch(() => ({})) as {
+          success?: boolean;
+          data?: MembershipSeatQuote;
+          error?: string;
+        };
+        if (!response.ok || payload.success !== true || !payload.data) {
+          throw new Error(payload.error || t('errors.activation'));
+        }
+        if (payload.data.stage === 'active') {
+          setCreateOpen(false);
+          setCreateDraft(createEmptyDraft());
+          setMembershipSeatQuote(null);
+          setActivationPassword('');
+          return;
+        }
+        setMembershipSeatQuote(payload.data);
+      },
+      t('messages.activationProcessed'),
     );
   };
 
@@ -684,7 +730,17 @@ export function UserManagementPanel({
       || Date.parse(membershipSeatQuote.quote.expiresAt) <= currentTime
     ),
   );
-  const membershipQuoteIsApproved = membershipSeatQuote?.approval.status === 'approved';
+  const membershipQuoteIsApproved = Boolean(
+    membershipSeatQuote
+    && ['approved', 'consumed'].includes(membershipSeatQuote.approval.status),
+  );
+  const membershipExecutionIsPending = Boolean(
+    membershipSeatQuote?.stage === 'billing_pending'
+    || (
+      membershipSeatQuote?.execution
+      && membershipSeatQuote.execution.status !== 'applied'
+    ),
+  );
 
   const renderUserActions = (user: ManagedUser, options: { compact?: boolean } = {}) => {
     const role = normalizeRole(user.role);
@@ -1083,6 +1139,7 @@ export function UserManagementPanel({
           if (!open) {
             setCreateDraft(createEmptyDraft());
             setMembershipSeatQuote(null);
+            setActivationPassword('');
           }
         }}
       >
@@ -1164,9 +1221,21 @@ export function UserManagementPanel({
               </div>
 
               {membershipQuoteIsApproved ? (
-                <div className="rounded-md border border-emerald-500/40 bg-emerald-500/10 p-3 text-sm text-emerald-800 dark:text-emerald-200">
-                  <p className="font-medium">{t('seatQuote.approved')}</p>
-                  <p className="mt-1">{t('seatQuote.pendingExecution')}</p>
+                <div className={`rounded-md border p-3 text-sm ${
+                  membershipExecutionIsPending
+                    ? 'border-amber-500/40 bg-amber-500/10 text-amber-800 dark:text-amber-200'
+                    : 'border-emerald-500/40 bg-emerald-500/10 text-emerald-800 dark:text-emerald-200'
+                }`}>
+                  <p className="font-medium">
+                    {membershipExecutionIsPending
+                      ? t('seatQuote.billingPending')
+                      : t('seatQuote.approved')}
+                  </p>
+                  <p className="mt-1">
+                    {membershipExecutionIsPending
+                      ? t('seatQuote.billingPendingHint')
+                      : t('seatQuote.pendingExecution')}
+                  </p>
                 </div>
               ) : membershipQuoteIsStale ? (
                 <div className="rounded-md border border-amber-500/40 bg-amber-500/10 p-3 text-sm text-amber-800 dark:text-amber-200">
@@ -1230,7 +1299,38 @@ export function UserManagementPanel({
                       </Button>
                     )}
                   </>
-                ) : null}
+                ) : (
+                  <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end">
+                    <div className="min-w-0 flex-1 space-y-2 text-left">
+                      <Label htmlFor="membership-activation-password">
+                        {t('seatQuote.initialPassword')}
+                      </Label>
+                      <Input
+                        id="membership-activation-password"
+                        type="password"
+                        autoComplete="new-password"
+                        value={activationPassword}
+                        onChange={(event) => setActivationPassword(event.target.value)}
+                        disabled={activeAction !== null}
+                      />
+                      <p className="text-xs text-muted-foreground">
+                        {t('seatQuote.initialPasswordHint')}
+                      </p>
+                    </div>
+                    <Button
+                      type="button"
+                      onClick={() => void activateMembership()}
+                      disabled={activeAction !== null}
+                    >
+                      {activeAction?.startsWith('activate:')
+                        ? <Loader2 data-icon="inline-start" className="animate-spin" />
+                        : <UserCog data-icon="inline-start" />}
+                      {membershipExecutionIsPending
+                        ? t('seatQuote.retryActivation')
+                        : t('seatQuote.activate')}
+                    </Button>
+                  </div>
+                )}
               </DialogFooter>
             </div>
           ) : (

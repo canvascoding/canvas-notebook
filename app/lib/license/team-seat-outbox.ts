@@ -682,6 +682,74 @@ export async function scheduleTeamSeatOutboxRetry(
   return operation;
 }
 
+export async function recordTeamSeatOutboxOperationPending(
+  database: Pick<SqlConnection, 'get' | 'run'>,
+  input: {
+    operationId: string;
+    response: unknown;
+    controlPlaneOperationId?: string | null;
+    errorCode: string;
+    error: string;
+    retryAt: number;
+    now?: number;
+  },
+): Promise<TeamSeatOutboxOperation> {
+  const now = input.now ?? Date.now();
+  const operation = await getTeamSeatOutboxOperation(database, input.operationId);
+  if (!operation) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_NOT_FOUND',
+      'Team Seat outbox operation not found.',
+      404,
+    );
+  }
+  if (operation.status === 'succeeded' || operation.status === 'failed' || operation.status === 'canceled') {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_TERMINAL',
+      `Team Seat outbox operation is already ${operation.status}.`,
+    );
+  }
+  const result = await database.run(`
+    UPDATE team_seat_outbox
+    SET
+      status = 'retry_wait',
+      response_json = ?,
+      control_plane_operation_id = ?,
+      next_attempt_at = ?,
+      last_attempt_at = ?,
+      last_error_code = ?,
+      last_error = ?,
+      completed_at = NULL,
+      updated_at = ?
+    WHERE operation_id = ?
+      AND status NOT IN ('succeeded', 'failed', 'canceled')
+  `, [
+    serializeResponse(input.response),
+    optionalText(input.controlPlaneOperationId, 500),
+    input.retryAt,
+    now,
+    optionalText(input.errorCode, 120),
+    optionalText(input.error, 2000),
+    now,
+    input.operationId,
+  ]);
+  if (changesFromRunResult(result) !== 1) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_CONFLICT',
+      'The Team Seat outbox operation changed concurrently.',
+    );
+  }
+  const pending = await getTeamSeatOutboxOperation(database, input.operationId);
+  if (!pending) {
+    throw new TeamSeatOutboxError(
+      'TEAM_SEAT_OUTBOX_NOT_FOUND',
+      'Team Seat outbox operation not found.',
+      404,
+    );
+  }
+  return pending;
+}
+
 export async function recordTeamSeatOutboxOperationSuccess(
   database: Pick<SqlConnection, 'get' | 'run'>,
   input: {

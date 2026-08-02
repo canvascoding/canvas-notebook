@@ -18,6 +18,7 @@ import {
   createTeamSeatPreflightRequest,
   parseTeamSeatPrepareResponse,
   parseTeamSeatQuoteStatusResponse,
+  parseTeamSeatExecuteResponse,
   createTeamSeatTokenLifecycleRequest,
   parseTeamSeatClaimPollResult,
   parseTeamSeatClaimStart,
@@ -32,6 +33,8 @@ import {
   type TeamSeatPrepareRequest,
   type TeamSeatPrepareResponse,
   type TeamSeatQuoteStatusResponse,
+  type TeamSeatExecuteRequest,
+  type TeamSeatExecuteResponse,
 } from './team-seat-contract';
 import {
   requireTeamSeatClientRollout,
@@ -253,6 +256,7 @@ const COMMUNITY_CLAIM_START_PATH = '/v1/license/claim/v1/start';
 const COMMUNITY_CLAIM_POLL_PATH = '/v1/license/claim/v1/poll';
 const COMMUNITY_TEAM_PREFLIGHT_PATH = '/v1/license/community/v1/team/preflight';
 const COMMUNITY_SEAT_PREPARE_PATH = '/v1/license/community/v1/seats/prepare';
+const COMMUNITY_SEAT_EXECUTE_PATH = '/v1/license/community/v1/seats/execute';
 const COMMUNITY_SEAT_QUOTE_PATH = '/v1/license/community/v1/seats/quotes';
 const COMMUNITY_TOKEN_ROTATE_PATH = '/v1/license/community/v1/token/rotate';
 const COMMUNITY_LICENSE_REFRESH_PATH = '/v1/license/community/v1/refresh';
@@ -931,6 +935,42 @@ export async function getCommunityTeamSeatQuoteStatus(
   }
   try {
     return parseTeamSeatQuoteStatusResponse(payload);
+  } catch (error) {
+    throw contractResponseError(error);
+  }
+}
+
+export async function executeCommunityTeamSeatChange(
+  request: TeamSeatExecuteRequest,
+  options?: { fetchImpl?: typeof fetch; now?: Date },
+): Promise<TeamSeatExecuteResponse> {
+  requireTeamSeatClientRollout();
+  const { instanceId, token } = await requireCommunitySeatToken(
+    'seat:execute',
+    options?.now,
+  );
+  const { response, payload } = await postLicenseControlPlane(
+    COMMUNITY_SEAT_EXECUTE_PATH,
+    { ...request },
+    {
+      fetchImpl: options?.fetchImpl,
+      unreachableCode: TEAM_SEAT_ERROR_CODES.temporaryUnavailable,
+      authorization: {
+        tokenType: token.tokenType,
+        token: token.instanceToken,
+      },
+    },
+  );
+  if (!response.ok) {
+    const error = claimErrorFromResponse(response, payload);
+    await recordRejectedCommunityToken(error, {
+      instanceId,
+      instanceToken: token.instanceToken,
+    });
+    throw error;
+  }
+  try {
+    return parseTeamSeatExecuteResponse(payload);
   } catch (error) {
     throw contractResponseError(error);
   }
