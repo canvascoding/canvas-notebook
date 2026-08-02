@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.8.1.2",
-  "lockfileSha256": "1108a215cfedab73419aa44d095c0983f877041906d680bcdefd4082bbe2012b",
+  "lockfileSha256": "1e98e3ef61cfb19ddf5084b6bb31035f69a0358fc71ab700bc791e71158311dd",
   "summary": {
-    "totalComponents": 2022,
-    "npmComponents": 1999,
+    "totalComponents": 2024,
+    "npmComponents": 2001,
     "nonNpmComponents": 23,
-    "runtimeComponents": 1492,
+    "runtimeComponents": 1494,
     "developmentOnlyComponents": 530,
-    "allowed": 1972,
+    "allowed": 1974,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -12107,6 +12107,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@better-auth/oauth-provider",
+      "versionOrCommit": "1.6.23",
+      "sourceUrl": "https://github.com/better-auth/better-auth",
+      "packagePathOrArtifact": "node_modules/@better-auth/oauth-provider",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@better-auth/oauth-provider/LICENSE.md",
+      "licenseTextSha256": "7a07f7d9085cb3157e4377d944988c9712933141b0f7201955ceccfac92abde4",
+      "copyrightNotices": [
+        "Copyright (c) 2024 - present, Bereket Engida"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "@better-auth/prisma-adapter",
       "versionOrCommit": "1.6.23",
       "sourceUrl": "https://github.com/better-auth/better-auth",
@@ -13199,6 +13221,29 @@
       "reviewNotes": "The exact npm release declares MIT, displays an MIT badge and has signed provenance for commit e06dfceae557f8c1607a28618a99a34be8fed1fb, but the tarball omits a LICENSE and explicit copyright statement and the historical repository is unavailable. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-07-17 under documented residual attribution risk. Canvas supplies canonical MIT terms and uses the exact publisher author metadata, EigenPal, with a contributors qualifier. The Apache-2.0 successor is not treated as retroactive evidence. Any version change requires a new review. Verification source: https://registry.npmjs.org/-/npm/v1/attestations/@eigenpal%2fdocx-js-editor@0.5.3",
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-07-17"
+    },
+    {
+      "name": "@electric-sql/pglite",
+      "versionOrCommit": "0.5.4",
+      "sourceUrl": "https://github.com/electric-sql/pglite",
+      "packagePathOrArtifact": "node_modules/@electric-sql/pglite",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/@electric-sql/pglite/LICENSE",
+      "licenseTextSha256": "a6cba85bc92e0cff7a450b1d873c0eaa2e9fc96bf472df0247a26bec77bf3ff9",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
     },
     {
       "name": "@emnapi/runtime",

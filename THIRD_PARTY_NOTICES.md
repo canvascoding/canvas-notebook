@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.8.1.2
-- Lockfile SHA-256: `1108a215cfedab73419aa44d095c0983f877041906d680bcdefd4082bbe2012b`
-- Distributed components: 1492
+- Lockfile SHA-256: `1e98e3ef61cfb19ddf5084b6bb31035f69a0358fc71ab700bc791e71158311dd`
+- Distributed components: 1494
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -95,6 +95,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @better-auth/kysely-adapter | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/memory-adapter | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/mongo-adapter | 1.6.23 | runtime | MIT | allowed |
+| @better-auth/oauth-provider | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/prisma-adapter | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/telemetry | 1.6.23 | runtime | MIT | allowed |
 | @better-auth/utils | 0.4.2 | runtime | MIT | allowed |
@@ -144,6 +145,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @earendil-works/pi-agent-core | 0.80.6 | runtime | MIT | allowed |
 | @earendil-works/pi-ai | 0.80.6 | runtime | MIT | allowed |
 | @eigenpal/docx-js-editor | 0.5.3 | runtime | MIT | allowed |
+| @electric-sql/pglite | 0.5.4 | runtime | Apache-2.0 | allowed |
 | @emnapi/runtime | 1.11.2 | runtime | MIT | allowed |
 | @esbuild/aix-ppc64 | 0.28.1 | runtime | MIT | allowed |
 | @esbuild/android-arm | 0.28.1 | runtime | MIT | allowed |
@@ -13733,7 +13735,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 7a07f7d9085c
 
-Applies to @better-auth/core@1.6.23, @better-auth/drizzle-adapter@1.6.23, @better-auth/expo@1.6.23, @better-auth/kysely-adapter@1.6.23, @better-auth/memory-adapter@1.6.23, @better-auth/mongo-adapter@1.6.23, @better-auth/prisma-adapter@1.6.23, @better-auth/telemetry@1.6.23, better-auth@1.6.23.
+Applies to @better-auth/core@1.6.23, @better-auth/drizzle-adapter@1.6.23, @better-auth/expo@1.6.23, @better-auth/kysely-adapter@1.6.23, @better-auth/memory-adapter@1.6.23, @better-auth/mongo-adapter@1.6.23, @better-auth/oauth-provider@1.6.23, @better-auth/prisma-adapter@1.6.23, @better-auth/telemetry@1.6.23, better-auth@1.6.23.
 
 Copyright notices:
 
@@ -20311,7 +20313,7 @@ SOFTWARE.
 
 ### License text a6cba85bc92e
 
-Applies to xml-name-validator@5.0.0.
+Applies to @electric-sql/pglite@0.5.4, xml-name-validator@5.0.0.
 
 Copyright notices:
 
