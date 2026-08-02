@@ -1009,7 +1009,7 @@
         {
           "id": "NB-TS-070",
           "title": "Gemeinsame Contract-Tests implementieren",
-          "status": "pending",
+          "status": "completed",
           "priority": "P0",
           "ownerArea": "tests-contract",
           "description": "v1-Fixtures für Claim, Seat-Change, Snapshot, License-Claims und Fehlercodes im Notebook ausführen.",
@@ -1030,7 +1030,8 @@
             "Ungültige Subject-, Revision-, seatLimit- und Version-Fälle werden abgelehnt.",
             "Fixtures sind identisch versioniert.",
             "Test benötigt keinen echten Stripe-Zugang."
-          ]
+          ],
+          "progress": "Die kanonische canvas-team-seat-protocol-v1-Fixture besitzt jetzt eine explizite Fixture-Version 1.0.0 und liegt im Control Plane und Notebook byte-identisch mit eingefrorenem SHA-256 vor. Neben Preflight, Entitlements, Quote, Transitionen und stabilen Fehlercodes deckt sie nun vollständige Claim-Start-, Pending-, Approval- und Token-Rotation-Payloads, Seat-Authorization, Test-Provider-Prepare, Execute mit Zertifikats-Reissue, License-Claims sowie Snapshot-Request und -Response ab. Produktionsnahe Snapshot-Hashes verwenden gültige 64-stellige SHA-256-Digests. Die Notebook-Contract-Suite konsumiert diese gemeinsamen JSON-Fixtures direkt über alle Parser und prüft zusätzlich ungültige Subject-, negative Revision-, seatLimit-, Entitlements-Version- und inkompatible Protokollfälle fail-closed. Der Control-Plane-Contract-Test friert dieselbe Fixture-Version, alle Protokollfelder, den nicht abrechenbaren Test-Provider und die ungültigen Grenzwerte ein; der gemeinsame Snapshot-Typ führt notebookVersion nun explizit mit. Beide Contract-Suites und TypeScript-Prüfungen sind erfolgreich. Die Fixtures verwenden ausschließlich den Test-Provider mit nonBillable=true und benötigen weder Stripe-Credentials noch Netzwerkzugang. npm run build bleibt vor der Kompilierung am bekannten stale Third-Party-License-Cache der pausierten OAuth/MCP-Abhängigkeiten hängen; die direkte Next.js-Produktionskompilierung ist erfolgreich und meldet nur die bestehenden dynamischen Workspace-Pattern- und localStorage-Warnungen. Es wurden weder Browser/Playwright noch Dev-Server oder Container gestartet."
         },
         {
           "id": "NB-TS-071",

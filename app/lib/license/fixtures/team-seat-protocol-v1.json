@@ -1,4 +1,5 @@
 {
+  "fixtureVersion": "1.0.0",
   "protocolVersion": "canvas-team-seat-protocol-v1",
   "positive": {
     "preflight": {
@@ -55,6 +56,54 @@
       },
       "blockers": []
     },
+    "claim": {
+      "start": {
+        "protocolVersion": "canvas-team-seat-protocol-v1",
+        "deviceCode": "dc_fixture_device_code_abcdefghijklmnopqrstuvwxyz0123456789",
+        "userCode": "ABCD-EFGH",
+        "verificationUrl": "https://control.example/claim-license?code=ABCD-EFGH",
+        "expiresAt": "2030-01-01T00:10:00.000Z",
+        "pollIntervalSeconds": 5
+      },
+      "pending": {
+        "protocolVersion": "canvas-team-seat-protocol-v1",
+        "status": "authorization_pending",
+        "pollIntervalSeconds": 5,
+        "expiresAt": "2030-01-01T00:10:00.000Z"
+      },
+      "approved": {
+        "protocolVersion": "canvas-team-seat-protocol-v1",
+        "status": "approved",
+        "instanceToken": "lit_fixture_instance_token_abcdefghijklmnopqrstuvwxyz0123456789",
+        "tokenType": "Bearer",
+        "scopes": [
+          "license:refresh",
+          "license:verify",
+          "seat:prepare",
+          "seat:execute",
+          "seat:snapshot",
+          "token:rotate"
+        ],
+        "expiresAt": "2030-04-01T00:00:00.000Z",
+        "organizationId": "organization-fixture",
+        "instanceId": "instance-fixture"
+      },
+      "rotation": {
+        "protocolVersion": "canvas-team-seat-protocol-v1",
+        "instanceToken": "lit_rotated_instance_token_abcdefghijklmnopqrstuvwxyz0123456789",
+        "tokenType": "Bearer",
+        "scopes": [
+          "license:refresh",
+          "license:verify",
+          "seat:prepare",
+          "seat:execute",
+          "seat:snapshot",
+          "token:rotate"
+        ],
+        "expiresAt": "2030-04-01T00:00:00.000Z",
+        "instanceId": "instance-fixture"
+      }
+    },
     "entitlements": {
       "protocolVersion": "canvas-team-seat-protocol-v1",
       "subject": {
@@ -93,21 +142,174 @@
       "expiresAt": "2030-01-01T00:05:00.000Z",
       "quoteHash": "fixture-quote-hash"
     },
+    "seatChange": {
+      "authorization": {
+        "protocolVersion": "canvas-team-seat-protocol-v1",
+        "authorizationId": "authorization-fixture",
+        "quoteId": "33333333-3333-4333-8333-333333333333",
+        "quoteHash": "fixture-seat-change-quote-hash",
+        "quantityBefore": 2,
+        "quantityAfter": 3,
+        "status": "approved",
+        "expiresAt": "2030-01-01T00:05:00.000Z",
+        "approvedAt": "2030-01-01T00:00:01.000Z",
+        "consumedAt": null
+      },
+      "prepare": {
+        "quote": {
+          "protocolVersion": "canvas-team-seat-protocol-v1",
+          "quoteId": "33333333-3333-4333-8333-333333333333",
+          "subject": {
+            "type": "license",
+            "licenseId": "11111111-1111-4111-8111-111111111111"
+          },
+          "provider": "test",
+          "environment": "development",
+          "priceVersionId": "test-price-fixture",
+          "quantityBefore": 2,
+          "quantityAfter": 3,
+          "quantityDelta": 1,
+          "unitAmountCents": 1500,
+          "currency": "eur",
+          "billingInterval": "month",
+          "immediateAmountCents": 0,
+          "recurringAmountCents": 0,
+          "status": "active",
+          "expiresAt": "2030-01-01T00:05:00.000Z",
+          "quoteHash": "fixture-seat-change-quote-hash",
+          "nonBillable": true
+        },
+        "authorization": {
+          "protocolVersion": "canvas-team-seat-protocol-v1",
+          "authorizationId": "authorization-fixture",
+          "quoteId": "33333333-3333-4333-8333-333333333333",
+          "quoteHash": "fixture-seat-change-quote-hash",
+          "quantityBefore": 2,
+          "quantityAfter": 3,
+          "status": "approved",
+          "expiresAt": "2030-01-01T00:05:00.000Z",
+          "approvedAt": "2030-01-01T00:00:01.000Z",
+          "consumedAt": null
+        },
+        "requiresBillingApproval": false,
+        "snapshot": {
+          "revision": 7,
+          "observedQuantity": 2,
+          "licensedQuantity": 2,
+          "approvedQuantity": 3,
+          "billedQuantity": 0,
+          "billingStatus": "active"
+        }
+      },
+      "execute": {
+        "operation": {
+          "protocolVersion": "canvas-team-seat-protocol-v1",
+          "operationId": "operation-fixture",
+          "operationKey": "operation-key-fixture",
+          "operationType": "member_create",
+          "provider": "test",
+          "environment": "development",
+          "status": "applied",
+          "paymentStatus": "test",
+          "previousQuantity": 2,
+          "requestedQuantity": 3,
+          "effectiveQuantity": 3,
+          "retryCount": 0,
+          "lastError": null,
+          "effectiveAt": "2030-01-01T00:00:01.000Z",
+          "entitlementsVersion": 8,
+          "certificateReissueStatus": "issued",
+          "createdAt": "2030-01-01T00:00:00.000Z",
+          "updatedAt": "2030-01-01T00:00:02.000Z"
+        },
+        "replayed": false,
+        "license": {
+          "license": "signed-license-certificate-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx",
+          "details": {
+            "id": "11111111-1111-4111-8111-111111111111",
+            "plan": "community",
+            "status": "active",
+            "instanceId": "instance-fixture",
+            "hostingMode": "community",
+            "edition": "team",
+            "licenseClass": "test",
+            "licenseEnvironment": "development",
+            "billingOrganizationId": "organization-fixture",
+            "entitlementsVersion": 8,
+            "deploymentMode": "community",
+            "features": {
+              "teamWorkspace": true
+            },
+            "quotas": {
+              "users": 3
+            },
+            "activatedAt": "2030-01-01T00:00:00.000Z",
+            "expiresAt": "2030-01-02T00:00:00.000Z"
+          }
+        }
+      }
+    },
     "snapshot": {
       "protocolVersion": "canvas-team-seat-protocol-v1",
       "revision": 7,
-      "snapshotHash": "fixture-snapshot-hash",
+      "snapshotHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "observedQuantity": 3,
       "roleSummary": {
         "owner": 1,
         "member": 2
       },
       "memberHashes": [
-        "member-hash-1",
-        "member-hash-2",
-        "member-hash-3"
+        "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+        "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
       ],
-      "generatedAt": "2030-01-01T00:00:00.000Z"
+      "generatedAt": "2030-01-01T00:00:00.000Z",
+      "notebookVersion": "2026.8.1.2"
+    },
+    "snapshotResponse": {
+      "snapshot": {
+        "protocolVersion": "canvas-team-seat-protocol-v1",
+        "revision": 7,
+        "snapshotHash": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "observedQuantity": 3,
+        "roleSummary": {
+          "owner": 1,
+          "member": 2
+        },
+        "memberHashes": [
+          "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+          "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+          "dddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddddd"
+        ],
+        "generatedAt": "2030-01-01T00:00:00.000Z",
+        "notebookVersion": "2026.8.1.2",
+        "snapshotId": "snapshot-fixture",
+        "receivedAt": "2030-01-01T00:00:01.000Z",
+        "reconciledAt": "2030-01-01T00:00:01.000Z",
+        "driftStatus": "in_sync"
+      },
+      "observedQuantity": 3,
+      "billedQuantity": 0,
+      "licensedQuantity": 3,
+      "expectedLicensedQuantity": 3,
+      "approvedQuantity": 3,
+      "billingStatus": "active",
+      "nextReportAt": "2030-01-01T00:05:01.000Z",
+      "replayed": false
+    },
+    "licenseClaims": {
+      "protocolVersion": "canvas-team-seat-protocol-v1",
+      "licenseId": "11111111-1111-4111-8111-111111111111",
+      "instanceId": "instance-fixture",
+      "hostingMode": "community",
+      "edition": "team",
+      "licenseClass": "test",
+      "licenseEnvironment": "development",
+      "provider": "test",
+      "seatLimit": 3,
+      "entitlementsVersion": 8,
+      "grantId": "grant-fixture",
+      "nonBillable": true
     },
     "transitions": {
       "grantRevocationRollback": {
@@ -209,6 +411,16 @@
         }
       }
     }
+  },
+  "invalid": {
+    "subject": {
+      "type": "account",
+      "accountId": "account-fixture"
+    },
+    "revision": -1,
+    "seatLimit": 0,
+    "entitlementsVersion": -1,
+    "protocolVersion": "canvas-team-seat-protocol-v2"
   },
   "negative": {
     "staleQuote": {

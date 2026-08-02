@@ -33,16 +33,31 @@ import {
   parseTeamSeatPrepareResponse,
   parseTeamSeatQuote,
   parseTeamSeatSnapshotResponse,
+  parseTeamSeatSubject,
   parseTeamSeatTokenRotation,
 } from '../app/lib/license/team-seat-contract';
 
 type ContractFixtures = {
+  fixtureVersion: string;
   protocolVersion: string;
   positive: {
     preflight: unknown;
+    claim: {
+      start: unknown;
+      pending: unknown;
+      approved: unknown;
+      rotation: unknown;
+    };
     entitlements: unknown;
     quote: unknown;
+    seatChange: {
+      authorization: unknown;
+      prepare: unknown;
+      execute: unknown;
+    };
     snapshot: unknown;
+    snapshotResponse: unknown;
+    licenseClaims: unknown;
     transitions: Record<string, {
       trigger: string;
       before: unknown;
@@ -54,6 +69,13 @@ type ContractFixtures = {
         localDataDeleted: boolean;
       };
     }>;
+  };
+  invalid: {
+    subject: unknown;
+    revision: unknown;
+    seatLimit: unknown;
+    entitlementsVersion: unknown;
+    protocolVersion: string;
   };
   negative: Record<string, unknown>;
 };
@@ -71,7 +93,8 @@ const contractSourcePath = path.join(
   projectRoot,
   'app/lib/license/team-seat-contract.ts',
 );
-const EXPECTED_CONTROL_PLANE_FIXTURE_SHA256 = 'c4c630a8b03ab14cda84795982617c200ac0e2d09edf0d19ce57b045e56e8d41';
+const EXPECTED_FIXTURE_VERSION = '1.0.0';
+const EXPECTED_CONTROL_PLANE_FIXTURE_SHA256 = 'bb54a08a0ac80bd6987b4808b9ba2a9022ea50c0f3ad928dac8460654f86edc7';
 
 function expectContractError(
   action: () => unknown,
@@ -108,6 +131,7 @@ async function main() {
     EXPECTED_CONTROL_PLANE_FIXTURE_SHA256,
     'Vendored fixture must stay byte-identical to the frozen Control Plane fixture.',
   );
+  assert.equal(fixtures.fixtureVersion, EXPECTED_FIXTURE_VERSION);
   assert.equal(fixtures.protocolVersion, TEAM_SEAT_PROTOCOL_VERSION);
   assertTeamSeatProtocolVersion(fixtures.protocolVersion);
 
@@ -132,36 +156,45 @@ async function main() {
   assert.equal(entitlements.provider, 'test');
   assert.equal(entitlements.nonBillable, true);
 
-  const refresh = parseTeamSeatLicenseRefresh({
-    license: 'signed-license-certificate'.padEnd(96, 'x'),
-    details: {
-      id: 'license-community',
-      plan: 'community',
-      status: 'active',
-      instanceId: 'instance-community',
-      hostingMode: 'community',
-      edition: 'team',
-      licenseClass: 'commercial',
-      licenseEnvironment: 'production',
-      billingOrganizationId: 'organization-community',
-      entitlementsVersion: 4,
-      deploymentMode: 'community',
-      features: { teamWorkspace: true },
-      quotas: { users: 3 },
-      activatedAt: '2030-01-01T00:00:00.000Z',
-      expiresAt: '2030-01-02T00:00:00.000Z',
-    },
-  });
-  assert.equal(refresh.details.entitlementsVersion, 4);
-  assert.equal(refresh.details.edition, 'team');
-
   const quote = parseTeamSeatQuote(fixtures.positive.quote);
   assert.equal(quote.quantityAfter - quote.quantityBefore, quote.quantityDelta);
   assert.equal(quote.currency, 'eur');
 
+  const claimStart = parseTeamSeatClaimStart(fixtures.positive.claim.start);
+  assert.equal(claimStart.userCode, 'ABCD-EFGH');
+  const pendingClaim = parseTeamSeatClaimPollResult(fixtures.positive.claim.pending);
+  assert.equal(pendingClaim.status, 'authorization_pending');
+  const approvedClaim = parseTeamSeatClaimPollResult(fixtures.positive.claim.approved);
+  assert.equal(approvedClaim.status, 'approved');
+  const rotatedToken = parseTeamSeatTokenRotation(fixtures.positive.claim.rotation);
+  assert.equal(rotatedToken.tokenType, 'Bearer');
+
+  const claims = parseTeamSeatLicenseClaims(fixtures.positive.licenseClaims);
+  assert.equal(claims.seatLimit, 3);
+  assert.equal(claims.entitlementsVersion, 8);
+
+  const authorization = parseTeamSeatAuthorization(
+    fixtures.positive.seatChange.authorization,
+  );
+  assert.equal(authorization.status, 'approved');
+  const prepared = parseTeamSeatPrepareResponse(fixtures.positive.seatChange.prepare);
+  assert.equal(prepared.snapshot.revision, 7);
+  assert.equal(prepared.quote.nonBillable, true);
+  const executed = parseTeamSeatExecuteResponse(fixtures.positive.seatChange.execute);
+  assert.equal(executed.operation.status, 'applied');
+  assert.equal(executed.operation.entitlementsVersion, 8);
+  assert.ok(executed.license);
+  const refresh = parseTeamSeatLicenseRefresh(executed.license);
+  assert.equal(refresh.details.entitlementsVersion, 8);
+  assert.equal(refresh.details.edition, 'team');
+
   const snapshot = parseTeamSeatMembershipSnapshot(fixtures.positive.snapshot);
   assert.equal(snapshot.observedQuantity, 3);
   assert.equal(snapshot.memberHashes.length, 3);
+  const snapshotResponse = parseTeamSeatSnapshotResponse(
+    fixtures.positive.snapshotResponse,
+  );
+  assert.equal(snapshotResponse.snapshot.driftStatus, 'in_sync');
 
   for (const [name, transition] of Object.entries(fixtures.positive.transitions)) {
     const before = parseTeamSeatEntitlements(transition.before, `transitions.${name}.before`);
@@ -183,7 +216,7 @@ async function main() {
     assert.ok(parsed.code.startsWith('TEAM_SEAT_'));
   }
 
-  const unsupported = 'canvas-team-seat-protocol-v2';
+  const unsupported = fixtures.invalid.protocolVersion;
   expectContractError(
     () => assertTeamSeatProtocolVersion(unsupported),
     TEAM_SEAT_ERROR_CODES.protocolUnsupported,
@@ -200,6 +233,27 @@ async function main() {
     () => parseTeamSeatMembershipSnapshot(protocolMutation(fixtures.positive.snapshot, unsupported)),
     TEAM_SEAT_ERROR_CODES.protocolUnsupported,
   );
+  expectContractError(
+    () => parseTeamSeatClaimStart(protocolMutation(fixtures.positive.claim.start, unsupported)),
+    TEAM_SEAT_ERROR_CODES.protocolUnsupported,
+  );
+  expectContractError(
+    () => parseTeamSeatLicenseClaims(protocolMutation(fixtures.positive.licenseClaims, unsupported)),
+    TEAM_SEAT_ERROR_CODES.protocolUnsupported,
+  );
+  expectContractError(() => parseTeamSeatSubject(fixtures.invalid.subject));
+  expectContractError(() => parseTeamSeatMembershipSnapshot({
+    ...(fixtures.positive.snapshot as Record<string, unknown>),
+    revision: fixtures.invalid.revision,
+  }));
+  expectContractError(() => parseTeamSeatLicenseClaims({
+    ...(fixtures.positive.licenseClaims as Record<string, unknown>),
+    seatLimit: fixtures.invalid.seatLimit,
+  }));
+  expectContractError(() => parseTeamSeatLicenseClaims({
+    ...(fixtures.positive.licenseClaims as Record<string, unknown>),
+    entitlementsVersion: fixtures.invalid.entitlementsVersion,
+  }));
 
   for (const licenseClass of TEAM_SEAT_LICENSE_CLASSES) {
     assert.equal(parseTeamSeatLicenseClass(licenseClass), licenseClass);
@@ -228,22 +282,6 @@ async function main() {
     entitlementsVersion: 1,
     nonBillable: true,
   }));
-
-  const claims = parseTeamSeatLicenseClaims({
-    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
-    licenseId: 'license-fixture',
-    instanceId: 'instance-fixture',
-    hostingMode: 'community',
-    edition: 'team',
-    licenseClass: 'manual',
-    licenseEnvironment: 'production',
-    provider: 'manual',
-    seatLimit: 3,
-    entitlementsVersion: 2,
-    grantId: 'grant-fixture',
-    nonBillable: true,
-  });
-  assert.equal(claims.seatLimit, 3);
 
   const startRequest = createTeamSeatClaimStartRequest({
     licenseCertificate: 'certificate.'.padEnd(64, 'x'),
@@ -293,125 +331,6 @@ async function main() {
     ...snapshotRequest,
     snapshotHash: 'invalid',
   }));
-
-  const claimStart = parseTeamSeatClaimStart({
-    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
-    deviceCode: 'dc_'.padEnd(32, 'x'),
-    userCode: 'ABCD-EFGH',
-    verificationUrl: 'https://control.example/claim-license?code=ABCD-EFGH',
-    expiresAt: '2030-01-01T00:10:00.000Z',
-    pollIntervalSeconds: 5,
-  });
-  assert.equal(claimStart.userCode, 'ABCD-EFGH');
-
-  const pendingClaim = parseTeamSeatClaimPollResult({
-    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
-    status: 'authorization_pending',
-    pollIntervalSeconds: 5,
-    expiresAt: '2030-01-01T00:10:00.000Z',
-  });
-  assert.equal(pendingClaim.status, 'authorization_pending');
-
-  const approvedClaim = parseTeamSeatClaimPollResult({
-    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
-    status: 'approved',
-    instanceToken: 'lit_'.padEnd(64, 'x'),
-    tokenType: 'Bearer',
-    scopes: ['license:refresh', 'seat:prepare', 'seat:execute', 'seat:snapshot', 'token:rotate'],
-    expiresAt: '2030-04-01T00:00:00.000Z',
-    organizationId: 'org-fixture',
-    instanceId: 'instance-fixture',
-  });
-  assert.equal(approvedClaim.status, 'approved');
-
-  const rotatedToken = parseTeamSeatTokenRotation({
-    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
-    instanceToken: 'lit_'.padEnd(64, 'y'),
-    tokenType: 'Bearer',
-    scopes: ['license:refresh', 'seat:prepare', 'seat:execute', 'seat:snapshot', 'token:rotate'],
-    expiresAt: '2030-04-01T00:00:00.000Z',
-    instanceId: 'instance-fixture',
-  });
-  assert.equal(rotatedToken.tokenType, 'Bearer');
-
-  const authorization = parseTeamSeatAuthorization({
-    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
-    authorizationId: 'authorization-fixture',
-    quoteId: quote.quoteId,
-    quoteHash: quote.quoteHash,
-    quantityBefore: 2,
-    quantityAfter: 3,
-    status: 'approved',
-    expiresAt: '2030-01-01T00:05:00.000Z',
-    approvedAt: '2030-01-01T00:00:01.000Z',
-    consumedAt: null,
-  });
-  const prepared = parseTeamSeatPrepareResponse({
-    quote: {
-      ...fixtures.positive.quote as Record<string, unknown>,
-      provider: 'manual',
-      environment: 'production',
-      status: 'active',
-      nonBillable: true,
-    },
-    authorization,
-    requiresBillingApproval: false,
-    snapshot: {
-      revision: 7,
-      observedQuantity: 2,
-      licensedQuantity: 2,
-      approvedQuantity: 3,
-      billedQuantity: 0,
-      billingStatus: 'active',
-    },
-  });
-  assert.equal(prepared.snapshot.revision, 7);
-
-  const operation = {
-    protocolVersion: TEAM_SEAT_PROTOCOL_VERSION,
-    operationId: 'operation-fixture',
-    operationKey: 'operation-key-fixture',
-    operationType: 'member_create',
-    provider: 'manual',
-    environment: 'production',
-    status: 'applied',
-    paymentStatus: 'manual',
-    previousQuantity: 2,
-    requestedQuantity: 3,
-    effectiveQuantity: 3,
-    retryCount: 0,
-    lastError: null,
-    effectiveAt: '2030-01-01T00:00:01.000Z',
-    entitlementsVersion: 8,
-    certificateReissueStatus: 'issued',
-    createdAt: '2030-01-01T00:00:00.000Z',
-    updatedAt: '2030-01-01T00:00:02.000Z',
-  };
-  const executed = parseTeamSeatExecuteResponse({
-    operation,
-    replayed: false,
-    license: null,
-  });
-  assert.equal(executed.operation.status, 'applied');
-
-  const snapshotResponse = parseTeamSeatSnapshotResponse({
-    snapshot: {
-      ...snapshotRequest,
-      snapshotId: 'snapshot-fixture',
-      receivedAt: '2030-01-01T00:00:01.000Z',
-      reconciledAt: '2030-01-01T00:00:01.000Z',
-      driftStatus: 'in_sync',
-    },
-    observedQuantity: 2,
-    billedQuantity: 0,
-    licensedQuantity: 2,
-    expectedLicensedQuantity: 2,
-    approvedQuantity: 3,
-    billingStatus: 'active',
-    nextReportAt: '2030-01-01T00:05:01.000Z',
-    replayed: false,
-  });
-  assert.equal(snapshotResponse.snapshot.driftStatus, 'in_sync');
 
   const contractSource = await readFile(contractSourcePath, 'utf8');
   for (const forbiddenStripeField of [
