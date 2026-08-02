@@ -462,6 +462,23 @@ jobs:
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz
             dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.sha256
 
+      - name: Attach release assets to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
+        run: |
+          set -euo pipefail
+          gh release upload "$RELEASE_TAG" \
+            dist-portable-cli/canvas-notebook-cli.tar.gz \
+            dist-portable-cli/canvas-notebook-cli.sha256 \
+            dist-host-cli/canvas-notebook-host-cli.tar.gz \
+            dist-host-cli/canvas-notebook-host-cli.sha256 \
+            dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.tar.gz \
+            dist-native-compliance/canvas-native-compliance-${{ needs.source.outputs.release_version }}.sha256 \
+            --repo "$GITHUB_REPOSITORY" \
+            --clobber
+
       - name: Notify Control Plane release webhook
         env:
           CONTROL_PLANE_RELEASE_WEBHOOK_URL: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_URL }}
