@@ -491,6 +491,72 @@ export async function beginInvitationMembershipActivation(input: {
   }
 }
 
+export async function beginSuspendedMembershipReactivation(input: {
+  organizationId: string;
+  membershipId: string;
+  actorUserId: string;
+  database?: MembershipOrchestratorDatabase;
+  now?: number;
+}): Promise<MembershipActivation> {
+  const database = input.database ?? await openDb();
+  const closeDatabase = input.database === undefined;
+  const now = input.now ?? Date.now();
+  try {
+    const membership = await getTeamMembershipById(
+      database,
+      input.organizationId,
+      input.membershipId,
+    );
+    if (
+      !membership
+      || membership.status !== 'suspended'
+      || membership.userId === null
+    ) {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_OPERATION_CONFLICT',
+        'Only a suspended membership with an existing identity can be reactivated.',
+      );
+    }
+    const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
+    const desiredQuantity = projection.observedQuantity + 1;
+    const syncState = await getTeamMembershipSyncState(database, input.organizationId);
+    if (!syncState) {
+      throw new MembershipOrchestratorError(
+        'MEMBERSHIP_OPERATION_CONFLICT',
+        'The suspended membership does not have a Seat revision.',
+      );
+    }
+    const request = createTeamSeatPrepareRequest({
+      desiredQuantity,
+      triggerType: 'member_create',
+      externalReference: membership.id,
+    });
+    const enqueued = await enqueueTeamSeatOutboxOperation(database, {
+      organizationId: input.organizationId,
+      dedupeKey: `membership:${membership.id}:reactivation:${syncState.currentRevision}:seat-prepare`,
+      operationKind: 'seat_prepare',
+      operationType: 'member_create',
+      membershipId: membership.id,
+      membershipRevision: syncState.currentRevision,
+      request,
+      now,
+      nextAttemptAt: now,
+    });
+    return {
+      stage: 'seat_prepare_pending',
+      membership,
+      desiredQuantity,
+      observedQuantity: projection.observedQuantity,
+      prepareOperation: enqueued.operation,
+      executeOperation: null,
+      requiresBillingApproval: null,
+      replayed: enqueued.replayed,
+    };
+  } finally {
+    if (closeDatabase) await database.close();
+  }
+}
+
 export async function recordDirectMembershipSeatPreparation(input: {
   organizationId: string;
   membershipId: string;
@@ -544,7 +610,14 @@ export async function recordDirectMembershipSeatPreparation(input: {
           now,
           databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
         });
-      } else if (membership.status !== 'billing_pending') {
+      } else if (
+        membership.status !== 'billing_pending'
+        && !(
+          membership.status === 'suspended'
+          && membership.userId !== null
+          && operation.operationType === 'member_create'
+        )
+      ) {
         throw new MembershipOrchestratorError(
           'MEMBERSHIP_OPERATION_CONFLICT',
           `Membership cannot execute a Seat change from status ${membership.status}.`,
@@ -623,10 +696,14 @@ export async function getDirectMembershipSeatQuote(input: {
       database,
       preparation.authorization.authorizationId,
     );
+    const executionPending = executeOperation
+      && ['processing', 'retry_wait'].includes(executeOperation.status);
     return {
       activation: {
         stage: membership.status === 'active'
           ? 'active'
+          : executionPending
+            ? 'billing_pending'
           : preparation.authorization.status === 'approved'
             ? 'seat_execute_pending'
             : membership.status === 'billing_pending'
@@ -693,6 +770,11 @@ export async function recordDirectMembershipSeatAuthorizationStatus(input: {
       current.authorization.status === 'approved'
       && membership.status !== 'billing_pending'
       && membership.status !== 'active'
+      && !(
+        membership.status === 'suspended'
+        && membership.userId !== null
+        && stored.activation.prepareOperation.operationType === 'member_create'
+      )
     ) {
       throw new MembershipOrchestratorError(
         'MEMBERSHIP_OPERATION_CONFLICT',
@@ -758,9 +840,14 @@ export async function beginDirectMembershipSeatRequote(input: {
         authorization: stored.preparation.authorization,
       };
     assertQuoteStatusMatchesPreparation(stored.preparation, current);
+    const pendingMembership = stored.activation.membership;
+    const refreshableCandidate = pendingMembership.status === 'approval_required'
+      && pendingMembership.userId === null;
+    const refreshableReactivation = pendingMembership.status === 'suspended'
+      && pendingMembership.userId !== null
+      && stored.activation.prepareOperation.operationType === 'member_create';
     if (
-      stored.activation.membership.status !== 'approval_required'
-      || stored.activation.membership.userId !== null
+      (!refreshableCandidate && !refreshableReactivation)
       || stored.preparation.quote.quoteId !== input.staleQuoteId
     ) {
       throw new MembershipOrchestratorError(
@@ -879,10 +966,20 @@ export async function recordDirectMembershipSeatExecutionPending(input: {
       input.organizationId,
       input.membershipId,
     );
-    if (!membership || membership.status !== 'billing_pending') {
+    if (
+      !membership
+      || (
+        membership.status !== 'billing_pending'
+        && !(
+          membership.status === 'suspended'
+          && membership.userId !== null
+          && operation.operationType === 'member_create'
+        )
+      )
+    ) {
       throw new MembershipOrchestratorError(
         'MEMBERSHIP_OPERATION_CONFLICT',
-        'Only a billing-pending membership can persist a pending Seat execution.',
+        'Only a billing-pending candidate or suspended reactivation can persist a pending Seat execution.',
       );
     }
     const pendingOperation = await recordTeamSeatOutboxOperationPending(database, {
@@ -1092,6 +1189,47 @@ export async function completeDirectMembershipActivation(input: {
         executeOperation: (await getTeamSeatOutboxOperation(database, operation.operationId))!,
         requiresBillingApproval: null,
         replayed: true,
+      };
+    }
+    if (membership.status === 'suspended') {
+      if (!membership.userId || operation.operationType !== 'member_create') {
+        throw new MembershipOrchestratorError(
+          'MEMBERSHIP_OPERATION_CONFLICT',
+          'The suspended membership cannot be finalized by this Seat operation.',
+        );
+      }
+      membership = await transitionTeamMembership(database, {
+        organizationId: input.organizationId,
+        membershipId: input.membershipId,
+        expectedStatus: 'suspended',
+        toStatus: 'active',
+        userId: membership.userId,
+        acceptedAt: membership.acceptedAt ?? now,
+        actorUserId: input.actorUserId,
+        source: 'control_plane',
+        reason: 'team_membership_reactivated',
+        controlPlaneOperationId: executed.operation.operationId,
+        seatOperationType: 'member_create',
+        now,
+        databaseProvider: input.databaseProvider ?? getDatabaseProvider(),
+      });
+      await identity.activate(membership.userId!);
+      const projection = await getActiveTeamMembershipProjection(database, input.organizationId);
+      if (projection.observedQuantity !== desiredQuantity) {
+        throw new MembershipOrchestratorError(
+          'MEMBERSHIP_SIGNED_LIMIT_INVALID',
+          'The reactivated membership projection does not match the confirmed Seat quantity.',
+        );
+      }
+      return {
+        stage: 'active',
+        membership,
+        desiredQuantity,
+        observedQuantity: projection.observedQuantity,
+        prepareOperation: persistedPrepare,
+        executeOperation: (await getTeamSeatOutboxOperation(database, operation.operationId))!,
+        requiresBillingApproval: null,
+        replayed: operation.status === 'succeeded' || executed.replayed,
       };
     }
     const pendingIdentity = await identity.ensurePending({

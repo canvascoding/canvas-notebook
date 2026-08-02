@@ -790,6 +790,99 @@ export async function getTeamMembershipByUserId(
   return row ? mapMembership(row) : null;
 }
 
+export async function updateTeamMembershipRole(
+  database: Pick<SqlConnection, 'get' | 'run' | 'all'>,
+  input: {
+    organizationId: string;
+    userId: string;
+    role: TeamMembershipRole;
+    actorUserId: string;
+    transactionMode?: 'managed' | 'existing';
+    now?: number;
+    databaseProvider?: DatabaseProvider;
+  },
+): Promise<TeamMembership> {
+  const now = input.now ?? Date.now();
+  const update = async () => {
+    const membership = await getTeamMembershipByUserId(
+      database,
+      input.organizationId,
+      input.userId,
+    );
+    if (!membership) {
+      throw new TeamMembershipError(
+        'MEMBERSHIP_NOT_FOUND',
+        'Team membership not found for the organization user.',
+        404,
+      );
+    }
+    if (membership.role === input.role) return membership;
+    const changed = await database.run(`
+      UPDATE team_memberships
+      SET role = ?, updated_at = ?
+      WHERE organization_id = ?
+        AND id = ?
+        AND role = ?
+    `, [
+      input.role,
+      now,
+      input.organizationId,
+      membership.id,
+      membership.role,
+    ]);
+    if (changesFromRunResult(changed) !== 1) {
+      throw new TeamMembershipError(
+        'MEMBERSHIP_CONFLICT',
+        'The Team membership role changed concurrently.',
+      );
+    }
+    const projectionChange = membership.status === 'active'
+      ? await recordTeamMembershipProjectionChange(database, {
+        organizationId: input.organizationId,
+        membershipId: membership.id,
+        operationType: 'reconcile',
+        projection: await getActiveTeamMembershipProjection(database, input.organizationId),
+        now,
+      })
+      : null;
+    await appendTransition(database, {
+      membershipId: membership.id,
+      organizationId: membership.organizationId,
+      fromStatus: membership.status,
+      toStatus: membership.status,
+      actorUserId: input.actorUserId,
+      source: 'local_admin',
+      reason: 'team_membership_role_changed',
+      membershipRevision: projectionChange?.revision ?? null,
+      metadata: {
+        beforeRole: membership.role,
+        afterRole: input.role,
+        quantityDelta: 0,
+      },
+      createdAt: now,
+    });
+    const updated = await getTeamMembershipByUserId(
+      database,
+      input.organizationId,
+      input.userId,
+    );
+    if (!updated) {
+      throw new TeamMembershipError(
+        'MEMBERSHIP_CONFLICT',
+        'Team membership disappeared during the role update.',
+      );
+    }
+    return updated;
+  };
+  return input.transactionMode === 'existing'
+    ? update()
+    : withMembershipTransaction(
+      database,
+      update,
+      input.databaseProvider ?? getDatabaseProvider(),
+    );
+}
+
 export async function getTeamMembershipByCandidateEmail(
   database: Pick<SqlConnection, 'get'>,
   organizationId: string,

@@ -11,6 +11,7 @@ import {
   transitionTeamMembership,
   type TeamMembership,
 } from './team-membership';
+import { TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from './membership-ban-reasons';
 
 type MembershipSuspensionDatabase = Pick<SqlConnection, 'get' | 'run' | 'all' | 'close'>;
 
@@ -172,12 +173,13 @@ export async function suspendTeamMembershipUser(input: {
         `Membership cannot be suspended from status ${membership.status}.`,
       );
     }
-    const reason = (input.reason || '').trim().slice(0, 1000) || 'Suspended by administrator';
+    const reason = (input.reason || '').trim().slice(0, 900) || 'Suspended by administrator';
+    const banReason = `${TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX}${reason}`;
     const banned = await database.run(`
       UPDATE "user"
       SET banned = 1, ban_reason = ?, ban_expires = NULL, updated_at = ?
       WHERE id = ?
-    `, [reason, now, input.targetUserId]);
+    `, [banReason, now, input.targetUserId]);
     if (changesFromRunResult(banned) !== 1) {
       throw new MembershipSuspensionError(
         'MEMBERSHIP_SUSPENSION_CONFLICT',

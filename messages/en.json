@@ -2461,7 +2461,7 @@
         "password": "Password",
         "permissions": "Permissions",
         "ban": "Ban",
-        "unban": "Unban",
+        "unban": "Reactivate",
         "delete": "Delete",
         "offboard": "Offboard"
       },
@@ -2485,6 +2485,12 @@
         "submit": "Prepare activation",
       "recoveryDescription": "Activation for {email} is already staged and can be resumed safely.",
       "retrySetup": "Resume activation"
+    },
+    "reactivationDialog": {
+      "title": "Reactivate Team member",
+      "description": "A current Seat quote is required before {email} can sign in again.",
+      "activationHint": "The existing account and data stay intact. Access is restored only after billing and the signed Seat limit are confirmed.",
+      "activate": "Reactivate member"
     },
     "seatQuote": {
       "title": "Team Seat quote",
@@ -2625,6 +2631,7 @@
       "quoteChecked": "The approval status was refreshed.",
       "quoteRefreshed": "A new Team Seat quote was loaded and must be confirmed again.",
       "activationProcessed": "The membership activation state was updated.",
+      "reactivationPrepared": "The Team Seat reactivation quote for {email} is ready.",
       "invitationCreated": "The invitation for {email} was created.",
         "invitationRevoked": "The invitation for {email} was revoked.",
         "roleUpdated": "Role for {email} was updated.",

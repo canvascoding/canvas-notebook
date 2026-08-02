@@ -2460,7 +2460,7 @@
         "password": "Passwort",
         "permissions": "Rechte",
         "ban": "Sperren",
-        "unban": "Entsperren",
+        "unban": "Reaktivieren",
         "delete": "Löschen",
         "offboard": "Offboarden"
       },
@@ -2484,6 +2484,12 @@
         "submit": "Aktivierung vorbereiten",
       "recoveryDescription": "Die Aktivierung für {email} wurde bereits vorgemerkt und kann sicher fortgesetzt werden.",
       "retrySetup": "Aktivierung fortsetzen"
+    },
+    "reactivationDialog": {
+      "title": "Team-Mitglied reaktivieren",
+      "description": "Bevor sich {email} wieder anmelden kann, ist ein aktuelles Seat-Angebot erforderlich.",
+      "activationHint": "Das bestehende Konto und seine Daten bleiben erhalten. Der Zugriff wird erst nach bestätigtem Billing und signiertem Seat-Limit wiederhergestellt.",
+      "activate": "Mitglied reaktivieren"
     },
     "seatQuote": {
       "title": "Team-Seat-Angebot",
@@ -2624,6 +2630,7 @@
       "quoteChecked": "Der Freigabestatus wurde aktualisiert.",
       "quoteRefreshed": "Ein neues Team-Seat-Angebot wurde geladen und muss erneut bestätigt werden.",
       "activationProcessed": "Der Status der Mitgliedschaftsaktivierung wurde aktualisiert.",
+      "reactivationPrepared": "Das Team-Seat-Angebot zur Reaktivierung von {email} ist bereit.",
       "invitationCreated": "Die Einladung für {email} wurde erstellt.",
         "invitationRevoked": "Die Einladung für {email} wurde widerrufen.",
         "roleUpdated": "Rolle für {email} wurde aktualisiert.",

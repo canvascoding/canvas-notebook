@@ -128,7 +128,10 @@ async function main() {
   assert.equal(suspended.replayed, false);
   assert.deepEqual(
     sqlite.prepare('SELECT banned, ban_reason FROM "user" WHERE id = ?').get('member-user'),
-    { banned: 1, ban_reason: 'Security review' },
+    {
+      banned: 1,
+      ban_reason: 'canvas_team_membership_suspended:Security review',
+    },
   );
   assert.equal(
     sqlite.prepare('SELECT COUNT(*) FROM "session" WHERE user_id = ?').pluck().get('member-user'),

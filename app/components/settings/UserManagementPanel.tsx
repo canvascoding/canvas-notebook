@@ -254,6 +254,7 @@ export function UserManagementPanel({
   const [createDraft, setCreateDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
   const [membershipSeatQuote, setMembershipSeatQuote] = useState<MembershipSeatQuote | null>(null);
   const [activationPassword, setActivationPassword] = useState('');
+  const [reactivationTarget, setReactivationTarget] = useState<ManagedUser | null>(null);
   const [currentTime, setCurrentTime] = useState(() => Date.now());
   const [inviteOpen, setInviteOpen] = useState(false);
   const [inviteDraft, setInviteDraft] = useState<CreateUserDraft>(() => createEmptyDraft());
@@ -449,7 +450,10 @@ export function UserManagementPanel({
 
   const activateMembership = async () => {
     if (!membershipSeatQuote) return;
-    if (activationPassword.length < 8 || activationPassword.length > 128) {
+    if (
+      !reactivationTarget
+      && (activationPassword.length < 8 || activationPassword.length > 128)
+    ) {
       setError(t('errors.passwordLength'));
       return;
     }
@@ -457,12 +461,16 @@ export function UserManagementPanel({
       `activate:${membershipSeatQuote.membershipId}`,
       async () => {
         const response = await fetch(
-          `/api/admin/organization/memberships/${encodeURIComponent(membershipSeatQuote.membershipId)}/activate`,
+          reactivationTarget
+            ? `/api/admin/organization/users/${encodeURIComponent(reactivationTarget.id)}/reactivation`
+            : `/api/admin/organization/memberships/${encodeURIComponent(membershipSeatQuote.membershipId)}/activate`,
           {
-            method: 'POST',
+            method: reactivationTarget ? 'PATCH' : 'POST',
             credentials: 'include',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ password: activationPassword }),
+            body: JSON.stringify(
+              reactivationTarget ? {} : { password: activationPassword },
+            ),
           },
         );
         const payload = await response.json().catch(() => ({})) as {
@@ -478,6 +486,7 @@ export function UserManagementPanel({
           setCreateDraft(createEmptyDraft());
           setMembershipSeatQuote(null);
           setActivationPassword('');
+          setReactivationTarget(null);
           return;
         }
         setMembershipSeatQuote(payload.data);
@@ -652,12 +661,26 @@ export function UserManagementPanel({
     await runAction(
       `unban:${user.id}`,
       async () => {
-        unwrapAuthResult<{ user: ManagedUser }>(
-          await authClient.admin.unbanUser({ userId: user.id }),
-          t('errors.unban'),
+        const response = await fetch(
+          `/api/admin/organization/users/${encodeURIComponent(user.id)}/reactivation`,
+          {
+            method: 'POST',
+            credentials: 'include',
+          },
         );
+        const payload = await response.json().catch(() => ({})) as {
+          success?: boolean;
+          data?: MembershipSeatQuote;
+          error?: string;
+        };
+        if (!response.ok || payload.success !== true || !payload.data) {
+          throw new Error(payload.error || t('errors.unban'));
+        }
+        setReactivationTarget(user);
+        setMembershipSeatQuote(payload.data);
+        setCreateOpen(true);
       },
-      t('messages.unbanned', { email: user.email }),
+      t('messages.reactivationPrepared', { email: user.email }),
     );
   };
 
@@ -933,7 +956,14 @@ export function UserManagementPanel({
                 <MailPlus data-icon="inline-start" />
                 {t('inviteUser')}
               </Button>
-              <Button type="button" onClick={() => setCreateOpen(true)} disabled={activeAction !== null}>
+              <Button
+                type="button"
+                onClick={() => {
+                  setReactivationTarget(null);
+                  setCreateOpen(true);
+                }}
+                disabled={activeAction !== null}
+              >
                 <Plus data-icon="inline-start" />
                 {t('createUser')}
               </Button>
@@ -1227,13 +1257,20 @@ export function UserManagementPanel({
             setCreateDraft(createEmptyDraft());
             setMembershipSeatQuote(null);
             setActivationPassword('');
+            setReactivationTarget(null);
           }
         }}
       >
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{t('createDialog.title')}</DialogTitle>
-            <DialogDescription>{t('createDialog.description')}</DialogDescription>
+            <DialogTitle>
+              {reactivationTarget ? t('reactivationDialog.title') : t('createDialog.title')}
+            </DialogTitle>
+            <DialogDescription>
+              {reactivationTarget
+                ? t('reactivationDialog.description', { email: reactivationTarget.email })
+                : t('createDialog.description')}
+            </DialogDescription>
           </DialogHeader>
           {membershipSeatQuote ? (
             <div className="flex flex-col gap-4">
@@ -1388,22 +1425,28 @@ export function UserManagementPanel({
                   </>
                 ) : (
                   <div className="flex w-full flex-col gap-3 sm:flex-row sm:items-end">
-                    <div className="min-w-0 flex-1 space-y-2 text-left">
-                      <Label htmlFor="membership-activation-password">
-                        {t('seatQuote.initialPassword')}
-                      </Label>
-                      <Input
-                        id="membership-activation-password"
-                        type="password"
-                        autoComplete="new-password"
-                        value={activationPassword}
-                        onChange={(event) => setActivationPassword(event.target.value)}
-                        disabled={activeAction !== null}
-                      />
-                      <p className="text-xs text-muted-foreground">
-                        {t('seatQuote.initialPasswordHint')}
+                    {reactivationTarget ? (
+                      <p className="min-w-0 flex-1 text-left text-sm text-muted-foreground">
+                        {t('reactivationDialog.activationHint')}
                       </p>
-                    </div>
+                    ) : (
+                      <div className="min-w-0 flex-1 space-y-2 text-left">
+                        <Label htmlFor="membership-activation-password">
+                          {t('seatQuote.initialPassword')}
+                        </Label>
+                        <Input
+                          id="membership-activation-password"
+                          type="password"
+                          autoComplete="new-password"
+                          value={activationPassword}
+                          onChange={(event) => setActivationPassword(event.target.value)}
+                          disabled={activeAction !== null}
+                        />
+                        <p className="text-xs text-muted-foreground">
+                          {t('seatQuote.initialPasswordHint')}
+                        </p>
+                      </div>
+                    )}
                     <Button
                       type="button"
                       onClick={() => void activateMembership()}
@@ -1414,7 +1457,9 @@ export function UserManagementPanel({
                         : <UserCog data-icon="inline-start" />}
                       {membershipExecutionIsPending
                         ? t('seatQuote.retryActivation')
-                        : t('seatQuote.activate')}
+                        : reactivationTarget
+                          ? t('reactivationDialog.activate')
+                          : t('seatQuote.activate')}
                     </Button>
                   </div>
                 )}

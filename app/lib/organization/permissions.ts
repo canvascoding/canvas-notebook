@@ -13,6 +13,7 @@ import {
   type OrganizationPermissionSnapshot,
   type OrganizationPermissionState,
 } from '@/app/lib/organization/bootstrap';
+import { updateTeamMembershipRole } from '@/app/lib/organization/team-membership';
 import {
   findPostgresPermissionUserCandidate,
   getPostgresOrganizationPermissionForUser,
@@ -795,6 +796,15 @@ export async function updateOrganizationRole(params: {
         'UPDATE "user" SET role = ?, updated_at = ? WHERE id = ?',
         [role === 'admin' ? 'admin' : 'user', now, params.targetUserId],
       );
+      await updateTeamMembershipRole(database, {
+        organizationId: organization.organization_id,
+        userId: params.targetUserId,
+        role,
+        actorUserId: params.actorUserId,
+        transactionMode: 'existing',
+        now,
+        databaseProvider: getDatabaseProvider(),
+      });
 
       const updated = await getPermissionDetails(database, organization.organization_id, params.targetUserId);
       await database.run('COMMIT');

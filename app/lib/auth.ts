@@ -10,6 +10,7 @@ import { admin, bearer } from "better-auth/plugins";
 import { expo } from '@better-auth/expo';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import { getConfiguredTrustedOrigins } from '@/app/lib/security/trusted-origins';
+import { TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
 
 const authBaseURL =
   process.env.BETTER_AUTH_BASE_URL ||
@@ -139,6 +140,24 @@ export async function assertTeamMembershipIdentityAvailable(
   }
 }
 
+export async function assertTeamMembershipIdentityReactivatable(
+  userId: string,
+  email: string,
+): Promise<void> {
+  const existing = await findMembershipIdentity(email);
+  if (
+    !existing
+    || existing.id !== userId
+    || !existing.banned
+    || !existing.banReason?.startsWith(TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX)
+  ) {
+    throw new MembershipIdentityError(
+      "MEMBERSHIP_IDENTITY_ACTIVATION_DENIED",
+      "Only an account suspended by the Team membership orchestrator can be reactivated.",
+    );
+  }
+}
+
 export async function ensurePendingTeamMembershipIdentity(input: {
   name: string;
   email: string;
@@ -224,10 +243,13 @@ export async function activatePendingTeamMembershipIdentity(userId: string): Pro
     );
   }
   if (identity.banned !== true) return;
-  if (identity.banReason !== PENDING_TEAM_MEMBERSHIP_BAN_REASON) {
+  if (
+    identity.banReason !== PENDING_TEAM_MEMBERSHIP_BAN_REASON
+    && !identity.banReason?.startsWith(TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX)
+  ) {
     throw new MembershipIdentityError(
       "MEMBERSHIP_IDENTITY_ACTIVATION_DENIED",
-      "A security-managed Better Auth ban cannot be cleared by membership activation.",
+      "A security-managed or offboarding ban cannot be cleared by membership activation.",
     );
   }
   await db.update(user).set({

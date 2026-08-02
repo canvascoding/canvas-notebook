@@ -713,7 +713,7 @@
         {
           "id": "NB-TS-046",
           "title": "Rollenwechsel und Reaktivierung auf Kostenwirkung prüfen",
-          "status": "pending",
+          "status": "completed",
           "priority": "P1",
           "ownerArea": "membership-permissions",
           "description": "Rollenwechsel ohne Seat-Delta von Reaktivierung mit Seat-Delta trennen und Billing-Rechte korrekt darstellen.",
@@ -732,7 +732,8 @@
             "Reiner Rollenwechsel verändert Quantity nicht.",
             "Reaktivierung eines nicht billable Users durchläuft Quote und Billing.",
             "Billing-Berechtigung ist von lokaler Content-Admin-Rolle getrennt."
-          ]
+          ],
+          "progress": "Rollenwechsel aktualisieren Organization-Permissions, Better-Auth-Rolle und Team-Membership jetzt atomar in derselben Transaktion. Aktive Owner-, Admin-, Member- und External-Memberships bleiben jeweils genau ein Seat; der Wechsel erzeugt nur einen reconcile-Snapshot mit unveränderter observedQuantity und niemals ein Seat-Prepare. Idempotente Rollen-Replays erzeugen keine zusätzliche Revision. Suspended Memberships werden ausschließlich über eine neue Team-lizenzgeschützte Reaktivierungsroute wieder freigegeben: Das bestehende Better-Auth-Konto muss mit einem orchestratoreigenen Suspension-Marker gesperrt sein, danach durchläuft die Reaktivierung dieselbe serverberechnete Quote-, Authorization-, Execute- und Zertifikatspipeline wie ein neuer billable Seat. Pending- oder requires_action-Antworten lassen Membership und Login gesperrt; erst ein applied Execute mit ausreichendem signiertem Seat-Limit wechselt suspended→active und entfernt gezielt den Suspension-Ban. Replays verwenden dieselbe Identität und erzeugen genau eine active-Transition. Direkte Better-Auth-Unban-Aufrufe bleiben blockiert. Billing-Freigabelinks werden weiterhin ausschließlich Organization-Ownern angezeigt; lokale Admins können Inhalte und Membership-Workflows verwalten, aber keine Stripe-Quote freigeben. Orchestrator-, Suspension-, Permissions-, Offboarding-, Outbox-, License- und Security-Tests sowie TypeScript, ESLint und Production-Build sind erfolgreich; der Build meldet nur die bereits bekannten Turbopack-Warnungen zu dynamischen Workspace-Pfaden."
         },
         {
           "id": "NB-TS-047",

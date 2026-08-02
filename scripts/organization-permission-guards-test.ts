@@ -44,6 +44,30 @@ function insertMemberPermission(sqlite: Database.Database, organizationId: strin
   );
 }
 
+function insertActiveMembership(
+  sqlite: Database.Database,
+  organizationId: string,
+  userId: string,
+  email: string,
+  role: 'owner' | 'admin' | 'member' | 'external',
+) {
+  sqlite.prepare(`
+    INSERT INTO team_memberships (
+      id,
+      organization_id,
+      candidate_email,
+      user_id,
+      role,
+      status,
+      invited_at,
+      accepted_at,
+      activated_at,
+      created_at,
+      updated_at
+    ) VALUES (?, ?, ?, ?, ?, 'active', 1000, 1000, 1000, 1000, 1000)
+  `).run(`membership-${userId}`, organizationId, email, userId, role);
+}
+
 async function main() {
   const { createInitialOwner } = await import('../app/lib/auth-setup');
   const {
@@ -125,6 +149,13 @@ async function main() {
   const mutationDb = new Database(path.join(dataDir, 'sqlite.db'));
   const managedMemberId = 'managed-member-1';
   insertMemberPermission(mutationDb, organization.organizationId, managedMemberId);
+  insertActiveMembership(
+    mutationDb,
+    organization.organizationId,
+    managedMemberId,
+    `${managedMemberId}@example.test`,
+    'member',
+  );
   mutationDb.close();
 
   const managedMember = await getOrganizationUserPermissionDetails(managedMemberId, owner.id);
@@ -184,6 +215,36 @@ async function main() {
   });
   assert.equal(externalUser.role, 'external');
   assert.equal(Object.values(externalUser.permissions).every((value) => value === false), true);
+  const roleProjectionDb = new Database(path.join(dataDir, 'sqlite.db'));
+  const externalSnapshot = JSON.parse(
+    roleProjectionDb.prepare(`
+      SELECT request_json
+      FROM team_seat_outbox
+      WHERE operation_kind = 'membership_snapshot'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).pluck().get() as string,
+  ) as {
+    observedQuantity: number;
+    roleSummary: Record<string, number>;
+  };
+  assert.equal(externalSnapshot.observedQuantity, 2);
+  assert.deepEqual(externalSnapshot.roleSummary, {
+    owner: 1,
+    admin: 0,
+    member: 0,
+    external: 1,
+  });
+  assert.equal(
+    roleProjectionDb.prepare(`
+      SELECT COUNT(*)
+      FROM team_seat_outbox
+      WHERE operation_kind = 'seat_prepare'
+    `).pluck().get(),
+    0,
+    'a pure role change must not prepare a billable Seat quantity change',
+  );
+  roleProjectionDb.close();
 
   await assert.rejects(
     async () => updateOrganizationPermissions({
@@ -193,6 +254,55 @@ async function main() {
     }),
     (error: unknown) => error instanceof Error && 'code' in error && error.code === 'EXTERNAL_NO_ORG_PERMISSIONS',
   );
+
+  const adminUser = await updateOrganizationRole({
+    actorUserId: owner.id,
+    targetUserId: managedMemberId,
+    role: 'admin',
+  });
+  assert.equal(adminUser.role, 'admin');
+  const adminProjectionDb = new Database(path.join(dataDir, 'sqlite.db'));
+  const adminSnapshot = JSON.parse(
+    adminProjectionDb.prepare(`
+      SELECT request_json
+      FROM team_seat_outbox
+      WHERE operation_kind = 'membership_snapshot'
+      ORDER BY created_at DESC, id DESC
+      LIMIT 1
+    `).pluck().get() as string,
+  ) as {
+    observedQuantity: number;
+    roleSummary: Record<string, number>;
+  };
+  assert.equal(adminSnapshot.observedQuantity, 2);
+  assert.deepEqual(adminSnapshot.roleSummary, {
+    owner: 1,
+    admin: 1,
+    member: 0,
+    external: 0,
+  });
+  const revisionBeforeReplay = adminProjectionDb.prepare(`
+    SELECT current_revision
+    FROM team_membership_sync_state
+    WHERE organization_id = ?
+  `).pluck().get(organization.organizationId);
+  adminProjectionDb.close();
+  await updateOrganizationRole({
+    actorUserId: owner.id,
+    targetUserId: managedMemberId,
+    role: 'admin',
+  });
+  const replayDb = new Database(path.join(dataDir, 'sqlite.db'));
+  assert.equal(
+    replayDb.prepare(`
+      SELECT current_revision
+      FROM team_membership_sync_state
+      WHERE organization_id = ?
+    `).pluck().get(organization.organizationId),
+    revisionBeforeReplay,
+    'replaying the same role must not allocate another membership revision',
+  );
+  replayDb.close();
 
   const legacyDb = new Database(path.join(dataDir, 'sqlite.db'));
   legacyDb.prepare('DELETE FROM organization_user_permissions').run();

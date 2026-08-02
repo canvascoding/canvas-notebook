@@ -9,6 +9,7 @@ import { runMigrations } from '../app/lib/db/migrate';
 import {
   beginDirectMembershipSeatRequote,
   beginDirectMembershipActivation,
+  beginSuspendedMembershipReactivation,
   completeDirectMembershipActivation,
   getDirectMembershipSeatQuote,
   recordDirectMembershipSeatAuthorizationStatus,
@@ -20,6 +21,7 @@ import {
   adoptActiveTeamMembership,
   getActiveTeamMembershipProjection,
   getTeamMembershipByCandidateEmail,
+  transitionTeamMembership,
 } from '../app/lib/organization/team-membership';
 
 const tempRoot = mkdtempSync(path.join(tmpdir(), 'canvas-membership-orchestrator-'));
@@ -579,12 +581,240 @@ async function main() {
   assert.notEqual(requoted.prepareOperation.operationId, staleStart.prepareOperation.operationId);
   assert.equal(JSON.parse(requoted.prepareOperation.requestJson).desiredQuantity, 3);
 
+  const activeMember = await getTeamMembershipByCandidateEmail(
+    connection,
+    'organization-1',
+    'new.member@example.test',
+  );
+  assert.ok(activeMember?.userId);
+  sqlite.prepare(`
+    UPDATE "user"
+    SET banned = 1, ban_reason = 'canvas_team_membership_suspended:Administrative suspension'
+    WHERE id = ?
+  `).run(activeMember.userId);
+  const suspended = await transitionTeamMembership(connection, {
+    organizationId: 'organization-1',
+    membershipId: activeMember.id,
+    expectedStatus: 'active',
+    toStatus: 'suspended',
+    actorUserId: 'owner-user',
+    source: 'local_admin',
+    reason: 'Administrative suspension',
+    seatOperationType: 'member_remove',
+    enqueueSeatReduction: true,
+    databaseProvider: 'sqlite',
+    now: 7_000,
+  });
+  assert.equal(suspended.status, 'suspended');
+  assert.equal((await getActiveTeamMembershipProjection(connection, 'organization-1')).observedQuantity, 1);
+
+  const reactivationStart = await beginSuspendedMembershipReactivation({
+    organizationId: 'organization-1',
+    membershipId: suspended.id,
+    actorUserId: 'owner-user',
+    database: connection,
+    now: 7_100,
+  });
+  assert.equal(reactivationStart.stage, 'seat_prepare_pending');
+  assert.equal(reactivationStart.membership.status, 'suspended');
+  assert.equal(reactivationStart.observedQuantity, 1);
+  assert.equal(reactivationStart.desiredQuantity, 2);
+  assert.equal(reactivationStart.prepareOperation.operationType, 'member_create');
+  assert.match(reactivationStart.prepareOperation.dedupeKey, /:reactivation:/u);
+  const resumedReactivation = await beginSuspendedMembershipReactivation({
+    organizationId: 'organization-1',
+    membershipId: suspended.id,
+    actorUserId: 'owner-user',
+    database: connection,
+    now: 7_200,
+  });
+  assert.equal(resumedReactivation.replayed, true);
+  assert.equal(
+    resumedReactivation.prepareOperation.operationId,
+    reactivationStart.prepareOperation.operationId,
+  );
+
+  const reactivationPrepare = prepareResponse({
+    desiredQuantity: 2,
+    authorizationId: '91c37528-c568-4b8e-91f8-5e8552a38c01',
+    quoteId: '0998e69e-75de-48c1-a246-fe70b8a153e6',
+    provider: 'stripe',
+    requiresBillingApproval: true,
+    authorizationStatus: 'pending',
+  });
+  const reactivationApproval = await recordDirectMembershipSeatPreparation({
+    organizationId: 'organization-1',
+    membershipId: suspended.id,
+    prepareOperationId: reactivationStart.prepareOperation.operationId,
+    response: reactivationPrepare,
+    actorUserId: 'owner-user',
+    database: connection,
+    databaseProvider: 'sqlite',
+    now: 7_300,
+  });
+  assert.equal(reactivationApproval.stage, 'approval_required');
+  assert.equal(reactivationApproval.membership.status, 'suspended');
+  assert.equal(reactivationApproval.executeOperation, null);
+
+  const approvedReactivation = await recordDirectMembershipSeatAuthorizationStatus({
+    organizationId: 'organization-1',
+    membershipId: suspended.id,
+    response: {
+      quote: reactivationPrepare.quote,
+      authorization: {
+        ...reactivationPrepare.authorization,
+        status: 'approved',
+        approvedAt: '2026-08-01T10:20:00.000Z',
+      },
+    },
+    actorUserId: 'owner-user',
+    database: connection,
+    databaseProvider: 'sqlite',
+    now: 7_400,
+  });
+  assert.equal(approvedReactivation.activation.stage, 'seat_execute_pending');
+  assert.equal(approvedReactivation.activation.membership.status, 'suspended');
+  assert.ok(approvedReactivation.activation.executeOperation);
+
+  const reactivationPending = await recordDirectMembershipSeatExecutionPending({
+    organizationId: 'organization-1',
+    membershipId: suspended.id,
+    executeOperationId: approvedReactivation.activation.executeOperation!.operationId,
+    response: {
+      operation: {
+        protocolVersion: 'canvas-team-seat-protocol-v1',
+        operationId: '7d996e64-c3ef-4b82-8ba6-d37d75fe32d2',
+        operationKey: approvedReactivation.activation.executeOperation!.operationId,
+        operationType: 'member_create',
+        provider: 'stripe',
+        environment: 'production',
+        status: 'requires_action',
+        paymentStatus: 'requires_action',
+        previousQuantity: 1,
+        requestedQuantity: 2,
+        effectiveQuantity: null,
+        retryCount: 0,
+        lastError: null,
+        effectiveAt: null,
+        entitlementsVersion: null,
+        certificateReissueStatus: 'pending',
+        createdAt: '2026-08-01T10:21:00.000Z',
+        updatedAt: '2026-08-01T10:21:00.000Z',
+      },
+      replayed: false,
+      license: null,
+    },
+    database: connection,
+    now: 7_500,
+  });
+  assert.equal(reactivationPending.activation.stage, 'billing_pending');
+  assert.equal(reactivationPending.activation.membership.status, 'suspended');
+  assert.deepEqual(
+    sqlite.prepare('SELECT banned, ban_reason FROM "user" WHERE id = ?').get(activeMember.userId),
+    {
+      banned: 1,
+      ban_reason: 'canvas_team_membership_suspended:Administrative suspension',
+    },
+  );
+
+  const activeTransitionCountBefore = Number(sqlite.prepare(`
+    SELECT COUNT(*)
+    FROM team_membership_transitions
+    WHERE membership_id = ? AND to_status = 'active'
+  `).pluck().get(suspended.id));
+  let reactivationIdentityCreations = 0;
+  let reactivationIdentityActivations = 0;
+  const reactivationIdentity = {
+    ensurePending: async () => {
+      reactivationIdentityCreations += 1;
+      throw new Error('reactivation must reuse the existing Better Auth identity');
+    },
+    activate: async (userId: string) => {
+      reactivationIdentityActivations += 1;
+      sqlite.prepare(`
+        UPDATE "user"
+        SET banned = 0, ban_reason = NULL
+        WHERE id = ?
+          AND ban_reason LIKE 'canvas_team_membership_suspended:%'
+      `).run(userId);
+    },
+  };
+  const reactivationExecution = executeResponse({
+    operationKey: approvedReactivation.activation.executeOperation!.operationId,
+    desiredQuantity: 2,
+  });
+  const reactivated = await completeDirectMembershipActivation({
+    organizationId: 'organization-1',
+    membershipId: suspended.id,
+    executeOperationId: approvedReactivation.activation.executeOperation!.operationId,
+    response: reactivationExecution,
+    password: '',
+    actorUserId: 'owner-user',
+    database: connection,
+    databaseProvider: 'sqlite',
+    identity: reactivationIdentity,
+    verifyCertificate: async (_response, desiredQuantity) => {
+      assert.equal(desiredQuantity, 2);
+    },
+    now: 7_600,
+  });
+  assert.equal(reactivated.stage, 'active');
+  assert.equal(reactivated.membership.userId, activeMember.userId);
+  assert.equal(reactivationIdentityCreations, 0);
+  assert.equal(reactivationIdentityActivations, 1);
+  assert.equal((await getActiveTeamMembershipProjection(connection, 'organization-1')).observedQuantity, 2);
+  assert.equal(
+    Number(sqlite.prepare(`
+      SELECT COUNT(*)
+      FROM team_membership_transitions
+      WHERE membership_id = ? AND to_status = 'active'
+    `).pluck().get(suspended.id)),
+    activeTransitionCountBefore + 1,
+  );
+
+  const replayedReactivation = await completeDirectMembershipActivation({
+    organizationId: 'organization-1',
+    membershipId: suspended.id,
+    executeOperationId: approvedReactivation.activation.executeOperation!.operationId,
+    response: {
+      ...reactivationExecution,
+      replayed: true,
+    },
+    password: '',
+    actorUserId: 'owner-user',
+    database: connection,
+    databaseProvider: 'sqlite',
+    identity: reactivationIdentity,
+    verifyCertificate: async (_response, desiredQuantity) => {
+      assert.equal(desiredQuantity, 2);
+    },
+    now: 7_700,
+  });
+  assert.equal(replayedReactivation.stage, 'active');
+  assert.equal(replayedReactivation.replayed, true);
+  assert.equal(reactivationIdentityCreations, 0);
+  assert.equal(reactivationIdentityActivations, 2);
+  assert.equal(
+    Number(sqlite.prepare(`
+      SELECT COUNT(*)
+      FROM team_membership_transitions
+      WHERE membership_id = ? AND to_status = 'active'
+    `).pluck().get(suspended.id)),
+    activeTransitionCountBefore + 1,
+    'a reactivation replay must not create another active transition or Seat revision',
+  );
+
   const panelSource = readFileSync(
     path.join(process.cwd(), 'app/components/settings/UserManagementPanel.tsx'),
     'utf8',
   );
   assert.doesNotMatch(panelSource, /authClient\.admin\.createUser/u);
+  assert.doesNotMatch(panelSource, /authClient\.admin\.unbanUser/u);
   assert.match(panelSource, /\/api\/admin\/organization\/memberships/u);
+  assert.match(
+    panelSource,
+    /users\/\$\{encodeURIComponent\(user\.id\)\}\/reactivation/u,
+  );
   assert.doesNotMatch(
     panelSource,
     /body:\s*JSON\.stringify\(\{[^}]*\b(?:quantity|price|quoteHash)\b/u,
@@ -643,6 +873,8 @@ async function main() {
   const authSource = readFileSync(path.join(process.cwd(), 'app/lib/auth.ts'), 'utf8');
   assert.match(authSource, /MEMBERSHIP_ORCHESTRATOR_REQUIRED/u);
   assert.match(authSource, /context\.path === "\/admin\/create-user"/u);
+  assert.match(authSource, /assertTeamMembershipIdentityReactivatable/u);
+  assert.match(authSource, /TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX/u);
   assert.match(authSource, /auth\.api\.setUserPassword/u);
 }
 

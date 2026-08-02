@@ -1,6 +1,9 @@
 import 'server-only';
 
-import { assertTeamMembershipIdentityAvailable } from '@/app/lib/auth';
+import {
+  assertTeamMembershipIdentityAvailable,
+  assertTeamMembershipIdentityReactivatable,
+} from '@/app/lib/auth';
 import { executeCommunityTeamSeatChange } from '@/app/lib/license/control-plane';
 import type { TeamSeatExecuteResponse } from '@/app/lib/license/team-seat-contract';
 import { initializeUserOnboarding } from '@/app/lib/user-preferences';
@@ -38,15 +41,8 @@ export async function executeDirectMembershipActivation(input: {
   organizationId: string;
   membershipId: string;
   actorUserId?: string | null;
-  password: string;
+  password?: string;
 }): Promise<MembershipSeatActivationResult> {
-  if (input.password.length < 8 || input.password.length > 128) {
-    throw new MembershipSeatActivationError(
-      'MEMBERSHIP_PASSWORD_INVALID',
-      'The initial password must contain between 8 and 128 characters.',
-    );
-  }
-
   const approved = await refreshDirectMembershipSeatAuthorization({
     organizationId: input.organizationId,
     membershipId: input.membershipId,
@@ -63,10 +59,24 @@ export async function executeDirectMembershipActivation(input: {
   }
 
   const membership = approved.activation.membership;
-  await assertTeamMembershipIdentityAvailable(
-    membership.candidateEmail,
-    membership.userId,
-  );
+  const reactivation = approved.activation.prepareOperation.dedupeKey.includes(':reactivation:');
+  if (!reactivation && (!input.password || input.password.length < 8 || input.password.length > 128)) {
+    throw new MembershipSeatActivationError(
+      'MEMBERSHIP_PASSWORD_INVALID',
+      'The initial password must contain between 8 and 128 characters.',
+    );
+  }
+  if (reactivation && membership.status === 'suspended' && membership.userId) {
+    await assertTeamMembershipIdentityReactivatable(
+      membership.userId,
+      membership.candidateEmail,
+    );
+  } else {
+    await assertTeamMembershipIdentityAvailable(
+      membership.candidateEmail,
+      membership.userId,
+    );
+  }
 
   const execution = await executeCommunityTeamSeatChange(
     getMembershipSeatExecuteRequest(approved.activation.executeOperation),
@@ -98,9 +108,19 @@ export async function executeDirectMembershipActivation(input: {
     membershipId: input.membershipId,
     executeOperationId: approved.activation.executeOperation.operationId,
     response: execution,
-    password: input.password,
+    password: input.password || '',
     actorUserId: input.actorUserId,
   });
+  if (reactivation) {
+    return {
+      quote: {
+        activation,
+        preparation: approved.preparation,
+      },
+      execution,
+      onboardingInitialized: false,
+    };
+  }
   await ensureWorkspaceBootstrapForActor(resolveWorkspaceActor({
     id: activation.membership.userId!,
     email: activation.membership.candidateEmail,
