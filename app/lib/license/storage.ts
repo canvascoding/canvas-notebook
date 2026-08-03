@@ -4,7 +4,7 @@ import { createHash, randomUUID, timingSafeEqual } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import path from 'node:path';
 
-import { eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, not } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { licenseCerts } from '@/app/lib/db/schema';
 import { resolveSecretsDir } from '@/app/lib/runtime-data-paths';
@@ -1213,18 +1213,21 @@ export async function removeCommunityClaimSession(expectedClaimId?: string): Pro
   });
 }
 
-export async function loadStoredLicenseCert(instanceId: string): Promise<string | null> {
+async function selectNewestStoredRevision(instanceId: string): Promise<CertificateRevision | null> {
   const rows = await db
     .select({ cert: licenseCerts.cert })
     .from(licenseCerts)
-    .where(eq(licenseCerts.instanceId, instanceId));
-  return rows
-    .map((row) => {
-      const decoded = decodeLicenseJwt(row.cert);
-      return decoded?.sub === instanceId ? certificateRevision(row.cert, decoded) : null;
-    })
-    .filter((revision): revision is CertificateRevision => revision !== null)
-    .sort((left, right) => compareCertificateRevision(right, left))[0]?.cert ?? null;
+    .where(eq(licenseCerts.instanceId, instanceId))
+    .orderBy(desc(licenseCerts.id))
+    .limit(1);
+  if (rows.length === 0) return null;
+  const decoded = decodeLicenseJwt(rows[0].cert);
+  if (!decoded || decoded.sub !== instanceId) return null;
+  return certificateRevision(rows[0].cert, decoded);
+}
+
+export async function loadStoredLicenseCert(instanceId: string): Promise<string | null> {
+  return (await selectNewestStoredRevision(instanceId))?.cert ?? null;
 }
 
 type CertificateRevision = {
@@ -1258,18 +1261,29 @@ function compareCertificateRevision(left: CertificateRevision, right: Certificat
   return 0;
 }
 
-async function saveLicenseCertLocked(cert: string, payload: LicenseCert): Promise<void> {
-  const existingRows = await db
-    .select({ cert: licenseCerts.cert })
+const LICENSE_CERT_RETENTION_COUNT = 10;
+
+async function pruneOldLicenseCerts(instanceId: string): Promise<void> {
+  const rows = await db
+    .select({ id: licenseCerts.id })
     .from(licenseCerts)
-    .where(eq(licenseCerts.instanceId, payload.sub));
-  const current = existingRows
-    .map((row) => {
-      const decoded = decodeLicenseJwt(row.cert);
-      return decoded?.sub === payload.sub ? certificateRevision(row.cert, decoded) : null;
-    })
-    .filter((revision): revision is CertificateRevision => revision !== null)
-    .sort((left, right) => compareCertificateRevision(right, left))[0];
+    .where(eq(licenseCerts.instanceId, instanceId))
+    .orderBy(desc(licenseCerts.id))
+    .limit(LICENSE_CERT_RETENTION_COUNT);
+
+  const keepIds = new Set(rows.map((row) => row.id));
+  if (keepIds.size === 0) return;
+
+  await db.delete(licenseCerts).where(
+    and(
+      eq(licenseCerts.instanceId, instanceId),
+      not(inArray(licenseCerts.id, [...keepIds])),
+    ),
+  );
+}
+
+async function saveLicenseCertLocked(cert: string, payload: LicenseCert): Promise<void> {
+  const current = await selectNewestStoredRevision(payload.sub);
   const next = certificateRevision(cert, payload);
 
   if (current?.cert === cert) return;
@@ -1289,6 +1303,8 @@ async function saveLicenseCertLocked(cert: string, payload: LicenseCert): Promis
     createdAt: now,
     updatedAt: now,
   });
+
+  await pruneOldLicenseCerts(payload.sub);
 }
 
 export async function saveLicenseCert(cert: string, payload: LicenseCert): Promise<void> {
