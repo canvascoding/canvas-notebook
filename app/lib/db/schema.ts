@@ -1,4 +1,4 @@
-import { sql } from "drizzle-orm";
+import { desc, sql } from "drizzle-orm";
 import { sqliteTable, text, integer, real, index, uniqueIndex, primaryKey, check } from "drizzle-orm/sqlite-core";
 
 export const user = sqliteTable("user", {
@@ -1383,6 +1383,8 @@ export const licenseCerts = sqliteTable("license_certs", {
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
 }, (table) => ({
   instanceIdx: index("idx_license_certs_instance").on(table.instanceId),
+  instanceIdDescIdx: index("idx_license_certs_instance_id_desc").on(table.instanceId, desc(table.id)),
+  instanceCertUniqueIdx: uniqueIndex("idx_license_certs_instance_cert").on(table.instanceId, table.cert),
 }));
 
 export const licensePublicKeys = sqliteTable("license_public_keys", {

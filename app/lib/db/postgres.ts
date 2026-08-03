@@ -900,6 +900,18 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
 
   await deduplicatePiSessions(pool);
 
+  // Deduplicate license certs that were repeatedly inserted by older code.
+  // Keep the newest row per (instance_id, cert) so the unique index from the
+  // Drizzle schema can be created safely below.
+  await pool.query(`
+    DELETE FROM license_certs
+    WHERE id NOT IN (
+      SELECT MAX(id)
+      FROM license_certs
+      GROUP BY instance_id, cert
+    )
+  `);
+
   for (const table of tables) {
     const config = getTableConfig(table as never) as {
       columns: SchemaColumn[];

@@ -2153,6 +2153,18 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_oauth_tokens_provider ON oauth_tokens (provider);
     CREATE INDEX IF NOT EXISTS idx_oauth_tokens_valid ON oauth_tokens (provider, is_valid);
     CREATE INDEX IF NOT EXISTS idx_license_certs_instance ON license_certs (instance_id);
+    CREATE INDEX IF NOT EXISTS idx_license_certs_instance_id_desc ON license_certs (instance_id, id DESC);
+
+    -- Deduplicate license certs that were repeatedly inserted by older code.
+    -- Keep the newest row per (instance_id, cert) so the unique index below can be created.
+    DELETE FROM license_certs
+    WHERE id NOT IN (
+      SELECT MAX(id)
+      FROM license_certs
+      GROUP BY instance_id, cert
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_license_certs_instance_cert ON license_certs (instance_id, cert);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_license_public_keys_fingerprint ON license_public_keys (fingerprint);
     CREATE INDEX IF NOT EXISTS idx_license_public_keys_fetched_at ON license_public_keys (fetched_at);
     CREATE INDEX IF NOT EXISTS idx_studio_products_user ON studio_products (user_id);
