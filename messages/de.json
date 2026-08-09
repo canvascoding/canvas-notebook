@@ -2441,6 +2441,8 @@
       "teamLicenseCheckingDescription": "Die Berechtigung für Benutzer- und Teamverwaltung wird geladen.",
       "teamLicenseRequiredTitle": "Team-Lizenz erforderlich",
       "teamLicenseRequiredDescription": "Benutzerverwaltung und weitere Team-Funktionen sind nur mit einer gültigen Team-Lizenz und einer kompatiblen Postgres-Teamkonfiguration verfügbar. Community Solo und alle Core-Funktionen bleiben ohne Aktivierung nutzbar.",
+      "teamLicenseUnavailableTitle": "Team-Lizenzstatus nicht verfügbar",
+      "teamLicenseUnavailableDescription": "Der Lizenzstatus konnte nicht sicher geladen werden. Benutzerverwaltung und Team-Änderungen bleiben deaktiviert, bis die Prüfung erneut erfolgreich ist. Canvas Core bleibt lokal nutzbar.",
       "manageLicense": "Lizenz verwalten",
       "reload": "Neu laden",
       "createUser": "Benutzer anlegen",

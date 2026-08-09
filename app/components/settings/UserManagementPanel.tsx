@@ -69,7 +69,7 @@ type CreateUserDraft = {
   isAdmin: boolean;
 };
 
-type TeamLicenseState = 'checking' | 'active' | 'required';
+type TeamLicenseState = 'checking' | 'active' | 'required' | 'unavailable';
 
 type TeamInvitation = {
   id: string;
@@ -117,6 +117,8 @@ type MembershipSeatQuote = {
 };
 
 type LicenseStatusResponse = {
+  success?: boolean;
+  error?: string;
   licensed?: boolean;
   databaseProvider?: string | null;
   capabilities?: Record<string, boolean>;
@@ -339,12 +341,18 @@ export function UserManagementPanel({
         credentials: 'include',
       });
       const payload = await response.json().catch(() => ({})) as LicenseStatusResponse;
+      if (!response.ok || payload.success === false) {
+        throw new Error('LICENSE_STATUS_UNAVAILABLE');
+      }
+      if (payload.error === 'license_status_unavailable') {
+        throw new Error('LICENSE_STATUS_UNAVAILABLE');
+      }
       setTeamLicenseState(response.ok && includesTeamRuntimeLicense(payload) ? 'active' : 'required');
       if (canViewTeamSeatHealth) {
         setTeamSeatHealth(payload.teamSeatHealth ?? null);
       }
     } catch {
-      setTeamLicenseState('required');
+      setTeamLicenseState('unavailable');
       if (canViewTeamSeatHealth) setTeamSeatHealth(null);
     }
   }, [canViewTeamSeatHealth]);
@@ -939,18 +947,35 @@ export function UserManagementPanel({
             <CardTitle className="flex items-center gap-2">
               {teamLicenseState === 'checking'
                 ? <Loader2 className="h-5 w-5 animate-spin" />
-                : <Shield className="h-5 w-5" />}
-              {teamLicenseState === 'checking' ? t('teamLicenseChecking') : t('teamLicenseRequiredTitle')}
+                : teamLicenseState === 'unavailable'
+                  ? <AlertTriangle className="h-5 w-5" />
+                  : <Shield className="h-5 w-5" />}
+              {teamLicenseState === 'checking'
+                ? t('teamLicenseChecking')
+                : teamLicenseState === 'unavailable'
+                  ? t('teamLicenseUnavailableTitle')
+                  : t('teamLicenseRequiredTitle')}
             </CardTitle>
             <CardDescription>
-              {teamLicenseState === 'checking' ? t('teamLicenseCheckingDescription') : t('teamLicenseRequiredDescription')}
+              {teamLicenseState === 'checking'
+                ? t('teamLicenseCheckingDescription')
+                : teamLicenseState === 'unavailable'
+                  ? t('teamLicenseUnavailableDescription')
+                  : t('teamLicenseRequiredDescription')}
             </CardDescription>
           </CardHeader>
-          {teamLicenseState === 'required' && (
+          {teamLicenseState !== 'checking' && (
             <CardContent>
-              <Button asChild>
-                <Link href="/settings?tab=license">{t('manageLicense')}</Link>
-              </Button>
+              {teamLicenseState === 'unavailable' ? (
+                <Button type="button" variant="outline" onClick={() => void loadLicenseStatus()}>
+                  <RefreshCw data-icon="inline-start" />
+                  {t('reload')}
+                </Button>
+              ) : (
+                <Button asChild>
+                  <Link href="/settings?tab=license">{t('manageLicense')}</Link>
+                </Button>
+              )}
             </CardContent>
           )}
         </Card>

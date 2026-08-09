@@ -11,11 +11,15 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Switch } from '@/components/ui/switch';
 import { scrubLicenseKeyFromBrowserUrl } from '@/app/lib/license/browser-url';
 import { codeFromLicenseError } from '@/app/lib/license/error-codes';
 import type { TeamSeatHealth } from '@/app/lib/license/team-seat-health-types';
-import { CommunityTeamConnectionPanel } from './CommunityTeamConnectionPanel';
+import {
+  CommunityTeamConnectionPanel,
+  type TeamSeatRolloutStatus,
+} from './CommunityTeamConnectionPanel';
 import { TeamSeatHealthPanel } from './TeamSeatHealthPanel';
 
 type LicenseStatus = {
@@ -26,6 +30,8 @@ type LicenseStatus = {
   error?: string;
   code?: string;
   teamSeatHealth?: TeamSeatHealth | null;
+  teamSeatRollout?: TeamSeatRolloutStatus;
+  success?: boolean;
 };
 
 function licenseErrorMessage(error?: string) {
@@ -39,6 +45,8 @@ function licenseErrorMessage(error?: string) {
       return 'The license server returned an untrusted public key. Check CANVAS_LICENSE_TRUSTED_PUBLIC_KEY_FINGERPRINTS.';
     case 'license_expired':
       return 'License expired. Please renew or activate a new license.';
+    case 'license_status_unavailable':
+      return 'The license status could not be loaded safely. Please retry before using Team features.';
     default:
       return error;
   }
@@ -84,6 +92,9 @@ function getActivationCopy(locale: string) {
         sendKey: 'Key senden',
         activationKey: 'Aktivierungs-Key',
         activate: 'Aktivieren',
+        statusUnavailableTitle: 'Lizenzstatus nicht verfügbar',
+        statusUnavailableDescription: 'Die Lizenz konnte nicht sicher geladen werden. Team-Funktionen bleiben deaktiviert, bis der Status erneut geladen werden kann. Canvas Core bleibt lokal nutzbar.',
+        retryStatus: 'Status erneut laden',
       }
     : {
         title: 'Community license',
@@ -111,6 +122,9 @@ function getActivationCopy(locale: string) {
         sendKey: 'Send key',
         activationKey: 'Activation key',
         activate: 'Activate',
+        statusUnavailableTitle: 'License status unavailable',
+        statusUnavailableDescription: 'The license could not be loaded safely. Team features remain disabled until the status can be loaded again. Canvas Core remains available locally.',
+        retryStatus: 'Retry status',
       };
 }
 
@@ -129,6 +143,7 @@ export function LicenseActivationPanel({
   const [key, setKey] = useState(searchParams.get('key') || '');
   const [marketingOptIn, setMarketingOptIn] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [statusLoadError, setStatusLoadError] = useState<string | null>(null);
   const [registering, setRegistering] = useState(false);
   const [activating, setActivating] = useState(false);
 
@@ -137,28 +152,29 @@ export function LicenseActivationPanel({
   }, []);
 
   const loadStatus = useCallback(async () => {
-    const response = await fetch('/api/license/status', {
-      cache: 'no-store',
-      credentials: 'include',
-    });
-    const payload = await response.json().catch(() => ({})) as LicenseStatus;
-    setStatus(payload);
-  }, []);
+    setLoading(true);
+    try {
+      const response = await fetch('/api/license/status', {
+        cache: 'no-store',
+        credentials: 'include',
+      });
+      const payload = await response.json().catch(() => ({})) as LicenseStatus;
+      if (!response.ok || payload.success === false) {
+        throw new Error(payload.error || copy.statusUnavailableDescription);
+      }
+      setStatus(payload);
+      setStatusLoadError(null);
+    } catch (error) {
+      setStatus(null);
+      setStatusLoadError(error instanceof Error ? error.message : copy.statusUnavailableDescription);
+    } finally {
+      setLoading(false);
+    }
+  }, [copy.statusUnavailableDescription]);
 
   useEffect(() => {
-    let mounted = true;
-    fetch('/api/license/status', { cache: 'no-store', credentials: 'include' })
-      .then((response) => response.json())
-      .then((payload: LicenseStatus) => {
-        if (mounted) setStatus(payload);
-      })
-      .finally(() => {
-        if (mounted) setLoading(false);
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
+    void loadStatus();
+  }, [loadStatus]);
 
   async function requestLicense() {
     setRegistering(true);
@@ -228,6 +244,20 @@ export function LicenseActivationPanel({
               {loading ? copy.loading : planLabel}
             </Badge>
           </div>
+
+          {statusLoadError ? (
+            <Alert variant="destructive">
+              <ShieldAlert />
+              <AlertTitle>{copy.statusUnavailableTitle}</AlertTitle>
+              <AlertDescription>
+                <p>{statusLoadError}</p>
+                <Button type="button" variant="outline" size="sm" onClick={() => void loadStatus()}>
+                  <Loader2 className={loading ? 'animate-spin' : undefined} />
+                  {copy.retryStatus}
+                </Button>
+              </AlertDescription>
+            </Alert>
+          ) : null}
         </CardHeader>
         <CardContent className="space-y-4 px-4 sm:px-6">
           <div className="border border-border bg-muted/30 px-3 py-3 text-sm sm:px-4">
@@ -339,6 +369,12 @@ export function LicenseActivationPanel({
       <CommunityTeamConnectionPanel
         licensed={isLicensed}
         licensePlan={status?.plan || 'unregistered'}
+        licenseStatusAvailable={
+          !statusLoadError
+          && status !== null
+          && status.error !== 'license_status_unavailable'
+        }
+        teamSeatRollout={status?.teamSeatRollout}
       />
     </div>
   );

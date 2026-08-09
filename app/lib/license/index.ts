@@ -7,7 +7,7 @@ import {
   verifyLicenseJwtDetailed,
   type LicenseVerificationResult,
 } from './jwt';
-import { logLicenseInfoThrottled } from './logging';
+import { logLicenseError, logLicenseInfoThrottled } from './logging';
 import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-client';
 import { resolveLicensePublicKeys } from './public-key';
 import {
@@ -342,8 +342,7 @@ async function getManagedLicenseStatus(instanceId: string): Promise<{
   return { status };
 }
 
-export async function getLicenseStatus(): Promise<LicenseStatus> {
-  const instanceId = getLicenseInstanceId();
+async function resolveLicenseStatus(instanceId: string): Promise<LicenseStatus> {
   let lastFailure: LicenseResolutionFailure | undefined;
 
   const envCert = process.env.CANVAS_LICENSE_CERT?.trim();
@@ -449,6 +448,21 @@ export async function getLicenseStatus(): Promise<LicenseStatus> {
   });
 
   return withRefreshRuntimeState(status);
+}
+
+export async function getLicenseStatus(): Promise<LicenseStatus> {
+  let instanceId = process.env.CANVAS_INSTANCE_ID?.trim() || 'license-status-unavailable';
+  try {
+    instanceId = getLicenseInstanceId();
+    return await resolveLicenseStatus(instanceId);
+  } catch (error) {
+    logLicenseError(LOG_PREFIX, 'license status resolution failed', {
+      instanceId,
+      managedConfigured: isManagedLicenseConfigured(),
+      controlPlaneHost: getControlPlaneHost(),
+    }, error);
+    return unresolvedStatus(instanceId, undefined, 'license_status_unavailable');
+  }
 }
 
 export async function requireLicenseStatus(): Promise<LicenseStatus> {

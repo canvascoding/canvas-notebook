@@ -7,6 +7,7 @@ import {
   startCommunityLicenseClaim,
 } from '@/app/lib/license/control-plane';
 import { TeamSeatRolloutError } from '@/app/lib/license/team-seat-rollout';
+import { logLicenseError } from '@/app/lib/license/logging';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -40,9 +41,7 @@ export async function POST(request: NextRequest) {
         },
       );
     }
-    console.error('[license/community-claim/start] Claim start failed without secret context:', {
-      error: error instanceof Error ? error.name : 'UnknownError',
-    });
+    logLicenseError('[license/community-claim/start]', 'claim start failed', {}, error);
     return NextResponse.json(
       {
         success: false,

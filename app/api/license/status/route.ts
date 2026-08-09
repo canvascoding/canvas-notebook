@@ -5,7 +5,7 @@ import { openDb } from '@/app/lib/db';
 import { getLicenseStatus } from '@/app/lib/license';
 import { getCommunityLicenseClaimStatus } from '@/app/lib/license/control-plane';
 import { codeFromLicenseStatus } from '@/app/lib/license/error-codes';
-import { logLicenseInfoThrottled } from '@/app/lib/license/logging';
+import { logLicenseError, logLicenseInfoThrottled } from '@/app/lib/license/logging';
 import { publicLicenseStatus } from '@/app/lib/license/status-response';
 import { buildTeamSeatHealth } from '@/app/lib/license/team-seat-health';
 import { readTeamSeatSyncDiagnostics } from '@/app/lib/license/team-seat-outbox';
@@ -57,9 +57,9 @@ export async function GET(request: NextRequest) {
         }
       }
     } catch (error) {
-      console.warn('[license/status/api] owner Team Seat health unavailable', {
-        error: error instanceof Error ? error.name : 'UnknownError',
-      });
+      logLicenseError('[license/status/api]', 'owner Team Seat health unavailable', {
+        hasSession: true,
+      }, error);
       ownerHealth = {
         teamSeatHealth: null,
         teamSeatHealthError: {

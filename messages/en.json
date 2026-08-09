@@ -2442,6 +2442,8 @@
       "teamLicenseCheckingDescription": "Loading the entitlement for user and team management.",
       "teamLicenseRequiredTitle": "Team license required",
       "teamLicenseRequiredDescription": "User management and other Team features require a valid Team license and a compatible Postgres Team configuration. Community Solo and all core features remain available without activation.",
+      "teamLicenseUnavailableTitle": "Team license status unavailable",
+      "teamLicenseUnavailableDescription": "The license status could not be loaded safely. User management and Team changes remain disabled until the check succeeds again. Canvas Core remains available locally.",
       "manageLicense": "Manage license",
       "reload": "Reload",
       "createUser": "Create user",

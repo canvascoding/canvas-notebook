@@ -4,6 +4,7 @@ import { redactTeamControlPlaneLogText } from '@/app/lib/control-plane/team-clie
 import { activateInstanceLicense, LicenseControlPlaneError } from '@/app/lib/license/control-plane';
 import { codeFromLicenseStatus } from '@/app/lib/license/error-codes';
 import { getLicenseInstanceId } from '@/app/lib/license/instance';
+import { logLicenseError } from '@/app/lib/license/logging';
 import { publicLicenseStatus } from '@/app/lib/license/status-response';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
@@ -45,10 +46,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) {
       const message = redactTeamControlPlaneLogText(error.message, [key]);
-      console.warn(`${LOG_PREFIX} control plane rejected activation`, {
+      logLicenseError(LOG_PREFIX, 'control plane rejected activation', {
         status: error.status,
         code: error.code,
-      });
+      }, error, { knownSecrets: [key] });
       return NextResponse.json(
         { success: false, error: message, code: error.code },
         { status: error.status },
@@ -59,10 +60,9 @@ export async function POST(request: NextRequest) {
       [key],
     );
     const code = message.includes('invalid for this instance') ? 'LICENSE_INVALID' : 'LICENSE_CONTROL_PLANE_UNREACHABLE';
-    console.error(`${LOG_PREFIX} activation failed`, {
-      error: message,
+    logLicenseError(LOG_PREFIX, 'activation failed', {
       code,
-    });
+    }, error, { knownSecrets: [key] });
     return NextResponse.json(
       {
         success: false,

@@ -8,6 +8,7 @@ import {
 } from '@/app/lib/license/control-plane';
 import { TeamSeatRolloutError } from '@/app/lib/license/team-seat-rollout';
 import { CommunityInstanceTokenStorageError } from '@/app/lib/license/storage';
+import { logLicenseError } from '@/app/lib/license/logging';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -52,9 +53,7 @@ export async function POST(request: NextRequest) {
         { status: error.status, headers: { 'Cache-Control': 'no-store' } },
       );
     }
-    console.error('[license/community-claim/rotate] Rotation failed without secret context:', {
-      error: error instanceof Error ? error.name : 'UnknownError',
-    });
+    logLicenseError('[license/community-claim/rotate]', 'connection rotation failed', {}, error);
     return NextResponse.json(
       {
         success: false,

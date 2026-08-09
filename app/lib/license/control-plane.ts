@@ -13,6 +13,7 @@ import { activateLicenseCert, getLicenseControlPlaneUrl } from './index';
 import { licenseActivationFailureCode } from './error-codes';
 import { getLicenseInstanceId } from './instance';
 import { LicenseCertificateValidationError } from './jwt';
+import { logLicenseError } from './logging';
 import {
   getCommunityTeamRuntimeReadiness,
   withCommunityTeamVersionReadiness,
@@ -115,6 +116,12 @@ async function postLicenseControlPlane(
     });
     return { response: result.response, payload: result.payload };
   } catch (error) {
+    logLicenseError('[license/control-plane]', 'Control Plane POST request failed', {
+      endpoint: path,
+      unreachableCode: options?.unreachableCode ?? 'LICENSE_CONTROL_PLANE_UNREACHABLE',
+    }, error, {
+      knownSecrets: options?.authorization ? [options.authorization.token] : [],
+    });
     const message = error instanceof Error
       ? error.message
       : 'The license service is unavailable.';
@@ -156,6 +163,12 @@ async function getLicenseControlPlane(
     });
     return { response: result.response, payload: result.payload };
   } catch (error) {
+    logLicenseError('[license/control-plane]', 'Control Plane GET request failed', {
+      endpoint: path,
+      unreachableCode: options.unreachableCode ?? 'LICENSE_CONTROL_PLANE_UNREACHABLE',
+    }, error, {
+      knownSecrets: [options.authorization.token],
+    });
     const message = error instanceof Error
       ? error.message
       : 'The license service is unavailable.';
@@ -1293,6 +1306,12 @@ export async function rotateCommunityLicenseConnection(
 export function communityLicenseClaimErrorPayload(
   error: LicenseControlPlaneError | TeamSeatRolloutError,
 ) {
+  logLicenseError('[license/community]', 'Community Team operation was rejected', {
+    code: error.code,
+    status: error instanceof LicenseControlPlaneError ? error.status : error.statusCode,
+    retryable: error instanceof LicenseControlPlaneError ? error.retryable : false,
+    flow: error instanceof TeamSeatRolloutError ? error.flow : 'control_plane',
+  }, error);
   return {
     success: false,
     error: error.message,

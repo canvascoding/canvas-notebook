@@ -9,6 +9,7 @@ import {
   Circle,
   Clipboard,
   ExternalLink,
+  Info,
   Link2,
   Loader2,
   RefreshCw,
@@ -20,6 +21,7 @@ import {
 import { toast } from 'sonner';
 
 import { Badge } from '@/components/ui/badge';
+import { Alert, AlertDescription, AlertTitle } from '@/components/ui/alert';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 
@@ -91,6 +93,12 @@ type ApiFailure = {
   retryAfterSeconds?: number | null;
 };
 
+export type TeamSeatRolloutStatus = {
+  client: { effective: boolean };
+  communityClaim: { effective: boolean };
+  membershipMutations: { effective: boolean };
+};
+
 function getCopy(locale: string) {
   const de = locale.startsWith('de');
   return de
@@ -150,6 +158,16 @@ function getCopy(locale: string) {
         pollError: 'Die Bestätigung konnte noch nicht geprüft werden.',
         preflightError: 'Der Team-Preflight ist fehlgeschlagen.',
         licensePlan: 'Community-Lizenz',
+        availability: {
+          statusUnavailableTitle: 'Lizenzstatus nicht verfügbar',
+          statusUnavailable: 'Die Lizenz konnte nicht sicher geladen werden. Team-Verbindung und Team-Änderungen bleiben deaktiviert, bis der Status erneut geladen werden kann. Canvas Core bleibt lokal nutzbar.',
+          clientDisabledTitle: 'Team-Verbindung ist nicht aktiviert',
+          clientDisabled: 'Diese Notebook-Installation erlaubt derzeit keine Control-Plane-Verbindung für Team-Funktionen. Canvas Core und Community Solo bleiben unverändert nutzbar.',
+          claimDisabledTitle: 'Community-Verbindung ist noch nicht verfügbar',
+          claimDisabled: 'Die Team-Verbindung ist für diesen Rollout noch nicht freigegeben. Du kannst Canvas weiter lokal nutzen; eine Aktivierung ist nicht erforderlich.',
+          upgradeDisabledTitle: 'Team-Upgrade ist noch nicht verfügbar',
+          upgradeDisabled: 'Die Verbindung kann vorbereitet werden, aber kostenpflichtige Team-Änderungen sind für diesen Rollout noch nicht freigegeben.',
+        },
       }
     : {
         title: 'Control Plane & Team',
@@ -207,7 +225,49 @@ function getCopy(locale: string) {
         pollError: 'The confirmation could not be checked yet.',
         preflightError: 'The Team preflight failed.',
         licensePlan: 'Community license',
+        availability: {
+          statusUnavailableTitle: 'License status unavailable',
+          statusUnavailable: 'The license could not be loaded safely. Team connection and Team changes remain disabled until the status can be loaded again. Canvas Core remains available locally.',
+          clientDisabledTitle: 'Team connection is not enabled',
+          clientDisabled: 'This Notebook installation does not currently permit a Control Plane connection for Team features. Canvas Core and Community Solo remain available as usual.',
+          claimDisabledTitle: 'Community connection is not available yet',
+          claimDisabled: 'The Team connection has not been enabled for this rollout yet. You can continue using Canvas locally; activation is not required.',
+          upgradeDisabledTitle: 'Team upgrade is not available yet',
+          upgradeDisabled: 'The connection can be prepared, but paid Team changes have not been enabled for this rollout yet.',
+        },
       };
+}
+
+function availabilityNotice(
+  copy: ReturnType<typeof getCopy>,
+  statusAvailable: boolean,
+  rollout: TeamSeatRolloutStatus | null | undefined,
+): { title: string; description: string } | null {
+  if (!statusAvailable || !rollout) {
+    return {
+      title: copy.availability.statusUnavailableTitle,
+      description: copy.availability.statusUnavailable,
+    };
+  }
+  if (!rollout.client.effective) {
+    return {
+      title: copy.availability.clientDisabledTitle,
+      description: copy.availability.clientDisabled,
+    };
+  }
+  if (!rollout.communityClaim.effective) {
+    return {
+      title: copy.availability.claimDisabledTitle,
+      description: copy.availability.claimDisabled,
+    };
+  }
+  if (!rollout.membershipMutations.effective) {
+    return {
+      title: copy.availability.upgradeDisabledTitle,
+      description: copy.availability.upgradeDisabled,
+    };
+  }
+  return null;
 }
 
 async function apiRequest<T>(path: string, init?: RequestInit): Promise<T> {
@@ -271,9 +331,13 @@ function Step({
 export function CommunityTeamConnectionPanel({
   licensed,
   licensePlan,
+  licenseStatusAvailable,
+  teamSeatRollout,
 }: {
   licensed: boolean;
   licensePlan: string;
+  licenseStatusAvailable: boolean;
+  teamSeatRollout?: TeamSeatRolloutStatus | null;
 }) {
   const locale = useLocale();
   const copy = useMemo(() => getCopy(locale), [locale]);
@@ -290,8 +354,18 @@ export function CommunityTeamConnectionPanel({
   const connected = claim?.state === 'connected';
   const pending = claim?.state === 'authorization_pending' ? claim : null;
   const reconnect = claim?.state === 'reconnect_required' ? claim : null;
+  const claimStatusEnabled = licenseStatusAvailable && teamSeatRollout?.client.effective === true;
+  const claimEnabled = claimStatusEnabled && teamSeatRollout?.communityClaim.effective === true;
+  const availability = isManaged
+    ? null
+    : availabilityNotice(copy, licenseStatusAvailable, teamSeatRollout);
 
   const loadStatus = useCallback(async () => {
+    if (!claimStatusEnabled) {
+      setClaim(null);
+      setLoading(false);
+      return;
+    }
     setError(null);
     try {
       const payload = await apiRequest<{ success: true; claim: ClaimStatus }>('/api/license/claim/status');
@@ -301,7 +375,7 @@ export function CommunityTeamConnectionPanel({
     } finally {
       setLoading(false);
     }
-  }, [copy.statusError]);
+  }, [claimStatusEnabled, copy.statusError]);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -437,7 +511,7 @@ export function CommunityTeamConnectionPanel({
       : copy.notConnected;
   const accountComplete = connected;
   const teamComplete = preflight?.team.active === true;
-  const canConnect = licensed && !isManaged && !pending && !connected;
+  const canConnect = licensed && !isManaged && !pending && !connected && claimEnabled;
 
   return (
     <Card id="community-team-connection" className="scroll-mt-6 overflow-hidden border-border/80 bg-card py-0">
@@ -471,6 +545,14 @@ export function CommunityTeamConnectionPanel({
             <p className="mt-1 text-sm leading-5 text-muted-foreground">{copy.selfHostedDetail}</p>
           </div>
         </div>
+
+        {availability ? (
+          <Alert>
+            <Info />
+            <AlertTitle>{availability.title}</AlertTitle>
+            <AlertDescription>{availability.description}</AlertDescription>
+          </Alert>
+        ) : null}
 
         {!licensed && !isManaged ? (
           <p className="border border-amber-500/25 bg-amber-500/5 px-3 py-2.5 text-sm text-amber-800 dark:text-amber-300">
@@ -642,9 +724,11 @@ export function CommunityTeamConnectionPanel({
         ) : null}
 
         {error ? (
-          <p aria-live="polite" className="break-words border border-destructive/30 bg-destructive/5 px-3 py-2.5 text-sm text-destructive">
-            {error}
-          </p>
+          <Alert variant="destructive" aria-live="polite">
+            <Info />
+            <AlertTitle>{copy.unavailable}</AlertTitle>
+            <AlertDescription>{error}</AlertDescription>
+          </Alert>
         ) : null}
       </CardContent>
     </Card>

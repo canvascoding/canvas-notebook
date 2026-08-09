@@ -7,6 +7,7 @@ import {
   pollCommunityLicenseClaim,
 } from '@/app/lib/license/control-plane';
 import { TeamSeatRolloutError } from '@/app/lib/license/team-seat-rollout';
+import { logLicenseError } from '@/app/lib/license/logging';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -59,9 +60,7 @@ export async function POST(request: NextRequest) {
         },
       );
     }
-    console.error('[license/community-claim/poll] Claim poll failed without secret context:', {
-      error: error instanceof Error ? error.name : 'UnknownError',
-    });
+    logLicenseError('[license/community-claim/poll]', 'claim poll failed', { claimId }, error);
     return NextResponse.json(
       {
         success: false,

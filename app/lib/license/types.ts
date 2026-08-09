@@ -132,7 +132,8 @@ export interface LicenseStatus {
     | 'license_expired'
     | 'license_invalid'
     | 'license_environment_invalid'
-    | 'license_rollback';
+    | 'license_rollback'
+    | 'license_status_unavailable';
   code?: LicenseValidationErrorCode | LicenseRuntimeErrorCode;
 }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { requireInstanceAdmin } from '@/app/lib/admin-auth';
 import { getCommunityLicenseClaimStatus } from '@/app/lib/license/control-plane';
+import { logLicenseError } from '@/app/lib/license/logging';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export async function GET(request: NextRequest) {
@@ -22,9 +23,7 @@ export async function GET(request: NextRequest) {
       { headers: { 'Cache-Control': 'no-store' } },
     );
   } catch (error) {
-    console.error('[license/community-claim/status] Claim status failed without secret context:', {
-      error: error instanceof Error ? error.name : 'UnknownError',
-    });
+    logLicenseError('[license/community-claim/status]', 'claim status lookup failed', {}, error);
     return NextResponse.json(
       {
         success: false,

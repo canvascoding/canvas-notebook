@@ -16,6 +16,7 @@ export type LicenseApiErrorCode =
   | 'LICENSE_PUBLIC_KEY_UNAVAILABLE'
   | 'LICENSE_CONTROL_PLANE_UNREACHABLE'
   | 'LICENSE_UNTRUSTED_PUBLIC_KEY'
+  | 'LICENSE_STATUS_UNAVAILABLE'
   | LicenseValidationErrorCode
   | LicenseRuntimeErrorCode;
 
@@ -30,6 +31,8 @@ export function codeFromLicenseError(error?: LicenseStatus['error']): LicenseApi
     case 'missing_public_key':
     case 'public_key_unavailable':
       return 'LICENSE_PUBLIC_KEY_UNAVAILABLE';
+    case 'license_status_unavailable':
+      return 'LICENSE_STATUS_UNAVAILABLE';
     default:
       return undefined;
   }

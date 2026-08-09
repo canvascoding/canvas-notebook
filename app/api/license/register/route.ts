@@ -6,6 +6,7 @@ import {
   requestCommunityLicenseRegistration,
 } from '@/app/lib/license/control-plane';
 import { getRequestOrigin } from '@/app/lib/license/instance';
+import { logLicenseError } from '@/app/lib/license/logging';
 import { requireTrustedMutationOrigin } from '@/app/lib/security/mutation-origin';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -48,10 +49,10 @@ export async function POST(request: NextRequest) {
   } catch (error) {
     if (error instanceof LicenseControlPlaneError) {
       const message = redactTeamControlPlaneLogText(error.message, [email]);
-      console.warn(`${LOG_PREFIX} control plane rejected registration`, {
+      logLicenseError(LOG_PREFIX, 'control plane rejected registration', {
         status: error.status,
         code: error.code,
-      });
+      }, error, { knownSecrets: [email] });
       return NextResponse.json(
         { success: false, error: message, code: error.code },
         { status: error.status },
@@ -61,8 +62,8 @@ export async function POST(request: NextRequest) {
       error instanceof Error ? error.message : 'License registration failed',
       [email],
     );
-    console.error(`${LOG_PREFIX} control plane request failed`, {
-      error: message,
+    logLicenseError(LOG_PREFIX, 'control plane request failed', {}, error, {
+      knownSecrets: [email],
     });
     return NextResponse.json(
       {

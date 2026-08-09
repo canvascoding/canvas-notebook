@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { buildTeamSeatHealth } from '../app/lib/license/team-seat-health';
+import { codeFromLicenseStatus } from '../app/lib/license/error-codes';
 import { publicLicenseStatus } from '../app/lib/license/status-response';
 import type { TeamSeatSyncDiagnostics } from '../app/lib/license/team-seat-outbox';
 import type { LicenseStatus } from '../app/lib/license/types';
@@ -227,6 +228,14 @@ function main(): void {
     /licenseClass|licenseEnvironment|seatLimit|organizationId|entitlementsVersion|graceExpiresAt|refresh|quotas|source/u,
   );
 
+  const unavailableStatus: LicenseStatus = {
+    ...licenseStatus(),
+    licensed: false,
+    licenseState: 'inactive',
+    error: 'license_status_unavailable',
+  };
+  assert.equal(codeFromLicenseStatus(unavailableStatus), 'LICENSE_STATUS_UNAVAILABLE');
+
   const statusRoute = readFileSync(
     path.join(process.cwd(), 'app/api/license/status/route.ts'),
     'utf8',
@@ -262,7 +271,32 @@ function main(): void {
     'utf8',
   );
   assert.match(licensePanel, /canViewTeamSeatHealth[\s\S]*TeamSeatHealthPanel/u);
+  assert.match(licensePanel, /licenseStatusAvailable=/u);
+  assert.match(licensePanel, /teamSeatRollout=/u);
   assert.match(userPanel, /canViewTeamSeatHealth[\s\S]*TeamSeatHealthPanel/u);
+  assert.match(userPanel, /teamLicenseUnavailableTitle/u);
+
+  const connectionPanel = readFileSync(
+    path.join(process.cwd(), 'app/components/license/CommunityTeamConnectionPanel.tsx'),
+    'utf8',
+  );
+  assert.match(connectionPanel, /availabilityNotice/u);
+  assert.match(connectionPanel, /licenseStatusAvailable/u);
+  assert.match(connectionPanel, /<Alert>/u);
+
+  const licenseStatusSource = readFileSync(
+    path.join(process.cwd(), 'app/lib/license/index.ts'),
+    'utf8',
+  );
+  assert.match(licenseStatusSource, /license status resolution failed/u);
+  assert.match(licenseStatusSource, /license_status_unavailable/u);
+
+  const loggingSource = readFileSync(
+    path.join(process.cwd(), 'app/lib/license/logging.ts'),
+    'utf8',
+  );
+  assert.match(loggingSource, /logLicenseError/u);
+  assert.match(loggingSource, /redactTeamControlPlaneLogText/u);
 
   const healthPanel = readFileSync(
     path.join(process.cwd(), 'app/components/license/TeamSeatHealthPanel.tsx'),
