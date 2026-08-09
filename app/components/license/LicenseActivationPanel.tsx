@@ -173,7 +173,10 @@ export function LicenseActivationPanel({
   }, [copy.statusUnavailableDescription]);
 
   useEffect(() => {
-    void loadStatus();
+    const timer = window.setTimeout(() => {
+      void loadStatus();
+    }, 0);
+    return () => window.clearTimeout(timer);
   }, [loadStatus]);
 
   async function requestLicense() {

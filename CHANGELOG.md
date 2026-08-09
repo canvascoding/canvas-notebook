@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.9.1] - 2026-08-09
+
+### Changed
+
+- Reduced Community license certificate database work by avoiding full-table scans and duplicate certificate inserts.
+- Added clear, fail-closed license and Team feature availability states in the license and user-management interfaces.
+
+### Fixed
+
+- Deduplicated existing `license_certs` rows and enforced a unique `(instance_id, cert)` index for SQLite and Postgres.
+- Added structured, redacted, throttled diagnostics for Control Plane and license-status failures.
+
+### Verification
+
+- `npm run verify:release`
+- `npx tsc --noEmit`
+- `npm run test:team-seat-health`
+- `npm run test:team-seat-rollout`
+- `npx tsx scripts/community-license-connection-ui-test.ts`
+
 ## [2026.8.2.5] - 2026-08-02
 
 ### Fixed
