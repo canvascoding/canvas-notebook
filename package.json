@@ -24,6 +24,7 @@
     "electron:sync-version": "node scripts/sync-electron-version.mjs",
     "electron:build": "npm run electron:sync-version && npm run build && electron-builder --projectDir electron --dir",
     "electron:pack": "npm run electron:build",
+    "electron:package": "npm run electron:sync-version && electron-builder --projectDir electron",
     "electron:dist": "npm run electron:sync-version && npm run build && electron-builder --projectDir electron",
     "prebuild": "npm run test:licenses",
     "build": "node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build && bash scripts/inject-cli-version.sh",
