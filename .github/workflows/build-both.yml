@@ -467,8 +467,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           RELEASE_TAG: ${{ needs.source.outputs.release_tag }}
+          RELEASE_VERSION: ${{ needs.source.outputs.release_version }}
         run: |
           set -euo pipefail
+          if ! gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release create "$RELEASE_TAG" \
+              --repo "$GITHUB_REPOSITORY" \
+              --title "Canvas Notebook $RELEASE_VERSION" \
+              --notes "Automated Canvas Notebook release $RELEASE_VERSION." \
+              --verify-tag
+          fi
           gh release upload "$RELEASE_TAG" \
             dist-portable-cli/canvas-notebook-cli.tar.gz \
             dist-portable-cli/canvas-notebook-cli.sha256 \
