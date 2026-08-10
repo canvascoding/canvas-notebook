@@ -26,7 +26,7 @@
     "electron:pack": "npm run electron:build",
     "electron:dist": "npm run electron:sync-version && npm run build && electron-builder --projectDir electron",
     "prebuild": "npm run test:licenses",
-    "build": "NODE_OPTIONS=\"${NODE_OPTIONS:+$NODE_OPTIONS }--disable-warning=DEP0205\" next build && bash scripts/inject-cli-version.sh",
+    "build": "node --disable-warning=DEP0205 ./node_modules/next/dist/bin/next build && bash scripts/inject-cli-version.sh",
     "bootstrap:admin": "node scripts/bootstrap-admin.js",
     "backup:create": "tsx --conditions react-server scripts/create-full-backup.ts",
     "start": "NODE_ENV=production ./scripts/start-services.sh",
