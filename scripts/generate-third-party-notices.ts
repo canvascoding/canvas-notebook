@@ -10,6 +10,10 @@ const check = args.has('--check');
 const release = args.has('--release');
 const artifacts = generateThirdPartyComplianceArtifacts();
 
+function normalizeLineEndings(value: string): string {
+  return value.replace(/\r\n?/gu, '\n');
+}
+
 if (check) {
   const currentInventory = fs.existsSync(thirdPartyCompliancePaths.inventory)
     ? fs.readFileSync(thirdPartyCompliancePaths.inventory, 'utf8')
@@ -18,8 +22,10 @@ if (check) {
     ? fs.readFileSync(thirdPartyCompliancePaths.notices, 'utf8')
     : '';
   const stale: string[] = [];
-  if (currentInventory !== artifacts.inventoryJson) stale.push('docs/compliance/third-party-components.json');
-  if (currentNotices !== artifacts.noticesMarkdown) stale.push('THIRD_PARTY_NOTICES.md');
+  // Git may check out text files with CRLF on Windows. That does not make
+  // generated compliance content stale.
+  if (normalizeLineEndings(currentInventory) !== artifacts.inventoryJson) stale.push('docs/compliance/third-party-components.json');
+  if (normalizeLineEndings(currentNotices) !== artifacts.noticesMarkdown) stale.push('THIRD_PARTY_NOTICES.md');
   if (stale.length) {
     throw new Error(`Third-party compliance artifacts are stale: ${stale.join(', ')}`);
   }
