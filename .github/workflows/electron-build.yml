@@ -125,8 +125,6 @@ jobs:
 
       - name: Build Electron desktop artifacts
         shell: bash
-        env:
-          DEBUG: electron-builder,electron-osx-sign,electron-notarize:*
         run: |
           npm run test:licenses:release
           npm run electron:package
