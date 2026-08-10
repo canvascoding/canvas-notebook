@@ -21,7 +21,7 @@ jobs:
       matrix:
         include:
           - platform: macos
-            os: macos-latest
+            os: macos-15
           - platform: windows
             os: windows-latest
           - platform: linux
