@@ -83,6 +83,12 @@ function sha256(value: Buffer): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function normalizedLockfileSha256(value: Buffer): string {
+  // Git may check out text files with CRLF on Windows. Line-ending changes do
+  // not alter the dependency graph and must not invalidate review evidence.
+  return sha256(Buffer.from(value.toString('utf8').replace(/\r\n?/gu, '\n')));
+}
+
 function packageNameFromLockPath(packagePath: string): string {
   const withoutRoot = packagePath.replace(/^node_modules\//u, '');
   const nestedPath = withoutRoot.split('/node_modules/').at(-1) || withoutRoot;
@@ -475,7 +481,7 @@ async function mapConcurrent<T, R>(
 
 async function main() {
   const lockfileRaw = await fs.readFile(path.join(thirdPartyCompliancePaths.root, 'package-lock.json'));
-  const lockfileSha256 = sha256(lockfileRaw);
+  const lockfileSha256 = normalizedLockfileSha256(lockfileRaw);
   const lockfile = JSON.parse(lockfileRaw.toString('utf8')) as {
     packages: Record<string, LockPackage>;
   };

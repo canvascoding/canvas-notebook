@@ -175,6 +175,12 @@ function sha256(value: string | Buffer): string {
   return crypto.createHash('sha256').update(value).digest('hex');
 }
 
+function normalizedLockfileSha256(value: Buffer): string {
+  // Git may check out text files with CRLF on Windows. Line-ending changes do
+  // not alter the dependency graph and must not invalidate review evidence.
+  return sha256(value.toString('utf8').replace(/\r\n?/gu, '\n'));
+}
+
 function relativeToRoot(filePath: string): string {
   return path.relative(ROOT, filePath).replaceAll(path.sep, '/');
 }
@@ -574,7 +580,7 @@ export function generateThirdPartyComplianceArtifacts(): GeneratedComplianceArti
   };
   const packageJson = readJson<{ version: string }>(PACKAGE_PATH);
   const licenseCache = readOptionalJson<LicenseCache>(LICENSE_CACHE_PATH);
-  if (licenseCache && licenseCache.lockfileSha256 !== sha256(lockfileRaw)) {
+  if (licenseCache && licenseCache.lockfileSha256 !== normalizedLockfileSha256(lockfileRaw)) {
     throw new Error(
       'docs/compliance/third-party-license-cache.json is stale for the current package-lock.json. '
       + 'Run npm run licenses:refresh-cache.',
