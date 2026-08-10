@@ -123,10 +123,13 @@ jobs:
         if: matrix.platform == 'linux'
         run: npm run build
 
+      - name: Verify release compliance
+        if: matrix.platform == 'linux'
+        run: npm run test:licenses:release
+
       - name: Build Electron desktop artifacts
         shell: bash
         run: |
-          npm run test:licenses:release
           npm run electron:package
 
       - name: Verify macOS signing and notarization
