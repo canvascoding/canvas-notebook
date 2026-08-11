@@ -11,6 +11,16 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.11.2] - 2026-08-11
+
+### Fixed
+
+- Resolve license and Team entitlement checks before reserving database connections, preventing concurrent authenticated requests from exhausting the PostgreSQL pool and stalling Notebook access.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.11.1] - 2026-08-11
 
 ### Changed
