@@ -4,6 +4,7 @@ import { useEffect } from 'react';
 import { AlertCircle } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
+import { captureClientException } from '@/app/lib/observability/capture-client-exception';
 
 interface ErrorProps {
   error: Error & { digest?: string };
@@ -15,6 +16,10 @@ export default function Error({ error, reset }: ErrorProps) {
 
   useEffect(() => {
     console.error('App error:', error);
+    captureClientException(error, {
+      boundary: 'localized-route',
+      digest: error.digest,
+    });
   }, [error]);
 
   return (

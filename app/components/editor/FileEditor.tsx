@@ -28,6 +28,7 @@ import { HtmlViewer } from './HtmlViewer';
 import { ImageViewer } from './ImageViewer';
 import { PdfViewer } from './PdfViewer';
 import { MediaViewer } from './MediaViewer';
+import { EditorErrorBoundary } from './EditorErrorBoundary';
 import dynamic from 'next/dynamic';
 import { useShallow } from 'zustand/react/shallow';
 
@@ -633,6 +634,25 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
   const isVideo = VIDEO_EXTENSIONS.has(extension);
   const isText = extension === '' || TEXT_EXTENSIONS.has(extension);
   const isBinary = !isText && !isImage && !isPdf && !isMarkdown && !isHtml && !isExcalidraw && !isAudio && !isVideo && !isOffice;
+  const editorKind = isMarkdown
+    ? 'markdown'
+    : isOffice
+      ? 'office'
+      : isExcalidraw
+        ? 'excalidraw'
+        : isHtml
+          ? 'html'
+          : isPdf
+            ? 'pdf'
+            : isImage
+              ? 'image'
+              : isAudio
+                ? 'audio'
+                : isVideo
+                  ? 'video'
+                  : isBinary
+                    ? 'binary'
+                    : 'code';
   const collaboration = currentFile?.collaboration ?? null;
   const isSceneCollaboration = Boolean(collaboration?.sceneCapable);
   const updateCollaborativeDraft = useCallback((value: string) => {
@@ -1340,6 +1360,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
         <CollaborationAgentOperations documentId={collaboration.document.id} />
       ) : null}
       <div className={isImage || isVideo || isMarkdown || isHtml || isExcalidraw ? 'min-h-0 flex-1 overflow-hidden' : (isOffice && extension !== 'docx' ? 'min-h-0 flex-1 relative' : 'min-h-0 flex-1 overflow-auto')}>
+        <EditorErrorBoundary editorKind={editorKind} resetKey={currentFile.path}>
           {isBinary ? (
             <div className="flex h-full flex-col items-center justify-center gap-3 text-center text-muted-foreground">
               <FileText className="h-8 w-8" />
@@ -1432,6 +1453,7 @@ export function FileEditor({ onClosePreview }: FileEditorProps = {}) {
           ) : (
             <CodeEditor value={draft} onChange={updateCollaborativeDraft} readOnly={false} />
           )}
+        </EditorErrorBoundary>
       </div>
     </div>
     {((isMarkdown && !isMarpMarkdownFile) || isHtml) && currentFile && (
