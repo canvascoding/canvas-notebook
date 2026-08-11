@@ -68,7 +68,11 @@ assert.throws(
   /provenance/u,
 );
 
-const workflow = await readFile(new URL('../.github/workflows/build-both.yml', import.meta.url), 'utf8');
-assert.match(workflow, /if \[ "\$\{MERGE_TAG\}" != "latest" \]; then\s+echo "::error::CONTROL_PLANE_RELEASE_WEBHOOK_SECRET is required for tagged releases\."\s+exit 1/su);
+const nativeWorkflow = await readFile(new URL('../.github/workflows/build-both.yml', import.meta.url), 'utf8');
+const workflow = await readFile(new URL('../.github/workflows/notify-control-plane-release.yml', import.meta.url), 'utf8');
+assert.doesNotMatch(nativeWorkflow, /gh release upload/u);
+assert.match(workflow, /release:\s+types: \[published\]/su);
+assert.match(workflow, /browser_download_url/u);
+assert.match(workflow, /CONTROL_PLANE_RELEASE_WEBHOOK_SECRET is required for published releases/u);
 
 console.log('control plane release payload tests passed');

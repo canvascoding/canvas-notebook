@@ -1,0 +1,181 @@
+name: Notify Control Plane Release
+
+on:
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+  packages: read
+
+jobs:
+  notify-control-plane:
+    if: startsWith(github.event.release.tag_name, 'v')
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout immutable release source
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.release.tag_name }}
+          fetch-depth: 0
+
+      - name: Verify published host CLI artifact
+        id: release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          release_version="${RELEASE_TAG#v}"
+          package_version="$(node -p "require('./package.json').version")"
+          [[ "$release_version" == "$package_version" ]]
+
+          host_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-host-cli.tar.gz") | .browser_download_url')"
+          checksum_asset_url="$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" --jq '.assets[] | select(.name == "canvas-notebook-host-cli.sha256") | .browser_download_url')"
+          [[ -n "$host_asset_url" && -n "$checksum_asset_url" ]]
+
+          curl --fail --location --retry 4 --output canvas-notebook-host-cli.tar.gz "$host_asset_url"
+          curl --fail --location --retry 4 --output canvas-notebook-host-cli.sha256 "$checksum_asset_url"
+          shasum -a 256 -c canvas-notebook-host-cli.sha256
+
+          expected_sha256="$(awk '$2 == "canvas-notebook-host-cli.tar.gz" { print $1 }' canvas-notebook-host-cli.sha256)"
+          [[ "$expected_sha256" =~ ^[a-f0-9]{64}$ ]]
+          mkdir host-cli
+          tar -xzf canvas-notebook-host-cli.tar.gz -C host-cli
+          cli_path="$(find host-cli -type f -path '*/install/bin/canvas-notebook' -print -quit)"
+          [[ -n "$cli_path" ]]
+          bundled_version="$(sed -n -E 's/^CANVAS_CLI_VERSION="([^"]*)".*/\1/p' "$cli_path")"
+          [[ "$bundled_version" == "$release_version" ]]
+
+          release_commit_sha="$(git rev-parse "${RELEASE_TAG}^{commit}")"
+          [[ "$release_commit_sha" =~ ^[a-f0-9]{40,64}$ ]]
+          echo "version=${release_version}" >> "$GITHUB_OUTPUT"
+          echo "ref=refs/tags/${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "commit_sha=${release_commit_sha}" >> "$GITHUB_OUTPUT"
+          echo "host_cli_version=${RELEASE_TAG}" >> "$GITHUB_OUTPUT"
+          echo "host_cli_sha256=${expected_sha256}" >> "$GITHUB_OUTPUT"
+
+      - name: Set GHCR image name
+        run: echo "GHCR_IMAGE=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_ENV"
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Log in to GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Resolve immutable release image digest
+        id: image
+        env:
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+        run: |
+          set -euo pipefail
+          digest="$(docker buildx imagetools inspect "${GHCR_IMAGE}:${RELEASE_TAG}" --format '{{.Manifest.Digest}}')"
+          [[ "$digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+          echo "digest=${digest}" >> "$GITHUB_OUTPUT"
+
+      - name: Notify Control Plane release webhook
+        env:
+          CONTROL_PLANE_RELEASE_WEBHOOK_URL: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_URL }}
+          CONTROL_PLANE_RELEASE_WEBHOOK_SECRET: ${{ secrets.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET }}
+          MERGE_TAG: ${{ github.event.release.tag_name }}
+          GHCR_IMAGE: ${{ env.GHCR_IMAGE }}
+          IMAGE_DIGEST: ${{ steps.image.outputs.digest }}
+          HOST_CLI_VERSION: ${{ steps.release.outputs.host_cli_version }}
+          HOST_CLI_SHA256: ${{ steps.release.outputs.host_cli_sha256 }}
+          RELEASE_REF: ${{ steps.release.outputs.ref }}
+          RELEASE_TAG: ${{ github.event.release.tag_name }}
+          RELEASE_COMMIT_SHA: ${{ steps.release.outputs.commit_sha }}
+        run: |
+          if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_URL}" ]; then
+            echo "::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL secret is missing; using the default Canvas Control Plane release webhook URL."
+          fi
+
+          if [ -z "${CONTROL_PLANE_RELEASE_WEBHOOK_SECRET}" ]; then
+            echo "::error::CONTROL_PLANE_RELEASE_WEBHOOK_SECRET is required for published releases."
+            exit 1
+          fi
+
+          node --input-type=module <<'NODE'
+          import fs from 'node:fs';
+          import {
+            buildControlPlaneReleasePayload,
+            signControlPlaneReleasePayload,
+          } from './scripts/control-plane-release-payload.mjs';
+
+          const defaultReleaseWebhookUrl = 'https://api.canvasnotebook.app/v1/webhooks/canvas-notebook-release';
+          const releaseWebhookPath = '/v1/webhooks/canvas-notebook-release';
+
+          function releaseWebhookUrl() {
+            const raw = (process.env.CONTROL_PLANE_RELEASE_WEBHOOK_URL || defaultReleaseWebhookUrl).trim();
+            const url = new URL(raw);
+            const original = url.toString();
+            let normalized = false;
+            if (url.hostname === 'canvasnotebook.app') {
+              url.hostname = 'api.canvasnotebook.app';
+              normalized = true;
+            } else if (url.hostname === 'notebook.canvas.holdings') {
+              url.hostname = 'api.canvas.holdings';
+              normalized = true;
+            }
+            if (url.hostname === 'api.canvasnotebook.app' || url.hostname === 'api.canvas.holdings') {
+              if (url.pathname !== releaseWebhookPath) {
+                url.pathname = releaseWebhookPath;
+                normalized = true;
+              }
+            } else if (url.pathname === '/' || url.pathname === '') {
+              url.pathname = releaseWebhookPath;
+              normalized = true;
+            }
+            if (normalized) {
+              console.warn(`::warning::CONTROL_PLANE_RELEASE_WEBHOOK_URL ${original} does not match the Canvas Control Plane release endpoint; using ${url.toString()} instead.`);
+            }
+            return url.toString();
+          }
+
+          const packageJson = JSON.parse(fs.readFileSync('package.json', 'utf8'));
+          const payload = buildControlPlaneReleasePayload(process.env, packageJson.version);
+          const body = JSON.stringify(payload);
+          const timestamp = Math.floor(Date.now() / 1000).toString();
+          const delivery = `${process.env.GITHUB_RUN_ID}-${process.env.GITHUB_RUN_ATTEMPT}-${process.env.GITHUB_SHA}`;
+          const signature = signControlPlaneReleasePayload(
+            process.env.CONTROL_PLANE_RELEASE_WEBHOOK_SECRET,
+            timestamp,
+            body,
+          );
+          let lastError;
+          for (let attempt = 1; attempt <= 4; attempt += 1) {
+            try {
+              const response = await fetch(releaseWebhookUrl(), {
+                method: 'POST',
+                headers: {
+                  'content-type': 'application/json',
+                  'x-canvas-delivery': delivery,
+                  'x-canvas-timestamp': timestamp,
+                  'x-canvas-signature': signature,
+                },
+                body,
+                signal: AbortSignal.timeout(15_000),
+              });
+              const text = await response.text();
+              if (response.ok) {
+                console.log(`Control Plane release webhook accepted: ${text}`);
+                process.exit(0);
+              }
+              const summary = text.replace(/\s+/g, ' ').trim().slice(0, 1000);
+              lastError = new Error(`Control Plane release webhook failed (${response.status}): ${summary}`);
+            } catch (error) {
+              lastError = error;
+            }
+            if (attempt < 4) {
+              const delayMs = 1_000 * (2 ** (attempt - 1));
+              console.warn(`::warning::Control Plane release webhook attempt ${attempt} failed; retrying in ${delayMs}ms.`);
+              await new Promise(resolve => setTimeout(resolve, delayMs));
+            }
+          }
+          throw lastError || new Error('Control Plane release webhook failed without a response.');
+          NODE
