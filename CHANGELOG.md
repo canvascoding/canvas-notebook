@@ -11,6 +11,21 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.11.1] - 2026-08-11
+
+### Changed
+
+- Hardened release artifact validation and desktop build automation across Linux, Windows, and macOS workers.
+
+### Fixed
+
+- Render PostgreSQL index expressions such as descending columns during startup migrations, preventing the container restart loop caused by a missing index-column name.
+
+### Verification
+
+- `npm run test:mcp:server-schema`
+- `npm run verify:release`
+
 ## [2026.8.9.1] - 2026-08-09
 
 ### Changed
