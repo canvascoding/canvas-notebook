@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.11.4] - 2026-08-11
+
+### Fixed
+
+- Keep document renderer failures inside the Notebook preview instead of replacing the entire route, with a retry action for Markdown, Office, Excalidraw, and other editor surfaces.
+- Capture localized and root route errors with structured client context in Sentry, including Markdown editor chunk-load failures.
+
+### Verification
+
+- `npm run lint`
+- `npm run verify:release`
+
 ## [2026.8.11.3] - 2026-08-11
 
 ### Fixed
