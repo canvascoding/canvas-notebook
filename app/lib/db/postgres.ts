@@ -182,19 +182,27 @@ function uniqueColumnIndexSql(table: PostgresSchemaTable, column: SchemaColumn):
   return `CREATE UNIQUE INDEX IF NOT EXISTS ${quotePostgresIdentifier(normalizeConstraintName(column.uniqueName))} ON ${quotePostgresIdentifier(tableName)} (${quotePostgresIdentifier(column.name)})`;
 }
 
+function renderIndexColumn(column: SchemaColumn | SqlChunk): string | null {
+  if (typeof column.name === 'string' && column.name) {
+    return quotePostgresIdentifier(column.name);
+  }
+
+  return renderSqlFragment(column);
+}
+
 function indexSql(table: PostgresSchemaTable, index: {
   config: {
     name: string;
-    columns: SchemaColumn[];
+    columns: Array<SchemaColumn | SqlChunk>;
     unique: boolean;
     where?: unknown;
   };
 }): string | null {
   const tableName = String(table[TABLE_NAME_SYMBOL]);
-  const columns = index.config.columns.map((column) => quotePostgresIdentifier(column.name)).join(', ');
-  if (!columns) return null;
+  const columns = index.config.columns.map(renderIndexColumn);
+  if (!columns.length || columns.some((column) => !column)) return null;
   const where = renderSqlFragment(index.config.where);
-  return `CREATE ${index.config.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${quotePostgresIdentifier(normalizeConstraintName(index.config.name))} ON ${quotePostgresIdentifier(tableName)} (${columns})${where ? ` WHERE ${where}` : ''}`;
+  return `CREATE ${index.config.unique ? 'UNIQUE ' : ''}INDEX IF NOT EXISTS ${quotePostgresIdentifier(normalizeConstraintName(index.config.name))} ON ${quotePostgresIdentifier(tableName)} (${columns.join(', ')})${where ? ` WHERE ${where}` : ''}`;
 }
 
 function foreignKeySql(table: PostgresSchemaTable, foreignKey: {
