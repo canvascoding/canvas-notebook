@@ -11,11 +11,12 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.8.11.2] - 2026-08-11
+## [2026.8.11.3] - 2026-08-11
 
 ### Fixed
 
 - Resolve license and Team entitlement checks before reserving database connections, preventing concurrent authenticated requests from exhausting the PostgreSQL pool and stalling Notebook access.
+- Produce and verify the release bundle before GitHub Release publication, then notify the Control Plane only after the published artifacts are publicly available.
 
 ### Verification
 
