@@ -40,6 +40,7 @@ import {
 import {
   getActiveTeamMembershipProjection,
 } from '@/app/lib/organization/team-membership';
+import { getLicenseStatus } from './index';
 import type { LicenseStatus } from './types';
 
 const LOG_PREFIX = '[license/team-membership-sync]';
@@ -251,6 +252,7 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
   leaseMs?: number;
   limit?: number;
 } = {}): Promise<TeamMembershipSnapshotSyncResult> {
+  const licenseStatus = options.licenseStatus ?? await getLicenseStatus();
   const database = options.database ?? await openDb();
   const closeDatabase = options.database === undefined;
   const now = options.now ?? Date.now();
@@ -316,7 +318,7 @@ export async function runTeamMembershipSnapshotSyncCycle(options: {
           ))(operation.organizationId, {
             database,
             databaseProvider,
-            licenseStatus: options.licenseStatus,
+            licenseStatus,
             now,
           });
           result.reconciled += 1;

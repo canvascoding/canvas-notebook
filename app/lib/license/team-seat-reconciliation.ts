@@ -300,6 +300,10 @@ export async function reconcileAcknowledgedTeamSeatSnapshot(
   organizationId: string,
   options: TeamSeatReconciliationOptions = {},
 ): Promise<TeamSeatReconciliationResult> {
+  const licenseStatus = options.licenseStatus
+    ?? await (options.loadLicenseStatus
+      ? options.loadLicenseStatus()
+      : (await import('./index')).getLicenseStatus());
   const database = options.database ?? await (await import('@/app/lib/db')).openDb();
   const ownsDatabase = options.database === undefined;
   const databaseProvider = options.databaseProvider ?? getDatabaseProvider();
@@ -309,10 +313,6 @@ export async function reconcileAcknowledgedTeamSeatSnapshot(
     if (!state || state.acknowledgedRevision < 1) {
       throw new Error('An acknowledged Team membership snapshot is required for reconciliation.');
     }
-    const licenseStatus = options.licenseStatus
-      ?? await (options.loadLicenseStatus
-        ? options.loadLicenseStatus()
-        : (await import('./index')).getLicenseStatus());
     const decision = classifyTeamSeatReconciliation({ state, licenseStatus });
 
     const refresh = await withTransaction(database, databaseProvider, async () => {

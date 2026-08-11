@@ -31,15 +31,19 @@ const sqlite = new Database(sqlitePath);
 sqlite.pragma('foreign_keys = ON');
 runMigrations(sqlite);
 
+function sqliteSql(sql: string): string {
+  return sql.replace(/::[a-zA-Z_][a-zA-Z0-9_]*/g, '');
+}
+
 const connection = {
   get: (sql: string, params?: unknown[]) => (
-    params ? sqlite.prepare(sql).get(...params) : sqlite.prepare(sql).get()
+    params ? sqlite.prepare(sqliteSql(sql)).get(...params) : sqlite.prepare(sqliteSql(sql)).get()
   ),
   run: (sql: string, params?: unknown[]) => (
-    params ? sqlite.prepare(sql).run(...params) : sqlite.prepare(sql).run()
+    params ? sqlite.prepare(sqliteSql(sql)).run(...params) : sqlite.prepare(sqliteSql(sql)).run()
   ),
   all: (sql: string, params?: unknown[]) => (
-    params ? sqlite.prepare(sql).all(...params) : sqlite.prepare(sql).all()
+    params ? sqlite.prepare(sqliteSql(sql)).all(...params) : sqlite.prepare(sqliteSql(sql)).all()
   ),
   close: () => undefined,
 };

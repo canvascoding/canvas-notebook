@@ -22,10 +22,21 @@ export async function GET() {
   const deploymentMode = getDeploymentMode();
   const teamFeaturesEnabled = areTeamFeaturesEnabled(deploymentMode);
   const providerGate = resolveDatabaseProviderGate({ teamFeaturesEnabled });
+  const collaboration = getCollaborationRuntimeHealth();
 
   if (!providerGate.ok) {
     checks.databaseProvider = 'error';
     status = 503;
+  }
+
+  if (teamFeaturesEnabled) {
+    try {
+      await requireTeamRuntimeLicense();
+      await requireRuntimeCapability('liveCollaboration');
+      collaboration.capabilityReady = true;
+    } catch {
+      collaboration.capabilityReady = false;
+    }
   }
 
   try {
@@ -33,14 +44,6 @@ export async function GET() {
     await connection.get('SELECT 1');
     checks.db = 'ok';
     if (teamFeaturesEnabled) {
-      const collaboration = getCollaborationRuntimeHealth();
-      try {
-        await requireTeamRuntimeLicense();
-        await requireRuntimeCapability('liveCollaboration');
-        collaboration.capabilityReady = true;
-      } catch {
-        collaboration.capabilityReady = false;
-      }
       if (collaboration.capabilityReady) {
         try {
           await connection.get('SELECT 1 AS ok FROM collaboration_yjs_states LIMIT 1');

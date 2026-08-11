@@ -303,15 +303,14 @@ export async function assertUserSeatAccess(input: {
   database?: SeatLimitDatabase;
   licenseStatus?: LicenseStatus;
 }): Promise<UserSeatAccess> {
+  const licenseStatus = input.licenseStatus ?? await getLicenseStatus();
   const database = input.database ?? await openDb();
   const ownsDatabase = !input.database;
   try {
     await requireUserAccount(database, input.userId);
     const policy = await applyTeamSeatReconciliationRestriction(
       database,
-      resolveEffectiveSeatPolicy(
-        input.licenseStatus ?? await getLicenseStatus(),
-      ),
+      resolveEffectiveSeatPolicy(licenseStatus),
     );
     return await (policy.mode === 'team'
       ? assertTeamUserAccess(database, input.userId, policy)
@@ -329,14 +328,13 @@ export async function assertOrganizationSeatProjectionNotOverLimit(input: {
   seatLimit: number;
   observedQuantity: number;
 }> {
+  const licenseStatus = input.licenseStatus ?? await getLicenseStatus();
   const database = input.database ?? await openDb();
   const ownsDatabase = !input.database;
   try {
     const policy = await applyTeamSeatReconciliationRestriction(
       database,
-      resolveEffectiveSeatPolicy(
-        input.licenseStatus ?? await getLicenseStatus(),
-      ),
+      resolveEffectiveSeatPolicy(licenseStatus),
       input.organizationId,
     );
     const observedQuantity = await activeMembershipQuantity(

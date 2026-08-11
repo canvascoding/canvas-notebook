@@ -171,6 +171,28 @@ async function expectSeatError(
   ));
 }
 
+function assertSourceOrder(input: {
+  source: string;
+  scopeStart: string;
+  scopeEnd?: string;
+  before: string;
+  after: string;
+  message: string;
+}): void {
+  const start = input.source.indexOf(input.scopeStart);
+  assert.notEqual(start, -1, `${input.message}: scope start is missing`);
+  const end = input.scopeEnd
+    ? input.source.indexOf(input.scopeEnd, start + input.scopeStart.length)
+    : input.source.length;
+  assert.notEqual(end, -1, `${input.message}: scope end is missing`);
+  const scoped = input.source.slice(start, end);
+  const before = scoped.indexOf(input.before);
+  const after = scoped.indexOf(input.after);
+  assert.notEqual(before, -1, `${input.message}: first operation is missing`);
+  assert.notEqual(after, -1, `${input.message}: second operation is missing`);
+  assert.ok(before < after, input.message);
+}
+
 async function main() {
   insertUser({
     id: 'owner-user',
@@ -369,6 +391,64 @@ async function main() {
     }),
     'SEAT_MEMBERSHIP_REQUIRED',
   );
+
+  const seatLimitSource = readFileSync(
+    path.join(process.cwd(), 'app/lib/license/seat-limit.ts'),
+    'utf8',
+  );
+  assertSourceOrder({
+    source: seatLimitSource,
+    scopeStart: 'export async function assertUserSeatAccess',
+    scopeEnd: 'export async function assertOrganizationSeatProjectionNotOverLimit',
+    before: 'const licenseStatus = input.licenseStatus ?? await getLicenseStatus();',
+    after: 'const database = input.database ?? await openDb();',
+    message: 'user Seat access must resolve the license before reserving a database connection',
+  });
+  assertSourceOrder({
+    source: seatLimitSource,
+    scopeStart: 'export async function assertOrganizationSeatProjectionNotOverLimit',
+    scopeEnd: 'export async function assertSeatActivationCapacity',
+    before: 'const licenseStatus = input.licenseStatus ?? await getLicenseStatus();',
+    after: 'const database = input.database ?? await openDb();',
+    message: 'Seat projection checks must resolve the license before reserving a database connection',
+  });
+
+  const healthRouteSource = readFileSync(
+    path.join(process.cwd(), 'app/api/health/route.ts'),
+    'utf8',
+  );
+  assertSourceOrder({
+    source: healthRouteSource,
+    scopeStart: 'export async function GET()',
+    before: 'await requireTeamRuntimeLicense();',
+    after: 'connection = await openDb();',
+    message: 'the health route must resolve Team entitlements before reserving its database connection',
+  });
+
+  const membershipSyncSource = readFileSync(
+    path.join(process.cwd(), 'app/lib/license/team-membership-sync.ts'),
+    'utf8',
+  );
+  assertSourceOrder({
+    source: membershipSyncSource,
+    scopeStart: 'export async function runTeamMembershipSnapshotSyncCycle',
+    scopeEnd: 'function scheduleRuntime',
+    before: 'const licenseStatus = options.licenseStatus ?? await getLicenseStatus();',
+    after: 'const database = options.database ?? await openDb();',
+    message: 'Team membership sync must resolve the license before reserving its database connection',
+  });
+
+  const reconciliationSource = readFileSync(
+    path.join(process.cwd(), 'app/lib/license/team-seat-reconciliation.ts'),
+    'utf8',
+  );
+  assertSourceOrder({
+    source: reconciliationSource,
+    scopeStart: 'export async function reconcileAcknowledgedTeamSeatSnapshot',
+    before: 'const licenseStatus = options.licenseStatus',
+    after: "const database = options.database ?? await (await import('@/app/lib/db')).openDb();",
+    message: 'Team Seat reconciliation must resolve the license before reserving its database connection',
+  });
 
   const authSource = readFileSync(path.join(process.cwd(), 'app/lib/auth.ts'), 'utf8');
   assert.match(authSource, /hooks:\s*\{[\s\S]*after:\s*createAuthMiddleware/u);
