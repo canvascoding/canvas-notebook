@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.12.1] - 2026-08-12
+
+### Fixed
+
+- Keep collaborative rich Markdown blocks schema-valid while their Yjs children are restored, preventing `canvasCallout` `RangeError` crashes when opening Markdown files.
+
+### Verification
+
+- `npm run test:editor:rich-blocks`
+- `npm run lint -- app/lib/markdown/canvas-rich-markdown-extensions.ts scripts/markdown-rich-blocks-collaboration-test.ts`
+- `npm run verify:release`
+
 ## [2026.8.11.4] - 2026-08-11
 
 ### Fixed
