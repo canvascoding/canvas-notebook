@@ -22,6 +22,7 @@ import {
   X,
 } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
+import { toast } from 'sonner';
 
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
@@ -77,13 +78,16 @@ import {
   clearLegacyStoredNotebookOpenFilePath,
   clearStoredNotebookOpenFilePath,
   normalizeNotebookFilePath,
-  readStoredNotebookOpenFilePath,
   writeStoredNotebookOpenFilePath,
 } from '@/app/lib/files/notebook-open-file-storage';
 import { createWorkspaceFileTransitionId } from '@/app/lib/files/open-transition';
 import {
   notifyWorkspaceFileOpened,
+  WORKSPACE_PATH_RENAMED_EVENT,
+  WORKSPACE_PATHS_DELETED_EVENT,
   WORKSPACE_FILE_OPENED_EVENT,
+  type WorkspacePathRenamedDetail,
+  type WorkspacePathsDeletedDetail,
 } from '@/app/lib/files/workspace-file-events';
 import { requestWorkspaceMarkdownLocation } from '@/app/lib/markdown/workspace-markdown-navigation';
 import {
@@ -99,6 +103,17 @@ import type {
   NotebookBrowserContextIntent,
   NotebookEmailContextIntent,
 } from '@/app/lib/notebook/context-surface';
+import {
+  NOTEBOOK_MAX_OPEN_DOCUMENTS,
+  closeNotebookDocumentTab,
+  emptyNotebookDocumentTabsState,
+  openNotebookDocumentTab,
+  readNotebookDocumentTabs,
+  renameNotebookDocumentTabs,
+  writeNotebookDocumentTabs,
+  type NotebookDocumentTabsState,
+} from '@/app/lib/notebook/document-tabs';
+import { registerNotebookDocumentOpenGuard } from '@/app/lib/notebook/document-tab-open-guard';
 import { useEditorStore } from '@/app/store/editor-store';
 import { useFileStore } from '@/app/store/file-store';
 import {
@@ -131,6 +146,7 @@ function SurfaceTab({
 }: SurfaceTabProps) {
   return (
     <div
+      title={label}
       className={cn(
         'group/tab flex h-8 shrink-0 items-center overflow-hidden rounded-md border transition-colors',
         active
@@ -379,16 +395,21 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   } | null>(null);
   const [activeRuntimeStatus, setActiveRuntimeStatus] = useState<RuntimeStatus | null>(null);
   const [browserActivityOpen, setBrowserActivityOpen] = useState(false);
+  const [documentTabs, setDocumentTabs] = useState<NotebookDocumentTabsState>(
+    emptyNotebookDocumentTabsState,
+  );
+  const [documentTabsHydratedFor, setDocumentTabsHydratedFor] = useState<string | null>(null);
   const desktopExplorerRef = useRef<HTMLDivElement | null>(null);
   const desktopMainPanelRef = useRef<HTMLDivElement | null>(null);
   const desktopChatRef = useRef<HTMLDivElement | null>(null);
   const openedPathRef = useRef<string | null>(null);
   const initialNotebookStateResolvedRef = useRef(false);
   const previousCurrentFileIdentityRef = useRef<string | null>(null);
+  const documentTabsRef = useRef(documentTabs);
+  const documentTabsWorkspaceIdRef = useRef<string | null>(null);
 
   const currentFile = useFileStore((fileState) => fileState.currentFile);
   const isLoadingFile = useFileStore((fileState) => fileState.isLoadingFile);
-  const loadingFilePath = useFileStore((fileState) => fileState.loadingFilePath);
   const fileError = useFileStore((fileState) => fileState.fileError);
   const currentDirectory = useFileStore((fileState) => fileState.currentDirectory);
   const activeWorkspaceId = useWorkspaceStore((workspaceState) => workspaceState.activeWorkspaceId);
@@ -439,9 +460,61 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   const currentDirectoryLabel =
     currentDirectory === '.' ? tNotebook('workspaceRoot') : `/${currentDirectory}`;
-  const fileLabel = currentFile?.path.split('/').filter(Boolean).pop()
-    || loadingFilePath?.split('/').filter(Boolean).pop()
-    || tNotebook('documentSurface');
+
+  const replaceDocumentTabs = useCallback((
+    workspaceId: string,
+    nextState: NotebookDocumentTabsState,
+  ) => {
+    if (documentTabsWorkspaceIdRef.current !== workspaceId) return;
+    documentTabsRef.current = nextState;
+    setDocumentTabs(nextState);
+    try {
+      writeNotebookDocumentTabs(window.localStorage, workspaceId, nextState);
+      if (nextState.activePath) {
+        writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, nextState.activePath);
+      } else {
+        clearStoredNotebookOpenFilePath(window.localStorage, workspaceId);
+      }
+    } catch {
+      // Local UI persistence is non-critical.
+    }
+  }, []);
+
+  const hydrateDocumentTabs = useCallback((workspaceId: string) => {
+    let nextState = emptyNotebookDocumentTabsState();
+    try {
+      clearLegacyStoredNotebookOpenFilePath(window.localStorage);
+      nextState = readNotebookDocumentTabs(window.localStorage, workspaceId);
+    } catch {
+      // Start without restored tabs when local persistence is unavailable.
+    }
+    documentTabsWorkspaceIdRef.current = workspaceId;
+    documentTabsRef.current = nextState;
+    setDocumentTabs(nextState);
+    setDocumentTabsHydratedFor(workspaceId);
+    return nextState;
+  }, []);
+
+  useEffect(() => registerNotebookDocumentOpenGuard(({ path, workspaceId }) => {
+    const currentWorkspaceId = useWorkspaceStore.getState().activeWorkspaceId;
+    if (
+      !workspaceId
+      || workspaceId !== currentWorkspaceId
+      || documentTabsWorkspaceIdRef.current !== workspaceId
+    ) {
+      return { allowed: true };
+    }
+
+    const result = openNotebookDocumentTab(documentTabsRef.current, path);
+    return result.status === 'limit-reached'
+      ? {
+          allowed: false,
+          error: tNotebook('documentTabLimitReached', {
+            count: NOTEBOOK_MAX_OPEN_DOCUMENTS,
+          }),
+        }
+      : { allowed: true };
+  }), [tNotebook]);
 
   const openNotebookFile = useCallback(async (path: string) => {
     const normalizedPath = normalizeNotebookFilePath(path);
@@ -492,6 +565,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [openNotebookFile]);
 
   useEffect(() => {
+    if (!activeWorkspaceId || documentTabsHydratedFor !== activeWorkspaceId) return;
     const pendingBridgeRequest = window.name === NOTEBOOK_WINDOW_NAME
       ? readPendingNotebookFileReference()
       : null;
@@ -502,10 +576,21 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     if (shouldOpenRouteChat) {
       dispatch({ type: 'SHOW_CHAT' });
     }
-  }, [dispatch, openNotebookFile, routeFilePath, shouldOpenRouteChat]);
+  }, [
+    activeWorkspaceId,
+    dispatch,
+    documentTabsHydratedFor,
+    openNotebookFile,
+    routeFilePath,
+    shouldOpenRouteChat,
+  ]);
 
   useEffect(() => {
-    if (window.name !== NOTEBOOK_WINDOW_NAME) return;
+    if (
+      window.name !== NOTEBOOK_WINDOW_NAME
+      || !activeWorkspaceId
+      || documentTabsHydratedFor !== activeWorkspaceId
+    ) return;
     const handleMessage = (event: MessageEvent) => {
       if (event.origin !== window.location.origin) return;
       const request = parseNotebookFileReferenceRequest(event.data);
@@ -515,7 +600,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     const pendingRequest = readPendingNotebookFileReference();
     if (pendingRequest) queueMicrotask(() => void openBridgedNotebookFile(pendingRequest));
     return () => window.removeEventListener('message', handleMessage);
-  }, [openBridgedNotebookFile]);
+  }, [activeWorkspaceId, documentTabsHydratedFor, openBridgedNotebookFile]);
 
   useEffect(() => {
     const handleOpenChatSession = (event: Event) => {
@@ -546,21 +631,15 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       return;
     }
     initialNotebookStateResolvedRef.current = true;
+    const restoredTabs = hydrateDocumentTabs(activeWorkspaceId);
     if (routeFilePath) {
       if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
     }
 
-    let storedPath: string | null = null;
-    try {
-      clearLegacyStoredNotebookOpenFilePath(window.localStorage);
-      storedPath = readStoredNotebookOpenFilePath(window.localStorage, activeWorkspaceId);
-    } catch {
-      // Start with chat if local persistence is unavailable.
-    }
-    if (storedPath) {
-      openedPathRef.current = storedPath;
-      void openNotebookFile(storedPath);
+    if (restoredTabs.activePath) {
+      openedPathRef.current = restoredTabs.activePath;
+      void openNotebookFile(restoredTabs.activePath);
       if (shouldForceChatOpen) dispatch({ type: 'SHOW_CHAT' });
       return;
     }
@@ -571,6 +650,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }, [
     activeWorkspaceId,
     dispatch,
+    hydrateDocumentTabs,
     layout.preferencesHydrated,
     layout.viewportWidth,
     openNotebookFile,
@@ -592,13 +672,14 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       const previousIdentity = previousCurrentFileIdentityRef.current;
       previousCurrentFileIdentityRef.current = nextIdentity;
       if (!nextPath || !workspaceId || nextIdentity === previousIdentity) return;
-      try {
-        writeStoredNotebookOpenFilePath(window.localStorage, workspaceId, nextPath);
-      } catch {
-        // Local UI persistence is non-critical.
+      if (documentTabsWorkspaceIdRef.current === workspaceId) {
+        const result = openNotebookDocumentTab(documentTabsRef.current, nextPath);
+        if (result.status !== 'limit-reached') {
+          replaceDocumentTabs(workspaceId, result.state);
+        }
       }
     });
-  }, []);
+  }, [replaceDocumentTabs]);
 
   useEffect(() => {
     const handleWorkspaceChange = (event: Event) => {
@@ -608,6 +689,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       previousCurrentFileIdentityRef.current = null;
       useFileStore.getState().resetWorkspaceView(nextWorkspaceId);
       useEditorStore.getState().clear();
+      const restoredTabs = hydrateDocumentTabs(nextWorkspaceId);
       clearEmail();
       clearBrowser();
       dispatch({ type: 'DOCUMENT_CLOSED' });
@@ -615,26 +697,20 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       dispatch({ type: 'CONTEXT_CLOSED', surface: 'browser' });
 
       if (routeFilePath) return;
-      let storedPath: string | null = null;
-      try {
-        storedPath = readStoredNotebookOpenFilePath(window.localStorage, nextWorkspaceId);
-      } catch {
-        // Keep chat as the deterministic fallback.
-      }
-      if (!storedPath) {
+      if (!restoredTabs.activePath) {
         dispatch({ type: 'SHOW_CHAT' });
         return;
       }
-      openedPathRef.current = storedPath;
+      openedPathRef.current = restoredTabs.activePath;
       window.setTimeout(() => {
         if (useWorkspaceStore.getState().activeWorkspaceId === nextWorkspaceId) {
-          void openNotebookFile(storedPath);
+          void openNotebookFile(restoredTabs.activePath!);
         }
       }, 0);
     };
     window.addEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
     return () => window.removeEventListener(WORKSPACE_CHANGED_EVENT, handleWorkspaceChange);
-  }, [clearBrowser, clearEmail, dispatch, openNotebookFile, routeFilePath]);
+  }, [clearBrowser, clearEmail, dispatch, hydrateDocumentTabs, openNotebookFile, routeFilePath]);
 
   useEffect(() => {
     const handleWorkspaceFileOpen = () => {
@@ -645,17 +721,115 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     return () => window.removeEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
   }, [dispatch]);
 
-  const handleCloseDocument = useCallback(() => {
-    useFileStore.getState().clearCurrentFile();
-    if (activeWorkspaceId) {
-      try {
-        clearStoredNotebookOpenFilePath(window.localStorage, activeWorkspaceId);
-      } catch {
-        // Local UI persistence is non-critical.
+  const flushActiveDocument = useCallback(async (path: string) => {
+    const editorState = useEditorStore.getState();
+    if (editorState.activePath !== path || !editorState.isDirty) return true;
+
+    try {
+      editorState.markSaving();
+      const contentToSave = editorState.draft;
+      await useFileStore.getState().saveFile(path, contentToSave, activeWorkspaceId);
+      const latestEditorState = useEditorStore.getState();
+      if (
+        latestEditorState.activePath !== path
+        || latestEditorState.draft !== contentToSave
+      ) {
+        latestEditorState.setSaveError(tNotebook('fileChangedWhileClosing'));
+        toast.error(tNotebook('fileChangedWhileClosing'));
+        return false;
       }
+      latestEditorState.markSaved();
+      return true;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : tNotebook('failedToSaveFile');
+      useEditorStore.getState().setSaveError(message);
+      toast.error(message);
+      return false;
     }
+  }, [activeWorkspaceId, tNotebook]);
+
+  const handleCloseDocumentTab = useCallback(async (path: string) => {
+    if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
+    const currentTabs = documentTabsRef.current;
+    if (!currentTabs.openPaths.includes(path)) return;
+
+    if (currentTabs.activePath !== path) {
+      replaceDocumentTabs(activeWorkspaceId, closeNotebookDocumentTab(currentTabs, path));
+      return;
+    }
+
+    const closingResult = closeNotebookDocumentTab(currentTabs, path);
+    if (closingResult.activePath) {
+      const openResult = await openNotebookFile(closingResult.activePath);
+      if (openResult?.status !== 'opened') {
+        if (openResult?.status !== 'superseded') {
+          toast.error(openResult?.error || tNotebook('failedToLoadPreview'));
+        }
+        return;
+      }
+      replaceDocumentTabs(
+        activeWorkspaceId,
+        closeNotebookDocumentTab(documentTabsRef.current, path),
+      );
+      return;
+    }
+
+    if (!(await flushActiveDocument(path))) return;
+    useFileStore.getState().clearCurrentFile();
+    useEditorStore.getState().clear();
+    openedPathRef.current = null;
+    replaceDocumentTabs(activeWorkspaceId, closingResult);
     dispatch({ type: 'DOCUMENT_CLOSED' });
-  }, [activeWorkspaceId, dispatch]);
+  }, [
+    activeWorkspaceId,
+    dispatch,
+    flushActiveDocument,
+    openNotebookFile,
+    replaceDocumentTabs,
+    tNotebook,
+  ]);
+
+  const handleCloseDocument = useCallback(() => {
+    const activePath = documentTabsRef.current.activePath;
+    if (activePath) void handleCloseDocumentTab(activePath);
+  }, [handleCloseDocumentTab]);
+
+  useEffect(() => {
+    const handlePathsDeleted = (event: Event) => {
+      if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
+      const { paths } = (event as CustomEvent<WorkspacePathsDeletedDetail>).detail;
+      const shouldRemove = (openPath: string) => paths.some((deletedPath) => (
+        openPath === deletedPath || openPath.startsWith(`${deletedPath}/`)
+      ));
+      let nextTabs = documentTabsRef.current;
+      for (const openPath of nextTabs.openPaths.filter(shouldRemove)) {
+        nextTabs = closeNotebookDocumentTab(nextTabs, openPath);
+      }
+      if (nextTabs === documentTabsRef.current) return;
+      replaceDocumentTabs(activeWorkspaceId, nextTabs);
+      if (nextTabs.activePath) {
+        if (useFileStore.getState().currentFile?.path !== nextTabs.activePath) {
+          void openNotebookFile(nextTabs.activePath);
+        }
+      } else {
+        dispatch({ type: 'DOCUMENT_CLOSED' });
+      }
+    };
+    const handlePathRenamed = (event: Event) => {
+      if (!activeWorkspaceId || documentTabsWorkspaceIdRef.current !== activeWorkspaceId) return;
+      const { oldPath, newPath } = (event as CustomEvent<WorkspacePathRenamedDetail>).detail;
+      replaceDocumentTabs(
+        activeWorkspaceId,
+        renameNotebookDocumentTabs(documentTabsRef.current, oldPath, newPath),
+      );
+    };
+    window.addEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
+    window.addEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
+    return () => {
+      window.removeEventListener(WORKSPACE_PATHS_DELETED_EVENT, handlePathsDeleted);
+      window.removeEventListener(WORKSPACE_PATH_RENAMED_EVENT, handlePathRenamed);
+    };
+  }, [activeWorkspaceId, dispatch, openNotebookFile, replaceDocumentTabs]);
 
   const handleCloseContext = useCallback((surface: NotebookContextSurface) => {
     if (surface === 'email') clearEmail();
@@ -787,6 +961,16 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     dispatch({ type: 'DOCUMENT_OPENED' });
     setMobileExplorerOpen(false);
   }, [dispatch]);
+  const handleSelectDocumentTab = useCallback(async (path: string) => {
+    if (documentTabsRef.current.activePath === path && currentFile?.path === path) {
+      dispatch({ type: 'SHOW_SURFACE', surface: 'document' });
+      return;
+    }
+    const result = await openNotebookFile(path);
+    if (result?.status !== 'opened' && result?.status !== 'superseded') {
+      toast.error(result?.error || tNotebook('failedToLoadPreview'));
+    }
+  }, [currentFile?.path, dispatch, openNotebookFile, tNotebook]);
 
   const chatVisible =
     state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet;
@@ -818,6 +1002,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     email: layout.isMobile ? 'notebook-mobile-email' : 'notebook-desktop-email',
     browser: layout.isMobile ? 'notebook-mobile-browser' : 'notebook-desktop-browser',
   };
+  const activeDocumentTabIndex = documentTabs.activePath
+    ? documentTabs.openPaths.indexOf(documentTabs.activePath)
+    : -1;
+  const activeDocumentTabId = activeDocumentTabIndex >= 0
+    ? `notebook-document-${activeDocumentTabIndex}-tab`
+    : 'notebook-surface-document-tab';
 
   return (
     <FileWatcherProvider>
@@ -892,16 +1082,25 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 onSelect={showChat}
                 testId="notebook-surface-chat"
               />
-              {state.documentAvailable ? (
-                <SurfaceTab
-                  active={state.mainSurface === 'document'}
-                  controlsId={surfacePanelIds.document}
-                  icon={<FileText className="h-3.5 w-3.5 shrink-0" />}
-                  label={fileLabel}
-                  onSelect={() => showSurface('document')}
-                  testId="notebook-surface-document"
-                />
-              ) : null}
+              {documentTabs.openPaths.map((path, index) => {
+                const label = path.split('/').filter(Boolean).pop() || path;
+                return (
+                  <SurfaceTab
+                    key={path}
+                    active={
+                      state.mainSurface === 'document'
+                      && documentTabs.activePath === path
+                    }
+                    closeLabel={tNotebook('closeDocumentTab', { name: label })}
+                    controlsId={surfacePanelIds.document}
+                    icon={<FileText className="h-3.5 w-3.5 shrink-0" />}
+                    label={label}
+                    onClose={() => void handleCloseDocumentTab(path)}
+                    onSelect={() => void handleSelectDocumentTab(path)}
+                    testId={`notebook-document-${index}`}
+                  />
+                );
+              })}
               {state.emailAvailable ? (
                 <SurfaceTab
                   active={state.mainSurface === 'email'}
@@ -987,7 +1186,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
             <main className="relative min-h-0 flex-1 overflow-hidden">
               <SurfaceLayer
                 active={state.mainSurface === 'document'}
-                labelledBy="notebook-surface-document-tab"
+                labelledBy={activeDocumentTabId}
                 testId="notebook-mobile-document"
               >
                 {documentContent}
@@ -1137,7 +1336,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                       >
                         <SurfaceLayer
                           active={state.mainSurface === 'document'}
-                          labelledBy="notebook-surface-document-tab"
+                          labelledBy={activeDocumentTabId}
                           testId="notebook-desktop-document"
                         >
                           {documentContent}

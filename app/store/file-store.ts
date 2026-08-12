@@ -53,6 +53,11 @@ import type { FileSortDirection, FileSortKey } from '@/app/lib/files/sort';
 import { useEditorStore } from '@/app/store/editor-store';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { invalidateWorkspaceLinkIndexCache } from '@/app/lib/markdown/workspace-link-index-client';
+import {
+  notifyWorkspacePathRenamed,
+  notifyWorkspacePathsDeleted,
+} from '@/app/lib/files/workspace-file-events';
+import { checkNotebookDocumentOpen } from '@/app/lib/notebook/document-tab-open-guard';
 
 export type {
   BrowserMode,
@@ -983,6 +988,17 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
     const workspaceId = options.workspaceId === undefined
       ? useWorkspaceStore.getState().activeWorkspaceId
       : options.workspaceId;
+    const documentOpenCheck = checkNotebookDocumentOpen({
+      path: normalizedPath,
+      workspaceId,
+    });
+    if (!documentOpenCheck.allowed) {
+      return {
+        status: 'failed',
+        path: normalizedPath,
+        error: documentOpenCheck.error,
+      };
+    }
     const openRequestId = get().openFileRequestId + 1;
     set({ openFileRequestId: openRequestId, searchQuery: '' });
 
@@ -1284,6 +1300,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
       for (const parentDir of parentDirs) {
         await get().refreshDirectory(parentDir, true, workspaceId);
       }
+      notifyWorkspacePathsDeleted(pathsToDelete);
       return result;
     } catch (error) {
       throw error;
@@ -1342,6 +1359,7 @@ export const useFileStore = create<FileStoreState>((set, get) => ({
           }
         }
       }
+      notifyWorkspacePathRenamed(oldPath, newPath);
     } catch (error) {
       throw error;
     }
