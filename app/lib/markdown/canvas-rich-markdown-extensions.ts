@@ -229,7 +229,10 @@ export const CanvasCalloutTitle = Node.create({
 export const CanvasCallout = Node.create({
   name: 'canvasCallout',
   group: 'block',
-  content: 'canvasCalloutTitle block+',
+  // A collaborative Yjs restore can temporarily expose only part of the
+  // wrapper. Keep intermediate states schema-valid so plugins such as UniqueID
+  // can safely update the node while its children are synchronizing.
+  content: 'canvasCalloutTitle? block*',
   defining: true,
   isolating: true,
   priority: 1100,
@@ -283,8 +286,8 @@ export const CanvasCallout = Node.create({
   },
 
   renderMarkdown(node, helpers) {
-    const titleNode = node.content?.[0];
-    const bodyNodes = node.content?.slice(1) ?? [];
+    const titleNode = node.content?.find((child) => child.type === 'canvasCalloutTitle');
+    const bodyNodes = node.content?.filter((child) => child.type !== 'canvasCalloutTitle') ?? [];
     const title = titleNode ? helpers.renderChildren(titleNode.content ?? []) : 'Note';
     const type = safeText(node.attrs?.calloutType, 'note').toLowerCase();
     const fold = node.attrs?.fold === '+' || node.attrs?.fold === '-' ? node.attrs.fold : '';
@@ -357,7 +360,7 @@ export const CanvasDetailsSummary = Node.create({
 
 export const CanvasDetailsContent = Node.create({
   name: 'canvasDetailsContent',
-  content: 'block+',
+  content: 'block*',
   defining: true,
   selectable: false,
 
@@ -375,7 +378,7 @@ export const CanvasDetailsContent = Node.create({
 export const CanvasDetails = Node.create({
   name: 'canvasDetails',
   group: 'block',
-  content: 'canvasDetailsSummary canvasDetailsContent',
+  content: 'canvasDetailsSummary? canvasDetailsContent?',
   defining: true,
   isolating: true,
   priority: 1100,
@@ -405,8 +408,8 @@ export const CanvasDetails = Node.create({
   },
 
   renderMarkdown(node, helpers) {
-    const summaryNode = node.content?.[0];
-    const contentNode = node.content?.[1];
+    const summaryNode = node.content?.find((child) => child.type === 'canvasDetailsSummary');
+    const contentNode = node.content?.find((child) => child.type === 'canvasDetailsContent');
     const summary = summaryNode ? helpers.renderChildren(summaryNode.content ?? []) : 'Details';
     const body = contentNode ? helpers.renderChildren(contentNode.content ?? [], '\n\n') : '';
     return `<details>\n<summary>${summary}</summary>\n\n${body}\n\n</details>`;
@@ -511,7 +514,7 @@ export const MarkdownFootnoteReference = Node.create({
 export const MarkdownFootnoteDefinition = Node.create({
   name: 'markdownFootnoteDefinition',
   group: 'block',
-  content: 'block+',
+  content: 'block*',
   defining: true,
   isolating: true,
   priority: 1100,

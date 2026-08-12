@@ -1,8 +1,12 @@
 import assert from 'node:assert/strict';
 
+import { getSchema } from '@tiptap/core';
+import { EditorState } from '@tiptap/pm/state';
+
 import {
   createRichMarkdownYDoc,
   replaceRichMarkdownInYDoc,
+  richMarkdownSchemaExtensions,
   richMarkdownFromYDoc,
   validateRichMarkdownYDoc,
 } from '../app/lib/collaboration/markdown-state';
@@ -54,6 +58,47 @@ try {
   );
 } finally {
   richDocument.destroy();
+}
+
+const schema = getSchema(richMarkdownSchemaExtensions());
+
+for (const [label, transientNode] of [
+  [
+    'callout body',
+    schema.nodes.canvasCallout.create(
+      { calloutType: 'note' },
+      schema.nodes.canvasCalloutTitle.create(null, schema.text('Restoring')),
+    ),
+  ],
+  [
+    'callout title',
+    schema.nodes.canvasCallout.create(
+      { calloutType: 'note' },
+      schema.nodes.paragraph.create(null, schema.text('Restoring')),
+    ),
+  ],
+  [
+    'details content',
+    schema.nodes.canvasDetails.create(
+      null,
+      schema.nodes.canvasDetailsSummary.create(null, schema.text('Restoring')),
+    ),
+  ],
+  [
+    'footnote body',
+    schema.nodes.markdownFootnoteDefinition.create({ footnoteId: '1' }),
+  ],
+] as const) {
+  const transientDocument = schema.nodes.doc.create(null, transientNode);
+  const transientState = EditorState.create({ schema, doc: transientDocument });
+
+  assert.doesNotThrow(
+    () => transientState.tr.setNodeMarkup(0, undefined, {
+      ...transientNode.attrs,
+      id: `restored-${transientNode.type.name}`,
+    }),
+    `UniqueID must be able to update a rich block while its collaborative ${label} is still restoring`,
+  );
 }
 
 console.log('markdown-rich-blocks-collaboration-test: ok');
