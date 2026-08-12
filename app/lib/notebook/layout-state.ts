@@ -110,6 +110,15 @@ function withMainSurface(
   };
 }
 
+function withEmptyWorkbenchBesideChat(state: NotebookLayoutState): NotebookLayoutState {
+  return {
+    ...state,
+    mainSurface: 'document',
+    lastWorkSurface: null,
+    chatDocked: true,
+  };
+}
+
 export function notebookLayoutReducer(
   state: NotebookLayoutState,
   action: NotebookLayoutAction,
@@ -158,6 +167,9 @@ export function notebookLayoutReducer(
       };
       if (state.mainSurface !== 'document') return nextState;
       const fallback = fallbackWorkSurface(nextState, 'document');
+      if (!fallback && state.chatDocked && state.viewport === 'desktop-wide') {
+        return withEmptyWorkbenchBesideChat(nextState);
+      }
       return fallback ? withMainSurface(nextState, fallback) : withMainSurface(nextState, 'chat');
     }
 
@@ -181,6 +193,9 @@ export function notebookLayoutReducer(
       };
       if (state.mainSurface !== action.surface) return nextState;
       const fallback = fallbackWorkSurface(nextState, action.surface);
+      if (!fallback && state.chatDocked && state.viewport === 'desktop-wide') {
+        return withEmptyWorkbenchBesideChat(nextState);
+      }
       return fallback ? withMainSurface(nextState, fallback) : withMainSurface(nextState, 'chat');
     }
 
@@ -197,7 +212,7 @@ export function notebookLayoutReducer(
       const fallback = fallbackWorkSurface(state);
       return fallback
         ? { ...withMainSurface(state, fallback), chatDocked: true }
-        : state;
+        : withEmptyWorkbenchBesideChat(state);
     }
 
     case 'SET_TERMINAL':

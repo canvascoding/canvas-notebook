@@ -1339,21 +1339,26 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                 />
               ) : null}
 
-              <div className="min-w-0 flex-1">
-                <AppLayout
-                  sidebar={<div />}
-                  sidebarHidden
-                  terminalVisible={state.terminalOpen}
-                  sidebarResizeLabel={tNotebook('resizeFileTree')}
-                  terminalResizeLabel={tNotebook('resizeTerminal')}
-                  main={
-                    <div ref={desktopMainPanelRef} className="relative flex h-full min-h-0 w-full overflow-hidden">
+              <div
+                ref={desktopMainPanelRef}
+                className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden"
+              >
+                <div
+                  className={cn(
+                    'min-h-0 min-w-0 flex-1',
+                    state.mainSurface === 'chat' && 'hidden',
+                  )}
+                >
+                  <AppLayout
+                    sidebar={<div />}
+                    sidebarHidden
+                    terminalVisible={state.terminalOpen}
+                    sidebarResizeLabel={tNotebook('resizeFileTree')}
+                    terminalResizeLabel={tNotebook('resizeTerminal')}
+                    main={
                       <div
                         id="onboarding-notebook-editor"
-                        className={cn(
-                          'relative min-h-0 min-w-0 flex-1 overflow-hidden bg-background',
-                          state.mainSurface === 'chat' && 'hidden',
-                        )}
+                        className="relative h-full min-h-0 min-w-0 overflow-hidden bg-background"
                       >
                         <SurfaceLayer
                           active={state.mainSurface === 'document'}
@@ -1404,82 +1409,82 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                           ) : null}
                         </SurfaceLayer>
                       </div>
+                    }
+                    terminal={<TerminalPanel />}
+                  />
+                </div>
 
-                      {state.chatDocked ? (
-                        <ResizeHandle
-                          data-testid="notebook-chat-resize-handle"
-                          orientation="vertical"
-                          label={tNotebook('resizeChat')}
-                          controls="onboarding-notebook-chat"
-                          min={NOTEBOOK_CHAT_MIN_WIDTH}
-                          max={availableChatMaxWidth}
-                          value={layout.chatWidth}
-                          resizing={chatResize.isResizing}
-                          {...chatResize.handleProps}
-                        />
-                      ) : null}
+                {state.chatDocked ? (
+                  <ResizeHandle
+                    data-testid="notebook-chat-resize-handle"
+                    orientation="vertical"
+                    label={tNotebook('resizeChat')}
+                    controls="onboarding-notebook-chat"
+                    min={NOTEBOOK_CHAT_MIN_WIDTH}
+                    max={availableChatMaxWidth}
+                    value={layout.chatWidth}
+                    resizing={chatResize.isResizing}
+                    {...chatResize.handleProps}
+                  />
+                ) : null}
 
-                      <div
-                        ref={desktopChatRef}
-                        id="onboarding-notebook-chat"
-                        data-testid="notebook-desktop-chat"
-                        data-chat-placement={state.mainSurface === 'chat'
-                          ? 'main'
-                          : state.chatDocked
-                            ? 'side'
-                            : browserActivityUsesSheet
-                              ? 'overlay'
-                              : 'hidden'}
-                        role={browserActivityUsesSheet
-                          ? 'dialog'
-                          : state.mainSurface === 'chat'
-                            ? 'tabpanel'
-                            : 'complementary'}
-                        aria-labelledby={state.mainSurface === 'chat' ? 'notebook-surface-chat-tab' : undefined}
-                        aria-label={browserActivityUsesSheet
-                          ? tNotebook('agentActivity')
-                          : state.chatDocked
-                            ? tCommon('aiChat')
-                            : undefined}
-                        aria-modal={browserActivityUsesSheet || undefined}
-                        aria-hidden={!chatVisible}
-                        inert={!chatVisible}
-                        style={state.chatDocked
-                          ? {
-                              '--notebook-chat-width': `${layout.chatWidth}px`,
-                              width: 'var(--notebook-chat-width)',
-                            } as CSSProperties
-                          : undefined}
-                        className={cn(
-                          'min-h-0 overflow-hidden bg-background',
-                          state.mainSurface === 'chat'
-                            ? 'min-w-0 flex-1'
-                            : state.chatDocked
-                              ? 'w-[var(--notebook-chat-width)] shrink-0 border-l border-border'
-                              : browserActivityUsesSheet
-                                ? 'absolute inset-y-0 right-0 z-40 w-full max-w-[30rem] border-l border-border shadow-2xl'
-                                : 'hidden',
-                        )}
-                      >
-                        <div
-                          id="browser-agent-activity-panel"
-                          data-testid={browserActivityUsesSheet
-                            ? 'browser-agent-activity-sheet'
-                            : undefined}
-                          className="flex h-full min-h-0 flex-col"
-                        >
-                          {browserActivityUsesSheet ? (
-                            <BrowserActivityPanelHeader onClose={() => setBrowserActivityOpen(false)} />
-                          ) : null}
-                          <div className="min-h-0 flex-1">
-                            {chatContent}
-                          </div>
-                        </div>
-                      </div>
+                <div
+                  ref={desktopChatRef}
+                  id="onboarding-notebook-chat"
+                  data-testid="notebook-desktop-chat"
+                  data-chat-placement={state.mainSurface === 'chat'
+                    ? 'main'
+                    : state.chatDocked
+                      ? 'side'
+                      : browserActivityUsesSheet
+                        ? 'overlay'
+                        : 'hidden'}
+                  role={browserActivityUsesSheet
+                    ? 'dialog'
+                    : state.mainSurface === 'chat'
+                      ? 'tabpanel'
+                      : 'complementary'}
+                  aria-labelledby={state.mainSurface === 'chat' ? 'notebook-surface-chat-tab' : undefined}
+                  aria-label={browserActivityUsesSheet
+                    ? tNotebook('agentActivity')
+                    : state.chatDocked
+                      ? tCommon('aiChat')
+                      : undefined}
+                  aria-modal={browserActivityUsesSheet || undefined}
+                  aria-hidden={!chatVisible}
+                  inert={!chatVisible}
+                  style={state.chatDocked
+                    ? {
+                        '--notebook-chat-width': `${layout.chatWidth}px`,
+                        width: 'var(--notebook-chat-width)',
+                      } as CSSProperties
+                    : undefined}
+                  className={cn(
+                    'min-h-0 overflow-hidden bg-background',
+                    state.mainSurface === 'chat'
+                      ? 'min-w-0 flex-1'
+                      : state.chatDocked
+                        ? 'w-[var(--notebook-chat-width)] shrink-0 border-l border-border'
+                        : browserActivityUsesSheet
+                          ? 'absolute inset-y-0 right-0 z-40 w-full max-w-[30rem] border-l border-border shadow-2xl'
+                          : 'hidden',
+                  )}
+                >
+                  <div
+                    id="browser-agent-activity-panel"
+                    data-testid={browserActivityUsesSheet
+                      ? 'browser-agent-activity-sheet'
+                      : undefined}
+                    className="flex h-full min-h-0 flex-col"
+                  >
+                    {browserActivityUsesSheet ? (
+                      <BrowserActivityPanelHeader onClose={() => setBrowserActivityOpen(false)} />
+                    ) : null}
+                    <div className="min-h-0 flex-1">
+                      {chatContent}
                     </div>
-                  }
-                  terminal={<TerminalPanel />}
-                />
+                  </div>
+                </div>
               </div>
             </main>
           )}

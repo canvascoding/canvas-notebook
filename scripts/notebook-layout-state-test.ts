@@ -28,6 +28,21 @@ const dockedState = notebookLayoutReducer(chatState, { type: 'SET_CHAT_DOCKED', 
 assert.equal(dockedState.mainSurface, 'document');
 assert.equal(dockedState.chatDocked, true);
 
+const emptyWorkbenchDockedState = notebookLayoutReducer(initialNotebookLayoutState, {
+  type: 'SET_CHAT_DOCKED',
+  docked: true,
+});
+assert.equal(emptyWorkbenchDockedState.mainSurface, 'document');
+assert.equal(emptyWorkbenchDockedState.documentAvailable, false);
+assert.equal(emptyWorkbenchDockedState.chatDocked, true);
+
+const closedLastDockedDocumentState = notebookLayoutReducer(dockedState, {
+  type: 'DOCUMENT_CLOSED',
+});
+assert.equal(closedLastDockedDocumentState.mainSurface, 'document');
+assert.equal(closedLastDockedDocumentState.documentAvailable, false);
+assert.equal(closedLastDockedDocumentState.chatDocked, true);
+
 const browserBesideChatState = reduce(
   { type: 'CONTEXT_OPENED', surface: 'browser' },
   { type: 'SET_CHAT_DOCKED', docked: true },
