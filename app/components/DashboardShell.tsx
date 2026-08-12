@@ -78,6 +78,7 @@ import {
   clearLegacyStoredNotebookOpenFilePath,
   clearStoredNotebookOpenFilePath,
   normalizeNotebookFilePath,
+  readStoredNotebookOpenFilePath,
   writeStoredNotebookOpenFilePath,
 } from '@/app/lib/files/notebook-open-file-storage';
 import { createWorkspaceFileTransitionId } from '@/app/lib/files/open-transition';
