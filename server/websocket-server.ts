@@ -82,7 +82,15 @@ type ClientMessage =
       message: AgentMessage;
       context?: ChatRequestContext;
     }
-  | { type: 'control'; requestId?: string; sessionId: string; action: ControlAction; message?: AgentMessage; queueItemId?: string }
+  | {
+      type: 'control';
+      requestId?: string;
+      sessionId: string;
+      action: ControlAction;
+      message?: AgentMessage;
+      queueItemId?: string;
+      context?: ChatRequestContext;
+    }
   | { type: 'get_status'; requestId?: string; sessionId: string };
 
 /**
@@ -895,7 +903,14 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
           queueItemId: message.queueItemId,
         });
         const runtimeService = await getRuntimeService();
-        const status = await runtimeService.control(message.sessionId, userId, message.action, message.message, message.queueItemId);
+        const status = await runtimeService.control(
+          message.sessionId,
+          userId,
+          message.action,
+          message.message,
+          message.queueItemId,
+          message.context,
+        );
         console.log('[WebSocket] control completed', {
           connectionId: connection.id,
           userId,

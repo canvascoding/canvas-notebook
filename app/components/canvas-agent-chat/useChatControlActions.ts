@@ -340,12 +340,14 @@ export function useChatControlActions({
     action: ChatRuntimeControlAction,
     message?: Extract<AgentMessage, { role: 'user' }>,
     queueItemId?: string,
+    context?: ChatRequestContext,
   ) => {
     const payload = await wsRequest<{ success: boolean; status?: RuntimeStatus; error?: string }>('control', {
       sessionId: targetSessionId,
       action,
       ...(message ? { message } : {}),
       ...(queueItemId ? { queueItemId } : {}),
+      ...(context ? { context } : {}),
     });
 
     if (payload.status) {
@@ -380,6 +382,10 @@ export function useChatControlActions({
     if (!runtimeSelection) {
       throw new Error(t('runtimeSelectionUnavailableError'));
     }
+
+    // Freeze the visible workbench state at send time. Session creation and
+    // attachment processing may take long enough for the user to switch tabs.
+    const requestContextSnapshot = buildRequestContext(currentFilePath);
 
     if (showHistory && (isMobile || shouldShowHistoryAsOverlay)) {
       setShowHistory(false);
@@ -425,9 +431,15 @@ export function useChatControlActions({
           sessionId: targetSessionId,
           agentId: sessionAgentIdRef.current || selectedAgentId,
           message: userMessage as unknown as Record<string, unknown>,
-          context: buildRequestContext(currentFilePath),
+          context: requestContextSnapshot,
         }, chatRequestTimeoutMs)
-        : { status: await postControl(targetSessionId, effectiveAction, userMessage) };
+        : { status: await postControl(
+          targetSessionId,
+          effectiveAction,
+          userMessage,
+          undefined,
+          requestContextSnapshot,
+        ) };
 
       if (optimisticMessageId) {
         setMessages((prev) => prev.map((message) => (

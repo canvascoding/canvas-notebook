@@ -114,6 +114,7 @@ import {
   type NotebookDocumentTabsState,
 } from '@/app/lib/notebook/document-tabs';
 import { registerNotebookDocumentOpenGuard } from '@/app/lib/notebook/document-tab-open-guard';
+import { resolveNotebookChatContext } from '@/app/lib/notebook/chat-context';
 import { useEditorStore } from '@/app/store/editor-store';
 import { useFileStore } from '@/app/store/file-store';
 import {
@@ -448,15 +449,35 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     onClose: handleContextUnavailable,
   });
 
+  const notebookChatPlacement = state.mainSurface === 'chat'
+    ? 'full' as const
+    : state.chatDocked
+      ? 'side' as const
+      : !layout.canDockChat && browserActivityOpen && state.mainSurface === 'browser'
+        ? 'overlay' as const
+        : 'hidden' as const;
+  const resolvedNotebookChatContext = useMemo(() => resolveNotebookChatContext({
+    activeDocumentPath: documentTabs.activePath,
+    chatPlacement: notebookChatPlacement,
+    mainSurface: state.mainSurface,
+    openDocumentPaths: documentTabs.openPaths,
+  }), [documentTabs.activePath, documentTabs.openPaths, notebookChatPlacement, state.mainSurface]);
+
   const requestContext = useMemo<ChatRequestContext>(() => {
+    let surfaceContext: ChatRequestContext;
     if (state.mainSurface === 'email' && emailChatContext) {
-      return emailChatContext;
+      surfaceContext = emailChatContext;
+    } else if (state.mainSurface === 'browser') {
+      surfaceContext = { currentPage: '/browser/live' };
+    } else {
+      surfaceContext = { currentPage: '/notebook' };
     }
-    if (state.mainSurface === 'browser') {
-      return { currentPage: '/browser/live' };
-    }
-    return { currentPage: '/notebook' };
-  }, [emailChatContext, state.mainSurface]);
+    return {
+      ...surfaceContext,
+      activeFilePath: resolvedNotebookChatContext.activeFilePath,
+      notebookContext: resolvedNotebookChatContext.notebookContext,
+    };
+  }, [emailChatContext, resolvedNotebookChatContext, state.mainSurface]);
 
   const currentDirectoryLabel =
     currentDirectory === '.' ? tNotebook('workspaceRoot') : `/${currentDirectory}`;

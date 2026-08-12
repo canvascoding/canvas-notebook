@@ -43,7 +43,12 @@ function createAgentSpy(): QueueAgentSpy {
   return spy;
 }
 
-function entry(id: string, text: string, timestamp: number): RuntimeQueueEntry {
+function entry(
+  id: string,
+  text: string,
+  timestamp: number,
+  context?: RuntimeQueueEntry['context'],
+): RuntimeQueueEntry {
   const message: Extract<AgentMessage, { role: 'user' }> = {
     role: 'user',
     content: text,
@@ -60,6 +65,7 @@ function entry(id: string, text: string, timestamp: number): RuntimeQueueEntry {
     },
     message,
     signature: `${timestamp}:${text}:0`,
+    context,
   };
 }
 
@@ -85,6 +91,7 @@ assert.deepEqual(queuedTexts(agent.followUps), ['keep queued']);
 
 const promoted = queues.promoteFollowUp(selected.id, agent);
 assert.equal(promoted, selected);
+assert.equal(promoted?.context, undefined);
 assert.deepEqual(queues.followUps, [keepQueued]);
 assert.deepEqual(agent.followUps, []);
 
@@ -115,6 +122,21 @@ assert.deepEqual(idleAgent.steering, []);
 
 idleQueues.consume(idleSelected.signature, idleAgent);
 assert.deepEqual(queuedTexts(idleAgent.followUps), ['keep queued while idle']);
+
+const frozenContext = {
+  activeFilePath: 'notes/active-at-send.md',
+  notebookContext: {
+    activeSurface: { kind: 'document' as const, path: 'notes/active-at-send.md' },
+    chatPlacement: 'side' as const,
+    openDocuments: [
+      { path: 'notes/active-at-send.md', state: 'active' as const },
+      { path: 'notes/background.md', state: 'background' as const },
+    ],
+  },
+};
+const contextEntry = entry('with-context', 'keep send-time context', 12, frozenContext);
+idleQueues.enqueueFollowUp(contextEntry, idleAgent);
+assert.equal(idleQueues.followUps.at(-1)?.context, frozenContext);
 
 assert.equal(queues.remove(keepQueued.id, agent), 'follow_up');
 assert.equal(queues.remove(laterFollowUp.id, agent), 'follow_up');

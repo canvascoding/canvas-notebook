@@ -5,6 +5,22 @@ import type { RuntimeQueueItem, RuntimeStatus } from '@/app/lib/chat/runtime-sta
 
 export type ChatWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
 
+export type NotebookChatPlacement = 'full' | 'hidden' | 'overlay' | 'side';
+
+export type NotebookRequestActiveSurface =
+  | { kind: 'browser' }
+  | { kind: 'document'; path: string }
+  | { kind: 'email' };
+
+export type NotebookRequestContext = {
+  activeSurface: NotebookRequestActiveSurface | null;
+  chatPlacement: NotebookChatPlacement;
+  openDocuments: Array<{
+    path: string;
+    state: 'active' | 'background';
+  }>;
+};
+
 /**
  * Context fields attached to every chat message sent to the PI runtime.
  * Used by both the temporary HTTP compatibility routes and the WebSocket runtime protocol.
@@ -28,6 +44,7 @@ export interface ChatRequestContext {
   };
   planningMode?: boolean;
   currentPage?: string;
+  notebookContext?: NotebookRequestContext;
   studioContext?: {
     generationId?: string;
     currentOutputId?: string;

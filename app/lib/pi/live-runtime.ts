@@ -101,6 +101,7 @@ export type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context
 const IDLE_TTL_MS = 15 * 60 * 1000;
 const CLEANUP_INTERVAL_MS = 60 * 1000;
 const MAX_RUNTIME_INSTANCES = 20;
+const MAX_MESSAGE_CONTEXT_SNAPSHOTS = 64;
 const RUNTIME_CONTEXT_VALUE_MAX_CHARS = 2_000;
 
 function estimatePiToolSchemaTokens(tools: AgentTool[]): number {
@@ -429,6 +430,8 @@ class LivePiRuntime {
   private activeFileContext: string | null = null;
   private planningMode = false;
   private pageContext: string | null = null;
+  private notebookContext: PiRuntimePromptContext['notebookContext'] | null = null;
+  private readonly messageContextSnapshots = new Map<string, PiRuntimePromptContext>();
   private studioContext: PiRuntimePromptContext['studioContext'] | null = null;
   private emailContext: PiRuntimePromptContext['emailContext'] | null = null;
   private workspaceContext: PiRuntimePromptContext['workspace'] | null = null;
@@ -570,26 +573,34 @@ class LivePiRuntime {
     };
   }
 
-  async queueFollowUp(message: Extract<AgentMessage, { role: 'user' }>) {
+  async queueFollowUp(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    context?: PiRuntimePromptContext,
+  ) {
     if (!this.isRunning && !this.agent.state.isStreaming) {
       throw new Error('No active agent run to queue a follow-up message.');
     }
 
     const sanitized = sanitizeUserMessage(message);
-    const entry = this.createQueueEntry(sanitized);
+    const entry = this.createQueueEntry(sanitized, context);
+    this.rememberMessageContext(sanitized, context);
     this.messageQueues.enqueueFollowUp(entry, this.agent);
     this.touch();
     this.publishStatus();
     return this.getStatus();
   }
 
-  async queueSteering(message: Extract<AgentMessage, { role: 'user' }>) {
+  async queueSteering(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    context?: PiRuntimePromptContext,
+  ) {
     if (!this.isRunning && !this.agent.state.isStreaming) {
       throw new Error('No active agent run to steer.');
     }
 
     const sanitized = sanitizeUserMessage(message);
-    const entry = this.createQueueEntry(sanitized);
+    const entry = this.createQueueEntry(sanitized, context);
+    this.rememberMessageContext(sanitized, context);
     this.messageQueues.enqueueSteering(entry, this.agent);
     this.touch();
     this.publishStatus();
@@ -604,7 +615,7 @@ class LivePiRuntime {
 
     if (!this.isRunning && !this.agent.state.isStreaming) {
       this.messageQueues.trackSteering(entry);
-      this.startPrompt(entry.message);
+      this.startPrompt(entry.message, entry.context);
       return this.getStatus();
     }
 
@@ -624,16 +635,20 @@ class LivePiRuntime {
     return this.getStatus();
   }
 
-  async replace(message: Extract<AgentMessage, { role: 'user' }>) {
+  async replace(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    context?: PiRuntimePromptContext,
+  ) {
     const sanitized = sanitizeUserMessage(message);
 
     if (!this.isRunning && !this.agent.state.isStreaming) {
-      this.startPrompt(sanitized);
+      this.startPrompt(sanitized, context);
       return this.getStatus();
     }
 
     this.messageQueues.clear(this.agent);
-    this.pendingReplace = this.createQueueEntry(sanitized);
+    this.pendingReplace = this.createQueueEntry(sanitized, context);
+    this.rememberMessageContext(sanitized, context);
     this.abortRequested = true;
     this.touch();
     this.publishStatus();
@@ -757,6 +772,10 @@ class LivePiRuntime {
 
   setPageContext(page: string | undefined): void {
     this.pageContext = page ?? null;
+  }
+
+  setNotebookContext(context: PiRuntimePromptContext['notebookContext']) {
+    this.notebookContext = context ?? null;
   }
 
   setStudioContext(context: PiRuntimePromptContext['studioContext']) {
@@ -992,6 +1011,38 @@ class LivePiRuntime {
     return lines.join('\n');
   }
 
+  private getNotebookContextBlock(
+    context: PiRuntimePromptContext['notebookContext'] | null = this.notebookContext,
+  ): string | null {
+    if (!context) return null;
+
+    const lines = [
+      '## Notebook Workbench Context',
+      `Chat placement: ${formatRuntimeContextValue(context.chatPlacement)}`,
+    ];
+    if (context.activeSurface?.kind === 'document') {
+      lines.push(`Active side-by-side document: ${formatRuntimeContextValue(context.activeSurface.path)}`);
+    } else if (context.activeSurface) {
+      lines.push(`Active side-by-side surface: ${formatRuntimeContextValue(context.activeSurface.kind)}`);
+    } else {
+      lines.push('No work surface is implicit context for this message.');
+    }
+
+    if (context.openDocuments.length > 0) {
+      lines.push('Open document tabs (UI metadata only):');
+      for (const document of context.openDocuments) {
+        lines.push(`- ${formatRuntimeContextValue(document.path)} (${document.state})`);
+      }
+    }
+
+    lines.push(
+      'Only the active side-by-side surface is implicit conversation context.',
+      'Background document tabs are organizational metadata. Do not read, quote, or modify them unless the user explicitly refers to them.',
+      'Document contents are not included here. Use a file-reading tool when the user request requires the active or explicitly referenced document contents.',
+    );
+    return lines.join('\n');
+  }
+
   private getPageContextBlock(): string | null {
     if (!this.pageContext) return null;
     if (this.pageContext.startsWith('/studio')) {
@@ -1008,7 +1059,10 @@ class LivePiRuntime {
     return browserBlock ? estimateTextTokens(browserBlock) : 0;
   }
 
-  private async getRuntimeContextBlock(latestUserMessageText?: string): Promise<string | null> {
+  private async getRuntimeContextBlock(
+    latestUserMessageText?: string,
+    messageContext?: PiRuntimePromptContext,
+  ): Promise<string | null> {
     const sections: string[] = [];
 
     if (this.timeZoneContext) {
@@ -1017,8 +1071,18 @@ class LivePiRuntime {
       sections.push(`Current Date & Time: ${formatRuntimeContextValue(`${formatted.localDateTime} (${formatted.timeZone}, ${formatted.utcOffset})`)}`);
     }
 
-    if (this.activeFileContext) {
-      sections.push(`Currently open file in editor: ${formatRuntimeContextValue(this.activeFileContext)}`);
+    const activeFileContext = messageContext
+      ? messageContext.activeFilePath ?? null
+      : this.activeFileContext;
+    if (activeFileContext) {
+      sections.push(`Currently open file in editor: ${formatRuntimeContextValue(activeFileContext)}`);
+    }
+
+    const notebookBlock = this.getNotebookContextBlock(
+      messageContext ? messageContext.notebookContext ?? null : this.notebookContext,
+    );
+    if (notebookBlock) {
+      sections.push(notebookBlock);
     }
 
     if (this.planningMode) {
@@ -1184,11 +1248,15 @@ class LivePiRuntime {
     return decision;
   }
 
-  startPrompt(message: Extract<AgentMessage, { role: 'user' }>) {
+  startPrompt(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    context?: PiRuntimePromptContext,
+  ) {
     if (this.disposed) {
       throw new Error('The session runtime was replaced before the prompt started. Try again.');
     }
     const sanitized = sanitizeUserMessage(message);
+    this.rememberMessageContext(sanitized, context);
     this.activePromptTiming = createOperationTiming();
     this.firstAssistantEventLogged = false;
     this.firstTextDeltaLogged = false;
@@ -1348,14 +1416,19 @@ class LivePiRuntime {
 
   async transformContext(messages: AgentMessage[], signal?: AbortSignal) {
     let latestUserMessageText = '';
+    let latestUserMessageContext: PiRuntimePromptContext | undefined;
     for (let index = messages.length - 1; index >= 0; index -= 1) {
       const message = messages[index];
       if (isUserMessage(message)) {
         latestUserMessageText = extractUserMessageText(message);
+        latestUserMessageContext = this.messageContextSnapshots.get(getMessageSignature(message));
         break;
       }
     }
-    const runtimeContext = await this.getRuntimeContextBlock(latestUserMessageText);
+    const runtimeContext = await this.getRuntimeContextBlock(
+      latestUserMessageText,
+      latestUserMessageContext,
+    );
     const result = await preparePiHistoryContext({
       messages,
       summary: this.summary,
@@ -1401,12 +1474,29 @@ class LivePiRuntime {
     return this.injectRuntimeContext(result.composition.llmMessages, runtimeContext);
   }
 
-  private createQueueEntry(message: Extract<AgentMessage, { role: 'user' }>) {
+  private rememberMessageContext(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    context?: PiRuntimePromptContext,
+  ) {
+    if (!context) return;
+    this.messageContextSnapshots.set(getMessageSignature(message), context);
+    while (this.messageContextSnapshots.size > MAX_MESSAGE_CONTEXT_SNAPSHOTS) {
+      const oldestKey = this.messageContextSnapshots.keys().next().value as string | undefined;
+      if (!oldestKey) break;
+      this.messageContextSnapshots.delete(oldestKey);
+    }
+  }
+
+  private createQueueEntry(
+    message: Extract<AgentMessage, { role: 'user' }>,
+    context?: PiRuntimePromptContext,
+  ) {
     return {
       id: `queued-${message.timestamp}-${Math.random().toString(36).slice(2, 10)}`,
       preview: buildQueuePreview(message),
       signature: getMessageSignature(message),
       message,
+      context,
     };
   }
 
@@ -1481,12 +1571,17 @@ class LivePiRuntime {
     }
 
     if (this.options.requiresRuntimeRecreation?.()) {
-      const replacement = this.pendingReplace?.message ?? null;
+      const replacement = this.pendingReplace ?? null;
       this.pendingReplace = null;
       await evictPiRuntimeInstance(this.sessionId, this.userId, this);
       if (replacement) {
         queueMicrotask(() => {
-          void dispatchPiRuntimeUserMessage(this.sessionId, this.userId, replacement).catch((error) => {
+          void dispatchPiRuntimeUserMessage(
+            this.sessionId,
+            this.userId,
+            replacement.message,
+            replacement.context,
+          ).catch((error) => {
             console.error('[LiveRuntime] Failed to dispatch replacement on recreated runtime:', error);
           });
         });
@@ -1495,10 +1590,10 @@ class LivePiRuntime {
     }
 
     if (this.pendingReplace) {
-      const replacement = this.pendingReplace.message;
+      const replacement = this.pendingReplace;
       this.pendingReplace = null;
       await this.refreshWorkspaceFileTreePrompt();
-      this.startPrompt(replacement);
+      this.startPrompt(replacement.message, replacement.context);
     }
   }
 
@@ -1949,7 +2044,7 @@ export async function dispatchPiRuntimeUserMessage(
       await runtime.reloadTools();
     }
     await runtime.refreshWorkspaceFileTreePrompt();
-    runtime.startPrompt(message);
+    runtime.startPrompt(message, context);
     return runtime;
   });
 }

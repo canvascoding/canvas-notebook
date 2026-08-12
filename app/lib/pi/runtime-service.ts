@@ -5,7 +5,11 @@ import path from 'node:path';
 
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
 
-import type { ChatRequestContext } from '@/app/lib/chat/types';
+import type {
+  ChatRequestContext,
+  NotebookRequestActiveSurface,
+  NotebookRequestContext,
+} from '@/app/lib/chat/types';
 import {
   getExistingPiRuntimeStatuses,
   getExistingPiRuntime,
@@ -112,6 +116,64 @@ export function resolveChatRequestContext(payload: unknown): ChatRequestContext 
     : record as ChatRequestContext;
 }
 
+function normalizeNotebookPath(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const normalized = value
+    .replace(/[\u0000-\u001f\u007f]/gu, '')
+    .replace(/\\/gu, '/')
+    .replace(/^\.\/+|\/+$/gu, '')
+    .trim();
+  return normalized ? normalized.slice(0, 1_024) : null;
+}
+
+function normalizeNotebookActiveSurface(value: unknown): NotebookRequestActiveSurface | null {
+  if (!value || typeof value !== 'object') return null;
+  const surface = value as Record<string, unknown>;
+  if (surface.kind === 'browser' || surface.kind === 'email') {
+    return { kind: surface.kind };
+  }
+  if (surface.kind === 'document') {
+    const path = normalizeNotebookPath(surface.path);
+    return path ? { kind: 'document', path } : null;
+  }
+  return null;
+}
+
+function normalizeNotebookRequestContext(value: unknown): NotebookRequestContext | undefined {
+  if (!value || typeof value !== 'object') return undefined;
+  const context = value as Record<string, unknown>;
+  const chatPlacement = context.chatPlacement;
+  if (
+    chatPlacement !== 'full'
+    && chatPlacement !== 'hidden'
+    && chatPlacement !== 'overlay'
+    && chatPlacement !== 'side'
+  ) {
+    return undefined;
+  }
+
+  const activeSurface = chatPlacement === 'side'
+    ? normalizeNotebookActiveSurface(context.activeSurface)
+    : null;
+  const openDocuments: NotebookRequestContext['openDocuments'] = [];
+  if (Array.isArray(context.openDocuments)) {
+    for (const candidate of context.openDocuments) {
+      if (!candidate || typeof candidate !== 'object') continue;
+      const path = normalizeNotebookPath((candidate as Record<string, unknown>).path);
+      if (!path || openDocuments.some((document) => document.path === path)) continue;
+      openDocuments.push({
+        path,
+        state: activeSurface?.kind === 'document' && activeSurface.path === path
+          ? 'active'
+          : 'background',
+      });
+      if (openDocuments.length === 8) break;
+    }
+  }
+
+  return { activeSurface, chatPlacement, openDocuments };
+}
+
 async function normalizeContext(
   context: ChatRequestContext | undefined,
   userId: string,
@@ -150,6 +212,7 @@ async function normalizeContext(
     workspace,
     planningMode: context?.planningMode === true,
     currentPage: typeof context?.currentPage === 'string' ? context.currentPage : undefined,
+    notebookContext: normalizeNotebookRequestContext(context?.notebookContext),
     studioContext: context?.studioContext,
     emailContext: context?.emailContext,
   };
@@ -308,10 +371,10 @@ export async function sendMessage(
 
     if (prepared.promptMessage) {
       if (prepared.status.canAbort) {
-        return prepared.runtimeInstance.queueFollowUp(prepared.promptMessage);
+        return prepared.runtimeInstance.queueFollowUp(prepared.promptMessage, prepared.context);
       }
 
-      prepared.runtimeInstance.startPrompt(prepared.promptMessage);
+      prepared.runtimeInstance.startPrompt(prepared.promptMessage, prepared.context);
     }
 
     return prepared.runtimeInstance.getStatus();
@@ -382,10 +445,10 @@ export async function sendFollowUpMessage(
     }
 
     if (prepared.status.canAbort) {
-      return prepared.runtimeInstance.queueFollowUp(promptMessage);
+      return prepared.runtimeInstance.queueFollowUp(promptMessage, prepared.context);
     }
 
-    prepared.runtimeInstance.startPrompt(promptMessage);
+    prepared.runtimeInstance.startPrompt(promptMessage, prepared.context);
     return prepared.runtimeInstance.getStatus();
   });
 }
@@ -396,23 +459,35 @@ export async function control(
   action: ControlAction,
   message?: unknown,
   queueItemId?: string,
+  requestContext?: ChatRequestContext,
 ): Promise<PiRuntimeStatus> {
   return withPiSessionOperationLock(sessionId, userId, async () => {
     const runtimeInstance = await getOrCreatePiRuntime(sessionId, userId);
+    const prepareMessageContext = async () => {
+      const context = await normalizeContext(requestContext, userId, sessionId);
+      applyPiRuntimePromptContext(runtimeInstance, context);
+      return context;
+    };
 
     switch (action) {
       case 'follow_up':
         if (!isValidUserMessage(message)) {
           throw new RuntimeServiceError('User message required for follow_up.', 400);
         }
-        await runtimeInstance.refreshWorkspaceFileTreePrompt();
-        return runtimeInstance.queueFollowUp(message);
+        {
+          const context = await prepareMessageContext();
+          await runtimeInstance.refreshWorkspaceFileTreePrompt();
+          return runtimeInstance.queueFollowUp(message, context);
+        }
       case 'steer':
         if (!isValidUserMessage(message)) {
           throw new RuntimeServiceError('User message required for steer.', 400);
         }
-        await runtimeInstance.refreshWorkspaceFileTreePrompt();
-        return runtimeInstance.queueSteering(message);
+        {
+          const context = await prepareMessageContext();
+          await runtimeInstance.refreshWorkspaceFileTreePrompt();
+          return runtimeInstance.queueSteering(message, context);
+        }
       case 'promote_queued_to_steer':
         if (typeof queueItemId !== 'string' || !queueItemId.trim()) {
           throw new RuntimeServiceError('Queue item id required for promote_queued_to_steer.', 400);
@@ -428,8 +503,11 @@ export async function control(
         if (!isValidUserMessage(message)) {
           throw new RuntimeServiceError('User message required for replace.', 400);
         }
-        await runtimeInstance.refreshWorkspaceFileTreePrompt();
-        return runtimeInstance.replace(message);
+        {
+          const context = await prepareMessageContext();
+          await runtimeInstance.refreshWorkspaceFileTreePrompt();
+          return runtimeInstance.replace(message, context);
+        }
       case 'abort':
         return runtimeInstance.abort();
       case 'compact':

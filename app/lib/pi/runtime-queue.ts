@@ -1,4 +1,5 @@
 import type { AgentMessage } from '@earendil-works/pi-agent-core';
+import type { PiRuntimePromptContext } from '@/app/lib/pi/runtime-prompt-context';
 
 export type RuntimeQueuePreview = {
   id: string;
@@ -13,6 +14,7 @@ export type RuntimeQueueEntry = {
   preview: RuntimeQueuePreview;
   message: Extract<AgentMessage, { role: 'user' }>;
   signature: string;
+  context?: PiRuntimePromptContext;
 };
 
 type RuntimeQueueAgent = {
