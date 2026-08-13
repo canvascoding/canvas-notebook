@@ -120,8 +120,7 @@ Release-Gate zeitlich ueberholen.
 
 Die Copyright-Extraktion verwirft dabei auch README-Anleitungen zum Erhalten,
 Platzieren oder Filtern von Copyright-Kommentaren. Solche Bedienhinweise gelten
-nicht als Rechteinhaber; fuer `terser@5.49.0` ist dies durch einen exakten
-Regressionstest gegen den tatsaechlichen Urheberhinweis abgesichert.
+nicht als Rechteinhaber.
 
 Der Lizenzcache ist ab Schema 6 pro Paketpfad, Version, Registry-URL und
 Integrity-Hash gebunden. Ein reiner Canvas-Versionswechsel uebernimmt dadurch
