@@ -1,4 +1,10 @@
 export const DIRECT_MCP_FEATURE_ENV = 'CANVAS_MCP_DIRECT_ENABLED';
+export const DIRECT_MCP_TOOLS_ENV = 'CANVAS_MCP_DIRECT_TOOLS';
+export const DIRECT_MCP_SETTINGS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE';
+export const DIRECT_MCP_PROTOCOL_VERSION = '2026-07-28';
+
+export const DIRECT_MCP_TOOL_IDS = ['auth_probe'] as const;
+export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
 
 export const DIRECT_MCP_OAUTH_SCOPES = [
   'openid',
@@ -39,7 +45,7 @@ function readFeatureFlag(environment: DirectMcpEnvironment): boolean {
   throw new Error(`${DIRECT_MCP_FEATURE_ENV} must be either "true" or "false".`);
 }
 
-function resolveConfiguredOrigin(environment: DirectMcpEnvironment): string {
+export function resolveDirectMcpOrigin(environment: DirectMcpEnvironment = process.env): string {
   const betterAuthBaseUrl = environment.BETTER_AUTH_BASE_URL?.trim();
   const baseUrl = environment.BASE_URL?.trim();
   if (!betterAuthBaseUrl && !baseUrl) {
@@ -103,6 +109,25 @@ function resolveConfiguredOrigin(environment: DirectMcpEnvironment): string {
   return parsed.origin;
 }
 
+export function getDirectMcpEnabledTools(
+  environment: DirectMcpEnvironment = process.env,
+): DirectMcpToolId[] {
+  const configured = environment[DIRECT_MCP_TOOLS_ENV];
+  if (configured === undefined) return [...DIRECT_MCP_TOOL_IDS];
+
+  const requested = configured
+    .split(',')
+    .map((value) => value.trim())
+    .filter(Boolean);
+  const unsupported = requested.filter(
+    (value) => !(DIRECT_MCP_TOOL_IDS as readonly string[]).includes(value),
+  );
+  if (unsupported.length > 0) {
+    throw new Error(`${DIRECT_MCP_TOOLS_ENV} contains unsupported tools: ${unsupported.join(', ')}.`);
+  }
+  return [...new Set(requested)] as DirectMcpToolId[];
+}
+
 export function isDirectMcpEnabled(
   environment: DirectMcpEnvironment = process.env,
 ): boolean {
@@ -116,7 +141,7 @@ export function resolveDirectMcpServerConfig(
     throw new Error(`${DIRECT_MCP_FEATURE_ENV} is not enabled.`);
   }
 
-  const origin = resolveConfiguredOrigin(environment);
+  const origin = resolveDirectMcpOrigin(environment);
   const issuer = `${origin}/api/auth`;
   const resource = `${origin}/mcp`;
 

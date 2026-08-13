@@ -5,6 +5,10 @@ import path from 'path';
 
 import { resolveSystemSettingsDir } from '@/app/lib/runtime-data-paths';
 import { DEFAULT_USER_TIME_ZONE, isValidTimeZone, normalizeTimeZone } from '@/app/lib/time-zones';
+import {
+  DIRECT_MCP_TOOL_IDS,
+  type DirectMcpToolId,
+} from '@/app/lib/mcp/server/config';
 
 const SERVER_SETTINGS_FILE = 'server-preferences.json';
 
@@ -12,6 +16,13 @@ export const INSTANCE_ONBOARDING_STEPS = ['server', 'license', 'provider', 'work
 export type InstanceOnboardingStep = typeof INSTANCE_ONBOARDING_STEPS[number];
 export const LICENSE_RUNTIME_ENVIRONMENTS = ['development', 'test', 'staging', 'production'] as const;
 export type LicenseRuntimeEnvironment = typeof LICENSE_RUNTIME_ENVIRONMENTS[number];
+
+export type DirectMcpServerPreferences = {
+  enabled: boolean;
+  tools: DirectMcpToolId[];
+  updatedAt?: string;
+  updatedBy?: string;
+};
 
 export type ServerSettings = {
   timeZone?: string;
@@ -24,6 +35,7 @@ export type ServerSettings = {
   providerVerifiedBy?: string;
   providerVerifiedCatalogRevision?: number;
   providerVerifiedInstallationId?: string;
+  directMcp?: DirectMcpServerPreferences;
 };
 
 type ServerSettingsFile = {
@@ -72,6 +84,34 @@ function normalizeInstanceOnboardingStep(value: unknown): InstanceOnboardingStep
     : null;
 }
 
+function normalizeDirectMcpTools(value: unknown): DirectMcpToolId[] | null {
+  if (!Array.isArray(value)) return null;
+  const tools = value.filter(
+    (tool): tool is DirectMcpToolId => typeof tool === 'string'
+      && (DIRECT_MCP_TOOL_IDS as readonly string[]).includes(tool),
+  );
+  return [...new Set(tools)];
+}
+
+function normalizeDirectMcpPreferences(value: unknown): DirectMcpServerPreferences | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const record = value as {
+    enabled?: unknown;
+    tools?: unknown;
+    updatedAt?: unknown;
+    updatedBy?: unknown;
+  };
+  if (typeof record.enabled !== 'boolean') return null;
+  const tools = normalizeDirectMcpTools(record.tools);
+  if (!tools) return null;
+  return {
+    enabled: record.enabled,
+    tools,
+    ...(typeof record.updatedAt === 'string' ? { updatedAt: record.updatedAt } : {}),
+    ...(typeof record.updatedBy === 'string' ? { updatedBy: record.updatedBy } : {}),
+  };
+}
+
 function normalizeServerSettings(value: unknown): ServerSettings {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   const record = value as {
@@ -85,9 +125,11 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     providerVerifiedBy?: unknown;
     providerVerifiedCatalogRevision?: unknown;
     providerVerifiedInstallationId?: unknown;
+    directMcp?: unknown;
   };
   const timeZone = normalizeTimeZoneValue(record.timeZone);
   const onboardingStep = normalizeInstanceOnboardingStep(record.onboardingStep);
+  const directMcp = normalizeDirectMcpPreferences(record.directMcp);
   return {
     ...(timeZone ? { timeZone } : {}),
     ...(typeof record.updatedAt === 'string' ? { updatedAt: record.updatedAt } : {}),
@@ -105,6 +147,7 @@ function normalizeServerSettings(value: unknown): ServerSettings {
     ...(typeof record.providerVerifiedInstallationId === 'string' && /^aip_[a-f0-9]{24}$/u.test(record.providerVerifiedInstallationId)
       ? { providerVerifiedInstallationId: record.providerVerifiedInstallationId }
       : {}),
+    ...(directMcp ? { directMcp } : {}),
   };
 }
 
@@ -157,6 +200,39 @@ export async function getServerSettings(): Promise<ServerSettings> {
 export async function getServerPreferredTimeZone(): Promise<string> {
   const settings = await getServerSettings();
   return normalizeTimeZone(settings.timeZone, DEFAULT_USER_TIME_ZONE);
+}
+
+export async function getDirectMcpServerPreferences(): Promise<DirectMcpServerPreferences | null> {
+  const settings = await getServerSettings();
+  return settings.directMcp ?? null;
+}
+
+export async function setDirectMcpServerPreferences(
+  userId: string,
+  input: { enabled: unknown; tools: unknown },
+): Promise<DirectMcpServerPreferences> {
+  if (typeof input.enabled !== 'boolean') {
+    throw new Error('Direct MCP enabled must be a boolean.');
+  }
+  const tools = normalizeDirectMcpTools(input.tools);
+  if (!tools || tools.length !== (input.tools as unknown[]).length) {
+    throw new Error('Direct MCP tools contain an unsupported value.');
+  }
+
+  const file = await readServerSettingsFile();
+  const now = new Date().toISOString();
+  const directMcp: DirectMcpServerPreferences = {
+    enabled: input.enabled,
+    tools,
+    updatedAt: now,
+    updatedBy: userId,
+  };
+  const nextSettings: ServerSettings = {
+    ...file.settings,
+    directMcp,
+  };
+  await writeServerSettingsFileAtomic({ version: 1, settings: nextSettings });
+  return directMcp;
 }
 
 export async function setServerPreferredTimeZone(

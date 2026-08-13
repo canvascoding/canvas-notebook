@@ -76,6 +76,7 @@
     "test:mcp:server-resource": "tsx --conditions react-server scripts/mcp-server-protected-resource-test.ts",
     "test:mcp:server-oauth-client": "tsx --conditions react-server scripts/mcp-server-oauth-client-test.ts",
     "test:mcp:server-auth-probe": "tsx --conditions react-server scripts/mcp-server-auth-probe-test.ts",
+    "test:mcp:server-settings": "tsx --conditions react-server scripts/mcp-server-settings-test.ts",
     "test:mcp:server-http-smoke": "tsx scripts/mcp-server-http-smoke-test.ts",
     "test:studio:seedance": "tsx scripts/seedance-generation-test.ts",
     "test:studio:veo": "tsx scripts/veo-generation-test.ts",
