@@ -105,6 +105,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'todos.read',
   'todos.write',
   'todos.follow_up',
+  'todos.scope',
   'studio.quick_create',
   'studio.generations',
   'studio.references',
@@ -133,6 +134,7 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
 assert.equal(bootstrap.user.role, 'admin');
 assert.equal(bootstrap.workspace.activeWorkspaceId, workspace.workspaceId);
 assert.equal(bootstrap.workspace.items[0]?.access, 'manage');
+assert.equal(bootstrap.workspace.items[0]?.legacy, false);
 assert.equal(bootstrap.workspace.items[0]?.permissions.canRunAgent, true);
 
 const serialized = JSON.stringify(bootstrap);

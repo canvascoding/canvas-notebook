@@ -14,6 +14,7 @@ export type MobileWorkspaceSummary = {
   icon: string | null;
   status: NonNullable<WorkspaceContext['status']>;
   isDefault: boolean;
+  legacy: boolean;
   access: MobileWorkspaceAccess;
   permissions: WorkspacePermissions;
 };
@@ -57,6 +58,7 @@ export function serializeMobileWorkspace(workspace: WorkspaceContext): MobileWor
     icon: workspace.icon || null,
     status: workspace.status || 'active',
     isDefault: Boolean(workspace.isDefault),
+    legacy: workspace.legacy,
     access: workspaceAccess(workspace),
     permissions: workspace.permissions,
   };
@@ -126,6 +128,7 @@ export function createMobileBootstrap(input: {
     'todos.read',
     'todos.write',
     'todos.follow_up',
+    'todos.scope',
     'studio.quick_create',
     'studio.generations',
     'studio.references',
