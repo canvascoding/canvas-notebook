@@ -624,9 +624,9 @@ for (const name of [
 }
 
 const exactSourceComponents = [
-  ['@aws-sdk/credential-provider-http', '3.972.59', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
-  ['@aws-sdk/credential-provider-login', '3.972.63', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
-  ['@aws-sdk/nested-clients', '3.997.31', 'ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19'],
+  ['@aws-sdk/credential-provider-http', '3.972.70', '26b0eb790ff86399b7af7b74ce8c188f25512cc6'],
+  ['@aws-sdk/credential-provider-login', '3.972.75', '26b0eb790ff86399b7af7b74ce8c188f25512cc6'],
+  ['@aws-sdk/nested-clients', '3.997.42', '26b0eb790ff86399b7af7b74ce8c188f25512cc6'],
   ['@swc/counter', '0.1.3', '259271f1326b75ce7103b571284dd17fdd42b6c7'],
   ['mj-context-menu', '0.6.1', '8ddd26a41f834cd23b9bb20737dfae5fa9b05eb4'],
 ] as const;

@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.8.12.1",
-  "lockfileSha256": "14e6e3d64372cfd8e3a54124d28cf0d256d1d724f704b73c9d500b3dfd9bdab5",
+  "lockfileSha256": "6b3d7bed42201ae7276a558396cfd87bc92580662f3387eb60ce0dcce099b8a6",
   "summary": {
-    "totalComponents": 1968,
-    "npmComponents": 1945,
+    "totalComponents": 1970,
+    "npmComponents": 1947,
     "nonNpmComponents": 23,
-    "runtimeComponents": 1438,
+    "runtimeComponents": 1440,
     "developmentOnlyComponents": 530,
-    "allowed": 1918,
+    "allowed": 1920,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -11119,7 +11119,7 @@
     },
     {
       "name": "@aws-sdk/core",
-      "versionOrCommit": "3.975.1",
+      "versionOrCommit": "3.977.7",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/core",
       "usage": "runtime",
@@ -11143,7 +11143,7 @@
     },
     {
       "name": "@aws-sdk/credential-provider-env",
-      "versionOrCommit": "3.972.57",
+      "versionOrCommit": "3.972.68",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-env",
       "usage": "runtime",
@@ -11167,8 +11167,8 @@
     },
     {
       "name": "@aws-sdk/credential-provider-http",
-      "versionOrCommit": "3.972.59",
-      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19",
+      "versionOrCommit": "3.972.70",
+      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/26b0eb790ff86399b7af7b74ce8c188f25512cc6",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-http",
       "usage": "runtime",
       "distributedIn": [
@@ -11179,7 +11179,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/credential-provider-http@3.972.59",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/credential-provider-http@3.972.70",
       "licenseTextSha256": "4186c3f89c23f27b4c0caab574737c49ee5137c36a3c103484feaca4aeec2310",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -11188,11 +11188,11 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19/LICENSE Published source revision: ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19 The npm release omits gitHead and LICENSE. The AWS SDK publish commit contains packages-internal/credential-provider-http/package.json at version 3.972.59 and the repository Apache-2.0 license."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/26b0eb790ff86399b7af7b74ce8c188f25512cc6/LICENSE Published source revision: 26b0eb790ff86399b7af7b74ce8c188f25512cc6 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/credential-provider-http/package.json at version 3.972.70 and the repository Apache-2.0 license."
     },
     {
       "name": "@aws-sdk/credential-provider-ini",
-      "versionOrCommit": "3.973.1",
+      "versionOrCommit": "3.973.13",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-ini",
       "usage": "runtime",
@@ -11216,8 +11216,8 @@
     },
     {
       "name": "@aws-sdk/credential-provider-login",
-      "versionOrCommit": "3.972.63",
-      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19",
+      "versionOrCommit": "3.972.75",
+      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/26b0eb790ff86399b7af7b74ce8c188f25512cc6",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-login",
       "usage": "runtime",
       "distributedIn": [
@@ -11228,7 +11228,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/credential-provider-login@3.972.63",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/credential-provider-login@3.972.75",
       "licenseTextSha256": "4186c3f89c23f27b4c0caab574737c49ee5137c36a3c103484feaca4aeec2310",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -11237,11 +11237,11 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19/LICENSE Published source revision: ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19 The npm release omits gitHead and LICENSE. The AWS SDK publish commit contains packages-internal/credential-provider-login/package.json at version 3.972.63 and the repository Apache-2.0 license."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/26b0eb790ff86399b7af7b74ce8c188f25512cc6/LICENSE Published source revision: 26b0eb790ff86399b7af7b74ce8c188f25512cc6 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/credential-provider-login/package.json at version 3.972.75 and the repository Apache-2.0 license."
     },
     {
       "name": "@aws-sdk/credential-provider-node",
-      "versionOrCommit": "3.972.66",
+      "versionOrCommit": "3.972.79",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-node",
       "usage": "runtime",
@@ -11265,7 +11265,7 @@
     },
     {
       "name": "@aws-sdk/credential-provider-process",
-      "versionOrCommit": "3.972.57",
+      "versionOrCommit": "3.972.68",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-process",
       "usage": "runtime",
@@ -11289,7 +11289,7 @@
     },
     {
       "name": "@aws-sdk/credential-provider-sso",
-      "versionOrCommit": "3.973.1",
+      "versionOrCommit": "3.973.12",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-sso",
       "usage": "runtime",
@@ -11313,7 +11313,7 @@
     },
     {
       "name": "@aws-sdk/credential-provider-web-identity",
-      "versionOrCommit": "3.972.63",
+      "versionOrCommit": "3.972.74",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-web-identity",
       "usage": "runtime",
@@ -11337,7 +11337,7 @@
     },
     {
       "name": "@aws-sdk/eventstream-handler-node",
-      "versionOrCommit": "3.972.26",
+      "versionOrCommit": "3.972.32",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/eventstream-handler-node",
       "usage": "runtime",
@@ -11361,7 +11361,7 @@
     },
     {
       "name": "@aws-sdk/middleware-eventstream",
-      "versionOrCommit": "3.972.22",
+      "versionOrCommit": "3.972.27",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/middleware-eventstream",
       "usage": "runtime",
@@ -11385,7 +11385,7 @@
     },
     {
       "name": "@aws-sdk/middleware-websocket",
-      "versionOrCommit": "3.972.39",
+      "versionOrCommit": "3.972.50",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/middleware-websocket",
       "usage": "runtime",
@@ -11409,8 +11409,8 @@
     },
     {
       "name": "@aws-sdk/nested-clients",
-      "versionOrCommit": "3.997.31",
-      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19",
+      "versionOrCommit": "3.997.42",
+      "sourceUrl": "https://github.com/aws/aws-sdk-js-v3/tree/26b0eb790ff86399b7af7b74ce8c188f25512cc6",
       "packagePathOrArtifact": "node_modules/@aws-sdk/nested-clients",
       "usage": "runtime",
       "distributedIn": [
@@ -11421,7 +11421,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/nested-clients@3.997.31",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@aws-sdk/nested-clients@3.997.42",
       "licenseTextSha256": "4186c3f89c23f27b4c0caab574737c49ee5137c36a3c103484feaca4aeec2310",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -11430,11 +11430,11 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19/LICENSE Published source revision: ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19 The npm release omits gitHead and LICENSE. The AWS SDK publish commit contains packages-internal/nested-clients/package.json at version 3.997.31 and the repository Apache-2.0 license."
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/aws/aws-sdk-js-v3/26b0eb790ff86399b7af7b74ce8c188f25512cc6/LICENSE Published source revision: 26b0eb790ff86399b7af7b74ce8c188f25512cc6 The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/nested-clients/package.json at version 3.997.42 and the repository Apache-2.0 license."
     },
     {
       "name": "@aws-sdk/signature-v4-multi-region",
-      "versionOrCommit": "3.996.39",
+      "versionOrCommit": "3.996.44",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/signature-v4-multi-region",
       "usage": "runtime",
@@ -11482,7 +11482,7 @@
     },
     {
       "name": "@aws-sdk/token-providers",
-      "versionOrCommit": "3.1083.0",
+      "versionOrCommit": "3.1108.0",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-sso/node_modules/@aws-sdk/token-providers",
       "usage": "runtime",
@@ -11506,7 +11506,7 @@
     },
     {
       "name": "@aws-sdk/types",
-      "versionOrCommit": "3.974.0",
+      "versionOrCommit": "3.974.3",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/types",
       "usage": "runtime",
@@ -11530,7 +11530,7 @@
     },
     {
       "name": "@aws-sdk/util-locate-window",
-      "versionOrCommit": "3.965.8",
+      "versionOrCommit": "3.965.9",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/util-locate-window",
       "usage": "runtime",
@@ -11554,7 +11554,7 @@
     },
     {
       "name": "@aws-sdk/xml-builder",
-      "versionOrCommit": "3.972.34",
+      "versionOrCommit": "3.972.38",
       "sourceUrl": "https://github.com/aws/aws-sdk-js-v3",
       "packagePathOrArtifact": "node_modules/@aws-sdk/xml-builder",
       "usage": "runtime",
@@ -13153,8 +13153,8 @@
     },
     {
       "name": "@earendil-works/pi-agent-core",
-      "versionOrCommit": "0.80.6",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/2b3fda9921b5590f285165287bd442a25817f17b",
+      "versionOrCommit": "0.84.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/53fa77ccd8a279eb87e92294ef3687b03ff80112",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-agent-core",
       "usage": "runtime",
       "distributedIn": [
@@ -13165,19 +13165,19 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-agent-core@0.80.6",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-agent-core@0.84.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/2b3fda9921b5590f285165287bd442a25817f17b/LICENSE Published source revision: 2b3fda9921b5590f285165287bd442a25817f17b"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/53fa77ccd8a279eb87e92294ef3687b03ff80112/LICENSE Published source revision: 53fa77ccd8a279eb87e92294ef3687b03ff80112"
     },
     {
       "name": "@earendil-works/pi-ai",
-      "versionOrCommit": "0.80.6",
-      "sourceUrl": "https://github.com/earendil-works/pi/tree/2b3fda9921b5590f285165287bd442a25817f17b",
+      "versionOrCommit": "0.84.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/53fa77ccd8a279eb87e92294ef3687b03ff80112",
       "packagePathOrArtifact": "node_modules/@earendil-works/pi-ai",
       "usage": "runtime",
       "distributedIn": [
@@ -13188,14 +13188,37 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai@0.80.6",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-ai@0.84.1",
       "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
       "copyrightNotices": [
         "Copyright (c) 2025 Mario Zechner"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/2b3fda9921b5590f285165287bd442a25817f17b/LICENSE Published source revision: 2b3fda9921b5590f285165287bd442a25817f17b"
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/53fa77ccd8a279eb87e92294ef3687b03ff80112/LICENSE Published source revision: 53fa77ccd8a279eb87e92294ef3687b03ff80112"
+    },
+    {
+      "name": "@earendil-works/pi-telemetry",
+      "versionOrCommit": "0.84.1",
+      "sourceUrl": "https://github.com/earendil-works/pi/tree/53fa77ccd8a279eb87e92294ef3687b03ff80112",
+      "packagePathOrArtifact": "node_modules/@earendil-works/pi-telemetry",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@earendil-works/pi-telemetry@0.84.1",
+      "licenseTextSha256": "4f6a1985796db5225e3b1e59972bd47e07a27a0748427cb3d3c8fbf39f9311f0",
+      "copyrightNotices": [
+        "Copyright (c) 2025 Mario Zechner"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "License text source: https://raw.githubusercontent.com/earendil-works/pi/53fa77ccd8a279eb87e92294ef3687b03ff80112/LICENSE Published source revision: 53fa77ccd8a279eb87e92294ef3687b03ff80112"
     },
     {
       "name": "@eigenpal/docx-js-editor",
@@ -20918,7 +20941,7 @@
     },
     {
       "name": "@smithy/core",
-      "versionOrCommit": "3.29.3",
+      "versionOrCommit": "3.32.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/core",
       "usage": "runtime",
@@ -20942,7 +20965,7 @@
     },
     {
       "name": "@smithy/credential-provider-imds",
-      "versionOrCommit": "4.4.8",
+      "versionOrCommit": "4.5.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/credential-provider-imds",
       "usage": "runtime",
@@ -20966,7 +20989,7 @@
     },
     {
       "name": "@smithy/fetch-http-handler",
-      "versionOrCommit": "5.6.5",
+      "versionOrCommit": "5.7.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/fetch-http-handler",
       "usage": "runtime",
@@ -21014,31 +21037,7 @@
     },
     {
       "name": "@smithy/node-http-handler",
-      "versionOrCommit": "4.7.3",
-      "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
-      "packagePathOrArtifact": "node_modules/@smithy/node-http-handler",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "Apache-2.0",
-      "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "node_modules/@smithy/node-http-handler/LICENSE",
-      "licenseTextSha256": "b659ef9e3ce8fe45329e05916c9c8bb98b436a16f4d4730a8946eec83e3950fe",
-      "copyrightNotices": [
-        "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
-        "that You distribute, all copyright, patent, trademark, and"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "@smithy/node-http-handler",
-      "versionOrCommit": "4.9.5",
+      "versionOrCommit": "4.10.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@aws-sdk/credential-provider-http/node_modules/@smithy/node-http-handler",
       "usage": "runtime",
@@ -21062,7 +21061,7 @@
     },
     {
       "name": "@smithy/node-http-handler",
-      "versionOrCommit": "4.9.5",
+      "versionOrCommit": "4.10.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@aws-sdk/nested-clients/node_modules/@smithy/node-http-handler",
       "usage": "runtime",
@@ -21085,8 +21084,32 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@smithy/node-http-handler",
+      "versionOrCommit": "4.7.3",
+      "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
+      "packagePathOrArtifact": "node_modules/@smithy/node-http-handler",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "Apache-2.0",
+      "verifiedLicense": "Apache-2.0",
+      "licenseTextRef": "node_modules/@smithy/node-http-handler/LICENSE",
+      "licenseTextSha256": "b659ef9e3ce8fe45329e05916c9c8bb98b436a16f4d4730a8946eec83e3950fe",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright 2018-2020 Amazon.com, Inc. or its affiliates. All Rights Reserved.",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "@smithy/signature-v4",
-      "versionOrCommit": "5.6.4",
+      "versionOrCommit": "5.7.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/signature-v4",
       "usage": "runtime",
@@ -21110,7 +21133,7 @@
     },
     {
       "name": "@smithy/types",
-      "versionOrCommit": "4.16.1",
+      "versionOrCommit": "4.17.0",
       "sourceUrl": "https://github.com/smithy-lang/smithy-typescript",
       "packagePathOrArtifact": "node_modules/@smithy/types",
       "usage": "runtime",
@@ -28142,6 +28165,28 @@
       "copyrightNotices": [
         "A PARTICULAR PURPOSE ARE DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT",
         "Copyright 2014 The Chromium Authors. All rights reserved."
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "diff",
+      "versionOrCommit": "8.0.4",
+      "sourceUrl": "https://github.com/kpdecker/jsdiff",
+      "packagePathOrArtifact": "node_modules/diff",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "BSD-3-Clause",
+      "verifiedLicense": "BSD-3-Clause",
+      "licenseTextRef": "node_modules/diff/LICENSE",
+      "licenseTextSha256": "eda81a415869e67809f6a9f3fd6056062cb83a462118e07eec5e92b2e0c40ce9",
+      "copyrightNotices": [
+        "Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -41266,7 +41311,7 @@
     },
     {
       "name": "typebox",
-      "versionOrCommit": "1.1.38",
+      "versionOrCommit": "1.3.7",
       "sourceUrl": "https://github.com/sinclairzx81/typebox",
       "packagePathOrArtifact": "node_modules/typebox",
       "usage": "runtime",

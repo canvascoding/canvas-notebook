@@ -68,23 +68,23 @@
     }
   ],
   "sourceRevisionOverrides": {
-    "@aws-sdk/credential-provider-http@3.972.59": {
+    "@aws-sdk/credential-provider-http@3.972.70": {
       "repositoryUrl": "https://github.com/aws/aws-sdk-js-v3",
-      "revision": "ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19",
+      "revision": "26b0eb790ff86399b7af7b74ce8c188f25512cc6",
       "licensePath": "LICENSE",
-      "reason": "The npm release omits gitHead and LICENSE. The AWS SDK publish commit contains packages-internal/credential-provider-http/package.json at version 3.972.59 and the repository Apache-2.0 license."
+      "reason": "The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/credential-provider-http/package.json at version 3.972.70 and the repository Apache-2.0 license."
     },
-    "@aws-sdk/credential-provider-login@3.972.63": {
+    "@aws-sdk/credential-provider-login@3.972.75": {
       "repositoryUrl": "https://github.com/aws/aws-sdk-js-v3",
-      "revision": "ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19",
+      "revision": "26b0eb790ff86399b7af7b74ce8c188f25512cc6",
       "licensePath": "LICENSE",
-      "reason": "The npm release omits gitHead and LICENSE. The AWS SDK publish commit contains packages-internal/credential-provider-login/package.json at version 3.972.63 and the repository Apache-2.0 license."
+      "reason": "The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/credential-provider-login/package.json at version 3.972.75 and the repository Apache-2.0 license."
     },
-    "@aws-sdk/nested-clients@3.997.31": {
+    "@aws-sdk/nested-clients@3.997.42": {
       "repositoryUrl": "https://github.com/aws/aws-sdk-js-v3",
-      "revision": "ceb9aeec0cc3c34d2713ef09a6ee61fb1595ea19",
+      "revision": "26b0eb790ff86399b7af7b74ce8c188f25512cc6",
       "licensePath": "LICENSE",
-      "reason": "The npm release omits gitHead and LICENSE. The AWS SDK publish commit contains packages-internal/nested-clients/package.json at version 3.997.31 and the repository Apache-2.0 license."
+      "reason": "The npm release omits gitHead and LICENSE. The immutable AWS SDK v3.1108.0 release commit contains packages-internal/nested-clients/package.json at version 3.997.42 and the repository Apache-2.0 license."
     },
     "@next/swc-win32-arm64-msvc@16.2.10": {
       "repositoryUrl": "https://github.com/vercel/next.js",

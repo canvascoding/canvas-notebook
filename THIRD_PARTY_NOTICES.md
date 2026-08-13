@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.8.12.1
-- Lockfile SHA-256: `14e6e3d64372cfd8e3a54124d28cf0d256d1d724f704b73c9d500b3dfd9bdab5`
-- Distributed components: 1438
+- Lockfile SHA-256: `6b3d7bed42201ae7276a558396cfd87bc92580662f3387eb60ce0dcce099b8a6`
+- Distributed components: 1440
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -52,25 +52,25 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @aws-crypto/supports-web-crypto | 5.2.0 | runtime | Apache-2.0 | allowed |
 | @aws-crypto/util | 5.2.0 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/client-bedrock-runtime | 3.1048.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/core | 3.975.1 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-env | 3.972.57 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-http | 3.972.59 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-ini | 3.973.1 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-login | 3.972.63 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-node | 3.972.66 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-process | 3.972.57 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-sso | 3.973.1 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/credential-provider-web-identity | 3.972.63 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/eventstream-handler-node | 3.972.26 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/middleware-eventstream | 3.972.22 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/middleware-websocket | 3.972.39 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/nested-clients | 3.997.31 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/signature-v4-multi-region | 3.996.39 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/core | 3.977.7 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-env | 3.972.68 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-http | 3.972.70 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-ini | 3.973.13 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-login | 3.972.75 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-node | 3.972.79 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-process | 3.972.68 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-sso | 3.973.12 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/credential-provider-web-identity | 3.972.74 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/eventstream-handler-node | 3.972.32 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/middleware-eventstream | 3.972.27 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/middleware-websocket | 3.972.50 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/nested-clients | 3.997.42 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/signature-v4-multi-region | 3.996.44 | runtime | Apache-2.0 | allowed |
 | @aws-sdk/token-providers | 3.1048.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/token-providers | 3.1083.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/types | 3.974.0 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/util-locate-window | 3.965.8 | runtime | Apache-2.0 | allowed |
-| @aws-sdk/xml-builder | 3.972.34 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/token-providers | 3.1108.0 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/types | 3.974.3 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/util-locate-window | 3.965.9 | runtime | Apache-2.0 | allowed |
+| @aws-sdk/xml-builder | 3.972.38 | runtime | Apache-2.0 | allowed |
 | @aws/lambda-invoke-store | 0.3.0 | runtime | Apache-2.0 | allowed |
 | @babel/code-frame | 7.29.7 | runtime | MIT | allowed |
 | @babel/compat-data | 7.29.7 | runtime | MIT | allowed |
@@ -142,8 +142,9 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @csstools/postcss-is-pseudo-class | 5.0.3 | runtime | MIT-0 | allowed |
 | @csstools/selector-resolve-nested | 3.1.0 | runtime | MIT-0 | allowed |
 | @csstools/selector-specificity | 5.0.0 | runtime | MIT-0 | allowed |
-| @earendil-works/pi-agent-core | 0.80.6 | runtime | MIT | allowed |
-| @earendil-works/pi-ai | 0.80.6 | runtime | MIT | allowed |
+| @earendil-works/pi-agent-core | 0.84.1 | runtime | MIT | allowed |
+| @earendil-works/pi-ai | 0.84.1 | runtime | MIT | allowed |
+| @earendil-works/pi-telemetry | 0.84.1 | runtime | MIT | allowed |
 | @eigenpal/docx-js-editor | 0.5.3 | runtime | MIT | allowed |
 | @emnapi/runtime | 1.11.2 | runtime | MIT | allowed |
 | @esbuild/aix-ppc64 | 0.28.1 | runtime | MIT | allowed |
@@ -462,15 +463,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @sentry/server-utils | 10.65.0 | runtime | MIT | allowed |
 | @sentry/vercel-edge | 10.65.0 | runtime | MIT | allowed |
 | @sentry/webpack-plugin | 5.4.0 | runtime | MIT | allowed |
-| @smithy/core | 3.29.3 | runtime | Apache-2.0 | allowed |
-| @smithy/credential-provider-imds | 4.4.8 | runtime | Apache-2.0 | allowed |
-| @smithy/fetch-http-handler | 5.6.5 | runtime | Apache-2.0 | allowed |
+| @smithy/core | 3.32.0 | runtime | Apache-2.0 | allowed |
+| @smithy/credential-provider-imds | 4.5.0 | runtime | Apache-2.0 | allowed |
+| @smithy/fetch-http-handler | 5.7.0 | runtime | Apache-2.0 | allowed |
 | @smithy/is-array-buffer | 2.2.0 | runtime | Apache-2.0 | allowed |
+| @smithy/node-http-handler | 4.10.0 | runtime | Apache-2.0 | allowed |
+| @smithy/node-http-handler | 4.10.0 | runtime | Apache-2.0 | allowed |
 | @smithy/node-http-handler | 4.7.3 | runtime | Apache-2.0 | allowed |
-| @smithy/node-http-handler | 4.9.5 | runtime | Apache-2.0 | allowed |
-| @smithy/node-http-handler | 4.9.5 | runtime | Apache-2.0 | allowed |
-| @smithy/signature-v4 | 5.6.4 | runtime | Apache-2.0 | allowed |
-| @smithy/types | 4.16.1 | runtime | Apache-2.0 | allowed |
+| @smithy/signature-v4 | 5.7.0 | runtime | Apache-2.0 | allowed |
+| @smithy/types | 4.17.0 | runtime | Apache-2.0 | allowed |
 | @smithy/util-buffer-from | 2.2.0 | runtime | Apache-2.0 | allowed |
 | @smithy/util-utf8 | 2.3.0 | runtime | Apache-2.0 | allowed |
 | @standard-schema/spec | 1.1.0 | runtime | MIT | allowed |
@@ -784,6 +785,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | devlop | 1.1.0 | runtime | MIT | allowed |
 | devtools-protocol | 0.0.1608973 | runtime | BSD-3-Clause | allowed |
 | devtools-protocol | 0.0.1638949 | runtime | BSD-3-Clause | allowed |
+| diff | 8.0.4 | runtime | BSD-3-Clause | allowed |
 | dingbat-to-unicode | 1.0.1 | runtime | BSD-2-Clause | allowed |
 | dom-serializer | 2.0.0 | runtime | MIT | allowed |
 | domelementtype | 2.3.0 | runtime | BSD-2-Clause | allowed |
@@ -1371,7 +1373,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | tweetnacl | 1.0.3 | runtime | Unlicense | allowed |
 | type-fest | 0.7.1 | runtime | (MIT OR CC0-1.0) | allowed |
 | type-is | 2.1.0 | runtime | MIT | allowed |
-| typebox | 1.1.38 | runtime | MIT | allowed |
+| typebox | 1.3.7 | runtime | MIT | allowed |
 | typed-query-selector | 2.12.2 | runtime | MIT | allowed |
 | uc.micro | 2.1.0 | runtime | MIT | allowed |
 | uint8array-extras | 1.5.0 | runtime | MIT | allowed |
@@ -2255,7 +2257,7 @@ THE SOFTWARE.
 
 ### License text 07364a5f7d01
 
-Applies to @aws-sdk/eventstream-handler-node@3.972.26, @aws-sdk/middleware-websocket@3.972.39, @aws-sdk/signature-v4-multi-region@3.996.39, @smithy/core@3.29.3, @smithy/types@4.16.1.
+Applies to @aws-sdk/eventstream-handler-node@3.972.32, @aws-sdk/middleware-websocket@3.972.50, @aws-sdk/signature-v4-multi-region@3.996.44, @smithy/core@3.32.0, @smithy/types@4.17.0.
 
 Copyright notices:
 
@@ -7503,7 +7505,7 @@ Copyright notices:
 
 ### License text 4186c3f89c23
 
-Applies to @aws-sdk/core@3.975.1, @aws-sdk/credential-provider-http@3.972.59, @aws-sdk/credential-provider-login@3.972.63, @aws-sdk/nested-clients@3.997.31.
+Applies to @aws-sdk/core@3.977.7, @aws-sdk/credential-provider-http@3.972.70, @aws-sdk/credential-provider-login@3.972.75, @aws-sdk/nested-clients@3.997.42.
 
 Copyright notices:
 
@@ -8882,7 +8884,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 4f6a1985796d
 
-Applies to @earendil-works/pi-agent-core@0.80.6, @earendil-works/pi-ai@0.80.6.
+Applies to @earendil-works/pi-agent-core@0.84.1, @earendil-works/pi-ai@0.84.1, @earendil-works/pi-telemetry@0.84.1.
 
 Copyright notices:
 
@@ -14648,7 +14650,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 84d995af201d
 
-Applies to @aws-sdk/credential-provider-process@3.972.57, @aws-sdk/credential-provider-sso@3.973.1, @aws-sdk/credential-provider-web-identity@3.972.63.
+Applies to @aws-sdk/credential-provider-process@3.972.68, @aws-sdk/credential-provider-sso@3.973.12, @aws-sdk/credential-provider-web-identity@3.972.74.
 
 Copyright notices:
 
@@ -22403,7 +22405,7 @@ SOFTWARE.
 
 ### License text b659ef9e3ce8
 
-Applies to @aws-sdk/credential-provider-env@3.972.57, @aws-sdk/credential-provider-ini@3.973.1, @aws-sdk/credential-provider-node@3.972.66, @aws-sdk/token-providers@3.1048.0, @aws-sdk/token-providers@3.1083.0, @aws-sdk/types@3.974.0, @aws-sdk/util-locate-window@3.965.8, @aws-sdk/xml-builder@3.972.34, @smithy/credential-provider-imds@4.4.8, @smithy/fetch-http-handler@5.6.5, @smithy/is-array-buffer@2.2.0, @smithy/node-http-handler@4.7.3, @smithy/node-http-handler@4.9.5, @smithy/node-http-handler@4.9.5, @smithy/signature-v4@5.6.4, @smithy/util-buffer-from@2.2.0, @smithy/util-utf8@2.3.0.
+Applies to @aws-sdk/credential-provider-env@3.972.68, @aws-sdk/credential-provider-ini@3.973.13, @aws-sdk/credential-provider-node@3.972.79, @aws-sdk/token-providers@3.1048.0, @aws-sdk/token-providers@3.1108.0, @aws-sdk/types@3.974.3, @aws-sdk/util-locate-window@3.965.9, @aws-sdk/xml-builder@3.972.38, @smithy/credential-provider-imds@4.5.0, @smithy/fetch-http-handler@5.7.0, @smithy/is-array-buffer@2.2.0, @smithy/node-http-handler@4.10.0, @smithy/node-http-handler@4.10.0, @smithy/node-http-handler@4.7.3, @smithy/signature-v4@5.7.0, @smithy/util-buffer-from@2.2.0, @smithy/util-utf8@2.3.0.
 
 Copyright notices:
 
@@ -22794,7 +22796,7 @@ SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 
 ### License text baaa39822b65
 
-Applies to typebox@1.1.38.
+Applies to typebox@1.3.7.
 
 Copyright notices:
 
@@ -27314,7 +27316,7 @@ THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLI
 
 ### License text e345c2ee7df4
 
-Applies to @aws-sdk/middleware-eventstream@3.972.22.
+Applies to @aws-sdk/middleware-eventstream@3.972.27.
 
 Copyright notices:
 
@@ -28586,6 +28588,46 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.**
+```
+
+### License text eda81a415869
+
+Applies to diff@8.0.4.
+
+Copyright notices:
+
+- Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>
+
+```text
+BSD 3-Clause License
+
+Copyright (c) 2009-2015, Kevin Decker <kpdecker@gmail.com>
+All rights reserved.
+
+Redistribution and use in source and binary forms, with or without
+modification, are permitted provided that the following conditions are met:
+
+1. Redistributions of source code must retain the above copyright notice, this
+   list of conditions and the following disclaimer.
+
+2. Redistributions in binary form must reproduce the above copyright notice,
+   this list of conditions and the following disclaimer in the documentation
+   and/or other materials provided with the distribution.
+
+3. Neither the name of the copyright holder nor the names of its
+   contributors may be used to endorse or promote products derived from
+   this software without specific prior written permission.
+
+THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
 ```
 
 ### License text ee765244e2d5
