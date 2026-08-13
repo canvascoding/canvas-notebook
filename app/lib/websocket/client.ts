@@ -1,19 +1,10 @@
-/**
- * WebSocket Client for Chat Sessions
- * 
- * - Auto-Reconnect mit Exponential Backoff
- * - Session Subscription
- * - Event Emitter Pattern
- * - Logging in Browser Console
- * 
- * Connection flow:
- * 1. TCP/WebSocket handshake completes → onopen fires
- * 2. Client waits for server auth_success before considering the connection usable
- * 3. Only after auth_success does connect() resolve, the 'connected' event fire,
- *    and queued messages get flushed
- */
+/** Shared authenticated chat WebSocket client for the browser application. */
 
 import type { ChatRequestContext } from '@/app/lib/chat/types';
+import {
+  CHAT_WEBSOCKET_CLOSE_CODES,
+  CHAT_WEBSOCKET_PROTOCOL,
+} from '@/app/lib/websocket/protocol';
 import { generateRandomId } from '@/app/lib/utils/random-id';
 
 type PendingRequest = {
@@ -23,18 +14,36 @@ type PendingRequest = {
   timer: ReturnType<typeof setTimeout>;
 };
 
-const QUIET_MESSAGE_TYPES = new Set(['agent_event', 'runtime_status']);
-const DEFAULT_REQUEST_TIMEOUT_MS = 10000;
-const SUBSCRIBE_REQUEST_TIMEOUT_MS = 15000;
-const REQUEST_CONNECT_TIMEOUT_MS = 15000;
-const MAX_QUEUED_MESSAGES = 20;
-const MAX_QUEUED_MESSAGE_BYTES = 512 * 1024;
-const MAX_SINGLE_QUEUED_MESSAGE_BYTES = 4 * 1024 * 1024;
-
-type QueuedMessage = {
-  message: Record<string, unknown>;
-  bytes: number;
+type SessionSubscription = {
+  references: number;
+  confirmed: boolean;
+  promise: Promise<Record<string, unknown>> | null;
 };
+
+type ConnectDeferred = {
+  resolve: () => void;
+  reject: (error: Error) => void;
+};
+
+export type WebSocketClientOptions = {
+  createSocket?: (url: string, protocol: string) => WebSocket;
+  random?: () => number;
+  maxReconnectAttempts?: number;
+  reconnectBaseDelayMs?: number;
+  reconnectMaxDelayMs?: number;
+  disconnectGraceMs?: number;
+};
+
+const DEFAULT_REQUEST_TIMEOUT_MS = 10_000;
+const SUBSCRIBE_REQUEST_TIMEOUT_MS = 15_000;
+const REQUEST_CONNECT_TIMEOUT_MS = 15_000;
+const DEBUG_WEBSOCKET = process.env.NEXT_PUBLIC_WS_DEBUG === '1';
+
+function debugLog(event: string, detail?: Record<string, unknown>): void {
+  if (DEBUG_WEBSOCKET) {
+    console.debug(`[WebSocket] ${event}`, detail ?? {});
+  }
+}
 
 function readyStateLabel(readyState: number | undefined): string {
   return readyState === WebSocket.CONNECTING ? 'CONNECTING'
@@ -54,425 +63,319 @@ function safeWebSocketUrl(url: string): string {
 }
 
 function summarizeMessageForLog(message: Record<string, unknown>): Record<string, unknown> {
-  const summary: Record<string, unknown> = {
-    type: message.type,
-  };
-
+  const summary: Record<string, unknown> = { type: message.type };
   if (typeof message.requestId === 'string') summary.requestId = message.requestId;
   if (typeof message.sessionId === 'string') summary.sessionId = message.sessionId;
   if (typeof message.action === 'string') summary.action = message.action;
   if (typeof message.success === 'boolean') summary.success = message.success;
-  if (typeof message.error === 'string') summary.error = message.error;
+  if (typeof message.code === 'string') summary.code = message.code;
 
   const event = message.event;
   if (event && typeof event === 'object' && 'type' in event) {
     summary.eventType = (event as { type?: unknown }).type;
   }
-
   return summary;
 }
 
-function estimateMessageBytes(message: Record<string, unknown>): number {
-  try {
-    const serialized = JSON.stringify(message);
-    if (typeof TextEncoder !== 'undefined') {
-      return new TextEncoder().encode(serialized).byteLength;
-    }
-    return serialized.length;
-  } catch {
-    return Number.MAX_SAFE_INTEGER;
-  }
+function errorWithCode(message: string, code: string): Error & { code: string } {
+  return Object.assign(new Error(message), { code });
+}
+
+export function calculateReconnectDelay(
+  attempt: number,
+  baseDelayMs = 1_000,
+  maxDelayMs = 30_000,
+  random = Math.random,
+): number {
+  const exponentialDelay = Math.min(baseDelayMs * (2 ** Math.max(0, attempt)), maxDelayMs);
+  const jitterFactor = 0.8 + (random() * 0.4);
+  return Math.min(Math.round(exponentialDelay * jitterFactor), maxDelayMs);
+}
+
+function isTerminalCloseCode(code: number): boolean {
+  return code === 1000
+    || code === CHAT_WEBSOCKET_CLOSE_CODES.unauthorized
+    || code === CHAT_WEBSOCKET_CLOSE_CODES.licenseRequired;
 }
 
 export class WebSocketClient extends EventTarget {
   private ws: WebSocket | null = null;
+  private readonly baseUrl: string;
+  private readonly createSocket: (url: string, protocol: string) => WebSocket;
+  private readonly random: () => number;
+  private readonly maxReconnectAttempts: number;
+  private readonly reconnectBaseDelayMs: number;
+  private readonly reconnectMaxDelayMs: number;
+  private readonly disconnectGraceMs: number;
   private reconnectAttempts = 0;
-  private maxReconnectAttempts = 10;
-  private baseUrl: string;
-  private subscribedSessions = new Set<string>();
-  private isManualDisconnect = false;
-  private messageQueue: QueuedMessage[] = [];
-  private queuedMessageBytes = 0;
+  private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
+  private subscriptions = new Map<string, SessionSubscription>();
+  private pendingRequests = new Map<string, PendingRequest>();
+  private connectPromise: Promise<void> | null = null;
+  private connectDeferred: ConnectDeferred | null = null;
+  private consumerCount = 0;
+  private isManualDisconnect = true;
   private isConnecting = false;
   private isAuthenticated = false;
-  private connectResolve: (() => void) | null = null;
-  private connectReject: ((error: Error) => void) | null = null;
-  private refCount = 0;
-  private disconnectTimer: ReturnType<typeof setTimeout> | null = null;
-  private pendingRequests = new Map<string, PendingRequest>();
-  private connectAttempt = 0;
+  private connectionGeneration = 0;
+  private connectionSequence = 0;
   private activeConnectionId: string | null = null;
-  private static readonly DISCONNECT_GRACE_MS = 3000;
 
-  constructor(baseUrl?: string) {
+  constructor(baseUrl?: string, options: WebSocketClientOptions = {}) {
     super();
     this.baseUrl = baseUrl || this.getDefaultWebSocketUrl();
+    this.createSocket = options.createSocket ?? ((url, protocol) => new WebSocket(url, protocol));
+    this.random = options.random ?? Math.random;
+    this.maxReconnectAttempts = options.maxReconnectAttempts ?? 10;
+    this.reconnectBaseDelayMs = options.reconnectBaseDelayMs ?? 1_000;
+    this.reconnectMaxDelayMs = options.reconnectMaxDelayMs ?? 30_000;
+    this.disconnectGraceMs = options.disconnectGraceMs ?? 3_000;
   }
 
   private getDefaultWebSocketUrl(): string {
     if (typeof window === 'undefined') {
       return 'ws://localhost:3000/ws/chat';
     }
-
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
     const host = window.location.host || 'localhost:3000';
     return `${protocol}//${host}/ws/chat`;
   }
 
-  /**
-   * Connect to WebSocket server.
-   * Resolves only after the server has confirmed authentication (auth_success).
-   */
-  connect(): Promise<void> {
-    this.refCount++;
+  /** Acquire one connection lease. Every acquire must have one matching release. */
+  acquireConnection(): Promise<void> {
+    const wasUnused = this.consumerCount === 0;
+    this.consumerCount += 1;
     this.cancelDisconnectTimer();
     this.isManualDisconnect = false;
-    this.reconnectAttempts = 0;
-    console.log('[WebSocket] connect() requested', {
-      refCount: this.refCount,
-      isConnecting: this.isConnecting,
-      isAuthenticated: this.isAuthenticated,
-      readyState: readyStateLabel(this.ws?.readyState),
-      subscribedSessions: this.subscribedSessions.size,
-      queuedMessages: this.messageQueue.length,
-      queuedMessageBytes: this.queuedMessageBytes,
-      pendingRequests: this.pendingRequests.size,
-    });
-
-    return this.openAuthenticatedConnection();
+    if (wasUnused) {
+      this.reconnectAttempts = 0;
+    }
+    debugLog('connection_acquired', { consumerCount: this.consumerCount });
+    return this.ensureConnected();
   }
 
-  private openAuthenticatedConnection(): Promise<void> {
+  /** Ensure transport availability without changing connection ownership. */
+  ensureConnected(): Promise<void> {
     if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
-      console.log('[WebSocket] connect reused authenticated connection', {
-        connectionId: this.activeConnectionId,
-        readyState: readyStateLabel(this.ws.readyState),
-      });
       return Promise.resolve();
     }
-
-    if (this.isConnecting) {
-      console.log('[WebSocket] connect waiting for in-flight connection', {
-        connectionId: this.activeConnectionId,
-        readyState: readyStateLabel(this.ws?.readyState),
-      });
-      return new Promise((resolve, reject) => {
-        const checkAuthenticated = () => {
-          if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
-            resolve();
-          } else if (!this.isConnecting) {
-            reject(new Error('Connection failed during wait'));
-          } else {
-            setTimeout(checkAuthenticated, 100);
-          }
-        };
-        checkAuthenticated();
-      });
+    if (this.connectPromise) {
+      return this.connectPromise;
     }
-    
+
+    this.cancelReconnectTimer();
     this.isConnecting = true;
     this.isAuthenticated = false;
-    return new Promise((resolve, reject) => {
-      this.connectResolve = resolve;
-      this.connectReject = reject;
-      this.connectAttempt += 1;
-      const connectionId = `chat-ws-${this.connectAttempt}-${Date.now().toString(36)}`;
-      this.activeConnectionId = connectionId;
+    this.connectionSequence += 1;
+    this.connectionGeneration += 1;
+    const generation = this.connectionGeneration;
+    const connectionId = `chat-ws-${this.connectionSequence}-${Date.now().toString(36)}`;
+    this.activeConnectionId = connectionId;
 
-      try {
-        console.log('[WebSocket] connect_start', {
-          connectionId,
-          url: safeWebSocketUrl(this.baseUrl),
-          reconnectAttempts: this.reconnectAttempts,
-        });
-        this.ws = new WebSocket(this.baseUrl);
-
-        this.ws.onopen = () => {
-          console.log('[WebSocket] socket_open waiting_for_auth', {
-            connectionId,
-            readyState: readyStateLabel(this.ws?.readyState),
-          });
-          this.reconnectAttempts = 0;
-        };
-
-        this.ws.onclose = (event) => {
-          console.log('[WebSocket] socket_close', {
-            connectionId,
-            code: event.code,
-            reason: event.reason || '(empty)',
-            wasClean: event.wasClean,
-            wasAuthenticated: this.isAuthenticated,
-            wasConnecting: this.isConnecting,
-            queuedMessages: this.messageQueue.length,
-            queuedMessageBytes: this.queuedMessageBytes,
-            pendingRequests: this.pendingRequests.size,
-            subscribedSessions: this.subscribedSessions.size,
-          });
-          const wasConnecting = this.isConnecting;
-          this.isAuthenticated = false;
-          this.isConnecting = false;
-          this.rejectPendingRequests(new Error('WebSocket disconnected'));
-
-          if (wasConnecting && this.connectReject) {
-            this.connectReject(new Error(`WebSocket closed before auth: code=${event.code}`));
-            this.connectResolve = null;
-            this.connectReject = null;
-          }
-
-          this.dispatchEvent(new CustomEvent('disconnected', { detail: { code: event.code, reason: event.reason, wasClean: event.wasClean } }));
-
-          if (!this.isManualDisconnect) {
-            this.scheduleReconnect();
-          }
-        };
-
-        this.ws.onerror = (error) => {
-          const readyState = this.ws?.readyState;
-          console.error('[WebSocket] socket_error', {
-            connectionId,
-            readyState: readyStateLabel(readyState),
-            error,
-          });
-          this.isConnecting = false;
-          this.isAuthenticated = false;
-
-          this.dispatchEvent(new CustomEvent('error', { detail: { error: 'Connection error', readyState } }));
-
-          if (this.connectReject) {
-            this.connectReject(new Error('WebSocket connection error'));
-            this.connectResolve = null;
-            this.connectReject = null;
-          }
-        };
-
-        this.ws.onmessage = (event) => {
-          try {
-            const message = JSON.parse(event.data);
-            this.handleMessage(message);
-          } catch (error) {
-            console.error('[WebSocket] Error parsing message:', error);
-          }
-        };
-      } catch (error) {
-        console.error('[WebSocket] connect_throw', {
-          connectionId,
-          error,
-        });
-        this.isConnecting = false;
-        this.isAuthenticated = false;
-        reject(error);
-        this.connectResolve = null;
-        this.connectReject = null;
-      }
+    const promise = new Promise<void>((resolve, reject) => {
+      this.connectDeferred = { resolve, reject };
     });
+    this.connectPromise = promise;
+
+    try {
+      const socket = this.createSocket(this.baseUrl, CHAT_WEBSOCKET_PROTOCOL);
+      this.ws = socket;
+      debugLog('connect_start', {
+        connectionId,
+        url: safeWebSocketUrl(this.baseUrl),
+        reconnectAttempt: this.reconnectAttempts,
+      });
+
+      socket.onopen = () => {
+        if (!this.isCurrentSocket(socket, generation)) return;
+        debugLog('socket_open_waiting_for_auth', { connectionId });
+      };
+
+      socket.onmessage = (event) => {
+        if (!this.isCurrentSocket(socket, generation)) return;
+        try {
+          const message = JSON.parse(String(event.data));
+          if (!message || typeof message !== 'object' || Array.isArray(message)) {
+            throw new Error('Message is not an object');
+          }
+          this.handleMessage(message as Record<string, unknown>, socket, generation);
+        } catch {
+          console.warn('[WebSocket] invalid_server_message', { connectionId });
+        }
+      };
+
+      socket.onerror = () => {
+        if (!this.isCurrentSocket(socket, generation)) return;
+        console.warn('[WebSocket] socket_error', {
+          connectionId,
+          readyState: readyStateLabel(socket.readyState),
+        });
+        this.dispatchEvent(new CustomEvent('error', {
+          detail: { error: 'Connection error', code: 'CONNECTION_ERROR' },
+        }));
+      };
+
+      socket.onclose = (event) => {
+        if (!this.isCurrentSocket(socket, generation)) return;
+        const wasAuthenticated = this.isAuthenticated;
+        this.ws = null;
+        this.isAuthenticated = false;
+        this.isConnecting = false;
+        for (const subscription of this.subscriptions.values()) {
+          subscription.confirmed = false;
+        }
+
+        this.rejectConnect(errorWithCode(
+          `WebSocket closed before authentication: code=${event.code}`,
+          'CONNECTION_CLOSED',
+        ));
+        this.rejectPendingRequests(errorWithCode('WebSocket disconnected', 'CONNECTION_CLOSED'));
+        console.info('[WebSocket] disconnected', {
+          connectionId,
+          code: event.code,
+          wasAuthenticated,
+          wasClean: event.wasClean,
+          desiredSubscriptions: this.subscriptions.size,
+        });
+        this.dispatchEvent(new CustomEvent('disconnected', {
+          detail: { code: event.code, reason: event.reason, wasClean: event.wasClean },
+        }));
+
+        if (!this.isManualDisconnect && this.consumerCount > 0 && !isTerminalCloseCode(event.code)) {
+          this.scheduleReconnect();
+        }
+      };
+    } catch (error) {
+      this.ws = null;
+      this.isConnecting = false;
+      this.isAuthenticated = false;
+      this.rejectConnect(error instanceof Error ? error : new Error('WebSocket connection failed'));
+    }
+
+    return promise;
+  }
+
+  private isCurrentSocket(socket: WebSocket, generation: number): boolean {
+    return this.ws === socket && this.connectionGeneration === generation;
+  }
+
+  private resolveConnect(): void {
+    const deferred = this.connectDeferred;
+    this.connectDeferred = null;
+    this.connectPromise = null;
+    deferred?.resolve();
+  }
+
+  private rejectConnect(error: Error): void {
+    const deferred = this.connectDeferred;
+    this.connectDeferred = null;
+    this.connectPromise = null;
+    deferred?.reject(error);
   }
 
   private abortConnectingConnection(connectionId: string | null, error: Error): void {
-    if (!this.isConnecting || this.activeConnectionId !== connectionId) {
-      return;
-    }
-
+    if (!this.isConnecting || this.activeConnectionId !== connectionId) return;
     const socket = this.ws;
-
-    console.warn('[WebSocket] abort_connecting_connection', {
-      connectionId,
-      readyState: readyStateLabel(socket?.readyState),
-      error: error.message,
-    });
-
     this.isConnecting = false;
     this.isAuthenticated = false;
-
-    if (this.connectReject) {
-      this.connectReject(error);
+    this.rejectConnect(error);
+    console.warn('[WebSocket] connect_timeout', {
+      connectionId,
+      readyState: readyStateLabel(socket?.readyState),
+    });
+    if (socket && socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) {
+      socket.close(4000, 'Connect timeout');
     }
-    this.connectResolve = null;
-    this.connectReject = null;
+  }
+
+  private waitForAuthenticatedConnection(timeoutMs: number): Promise<void> {
+    if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
+      return Promise.resolve();
+    }
+    this.cancelDisconnectTimer();
+    this.isManualDisconnect = false;
+    const connectTimeoutMs = Math.min(Math.max(timeoutMs, 5_000), REQUEST_CONNECT_TIMEOUT_MS);
+    const connectionPromise = this.ensureConnected();
+    const timeoutConnectionId = this.activeConnectionId;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+
+    return Promise.race([
+      connectionPromise,
+      new Promise<void>((_, reject) => {
+        timer = setTimeout(() => {
+          const error = errorWithCode('WebSocket connection timeout before request', 'CONNECT_TIMEOUT');
+          this.abortConnectingConnection(timeoutConnectionId, error);
+          reject(error);
+        }, connectTimeoutMs);
+      }),
+    ]).finally(() => {
+      if (timer) clearTimeout(timer);
+    });
+  }
+
+  releaseConnection(): void {
+    if (this.consumerCount > 0) this.consumerCount -= 1;
+    debugLog('connection_released', { consumerCount: this.consumerCount });
+    if (this.consumerCount === 0 && !this.disconnectTimer) {
+      this.disconnectTimer = setTimeout(() => {
+        this.disconnectTimer = null;
+        if (this.consumerCount === 0) this.disconnect();
+      }, this.disconnectGraceMs);
+    }
+  }
+
+  disconnect(): void {
+    const wasConnected = this.isAuthenticated || this.isConnecting;
+    const socket = this.ws;
+    this.isManualDisconnect = true;
+    this.consumerCount = 0;
+    this.isAuthenticated = false;
+    this.isConnecting = false;
+    this.connectionGeneration += 1;
+    this.ws = null;
+    this.cancelDisconnectTimer();
+    this.cancelReconnectTimer();
+    this.subscriptions.clear();
+    this.rejectConnect(errorWithCode('WebSocket disconnected by client', 'CLIENT_DISCONNECT'));
+    this.rejectPendingRequests(errorWithCode('WebSocket disconnected by client', 'CLIENT_DISCONNECT'));
 
     if (socket) {
       socket.onopen = null;
       socket.onmessage = null;
       socket.onerror = null;
       socket.onclose = null;
-
       if (socket.readyState !== WebSocket.CLOSED && socket.readyState !== WebSocket.CLOSING) {
-        try {
-          socket.close(4000, 'connect timeout');
-        } catch (closeError) {
-          console.warn('[WebSocket] abort_connecting_connection close failed', {
-            connectionId,
-            error: closeError,
-          });
-        }
-      }
-
-      if (this.ws === socket) {
-        this.ws = null;
+        socket.close(1000, 'Client disconnect');
       }
     }
-  }
-
-  private waitForAuthenticatedConnection(type: string, timeoutMs: number): Promise<void> {
-    if (this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN) {
-      return Promise.resolve();
-    }
-
-    this.cancelDisconnectTimer();
-    this.isManualDisconnect = false;
-    this.reconnectAttempts = 0;
-
-    const connectTimeoutMs = Math.min(Math.max(timeoutMs, 5000), REQUEST_CONNECT_TIMEOUT_MS);
-    let timer: ReturnType<typeof setTimeout> | null = null;
-
-    console.log('[WebSocket] request_connect_start', {
-      connectionId: this.activeConnectionId,
-      type,
-      connectTimeoutMs,
-      readyState: readyStateLabel(this.ws?.readyState),
-      isConnecting: this.isConnecting,
-      isAuthenticated: this.isAuthenticated,
-    });
-
-    const connectionPromise = this.openAuthenticatedConnection();
-    const timeoutConnectionId = this.activeConnectionId;
-
-    return Promise.race([
-      connectionPromise,
-      new Promise<void>((_, reject) => {
-        timer = setTimeout(() => {
-          const error = new Error('WebSocket connection timeout before request');
-          console.warn('[WebSocket] request_connect_timeout', {
-            connectionId: this.activeConnectionId,
-            type,
-            connectTimeoutMs,
-            readyState: readyStateLabel(this.ws?.readyState),
-            isConnecting: this.isConnecting,
-            isAuthenticated: this.isAuthenticated,
-          });
-          this.abortConnectingConnection(timeoutConnectionId, error);
-          reject(error);
-        }, connectTimeoutMs);
-      }),
-    ]).finally(() => {
-      if (timer) {
-        clearTimeout(timer);
-      }
-    });
-  }
-
-  /**
-   * Disconnect from WebSocket server
-   */
-  disconnect(): void {
-    this.isManualDisconnect = true;
-    this.refCount = 0;
-    this.isAuthenticated = false;
-    this.isConnecting = false;
-    this.cancelDisconnectTimer();
-    this.subscribedSessions.clear();
-
-    this.connectResolve = null;
-    this.connectReject = null;
-    this.clearMessageQueue();
-
-    if (this.ws) {
-      console.log('[WebSocket] disconnect() closing socket', {
-        connectionId: this.activeConnectionId,
-        readyState: readyStateLabel(this.ws.readyState),
-        pendingRequests: this.pendingRequests.size,
-        queuedMessages: this.messageQueue.length,
-        queuedMessageBytes: this.queuedMessageBytes,
-      });
-      this.ws.close(1000, 'client disconnect');
-      this.ws = null;
-    }
-    
-    console.log('[WebSocket] Disconnected manually');
-  }
-
-  releaseConnection(): void {
-    if (this.refCount > 0) {
-      this.refCount--;
-    }
-
-    console.log(`[WebSocket] releaseConnection: refCount=${this.refCount}`);
-
-    if (this.refCount === 0 && !this.disconnectTimer) {
-      this.disconnectTimer = setTimeout(() => {
-        this.disconnectTimer = null;
-        if (this.refCount === 0) {
-          console.log('[WebSocket] No active consumers, disconnecting');
-          this.disconnect();
-        }
-      }, WebSocketClient.DISCONNECT_GRACE_MS);
+    if (wasConnected) {
+      this.dispatchEvent(new CustomEvent('disconnected', {
+        detail: { code: 1000, reason: 'Client disconnect', wasClean: true },
+      }));
     }
   }
 
   private cancelDisconnectTimer(): void {
-    if (this.disconnectTimer !== null) {
+    if (this.disconnectTimer) {
       clearTimeout(this.disconnectTimer);
       this.disconnectTimer = null;
     }
   }
 
-  /**
-   * Send message to server.
-   * Queues the message if not yet authenticated; flushed after auth_success.
-   * Returns false when the queue guard rejects the message.
-   */
-  send(message: Record<string, unknown>): boolean {
-    if (this.isAuthenticated && this.ws && this.ws.readyState === WebSocket.OPEN) {
-      if (!QUIET_MESSAGE_TYPES.has(String(message.type))) {
-        console.log('[WebSocket] send', {
-          connectionId: this.activeConnectionId,
-          ...summarizeMessageForLog(message),
-        });
-      }
-      this.ws.send(JSON.stringify(message));
-      return true;
+  private cancelReconnectTimer(): void {
+    if (this.reconnectTimer) {
+      clearTimeout(this.reconnectTimer);
+      this.reconnectTimer = null;
     }
+  }
 
-    const messageBytes = estimateMessageBytes(message);
-    if (
-      messageBytes > MAX_SINGLE_QUEUED_MESSAGE_BYTES ||
-      this.messageQueue.length >= MAX_QUEUED_MESSAGES ||
-      this.queuedMessageBytes + messageBytes > MAX_QUEUED_MESSAGE_BYTES
-    ) {
-      console.warn('[WebSocket] send rejected queue_limit', {
-        connectionId: this.activeConnectionId,
-        readyState: readyStateLabel(this.ws?.readyState),
-        messageBytes,
-        queuedMessages: this.messageQueue.length,
-        queuedMessageBytes: this.queuedMessageBytes,
-        maxQueuedMessages: MAX_QUEUED_MESSAGES,
-        maxQueuedBytes: MAX_QUEUED_MESSAGE_BYTES,
-        maxSingleMessageBytes: MAX_SINGLE_QUEUED_MESSAGE_BYTES,
-        ...summarizeMessageForLog(message),
-      });
-      this.dispatchEvent(new CustomEvent<{ error: string; code?: string }>('error', {
-        detail: { error: 'WebSocket send queue limit exceeded', code: 'QUEUE_LIMIT_EXCEEDED' },
-      }));
+  private sendNow(message: Record<string, unknown>): boolean {
+    if (!this.isAuthenticated || !this.ws || this.ws.readyState !== WebSocket.OPEN) {
       return false;
     }
-    
-    console.log('[WebSocket] send queued before auth', {
-      connectionId: this.activeConnectionId,
-      readyState: readyStateLabel(this.ws?.readyState),
-      isConnecting: this.isConnecting,
-      isManualDisconnect: this.isManualDisconnect,
-      messageBytes,
-      queuedMessageBytes: this.queuedMessageBytes + messageBytes,
-      ...summarizeMessageForLog(message),
-    });
-    this.messageQueue.push({ message, bytes: messageBytes });
-    this.queuedMessageBytes += messageBytes;
-    
-    if (!this.isConnecting && !this.isManualDisconnect) {
-      this.openAuthenticatedConnection().catch(err => {
-        console.error('[WebSocket] Failed to auto-connect:', err);
-      });
-    }
-
+    debugLog('send', { connectionId: this.activeConnectionId, ...summarizeMessageForLog(message) });
+    this.ws.send(JSON.stringify(message));
     return true;
   }
 
@@ -481,22 +384,13 @@ export class WebSocketClient extends EventTarget {
     payload: Record<string, unknown>,
     timeoutMs = DEFAULT_REQUEST_TIMEOUT_MS,
   ): Promise<T> {
-    await this.waitForAuthenticatedConnection(type, timeoutMs);
-
+    await this.waitForAuthenticatedConnection(timeoutMs);
     const requestId = generateRandomId();
 
     return new Promise<T>((resolve, reject) => {
       const timer = setTimeout(() => {
         this.pendingRequests.delete(requestId);
-        console.warn('[WebSocket] request_timeout', {
-          connectionId: this.activeConnectionId,
-          requestId,
-          type,
-          timeoutMs,
-          readyState: readyStateLabel(this.ws?.readyState),
-          isAuthenticated: this.isAuthenticated,
-        });
-        reject(new Error('WebSocket request timeout'));
+        reject(errorWithCode('WebSocket request timeout', 'REQUEST_TIMEOUT'));
       }, timeoutMs);
 
       this.pendingRequests.set(requestId, {
@@ -505,243 +399,162 @@ export class WebSocketClient extends EventTarget {
         reject,
         timer,
       });
-
-      console.log('[WebSocket] request_start', {
-        connectionId: this.activeConnectionId,
-        requestId,
-        type,
-        timeoutMs,
-        ...summarizeMessageForLog(payload),
-      });
-      if (!this.send({ type, requestId, ...payload })) {
+      if (!this.sendNow({ type, requestId, ...payload })) {
         clearTimeout(timer);
         this.pendingRequests.delete(requestId);
-        reject(new Error('WebSocket send queue limit exceeded'));
+        reject(errorWithCode('WebSocket is not authenticated', 'NOT_CONNECTED'));
       }
     });
   }
 
   private rejectPendingRequests(error: Error): void {
-    for (const [requestId, pending] of this.pendingRequests.entries()) {
+    for (const [requestId, pending] of this.pendingRequests) {
       clearTimeout(pending.timer);
       pending.reject(error);
       this.pendingRequests.delete(requestId);
     }
   }
-  
-  private flushMessageQueue(): void {
-    if (this.messageQueue.length === 0) return;
-    
-    console.log('[WebSocket] flush_queue_after_auth', {
-      connectionId: this.activeConnectionId,
-      queuedMessages: this.messageQueue.length,
-      queuedMessageBytes: this.queuedMessageBytes,
-    });
-    while (this.messageQueue.length > 0) {
-      const queued = this.messageQueue.shift();
-      if (queued) {
-        this.queuedMessageBytes = Math.max(0, this.queuedMessageBytes - queued.bytes);
-      }
-      if (queued?.message && this.ws && this.ws.readyState === WebSocket.OPEN) {
-        console.log('[WebSocket] send_queued', {
-          connectionId: this.activeConnectionId,
-          ...summarizeMessageForLog(queued.message),
-        });
-        this.ws.send(JSON.stringify(queued.message));
-      }
-    }
-    this.queuedMessageBytes = 0;
-  }
 
-  private clearMessageQueue(): void {
-    this.messageQueue = [];
-    this.queuedMessageBytes = 0;
-  }
-
-  /**
-   * Subscribe to a session
-   */
   subscribe(sessionId: string): Promise<Record<string, unknown>> {
-    this.subscribedSessions.add(sessionId);
-    console.log('[WebSocket] subscribe requested', {
-      connectionId: this.activeConnectionId,
+    const existing = this.subscriptions.get(sessionId);
+    if (existing) {
+      existing.references += 1;
+    } else {
+      this.subscriptions.set(sessionId, { references: 1, confirmed: false, promise: null });
+    }
+    debugLog('subscription_acquired', {
       sessionId,
-      subscribedSessions: this.subscribedSessions.size,
+      references: this.subscriptions.get(sessionId)?.references,
     });
-    return this.request('subscribe_session', { sessionId }, SUBSCRIBE_REQUEST_TIMEOUT_MS);
+    return this.ensureSessionSubscribed(sessionId);
   }
 
-  /**
-   * Unsubscribe from a session
-   */
+  private ensureSessionSubscribed(sessionId: string): Promise<Record<string, unknown>> {
+    const subscription = this.subscriptions.get(sessionId);
+    if (!subscription) {
+      return Promise.reject(errorWithCode('Subscription was released', 'SUBSCRIPTION_RELEASED'));
+    }
+    if (subscription.confirmed) {
+      return Promise.resolve({ type: 'subscribe_result', success: true, sessionId, shared: true });
+    }
+    if (subscription.promise) return subscription.promise;
+
+    const promise = this.request('subscribe_session', { sessionId }, SUBSCRIBE_REQUEST_TIMEOUT_MS)
+      .then((payload) => {
+        const current = this.subscriptions.get(sessionId);
+        if (current === subscription) current.confirmed = true;
+        return payload;
+      })
+      .finally(() => {
+        const current = this.subscriptions.get(sessionId);
+        if (current === subscription && current.promise === promise) current.promise = null;
+      });
+    subscription.promise = promise;
+    return promise;
+  }
+
   unsubscribe(sessionId: string): void {
-    this.subscribedSessions.delete(sessionId);
-    this.send({ type: 'unsubscribe_session', sessionId });
-    console.log('[WebSocket] unsubscribe requested', {
-      connectionId: this.activeConnectionId,
-      sessionId,
-      subscribedSessions: this.subscribedSessions.size,
-    });
+    const subscription = this.subscriptions.get(sessionId);
+    if (!subscription) return;
+    subscription.references -= 1;
+    if (subscription.references > 0) {
+      debugLog('subscription_released_shared', { sessionId, references: subscription.references });
+      return;
+    }
+
+    this.subscriptions.delete(sessionId);
+    this.sendNow({ type: 'unsubscribe_session', sessionId });
+    debugLog('subscription_released', { sessionId });
   }
 
-  /**
-   * Send message to a session with context
-   */
   sendMessage(
     sessionId: string,
     message: Record<string, unknown>,
-    context?: ChatRequestContext
-  ): void {
-    console.log('[WebSocket] sendMessage requested', {
-      connectionId: this.activeConnectionId,
-      sessionId,
-      hasContext: Boolean(context),
-      contextPage: context?.currentPage,
-      messageRole: typeof message.role === 'string' ? message.role : undefined,
-      contentKind: Array.isArray(message.content) ? 'parts' : typeof message.content,
-    });
-    this.send({
-      type: 'send_message',
-      sessionId,
-      message,
-      context,
-    });
+    context?: ChatRequestContext,
+  ): Promise<Record<string, unknown>> {
+    return this.request('send_message', { sessionId, message, context });
   }
 
-  private completeAuth(success: boolean, error?: string): void {
+  private completeAuth(
+    success: boolean,
+    socket: WebSocket,
+    generation: number,
+    error?: string,
+  ): void {
+    if (!this.isCurrentSocket(socket, generation)) return;
     this.isConnecting = false;
-
-    if (success) {
-      this.isAuthenticated = true;
-      console.log('[WebSocket] auth_success', {
-        connectionId: this.activeConnectionId,
-        queuedMessages: this.messageQueue.length,
-        resubscribeSessions: this.subscribedSessions.size,
-      });
-
-      for (const sessionId of this.subscribedSessions) {
-        console.log('[WebSocket] resubscribe_after_auth', {
-          connectionId: this.activeConnectionId,
-          sessionId,
-        });
-        this.ws?.send(JSON.stringify({ type: 'subscribe_session', sessionId }));
-      }
-
-      this.flushMessageQueue();
-
-      this.dispatchEvent(new CustomEvent('connected'));
-
-      if (this.connectResolve) {
-        this.connectResolve();
-        this.connectResolve = null;
-        this.connectReject = null;
-      }
-    } else {
+    if (!success) {
       this.isAuthenticated = false;
-      this.isManualDisconnect = true;
-      console.error('[WebSocket] auth_failed', {
-        connectionId: this.activeConnectionId,
-        error: error || 'Authentication failed',
+      const authError = errorWithCode(error || 'WebSocket authentication failed', 'AUTH_ERROR');
+      this.rejectConnect(authError);
+      this.rejectPendingRequests(authError);
+      this.dispatchEvent(new CustomEvent('error', {
+        detail: { error: authError.message, code: authError.code },
+      }));
+      socket.close(CHAT_WEBSOCKET_CLOSE_CODES.unauthorized, 'Unauthorized');
+      return;
+    }
+
+    this.isAuthenticated = true;
+    this.reconnectAttempts = 0;
+    this.cancelReconnectTimer();
+    console.info('[WebSocket] connected', {
+      connectionId: this.activeConnectionId,
+      desiredSubscriptions: this.subscriptions.size,
+    });
+    this.resolveConnect();
+    this.dispatchEvent(new CustomEvent('connected'));
+    for (const sessionId of this.subscriptions.keys()) {
+      void this.ensureSessionSubscribed(sessionId).catch((subscriptionError) => {
+        console.warn('[WebSocket] resubscribe_failed', {
+          sessionId,
+          error: subscriptionError instanceof Error ? subscriptionError.message : 'Unknown error',
+        });
       });
-      this.rejectPendingRequests(new Error(error || 'WebSocket authentication failed'));
-
-      this.dispatchEvent(new CustomEvent('error', { detail: { error: error || 'Authentication failed', code: 'AUTH_ERROR' } }));
-
-      if (this.connectReject) {
-        this.connectReject(new Error(error || 'WebSocket authentication failed'));
-        this.connectResolve = null;
-        this.connectReject = null;
-      }
-
-      this.ws?.close(4001, 'Unauthorized');
     }
   }
 
-  /**
-   * Handle incoming messages
-   */
-  private handleMessage(message: Record<string, unknown>): void {
-    const { type } = message;
+  private handleMessage(message: Record<string, unknown>, socket: WebSocket, generation: number): void {
+    const type = message.type;
     const requestId = typeof message.requestId === 'string' ? message.requestId : null;
-
-    if (requestId && this.pendingRequests.has(requestId)) {
-      const pending = this.pendingRequests.get(requestId)!;
-      clearTimeout(pending.timer);
-      this.pendingRequests.delete(requestId);
-      console.log('[WebSocket] request_result', {
-        connectionId: this.activeConnectionId,
-        requestId,
-        requestType: pending.type,
-        ...summarizeMessageForLog(message),
-      });
-
-      if (message.success === false) {
-        pending.reject(new Error(typeof message.error === 'string' ? message.error : 'WebSocket request failed'));
-      } else {
-        pending.resolve(message);
+    if (requestId) {
+      const pending = this.pendingRequests.get(requestId);
+      if (pending) {
+        clearTimeout(pending.timer);
+        this.pendingRequests.delete(requestId);
+        debugLog('request_result', {
+          connectionId: this.activeConnectionId,
+          requestType: pending.type,
+          ...summarizeMessageForLog(message),
+        });
+        if (message.success === false) {
+          pending.reject(new Error(typeof message.error === 'string' ? message.error : 'WebSocket request failed'));
+        } else {
+          pending.resolve(message);
+        }
+        return;
       }
-      return;
     }
 
     switch (type) {
       case 'auth_success':
-        console.log('[WebSocket] auth_success received', {
-          connectionId: this.activeConnectionId,
-          userId: message.userId,
-        });
-        this.completeAuth(true);
+        this.completeAuth(true, socket, generation);
         break;
-
       case 'auth_error':
-        console.error('[WebSocket] auth_error received', {
-          connectionId: this.activeConnectionId,
-          error: message.error,
-        });
-        this.completeAuth(false, typeof message.error === 'string' ? message.error : 'Authentication failed');
+        this.completeAuth(false, socket, generation, typeof message.error === 'string' ? message.error : undefined);
         break;
-
-      case 'subscribe_result':
-      case 'send_message_result':
-      case 'control_result':
-      case 'status_result':
-        if (message.success === false) {
-          console.error('[WebSocket] Request result error:', message.error);
-          this.dispatchEvent(new CustomEvent<{ error: string; code?: string }>('error', {
-            detail: { error: message.error as string, code: type as string },
-          }));
-        }
-        break;
-
       case 'agent_event': {
-        const agentEvent = {
-          sessionId: message.sessionId as string,
-          event: message.event as Record<string, unknown>,
-        };
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; event: Record<string, unknown> }>('agent_event', {
-          detail: agentEvent,
-        }));
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('agent_event', { detail: agentEvent }));
-        }
+        const detail = { sessionId: message.sessionId as string, event: message.event as Record<string, unknown> };
+        this.dispatchApplicationEvent('agent_event', detail);
         break;
       }
-
       case 'runtime_status': {
-        const runtimeStatus = {
-          sessionId: message.sessionId as string,
-          status: message.status as Record<string, unknown>,
-        };
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; status: Record<string, unknown> }>('runtime_status', {
-          detail: runtimeStatus,
-        }));
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('runtime_status', { detail: runtimeStatus }));
-        }
+        const detail = { sessionId: message.sessionId as string, status: message.status as Record<string, unknown> };
+        this.dispatchApplicationEvent('runtime_status', detail);
         break;
       }
-
       case 'notification': {
-        const notificationEvent = {
+        const detail = {
           sessionId: message.sessionId as string,
           sessionTitle: message.sessionTitle as string,
           workspaceId: message.workspaceId as string | undefined,
@@ -750,139 +563,121 @@ export class WebSocketClient extends EventTarget {
           lastMessageAt: message.lastMessageAt as string | undefined,
           timestamp: message.timestamp as number | undefined,
         };
-        console.log('[WebSocket Client] Received notification:', notificationEvent.notificationType, 'session:', notificationEvent.sessionId, 'title:', notificationEvent.sessionTitle, 'preview:', notificationEvent.messagePreview?.slice(0, 60));
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; sessionTitle: string; workspaceId?: string; notificationType: string; messagePreview?: string; lastMessageAt?: string; timestamp?: number }>('notification', {
-          detail: notificationEvent,
-        }));
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('notification', { detail: notificationEvent }));
-        }
+        debugLog('notification_received', {
+          sessionId: detail.sessionId,
+          notificationType: detail.notificationType,
+          hasPreview: Boolean(detail.messagePreview),
+        });
+        this.dispatchApplicationEvent('notification', detail);
         break;
       }
-
       case 'session_updated': {
-        const sessionUpdate = {
+        const detail = {
           sessionId: message.sessionId as string,
           workspaceId: message.workspaceId as string | undefined,
           lastMessageAt: message.lastMessageAt as string,
           title: message.title as string | undefined,
         };
-        console.log('[WebSocket Client] Received session_updated:', 'session:', sessionUpdate.sessionId, 'lastMessageAt:', sessionUpdate.lastMessageAt, 'title:', sessionUpdate.title);
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; workspaceId?: string; lastMessageAt: string; title?: string }>('session_updated', {
-          detail: sessionUpdate,
-        }));
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('session_updated', { detail: sessionUpdate }));
-        }
+        this.dispatchApplicationEvent('session_updated', detail);
         break;
       }
-
       case 'session_title_updated': {
-        const titleUpdate = {
+        const detail = {
           sessionId: message.sessionId as string,
           title: message.title as string,
           titleGenerationState: message.titleGenerationState as string | null | undefined,
         };
-        console.log('[WebSocket Client] Received session_title_updated:', 'session:', titleUpdate.sessionId, 'title:', titleUpdate.title);
-        this.dispatchEvent(new CustomEvent<{ sessionId: string; title: string; titleGenerationState?: string | null }>('session_title_updated', {
-          detail: titleUpdate,
-        }));
-        if (typeof window !== 'undefined') {
-          window.dispatchEvent(new CustomEvent('session_title_updated', { detail: titleUpdate }));
-        }
+        this.dispatchApplicationEvent('session_title_updated', detail);
         break;
       }
-
       case 'error':
-        console.error('[WebSocket] server_error received', {
-          connectionId: this.activeConnectionId,
-          ...summarizeMessageForLog(message),
-        });
-        this.dispatchEvent(new CustomEvent<{ error: string; code?: string }>('error', {
+        console.warn('[WebSocket] server_error', summarizeMessageForLog(message));
+        this.dispatchEvent(new CustomEvent('error', {
           detail: { error: message.error as string, code: message.code as string },
         }));
         break;
-
-      default:
-        if (type !== 'subscribe_result' || !this.isAuthenticated) {
-          console.warn('[WebSocket] Unknown message type:', type);
+      case 'subscribe_result':
+      case 'send_message_result':
+      case 'control_result':
+      case 'status_result':
+        if (message.success === false) {
+          this.dispatchEvent(new CustomEvent('error', {
+            detail: { error: message.error as string, code: type },
+          }));
         }
+        break;
+      default:
+        debugLog('unknown_server_message', { type });
     }
   }
 
-  /**
-   * Schedule reconnection with exponential backoff
-   */
+  private dispatchApplicationEvent(type: string, detail: Record<string, unknown>): void {
+    this.dispatchEvent(new CustomEvent(type, { detail }));
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(new CustomEvent(type, { detail }));
+    }
+  }
+
   private scheduleReconnect(): void {
+    if (this.reconnectTimer || this.isManualDisconnect || this.consumerCount === 0) return;
     if (this.reconnectAttempts >= this.maxReconnectAttempts) {
-      console.error(`[WebSocket] Failed to reconnect after ${this.maxReconnectAttempts} attempts`);
       this.dispatchEvent(new CustomEvent('error', {
-        detail: { error: `Failed to reconnect after ${this.maxReconnectAttempts} attempts`, code: 'MAX_RECONNECT_ATTEMPTS' },
+        detail: {
+          error: `Failed to reconnect after ${this.maxReconnectAttempts} attempts`,
+          code: 'MAX_RECONNECT_ATTEMPTS',
+        },
       }));
       return;
     }
 
-    const delay = Math.min(1000 * Math.pow(2, this.reconnectAttempts), 30000);
-    this.reconnectAttempts++;
-
-    console.log('[WebSocket] reconnect_scheduled', {
-      connectionId: this.activeConnectionId,
+    const attempt = this.reconnectAttempts;
+    const delay = calculateReconnectDelay(
+      attempt,
+      this.reconnectBaseDelayMs,
+      this.reconnectMaxDelayMs,
+      this.random,
+    );
+    this.reconnectAttempts += 1;
+    console.info('[WebSocket] reconnect_scheduled', {
       attempt: this.reconnectAttempts,
       maxAttempts: this.maxReconnectAttempts,
-      delay,
-      subscribedSessions: this.subscribedSessions.size,
-      queuedMessages: this.messageQueue.length,
+      delayMs: delay,
     });
-
-    setTimeout(() => {
-      console.log('[WebSocket] reconnect_starting', {
-        previousConnectionId: this.activeConnectionId,
-        attempt: this.reconnectAttempts,
-        maxAttempts: this.maxReconnectAttempts,
+    this.reconnectTimer = setTimeout(() => {
+      this.reconnectTimer = null;
+      if (this.isManualDisconnect || this.consumerCount === 0) return;
+      void this.ensureConnected().catch((error) => {
+        debugLog('reconnect_attempt_failed', {
+          error: error instanceof Error ? error.message : 'Unknown error',
+        });
       });
-      this.isManualDisconnect = false;
-      this.openAuthenticatedConnection().catch(console.error);
     }, delay);
   }
 
-  /**
-   * Reset manual disconnect flag so the client can reconnect.
-   * Called after a successful login to re-enable connection attempts.
-   */
   resetForReconnect(): void {
     this.isManualDisconnect = false;
     this.reconnectAttempts = 0;
-    console.log('[WebSocket] resetForReconnect');
+    this.cancelReconnectTimer();
   }
 
-  /**
-   * Check if connected AND authenticated
-   */
   isConnected(): boolean {
-    return this.isAuthenticated && this.ws !== null && this.ws.readyState === WebSocket.OPEN;
+    return this.isAuthenticated && this.ws?.readyState === WebSocket.OPEN;
   }
 
-  /**
-   * Get connection state
-   */
   getReadyState(): number {
     return this.ws?.readyState ?? WebSocket.CLOSED;
   }
 }
 
-// Singleton instance for app-wide use
 let globalWebSocketClient: WebSocketClient | null = null;
 
 export function getWebSocketClient(): WebSocketClient {
-  if (!globalWebSocketClient) {
-    globalWebSocketClient = new WebSocketClient();
-  }
+  if (!globalWebSocketClient) globalWebSocketClient = new WebSocketClient();
   return globalWebSocketClient;
 }
 
 export function disconnectWebSocketClient(): void {
-  if (globalWebSocketClient) {
-    globalWebSocketClient.disconnect();
-    globalWebSocketClient = null;
-  }
+  if (!globalWebSocketClient) return;
+  globalWebSocketClient.disconnect();
+  globalWebSocketClient = null;
 }

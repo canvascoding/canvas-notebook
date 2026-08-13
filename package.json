@@ -274,6 +274,7 @@
     "test:e2e": "playwright test --pass-with-no-tests",
     "test:all": "node scripts/test-all.mjs",
     "test:websocket:connection": "node scripts/test-websocket-connection.js",
+    "test:websocket:client": "tsx scripts/websocket-client-lifecycle-test.ts",
     "test:websocket:multitab": "node scripts/test-websocket-multitab.js",
     "test:websocket:origin": "tsx scripts/trusted-origins-test.ts",
     "test:websocket:protocol": "tsx scripts/websocket-protocol-contract-test.ts",

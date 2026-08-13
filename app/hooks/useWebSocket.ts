@@ -21,7 +21,11 @@ interface UseWebSocketReturn {
   client: WebSocketClient;
   subscribe: (sessionId: string) => Promise<Record<string, unknown>>;
   unsubscribe: (sessionId: string) => void;
-  sendMessage: (sessionId: string, message: Record<string, unknown>, context?: ChatRequestContext) => void;
+  sendMessage: (
+    sessionId: string,
+    message: Record<string, unknown>,
+    context?: ChatRequestContext,
+  ) => Promise<Record<string, unknown>>;
   request: <T extends Record<string, unknown> = Record<string, unknown>>(
     type: string,
     payload: Record<string, unknown>,
@@ -69,7 +73,7 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
     client.addEventListener('error', handleError as EventListener);
 
     if (autoConnect) {
-      client.connect().catch(console.error);
+      client.acquireConnection().catch(console.error);
     }
 
     // If the shared singleton is already open, hydrate local state immediately.
@@ -84,6 +88,9 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
       client.removeEventListener('connected', handleConnected as EventListener);
       client.removeEventListener('disconnected', handleDisconnected as EventListener);
       client.removeEventListener('error', handleError as EventListener);
+      if (autoConnect) {
+        client.releaseConnection();
+      }
     };
   }, [autoConnect, onConnected, onDisconnected, onError]);
 
@@ -102,7 +109,10 @@ export function useWebSocket(options: UseWebSocketOptions = {}): Omit<UseWebSock
 
   // Send message
   const sendMessage = useCallback((sessionId: string, message: Record<string, unknown>, context?: ChatRequestContext) => {
-    clientRef.current?.sendMessage(sessionId, message, context);
+    if (!clientRef.current) {
+      return Promise.reject(new Error('WebSocket client not initialized'));
+    }
+    return clientRef.current.sendMessage(sessionId, message, context);
   }, []);
 
   const request = useCallback(<T extends Record<string, unknown> = Record<string, unknown>>(

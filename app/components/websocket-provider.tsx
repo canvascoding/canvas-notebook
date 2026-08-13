@@ -142,6 +142,7 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
   const router = useRouter();
   const t = useTranslations('chat');
   const clientRef = useRef<WebSocketClient | null>(null);
+  const hasConnectionLeaseRef = useRef(false);
   const activeSessionRef = useRef<{ sessionId: string | null; workspaceId: string | null; isVisible: boolean }>({
     sessionId: null,
     workspaceId: null,
@@ -188,12 +189,15 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
     if (!client || !enabled) return;
 
     if (!hasSessionCookie()) {
-      console.log('[WebSocketProvider] No session cookie, skipping WebSocket connection');
       return;
     }
 
     client.resetForReconnect();
-    client.connect().catch((error) => {
+    const connection = hasConnectionLeaseRef.current
+      ? client.ensureConnected()
+      : client.acquireConnection();
+    hasConnectionLeaseRef.current = true;
+    connection.catch((error) => {
       if ((error as { code?: string })?.code !== 'AUTH_ERROR') {
         console.error('[WebSocketProvider] Failed to connect:', error);
       }
@@ -206,18 +210,13 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
     const client = clientRef.current;
     setConnected(client.isConnected());
 
-    if (!enabled) {
-      client.releaseConnection();
-      setConnected(false);
-    }
+    if (!enabled) setConnected(false);
 
     const handleConnected = () => {
-      console.log('[WebSocketProvider] Connected');
       setConnected(true);
     };
 
     const handleDisconnected = () => {
-      console.log('[WebSocketProvider] Disconnected');
       setConnected(false);
     };
 
@@ -235,7 +234,8 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
     client.addEventListener('error', handleError as EventListener);
 
     if (enabled && hasSessionCookie()) {
-      client.connect().catch((error) => {
+      hasConnectionLeaseRef.current = true;
+      client.acquireConnection().catch((error) => {
         if ((error as { code?: string })?.code !== 'AUTH_ERROR') {
           console.error('[WebSocketProvider] Failed to connect:', error);
         }
@@ -243,7 +243,6 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
     }
 
     const handleAuthSuccess = () => {
-      console.log('[WebSocketProvider] Session established, connecting WebSocket');
       connectIfAuthenticated();
     };
 
@@ -254,13 +253,15 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
       client.removeEventListener('disconnected', handleDisconnected as EventListener);
       client.removeEventListener('error', handleError as EventListener);
       window.removeEventListener('ws-auth-success', handleAuthSuccess);
-      client.releaseConnection();
+      if (hasConnectionLeaseRef.current) {
+        hasConnectionLeaseRef.current = false;
+        client.releaseConnection();
+      }
     };
   }, [connectIfAuthenticated, enabled]);
 
   useEffect(() => {
     const handleActiveSessionChanged = (event: CustomEvent<{ sessionId: string | null; workspaceId?: string | null; isVisible: boolean }>) => {
-      console.log(`[WebSocketProvider] Active session changed: sessionId=${event.detail.sessionId}, isVisible=${event.detail.isVisible}`);
       activeSessionRef.current = {
         sessionId: event.detail.sessionId,
         workspaceId: event.detail.workspaceId ?? null,
@@ -280,10 +281,7 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
 
     const showSessionNotification = (detail: NotificationDetail) => {
       const { sessionId, sessionTitle, workspaceId, notificationType, messagePreview, lastMessageAt } = detail;
-      const activeSession = activeSessionRef.current;
-      console.log(`[WebSocketProvider] showSessionNotification called: sessionId=${sessionId}, type=${notificationType}, title="${sessionTitle}", activeSession=${activeSession.sessionId}, isVisible=${activeSession.isVisible}`);
       if (isActiveVisibleSession(sessionId, workspaceId)) {
-        console.log(`[WebSocketProvider] SUPPRESSED: session ${sessionId} is active+visible, not showing toast`);
         clearFallbackNotificationTimer(sessionId);
         return;
       }
@@ -293,8 +291,6 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
       const targetPath = getSessionTargetPath(sessionId, workspaceId);
       rememberDeliveredNotification(sessionId, lastMessageAt);
       clearFallbackNotificationTimer(sessionId);
-
-      console.log(`[WebSocketProvider] SHOWING TOAST: sessionId=${sessionId}, type=${notificationType}, title="${toastTitle}", description="${toastDescription}"`);
 
       const desktopBridge = getCanvasDesktopBridge();
       if (
@@ -353,17 +349,13 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
     };
 
     const handleNotification = (event: CustomEvent<NotificationDetail>) => {
-      console.log(`[WebSocketProvider] handleNotification event received: sessionId=${event.detail.sessionId}, type=${event.detail.notificationType}`);
       showSessionNotification(event.detail);
     };
 
     const handleSessionUpdated = (event: CustomEvent<{ sessionId: string; workspaceId?: string; lastMessageAt: string; title?: string }>) => {
       const { sessionId, workspaceId, lastMessageAt, title } = event.detail;
-      const activeSession = activeSessionRef.current;
-      console.log(`[WebSocketProvider] handleSessionUpdated: sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title}", activeSession=${activeSession.sessionId}, isVisible=${activeSession.isVisible}`);
 
       if (isActiveVisibleSession(sessionId, workspaceId)) {
-        console.log(`[WebSocketProvider] handleSessionUpdated SUPPRESSED: session ${sessionId} is active+visible`);
         clearFallbackNotificationTimer(sessionId);
         return;
       }
@@ -372,11 +364,9 @@ export function WebSocketProvider({ children, enabled = true }: WebSocketProvide
       const timer = window.setTimeout(() => {
         const recentlyDeliveredAt = deliveredNotificationKeysRef.current.get(sessionId);
         if (recentlyDeliveredAt && Date.now() - recentlyDeliveredAt < 1500) {
-          console.log(`[WebSocketProvider] Fallback timer: skipping session ${sessionId}, notification already delivered ${Date.now() - recentlyDeliveredAt}ms ago`);
           return;
         }
 
-        console.log(`[WebSocketProvider] Fallback timer: showing notification for session ${sessionId} (no prior notification delivered)`);
         showSessionNotification({
           sessionId,
           sessionTitle: title || t('newChatTitle'),

@@ -537,9 +537,6 @@ export default function CanvasAgentChat({
     }
 
     void ensureSessionSubscribed(sessionId)
-      .then(() => {
-        console.log(`[CanvasAgentChat] Subscribed to session ${sessionId}`);
-      })
       .catch((error) => {
         console.error(`[CanvasAgentChat] Failed to subscribe to session ${sessionId}`, error);
       });
@@ -552,7 +549,6 @@ export default function CanvasAgentChat({
         subscribedSessionRequestRef.current = null;
       }
       unsubscribe(sessionId);
-      console.log(`[CanvasAgentChat] Unsubscribed from session ${sessionId}`);
     };
   }, [ensureSessionSubscribed, wsConnected, sessionId, unsubscribe]);
 
