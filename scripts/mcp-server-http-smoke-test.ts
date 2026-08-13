@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 
 const MCP_ACCEPT = 'application/json, text/event-stream';
 const MCP_PROTOCOL_VERSION = '2025-06-18';
+const MODERN_MCP_PROTOCOL_VERSION = '2026-07-28';
 const REQUEST_TIMEOUT_MS = 10_000;
 
 type JsonRecord = Record<string, unknown>;
@@ -80,6 +81,46 @@ async function rpcRequest(
   });
   assert.equal(response.status, 200, `${method} must return HTTP 200.`);
   return resultFromRpc(body);
+}
+
+async function modernRpcRequest(
+  origin: string,
+  id: number,
+  method: string,
+  params: JsonRecord = {},
+  name?: string,
+): Promise<{ response: Response; result: JsonRecord }> {
+  const headers: Record<string, string> = {
+    accept: MCP_ACCEPT,
+    'content-type': 'application/json',
+    'mcp-method': method,
+    'mcp-protocol-version': MODERN_MCP_PROTOCOL_VERSION,
+  };
+  if (name) headers['mcp-name'] = name;
+
+  const { response, body } = await requestJson(origin, '/mcp', {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id,
+      method,
+      params: {
+        ...params,
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': MODERN_MCP_PROTOCOL_VERSION,
+          'io.modelcontextprotocol/clientInfo': {
+            name: 'canvas-notebook-http-smoke',
+            version: '1.0.0',
+          },
+          'io.modelcontextprotocol/clientCapabilities': {},
+        },
+      },
+    }),
+  });
+  assert.equal(response.status, 200, `${method} must return HTTP 200.`);
+  assert.equal(response.headers.get('mcp-session-id'), null);
+  return { response, result: resultFromRpc(body) };
 }
 
 async function main(): Promise<void> {
@@ -161,6 +202,43 @@ async function main(): Promise<void> {
   );
   assert.ok(challenge[0].includes('error="invalid_token"'));
 
+  const modernDiscovery = await modernRpcRequest(
+    origin,
+    100,
+    'server/discover',
+  );
+  assert.deepEqual(
+    modernDiscovery.result.supportedVersions,
+    [MODERN_MCP_PROTOCOL_VERSION],
+  );
+  assert.equal(
+    (((modernDiscovery.result._meta as JsonRecord)
+      ['io.modelcontextprotocol/serverInfo']) as JsonRecord).name,
+    'canvas-notebook-direct-mcp',
+  );
+
+  const modernToolsResult = (
+    await modernRpcRequest(origin, 101, 'tools/list')
+  ).result;
+  assert.equal((modernToolsResult.tools as JsonRecord[])[0].name, 'auth_probe');
+  assert.equal(modernToolsResult.cacheScope, 'private');
+  assert.equal(modernToolsResult.ttlMs, 0);
+
+  const modernProbeResult = (
+    await modernRpcRequest(
+      origin,
+      102,
+      'tools/call',
+      { name: 'auth_probe', arguments: {} },
+      'auth_probe',
+    )
+  ).result;
+  assert.equal(modernProbeResult.isError, true);
+  const modernChallenge = (
+    modernProbeResult._meta as JsonRecord
+  )['mcp/www_authenticate'] as string[];
+  assert.ok(modernChallenge[0].includes('error="invalid_token"'));
+
   const unsupportedGet = await request(origin, '/mcp');
   assert.equal(unsupportedGet.status, 405);
   assert.equal(unsupportedGet.headers.get('allow'), 'POST, OPTIONS');
@@ -172,6 +250,12 @@ async function main(): Promise<void> {
   );
   assert.ok(
     preflight.headers.get('access-control-allow-headers')?.includes('authorization'),
+  );
+  assert.ok(
+    preflight.headers.get('access-control-allow-headers')?.includes('mcp-method'),
+  );
+  assert.ok(
+    preflight.headers.get('access-control-allow-headers')?.includes('mcp-name'),
   );
 
   console.log(`mcp-server-http-smoke-test: ok (${origin})`);
