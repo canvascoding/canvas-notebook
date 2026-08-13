@@ -8,6 +8,7 @@ import {
 } from '@/app/lib/todos/store';
 import { normalizeManagedAgentId } from '@/app/lib/agents/registry';
 import { getAgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
+import { USER_TODO_SCOPE, todoScopeForWorkspace } from '@/app/lib/todos/scope';
 
 function parseDueAt(value: unknown): Date | null {
   if (value === undefined || value === null || value === '') {
@@ -74,13 +75,9 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
 
         const input = params as Record<string, unknown>;
         const executionContext = getAgentExecutionContext();
-        const workspaceScope = executionContext?.workspaceType === 'organization' || executionContext?.workspaceType === 'team'
-          ? {
-              workspaceType: executionContext.workspaceType,
-              organizationId: executionContext.organizationId,
-              workspaceId: executionContext.workspaceId,
-            }
-          : { workspaceType: 'personal' as const };
+        const workspaceScope = executionContext
+          ? todoScopeForWorkspace(executionContext)
+          : USER_TODO_SCOPE;
         const todo = await createTodo(deps.userId, {
           ...workspaceScope,
           title: String(input.title ?? ''),
@@ -102,7 +99,7 @@ export function createHumanTodoTool(deps: { userId?: string; agentId?: string | 
           `Title: ${todo.title}`,
           `Category: ${todo.category?.name ?? 'To-do'}`,
           `Priority: ${todo.priority}`,
-          `Workspace: ${todo.workspaceType === 'organization' || todo.workspaceType === 'team' ? 'Team' : 'Personal'}`,
+          `Scope: ${todo.scopeKind === 'workspace' ? todo.workspace?.name || todo.workspaceType : 'Across personal workspaces'}`,
           todo.assignee ? `Assignee: ${todo.assignee.name || todo.assignee.email || todo.assignee.id}` : null,
           `Visible in UI: /todos`,
         ].filter((line): line is string => Boolean(line));

@@ -1101,6 +1101,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       project_id TEXT,
       workspace_id TEXT,
       workspace_type TEXT NOT NULL DEFAULT 'personal',
+      scope_kind TEXT NOT NULL DEFAULT 'user',
       category_id TEXT,
       title TEXT NOT NULL,
       description TEXT,
@@ -1922,6 +1923,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     project_id: 'TEXT',
     workspace_id: 'TEXT',
     workspace_type: "TEXT NOT NULL DEFAULT 'personal'",
+    scope_kind: "TEXT NOT NULL DEFAULT 'user'",
     completion_comment: 'TEXT',
     follow_up_sent_at: 'INTEGER',
     follow_up_error: 'TEXT',
@@ -1938,6 +1940,15 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
 
   sqlite.exec(`
+    UPDATE todo_items
+    SET scope_kind = CASE
+      WHEN workspace_id IS NOT NULL THEN 'workspace'
+      ELSE 'user'
+    END
+    WHERE scope_kind IS NULL
+      OR scope_kind NOT IN ('user', 'workspace')
+      OR (scope_kind = 'user' AND workspace_id IS NOT NULL);
+
     WITH primary_org AS (
       SELECT organization_id
       FROM canvas_organization_settings
@@ -2241,6 +2252,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_todo_items_user_seen ON todo_items (user_id, seen_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_source_session ON todo_items (user_id, source_session_id);
     CREATE INDEX IF NOT EXISTS idx_todo_items_org_workspace_status ON todo_items (organization_id, workspace_id, status, updated_at);
+    CREATE INDEX IF NOT EXISTS idx_todo_items_scope_workspace_status ON todo_items (scope_kind, workspace_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_project_status ON todo_items (project_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_assignee_status ON todo_items (assignee_user_id, status, updated_at);
     CREATE INDEX IF NOT EXISTS idx_todo_items_category ON todo_items (category_id);

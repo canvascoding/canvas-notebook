@@ -103,6 +103,17 @@ async function main() {
   });
   await db.insert(canvasWorkspaces).values([
     {
+      id: 'personal-workspace',
+      organizationId: 'org-test',
+      type: 'personal',
+      ownerUserId: 'todo-user',
+      rootRelativePath: 'users/todo-user/files',
+      displayName: 'Todo User Workspace',
+      status: 'active',
+      createdAt: now,
+      updatedAt: now,
+    },
+    {
       id: 'team-workspace',
       organizationId: 'org-test',
       type: 'team',
@@ -280,7 +291,9 @@ async function main() {
   assert.equal(created.category?.name, 'Review');
   assert.equal(getDefaultTodoCategoryKey(created.category), 'review');
   assert.equal(created.workspaceType, 'personal');
+  assert.equal(created.scopeKind, 'user');
   assert.equal(created.workspaceId, null);
+  assert.equal(created.workspace, null);
   assert.equal(created.fileLinks.length, 1);
   assert.equal(created.fileLinks[0].workspacePath, 'docs/brief.md');
   assert.equal(created.fileLinks[0].workspaceId, null);
@@ -288,6 +301,34 @@ async function main() {
   const todos = await listTodos('todo-user');
   assert.equal(todos.length, 1);
   assert.equal(todos[0].id, created.id);
+
+  const personalWorkspaceTodo = await createTodo('todo-user', {
+    title: 'Workspace notes',
+    scopeKind: 'workspace',
+    workspaceType: 'personal',
+    workspaceId: 'personal-workspace',
+    assigneeUserId: 'todo-user',
+  });
+  assert.equal(personalWorkspaceTodo.scopeKind, 'workspace');
+  assert.equal(personalWorkspaceTodo.workspaceId, 'personal-workspace');
+  assert.equal(personalWorkspaceTodo.workspace?.name, 'Todo User Workspace');
+
+  const currentPersonalWorkspaceTodos = await listTodos('todo-user', {
+    status: 'all',
+    scopeKind: 'workspace',
+    workspaceType: 'personal',
+    workspaceId: 'personal-workspace',
+  });
+  assert.deepEqual(currentPersonalWorkspaceTodos.map((todo) => todo.id), [personalWorkspaceTodo.id]);
+
+  const combinedPersonalWorkspaceTodos = await listTodos('todo-user', {
+    status: 'all',
+    scopeKind: 'all',
+    workspaceType: 'personal',
+    workspaceId: 'personal-workspace',
+  });
+  assert.equal(combinedPersonalWorkspaceTodos.some((todo) => todo.id === created.id), true);
+  assert.equal(combinedPersonalWorkspaceTodos.some((todo) => todo.id === personalWorkspaceTodo.id), true);
 
   const otherUserTodos = await listTodos('other-user', { status: 'all' });
   assert.equal(otherUserTodos.length, 0);
@@ -302,6 +343,7 @@ async function main() {
     fileLinks: ['docs/brief.md'],
   });
   assert.equal(teamTodo.workspaceType, 'team');
+  assert.equal(teamTodo.scopeKind, 'workspace');
   assert.equal(teamTodo.organizationId, 'org-test');
   assert.equal(teamTodo.workspaceId, 'team-workspace');
   assert.equal(teamTodo.createdBy?.id, 'todo-user');
@@ -335,6 +377,7 @@ async function main() {
     fileLinks: ['docs/brief.md'],
   });
   assert.equal(projectTodo.workspaceType, 'project');
+  assert.equal(projectTodo.scopeKind, 'workspace');
   assert.equal(projectTodo.organizationId, 'org-test');
   assert.equal(projectTodo.projectId, 'project-test');
   assert.equal(projectTodo.workspaceId, 'project-workspace');
@@ -380,6 +423,28 @@ async function main() {
     workspaceType: 'personal',
   });
   assert.equal(personalStillPrivate.length, 0);
+
+  await assert.rejects(
+    () => createTodo('todo-user', {
+      title: 'Invalid global team task',
+      scopeKind: 'user',
+      workspaceType: 'team',
+      organizationId: 'org-test',
+      workspaceId: 'team-workspace',
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'INVALID_INPUT',
+  );
+
+  await assert.rejects(
+    () => createTodo('todo-user', {
+      title: 'Invalid personal assignee',
+      scopeKind: 'workspace',
+      workspaceType: 'personal',
+      workspaceId: 'personal-workspace',
+      assigneeUserId: 'other-user',
+    }),
+    (error) => error instanceof TodoStoreError && error.code === 'ASSIGNEE_NOT_FOUND',
+  );
 
   await assert.rejects(
     () => listTodos('external-user', {

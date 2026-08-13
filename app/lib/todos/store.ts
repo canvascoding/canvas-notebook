@@ -20,6 +20,9 @@ import {
   getDefaultTodoCategoryKey,
   resolveDefaultTodoCategoryName,
 } from './default-categories';
+import type { TodoScopeKind } from './scope';
+
+export type { TodoScopeKind } from './scope';
 
 export {
   DEFAULT_TODO_CATEGORIES,
@@ -70,6 +73,7 @@ export type TodoWithRelations = TodoItem & {
   fileLinks: TodoFileLink[];
   createdBy: TodoUserSummary | null;
   assignee: TodoUserSummary | null;
+  workspace: TodoWorkspaceSummary | null;
 };
 
 export type TodoFileLinkInput = string | {
@@ -90,6 +94,7 @@ export type CreateTodoInput = {
   organizationId?: string | null;
   workspaceId?: string | null;
   workspaceType?: TodoWorkspaceType | null;
+  scopeKind?: TodoScopeKind | null;
   assigneeUserId?: string | null;
   seenAt?: Date | null;
   fileLinks?: TodoFileLinkInput[];
@@ -117,6 +122,7 @@ export type ListTodosOptions = {
   workspaceType?: TodoWorkspaceType | 'all';
   organizationId?: string | null;
   workspaceId?: string | null;
+  scopeKind?: TodoScopeKind | 'all';
   assigneeUserId?: string | 'me' | 'unassigned' | null;
   due?: 'overdue' | 'today' | 'upcoming';
   query?: string;
@@ -131,12 +137,19 @@ export type TodoUserSummary = {
   email: string | null;
 };
 
+export type TodoWorkspaceSummary = {
+  id: string;
+  name: string;
+  type: TodoWorkspaceType;
+};
+
 type TodoScope = {
   organizationId: string | null;
   customerId: string | null;
   projectId: string | null;
   workspaceId: string | null;
   workspaceType: TodoWorkspaceType;
+  scopeKind: TodoScopeKind;
 };
 
 type OrganizationPermission = typeof organizationUserPermissions.$inferSelect;
@@ -219,6 +232,14 @@ function normalizeWorkspaceType(value: TodoWorkspaceType | null | undefined): To
   return value;
 }
 
+function normalizeScopeKind(value: TodoScopeKind | null | undefined, workspaceType: TodoWorkspaceType): TodoScopeKind {
+  if (!value) return workspaceType === 'personal' ? 'user' : 'workspace';
+  if (value !== 'user' && value !== 'workspace') {
+    throw new TodoStoreError('Invalid todo scope.', 'INVALID_INPUT');
+  }
+  return value;
+}
+
 function normalizeOptionalId(value: string | null | undefined, maxLength = 160): string | null {
   if (typeof value !== 'string') return null;
   const normalized = value.trim();
@@ -291,6 +312,21 @@ async function assertSharedWorkspaceInOrganization(
   });
   if (!workspace || (expectedType && workspace.type !== expectedType)) {
     throw new TodoStoreError('Shared workspace not found.', 'INVALID_INPUT');
+  }
+  return workspace;
+}
+
+async function assertPersonalWorkspaceOwner(workspaceId: string, userId: string): Promise<WorkspaceRecord> {
+  const workspace = await db.query.canvasWorkspaces.findFirst({
+    where: and(
+      eq(canvasWorkspaces.id, workspaceId),
+      eq(canvasWorkspaces.type, 'personal'),
+      eq(canvasWorkspaces.ownerUserId, userId),
+      eq(canvasWorkspaces.status, 'active'),
+    ),
+  });
+  if (!workspace) {
+    throw new TodoStoreError('Personal workspace not found.', 'INVALID_INPUT');
   }
   return workspace;
 }
@@ -376,19 +412,36 @@ async function listReadableProjectWorkspaceIds(organizationId: string, userId: s
   return rows.map((row) => row.workspaceId);
 }
 
-async function resolveTodoScope(userId: string, input: Pick<CreateTodoInput, 'organizationId' | 'workspaceId' | 'workspaceType'>): Promise<TodoScope> {
+async function resolveTodoScope(userId: string, input: Pick<CreateTodoInput, 'organizationId' | 'workspaceId' | 'workspaceType' | 'scopeKind'>): Promise<TodoScope> {
   const workspaceType = normalizeWorkspaceType(input.workspaceType);
+  const scopeKind = normalizeScopeKind(input.scopeKind, workspaceType);
+  if (scopeKind === 'user') {
+    if (workspaceType !== 'personal') {
+      throw new TodoStoreError('User-scoped to-dos cannot belong to a shared workspace.', 'INVALID_INPUT');
+    }
+    return { organizationId: null, customerId: null, projectId: null, workspaceId: null, workspaceType, scopeKind };
+  }
+
+  const workspaceId = normalizeOptionalId(input.workspaceId);
+  if (!workspaceId) {
+    throw new TodoStoreError('workspaceId is required for workspace-scoped to-dos.', 'INVALID_INPUT');
+  }
+
   if (workspaceType === 'personal') {
-    return { organizationId: null, customerId: null, projectId: null, workspaceId: null, workspaceType };
+    await assertPersonalWorkspaceOwner(workspaceId, userId);
+    return {
+      organizationId: null,
+      customerId: null,
+      projectId: null,
+      workspaceId,
+      workspaceType,
+      scopeKind,
+    };
   }
 
   const organizationId = normalizeOptionalId(input.organizationId);
   if (!organizationId) {
     throw new TodoStoreError('organizationId is required for shared workspace to-dos.', 'INVALID_INPUT');
-  }
-  const workspaceId = normalizeOptionalId(input.workspaceId);
-  if (workspaceType === 'project' && !workspaceId) {
-    throw new TodoStoreError('workspaceId is required for project workspace to-dos.', 'INVALID_INPUT');
   }
 
   if (workspaceType !== 'project') {
@@ -408,6 +461,7 @@ async function resolveTodoScope(userId: string, input: Pick<CreateTodoInput, 'or
     projectId: workspace?.projectId ?? null,
     workspaceId,
     workspaceType,
+    scopeKind,
   };
 }
 
@@ -699,6 +753,7 @@ export async function createTodo(userId: string, input: CreateTodoInput): Promis
     projectId: scope.projectId,
     workspaceId: scope.workspaceId,
     workspaceType: scope.workspaceType,
+    scopeKind: scope.scopeKind,
     categoryId,
     title: normalizeRequiredText(input.title, 'Title', TITLE_MAX_LENGTH),
     description: normalizeOptionalText(input.description, DESCRIPTION_MAX_LENGTH),
@@ -760,12 +815,30 @@ async function hydrateTodos(rows: TodoItem[]): Promise<TodoWithRelations[]> {
     : [];
   const userById = new Map(users.map((entry) => [entry.id, entry]));
 
+  const workspaceIds = Array.from(new Set(rows.map((row) => row.workspaceId).filter(Boolean))) as string[];
+  const workspaces = workspaceIds.length
+    ? await db.select({
+        id: canvasWorkspaces.id,
+        name: canvasWorkspaces.displayName,
+        type: canvasWorkspaces.type,
+      }).from(canvasWorkspaces).where(inArray(canvasWorkspaces.id, workspaceIds))
+    : [];
+  const workspaceById = new Map(workspaces.map((workspace) => [workspace.id, workspace]));
+
   return rows.map((row) => ({
     ...row,
     category: row.categoryId ? categoryById.get(row.categoryId) ?? null : null,
     fileLinks: linksByTodoId.get(row.id) ?? [],
     createdBy: userById.get(row.createdByUserId || row.userId) ?? null,
     assignee: row.assigneeUserId ? userById.get(row.assigneeUserId) ?? null : null,
+    workspace: row.workspaceId
+      ? (() => {
+          const workspace = workspaceById.get(row.workspaceId);
+          return workspace && TODO_WORKSPACE_TYPES.includes(workspace.type as TodoWorkspaceType)
+            ? { ...workspace, type: workspace.type as TodoWorkspaceType }
+            : null;
+        })()
+      : null,
   }));
 }
 
@@ -792,7 +865,11 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
     if (workspaceType !== 'project') {
       await assertOrganizationMember(organizationId, userId);
     }
-    conditions.push(eq(todoItems.organizationId, organizationId), eq(todoItems.workspaceType, workspaceType));
+    conditions.push(
+      eq(todoItems.organizationId, organizationId),
+      eq(todoItems.workspaceType, workspaceType),
+      eq(todoItems.scopeKind, 'workspace'),
+    );
     const workspaceId = normalizeOptionalId(options.workspaceId);
     if (workspaceType === 'project') {
       if (!workspaceId) {
@@ -831,7 +908,31 @@ export async function listTodos(userId: string, options: ListTodosOptions = {}):
       conditions.push(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal'));
     }
   } else {
+    const workspaceId = normalizeOptionalId(options.workspaceId);
+    const scopeKind = options.scopeKind ?? 'user';
     conditions.push(eq(todoItems.userId, userId), eq(todoItems.workspaceType, 'personal'));
+    if (scopeKind === 'workspace') {
+      if (!workspaceId) {
+        throw new TodoStoreError('workspaceId is required for workspace-scoped to-dos.', 'INVALID_INPUT');
+      }
+      if (workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID) {
+        await assertPersonalWorkspaceOwner(workspaceId, userId);
+      }
+      conditions.push(eq(todoItems.scopeKind, 'workspace'), eq(todoItems.workspaceId, workspaceId));
+    } else if (scopeKind === 'all') {
+      if (!workspaceId) {
+        throw new TodoStoreError('workspaceId is required when listing all personal to-do scopes.', 'INVALID_INPUT');
+      }
+      if (workspaceId !== LEGACY_PERSONAL_WORKSPACE_ID) {
+        await assertPersonalWorkspaceOwner(workspaceId, userId);
+      }
+      conditions.push(or(
+        eq(todoItems.scopeKind, 'user'),
+        and(eq(todoItems.scopeKind, 'workspace'), eq(todoItems.workspaceId, workspaceId)),
+      )!);
+    } else {
+      conditions.push(eq(todoItems.scopeKind, 'user'));
+    }
   }
 
   if (options.status && options.status !== 'all' && options.status !== 'active') {
@@ -980,6 +1081,7 @@ export async function updateTodo(userId: string, todoId: string, input: UpdateTo
       projectId: current.projectId,
       workspaceId: current.workspaceId,
       workspaceType: normalizeWorkspaceType((current.workspaceType as TodoWorkspaceType | null) ?? 'personal'),
+      scopeKind: normalizeScopeKind(current.scopeKind as TodoScopeKind | null, normalizeWorkspaceType((current.workspaceType as TodoWorkspaceType | null) ?? 'personal')),
     }, normalizeFileLinks(input.fileLinks), now);
   }
 

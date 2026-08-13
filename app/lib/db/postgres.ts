@@ -906,6 +906,17 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     }
   }
 
+  await pool.query(`
+    UPDATE todo_items
+    SET scope_kind = CASE
+      WHEN workspace_id IS NOT NULL THEN 'workspace'
+      ELSE 'user'
+    END
+    WHERE scope_kind IS NULL
+      OR scope_kind NOT IN ('user', 'workspace')
+      OR (scope_kind = 'user' AND workspace_id IS NOT NULL)
+  `);
+
   await deduplicatePiSessions(pool);
 
   // Deduplicate license certs that were repeatedly inserted by older code.

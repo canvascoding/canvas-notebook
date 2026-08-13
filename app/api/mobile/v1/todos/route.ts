@@ -3,18 +3,11 @@ import { NextRequest, NextResponse } from 'next/server';
 import { listMobileTodos, MobileTodoError, serializeMobileTodo } from '@/app/lib/mobile/todos';
 import { mobileTodosErrorResponse, mobileTodosResponseHeaders } from '@/app/lib/mobile/todos-route';
 import { createTodo, type TodoFileLinkInput, type TodoPriority } from '@/app/lib/todos/store';
+import { USER_TODO_SCOPE, parseTodoScopeKind, todoScopeForWorkspace } from '@/app/lib/todos/scope';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 import { requireRequestWorkspace } from '@/app/lib/workspaces/request';
-import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export const dynamic = 'force-dynamic';
-
-function workspaceInput(workspace: WorkspaceContext) {
-  if (workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project') {
-    return { workspaceType: workspace.workspaceType, organizationId: workspace.organizationId, workspaceId: workspace.workspaceId } as const;
-  }
-  return { workspaceType: 'personal' as const };
-}
 
 function dateValue(value: unknown): Date | null {
   if (value === null || value === undefined || value === '') return null;
@@ -54,8 +47,19 @@ export async function POST(request: NextRequest) {
   if (!limited.ok) return limited.response;
   try {
     const payload = await request.json() as Record<string, unknown>;
+    const parsedScopeKind = parseTodoScopeKind(payload.scopeKind);
+    if (payload.scopeKind !== undefined && !parsedScopeKind) {
+      throw new MobileTodoError('INVALID_SCOPE', 'The To-do scope is invalid.', 400);
+    }
+    const scopeKind = parsedScopeKind ?? (workspaceResult.workspace.legacy ? 'user' : 'workspace');
+    if (scopeKind === 'workspace' && workspaceResult.workspace.legacy) {
+      throw new MobileTodoError('INVALID_SCOPE', 'This legacy personal workspace only supports user-scoped To-dos.', 400);
+    }
+    if (scopeKind === 'user' && workspaceResult.workspace.workspaceType !== 'personal') {
+      throw new MobileTodoError('INVALID_SCOPE', 'Shared workspace To-dos must stay in their workspace.', 400);
+    }
     const todo = await createTodo(workspaceResult.session.user.id, {
-      ...workspaceInput(workspaceResult.workspace),
+      ...(scopeKind === 'user' ? USER_TODO_SCOPE : todoScopeForWorkspace(workspaceResult.workspace)),
       title: typeof payload.title === 'string' ? payload.title : '',
       description: typeof payload.description === 'string' ? payload.description : null,
       categoryName: typeof payload.categoryName === 'string' ? payload.categoryName : null,

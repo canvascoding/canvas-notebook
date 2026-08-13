@@ -132,6 +132,7 @@ async function main() {
     fileLinks: [],
     createdBy: { id: userId, name: 'Todo Email User', email: 'owner@example.test' },
     assignee: null,
+    workspace: null,
   };
 
   const result = await sendTodoCreatedEmailNotification(userId, {

@@ -46,6 +46,8 @@ export type MobileTodo = {
     workspacePath: string;
     label: string | null;
   }[];
+  scopeKind: 'user' | 'workspace';
+  workspace: { id: string; name: string; type: TodoWorkspaceType } | null;
   workspaceId: string | null;
   workspaceType: string;
   createdAt: string;
@@ -61,21 +63,26 @@ export class MobileTodoError extends Error {
 
 function workspaceOptions(workspace: WorkspaceContext): Pick<
   ListTodosOptions,
-  'workspaceType' | 'organizationId' | 'workspaceId'
+  'workspaceType' | 'organizationId' | 'workspaceId' | 'scopeKind'
 > {
+  if (workspace.legacy) {
+    return { workspaceType: 'personal', scopeKind: 'user' };
+  }
   if (workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project') {
     return {
       workspaceType: workspace.workspaceType,
       organizationId: workspace.organizationId,
       workspaceId: workspace.workspaceId,
+      scopeKind: 'workspace',
     };
   }
-  return { workspaceType: 'personal' };
+  return { workspaceType: 'personal', workspaceId: workspace.workspaceId, scopeKind: 'all' };
 }
 
 export function mobileTodoBelongsToWorkspace(todo: TodoWithRelations, workspace: WorkspaceContext): boolean {
   if (workspace.workspaceType === 'personal') {
-    return todo.workspaceType === 'personal' && (!todo.workspaceId || todo.workspaceId === workspace.workspaceId);
+    return todo.workspaceType === 'personal'
+      && (todo.scopeKind === 'user' || todo.workspaceId === workspace.workspaceId);
   }
   return todo.workspaceType === workspace.workspaceType && todo.workspaceId === workspace.workspaceId;
 }
@@ -112,6 +119,8 @@ export function serializeMobileTodo(todo: TodoWithRelations): MobileTodo {
       workspacePath: link.workspacePath,
       label: link.label,
     })),
+    scopeKind: todo.scopeKind as MobileTodo['scopeKind'],
+    workspace: todo.workspace,
     workspaceId: todo.workspaceId,
     workspaceType: todo.workspaceType,
     createdAt: todo.createdAt.toISOString(),

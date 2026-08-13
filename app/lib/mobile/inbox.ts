@@ -90,20 +90,29 @@ function workspaceCondition(column: AnyColumn, workspace: WorkspaceContext): SQL
 }
 
 function todoWorkspaceOptions(workspace: WorkspaceContext) {
+  if (workspace.legacy) {
+    return { workspaceType: 'personal' as const, scopeKind: 'user' as const };
+  }
   if (workspace.workspaceType === 'organization' || workspace.workspaceType === 'team' || workspace.workspaceType === 'project') {
     return {
       workspaceType: workspace.workspaceType,
       organizationId: workspace.organizationId,
       workspaceId: workspace.workspaceId,
+      scopeKind: 'workspace',
     } as const;
   }
-  return { workspaceType: 'personal' as const };
+  return {
+    workspaceType: 'personal' as const,
+    workspaceId: workspace.workspaceId,
+    scopeKind: 'all' as const,
+  };
 }
 
 function todoBelongsToWorkspace(todo: Awaited<ReturnType<typeof getTodo>>, workspace: WorkspaceContext): boolean {
   if (!todo) return false;
   if (workspace.workspaceType === 'personal') {
-    return todo.workspaceType === 'personal' && (!todo.workspaceId || todo.workspaceId === workspace.workspaceId);
+    return todo.workspaceType === 'personal'
+      && (todo.scopeKind === 'user' || todo.workspaceId === workspace.workspaceId);
   }
   return todo.workspaceType === workspace.workspaceType && todo.workspaceId === workspace.workspaceId;
 }
@@ -409,7 +418,13 @@ async function collectAggregateInboxItems(input: {
     }));
     items.push(...batchItems.flat());
   }
-  return items.sort((left, right) => (
+  const seenTodoIds = new Set<string>();
+  return items.filter((item) => {
+    if (item.target.kind !== 'todo') return true;
+    if (seenTodoIds.has(item.target.todoId)) return false;
+    seenTodoIds.add(item.target.todoId);
+    return true;
+  }).sort((left, right) => (
     right.occurredAt.localeCompare(left.occurredAt)
     || right.workspaceId.localeCompare(left.workspaceId)
     || right.id.localeCompare(left.id)
