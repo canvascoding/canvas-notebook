@@ -4,6 +4,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 
+import { createMcpHandler, Server } from '@modelcontextprotocol/server';
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js';
 import { StreamableHTTPServerTransport } from '@modelcontextprotocol/sdk/server/streamableHttp.js';
 import { z } from 'zod';
@@ -20,6 +21,84 @@ async function countStarts(filePath: string): Promise<number> {
   } catch {
     return 0;
   }
+}
+
+async function readRequestBody(req: http.IncomingMessage): Promise<Buffer> {
+  const chunks: Buffer[] = [];
+  for await (const chunk of req) chunks.push(Buffer.from(chunk));
+  return Buffer.concat(chunks);
+}
+
+async function startModernHttpMcpServer(): Promise<{
+  url: string;
+  requests: Array<{ body: Record<string, unknown>; headers: http.IncomingHttpHeaders }>;
+  close: () => Promise<void>;
+}> {
+  const requests: Array<{ body: Record<string, unknown>; headers: http.IncomingHttpHeaders }> = [];
+  const handler = createMcpHandler(() => {
+    const mcp = new Server(
+      { name: 'canvas-modern-http-fake-mcp-server', version: '1.0.0' },
+      { capabilities: { tools: {} } },
+    );
+    mcp.setRequestHandler('tools/list', async () => ({
+      tools: [{
+        name: 'modern-echo',
+        description: 'Echoes a message over MCP 2026-07-28.',
+        inputSchema: {
+          type: 'object',
+          properties: { message: { type: 'string' } },
+          required: ['message'],
+          additionalProperties: false,
+        },
+      }],
+    }));
+    mcp.setRequestHandler('tools/call', async (request) => ({
+      content: [{
+        type: 'text',
+        text: `modern:${String((request.params.arguments as Record<string, unknown> | undefined)?.message || '')}`,
+      }],
+    }));
+    return mcp;
+  }, { legacy: 'reject' });
+
+  let baseUrl = '';
+  const server = http.createServer(async (req, res) => {
+    try {
+      const bodyBytes = await readRequestBody(req);
+      const body = bodyBytes.length
+        ? JSON.parse(bodyBytes.toString('utf8')) as Record<string, unknown>
+        : {};
+      requests.push({ body, headers: { ...req.headers } });
+      const headers = new Headers();
+      for (const [name, value] of Object.entries(req.headers)) {
+        if (Array.isArray(value)) value.forEach((entry) => headers.append(name, entry));
+        else if (value !== undefined) headers.set(name, value);
+      }
+      const response = await handler.fetch(new Request(`${baseUrl}${req.url || '/mcp'}`, {
+        method: req.method,
+        headers,
+        body: bodyBytes.length ? bodyBytes.toString('utf8') : undefined,
+      }));
+      res.writeHead(response.status, Object.fromEntries(response.headers.entries()));
+      res.end(Buffer.from(await response.arrayBuffer()));
+    } catch (error) {
+      res.writeHead(500, { 'Content-Type': 'text/plain' });
+      res.end(error instanceof Error ? error.message : 'Modern MCP test server failed.');
+    }
+  });
+
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+  const address = server.address();
+  assert.equal(typeof address, 'object');
+  baseUrl = `http://127.0.0.1:${address && typeof address === 'object' ? address.port : 0}`;
+  return {
+    url: `${baseUrl}/mcp`,
+    requests,
+    close: async () => {
+      await handler.close();
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    },
+  };
 }
 
 async function startHttpMcpServer(): Promise<{
@@ -146,7 +225,7 @@ async function main() {
   ]);
   assert.equal(toolsA.some((tool) => tool.name === 'echo'), true);
   assert.equal(toolsB.some((tool) => tool.name === 'sum'), true);
-  assert.equal(await countStarts(startFile), 1);
+  assert.equal(await countStarts(startFile), 2);
 
   const cachePath = path.join(tempRoot, 'settings', 'mcp-cache.json');
   const cache = JSON.parse(await fs.readFile(cachePath, 'utf8'));
@@ -159,10 +238,10 @@ async function main() {
     query: 'numbers',
   });
   assert.match(getText(searchFromCache), /fake\.sum/);
-  assert.equal(await countStarts(startFile), 1);
+  assert.equal(await countStarts(startFile), 2);
 
   await listMcpTools('fake');
-  assert.equal(await countStarts(startFile), 2);
+  assert.equal(await countStarts(startFile), 4);
   let status = await getMcpRuntimeStatus('fake');
   assert.equal(status.servers[0].connected, true);
   const closed = await cleanupIdleMcpServers(Date.now() + 1000);
@@ -176,7 +255,7 @@ async function main() {
     query: 'numbers',
   });
   assert.match(getText(searchAfterConfigChange), /fake\.sum/);
-  assert.equal(await countStarts(startFile), 3);
+  assert.equal(await countStarts(startFile), 6);
 
   await closeAllMcpServers();
   const httpMcp = await startHttpMcpServer();
@@ -205,6 +284,48 @@ async function main() {
     await httpMcp.close();
   }
 
+  const modernHttpMcp = await startModernHttpMcpServer();
+  try {
+    await writeMcpConfigRaw(JSON.stringify({
+      settings: {
+        toolPrefix: 'server',
+        idleTimeout: 10,
+      },
+      mcpServers: {
+        modernHttp: {
+          url: modernHttpMcp.url,
+          timeoutMs: 10000,
+        },
+      },
+    }, null, 2));
+
+    const modernTools = await listMcpTools('modernHttp');
+    assert.equal(modernTools.some((tool) => tool.name === 'modern-echo'), true);
+    const modernCall = await callMcpTool('modernHttp', 'modern-echo', { message: 'hello' });
+    assert.equal(getText(modernCall), 'modern:hello');
+    const modernStatus = await getMcpRuntimeStatus('modernHttp');
+    assert.equal(modernStatus.servers[0].protocolVersion, '2026-07-28');
+
+    const modernMethods = modernHttpMcp.requests.map((request) => String(request.body.method || ''));
+    assert.equal(modernMethods[0], 'server/discover');
+    assert.equal(modernMethods.includes('initialize'), false);
+    assert.equal(modernMethods.includes('tools/list'), true);
+    assert.equal(modernMethods.includes('tools/call'), true);
+    for (const request of modernHttpMcp.requests) {
+      const method = String(request.body.method || '');
+      assert.equal(request.headers['mcp-protocol-version'], '2026-07-28');
+      assert.equal(request.headers['mcp-method'], method);
+      const params = request.body.params as Record<string, unknown>;
+      const metadata = params._meta as Record<string, unknown>;
+      assert.equal(metadata['io.modelcontextprotocol/protocolVersion'], '2026-07-28');
+    }
+    const modernCallRequest = modernHttpMcp.requests.find((request) => request.body.method === 'tools/call');
+    assert.equal(modernCallRequest?.headers['mcp-name'], 'modern-echo');
+  } finally {
+    await closeAllMcpServers();
+    await modernHttpMcp.close();
+  }
+
   const userA = { userId: 'mcp-manager-user-a' };
   const userB = { userId: 'mcp-manager-user-b' };
   await fs.mkdir(path.join(tempRoot, 'users', userA.userId, 'secrets'), { recursive: true });
@@ -228,7 +349,7 @@ async function main() {
     listMcpTools('shared', { scope: userA }),
     listMcpTools('shared', { scope: userB }),
   ]);
-  assert.equal(await countStarts(sharedUserStartFile), 2);
+  assert.equal(await countStarts(sharedUserStartFile), 4);
   const [userAResult, userBResult] = await Promise.all([
     callMcpTool('shared', 'echo', { message: 'hello' }, undefined, userA),
     callMcpTool('shared', 'echo', { message: 'hello' }, undefined, userB),

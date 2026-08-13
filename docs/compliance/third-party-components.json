@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.8.12.1",
-  "lockfileSha256": "d667697be9a1dfb9b6827013531886f19d42e3496fb0b5ad231276d44e34c9f1",
+  "lockfileSha256": "9c7a5dd2ddb359b78edff18ec105c0478e8979a3fe92886ddfdb9022742544ff",
   "summary": {
-    "totalComponents": 1966,
-    "npmComponents": 1943,
+    "totalComponents": 1969,
+    "npmComponents": 1946,
     "nonNpmComponents": 23,
-    "runtimeComponents": 1436,
+    "runtimeComponents": 1439,
     "developmentOnlyComponents": 530,
-    "allowed": 1916,
+    "allowed": 1919,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -15317,6 +15317,56 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "@modelcontextprotocol/client",
+      "versionOrCommit": "2.0.0",
+      "sourceUrl": "https://github.com/modelcontextprotocol/typescript-sdk",
+      "packagePathOrArtifact": "node_modules/@modelcontextprotocol/client",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@modelcontextprotocol/client/LICENSE",
+      "licenseTextSha256": "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.",
+        "submitted to the Licensor for inclusion in the Work by the copyright",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@modelcontextprotocol/core",
+      "versionOrCommit": "2.0.0",
+      "sourceUrl": "https://github.com/modelcontextprotocol/typescript-sdk",
+      "packagePathOrArtifact": "node_modules/@modelcontextprotocol/core",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@modelcontextprotocol/core/LICENSE",
+      "licenseTextSha256": "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.",
+        "submitted to the Licensor for inclusion in the Work by the copyright",
+        "that You distribute, all copyright, patent, trademark, and"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "@modelcontextprotocol/sdk",
       "versionOrCommit": "1.29.0",
       "sourceUrl": "https://github.com/modelcontextprotocol/typescript-sdk",
@@ -15334,6 +15384,31 @@
       "licenseTextSha256": "5e13dbbc1d120fc2a03cecde7c91424ae2d7de11b63d58ded2f4431e261ee50d",
       "copyrightNotices": [
         "Copyright (c) 2024 Anthropic, PBC"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "@modelcontextprotocol/server",
+      "versionOrCommit": "2.0.0",
+      "sourceUrl": "https://github.com/modelcontextprotocol/typescript-sdk",
+      "packagePathOrArtifact": "node_modules/@modelcontextprotocol/server",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/@modelcontextprotocol/server/LICENSE",
+      "licenseTextSha256": "0382b0057770ca05e9c350a50aa3b1c1fea84da0bc81d723bf00b9aa841be58a",
+      "copyrightNotices": [
+        "(c) You must retain, in the Source form of any Derivative Works",
+        "Copyright (c) 2024-2025 Model Context Protocol a Series of LF Projects, LLC.",
+        "submitted to the Licensor for inclusion in the Work by the copyright",
+        "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
       "policyDecision": "allowed"

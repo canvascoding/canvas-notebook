@@ -2,15 +2,13 @@ import 'server-only';
 
 import { createHash } from 'node:crypto';
 
-import { Server } from '@modelcontextprotocol/sdk/server/index.js';
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
 import {
-  CallToolRequestSchema,
-  ErrorCode,
-  ListToolsRequestSchema,
-  McpError,
+  ProtocolError,
+  ProtocolErrorCode,
+  Server,
+  type AuthInfo,
   type CallToolResult,
-} from '@modelcontextprotocol/sdk/types.js';
+} from '@modelcontextprotocol/server';
 
 import packageJson from '@/package.json';
 import {
@@ -141,20 +139,20 @@ export function createDirectMcpAuthProbeServer(): Server {
         tools: {},
       },
       instructions: (
-        'This V1 authentication probe verifies the local OAuth connection. '
+        'This authentication probe verifies the local OAuth connection. '
         + 'It does not expose workspace or knowledge data.'
       ),
     },
   );
 
-  server.setRequestHandler(ListToolsRequestSchema, async () => ({
+  server.setRequestHandler('tools/list', async () => ({
     tools: [getDirectMcpAuthProbeToolDescriptor()],
   }));
 
-  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
+  server.setRequestHandler('tools/call', async (request, context) => {
     if (request.params.name !== DIRECT_MCP_AUTH_PROBE_TOOL) {
-      throw new McpError(
-        ErrorCode.MethodNotFound,
+      throw new ProtocolError(
+        ProtocolErrorCode.MethodNotFound,
         `Unknown tool ${request.params.name}.`,
       );
     }
@@ -168,12 +166,12 @@ export function createDirectMcpAuthProbeServer(): Server {
         || Object.keys(args).length > 0
       )
     ) {
-      throw new McpError(
-        ErrorCode.InvalidParams,
+      throw new ProtocolError(
+        ProtocolErrorCode.InvalidParams,
         `${DIRECT_MCP_AUTH_PROBE_TOOL} does not accept arguments.`,
       );
     }
-    return runAuthProbe(extra.authInfo);
+    return runAuthProbe(context.http?.authInfo);
   });
 
   return server;

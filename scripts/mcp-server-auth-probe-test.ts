@@ -14,6 +14,7 @@ const EMAIL = 'mcp-auth-probe-owner@example.test';
 const PASSWORD = 'McpAuthProbeOwnerPassword123!';
 const MCP_ACCEPT = 'application/json, text/event-stream';
 const MCP_PROTOCOL_VERSION = '2025-06-18';
+const MODERN_MCP_PROTOCOL_VERSION = '2026-07-28';
 
 type JsonRecord = Record<string, unknown>;
 
@@ -59,6 +60,44 @@ async function rpcRequest(input: {
     method: 'POST',
     headers,
     body: JSON.stringify(input.body),
+  }));
+}
+
+async function modernRpcRequest(input: {
+  post: (request: Request) => Promise<Response>;
+  id: number;
+  method: string;
+  params?: JsonRecord;
+  token?: string;
+  name?: string;
+}): Promise<Response> {
+  const headers: Record<string, string> = {
+    accept: MCP_ACCEPT,
+    'content-type': 'application/json',
+    'mcp-method': input.method,
+    'mcp-protocol-version': MODERN_MCP_PROTOCOL_VERSION,
+  };
+  if (input.name) headers['mcp-name'] = input.name;
+  if (input.token) headers.authorization = `Bearer ${input.token}`;
+  return input.post(new Request(`${ORIGIN}/mcp`, {
+    method: 'POST',
+    headers,
+    body: JSON.stringify({
+      jsonrpc: '2.0',
+      id: input.id,
+      method: input.method,
+      params: {
+        ...(input.params || {}),
+        _meta: {
+          'io.modelcontextprotocol/protocolVersion': MODERN_MCP_PROTOCOL_VERSION,
+          'io.modelcontextprotocol/clientInfo': {
+            name: 'canvas-auth-probe-modern-test',
+            version: '1.0.0',
+          },
+          'io.modelcontextprotocol/clientCapabilities': {},
+        },
+      },
+    }),
   }));
 }
 
@@ -266,6 +305,47 @@ async function main(): Promise<void> {
       (initializeResult.serverInfo as JsonRecord).name,
       'canvas-notebook-direct-mcp',
     );
+
+    const modernDiscovery = await modernRpcRequest({
+      post: mcpRoute.POST,
+      id: 100,
+      method: 'server/discover',
+    });
+    assert.equal(modernDiscovery.status, 200);
+    assert.equal(modernDiscovery.headers.get('mcp-session-id'), null);
+    const modernDiscoveryResult = resultFromRpc(await readJson(modernDiscovery));
+    assert.deepEqual(modernDiscoveryResult.supportedVersions, [MODERN_MCP_PROTOCOL_VERSION]);
+    assert.equal(typeof modernDiscoveryResult.capabilities, 'object');
+    assert.equal(
+      ((modernDiscoveryResult._meta as JsonRecord)['io.modelcontextprotocol/serverInfo'] as JsonRecord).name,
+      'canvas-notebook-direct-mcp',
+    );
+
+    const modernToolsList = await modernRpcRequest({
+      post: mcpRoute.POST,
+      id: 101,
+      method: 'tools/list',
+    });
+    assert.equal(modernToolsList.status, 200);
+    const modernToolsResult = resultFromRpc(await readJson(modernToolsList));
+    assert.equal((modernToolsResult.tools as JsonRecord[])[0].name, DIRECT_MCP_AUTH_PROBE_TOOL);
+    assert.equal(modernToolsResult.cacheScope, 'private');
+    assert.equal(modernToolsResult.ttlMs, 0);
+
+    const modernAuthenticatedProbe = await modernRpcRequest({
+      post: mcpRoute.POST,
+      id: 102,
+      method: 'tools/call',
+      name: DIRECT_MCP_AUTH_PROBE_TOOL,
+      token: validToken,
+      params: {
+        name: DIRECT_MCP_AUTH_PROBE_TOOL,
+        arguments: {},
+      },
+    });
+    assert.equal(modernAuthenticatedProbe.status, 200);
+    const modernAuthenticatedResult = resultFromRpc(await readJson(modernAuthenticatedProbe));
+    assert.equal((modernAuthenticatedResult.structuredContent as JsonRecord).authenticated, true);
 
     const toolsList = await rpcRequest({
       post: mcpRoute.POST,

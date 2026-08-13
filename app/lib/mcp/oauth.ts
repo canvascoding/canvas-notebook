@@ -51,6 +51,13 @@ type OAuthClientRecord = {
   registeredAt?: string;
 };
 
+type OAuthScopeChallengeRecord = {
+  configHash: string;
+  scopes: string[];
+  resourceMetadataUrl?: string;
+  recordedAt: string;
+};
+
 type OAuthStateRecord = {
   state: string;
   serverName: string;
@@ -156,6 +163,10 @@ export function getOAuthTokenPath(serverName: string, scope?: McpScope | null): 
 
 function getOAuthClientRelativePath(serverName: string): string {
   return path.join(getServerOAuthRelativeDir(serverName), 'client.json');
+}
+
+function getOAuthScopeChallengeRelativePath(serverName: string): string {
+  return path.join(getServerOAuthRelativeDir(serverName), 'scope-challenge.json');
 }
 
 function getOAuthStateRelativeDir(): string {
@@ -569,9 +580,20 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
   );
   const pkce = createPkcePair();
   const state = base64Url(crypto.randomBytes(24));
-  const oauthScope = Array.isArray(oauth.scopes)
-    ? oauth.scopes.join(' ')
-    : (endpoints.scopesSupported.length ? endpoints.scopesSupported.join(' ') : undefined);
+  const requestedScopes = new Set(
+    Array.isArray(oauth.scopes) ? oauth.scopes : endpoints.scopesSupported,
+  );
+  const [existingToken, scopeChallenge] = await Promise.all([
+    readJsonIfExists<OAuthTokenRecord>(getOAuthTokenRelativePath(serverName), normalizedScope),
+    readJsonIfExists<OAuthScopeChallengeRecord>(getOAuthScopeChallengeRelativePath(serverName), normalizedScope),
+  ]);
+  if (existingToken?.configHash === configHash && existingToken.scope) {
+    existingToken.scope.split(/\s+/u).filter(Boolean).forEach((entry) => requestedScopes.add(entry));
+  }
+  if (scopeChallenge?.configHash === configHash) {
+    scopeChallenge.scopes.forEach((entry) => requestedScopes.add(entry));
+  }
+  const oauthScope = requestedScopes.size ? Array.from(requestedScopes).join(' ') : undefined;
 
   const authorizationUrl = new URL(endpoints.authorizationUrl);
   authorizationUrl.searchParams.set('response_type', 'code');
@@ -675,6 +697,31 @@ export async function rejectMcpOAuthCallback(state: string, responseIssuer?: str
   await consumeOAuthState(state, responseIssuer, scope);
 }
 
+export async function recordMcpOAuthScopeChallenge(
+  serverName: string,
+  configHash: string,
+  requiredScope: string | undefined,
+  resourceMetadataUrl?: string,
+  scope?: McpScope | null,
+): Promise<string[]> {
+  const normalizedScope = normalizeMcpScope(scope);
+  const challengePath = getOAuthScopeChallengeRelativePath(serverName);
+  const existing = await readJsonIfExists<OAuthScopeChallengeRecord>(challengePath, normalizedScope);
+  const scopes = new Set(
+    existing?.configHash === configHash ? existing.scopes : [],
+  );
+  requiredScope?.split(/\s+/u).filter(Boolean).forEach((entry) => scopes.add(entry));
+  const accumulated = Array.from(scopes);
+  if (!accumulated.length) return accumulated;
+  await writeJsonPrivate(challengePath, {
+    configHash,
+    scopes: accumulated,
+    resourceMetadataUrl,
+    recordedAt: new Date().toISOString(),
+  } satisfies OAuthScopeChallengeRecord, normalizedScope);
+  return accumulated;
+}
+
 export async function completeMcpOAuthCallback(
   code: string,
   state: string,
@@ -716,6 +763,7 @@ export async function completeMcpOAuthCallback(
   };
 
   await writeJsonPrivate(getOAuthTokenRelativePath(stored.serverName), token, normalizedScope);
+  await removeMcpStoragePath(getOAuthScopeChallengeRelativePath(stored.serverName), normalizedScope).catch(() => undefined);
   return token;
 }
 

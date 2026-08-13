@@ -1,13 +1,20 @@
 import crypto from 'crypto';
 
-import { Client } from '@modelcontextprotocol/sdk/client/index.js';
-import { StdioClientTransport } from '@modelcontextprotocol/sdk/client/stdio.js';
-import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js';
-import type { CallToolResult, Tool } from '@modelcontextprotocol/sdk/types.js';
+import {
+  Client,
+  InsufficientScopeError,
+  StreamableHTTPClientTransport,
+  type CallToolResult,
+  type Tool,
+} from '@modelcontextprotocol/client';
+import { StdioClientTransport } from '@modelcontextprotocol/client/stdio';
 
 import { readScopedEnvState } from '@/app/lib/integrations/env-config';
 import { isMcpServerEnabled, readMcpConfig, resolveMcpConfigPath, type McpConfig, type McpServerConfig } from '@/app/lib/mcp/config';
-import { getValidMcpAccessToken } from '@/app/lib/mcp/oauth';
+import {
+  getValidMcpAccessToken,
+  recordMcpOAuthScopeChallenge,
+} from '@/app/lib/mcp/oauth';
 import { assertMcpHttpUrlAllowed } from '@/app/lib/mcp/network-policy';
 import {
   getMcpScopeKey,
@@ -274,8 +281,18 @@ async function resolveHttpHeaders(config: McpServerConfig, accessToken: string |
 }
 
 async function createClient(entry: ManagedConnection, signal?: AbortSignal): Promise<Client> {
-  const client = new Client({ name: 'canvas-notebook-mcp-proxy', version: '1.0.0' });
   const timeoutMs = getTimeoutMs(entry.config);
+  const client = new Client(
+    { name: 'canvas-notebook-mcp-proxy', version: '1.0.0' },
+    {
+      versionNegotiation: {
+        mode: 'auto',
+        probe: {
+          timeoutMs: Math.min(timeoutMs, 5_000),
+        },
+      },
+    },
+  );
 
   if (entry.transport === 'stdio') {
     if (process.env.MCP_ALLOW_STDIO !== 'true') {
@@ -310,7 +327,11 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
       throw enhanceMcpError(error);
     }
     entry.processPid = transport.pid;
-    logMcp('info', 'Connected stdio server', { server: entry.serverName, pid: transport.pid });
+    logMcp('info', 'Connected stdio server', {
+      server: entry.serverName,
+      pid: transport.pid,
+      protocolVersion: client.getNegotiatedProtocolVersion(),
+    });
     return client;
   }
 
@@ -322,16 +343,24 @@ async function createClient(entry: ManagedConnection, signal?: AbortSignal): Pro
     const accessToken = await getValidMcpAccessToken(entry.serverName, entry.config, entry.configHash, entry.scope);
     const headers = await resolveHttpHeaders(entry.config, accessToken, entry.scope);
     try {
-      await withTimeout(client.connect(new StreamableHTTPClientTransport(validatedUrl, headers ? {
-        requestInit: {
-          headers,
-        },
-      } : undefined)), timeoutMs, signal);
+      await withTimeout(client.connect(new StreamableHTTPClientTransport(validatedUrl, {
+        ...(headers ? {
+          requestInit: {
+            headers,
+          },
+        } : {}),
+        onInsufficientScope: 'throw',
+      })), timeoutMs, signal);
     } catch (error) {
       await client.close().catch(() => undefined);
       throw error;
     }
-    logMcp('info', 'Connected HTTP server', { server: entry.serverName, url, authenticated: Boolean(accessToken) });
+    logMcp('info', 'Connected HTTP server', {
+      server: entry.serverName,
+      url,
+      authenticated: Boolean(accessToken),
+      protocolVersion: client.getNegotiatedProtocolVersion(),
+    });
     return client;
   }
 
@@ -407,6 +436,25 @@ async function withManagedConnection<T>(
     entry.lastError = undefined;
     return result;
   } catch (error) {
+    const hasOAuthConfig = entry.config.auth === 'oauth'
+      || Boolean(entry.config.oauth && typeof entry.config.oauth === 'object' && !Array.isArray(entry.config.oauth));
+    if (error instanceof InsufficientScopeError && hasOAuthConfig) {
+      const challengedScopes = await recordMcpOAuthScopeChallenge(
+        entry.serverName,
+        entry.configHash,
+        error.requiredScope,
+        error.resourceMetadataUrl?.toString(),
+        entry.scope,
+      );
+      await entry.client.close().catch(() => undefined);
+      entry.client = undefined;
+      const scopeText = challengedScopes.length ? ` Required scopes: ${challengedScopes.join(' ')}.` : '';
+      const stepUpError = new Error(
+        `MCP server "${serverName}" requires additional OAuth authorization.${scopeText} Use mcp auth_start to continue.`,
+      );
+      entry.lastError = stepUpError.message;
+      throw stepUpError;
+    }
     const enhanced = enhanceMcpError(error);
     entry.lastError = enhanced.message;
     throw enhanced;
@@ -622,6 +670,7 @@ export async function getMcpRuntimeStatus(serverName?: string, scope?: McpScope 
         configHash,
         enabled: isMcpServerEnabled(serverConfig),
         connected: isMcpServerEnabled(serverConfig) && Boolean(managed?.client),
+        protocolVersion: managed?.client?.getNegotiatedProtocolVersion() || null,
         activeCalls: managed?.activeCalls || 0,
         lastUsedAt: managed?.lastUsedAt ? new Date(managed.lastUsedAt).toISOString() : null,
         lastSuccessfulToolListAt: managed?.lastSuccessfulToolListAt ? new Date(managed.lastSuccessfulToolListAt).toISOString() : null,

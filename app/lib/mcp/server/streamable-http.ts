@@ -1,8 +1,11 @@
 import 'server-only';
 
-import { WebStandardStreamableHTTPServerTransport } from
-  '@modelcontextprotocol/sdk/server/webStandardStreamableHttp.js';
-import type { AuthInfo } from '@modelcontextprotocol/sdk/server/auth/types.js';
+import {
+  createMcpHandler,
+  isLegacyRequest,
+  WebStandardStreamableHTTPServerTransport,
+  type AuthInfo,
+} from '@modelcontextprotocol/server';
 
 import {
   DirectMcpAuthorizationError,
@@ -15,13 +18,15 @@ import {
 } from '@/app/lib/mcp/server/config';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 
-const MCP_ALLOWED_METHODS = 'POST, GET, DELETE, OPTIONS';
+const MCP_ALLOWED_METHODS = 'POST, OPTIONS';
 const MCP_ALLOWED_HEADERS = [
   'accept',
   'authorization',
   'content-type',
   'last-event-id',
   'mcp-protocol-version',
+  'mcp-method',
+  'mcp-name',
   'mcp-session-id',
 ].join(', ');
 const MCP_EXPOSED_HEADERS = [
@@ -29,6 +34,34 @@ const MCP_EXPOSED_HEADERS = [
   'mcp-session-id',
   'www-authenticate',
 ].join(', ');
+
+const directModernMcpHandler = createMcpHandler(
+  () => createDirectMcpAuthProbeServer(),
+  {
+    legacy: 'reject',
+    onerror: (error) => {
+      console.error('[MCP] Direct server request failed', error);
+    },
+  },
+);
+
+async function handleProtocolRequest(request: Request, authInfo?: AuthInfo): Promise<Response> {
+  if (!await isLegacyRequest(request)) {
+    return directModernMcpHandler.fetch(request, { authInfo });
+  }
+
+  const server = createDirectMcpAuthProbeServer();
+  const transport = new WebStandardStreamableHTTPServerTransport({
+    sessionIdGenerator: undefined,
+    enableJsonResponse: true,
+  });
+  try {
+    await server.connect(transport);
+    return await transport.handleRequest(request, { authInfo });
+  } finally {
+    await server.close().catch(() => undefined);
+  }
+}
 
 function withDirectMcpHeaders(response: Response, request?: Request): Response {
   const headers = new Headers(response.headers);
@@ -67,7 +100,7 @@ function directMcpNotFound(): Response {
   return withDirectMcpHeaders(new Response(null, { status: 404 }));
 }
 
-function methodNotAllowed(): Response {
+function methodNotAllowed(request: Request): Response {
   return withDirectMcpHeaders(Response.json({
     jsonrpc: '2.0',
     error: {
@@ -78,9 +111,9 @@ function methodNotAllowed(): Response {
   }, {
     status: 405,
     headers: {
-      allow: 'POST, OPTIONS',
+      allow: MCP_ALLOWED_METHODS,
     },
-  }));
+  }), request);
 }
 
 async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> {
@@ -118,23 +151,13 @@ export async function handleDirectMcpPost(request: Request): Promise<Response> {
     throw error;
   }
 
-  const server = createDirectMcpAuthProbeServer();
-  const transport = new WebStandardStreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true,
-  });
-  try {
-    await server.connect(transport);
-    const response = await transport.handleRequest(request, { authInfo });
-    return withDirectMcpHeaders(response, request);
-  } finally {
-    await server.close().catch(() => undefined);
-  }
+  const response = await handleProtocolRequest(request, authInfo);
+  return withDirectMcpHeaders(response, request);
 }
 
 export function handleDirectMcpUnsupportedMethod(request: Request): Response {
   if (!isDirectMcpEnabled()) return directMcpNotFound();
-  return rejectUntrustedOrigin(request) || methodNotAllowed();
+  return rejectUntrustedOrigin(request) || methodNotAllowed(request);
 }
 
 export function handleDirectMcpOptions(request: Request): Response {
@@ -142,8 +165,9 @@ export function handleDirectMcpOptions(request: Request): Response {
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
   const origin = request.headers.get('origin');
+  const requestedHeaders = request.headers.get('access-control-request-headers');
   const headers = new Headers({
-    'access-control-allow-headers': MCP_ALLOWED_HEADERS,
+    'access-control-allow-headers': requestedHeaders || MCP_ALLOWED_HEADERS,
     'access-control-allow-methods': MCP_ALLOWED_METHODS,
     'access-control-expose-headers': MCP_EXPOSED_HEADERS,
     'access-control-max-age': '300',

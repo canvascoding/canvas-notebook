@@ -149,6 +149,7 @@ async function main() {
       getMcpOAuthClientMetadata,
       getOAuthTokenPath,
       getValidMcpAccessToken,
+      recordMcpOAuthScopeChallenge,
       startMcpOAuth,
     } = await import('../app/lib/mcp/oauth');
     const { hashMcpServerConfig } = await import('../app/lib/mcp/manager');
@@ -233,6 +234,16 @@ async function main() {
     const accessToken = await getValidMcpAccessToken('remote', serverConfig, hashMcpServerConfig(serverConfig));
     assert.equal(accessToken, 'refreshed-token');
     assert.equal(refreshCalls, 1);
+
+    await recordMcpOAuthScopeChallenge(
+      'remote',
+      hashMcpServerConfig(serverConfig),
+      'knowledge:read tools',
+      `${baseUrl}/.well-known/oauth-protected-resource`,
+    );
+    const stepUpStarted = await startMcpOAuth('remote', 'http://localhost:3000');
+    const stepUpAuthorizationUrl = new URL(stepUpStarted.authorizationUrl);
+    assert.equal(stepUpAuthorizationUrl.searchParams.get('scope'), 'tools knowledge:read');
 
     const proxy = createMcpProxyTool();
     const proxyStatus = await proxy.execute('auth-status', { action: 'auth_status', server: 'remote' });
