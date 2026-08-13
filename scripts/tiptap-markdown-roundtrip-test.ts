@@ -464,6 +464,17 @@ $$`));
     editor.state.doc.textContent.includes('Editable cell'),
     'users must be able to type into a newly inserted table cell',
   );
+  const sourceModeMarkdown = editor.getMarkdown();
+  assert.doesNotMatch(
+    sourceModeMarkdown,
+    /&gt; \\[!note\\] Note/u,
+    'switching to Markdown source must not serialize phantom Note text into table cells',
+  );
+  assert.doesNotMatch(
+    sourceModeMarkdown,
+    /^> \[!note\] Note$/mu,
+    'switching to Markdown source must not append a phantom Note block',
+  );
 
   const smallEditor = new Editor({
     content: 'x',
