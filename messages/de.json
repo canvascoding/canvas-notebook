@@ -2093,7 +2093,7 @@
     "eyebrow": "Human-in-the-loop",
     "summary": "{open} offen · {done} erledigt · {unread} ungelesen",
     "sections": {
-      "workspace": "Workspace",
+      "workspace": "Geltungsbereich",
       "status": "Status",
       "categories": "Kategorien",
       "files": "Dateien",
@@ -2102,7 +2102,14 @@
     },
     "scope": {
       "personal": "Persönlich",
-      "team": "Team"
+      "team": "Team",
+      "user": "Workspaceübergreifend für mich"
+    },
+    "workspaceType": {
+      "personal": "Persönlicher Workspace",
+      "organization": "Unternehmen",
+      "team": "Team-Workspace",
+      "project": "Projekt-Workspace"
     },
     "filters": {
       "allCategories": "Alle Kategorien",
@@ -2164,7 +2171,7 @@
       "title": "Titel",
       "description": "Beschreibung",
       "category": "Kategorie",
-      "workspace": "Workspace",
+      "workspace": "Gilt für",
       "assignee": "Zugewiesen an",
       "priority": "Priorität",
       "dueAt": "Fällig",
@@ -2202,7 +2209,9 @@
     "editor": {
       "createTitle": "To-do erstellen",
       "editTitle": "To-do bearbeiten",
-      "description": "Aufgaben können direkt vom Nutzer oder später vom Agenten angelegt werden."
+      "description": "Aufgaben können direkt vom Nutzer oder später vom Agenten angelegt werden.",
+      "scopeHint": "Der aktuelle Filter bestimmt den Workspace. Wähle links einen anderen Geltungsbereich, bevor du das To-do erstellst.",
+      "scopeLocked": "Der Geltungsbereich bleibt beim Bearbeiten unverändert. Verantwortliche Personen kannst du separat ändern."
     },
     "categoryEditor": {
       "createTitle": "Kategorie erstellen",

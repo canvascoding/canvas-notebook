@@ -7,6 +7,7 @@ import { toast } from 'sonner';
 import {
   Archive,
   BellOff,
+  Building2,
   CalendarDays,
   Check,
   CheckCircle2,
@@ -16,6 +17,8 @@ import {
   ExternalLink,
   FileText,
   FolderSearch,
+  FolderKanban,
+  Globe2,
   MailCheck,
   MailWarning,
   Menu,
@@ -26,6 +29,7 @@ import {
   Search,
   Send,
   Trash2,
+  UserRound,
   Users,
   X,
 } from 'lucide-react';
@@ -35,6 +39,7 @@ import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -66,6 +71,7 @@ import { cn } from '@/lib/utils';
 type TodoStatus = 'open' | 'done' | 'archived';
 type TodoPriority = 'low' | 'normal' | 'high';
 type TodoSourceType = 'user' | 'agent';
+type TodoScopeKind = 'user' | 'workspace';
 type StatusFilter = TodoStatus | 'all';
 
 type TodoCategory = {
@@ -85,7 +91,7 @@ type TodoFileLink = {
   label: string | null;
 };
 
-type TodoWorkspaceType = 'personal' | 'organization' | 'team';
+type TodoWorkspaceType = 'personal' | 'organization' | 'team' | 'project';
 
 type TodoUserSummary = {
   id: string;
@@ -104,6 +110,8 @@ type TodoItem = {
   organizationId: string | null;
   workspaceId: string | null;
   workspaceType: TodoWorkspaceType;
+  scopeKind: TodoScopeKind;
+  workspace: { id: string; name: string; type: TodoWorkspaceType } | null;
   title: string;
   description: string | null;
   status: TodoStatus;
@@ -286,6 +294,9 @@ function TodoDetailPanel({
   onSendFollowUp,
 }: TodoDetailPanelProps) {
   const t = useTranslations('todos');
+  const scopeLabel = todo?.scopeKind === 'user'
+    ? t('scope.user')
+    : todo?.workspace?.name || (todo ? t(`workspaceType.${todo.workspaceType}`) : '');
 
   if (!todo) {
     if (!showEmptyState) return null;
@@ -326,7 +337,7 @@ function TodoDetailPanel({
         <div className="flex min-w-0 items-center justify-between gap-3">
           <span className="shrink-0 text-muted-foreground">{t('fields.workspace')}</span>
           <span className="min-w-0 truncate text-right font-medium">
-            {todo.workspaceType === 'organization' || todo.workspaceType === 'team' ? t('scope.team') : t('scope.personal')}
+            {scopeLabel}
           </span>
         </div>
         <div className="flex min-w-0 items-center justify-between gap-3">
@@ -500,13 +511,17 @@ export function TodosClient({ title }: { title: string }) {
   const searchParams = useSearchParams();
   const openedTodoParamRef = useRef<string | null>(null);
   const pendingTodoParamRef = useRef<string | null>(null);
+  const initializedWorkspaceScopeRef = useRef(false);
   const todoListRequestRef = useRef<AbortController | null>(null);
   const todoIdParam = searchParams.get('todo');
+  const requestedWorkspaceId = searchParams.get('workspaceId');
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
+  const workspaceStoreInitialized = useWorkspaceStore((state) => state.initialized);
   const [todos, setTodos] = useState<TodoItem[]>([]);
   const [categories, setCategories] = useState<TodoCategory[]>([]);
   const [workspaces, setWorkspaces] = useState<WorkspaceOption[]>([]);
   const [assignees, setAssignees] = useState<AssigneeOption[]>([]);
-  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState('');
+  const [selectedWorkspaceId, setSelectedWorkspaceId] = useState(() => requestedWorkspaceId || '');
   const [statusFilter, setStatusFilter] = useState<StatusFilter>('open');
   const [categoryFilter, setCategoryFilter] = useState<string>('');
   const [selectedTodoId, setSelectedTodoId] = useState<string | null>(null);
@@ -534,6 +549,10 @@ export function TodosClient({ title }: { title: string }) {
   const selectedTodo = useMemo(
     () => todos.find((todo) => todo.id === selectedTodoId) ?? null,
     [selectedTodoId, todos],
+  );
+  const editingTodo = useMemo(
+    () => todos.find((todo) => todo.id === editingTodoId) ?? null,
+    [editingTodoId, todos],
   );
 
   const followUpComment = selectedTodo && followUpDraft.todoId === selectedTodo.id
@@ -570,15 +589,21 @@ export function TodosClient({ title }: { title: string }) {
 
   const openCount = useMemo(() => todos.filter((todo) => todo.status === 'open').length, [todos]);
   const doneCount = useMemo(() => todos.filter((todo) => todo.status === 'done').length, [todos]);
-  const teamWorkspaces = useMemo(
-    () => workspaces.filter((workspace) => (workspace.type === 'organization' || workspace.type === 'team') && workspace.permissions?.canRead !== false),
+  const readableWorkspaces = useMemo(
+    () => workspaces.filter((workspace) => workspace.permissions?.canRead !== false),
     [workspaces],
   );
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === selectedWorkspaceId) ?? null,
     [selectedWorkspaceId, workspaces],
   );
-  const selectedWorkspaceLabel = selectedWorkspace?.name || t('scope.personal');
+  const selectedWorkspaceLabel = selectedWorkspace?.name || t('scope.user');
+
+  const formatTodoScope = useCallback((todo: Pick<TodoItem, 'scopeKind' | 'workspace' | 'workspaceType'>) => (
+    todo.scopeKind === 'user'
+      ? t('scope.user')
+      : todo.workspace?.name || t(`workspaceType.${todo.workspaceType}`)
+  ), [t]);
 
   const formatCategoryName = useCallback((category: Pick<TodoCategory, 'name' | 'icon'> | null | undefined) => {
     if (!category) return t('filters.noCategory');
@@ -604,13 +629,31 @@ export function TodosClient({ title }: { title: string }) {
       setWorkspaces([]);
       return [];
     }
-    const readable = (payload.workspaces ?? []).filter((workspace) => workspace.type === 'personal' || workspace.type === 'organization' || workspace.type === 'team');
-    setWorkspaces(readable as WorkspaceOption[]);
-    setSelectedWorkspaceId((current) => (
-      current && readable.some((workspace) => workspace.id === current) ? current : ''
+    const readable = (payload.workspaces ?? []).filter((workspace) => (
+      (workspace.type === 'personal' || workspace.type === 'organization' || workspace.type === 'team' || workspace.type === 'project')
+      && workspace.permissions?.canRead !== false
     ));
+    setWorkspaces(readable as WorkspaceOption[]);
+    setSelectedWorkspaceId((current) => {
+      if (initializedWorkspaceScopeRef.current) {
+        return current && readable.some((workspace) => workspace.id === current) ? current : '';
+      }
+      if (current && readable.some((workspace) => workspace.id === current)) {
+        initializedWorkspaceScopeRef.current = true;
+        return current;
+      }
+      const preferredWorkspaceId = requestedWorkspaceId || (workspaceStoreInitialized ? activeWorkspaceId : null);
+      if (preferredWorkspaceId && readable.some((workspace) => workspace.id === preferredWorkspaceId)) {
+        initializedWorkspaceScopeRef.current = true;
+        return preferredWorkspaceId;
+      }
+      if (requestedWorkspaceId || workspaceStoreInitialized) {
+        initializedWorkspaceScopeRef.current = true;
+      }
+      return '';
+    });
     return readable;
-  }, []);
+  }, [activeWorkspaceId, requestedWorkspaceId, workspaceStoreInitialized]);
 
   const loadCategories = useCallback(async () => {
     const response = await fetch('/api/todo-categories', { credentials: 'include', cache: 'no-store' });
@@ -642,6 +685,7 @@ export function TodosClient({ title }: { title: string }) {
     todoListRequestRef.current = controller;
     const params = new URLSearchParams({ status: statusFilter });
     if (categoryFilter) params.set('categoryId', categoryFilter);
+    params.set('scopeKind', selectedWorkspaceId ? 'workspace' : 'user');
     if (selectedWorkspaceId) params.set('workspaceId', selectedWorkspaceId);
     try {
       const response = await fetch(`/api/todos?${params.toString()}`, {
@@ -869,6 +913,7 @@ export function TodosClient({ title }: { title: string }) {
   }, [categories, categoryFilter]);
 
   const openEditDialog = useCallback((todo: TodoItem) => {
+    setSelectedWorkspaceId(todo.scopeKind === 'workspace' ? todo.workspaceId || '' : '');
     setEditingTodoId(todo.id);
     setForm(todoToForm(todo));
     setFileQuery('');
@@ -893,7 +938,10 @@ export function TodosClient({ title }: { title: string }) {
         dueAt: form.dueAt || null,
         assigneeUserId: form.assigneeUserId || null,
         fileLinks: form.fileLinks,
-        ...(!editingTodoId && selectedWorkspaceId ? { workspaceId: selectedWorkspaceId } : {}),
+        ...(!editingTodoId ? {
+          scopeKind: selectedWorkspaceId ? 'workspace' : 'user',
+          ...(selectedWorkspaceId ? { workspaceId: selectedWorkspaceId } : {}),
+        } : {}),
       };
       const response = await fetch(editingTodoId ? `/api/todos/${encodeURIComponent(editingTodoId)}` : '/api/todos', {
         method: editingTodoId ? 'PATCH' : 'POST',
@@ -1121,10 +1169,18 @@ export function TodosClient({ title }: { title: string }) {
           if (closeOnSelect) setFilterSheetOpen(false);
         }}
       >
-        <Circle className="h-3.5 w-3.5 shrink-0" />
-        <span className="min-w-0 truncate">{t('scope.personal')}</span>
+        <Globe2 className="h-3.5 w-3.5 shrink-0" />
+        <span className="min-w-0 truncate">{t('scope.user')}</span>
       </button>
-      {teamWorkspaces.map((workspace) => (
+      {readableWorkspaces.map((workspace) => {
+        const WorkspaceIcon = workspace.type === 'personal'
+          ? UserRound
+          : workspace.type === 'project'
+            ? FolderKanban
+            : workspace.type === 'organization'
+              ? Building2
+              : Users;
+        return (
         <button
           key={workspace.id}
           type="button"
@@ -1140,10 +1196,11 @@ export function TodosClient({ title }: { title: string }) {
             if (closeOnSelect) setFilterSheetOpen(false);
           }}
         >
-          <Users className="h-3.5 w-3.5 shrink-0" />
-          <span className="min-w-0 truncate">{workspace.name || t('scope.team')}</span>
+          <WorkspaceIcon className="h-3.5 w-3.5 shrink-0" />
+          <span className="min-w-0 truncate">{workspace.name || t(`workspaceType.${workspace.type}`)}</span>
         </button>
-      ))}
+        );
+      })}
     </div>
   );
 
@@ -1366,6 +1423,10 @@ export function TodosClient({ title }: { title: string }) {
                           {t(`priority.${todo.priority}`)}
                         </Badge>
                         <Badge variant="outline">{t(`source.${todo.sourceType}`)}</Badge>
+                        <Badge variant="outline" className="max-w-full min-w-0 gap-1">
+                          {todo.scopeKind === 'user' ? <Globe2 className="h-3 w-3 shrink-0" /> : <FolderKanban className="h-3 w-3 shrink-0" />}
+                          <span className="min-w-0 truncate">{formatTodoScope(todo)}</span>
+                        </Badge>
                         {todo.dueAt && (
                           <Badge variant={isOverdue(todo) ? 'destructive' : 'outline'} className="gap-1">
                             <CalendarDays className="h-3 w-3" />
@@ -1531,6 +1592,26 @@ export function TodosClient({ title }: { title: string }) {
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-5 sm:px-6">
             <div className="grid gap-5 lg:grid-cols-[minmax(0,1fr)_320px]">
               <div className="space-y-4">
+                <div className="rounded-md border border-border bg-muted/35 px-3 py-3">
+                  <div className="flex items-start gap-3">
+                    {editingTodoId
+                      ? editingTodo?.scopeKind === 'user'
+                        ? <Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        : <FolderKanban className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                      : selectedWorkspaceId
+                        ? <FolderKanban className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                        : <Globe2 className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />}
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t('fields.workspace')}</p>
+                      <p className="mt-1 truncate text-sm font-medium">
+                        {editingTodoId && editingTodo ? formatTodoScope(editingTodo) : selectedWorkspaceLabel}
+                      </p>
+                      <p className="mt-1 text-xs leading-relaxed text-muted-foreground">
+                        {t(editingTodoId ? 'editor.scopeLocked' : 'editor.scopeHint')}
+                      </p>
+                    </div>
+                  </div>
+                </div>
                 <div className="space-y-2">
                   <Label htmlFor="todo-title">{t('fields.title')}</Label>
                   <Input
