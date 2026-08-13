@@ -5,7 +5,6 @@ const TEST_PASSWORD = process.env.TEST_LOGIN_PASSWORD || process.env.BOOTSTRAP_A
 
 const labels = {
   address: /^(Adresse|Address)$/,
-  agentControls: /^(Agent steuert|Agent controls)$/,
   back: /^(Zurück|Back)$/,
   backToChat: /^(Zurück zum Chat|Back to chat)$/,
   closeChat: /^(Chat schließen|Close chat)$/,
@@ -16,7 +15,7 @@ const labels = {
   disconnected: /^(Nicht verbunden|Disconnected)$/,
   dismissError: /^(Meldung schließen|Dismiss message)$/,
   failureTitle: /^(Die Live-Ansicht braucht Aufmerksamkeit|The live view needs attention)$/,
-  giveAgent: /^(Interaktion beenden|Stop interacting)$/,
+  interactionToggle: /^(Interagieren|Interact|Interaktion beenden|Stop interacting)$/,
   live: /^(Live verbunden|Live connected)$/,
   liveBrowser: /^(Live-Browser|Live Browser)$/,
   newTab: /^(Neuer Tab|New tab)$/,
@@ -31,7 +30,6 @@ const labels = {
   retry: /^(Erneut versuchen|Try again)$/,
   session: /^(Chat-Session|Chat session)$/,
   stop: /^(Laden stoppen|Stop loading)$/,
-  takeControl: /^(Interagieren|Interact)$/,
   userControls: /^(Gemeinsam aktiv|Working together)$/,
 };
 
@@ -392,7 +390,7 @@ test.describe('Browser Lab', () => {
     }
   });
 
-  test('connects to the managed browser and completes the control handoff flow', async ({ page }) => {
+  test('connects to the managed browser with cooperative control enabled', async ({ page }) => {
     const pageErrors: Error[] = [];
     page.on('pageerror', (error) => pageErrors.push(error));
 
@@ -411,7 +409,7 @@ test.describe('Browser Lab', () => {
       await expect(page.getByTestId('chat-dock-desktop')).toHaveAttribute('data-chat-visible', 'true');
       await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId, { timeout: 30_000 });
       await expect(address).toBeDisabled();
-      await expect(page.getByRole('button', { name: labels.takeControl })).toBeDisabled();
+      await expect(page.getByRole('button', { name: labels.interactionToggle })).toHaveCount(0);
 
       const cooperativeTicketRequest = page.waitForRequest((request) => (
         request.url().endsWith('/api/browser/view') && request.method() === 'POST'
@@ -426,15 +424,14 @@ test.describe('Browser Lab', () => {
       const frame = page.locator('img[tabindex]');
       await expect(frame).toBeVisible({ timeout: 30_000 });
       await expect(frame).toHaveAttribute('src', /^data:image\//);
-      await expect(page.getByRole('button', { name: labels.takeControl })).toBeEnabled();
+      await expect(page.getByText(labels.userControls)).toBeVisible();
+      await expect(address).toBeEnabled();
+      await expect(page.getByRole('button', { name: labels.interactionToggle })).toHaveCount(0);
       await page.getByTestId('chat-dock-toggle').click();
       await expect(page.getByTestId('chat-dock-desktop')).toHaveAttribute('data-chat-visible', 'false');
       await page.getByRole('button', { name: labels.openChat }).click();
       await expect(page.getByTestId('chat-dock-desktop')).toHaveAttribute('data-chat-visible', 'true');
 
-      await page.getByRole('button', { name: labels.takeControl }).click();
-      await expect(page.getByText(labels.userControls)).toBeVisible();
-      await expect(address).toBeEnabled();
       await expect(page.getByRole('button', { name: labels.newTab })).toBeEnabled();
       await expect(page.getByRole('button', { name: labels.closeTab })).toBeEnabled();
       await expect(page.getByRole('button', { name: labels.reload })).toBeEnabled();
@@ -477,9 +474,8 @@ test.describe('Browser Lab', () => {
       await page.getByRole('button', { name: labels.reload }).click();
       await expect(address).toHaveValue(/\/api\/browser\/view\/fixture-page\?access=/, { timeout: 30_000 });
 
-      await page.getByRole('button', { name: labels.giveAgent }).click();
-      await expect(page.getByText(labels.agentControls)).toBeVisible();
-      await expect(address).toBeDisabled();
+      await expect(page.getByRole('button', { name: labels.interactionToggle })).toHaveCount(0);
+      await expect(address).toBeEnabled();
 
       await page.screenshot({ path: 'test-results/browser-lab-desktop.png', fullPage: false });
       const desktopMetrics = await page.evaluate(() => ({
@@ -506,12 +502,7 @@ test.describe('Browser Lab', () => {
       await expect(mobileChatSheet).toBeHidden();
       await expect(page.getByRole('heading', { name: 'Browser Lab', level: 2 })).toBeVisible();
       await expect(page.getByTestId('browser-lab-session-disclosure')).toBeVisible();
-      const mobileInteractButton = page.getByRole('button', { name: labels.takeControl });
-      if (await mobileInteractButton.isVisible()) {
-        await mobileInteractButton.click();
-      } else {
-        await expect(page.getByRole('button', { name: labels.giveAgent })).toBeVisible();
-      }
+      await expect(page.getByRole('button', { name: labels.interactionToggle })).toHaveCount(0);
       await expect(address).toBeEnabled();
       const mobileTabSelect = page.getByTestId('browser-mobile-tab-select');
       await expect(mobileTabSelect).toBeEnabled();
@@ -584,6 +575,7 @@ test.describe('Browser Lab', () => {
         'true',
         { timeout: 30_000 },
       );
+      await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('data-chat-placement', 'side');
       await page.getByTestId('notebook-surface-chat').click();
       await expect(page.getByTestId('notebook-desktop-chat')).toHaveAttribute('aria-hidden', 'false');
       const liveBrowserLink = page.getByTestId('chat-live-browser-link');
@@ -633,8 +625,6 @@ test.describe('Browser Lab', () => {
       await page.setViewportSize({ width: 390, height: 844 });
       await expect(page.getByTestId('notebook-mobile-browser')).toHaveAttribute('aria-hidden', 'false');
       await expect(page.locator('img[tabindex]')).toBeVisible({ timeout: 30_000 });
-      await expect(page.getByTestId('browser-agent-activity-toggle')).toHaveAttribute('aria-expanded', 'false');
-      await page.getByTestId('browser-agent-activity-toggle').click();
       await expect(page.getByTestId('browser-agent-activity-sheet')).toBeVisible();
       await expect(page.getByTestId('chat-session-id')).toHaveAttribute('title', session.sessionId);
       await page.screenshot({
@@ -645,6 +635,7 @@ test.describe('Browser Lab', () => {
         name: /^(Agent-Aktivität ausblenden|Hide agent activity)$/,
       }).click();
       await expect(page.getByTestId('browser-agent-activity-sheet')).toHaveCount(0);
+      await expect(page.getByTestId('browser-agent-activity-toggle')).toHaveAttribute('aria-expanded', 'false');
       await page.screenshot({ path: 'test-results/notebook-browser-mobile.png', fullPage: false });
       const mobileMetrics = await page.evaluate(() => ({
         innerWidth: window.innerWidth,
@@ -679,10 +670,11 @@ test.describe('Browser Lab', () => {
       await page.goto(`/browser/lab?agentId=${encodeURIComponent(session.agentId)}&sessionId=${encodeURIComponent(session.sessionId)}`);
       await page.getByRole('button', { name: labels.connect }).click();
       await expect(page.getByText(labels.live)).toBeVisible({ timeout: 60_000 });
-      await page.getByRole('button', { name: labels.takeControl }).click();
       await expect(page.getByText(labels.userControls)).toBeVisible();
+      await expect(page.getByRole('button', { name: labels.interactionToggle })).toHaveCount(0);
 
       const address = page.getByLabel(labels.address);
+      await expect(address).toBeEnabled();
       const frame = page.locator('img[tabindex]');
       await address.fill(
         `http://localhost:3000/api/browser/view/fixture-page?access=${encodeURIComponent(fixtureAccess!)}`,

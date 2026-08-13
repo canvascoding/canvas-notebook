@@ -466,7 +466,7 @@
     "contextToolComplete": "Agent tool finished",
     "browserTabCount": "{count, plural, =1 {1 tab} other {# tabs}}",
     "browserControlAgent": "Agent controls",
-    "browserControlUser": "You control",
+    "browserControlUser": "Working together",
     "browserControlView": "View only",
     "agentActivity": "Activity",
     "showAgentActivity": "Show agent activity",

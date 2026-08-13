@@ -2,7 +2,6 @@
 
 import {
   ArrowLeft,
-  ArrowLeftRight,
   Bot,
   ChevronDown,
   ChevronLeft,
@@ -16,7 +15,6 @@ import {
   ExternalLink,
   FileUp,
   Globe2,
-  Hand,
   Loader2,
   LockKeyhole,
   MessageSquare,
@@ -47,7 +45,6 @@ import type { AgentProfile, AISession } from '@/app/lib/chat/types';
 import { buildNotebookChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
 import type {
-  BrowserViewControlMode,
   BrowserViewErrorCode,
   BrowserViewFailure,
   BrowserViewNavigationAction,
@@ -153,9 +150,6 @@ const copy = {
     clipboardReadBlocked: 'Zwischenablage konnte nicht gelesen werden. Fokussiere das Browserbild und verwende ⌘/Ctrl+V.',
     clipboardWriteBlocked: 'Die Auswahl konnte nicht in die Zwischenablage geschrieben werden.',
     clipboardTooLarge: 'Der Zwischenablagentext ist zu groß.',
-    takeControl: 'Interagieren',
-    giveAgent: 'Interaktion beenden',
-    viewOnly: 'Nur ansehen',
     modeAgent: 'Agent steuert',
     modeUser: 'Gemeinsam aktiv',
     modeView: 'Ansehen',
@@ -263,9 +257,6 @@ const copy = {
     clipboardReadBlocked: 'The clipboard could not be read. Focus the browser frame and use ⌘/Ctrl+V.',
     clipboardWriteBlocked: 'The selection could not be written to the clipboard.',
     clipboardTooLarge: 'The clipboard text is too large.',
-    takeControl: 'Interact',
-    giveAgent: 'Stop interacting',
-    viewOnly: 'View only',
     modeAgent: 'Agent controls',
     modeUser: 'Working together',
     modeView: 'Viewing',
@@ -690,6 +681,7 @@ export function BrowserLabClient({
             window.clearTimeout(connectTimeoutRef.current);
             connectTimeoutRef.current = null;
           }
+          socket.send(JSON.stringify({ type: 'control_request', mode: 'user' }));
           setFailure(null);
           setConnectionStatus('live');
           if (!isLiveView) setSessionSetupOpen(false);
@@ -789,10 +781,6 @@ export function BrowserLabClient({
     const timer = window.setInterval(() => send({ type: 'heartbeat' }), 10_000);
     return () => window.clearInterval(timer);
   }, [connectionStatus, send]);
-
-  const requestControl = useCallback((mode: BrowserViewControlMode) => {
-    send({ type: 'control_request', mode });
-  }, [send]);
 
   const runBrowserAction = useCallback((action: BrowserViewNavigationAction) => {
     send({ type: 'browser_action', action });
@@ -1351,17 +1339,6 @@ export function BrowserLabClient({
                 <span className="hidden min-w-0 flex-1 text-[11px] leading-4 text-muted-foreground sm:block lg:hidden xl:block">
                   {t.takeoverWarning}
                 </span>
-                <Button
-                  size="sm"
-                  variant={userControls ? 'secondary' : 'default'}
-                  aria-pressed={userControls}
-                  disabled={!viewState || (viewState.mode === 'user' && !userControls)}
-                  onClick={() => requestControl(userControls ? 'agent' : 'user')}
-                  className="ml-auto h-9 gap-2"
-                >
-                  {userControls ? <Bot className="h-3.5 w-3.5" /> : <Hand className="h-3.5 w-3.5" />}
-                  {userControls ? t.giveAgent : t.takeControl}
-                </Button>
               </div>
             </div>
           </div>
@@ -1623,12 +1600,6 @@ export function BrowserLabClient({
                   </div>
                 ))}
               </div>
-            </div>
-          ) : null}
-          {viewState?.mode !== 'user' ? (
-            <div className="mt-3 rounded-lg border border-border/70 p-3 text-xs leading-5 text-muted-foreground">
-              <div className="mb-1.5 flex items-center gap-2 font-medium text-foreground"><ArrowLeftRight className="h-3.5 w-3.5" />{t.takeControl}</div>
-              {t.takeoverWarning}
             </div>
           ) : null}
           </aside>

@@ -435,9 +435,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const shouldForceChatOpen = shouldOpenRouteChat || hasStoredInitialPrompt;
 
   const handleContextOpen = useCallback((surface: NotebookContextSurface) => {
+    if (surface === 'browser') {
+      setBrowserActivityOpen(true);
+    }
     dispatch({ type: 'CONTEXT_OPENED', surface });
-  }, [dispatch]);
+    if (surface === 'browser' && layout.canDockChat) {
+      dispatch({ type: 'SET_CHAT_DOCKED', docked: true });
+    }
+  }, [dispatch, layout.canDockChat]);
   const handleContextUnavailable = useCallback((surface: NotebookContextSurface) => {
+    if (surface === 'browser') {
+      setBrowserActivityOpen(false);
+    }
     dispatch({ type: 'CONTEXT_CLOSED', surface });
   }, [dispatch]);
   const {
@@ -964,6 +973,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     dispatch({ type: 'SHOW_SURFACE', surface });
   }, [dispatch]);
   const openLiveBrowser = useCallback(() => {
+    setBrowserActivityOpen(true);
     dispatch({ type: 'CONTEXT_OPENED', surface: 'browser' });
     if (layout.canDockChat) {
       dispatch({ type: 'SET_CHAT_DOCKED', docked: true });
@@ -976,7 +986,9 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     : browserActivityUsesSheet;
   const toggleBrowserActivity = useCallback(() => {
     if (layout.canDockChat) {
-      dispatch({ type: 'SET_CHAT_DOCKED', docked: !state.chatDocked });
+      const open = !state.chatDocked;
+      setBrowserActivityOpen(open);
+      dispatch({ type: 'SET_CHAT_DOCKED', docked: open });
       return;
     }
     setBrowserActivityOpen((open) => !open);

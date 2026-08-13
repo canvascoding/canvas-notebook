@@ -465,7 +465,7 @@
     "contextToolComplete": "Agent-Tool abgeschlossen",
     "browserTabCount": "{count, plural, =1 {1 Tab} other {# Tabs}}",
     "browserControlAgent": "Agent steuert",
-    "browserControlUser": "Du steuerst",
+    "browserControlUser": "Gemeinsam aktiv",
     "browserControlView": "Nur Ansicht",
     "agentActivity": "Aktivität",
     "showAgentActivity": "Agent-Aktivität einblenden",
