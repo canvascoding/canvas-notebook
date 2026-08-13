@@ -15,6 +15,7 @@ import {
   DirectMcpAuthorizationError,
   verifyDirectMcpAccessToken,
 } from '@/app/lib/mcp/server/access-token-verifier';
+import { getDirectMcpEnabledTools } from '@/app/lib/mcp/server/config';
 
 export const DIRECT_MCP_AUTH_PROBE_TOOL = 'auth_probe';
 export const DIRECT_MCP_AUTH_PROBE_SCOPE = 'workspace:list';
@@ -129,6 +130,9 @@ async function runAuthProbe(authInfo?: AuthInfo): Promise<CallToolResult> {
 }
 
 export function createDirectMcpAuthProbeServer(): Server {
+  const authProbeEnabled = getDirectMcpEnabledTools().includes(
+    DIRECT_MCP_AUTH_PROBE_TOOL,
+  );
   const server = new Server(
     {
       name: 'canvas-notebook-direct-mcp',
@@ -139,18 +143,19 @@ export function createDirectMcpAuthProbeServer(): Server {
         tools: {},
       },
       instructions: (
-        'This authentication probe verifies the local OAuth connection. '
-        + 'It does not expose workspace or knowledge data.'
+        authProbeEnabled
+          ? 'This authentication probe verifies the local OAuth connection. It does not expose workspace or knowledge data.'
+          : 'No MCP tools are currently enabled for this Canvas Notebook instance.'
       ),
     },
   );
 
   server.setRequestHandler('tools/list', async () => ({
-    tools: [getDirectMcpAuthProbeToolDescriptor()],
+    tools: authProbeEnabled ? [getDirectMcpAuthProbeToolDescriptor()] : [],
   }));
 
   server.setRequestHandler('tools/call', async (request, context) => {
-    if (request.params.name !== DIRECT_MCP_AUTH_PROBE_TOOL) {
+    if (!authProbeEnabled || request.params.name !== DIRECT_MCP_AUTH_PROBE_TOOL) {
       throw new ProtocolError(
         ProtocolErrorCode.MethodNotFound,
         `Unknown tool ${request.params.name}.`,

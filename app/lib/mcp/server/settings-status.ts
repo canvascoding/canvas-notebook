@@ -5,6 +5,8 @@ import {
   DIRECT_MCP_PROTOCOL_VERSION,
   DIRECT_MCP_SETTINGS_SOURCE_ENV,
   DIRECT_MCP_TOOL_IDS,
+  DIRECT_MCP_TOOLS_ENV,
+  DIRECT_MCP_TOOLS_SOURCE_ENV,
   getDirectMcpEnabledTools,
   isDirectMcpEnabled,
   resolveDirectMcpOrigin,
@@ -31,6 +33,7 @@ export type DirectMcpServerSettingsStatus = {
   runtimeEnabled: boolean;
   restartRequired: boolean;
   activationManagedByEnvironment: boolean;
+  capabilitiesManagedByEnvironment: boolean;
   settingsSource: DirectMcpSettingsSource;
   endpoint: string | null;
   issuer: string | null;
@@ -54,9 +57,13 @@ function arraysEqual(left: readonly string[], right: readonly string[]): boolean
   return left.length === right.length && left.every((value, index) => value === right[index]);
 }
 
-function settingsSource(environment: DirectMcpEnvironment): DirectMcpSettingsSource {
-  if (environment[DIRECT_MCP_SETTINGS_SOURCE_ENV] === 'settings') return 'settings';
-  if (environment[DIRECT_MCP_FEATURE_ENV] !== undefined) return 'environment';
+function settingsSource(
+  environment: DirectMcpEnvironment,
+  valueEnvironmentKey: string,
+  sourceEnvironmentKey: string,
+): DirectMcpSettingsSource {
+  if (environment[sourceEnvironmentKey] === 'settings') return 'settings';
+  if (environment[valueEnvironmentKey] !== undefined) return 'environment';
   return 'default';
 }
 
@@ -76,7 +83,16 @@ export function buildDirectMcpServerSettingsStatus(
   preferences: DirectMcpServerPreferences | null,
   environment: DirectMcpEnvironment = process.env,
 ): DirectMcpServerSettingsStatus {
-  const source = settingsSource(environment);
+  const source = settingsSource(
+    environment,
+    DIRECT_MCP_FEATURE_ENV,
+    DIRECT_MCP_SETTINGS_SOURCE_ENV,
+  );
+  const toolsSource = settingsSource(
+    environment,
+    DIRECT_MCP_TOOLS_ENV,
+    DIRECT_MCP_TOOLS_SOURCE_ENV,
+  );
   let configurationError: string | null = null;
   let runtimeEnabled = false;
   let runtimeTools: DirectMcpToolId[] = [...DIRECT_MCP_TOOL_IDS];
@@ -95,8 +111,12 @@ export function buildDirectMcpServerSettingsStatus(
     configurationError ??= error instanceof Error ? error.message : 'Invalid public instance URL.';
   }
 
-  const desiredEnabled = preferences?.enabled ?? runtimeEnabled;
-  const desiredTools = preferences?.tools ?? runtimeTools;
+  const desiredEnabled = source === 'environment'
+    ? runtimeEnabled
+    : preferences?.enabled ?? runtimeEnabled;
+  const desiredTools = toolsSource === 'environment'
+    ? runtimeTools
+    : preferences?.tools ?? runtimeTools;
   const runtimeDiffers = desiredEnabled !== runtimeEnabled
     || !arraysEqual(desiredTools, runtimeTools);
 
@@ -105,6 +125,7 @@ export function buildDirectMcpServerSettingsStatus(
     runtimeEnabled,
     restartRequired: (desiredEnabled || runtimeEnabled) && runtimeDiffers,
     activationManagedByEnvironment: source === 'environment',
+    capabilitiesManagedByEnvironment: toolsSource === 'environment',
     settingsSource: source,
     endpoint: origin ? `${origin}/mcp` : null,
     issuer: origin ? `${origin}/api/auth` : null,

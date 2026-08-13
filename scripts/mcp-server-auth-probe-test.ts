@@ -376,6 +376,24 @@ async function main(): Promise<void> {
       openWorldHint: false,
     });
 
+    process.env.CANVAS_MCP_DIRECT_TOOLS = '';
+    try {
+      const disabledToolsList = await rpcRequest({
+        post: mcpRoute.POST,
+        body: {
+          jsonrpc: '2.0',
+          id: 21,
+          method: 'tools/list',
+          params: {},
+        },
+      });
+      assert.equal(disabledToolsList.status, 200);
+      const disabledToolsResult = resultFromRpc(await readJson(disabledToolsList));
+      assert.deepEqual(disabledToolsResult.tools, []);
+    } finally {
+      delete process.env.CANVAS_MCP_DIRECT_TOOLS;
+    }
+
     const anonymousProbe = await rpcRequest({
       post: mcpRoute.POST,
       body: {

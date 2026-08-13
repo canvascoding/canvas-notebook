@@ -65,6 +65,27 @@ export async function PATCH(request: NextRequest) {
         { status: 409 },
       );
     }
+    const requestedTools = [...new Set(payload.tools.filter(
+      (tool): tool is string => typeof tool === 'string',
+    ))].sort();
+    const runtimeTools = current.capabilities
+      .filter((capability) => capability.available && capability.enabled)
+      .map((capability) => capability.id)
+      .sort();
+    if (
+      current.capabilitiesManagedByEnvironment
+      && (requestedTools.length !== runtimeTools.length
+        || requestedTools.some((tool, index) => tool !== runtimeTools[index]))
+    ) {
+      return NextResponse.json(
+        {
+          success: false,
+          code: 'CAPABILITIES_MANAGED_BY_ENVIRONMENT',
+          error: 'MCP server capabilities are managed by the deployment environment.',
+        },
+        { status: 409 },
+      );
+    }
 
     await setDirectMcpServerPreferences(session.user.id, {
       enabled: payload.enabled,

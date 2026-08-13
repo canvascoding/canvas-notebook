@@ -57,9 +57,9 @@ async function main(): Promise<void> {
     });
     assert.equal(status.endpoint, 'https://canvas.example.test/mcp');
     assert.equal(status.issuer, 'https://canvas.example.test/api/auth');
-    assert.equal(status.desiredEnabled, true);
+    assert.equal(status.desiredEnabled, false);
     assert.equal(status.runtimeEnabled, false);
-    assert.equal(status.restartRequired, true);
+    assert.equal(status.restartRequired, false);
     assert.equal(status.activationManagedByEnvironment, true);
     assert.equal(status.protocolVersion, '2026-07-28');
     assert.deepEqual(
@@ -72,6 +72,18 @@ async function main(): Promise<void> {
       }],
     );
 
+    const pendingRestartStatus = buildDirectMcpServerSettingsStatus(preferences, {
+      NODE_ENV: 'production',
+      BASE_URL: 'https://canvas.example.test',
+      BETTER_AUTH_BASE_URL: 'https://canvas.example.test',
+      CANVAS_MCP_DIRECT_ENABLED: 'false',
+      CANVAS_MCP_DIRECT_SETTINGS_SOURCE: 'settings',
+      CANVAS_MCP_DIRECT_TOOLS: 'auth_probe',
+      CANVAS_MCP_DIRECT_TOOLS_SOURCE: 'settings',
+    });
+    assert.equal(pendingRestartStatus.desiredEnabled, true);
+    assert.equal(pendingRestartStatus.restartRequired, true);
+
     const settingsManagedStatus = buildDirectMcpServerSettingsStatus(preferences, {
       NODE_ENV: 'production',
       BASE_URL: 'https://canvas.example.test',
@@ -79,6 +91,7 @@ async function main(): Promise<void> {
       CANVAS_MCP_DIRECT_ENABLED: 'true',
       CANVAS_MCP_DIRECT_SETTINGS_SOURCE: 'settings',
       CANVAS_MCP_DIRECT_TOOLS: 'auth_probe',
+      CANVAS_MCP_DIRECT_TOOLS_SOURCE: 'settings',
     });
     assert.equal(settingsManagedStatus.restartRequired, false);
     assert.equal(settingsManagedStatus.activationManagedByEnvironment, false);
