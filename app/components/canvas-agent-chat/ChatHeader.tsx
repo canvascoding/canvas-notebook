@@ -48,6 +48,7 @@ type ChatHeaderProps = {
   sessionId: string | null;
   showHistory: boolean;
   showSkillsLink: boolean;
+  showWorkspaceSwitcher: boolean;
   toolVerbosity: ToolVerbosity;
   totalQueuedMessages: number;
   totalUnreadCount: number;
@@ -78,13 +79,15 @@ export function ChatHeader({
   sessionId,
   showHistory,
   showSkillsLink,
+  showWorkspaceSwitcher: showWorkspaceSwitcherEnabled,
   toolVerbosity,
   totalQueuedMessages,
   totalUnreadCount,
 }: ChatHeaderProps) {
   const t = useTranslations('chat');
   const tCommon = useTranslations('common');
-  const showWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
+  const canShowWorkspaceSwitcher = useShouldShowWorkspaceSwitcher();
+  const showWorkspaceSwitcher = showWorkspaceSwitcherEnabled && canShowWorkspaceSwitcher;
   const compactSelectors = isCompactView || (!isMobile && showWorkspaceSwitcher);
 
   return (

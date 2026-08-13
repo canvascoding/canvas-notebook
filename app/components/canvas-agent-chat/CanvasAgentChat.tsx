@@ -82,6 +82,7 @@ interface CanvasAgentChatProps {
   initialPromptStorageKey?: string;
   showSkillsLink?: boolean;
   hideNavHeader?: boolean;
+  showWorkspaceSwitcher?: boolean;
   chatContainerWidth?: number;
   isSurfaceVisible?: boolean;
   forcedSessionId?: string | null;
@@ -138,6 +139,7 @@ export default function CanvasAgentChat({
   initialPromptStorageKey,
   showSkillsLink = false,
   hideNavHeader = false,
+  showWorkspaceSwitcher = true,
   chatContainerWidth,
   isSurfaceVisible = true,
   forcedSessionId,
@@ -1192,6 +1194,7 @@ export default function CanvasAgentChat({
         sessionId={sessionId}
         showHistory={showHistory}
         showSkillsLink={showSkillsLink}
+        showWorkspaceSwitcher={showWorkspaceSwitcher}
         toolVerbosity={toolVerbosity}
         totalQueuedMessages={totalQueuedMessages}
         totalUnreadCount={totalUnreadCount}

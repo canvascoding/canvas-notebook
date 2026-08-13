@@ -1014,6 +1014,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     <CanvasAgentChat
       initialPromptStorageKey={CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY}
       hideNavHeader
+      showWorkspaceSwitcher={false}
       forcedSessionId={forcedSessionId}
       requestContext={requestContext}
       isSurfaceVisible={chatVisible}
