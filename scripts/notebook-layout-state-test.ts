@@ -36,6 +36,22 @@ assert.equal(emptyWorkbenchDockedState.mainSurface, 'document');
 assert.equal(emptyWorkbenchDockedState.documentAvailable, false);
 assert.equal(emptyWorkbenchDockedState.chatDocked, true);
 
+const mobileEmptyWorkbenchState = notebookLayoutReducer(emptyWorkbenchDockedState, {
+  type: 'VIEWPORT_CHANGED',
+  viewport: 'mobile',
+});
+assert.equal(mobileEmptyWorkbenchState.mainSurface, 'chat');
+assert.equal(mobileEmptyWorkbenchState.chatDocked, false);
+assert.equal(mobileEmptyWorkbenchState.explorerOpen, false);
+assert.equal(mobileEmptyWorkbenchState.terminalOpen, false);
+
+const compactEmptyWorkbenchState = notebookLayoutReducer(emptyWorkbenchDockedState, {
+  type: 'VIEWPORT_CHANGED',
+  viewport: 'desktop-compact',
+});
+assert.equal(compactEmptyWorkbenchState.mainSurface, 'chat');
+assert.equal(compactEmptyWorkbenchState.chatDocked, false);
+
 const closedLastDockedDocumentState = notebookLayoutReducer(dockedState, {
   type: 'DOCUMENT_CLOSED',
 });

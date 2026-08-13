@@ -134,13 +134,16 @@ export function notebookLayoutReducer(
     case 'VIEWPORT_CHANGED': {
       if (action.viewport === state.viewport) return state;
       const compacted = action.viewport !== 'desktop-wide' && state.chatDocked;
+      const emptyDockedWorkbenchCompacted = compacted
+        && state.mainSurface === 'document'
+        && !state.documentAvailable;
       return {
         ...state,
         viewport: action.viewport,
         explorerOpen: action.viewport === 'mobile' ? false : state.explorerOpen,
         terminalOpen: action.viewport === 'mobile' ? false : state.terminalOpen,
         chatDocked: compacted ? false : state.chatDocked,
-        mainSurface: state.mainSurface,
+        mainSurface: emptyDockedWorkbenchCompacted ? 'chat' : state.mainSurface,
       };
     }
 
