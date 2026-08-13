@@ -3,19 +3,20 @@ import 'server-only';
 import { access } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import path from 'node:path';
-import type { ProviderEnv } from '@earendil-works/pi-ai';
+import type { ProviderEnv, ProviderHeaders } from '@earendil-works/pi-ai';
 
 import type { AiProviderInstallation } from '@/app/lib/agent-runtime-policy/types';
 import { isManagedControlPlaneAvailable } from '@/app/lib/agents/storage';
 import { readScopedEnvState, type EnvStorageScope } from '@/app/lib/integrations/env-config';
 import { CANVAS_CONTROL_PLANE_PROVIDER_ID } from '@/app/lib/managed/control-plane-models';
-import { getProviderApiKey, isOAuthProvider, type OAuthProviderId } from '@/app/lib/pi/oauth';
+import { getProviderRequestAuth, isOAuthProvider, type OAuthProviderId } from '@/app/lib/pi/oauth';
 import { getAuthMethodForProvider, getProviderEnvVars } from '@/app/lib/pi/provider-help';
 
 const PROVIDER_API_KEY_NAMES: Record<string, readonly string[]> = {
   'ant-ling': ['ANT_LING_API_KEY'],
+  baseten: ['BASETEN_API_KEY'],
   openai: ['OPENAI_API_KEY'],
-  anthropic: ['ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'],
+  anthropic: ['ANTHROPIC_AUTH_TOKEN', 'ANTHROPIC_OAUTH_TOKEN', 'ANTHROPIC_API_KEY'],
   claude: ['ANTHROPIC_API_KEY'],
   'azure-openai-responses': ['AZURE_OPENAI_API_KEY'],
   'cloudflare-ai-gateway': ['CLOUDFLARE_API_KEY'],
@@ -49,6 +50,9 @@ const PROVIDER_API_KEY_NAMES: Record<string, readonly string[]> = {
   minimax: ['MINIMAX_API_KEY'],
   'minimax-cn': ['MINIMAX_CN_API_KEY'],
   'kimi-coding': ['KIMI_API_KEY'],
+  'qwen-token-plan': ['QWEN_TOKEN_PLAN_API_KEY'],
+  'qwen-token-plan-cn': ['QWEN_TOKEN_PLAN_CN_API_KEY'],
+  'qwen-token-plan-individual': ['QWEN_TOKEN_PLAN_API_KEY'],
 };
 const LOCAL_RUNTIME_CREDENTIAL = 'canvas-local-runtime';
 const AMBIENT_RUNTIME_CREDENTIAL = '<authenticated>';
@@ -76,6 +80,8 @@ const AMBIENT_SCOPE_SENSITIVE_PROVIDERS = new Set([
 export type ProviderInstallationRuntimeAuth = {
   configured: boolean;
   apiKey?: string;
+  headers?: ProviderHeaders;
+  baseUrl?: string;
   env: ProviderEnv;
 };
 
@@ -233,8 +239,15 @@ export async function resolveProviderInstallationRuntimeAuth(input: {
     if (input.provider.credentialScope !== 'user' || !isOAuthProvider(providerId)) {
       return { configured: false, env: {} };
     }
-    const apiKey = (await getProviderApiKey(providerId as OAuthProviderId, { userId: input.userId }))?.apiKey;
-    return { configured: Boolean(apiKey), ...(apiKey ? { apiKey } : {}), env: {} };
+    const oauth = await getProviderRequestAuth(providerId as OAuthProviderId, { userId: input.userId });
+    if (!oauth) return { configured: false, env: {} };
+    return {
+      configured: true,
+      ...(oauth.apiKey ? { apiKey: oauth.apiKey } : {}),
+      ...(oauth.headers ? { headers: oauth.headers } : {}),
+      ...(oauth.baseUrl ? { baseUrl: oauth.baseUrl } : {}),
+      env: oauth.env,
+    };
   }
 
   const env = await readProviderEnv({
@@ -254,6 +267,13 @@ export async function resolveProviderInstallationRuntimeAuth(input: {
   const apiKey = apiKeyForProvider(providerId, env);
   if (providerId === 'openai-compatible' || providerId === 'ollama') {
     return { configured: true, apiKey: apiKey || LOCAL_RUNTIME_CREDENTIAL, env };
+  }
+  if (providerId === 'anthropic' && env.ANTHROPIC_AUTH_TOKEN?.trim()) {
+    return {
+      configured: true,
+      headers: { Authorization: `Bearer ${env.ANTHROPIC_AUTH_TOKEN.trim()}` },
+      env,
+    };
   }
   if (providerId === 'google-vertex') {
     const hasProject = Boolean(env.GOOGLE_CLOUD_PROJECT || env.GCLOUD_PROJECT);

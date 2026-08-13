@@ -25,8 +25,8 @@ import type { PiThinkingLevel } from '@/app/lib/pi/config';
 const PROVIDER_ID_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/u;
 const MODEL_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9._:/@+~-]{0,199}$/u;
 const INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
-const MAX_PROVIDERS = 40;
-const MAX_MODELS_PER_PROVIDER = 250;
+const MAX_PROVIDERS = 64;
+const MAX_MODELS_PER_PROVIDER = 512;
 const SECRET_FIELD_PATTERN = /(secret|token|password|credential|authorization|cookie|api[_-]?key)/iu;
 const SAFE_CONFIG_KEYS = new Set<keyof AiProviderSafeConfig>([
   'authMethod',

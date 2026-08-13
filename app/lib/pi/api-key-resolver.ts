@@ -83,10 +83,19 @@ export async function resolvePiApiKey(
       return allEntries.get('GOOGLE_API_KEY') || allEntries.get('GEMINI_API_KEY');
     case 'openrouter':
       return allEntries.get('OPENROUTER_API_KEY');
+    case 'baseten':
+      return allEntries.get('BASETEN_API_KEY');
     case 'groq':
       return allEntries.get('GROQ_API_KEY');
     case 'mistral':
       return allEntries.get('MISTRAL_API_KEY');
+    case 'kimi-coding':
+      return allEntries.get('KIMI_API_KEY');
+    case 'qwen-token-plan':
+    case 'qwen-token-plan-individual':
+      return allEntries.get('QWEN_TOKEN_PLAN_API_KEY');
+    case 'qwen-token-plan-cn':
+      return allEntries.get('QWEN_TOKEN_PLAN_CN_API_KEY');
     case 'ollama':
       return allEntries.get('OLLAMA_API_KEY') || await ensureGeneratedScopedEnvEntry('agents', 'OLLAMA_API_KEY', { storageScope });
     case 'openai-compatible':

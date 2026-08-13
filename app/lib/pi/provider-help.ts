@@ -99,6 +99,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     ],
     envVars: [
       { name: 'ANTHROPIC_API_KEY', description: 'Your Anthropic API key', scope: 'agents', required: true },
+      { name: 'ANTHROPIC_AUTH_TOKEN', description: 'Optional Anthropic bearer auth token', scope: 'agents', required: false },
     ],
     documentationUrl: 'https://docs.anthropic.com/',
   },
@@ -162,6 +163,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       { name: 'OPENROUTER_API_KEY', description: 'Your OpenRouter API key', scope: 'agents', required: true },
     ],
     documentationUrl: 'https://openrouter.ai/docs',
+    supportsBothAuthMethods: true,
   },
 
   'canvas-control-plane': {
@@ -217,6 +219,7 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
       { name: 'XAI_API_KEY', description: 'Your xAI API key', scope: 'agents', required: true },
     ],
     documentationUrl: 'https://x.ai/',
+    supportsBothAuthMethods: true,
   },
 
   huggingface: {
@@ -288,7 +291,33 @@ export const PROVIDER_HELP: Record<string, ProviderHelpInfo> = {
     envVars: [
       { name: 'KIMI_API_KEY', description: 'Your Kimi API key', scope: 'agents', required: true },
     ],
+    supportsBothAuthMethods: true,
   },
+
+  baseten: apiKeyProviderHelp({
+    title: 'Baseten',
+    shortDescription: 'Hosted open and proprietary inference models through Baseten',
+    envName: 'BASETEN_API_KEY',
+    documentationUrl: 'https://docs.baseten.co/',
+  }),
+
+  'qwen-token-plan': apiKeyProviderHelp({
+    title: 'Qwen Token Plan',
+    shortDescription: 'Qwen token-plan models on the international endpoint',
+    envName: 'QWEN_TOKEN_PLAN_API_KEY',
+  }),
+
+  'qwen-token-plan-cn': apiKeyProviderHelp({
+    title: 'Qwen Token Plan CN',
+    shortDescription: 'Qwen token-plan models on the China endpoint',
+    envName: 'QWEN_TOKEN_PLAN_CN_API_KEY',
+  }),
+
+  'qwen-token-plan-individual': apiKeyProviderHelp({
+    title: 'Qwen Token Plan Individual',
+    shortDescription: 'Qwen individual token-plan models',
+    envName: 'QWEN_TOKEN_PLAN_API_KEY',
+  }),
 
   'ant-ling': apiKeyProviderHelp({
     title: 'Ant Ling',
@@ -689,7 +718,7 @@ export function supportsBothAuthMethods(providerId: string): boolean {
 export type AuthMethodCategory = 'api-key' | 'oauth' | 'self-hosted' | 'cloud-infra';
 
 export function getVisibleOAuthProviders(): string[] {
-  return ['openai-codex'];
+  return ['openai-codex', 'openrouter', 'kimi-coding', 'xai'];
 }
 
 export function getApiKeyProviders(): string[] {

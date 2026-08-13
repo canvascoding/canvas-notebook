@@ -5,6 +5,7 @@ import os from 'node:os';
 import path from 'node:path';
 
 type MockCredentials = {
+  type?: 'oauth';
   access: string;
   refresh?: string;
   expires?: number;
@@ -40,6 +41,25 @@ async function main() {
         registerBuiltInApiProviders: () => undefined,
       };
     }
+    if (request === '@earendil-works/pi-ai/providers/all') {
+      return {
+        builtinModels: ({ credentials }: { credentials: {
+          read: (providerId: string) => Promise<MockCredentials | undefined>;
+          modify: (providerId: string, operation: (credential: MockCredentials | undefined) => Promise<MockCredentials | undefined>) => Promise<MockCredentials | undefined>;
+        } }) => ({
+          getAuth: async (providerId: string) => {
+            const credential = await credentials.read(providerId);
+            return credential ? { auth: { apiKey: credential.access }, source: 'OAuth' } : undefined;
+          },
+          login: async (providerId: string) => credentials.modify(providerId, async () => ({
+            type: 'oauth',
+            access: 'unused-oauth',
+            refresh: 'unused-refresh',
+            expires: Date.now() + 60_000,
+          })),
+        }),
+      };
+    }
     if (request === '@earendil-works/pi-ai/oauth') {
       return {
         getOAuthProvider: () => ({
@@ -66,10 +86,11 @@ async function main() {
     const userC = { userId: 'oauth_user_c' };
     const expires = Date.now() + 60 * 60 * 1000;
 
-    oauth.saveProviderCredentials(provider, { access: 'user-a-token', refresh: 'refresh-a', expires }, userA);
-    oauth.saveProviderCredentials(provider, { access: 'user-b-token', refresh: 'refresh-b', expires }, userB);
+    await oauth.saveProviderCredentials(provider, { access: 'user-a-token', refresh: 'refresh-a', expires }, userA);
+    await oauth.saveProviderCredentials(provider, { access: 'user-b-token', refresh: 'refresh-b', expires }, userB);
 
     assert.equal(oauth.getProviderCredentials(provider, userA)?.access, 'user-a-token');
+    assert.equal(oauth.getProviderCredentials(provider, userA)?.type, 'oauth');
     assert.equal(oauth.getProviderCredentials(provider, userB)?.access, 'user-b-token');
     assert.equal(oauth.getProviderCredentials(provider, userC), null);
     assert.equal(oauth.hasProviderCredentials(provider, userA), true);
@@ -89,14 +110,19 @@ async function main() {
     assert.equal(await resolveUserAApiKey(provider), 'user-a-token');
     assert.equal(await resolveUserBApiKey(provider), 'user-b-token');
 
-    oauth.saveProviderCredentials(provider, { access: 'global-token', refresh: 'refresh-global', expires });
+    await oauth.saveProviderCredentials(provider, { access: 'global-token', refresh: 'refresh-global', expires });
     assert.equal(oauth.getProviderCredentials(provider)?.access, 'global-token');
     assert.equal(oauth.getProviderCredentials(provider, userC), null);
 
-    assert.equal(
+    assert.deepEqual(
       await fs.readFile(path.join(dataRoot, 'users', 'oauth_user_a', 'settings', 'auth.json'), 'utf8')
-        .then((content) => JSON.parse(content)[provider].access),
-      'user-a-token',
+        .then((content) => JSON.parse(content)[provider]),
+      {
+        type: 'oauth',
+        access: 'user-a-token',
+        refresh: 'refresh-a',
+        expires,
+      },
     );
     assert.equal(
       resolveScopedPiOAuthStatesDir(userA),

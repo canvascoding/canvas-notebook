@@ -1,5 +1,6 @@
 import { getModels, getProviders, registerBuiltInApiProviders } from '@earendil-works/pi-ai/compat';
-import type { Api, KnownProvider, Model } from '@earendil-works/pi-ai';
+import type { BuiltinProvider } from '@earendil-works/pi-ai/providers/all';
+import type { Api, Model } from '@earendil-works/pi-ai';
 import { isManagedControlPlaneAvailable, readPiRuntimeConfig } from '../agents/storage';
 import { getManagedControlPlaneBaseUrl } from '../managed/control-plane-url';
 import {
@@ -14,7 +15,9 @@ import {
 
 export { CANVAS_CONTROL_PLANE_PROVIDER_ID, getCanvasControlPlaneModels };
 
-// Ensure all built-in providers are registered once
+// Compat still owns API dispatch for Canvas' custom providers. Static catalog
+// reads are narrowed to BuiltinProvider below so dynamic providers cannot leak
+// into getModels().
 registerBuiltInApiProviders();
 
 /**
@@ -256,7 +259,7 @@ export function isCanvasControlPlaneManagedAvailable(): boolean {
 }
 
 export function getPiProviders(): string[] {
-  const providers = getProviders();
+  const providers: string[] = [...getProviders()];
   // Add Ollama and OpenAI-Compatible if not already present (they are not built-in PI-AI providers)
   if (!(providers as string[]).includes(OLLAMA_PROVIDER_ID)) {
     (providers as string[]).push(OLLAMA_PROVIDER_ID);
@@ -336,7 +339,7 @@ export function getPiModels(provider: string, customModel?: string): ResolvedPiM
   }
   
   try {
-    return getModels(provider as KnownProvider).map(withResolvedModelInput);
+    return getModels(provider as BuiltinProvider).map(withResolvedModelInput);
   } catch {
     return [];
   }

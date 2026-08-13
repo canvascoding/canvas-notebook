@@ -80,7 +80,7 @@ export async function POST(request: NextRequest) {
       try {
         const credsContent = await readFile(tempAuthPath, 'utf-8');
         const credentials = JSON.parse(credsContent);
-        saveProviderCredentials(provider, credentials, { userId: session.user.id });
+        await saveProviderCredentials(provider, credentials, { userId: session.user.id });
         
         // Cleanup
         await unlink(tempAuthPath).catch(() => {});
@@ -124,7 +124,7 @@ export async function POST(request: NextRequest) {
           // Credentials saved, read and store them
           const credsContent = await readFile(tempAuthPath, 'utf-8');
           const credentials = JSON.parse(credsContent);
-          saveProviderCredentials(provider, credentials, { userId: session.user.id });
+          await saveProviderCredentials(provider, credentials, { userId: session.user.id });
           
           // Cleanup
           await unlink(tempAuthPath).catch(() => {});

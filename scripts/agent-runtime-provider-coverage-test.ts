@@ -30,7 +30,8 @@ moduleInternals._load = (request, parent, isMain) => {
 const EXPECTED_BUILTIN_ENV: Record<string, readonly string[]> = {
   'amazon-bedrock': ['AWS_ACCESS_KEY_ID', 'AWS_SECRET_ACCESS_KEY'],
   'ant-ling': ['ANT_LING_API_KEY'],
-  anthropic: ['ANTHROPIC_API_KEY'],
+  anthropic: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN'],
+  baseten: ['BASETEN_API_KEY'],
   'azure-openai-responses': ['AZURE_OPENAI_API_KEY', 'AZURE_OPENAI_BASE_URL'],
   cerebras: ['CEREBRAS_API_KEY'],
   'cloudflare-ai-gateway': ['CLOUDFLARE_API_KEY', 'CLOUDFLARE_ACCOUNT_ID', 'CLOUDFLARE_GATEWAY_ID'],
@@ -54,6 +55,9 @@ const EXPECTED_BUILTIN_ENV: Record<string, readonly string[]> = {
   opencode: ['OPENCODE_API_KEY'],
   'opencode-go': ['OPENCODE_API_KEY'],
   openrouter: ['OPENROUTER_API_KEY'],
+  'qwen-token-plan': ['QWEN_TOKEN_PLAN_API_KEY'],
+  'qwen-token-plan-cn': ['QWEN_TOKEN_PLAN_CN_API_KEY'],
+  'qwen-token-plan-individual': ['QWEN_TOKEN_PLAN_API_KEY'],
   together: ['TOGETHER_API_KEY'],
   'vercel-ai-gateway': ['AI_GATEWAY_API_KEY'],
   xai: ['XAI_API_KEY'],
@@ -152,6 +156,14 @@ async function main() {
     });
     assert.equal(auth.configured, true, `${providerId} must resolve from its declared scoped fields`);
   }
+
+  const scopedAnthropic = await resolveProviderInstallationRuntimeAuth({
+    provider: installation('anthropic'),
+    organizationId,
+    userId,
+  });
+  assert.equal(scopedAnthropic.apiKey, undefined);
+  assert.equal(scopedAnthropic.headers?.Authorization, 'Bearer scoped-anthropic_auth_token');
 
   process.env.DEEPSEEK_API_KEY = 'ambient-deepseek-key';
   const scopedDeepSeek = await resolveProviderInstallationRuntimeAuth({

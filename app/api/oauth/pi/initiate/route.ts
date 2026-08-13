@@ -223,10 +223,11 @@ function generateOAuthScript(provider: string, flowId: string, stateFile: string
   
   return `
 import fs from 'fs';
-import { getOAuthProvider } from '@earendil-works/pi-ai/oauth';
+import { builtinModels } from '@earendil-works/pi-ai/providers/all';
 
 const providerId = ${providerLiteral};
-const oauthProvider = getOAuthProvider(providerId);
+const models = builtinModels();
+const oauthProvider = models.getProvider(providerId)?.auth.oauth;
 
 if (!oauthProvider) {
   throw new Error('Unknown OAuth provider: ' + providerId);
@@ -321,6 +322,7 @@ async function run() {
       const startTime = Date.now();
       
       while (Date.now() - startTime < maxWait) {
+        promptObject.signal?.throwIfAborted();
         try {
           if (fs.existsSync(codeFile)) {
             const rawInput = fs.readFileSync(codeFile, 'utf-8').trim();
@@ -357,15 +359,28 @@ async function run() {
       return selected;
     };
 
-    let credentials;
-    credentials = await oauthProvider.login({
-      onAuth: handleAuthUrl,
-      onDeviceCode: handleDeviceCode,
-      onPrompt: handlePromptCode,
-      ${provider === 'anthropic' || provider === 'openai-codex' ? 'onManualCodeInput: handlePromptCode,' : ''}
-      onProgress: handleProgress,
-      onSelect: handleSelect
+    const loginController = new AbortController();
+    const loginTimeout = setTimeout(() => loginController.abort(new Error('OAuth login timed out')), 10 * 60 * 1000);
+    const credentials = await models.login(providerId, 'oauth', {
+      signal: loginController.signal,
+      prompt: async (prompt) => {
+        prompt.signal?.throwIfAborted();
+        if (prompt.type === 'select') {
+          return await handleSelect(prompt);
+        }
+        return await handlePromptCode(prompt);
+      },
+      notify: (event) => {
+        if (event.type === 'auth_url') {
+          handleAuthUrl(event.url, event.instructions);
+        } else if (event.type === 'device_code') {
+          handleDeviceCode(event);
+        } else if (event.type === 'progress' || event.type === 'info') {
+          handleProgress(event.message);
+        }
+      }
     });
+    clearTimeout(loginTimeout);
 
     // Save credentials
     fs.writeFileSync(${tempAuthPathLiteral}, JSON.stringify(credentials, null, 2));

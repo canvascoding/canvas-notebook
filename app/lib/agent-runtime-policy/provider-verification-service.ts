@@ -285,9 +285,15 @@ export async function verifyProviderInstallation(input: {
             signal: options?.signal,
           });
           assertProbeActive(options?.signal);
-          return completeSimple(ready.model, context, {
+          const authenticatedModel = auth.baseUrl
+            ? { ...ready.model, baseUrl: auth.baseUrl }
+            : ready.model;
+          return completeSimple(authenticatedModel, context, {
             ...options,
             ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
+            ...((auth.headers || options?.headers)
+              ? { headers: { ...auth.headers, ...options?.headers } }
+              : {}),
             env: { ...options?.env, ...auth.env },
           });
         } catch (error) {

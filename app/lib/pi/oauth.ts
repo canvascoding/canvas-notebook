@@ -3,39 +3,55 @@
  * Manages OAuth credentials for all PI providers in /data/settings/auth.json
  */
 
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'fs';
+import { copyFileSync, existsSync, mkdirSync, readFileSync, renameSync, unlinkSync, writeFileSync } from 'fs';
 import { dirname, join } from 'path';
+import type {
+  AuthEvent,
+  AuthPrompt,
+  CredentialInfo,
+  CredentialStore,
+  OAuthCredential,
+  ProviderEnv,
+  ProviderHeaders,
+} from '@earendil-works/pi-ai';
+import type {
+  OAuthCredentials as PiOAuthCredentials,
+  OAuthDeviceCodeInfo,
+  OAuthPrompt,
+  OAuthSelectPrompt,
+} from '@earendil-works/pi-ai/oauth';
 import {
   resolveAgentStorageDir,
   resolveScopedSettingsDir,
   resolveSettingsStorageDir,
   type UserScopedDataStorageScope,
 } from '@/app/lib/runtime-data-paths';
-import {
-  getOAuthProvider,
-  type OAuthProviderId,
-  type OAuthCredentials,
-  type OAuthDeviceCodeInfo,
-  type OAuthPrompt,
-  type OAuthSelectPrompt,
-} from '@earendil-works/pi-ai/oauth';
+import { withKeyedOperationLock } from '@/app/lib/concurrency/keyed-operation-lock';
 
-export type { OAuthCredentials, OAuthProviderId, OAuthPrompt };
+export type OAuthCredentials = PiOAuthCredentials;
+
+export const PI_OAUTH_PROVIDERS = [
+  'anthropic',
+  'openai-codex',
+  'github-copilot',
+  'kimi-coding',
+  'openrouter',
+  'xai',
+] as const;
+
+export type OAuthProviderId = (typeof PI_OAUTH_PROVIDERS)[number];
+export type { OAuthPrompt };
 
 const DEFAULT_AUTH_FILE_PATH = join(resolveSettingsStorageDir(), 'auth.json');
 const LEGACY_AUTH_FILE_PATH = join(resolveAgentStorageDir(), 'auth.json');
 
 export type OAuthStorageScope = UserScopedDataStorageScope;
 
-// Built-in OAuth providers (Google Gemini CLI and Antigravity removed in pi-ai 0.71.0)
-export const PI_OAUTH_PROVIDERS: OAuthProviderId[] = [
-  'anthropic',
-  'openai-codex',
-  'github-copilot',
-];
-
 export const PI_VISIBLE_OAUTH_PROVIDERS: OAuthProviderId[] = [
   'openai-codex',
+  'openrouter',
+  'kimi-coding',
+  'xai',
 ];
 
 // Provider display names – dynamic lookup for providers registered at runtime
@@ -43,11 +59,14 @@ export const PROVIDER_DISPLAY_NAMES: Record<string, string> = {
   'anthropic': 'Anthropic (Claude legacy OAuth)',
   'openai-codex': 'OpenAI Codex (ChatGPT Login)',
   'github-copilot': 'GitHub Copilot',
+  'kimi-coding': 'Kimi Code',
+  'openrouter': 'OpenRouter',
+  'xai': 'xAI (Grok/X)',
 };
 
 // Auth file structure
 interface AuthFile {
-  [provider: string]: OAuthCredentials;
+  [provider: string]: OAuthCredential;
 }
 
 // Callback types
@@ -112,6 +131,36 @@ function migrateLegacyAuthFileIfNeeded(scope?: OAuthStorageScope | null): void {
   }
 }
 
+function normalizeOAuthCredential(value: unknown): OAuthCredential | null {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
+  const candidate = value as Record<string, unknown>;
+  if (
+    typeof candidate.access !== 'string'
+    || typeof candidate.refresh !== 'string'
+    || typeof candidate.expires !== 'number'
+  ) {
+    return null;
+  }
+  return {
+    ...candidate,
+    type: 'oauth',
+    access: candidate.access,
+    refresh: candidate.refresh,
+    expires: candidate.expires,
+  } as OAuthCredential;
+}
+
+function parseAuthFile(content: string): AuthFile {
+  const parsed = JSON.parse(content) as unknown;
+  if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+  const auth: AuthFile = {};
+  for (const [provider, value] of Object.entries(parsed)) {
+    const credential = normalizeOAuthCredential(value);
+    if (credential) auth[provider] = credential;
+  }
+  return auth;
+}
+
 /**
  * Load auth data from file
  */
@@ -121,11 +170,11 @@ function loadAuthFile(scope?: OAuthStorageScope | null): AuthFile {
     const authFilePath = getAuthFilePath(scope);
     if (existsSync(authFilePath)) {
       const content = readFileSync(authFilePath, 'utf-8');
-      return JSON.parse(content) as AuthFile;
+      return parseAuthFile(content);
     }
     if (!hasUserScope(scope) && !process.env.OAUTH_STORAGE_PATH && existsSync(LEGACY_AUTH_FILE_PATH)) {
       const content = readFileSync(LEGACY_AUTH_FILE_PATH, 'utf-8');
-      return JSON.parse(content) as AuthFile;
+      return parseAuthFile(content);
     }
   } catch (error) {
     console.error('Failed to load auth file:', error);
@@ -140,7 +189,14 @@ function saveAuthFile(auth: AuthFile, scope?: OAuthStorageScope | null): void {
   try {
     migrateLegacyAuthFileIfNeeded(scope);
     ensureAuthDir(scope);
-    writeFileSync(getAuthFilePath(scope), JSON.stringify(auth, null, 2));
+    const authFilePath = getAuthFilePath(scope);
+    const temporaryPath = `${authFilePath}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      writeFileSync(temporaryPath, JSON.stringify(auth, null, 2), { mode: 0o600 });
+      renameSync(temporaryPath, authFilePath);
+    } finally {
+      if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+    }
   } catch (error) {
     if (process.env.OAUTH_STORAGE_PATH || hasUserScope(scope)) {
       throw error;
@@ -149,8 +205,65 @@ function saveAuthFile(auth: AuthFile, scope?: OAuthStorageScope | null): void {
     if (!existsSync(legacyDir)) {
       mkdirSync(legacyDir, { recursive: true });
     }
-    writeFileSync(LEGACY_AUTH_FILE_PATH, JSON.stringify(auth, null, 2));
+    const temporaryPath = `${LEGACY_AUTH_FILE_PATH}.${process.pid}.${Date.now()}.tmp`;
+    try {
+      writeFileSync(temporaryPath, JSON.stringify(auth, null, 2), { mode: 0o600 });
+      renameSync(temporaryPath, LEGACY_AUTH_FILE_PATH);
+    } finally {
+      if (existsSync(temporaryPath)) unlinkSync(temporaryPath);
+    }
   }
+}
+
+function credentialStoreForScope(scope?: OAuthStorageScope | null): CredentialStore {
+  const lockKey = getAuthFilePath(scope);
+  return {
+    read: async (providerId, options) => {
+      options?.signal?.throwIfAborted();
+      return loadAuthFile(scope)[providerId];
+    },
+    list: async (options): Promise<readonly CredentialInfo[]> => {
+      options?.signal?.throwIfAborted();
+      return Object.entries(loadAuthFile(scope)).map(([providerId, credential]) => ({
+        providerId,
+        type: credential.type,
+      }));
+    },
+    modify: async (providerId, operation, options) => withKeyedOperationLock(
+      'pi-oauth-credential',
+      JSON.stringify([lockKey, providerId]),
+      async () => {
+        options?.signal?.throwIfAborted();
+        const auth = loadAuthFile(scope);
+        const next = await operation(auth[providerId]);
+        options?.signal?.throwIfAborted();
+        if (next) {
+          if (next.type !== 'oauth') {
+            throw new Error(`Unsupported credential type for ${providerId}.`);
+          }
+          auth[providerId] = next;
+          saveAuthFile(auth, scope);
+        }
+        return auth[providerId];
+      },
+    ),
+    delete: async (providerId, options) => withKeyedOperationLock(
+      'pi-oauth-credential',
+      JSON.stringify([lockKey, providerId]),
+      async () => {
+        options?.signal?.throwIfAborted();
+        const auth = loadAuthFile(scope);
+        if (!(providerId in auth)) return;
+        delete auth[providerId];
+        saveAuthFile(auth, scope);
+      },
+    ),
+  };
+}
+
+async function modelsForScope(scope?: OAuthStorageScope | null) {
+  const { builtinModels } = await import('@earendil-works/pi-ai/providers/all');
+  return builtinModels({ credentials: credentialStoreForScope(scope) });
 }
 
 /**
@@ -159,7 +272,7 @@ function saveAuthFile(auth: AuthFile, scope?: OAuthStorageScope | null): void {
 export function getProviderCredentials(
   provider: OAuthProviderId,
   scope?: OAuthStorageScope | null,
-): OAuthCredentials | null {
+): OAuthCredential | null {
   const auth = loadAuthFile(scope);
   const creds = auth[provider];
   
@@ -173,30 +286,29 @@ export function getProviderCredentials(
 /**
  * Save credentials for a provider
  */
-export function saveProviderCredentials(
+export async function saveProviderCredentials(
   provider: OAuthProviderId,
-  credentials: OAuthCredentials,
+  credentials: OAuthCredentials | OAuthCredential,
   scope?: OAuthStorageScope | null,
-): void {
-  const auth = loadAuthFile(scope);
-  auth[provider] = credentials;
-  saveAuthFile(auth, scope);
+): Promise<void> {
+  const normalized = normalizeOAuthCredential(credentials);
+  if (!normalized) throw new Error(`Invalid OAuth credentials for ${provider}.`);
+  await credentialStoreForScope(scope).modify(provider, async () => normalized);
 }
 
 /**
  * Remove credentials for a provider
  */
-export function removeProviderCredentials(
+export async function removeProviderCredentials(
   provider: OAuthProviderId,
   scope?: OAuthStorageScope | null,
-): void {
-  const auth = loadAuthFile(scope);
-  delete auth[provider];
-  saveAuthFile(auth, scope);
+): Promise<void> {
+  await credentialStoreForScope(scope).delete(provider);
 }
 
 /**
- * Check if provider has valid credentials
+ * Check whether refreshable provider credentials are stored. Expiry is handled
+ * by Models.getAuth(), which refreshes under the credential-store lock.
  */
 export function hasProviderCredentials(
   provider: OAuthProviderId,
@@ -205,12 +317,7 @@ export function hasProviderCredentials(
   const creds = getProviderCredentials(provider, scope);
   if (!creds) return false;
   
-  // Check if token is expired (with 5 min buffer)
-  if (creds.expires && creds.expires < Date.now() + 5 * 60 * 1000) {
-    return false;
-  }
-  
-  return true;
+  return Boolean(creds.refresh);
 }
 
 /**
@@ -221,29 +328,37 @@ export async function initiateOAuthLogin(
   provider: OAuthProviderId,
   onAuthUrl: AuthUrlCallback,
   onPrompt: PromptCallback,
-  onProgress?: ProgressCallback
+  onProgress?: ProgressCallback,
+  scope?: OAuthStorageScope | null,
 ): Promise<OAuthCredentials> {
-  const oauthProvider = getOAuthProvider(provider);
-  if (!oauthProvider) {
-    throw new Error(`Unknown provider: ${provider}`);
-  }
-
-  return await oauthProvider.login({
-    onAuth: (info) => {
-      onAuthUrl(info.url, info.instructions);
+  const models = await modelsForScope(scope);
+  const credential = await models.login(provider, 'oauth', {
+    prompt: async (prompt: AuthPrompt) => {
+      prompt.signal?.throwIfAborted();
+      if (prompt.type === 'select') {
+        return selectDefaultOAuthOption(provider, {
+          message: prompt.message,
+          options: prompt.options.map((option) => ({ id: option.id, label: option.label })),
+        }) ?? '';
+      }
+      if (prompt.type === 'manual_code') {
+        return onPrompt(prompt.message || 'If automatic callback failed, paste the redirect URL here');
+      }
+      return onPrompt(prompt.message);
     },
-    onDeviceCode: (info) => {
-      onAuthUrl(info.verificationUri, formatDeviceCodeInstructions(info));
+    notify: (event: AuthEvent) => {
+      if (event.type === 'auth_url') {
+        onAuthUrl(event.url, event.instructions);
+      } else if (event.type === 'device_code') {
+        const info: OAuthDeviceCodeInfo = event;
+        onAuthUrl(info.verificationUri, formatDeviceCodeInstructions(info));
+      } else if (event.type === 'progress' || event.type === 'info') {
+        onProgress?.(event.message);
+      }
     },
-    onPrompt: async (prompt: OAuthPrompt) => {
-      return await onPrompt(prompt.message);
-    },
-    onManualCodeInput: async () => {
-      return await onPrompt('If automatic callback failed, paste the redirect URL here');
-    },
-    onProgress: onProgress || (() => {}),
-    onSelect: async (prompt) => selectDefaultOAuthOption(provider, prompt),
   });
+  if (credential.type !== 'oauth') throw new Error(`Provider ${provider} did not return OAuth credentials.`);
+  return credential;
 }
 
 /**
@@ -257,17 +372,38 @@ export async function refreshProviderToken(
   if (!credentials) return null;
   
   try {
-    const oauthProvider = getOAuthProvider(provider);
-    if (!oauthProvider) {
-      throw new Error(`Unknown provider: ${provider}`);
-    }
-    const newCreds = await oauthProvider.refreshToken(credentials);
-    saveProviderCredentials(provider, newCreds, scope);
-    return newCreds;
+    await (await modelsForScope(scope)).getAuth(provider);
+    return getProviderCredentials(provider, scope);
   } catch (error) {
     console.error(`Failed to refresh token for ${provider}:`, error);
     return null;
   }
+}
+
+export type ProviderOAuthRequestAuth = {
+  apiKey?: string;
+  headers?: ProviderHeaders;
+  baseUrl?: string;
+  env: ProviderEnv;
+  credentials: OAuthCredential;
+};
+
+export async function getProviderRequestAuth(
+  provider: OAuthProviderId,
+  scope?: OAuthStorageScope | null,
+  options: { signal?: AbortSignal } = {},
+): Promise<ProviderOAuthRequestAuth | null> {
+  const stored = getProviderCredentials(provider, scope);
+  if (!stored) return null;
+  const resolution = await (await modelsForScope(scope)).getAuth(provider, { signal: options.signal });
+  if (!resolution) return null;
+  const credentials = getProviderCredentials(provider, scope);
+  if (!credentials) return null;
+  return {
+    ...resolution.auth,
+    env: resolution.env ?? {},
+    credentials,
+  };
 }
 
 /**
@@ -277,21 +413,9 @@ export async function getProviderApiKey(
   provider: OAuthProviderId,
   scope?: OAuthStorageScope | null,
 ): Promise<{ apiKey: string; credentials: OAuthCredentials } | null> {
-  const oauthProvider = getOAuthProvider(provider);
-  if (!oauthProvider) return null;
-
-  let credentials = getProviderCredentials(provider, scope);
-  if (!credentials) return null;
-
-  if (credentials.expires && credentials.expires < Date.now() + 5 * 60 * 1000) {
-    credentials = await refreshProviderToken(provider, scope);
-    if (!credentials) return null;
-  }
-  
-  return {
-    apiKey: oauthProvider.getApiKey(credentials),
-    credentials,
-  };
+  const resolution = await getProviderRequestAuth(provider, scope);
+  if (!resolution?.apiKey) return null;
+  return { apiKey: resolution.apiKey, credentials: resolution.credentials };
 }
 
 /**
@@ -334,6 +458,12 @@ export function getProviderApiType(provider: OAuthProviderId): string {
       return 'openai-codex';
     case 'github-copilot':
       return 'github-copilot';
+    case 'kimi-coding':
+      return 'kimi-coding';
+    case 'openrouter':
+      return 'openrouter';
+    case 'xai':
+      return 'xai';
     default:
       return 'unknown';
   }

@@ -570,9 +570,15 @@ async function materializeResolution(
           );
         }
         const auth = await resolveRequestAuth();
-        return streamSimple(requestedModel, requestContext, {
+        const authenticatedModel = auth.baseUrl
+          ? { ...requestedModel, baseUrl: auth.baseUrl }
+          : requestedModel;
+        return streamSimple(authenticatedModel, requestContext, {
           ...options,
           ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
+          ...((auth.headers || options?.headers)
+            ? { headers: { ...auth.headers, ...options?.headers } }
+            : {}),
           env: { ...options?.env, ...auth.env },
         });
       } catch (error) {

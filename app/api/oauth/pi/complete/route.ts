@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
         const credentials = JSON.parse(credsContent);
         
         // Save credentials to auth file
-        saveProviderCredentials(provider, credentials, { userId: session.user.id });
+        await saveProviderCredentials(provider, credentials, { userId: session.user.id });
         
         // Cleanup temp files
         await unlink(tempAuthPath).catch(() => {});
