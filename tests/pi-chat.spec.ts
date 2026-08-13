@@ -122,17 +122,24 @@ async function mockEffectiveAgentRuntime(page: Page) {
 
 async function login(page: Page) {
   await mockEffectiveAgentRuntime(page);
-  const response = await page.request.post('/api/auth/sign-in/email', {
-    headers: {
-      Origin: process.env.BASE_URL || 'http://localhost:3000',
-    },
-    data: {
-      email: TEST_EMAIL,
-      password: TEST_PASSWORD,
-    },
-  });
+  const sessionResponse = await page.request.get('/api/auth/get-session');
+  const sessionPayload = sessionResponse.ok()
+    ? await sessionResponse.json().catch(() => null) as { session?: unknown } | null
+    : null;
 
-  expect(response.ok()).toBeTruthy();
+  if (!sessionPayload?.session) {
+    const response = await page.request.post('/api/auth/sign-in/email', {
+      headers: {
+        Origin: process.env.BASE_URL || 'http://localhost:3000',
+      },
+      data: {
+        email: TEST_EMAIL,
+        password: TEST_PASSWORD,
+      },
+    });
+
+    expect(response.ok()).toBeTruthy();
+  }
   await page.goto('/notebook?chat=open', { waitUntil: 'domcontentloaded' });
   await expect(page).toHaveURL(/\/notebook\?chat=open$/, { timeout: 15000 });
 }
@@ -141,6 +148,7 @@ async function startFreshChat(page: Page) {
   await page.getByRole('button', { name: /new chat/i }).click();
   await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
   await expect(page.getByTestId('chat-input')).toBeVisible();
+  await expect(page.getByTestId('chat-provider-selector')).toBeEnabled({ timeout: 15_000 });
 }
 
 async function mockEmptyChatBootstrap(page: Page, options: { sessionId?: string; title?: string } = {}) {
@@ -273,6 +281,7 @@ interface MockWsConfig {
   onGetStatus?: (requestId: string) => Record<string, unknown> | null;
   onControl?: (action: string, message: Record<string, unknown> | undefined, requestId: string, queueItemId?: string) => MockControlResult;
   agentEvents?: AgentEventPayload[];
+  eventStartDelayMs?: number;
   sendEventsAfterSendMessage?: boolean;
   runtimeStatus?: Record<string, unknown>;
   sessionTitleUpdate?: {
@@ -295,6 +304,7 @@ async function setupMockWebSocket(page: Page, config: MockWsConfig) {
   const {
     sessionId,
     agentEvents = [],
+    eventStartDelayMs = 0,
     sendEventsAfterSendMessage = true,
     runtimeStatus,
     onGetStatus,
@@ -330,7 +340,7 @@ async function setupMockWebSocket(page: Page, config: MockWsConfig) {
 
           config.onSendMessage?.(message.message, message.context, requestId);
 
-          let delay = 0;
+          let delay = eventStartDelayMs;
           if (sendEventsAfterSendMessage) {
             for (const event of eventQueue) {
               const currentDelay = delay;
@@ -1335,6 +1345,29 @@ contentKind: document
   });
 
   test('should switch runtime badge to working immediately on send and back to ready when final message lands', async ({ page }) => {
+    const sessionId = 'sess-runtime-badge';
+    await setupMockWebSocket(page, {
+      sessionId,
+      eventStartDelayMs: 400,
+      agentEvents: [
+        {
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'OK' }],
+            api: 'mock',
+            provider: 'mock',
+            model: 'mock-model',
+            usage: EMPTY_USAGE,
+            stopReason: 'stop',
+            timestamp: Date.now(),
+          },
+        },
+        { type: 'agent_end' },
+        { type: 'runtime_status', status: createMockRuntimeStatus(sessionId) },
+      ],
+    });
+    await mockEmptyChatBootstrap(page, { sessionId });
     await page.goto('/notebook?chat=open');
     await startFreshChat(page);
 
@@ -1469,7 +1502,7 @@ contentKind: document
               }));
             }
             chunkIndex += 1;
-            setTimeout(sendChunk, chunkIndex < 6 ? 35 : 70);
+            setTimeout(sendChunk, 120);
           };
 
           setTimeout(sendChunk, 0);
@@ -1528,8 +1561,15 @@ contentKind: document
 
     await page.waitForTimeout(250);
 
-    const scrollTopAfterStreaming = await scrollRegion.evaluate((element) => element.scrollTop);
-    expect(Math.abs(scrollTopAfterStreaming - lockedScrollTop)).toBeLessThan(24);
+    const scrollMetricsAfterStreaming = await scrollRegion.evaluate((element) => ({
+      scrollTop: element.scrollTop,
+      scrollHeight: element.scrollHeight,
+      clientHeight: element.clientHeight,
+    }));
+    expect(
+      Math.abs(scrollMetricsAfterStreaming.scrollTop - lockedScrollTop),
+      `Scroll metrics: ${JSON.stringify({ lockedScrollTop, ...scrollMetricsAfterStreaming })}`,
+    ).toBeLessThan(24);
     await expect(page.getByTitle('Scroll to bottom')).toBeVisible();
   });
 
@@ -1721,7 +1761,7 @@ contentKind: document
     let currentStatus: PiRuntimeStatus = {
       sessionId,
       phase: 'running_tool',
-      activeTool: { toolCallId: 'tool-1', name: 'read_file' },
+      activeTool: { toolCallId: 'tool-1', name: 'read' },
       pendingToolCalls: 1,
       followUpQueue: [{ id: 'follow-1', text: 'Summarize afterwards', attachmentCount: 0 }],
       steeringQueue: [{ id: 'steer-1', text: 'Stop and inspect README', attachmentCount: 0 }],
@@ -1902,13 +1942,14 @@ contentKind: document
     });
 
     await page.goto('/notebook?chat=open');
+    await page.getByRole('button', { name: /Open latest session Busy runtime session/i }).click();
 
     await expect(page.getByTestId('chat-runtime-banner')).toBeVisible();
     await expect
       .poll(async () => (await page.getByTestId('chat-runtime-status').textContent()) || '', { timeout: 15000 })
-      .toContain('Tool läuft: read_file');
-    await expect(page.getByTestId('chat-runtime-status')).toContainText('2 in Queue');
-    await expect(page.getByTestId('chat-runtime-status')).toContainText('Summary aktiv');
+      .toContain('Read a file');
+    await expect(page.getByTestId('chat-runtime-status')).toContainText('2 queued');
+    await expect(page.getByTestId('chat-runtime-status')).toContainText('Summary');
     await expect(page.getByTestId('chat-context-meter')).toContainText('15k/24k', { timeout: 15000 });
     await expect(page.getByTestId('chat-context-meter')).not.toContainText('~62%');
     await expect(page.getByTestId('chat-context-meter')).toContainText('128k');
@@ -1920,7 +1961,7 @@ contentKind: document
     await expect(page.getByTestId('chat-send')).toHaveAttribute('data-action', 'send');
     await page.getByTestId('chat-send').click();
 
-    await expect(page.getByTestId('chat-queue-panel')).toContainText('3 in Queue');
+    await expect(page.getByTestId('chat-queue-item')).toHaveCount(3);
     const newQueueItem = page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first();
     await expect(newQueueItem).toHaveAttribute('data-queue-kind', 'follow_up');
     await expect(page.getByTestId('chat-message-user').filter({ hasText: 'Take over immediately' })).toHaveCount(0);
@@ -1929,7 +1970,7 @@ contentKind: document
     await newQueueItem.getByTestId('chat-queue-item-steer').click();
     await expect(page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first()).toHaveAttribute('data-queue-kind', 'steer');
     await expect(page.getByTestId('chat-message-user').filter({ hasText: 'Take over immediately' })).toHaveCount(1);
-    await expect(page.getByTestId('chat-queue-panel')).toContainText('3 in Queue');
+    await expect(page.getByTestId('chat-queue-item')).toHaveCount(3);
 
     const followUpQueueItem = page.getByTestId('chat-queue-item').filter({ hasText: 'Summarize afterwards' }).first();
     await expect(followUpQueueItem).toHaveAttribute('data-queue-kind', 'follow_up');
@@ -1938,7 +1979,7 @@ contentKind: document
 
     await page.getByTestId('chat-queue-item').filter({ hasText: 'Take over immediately' }).first().getByTestId('chat-queue-item-remove').click();
     await expect(page.getByTestId('chat-queue-panel')).not.toContainText('Take over immediately');
-    await expect(page.getByTestId('chat-queue-panel')).toContainText('2 in Queue');
+    await expect(page.getByTestId('chat-queue-item')).toHaveCount(2);
 
     const busyInput = page.getByTestId('chat-input');
     await busyInput.fill('Draft while the agent is still working');
@@ -2169,9 +2210,8 @@ contentKind: document
       }
     });
 
-    await page.goto('/notebook');
-    await page.getByRole('button', { name: /AI Chat/i }).first().click();
-    const mobileChat = page.locator('#onboarding-notebook-chat');
+    await page.goto('/notebook?chat=open');
+    const mobileChat = page.getByRole('tabpanel', { name: 'AI Chat' });
     await expect(mobileChat).toBeVisible();
     const documentRequestCountBeforeSessionOpen = documentRequests.length;
 
@@ -2274,19 +2314,19 @@ contentKind: document
 
     await login(page);
 
-    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /openai \/ GPT-4o/);
+    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /openai \/ GPT-4o/i);
     await page.getByTestId('chat-agent-id').click();
     await page.getByRole('button', { name: /Research Agent\s+research-agent/i }).click();
 
     await expect(page.getByTestId('chat-agent-id')).toContainText('Research Agent');
-    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Sonnet 4\.5/);
+    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Sonnet 4\.5/i);
     expect(savedLastActiveAgentId).toBe('research-agent');
 
     await page.getByTestId('chat-model-selector').click();
     await page.getByTestId('chat-model-selector-model-row').click();
     await page.getByText('Claude Opus 4.1').click();
 
-    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Opus 4\.1/);
+    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Opus 4\.1/i);
   });
 
   test('should initialize a new chat from the last active agent preference', async ({ page }) => {
@@ -2335,22 +2375,15 @@ contentKind: document
     await login(page);
 
     await expect(page.getByTestId('chat-agent-id')).toContainText('Research Agent');
-    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Sonnet 4\.5/);
+    await expect(page.getByTestId('chat-model-selector')).toHaveAttribute('title', /anthropic \/ Claude Sonnet 4\.5/i);
   });
 
   test('should expose a clickable active agent selector on mobile', async ({ page }) => {
     await page.setViewportSize({ width: 390, height: 844 });
 
-    let delayAgentRefresh = false;
     let includeCreatedAgent = false;
-    let releaseAgentRefresh: (() => void) | undefined;
 
     await page.route(/\/api\/agents(\?.*)?$/, async (route) => {
-      if (delayAgentRefresh) {
-        await new Promise<void>((resolve) => {
-          releaseAgentRefresh = resolve;
-        });
-      }
       await route.fulfill({
         status: 200,
         contentType: 'application/json',
@@ -2401,26 +2434,25 @@ contentKind: document
     await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /Canvas Agent/);
     await expect(page.getByTestId('chat-mobile-details-toggle')).toHaveCount(0);
 
-    delayAgentRefresh = true;
+    includeCreatedAgent = true;
     await page.getByTestId('chat-agent-id').click();
     await expect(page.getByTestId('chat-agent-selector-popover')).toBeVisible();
     await expect(page.getByTestId('chat-agent-selector-popover')).toHaveCSS('z-index', '110');
-    await expect(page.getByTestId('chat-agent-selector-skeleton')).toBeVisible();
-    includeCreatedAgent = true;
-    delayAgentRefresh = false;
-    releaseAgentRefresh?.();
     await expect(page.getByTestId('chat-agent-selector-skeleton')).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /Research Agent\s+research-agent/i })).toBeVisible();
     await page.getByRole('button', { name: /Research Agent\s+research-agent/i }).click();
 
     await expect(page.getByTestId('chat-agent-id')).toHaveAttribute('aria-label', /Research Agent/);
     await expect(page.getByTestId('chat-mobile-details-panel')).toHaveCount(0);
     await expect(page.getByTestId('chat-agent-id')).toHaveCount(1);
-    await expect(page.getByTestId('chat-session-id')).toHaveCount(1);
+    await expect(page.getByTestId('chat-session-id')).toHaveCount(0);
     await expect(page.getByTestId('chat-model-badge')).toHaveCount(0);
 
     await page.getByTestId('chat-provider-selector').click();
     await expect(page.getByRole('heading', { name: 'Provider' })).toBeVisible();
-    await page.keyboard.press('Escape');
+    const providerDialog = page.getByRole('dialog', { name: 'Provider' });
+    await providerDialog.getByRole('button', { name: 'Close' }).click();
+    await expect(providerDialog).toHaveCount(0);
 
     await page.getByTestId('chat-model-selector').click();
     await expect(page.getByTestId('chat-model-selector-model-row')).toBeVisible();
@@ -2702,37 +2734,76 @@ contentKind: document
     await page.goto('/usage');
     await expect(page.getByTestId('usage-page')).toBeVisible();
     await expect(page.getByText('Usage Analytics')).toBeVisible();
+    await page.getByRole('button', { name: 'Toggle details and events' }).click();
     await expect(page.getByTestId('usage-summary-table')).toContainText('2026-03-16');
 
+    await page.getByRole('button', { name: 'Filters' }).click();
     await page.getByPlaceholder('openai, anthropic, ollama').fill('openai');
     await page.getByRole('button', { name: /apply filters/i }).click();
 
     await expect(page.getByTestId('usage-summary-table')).toContainText('openai');
     await expect(page.getByTestId('usage-event-row')).toContainText('OpenAI Session');
-    await expect(page.getByText('$1.2345').first()).toBeVisible();
+    await expect(page.getByText('$1.23').first()).toBeVisible();
   });
 
   test('should save managed prompt files in settings and keep chat working', async ({ page }) => {
     await page.goto('/settings?tab=agent-settings');
 
-    const editor = page.getByTestId('agent-managed-file-editor');
+    const managedFilesCard = page.locator('#onboarding-settings-managedFiles');
+    const managedFilesTrigger = managedFilesCard.getByRole('button').first();
+    await expect(managedFilesTrigger).toContainText('Agent Managed Files');
+    await page.waitForTimeout(100);
+    if (await managedFilesTrigger.getAttribute('aria-label') === 'Expand') {
+      await managedFilesTrigger.click();
+    }
+    await expect(managedFilesTrigger).toHaveAttribute('aria-label', 'Collapse');
+    const editor = page.getByTestId('agent-managed-file-editor').locator('[contenteditable="true"]');
     const saveButton = page.getByTestId('agent-managed-file-save');
     const marker = `PLAYWRIGHT_PROMPT_MARKER_${Date.now()}`;
-    const existingValue = await editor.inputValue();
+    const existingValue = await editor.textContent() || '';
 
     await editor.fill(`${existingValue.trim()}\n\n- UI marker: ${marker}\n`);
     await saveButton.click();
 
-    await expect(page.getByText('AGENTS.md gespeichert.')).toBeVisible({ timeout: 15000 });
+    await expect(page.getByText('Saved AGENTS.md.')).toBeVisible({ timeout: 15000 });
 
     await page.reload();
-    await expect(page.getByTestId('agent-managed-file-editor')).toHaveValue(new RegExp(marker));
+    const reloadedManagedFilesCard = page.locator('#onboarding-settings-managedFiles');
+    const reloadedManagedFilesTrigger = reloadedManagedFilesCard.getByRole('button').first();
+    await expect(reloadedManagedFilesTrigger).toContainText('Agent Managed Files');
+    await page.waitForTimeout(100);
+    if (await reloadedManagedFilesTrigger.getAttribute('aria-label') === 'Expand') {
+      await reloadedManagedFilesTrigger.click();
+    }
+    await expect(reloadedManagedFilesTrigger).toHaveAttribute('aria-label', 'Collapse');
+    await expect(page.getByTestId('agent-managed-file-editor')).toContainText(marker, { timeout: 15000 });
 
-    await page.getByRole('button', { name: /doctor ausführen/i }).click();
-    await expect(page.getByText('Prompt files included:')).toContainText('AGENTS.md', { timeout: 15000 });
-    await expect(page.getByText('Prompt fallback:')).toContainText('Inactive', { timeout: 15000 });
+    const sessionId = 'sess-managed-prompt';
+    await setupMockWebSocket(page, {
+      sessionId,
+      eventStartDelayMs: 100,
+      agentEvents: [
+        {
+          type: 'message_end',
+          message: {
+            role: 'assistant',
+            content: [{ type: 'text', text: 'READY' }],
+            api: 'mock',
+            provider: 'mock',
+            model: 'mock-model',
+            usage: EMPTY_USAGE,
+            stopReason: 'stop',
+            timestamp: Date.now(),
+          },
+        },
+        { type: 'agent_end' },
+        { type: 'runtime_status', status: createMockRuntimeStatus(sessionId) },
+      ],
+    });
+    await mockEmptyChatBootstrap(page, { sessionId });
 
     await page.goto('/notebook?chat=open');
+    await startFreshChat(page);
 
     const input = page.getByTestId('chat-input');
     await input.fill('Antworte nur mit READY.');

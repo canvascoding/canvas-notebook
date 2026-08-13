@@ -218,7 +218,10 @@ export function ChatAgentSelector({
             <div key={agent.agentId} className="group flex min-w-0 items-center gap-1">
               <button
                 type="button"
-                onClick={() => onSelectAgent(agent.agentId)}
+                onClick={() => {
+                  onSelectAgent(agent.agentId);
+                  setPopoverOpen(false);
+                }}
                 className={`flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md px-2 py-2 text-left text-sm transition-colors ${
                   selected ? 'bg-primary/10 text-primary' : 'hover:bg-accent'
                 }`}

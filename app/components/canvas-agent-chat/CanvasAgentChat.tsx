@@ -327,7 +327,6 @@ export default function CanvasAgentChat({
     textareaRef,
   } = useChatComposerLayout({ input, isMobile });
   const {
-    isAtBottom,
     isAtBottomRef,
     messagesEndRef,
     scrollContainerRef,
@@ -1256,7 +1255,7 @@ export default function CanvasAgentChat({
           className="absolute inset-0 overflow-y-auto overflow-x-hidden p-4"
           style={{
             paddingBottom: `${scrollContentPadding}px`,
-            overflowAnchor: isAtBottom ? 'none' : 'auto',
+            overflowAnchor: 'none',
           }}
         >
           <div ref={scrollContentRef} className="min-h-full space-y-4">

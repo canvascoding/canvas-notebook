@@ -65,14 +65,31 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
     }
   }, [markAutoScroll]);
 
+  const cancelAutoScroll = useCallback(() => {
+    const container = scrollContainerRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollTop, behavior: 'auto' });
+    }
+    autoScrollRef.current = null;
+    if (autoScrollTimerRef.current) {
+      clearTimeout(autoScrollTimerRef.current);
+      autoScrollTimerRef.current = null;
+    }
+    if (resizeObserverTimerRef.current) {
+      clearTimeout(resizeObserverTimerRef.current);
+      resizeObserverTimerRef.current = null;
+    }
+  }, []);
+
   const releaseBottomLock = useCallback(() => {
+    cancelAutoScroll();
     if (!isAtBottomRef.current) {
       return;
     }
 
     isAtBottomRef.current = false;
     setIsAtBottom(false);
-  }, []);
+  }, [cancelAutoScroll]);
 
   const syncBottomLockState = useCallback(() => {
     const scrollContainer = scrollContainerRef.current;
@@ -165,6 +182,7 @@ export function useChatScrollController({ messages }: { messages: ChatMessage[] 
 
       resizeObserverTimerRef.current = setTimeout(() => {
         resizeObserverTimerRef.current = null;
+        if (!isAtBottomRef.current) return;
         scrollToBottom('auto');
       }, 200);
     });
