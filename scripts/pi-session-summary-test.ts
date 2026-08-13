@@ -123,7 +123,7 @@ async function main() {
       summaryThroughSequence: null,
     },
     systemPromptTokens: 200,
-    model: { ...model, contextWindow: 10_000, maxTokens: 1_000 },
+    model: { ...model, contextWindow: 4_000, maxTokens: 1_000 },
     toolTokens: 0,
     sessionId: 'summary-scoped-runtime-test',
     streamFn: summaryStreamFn,
