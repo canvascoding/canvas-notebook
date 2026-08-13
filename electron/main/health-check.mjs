@@ -1,3 +1,5 @@
+import { classifyServerLoadFailure, ERROR_REASONS } from './connection-errors.mjs';
+
 const HEALTH_PATH = '/api/health';
 const DEFAULT_TIMEOUT_MS = 8000;
 
@@ -68,6 +70,7 @@ export async function checkServerHealth(rawServerUrl, options = {}) {
   } catch (error) {
     return {
       ok: false,
+      reason: 'invalid-url',
       message: error instanceof Error ? error.message : 'Invalid server URL.',
     };
   }
@@ -96,6 +99,7 @@ export async function checkServerHealth(rawServerUrl, options = {}) {
     if (!response.ok) {
       return {
         ok: false,
+        reason: 'server-response-error',
         serverUrl: normalized.serverUrl,
         status: response.status,
         message: `Health check failed with HTTP ${response.status}.`,
@@ -113,9 +117,15 @@ export async function checkServerHealth(rawServerUrl, options = {}) {
     };
   } catch (error) {
     const aborted = error?.name === 'AbortError';
+    const classifiedReason = classifyServerLoadFailure(error);
 
     return {
       ok: false,
+      reason: aborted
+        ? 'connection-timed-out'
+        : classifiedReason === ERROR_REASONS.CONNECTION_FAILED
+          ? 'server-unreachable'
+          : classifiedReason,
       serverUrl: normalized.serverUrl,
       message: aborted
         ? `Health check timed out after ${Math.round(timeoutMs / 1000)} seconds.`

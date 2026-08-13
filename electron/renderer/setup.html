@@ -21,6 +21,7 @@
         --danger: #b42318;
         --success: #067647;
         --warning: #9a6700;
+        --surface-muted: #f2f5fa;
         --shadow: 0 18px 60px rgba(15, 23, 42, 0.14);
       }
 
@@ -36,6 +37,7 @@
           --danger: #ff8a80;
           --success: #69d7a3;
           --warning: #f3c76d;
+          --surface-muted: #202936;
           --shadow: 0 18px 60px rgba(0, 0, 0, 0.35);
         }
       }
@@ -67,18 +69,41 @@
       .panel {
         width: min(560px, 100%);
         border: 1px solid var(--line);
-        border-radius: 8px;
+        overflow: hidden;
+        border-radius: 12px;
         background: var(--panel);
         box-shadow: var(--shadow);
       }
 
       .panel-header {
-        padding: 28px 32px 12px;
+        padding: 30px 32px 8px;
+      }
+
+      .eyebrow {
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        margin: 0 0 12px;
+        color: var(--muted);
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 0.09em;
+        text-transform: uppercase;
+      }
+
+      .brand-mark {
+        width: 16px;
+        height: 16px;
+        border: 1px solid color-mix(in srgb, var(--accent) 65%, var(--line));
+        border-radius: 5px;
+        background:
+          linear-gradient(135deg, transparent 44%, var(--accent) 45% 56%, transparent 57%),
+          color-mix(in srgb, var(--accent) 14%, transparent);
       }
 
       h1 {
         margin: 0;
-        font-size: 24px;
+        font-size: 25px;
         font-weight: 680;
         letter-spacing: 0;
       }
@@ -91,7 +116,7 @@
       }
 
       form {
-        padding: 20px 32px 30px;
+        padding: 22px 32px 30px;
       }
 
       label {
@@ -128,7 +153,7 @@
         height: 42px;
         flex: 0 0 auto;
         border: 0;
-        border-radius: 6px;
+        border-radius: 7px;
         padding: 0 18px;
         color: white;
         background: var(--accent);
@@ -147,22 +172,118 @@
       }
 
       .status {
-        min-height: 22px;
-        margin-top: 14px;
+        display: flex;
+        gap: 10px;
+        min-height: 0;
+        margin-top: 16px;
+        padding: 12px 14px;
+        border: 1px solid transparent;
+        border-radius: 8px;
+        background: var(--surface-muted);
         font-size: 13px;
         line-height: 1.45;
       }
 
+      .status[hidden] {
+        display: none;
+      }
+
+      .status-icon {
+        flex: 0 0 auto;
+        width: 18px;
+        height: 18px;
+        margin-top: 1px;
+      }
+
+      .status-copy {
+        min-width: 0;
+      }
+
+      .status-title {
+        display: block;
+        color: var(--text);
+        font-weight: 700;
+      }
+
+      .status-message {
+        display: block;
+        margin-top: 2px;
+      }
+
       .status.error {
+        border-color: color-mix(in srgb, var(--danger) 34%, var(--line));
+        background: color-mix(in srgb, var(--danger) 9%, var(--panel));
         color: var(--danger);
       }
 
       .status.success {
+        border-color: color-mix(in srgb, var(--success) 32%, var(--line));
+        background: color-mix(in srgb, var(--success) 9%, var(--panel));
         color: var(--success);
       }
 
       .status.warning {
+        border-color: color-mix(in srgb, var(--warning) 34%, var(--line));
+        background: color-mix(in srgb, var(--warning) 9%, var(--panel));
         color: var(--warning);
+      }
+
+      .status.progress {
+        color: var(--muted);
+      }
+
+      .help-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 18px;
+        margin-top: 22px;
+        padding: 14px;
+        border: 1px solid var(--line);
+        border-radius: 9px;
+        background: color-mix(in srgb, var(--surface-muted) 62%, var(--panel));
+      }
+
+      .help-copy {
+        min-width: 0;
+      }
+
+      .help-copy strong {
+        display: block;
+        font-size: 13px;
+      }
+
+      .help-copy span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+        line-height: 1.4;
+      }
+
+      .website-button {
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        gap: 7px;
+        height: 36px;
+        padding: 0 12px;
+        border: 1px solid var(--line);
+        color: var(--text);
+        background: var(--panel);
+        font-size: 12px;
+        white-space: nowrap;
+      }
+
+      .website-button:hover {
+        border-color: color-mix(in srgb, var(--accent) 55%, var(--line));
+        color: var(--accent);
+        background: color-mix(in srgb, var(--accent) 8%, var(--panel));
+      }
+
+      .website-button svg {
+        width: 14px;
+        height: 14px;
       }
 
       .footer {
@@ -179,12 +300,35 @@
         color: var(--text);
         font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
       }
+
+      @media (max-width: 640px) {
+        body {
+          min-width: 0;
+        }
+
+        main {
+          padding: 24px;
+        }
+
+        .input-row,
+        .help-card,
+        .footer {
+          align-items: stretch;
+          flex-direction: column;
+        }
+
+        .input-row button,
+        .website-button {
+          width: 100%;
+        }
+      }
     </style>
   </head>
   <body>
     <main>
       <section class="panel" aria-labelledby="title">
         <div class="panel-header">
+          <div class="eyebrow"><span class="brand-mark" aria-hidden="true"></span>Canvas Notebook Desktop</div>
           <h1 id="title">Connect Canvas Notebook</h1>
           <p>Enter the URL of the Canvas Notebook server this desktop app should open.</p>
         </div>
@@ -204,7 +348,31 @@
             >
             <button id="connect-button" type="submit">Connect</button>
           </div>
-          <div id="status" class="status" role="status" aria-live="polite"></div>
+          <div id="status" class="status" role="status" aria-live="polite" hidden>
+            <svg class="status-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+              <circle cx="12" cy="12" r="9"></circle>
+              <path d="M12 8v5"></path>
+              <path d="M12 16h.01"></path>
+            </svg>
+            <div class="status-copy">
+              <strong id="status-title" class="status-title"></strong>
+              <span id="status-message" class="status-message"></span>
+            </div>
+          </div>
+
+          <aside class="help-card" aria-label="Canvas Notebook website">
+            <div class="help-copy">
+              <strong>Need a Canvas Notebook server?</strong>
+              <span>Learn more about Canvas Notebook and available hosting options.</span>
+            </div>
+            <button id="website-button" class="website-button" type="button">
+              Open canvasnotebook.app
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M7 17 17 7"></path>
+                <path d="M8 7h9v9"></path>
+              </svg>
+            </button>
+          </aside>
         </form>
 
         <div class="footer">
@@ -219,11 +387,61 @@
       const input = document.querySelector('#server-url');
       const button = document.querySelector('#connect-button');
       const status = document.querySelector('#status');
+      const statusTitle = document.querySelector('#status-title');
+      const statusMessage = document.querySelector('#status-message');
       const appVersion = document.querySelector('#app-version');
+      const websiteButton = document.querySelector('#website-button');
 
-      function setStatus(message, type = '') {
-        status.textContent = message;
+      const CONNECTION_ERROR_COPY = {
+        'server-not-found': {
+          title: 'Server address not found',
+          message: 'Check that the URL is correct and that you are connected to the internet.',
+        },
+        offline: {
+          title: 'You appear to be offline',
+          message: 'Reconnect to the internet, then try connecting again.',
+        },
+        'server-unavailable': {
+          title: 'Server is not available',
+          message: 'The server is not accepting connections right now. Check that it is running, then try again.',
+        },
+        'connection-timed-out': {
+          title: 'Connection timed out',
+          message: 'The server took too long to respond. Check your network connection and try again.',
+        },
+        'certificate-error': {
+          title: 'Secure connection could not be verified',
+          message: 'Check the server address and its security certificate before trying again.',
+        },
+        'server-response-error': {
+          title: 'Canvas Notebook is not ready at this address',
+          message: 'The address responded, but the Canvas Notebook health check did not succeed. Confirm the URL and server health, then try again.',
+        },
+        'server-unreachable': {
+          title: 'Could not reach the server',
+          message: 'Check the server address, your internet connection, and that the server is running.',
+        },
+        'connection-failed': {
+          title: 'Could not connect to the server',
+          message: 'Check the server address and connection, then try again.',
+        },
+      };
+
+      function setStatus(message, type = '', title = '') {
+        status.hidden = !message;
         status.className = `status ${type}`.trim();
+        statusTitle.textContent = title;
+        statusMessage.textContent = message;
+      }
+
+      function showConnectionError(reason, fallbackMessage = '') {
+        if (reason === 'invalid-url') {
+          setStatus(fallbackMessage || 'Enter a complete server address, such as https://notebook.example.com.', 'error', 'Check the server URL');
+          return;
+        }
+
+        const copy = CONNECTION_ERROR_COPY[reason] || CONNECTION_ERROR_COPY['connection-failed'];
+        setStatus(copy.message, 'error', copy.title);
       }
 
       function setBusy(busy) {
@@ -234,13 +452,13 @@
 
       async function boot() {
         if (!window.canvasDesktop) {
-          setStatus('Desktop bridge is not available.', 'error');
+          setStatus('Restart Canvas Notebook and try again. If this keeps happening, reinstall the desktop app.', 'error', 'The desktop connection is unavailable');
           return;
         }
 
         const info = await window.canvasDesktop.getAppInfo();
         const params = new URLSearchParams(window.location.search);
-        const error = params.get('error');
+        const connectionError = params.get('connectionError');
 
         appVersion.textContent = `${info.appName} ${info.version}`;
 
@@ -248,8 +466,8 @@
           input.value = info.serverUrl;
         }
 
-        if (error) {
-          setStatus(error, 'error');
+        if (connectionError) {
+          showConnectionError(connectionError);
         }
       }
 
@@ -258,27 +476,41 @@
         const value = input.value.trim();
 
         setBusy(true);
-        setStatus('Checking server...');
+        setStatus('We are checking the server address and its health.', 'progress', 'Connecting…');
 
         try {
           const result = await window.canvasDesktop.setServerUrl(value);
 
           if (!result.ok) {
-            setStatus(result.message || 'Could not connect to this server.', 'error');
+            showConnectionError(result.reason, result.message);
             return;
           }
 
           const warning = result.warning ? `${result.warning} ` : '';
-          setStatus(`${warning}Connected. Opening server...`, result.warning ? 'warning' : 'success');
+          setStatus(`${warning}Your server is ready. Opening it now…`, result.warning ? 'warning' : 'success', result.warning ? 'Connection note' : 'Connected');
         } catch (error) {
-          setStatus(error instanceof Error ? error.message : 'Connection failed.', 'error');
+          showConnectionError('connection-failed');
         } finally {
           setBusy(false);
         }
       });
 
+      input.addEventListener('input', () => {
+        if (status.classList.contains('error')) {
+          setStatus('');
+        }
+      });
+
+      websiteButton.addEventListener('click', async () => {
+        try {
+          await window.canvasDesktop.openExternal('https://canvasnotebook.app');
+        } catch {
+          setStatus('We could not open the website. Please try again in your browser.', 'error', 'Website unavailable');
+        }
+      });
+
       boot().catch(error => {
-        setStatus(error instanceof Error ? error.message : 'Setup failed.', 'error');
+        setStatus('Restart Canvas Notebook and try again. If this keeps happening, reinstall the desktop app.', 'error', 'Setup could not start');
       });
     </script>
   </body>

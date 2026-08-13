@@ -9,6 +9,7 @@ import {
   setServerUrl,
 } from './config-store.mjs';
 import { checkServerHealth } from './health-check.mjs';
+import { classifyServerLoadFailure } from './connection-errors.mjs';
 import { createAppMenu } from './menu.mjs';
 import { showChatNotification } from './notifications.mjs';
 
@@ -20,6 +21,7 @@ const SETUP_FILE_URL = pathToFileURL(SETUP_FILE_PATH).href;
 
 let mainWindow = null;
 let loadingSetup = false;
+const configuredServerLoads = new WeakMap();
 
 app.setName('Canvas Notebook');
 app.setAppUserModelId?.('io.canvasstudios.notebook');
@@ -95,9 +97,9 @@ async function openExternalUrl(value) {
   await shell.openExternal(value);
 }
 
-function loadSetupWindow(browserWindow, errorMessage = null) {
+function loadSetupWindow(browserWindow, errorReason = null) {
   loadingSetup = true;
-  const query = errorMessage ? { error: errorMessage } : undefined;
+  const query = errorReason ? { connectionError: errorReason } : undefined;
 
   void browserWindow
     .loadFile(SETUP_FILE_PATH, query ? { query } : undefined)
@@ -109,6 +111,17 @@ function loadSetupWindow(browserWindow, errorMessage = null) {
     });
 }
 
+function showConfiguredServerLoadFailure(browserWindow, serverUrl, error) {
+  const loadState = configuredServerLoads.get(browserWindow);
+
+  // Electron reports the same failure both through did-fail-load and the
+  // rejected loadURL promise. Only the first report should return to setup.
+  if (!loadState || loadState.serverUrl !== serverUrl || loadState.failed) return;
+
+  loadState.failed = true;
+  loadSetupWindow(browserWindow, classifyServerLoadFailure(error));
+}
+
 function loadConfiguredServer(browserWindow) {
   const serverUrl = getConfiguredServerUrl();
 
@@ -117,9 +130,11 @@ function loadConfiguredServer(browserWindow) {
     return;
   }
 
+  configuredServerLoads.set(browserWindow, { serverUrl, failed: false });
+
   void browserWindow.loadURL(serverUrl).catch(error => {
     if (!browserWindow.isDestroyed()) {
-      loadSetupWindow(browserWindow, `Could not load the configured server: ${error.message}`);
+      showConfiguredServerLoadFailure(browserWindow, serverUrl, error);
     }
   });
 }
@@ -176,7 +191,7 @@ function setupNavigationGuards(browserWindow) {
     if (!isMainFrame || loadingSetup || !getConfiguredServerUrl()) return;
     if (!validatedUrl || !isSameConfiguredOrigin(validatedUrl)) return;
 
-    loadSetupWindow(browserWindow, `Could not load the configured server: ${errorDescription}`);
+    showConfiguredServerLoadFailure(browserWindow, getConfiguredServerUrl(), errorDescription);
   });
 }
 
