@@ -6,6 +6,7 @@ import path from 'path';
 import { resolveSystemSettingsDir } from '@/app/lib/runtime-data-paths';
 import { DEFAULT_USER_TIME_ZONE, isValidTimeZone, normalizeTimeZone } from '@/app/lib/time-zones';
 import {
+  DIRECT_MCP_TOOL_CONFIGURATION_VERSION,
   DIRECT_MCP_TOOL_IDS,
   type DirectMcpToolId,
 } from '@/app/lib/mcp/server/config';
@@ -20,6 +21,7 @@ export type LicenseRuntimeEnvironment = typeof LICENSE_RUNTIME_ENVIRONMENTS[numb
 export type DirectMcpServerPreferences = {
   enabled: boolean;
   tools: DirectMcpToolId[];
+  toolsVersion: number;
   updatedAt?: string;
   updatedBy?: string;
 };
@@ -98,15 +100,28 @@ function normalizeDirectMcpPreferences(value: unknown): DirectMcpServerPreferenc
   const record = value as {
     enabled?: unknown;
     tools?: unknown;
+    toolsVersion?: unknown;
     updatedAt?: unknown;
     updatedBy?: unknown;
   };
   if (typeof record.enabled !== 'boolean') return null;
   const tools = normalizeDirectMcpTools(record.tools);
   if (!tools) return null;
+  const configuredVersion = typeof record.toolsVersion === 'number'
+    && Number.isSafeInteger(record.toolsVersion)
+    ? record.toolsVersion
+    : 1;
+  // Before version 2, auth_probe was the only available tool. Treat the old
+  // one-tool default as an upgrade, while preserving an explicit empty list.
+  const upgradedTools = configuredVersion < DIRECT_MCP_TOOL_CONFIGURATION_VERSION
+    && tools.length === 1
+    && tools[0] === 'auth_probe'
+    ? [...DIRECT_MCP_TOOL_IDS]
+    : tools;
   return {
     enabled: record.enabled,
-    tools,
+    tools: upgradedTools,
+    toolsVersion: DIRECT_MCP_TOOL_CONFIGURATION_VERSION,
     ...(typeof record.updatedAt === 'string' ? { updatedAt: record.updatedAt } : {}),
     ...(typeof record.updatedBy === 'string' ? { updatedBy: record.updatedBy } : {}),
   };
@@ -224,6 +239,7 @@ export async function setDirectMcpServerPreferences(
   const directMcp: DirectMcpServerPreferences = {
     enabled: input.enabled,
     tools,
+    toolsVersion: DIRECT_MCP_TOOL_CONFIGURATION_VERSION,
     updatedAt: now,
     updatedBy: userId,
   };

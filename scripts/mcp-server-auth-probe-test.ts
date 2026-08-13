@@ -15,6 +15,20 @@ const PASSWORD = 'McpAuthProbeOwnerPassword123!';
 const MCP_ACCEPT = 'application/json, text/event-stream';
 const MCP_PROTOCOL_VERSION = '2025-06-18';
 const MODERN_MCP_PROTOCOL_VERSION = '2026-07-28';
+const DIRECT_MCP_TOOL_NAMES = [
+  'auth_probe',
+  'list_workspaces',
+  'get_workspace_overview',
+  'list_knowledge_tree',
+  'search_knowledge',
+  'read_knowledge_source',
+] as const;
+const DIRECT_MCP_RESOURCE_SCOPES = [
+  'workspace:list',
+  'knowledge:tree',
+  'knowledge:search',
+  'knowledge:read',
+];
 
 type JsonRecord = Record<string, unknown>;
 
@@ -277,6 +291,9 @@ async function main(): Promise<void> {
     }
 
     const validToken = await signAccessToken();
+    const workspaceToolsToken = await signAccessToken({
+      scopes: DIRECT_MCP_RESOURCE_SCOPES,
+    });
     const noProbeScopeToken = await signAccessToken({ scopes: ['knowledge:read'] });
     const foreignToken = await signAccessToken({
       audience: 'https://foreign-instance.example.test/mcp',
@@ -328,7 +345,10 @@ async function main(): Promise<void> {
     });
     assert.equal(modernToolsList.status, 200);
     const modernToolsResult = resultFromRpc(await readJson(modernToolsList));
-    assert.equal((modernToolsResult.tools as JsonRecord[])[0].name, DIRECT_MCP_AUTH_PROBE_TOOL);
+    assert.deepEqual(
+      (modernToolsResult.tools as JsonRecord[]).map((tool) => tool.name),
+      DIRECT_MCP_TOOL_NAMES,
+    );
     assert.equal(modernToolsResult.cacheScope, 'private');
     assert.equal(modernToolsResult.ttlMs, 0);
 
@@ -359,8 +379,9 @@ async function main(): Promise<void> {
     assert.equal(toolsList.status, 200);
     const toolsResult = resultFromRpc(await readJson(toolsList));
     const tools = toolsResult.tools as JsonRecord[];
-    assert.equal(tools.length, 1);
+    assert.equal(tools.length, DIRECT_MCP_TOOL_NAMES.length);
     assert.equal(tools[0].name, DIRECT_MCP_AUTH_PROBE_TOOL);
+    assert.deepEqual(tools.map((tool) => tool.name), DIRECT_MCP_TOOL_NAMES);
     assert.deepEqual(tools[0].securitySchemes, [{
       type: 'oauth2',
       scopes: [DIRECT_MCP_AUTH_PROBE_SCOPE],
@@ -375,6 +396,108 @@ async function main(): Promise<void> {
       idempotentHint: true,
       openWorldHint: false,
     });
+
+    const { loadWorkspaceListingForActor } = await import('../app/lib/workspaces/listing-action');
+    const { resolveWorkspaceActor } = await import('../app/lib/workspaces/context');
+    const { writeFile } = await import('../app/lib/filesystem/workspace-files');
+    const workspaceListing = await loadWorkspaceListingForActor(resolveWorkspaceActor({
+      id: userId,
+      email: EMAIL,
+      role: 'admin',
+    }));
+    assert.ok(workspaceListing.defaultWorkspace);
+    const workspace = workspaceListing.defaultWorkspace;
+    await writeFile(
+      'mcp-server-test.md',
+      'Canvas MCP workspace search fixture. This document is visible to the authenticated user.',
+      { workspace },
+    );
+
+    const listWorkspaces = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 22,
+        method: 'tools/call',
+        params: { name: 'list_workspaces', arguments: {} },
+      },
+    });
+    const listWorkspacesResult = resultFromRpc(await readJson(listWorkspaces));
+    const listedWorkspaces = (listWorkspacesResult.structuredContent as JsonRecord).workspaces as JsonRecord[];
+    assert.ok(listedWorkspaces.some((candidate) => candidate.id === workspace.workspaceId));
+
+    const overview = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 23,
+        method: 'tools/call',
+        params: {
+          name: 'get_workspace_overview',
+          arguments: { workspace_id: workspace.workspaceId },
+        },
+      },
+    });
+    const overviewResult = resultFromRpc(await readJson(overview));
+    assert.equal(
+      ((overviewResult.structuredContent as JsonRecord).workspace as JsonRecord).id,
+      workspace.workspaceId,
+    );
+
+    const tree = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 24,
+        method: 'tools/call',
+        params: {
+          name: 'list_knowledge_tree',
+          arguments: { workspace_id: workspace.workspaceId, max_depth: 0 },
+        },
+      },
+    });
+    const treeResult = resultFromRpc(await readJson(tree));
+    const treeEntries = (treeResult.structuredContent as JsonRecord).entries as JsonRecord[];
+    assert.ok(treeEntries.some((entry) => entry.path === 'mcp-server-test.md'));
+
+    const search = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 25,
+        method: 'tools/call',
+        params: {
+          name: 'search_knowledge',
+          arguments: { workspace_id: workspace.workspaceId, query: 'workspace search' },
+        },
+      },
+    });
+    const searchResult = resultFromRpc(await readJson(search));
+    const searchEntries = (searchResult.structuredContent as JsonRecord).results as JsonRecord[];
+    assert.ok(searchEntries.some((entry) => entry.path === 'mcp-server-test.md'));
+
+    const source = await rpcRequest({
+      post: mcpRoute.POST,
+      token: workspaceToolsToken,
+      body: {
+        jsonrpc: '2.0',
+        id: 26,
+        method: 'tools/call',
+        params: {
+          name: 'read_knowledge_source',
+          arguments: { workspace_id: workspace.workspaceId, path: 'mcp-server-test.md' },
+        },
+      },
+    });
+    const sourceResult = resultFromRpc(await readJson(source));
+    assert.match(
+      String((sourceResult.structuredContent as JsonRecord).content),
+      /Canvas MCP workspace search fixture/u,
+    );
 
     process.env.CANVAS_MCP_DIRECT_TOOLS = '';
     try {

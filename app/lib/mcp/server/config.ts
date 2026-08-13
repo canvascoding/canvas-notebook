@@ -3,8 +3,16 @@ export const DIRECT_MCP_TOOLS_ENV = 'CANVAS_MCP_DIRECT_TOOLS';
 export const DIRECT_MCP_SETTINGS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE';
 export const DIRECT_MCP_TOOLS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_TOOLS_SOURCE';
 export const DIRECT_MCP_PROTOCOL_VERSION = '2026-07-28';
+export const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 2;
 
-export const DIRECT_MCP_TOOL_IDS = ['auth_probe'] as const;
+export const DIRECT_MCP_TOOL_IDS = [
+  'auth_probe',
+  'list_workspaces',
+  'get_workspace_overview',
+  'list_knowledge_tree',
+  'search_knowledge',
+  'read_knowledge_source',
+] as const;
 export type DirectMcpToolId = (typeof DIRECT_MCP_TOOL_IDS)[number];
 
 export const DIRECT_MCP_OAUTH_SCOPES = [

@@ -11,7 +11,7 @@ import {
   DirectMcpAuthorizationError,
   verifyDirectMcpRequest,
 } from '@/app/lib/mcp/server/access-token-verifier';
-import { createDirectMcpAuthProbeServer } from '@/app/lib/mcp/server/auth-probe';
+import { createDirectMcpServer } from '@/app/lib/mcp/server/direct-server';
 import {
   isDirectMcpEnabled,
   resolveDirectMcpServerConfig,
@@ -36,7 +36,7 @@ const MCP_EXPOSED_HEADERS = [
 ].join(', ');
 
 const directModernMcpHandler = createMcpHandler(
-  () => createDirectMcpAuthProbeServer(),
+  () => createDirectMcpServer(),
   {
     legacy: 'reject',
     onerror: (error) => {
@@ -50,7 +50,7 @@ async function handleProtocolRequest(request: Request, authInfo?: AuthInfo): Pro
     return directModernMcpHandler.fetch(request, { authInfo });
   }
 
-  const server = createDirectMcpAuthProbeServer();
+  const server = createDirectMcpServer();
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,

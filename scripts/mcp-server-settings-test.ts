@@ -27,6 +27,7 @@ async function main(): Promise<void> {
     });
     assert.equal(preferences.enabled, true);
     assert.deepEqual(preferences.tools, ['auth_probe']);
+    assert.equal(preferences.toolsVersion, 2);
     assert.equal(typeof preferences.updatedAt, 'string');
     assert.equal(preferences.updatedBy, 'admin-1');
 
@@ -64,12 +65,14 @@ async function main(): Promise<void> {
     assert.equal(status.protocolVersion, '2026-07-28');
     assert.deepEqual(
       status.capabilities.filter((capability) => capability.available),
-      [{
-        id: 'auth_probe',
-        available: true,
-        enabled: true,
-        scopes: ['workspace:list'],
-      }],
+      [
+        { id: 'auth_probe', available: true, enabled: true, scopes: ['workspace:list'] },
+        { id: 'list_workspaces', available: true, enabled: false, scopes: ['workspace:list'] },
+        { id: 'get_workspace_overview', available: true, enabled: false, scopes: ['workspace:list'] },
+        { id: 'list_knowledge_tree', available: true, enabled: false, scopes: ['knowledge:tree'] },
+        { id: 'search_knowledge', available: true, enabled: false, scopes: ['knowledge:search'] },
+        { id: 'read_knowledge_source', available: true, enabled: false, scopes: ['knowledge:read'] },
+      ],
     );
 
     const pendingRestartStatus = buildDirectMcpServerSettingsStatus(preferences, {

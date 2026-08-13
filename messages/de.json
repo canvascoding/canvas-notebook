@@ -3019,9 +3019,9 @@
       }
     },
     "mcpServer": {
-      "eyebrow": "Externe Clients → Canvas",
-      "title": "Canvas als MCP-Server",
-      "description": "Gib ausgewählte Canvas-Funktionen für ChatGPT, Claude oder andere MCP-Clients frei. Zugang und Berechtigungen werden über den Canvas-Login geschützt.",
+      "eyebrow": "MCP-Verbindung",
+      "title": "Canvas mit einem Client verbinden",
+      "description": "Schalte den Canvas-MCP-Server ein, kopiere die Server-Adresse in deinen Client und melde dich dort mit Canvas an.",
       "loading": "MCP-Serverstatus wird geladen …",
       "refresh": "Aktualisieren",
       "copy": "Kopieren",
@@ -3033,7 +3033,7 @@
       "upToDate": "Einstellungen sind aktuell",
       "adminOnly": "Du kannst die Verbindungsdaten ansehen. Nur Instanz-Administratoren dürfen Aktivierung und Freigaben ändern.",
       "activation": {
-        "label": "MCP-Server"
+        "label": "Canvas-MCP-Server"
       },
       "status": {
         "active": "Aktiv",
@@ -3053,44 +3053,70 @@
         "description": "Mindestens eine Einstellung wird beim Deployment vorgegeben. Solche Schalter sind hier sichtbar, können aber nicht überschrieben werden."
       },
       "endpoint": {
-        "title": "Öffentlicher MCP-Endpunkt",
-        "domain": "Erreichbar über {domain}",
+        "title": "Server-Adresse",
+        "description": "Füge diese Adresse in deinem Client als Remote-MCP-Server ein.",
         "missing": "Die öffentliche Canvas-Domain ist noch nicht konfiguriert.",
-        "notConfigured": "Kein Endpunkt verfügbar",
-        "issuer": "OAuth-Aussteller"
+        "notConfigured": "Keine Server-Adresse verfügbar"
       },
       "capabilities": {
         "title": "Was Clients verwenden dürfen",
         "description": "Nur aktivierte Werkzeuge werden über MCP bekanntgegeben.",
         "enabledCount": "{count, plural, =0 {Keine Werkzeuge} one {# Werkzeug} other {# Werkzeuge}} aktiv",
         "noneEnabled": "Clients können sich verbinden, erhalten aber derzeit keine Werkzeuge.",
-        "planned": "{count, plural, one {Eine weitere schreibgeschützte Funktion ist vorbereitet, aber noch nicht freigegeben.} other {# weitere schreibgeschützte Funktionen sind vorbereitet, aber noch nicht freigegeben.}}",
         "items": {
           "auth_probe": {
             "title": "Verbindung prüfen",
             "description": "Prüft Login und OAuth-Berechtigung, ohne Workspace- oder Knowledge-Inhalte zu lesen."
+          },
+          "list_workspaces": {
+            "title": "Workspaces anzeigen",
+            "description": "Zeigt die Workspaces, auf die sich die angemeldete Person aktuell zugreifen darf."
+          },
+          "get_workspace_overview": {
+            "title": "Workspace-Überblick anzeigen",
+            "description": "Zeigt eine kurze Übersicht über einen ausgewählten Workspace und dessen oberste Inhalte."
+          },
+          "list_knowledge_tree": {
+            "title": "Dateien durchsuchen",
+            "description": "Zeigt sichtbare Ordner und Dateien in einem freigegebenen Workspace."
+          },
+          "search_knowledge": {
+            "title": "In Dateien suchen",
+            "description": "Findet passende Textstellen in sichtbaren Dateien eines freigegebenen Workspace."
+          },
+          "read_knowledge_source": {
+            "title": "Dateiinhalte lesen",
+            "description": "Liest einen begrenzten Textausschnitt aus einer sichtbaren Datei."
           }
         }
       },
       "connect": {
-        "title": "So verbindet sich ein Client",
-        "description": "Die genaue Menübezeichnung unterscheidet sich je nach Client; Endpunkt, Transport und Login bleiben gleich.",
-        "example": "Typisches Konfigurationsbeispiel",
-        "security": "Canvas gibt keine Passwörter oder Tokens an den Client weiter. Der Client entdeckt OAuth automatisch und öffnet den Canvas-Login im Browser.",
+        "title": "Server einrichten",
+        "description": "Du richtest hier den Canvas-Server ein. Die Verbindung in deinem Client erfolgt danach mit der Server-Adresse oben.",
         "steps": {
-          "endpoint": {
-            "title": "Endpunkt eintragen",
-            "description": "Kopiere die oben angezeigte /mcp-Adresse in die MCP-Einstellungen des Clients."
+          "activate": {
+            "title": "Server einschalten",
+            "description": "Aktiviere den Canvas-MCP-Server, speichere die Änderung und starte Canvas neu, falls es angezeigt wird."
           },
-          "transport": {
-            "title": "Streamable HTTP wählen",
-            "description": "Nutze die Remote-Server- oder URL-Option. Ein lokaler Startbefehl ist nicht erforderlich."
+          "addServer": {
+            "title": "Adresse im Client einfügen",
+            "description": "Erstelle in deinem Client einen Remote-MCP-Server und füge die Server-Adresse von oben ein."
           },
-          "oauth": {
+          "signIn": {
             "title": "Mit Canvas anmelden",
-            "description": "Der Client öffnet den Canvas-Login. Bestätige dort die angeforderten Berechtigungen."
+            "description": "Der Client öffnet den Canvas-Login. Melde dich an und bestätige den Zugriff."
           }
         }
+      },
+      "developer": {
+        "title": "Technische Details für Entwickler",
+        "description": "Die Verbindung verwendet den aktuellen Remote-MCP-Standard. Diese Angaben brauchst du nur für eine eigene Client-Integration oder die Fehlersuche.",
+        "example": "Beispiel für eine Client-Konfiguration",
+        "endpoint": "MCP-Endpunkt",
+        "issuer": "OAuth-Aussteller",
+        "protocol": "Protokoll",
+        "authentication": "Anmeldung und Transport",
+        "scopes": "Freigegebene Berechtigungen"
       },
       "errors": {
         "load": "MCP-Servereinstellungen konnten nicht geladen werden.",

@@ -3020,9 +3020,9 @@
       }
     },
     "mcpServer": {
-      "eyebrow": "External clients → Canvas",
-      "title": "Canvas as an MCP server",
-      "description": "Expose selected Canvas capabilities to ChatGPT, Claude, or other MCP clients. Access and permissions are protected by the Canvas sign-in flow.",
+      "eyebrow": "MCP connection",
+      "title": "Connect Canvas to a client",
+      "description": "Enable the Canvas MCP server, copy its server address into your client, then sign in to Canvas there.",
       "loading": "Loading MCP server status…",
       "refresh": "Refresh",
       "copy": "Copy",
@@ -3034,7 +3034,7 @@
       "upToDate": "Settings are up to date",
       "adminOnly": "You can view connection details. Only instance administrators can change activation and capability access.",
       "activation": {
-        "label": "MCP server"
+        "label": "Canvas MCP server"
       },
       "status": {
         "active": "Active",
@@ -3054,44 +3054,70 @@
         "description": "At least one setting is supplied by the deployment. These controls remain visible here but cannot be overridden."
       },
       "endpoint": {
-        "title": "Public MCP endpoint",
-        "domain": "Available through {domain}",
+        "title": "Server address",
+        "description": "Add this address to your client as a remote MCP server.",
         "missing": "The public Canvas domain has not been configured yet.",
-        "notConfigured": "No endpoint available",
-        "issuer": "OAuth issuer"
+        "notConfigured": "No server address available"
       },
       "capabilities": {
         "title": "What clients may use",
         "description": "Only enabled tools are advertised over MCP.",
         "enabledCount": "{count, plural, =0 {No tools} one {# tool} other {# tools}} enabled",
         "noneEnabled": "Clients can connect, but no tools are currently available to them.",
-        "planned": "{count, plural, one {One additional read-only capability is prepared but not released yet.} other {# additional read-only capabilities are prepared but not released yet.}}",
         "items": {
           "auth_probe": {
             "title": "Verify connection",
             "description": "Verifies sign-in and OAuth access without reading workspace or knowledge content."
+          },
+          "list_workspaces": {
+            "title": "List workspaces",
+            "description": "Shows the workspaces the signed-in person can currently access."
+          },
+          "get_workspace_overview": {
+            "title": "Show workspace overview",
+            "description": "Shows a concise overview of a selected workspace and its top-level contents."
+          },
+          "list_knowledge_tree": {
+            "title": "Browse files",
+            "description": "Shows visible folders and files in an accessible workspace."
+          },
+          "search_knowledge": {
+            "title": "Search files",
+            "description": "Finds matching text in visible files of an accessible workspace."
+          },
+          "read_knowledge_source": {
+            "title": "Read file contents",
+            "description": "Reads a bounded text excerpt from a visible file."
           }
         }
       },
       "connect": {
-        "title": "How to connect a client",
-        "description": "Menu labels differ between clients; the endpoint, transport, and sign-in flow remain the same.",
-        "example": "Typical configuration example",
-        "security": "Canvas never shares passwords or tokens with the client. The client discovers OAuth automatically and opens the Canvas sign-in page in a browser.",
+        "title": "Set up the server",
+        "description": "You set up the Canvas server here. Then connect your client with the server address shown above.",
         "steps": {
-          "endpoint": {
-            "title": "Add the endpoint",
-            "description": "Copy the /mcp address shown above into the client's MCP settings."
+          "activate": {
+            "title": "Enable the server",
+            "description": "Enable the Canvas MCP server, save the change, and restart Canvas if the page asks you to."
           },
-          "transport": {
-            "title": "Choose Streamable HTTP",
-            "description": "Use the remote server or URL option. No local launch command is required."
+          "addServer": {
+            "title": "Add the address in your client",
+            "description": "Create a remote MCP server in your client and paste the server address from above."
           },
-          "oauth": {
+          "signIn": {
             "title": "Sign in to Canvas",
-            "description": "The client opens the Canvas sign-in page. Approve the requested permissions there."
+            "description": "The client opens the Canvas sign-in page. Sign in and approve access."
           }
         }
+      },
+      "developer": {
+        "title": "Technical details for developers",
+        "description": "This connection follows the current remote MCP standard. You only need these details for a custom client integration or troubleshooting.",
+        "example": "Client configuration example",
+        "endpoint": "MCP endpoint",
+        "issuer": "OAuth issuer",
+        "protocol": "Protocol",
+        "authentication": "Authentication and transport",
+        "scopes": "Granted permissions"
       },
       "errors": {
         "load": "Could not load MCP server settings.",

@@ -11,7 +11,6 @@ import {
   RefreshCw,
   Save,
   Server,
-  ShieldCheck,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
@@ -133,23 +132,16 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   }) : null;
   const isDirty = Boolean(draft && savedDraft && !draftsEqual(draft, savedDraft));
   const availableCapabilities = status?.capabilities.filter((capability) => capability.available) ?? [];
-  const plannedCapabilityCount = status?.capabilities.filter((capability) => !capability.available).length ?? 0;
   const enabledCapabilityCount = draft?.tools.length ?? 0;
-  const publicDomain = (() => {
-    if (!status?.endpoint) return null;
-    try {
-      return new URL(status.endpoint).host;
-    } catch {
-      return null;
-    }
-  })();
-  const connectionConfig = JSON.stringify({
-    mcpServers: {
-      canvas: {
-        url: status?.endpoint ?? 'https://canvas.example.com/mcp',
+  const connectionConfig = status?.endpoint
+    ? JSON.stringify({
+      mcpServers: {
+        canvas: {
+          url: status.endpoint,
+        },
       },
-    },
-  }, null, 2);
+    }, null, 2)
+    : null;
 
   const statusLabel = status?.configurationError
     ? t('status.configurationError')
@@ -256,9 +248,6 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
         </div>
         <div className="mt-3 flex flex-wrap items-center gap-2">
           <Badge variant={statusVariant}>{statusLabel}</Badge>
-          <Badge variant="outline">MCP {status?.protocolVersion}</Badge>
-          <Badge variant="outline">OAuth 2.1 + PKCE</Badge>
-          <Badge variant="outline">Streamable HTTP</Badge>
         </div>
       </CardHeader>
 
@@ -290,12 +279,12 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           </div>
         ) : null}
 
-        <section aria-labelledby="mcp-public-endpoint-title" className="space-y-3">
+        <section aria-labelledby="mcp-server-address-title" className="space-y-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
-              <h3 id="mcp-public-endpoint-title" className="font-semibold">{t('endpoint.title')}</h3>
+              <h3 id="mcp-server-address-title" className="font-semibold">{t('endpoint.title')}</h3>
               <p className="mt-1 text-sm text-muted-foreground">
-                {publicDomain ? t('endpoint.domain', { domain: publicDomain }) : t('endpoint.missing')}
+                {status?.endpoint ? t('endpoint.description') : t('endpoint.missing')}
               </p>
             </div>
             <Button type="button" variant="ghost" size="sm" onClick={() => void loadStatus()} disabled={isLoading}>
@@ -319,11 +308,24 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
               {copied === 'endpoint' ? t('copied') : t('copy')}
             </Button>
           </div>
-          {status?.issuer ? (
-            <p className="break-all text-xs text-muted-foreground">
-              {t('endpoint.issuer')}: <code>{status.issuer}</code>
-            </p>
-          ) : null}
+        </section>
+
+        <section aria-labelledby="mcp-connect-title" className="space-y-4 border-t pt-6">
+          <div>
+            <h3 id="mcp-connect-title" className="font-semibold">{t('connect.title')}</h3>
+            <p className="mt-1 text-sm text-muted-foreground">{t('connect.description')}</p>
+          </div>
+          <ol className="grid gap-3 lg:grid-cols-3">
+            {(['activate', 'addServer', 'signIn'] as const).map((step, index) => (
+              <li key={step} className="rounded-lg border p-4">
+                <div className="mb-3 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
+                  {index + 1}
+                </div>
+                <p className="font-medium">{t(`connect.steps.${step}.title`)}</p>
+                <p className="mt-1 text-sm leading-5 text-muted-foreground">{t(`connect.steps.${step}.description`)}</p>
+              </li>
+            ))}
+          </ol>
         </section>
 
         <section aria-labelledby="mcp-capabilities-title" className="space-y-3 border-t pt-6">
@@ -340,16 +342,10 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
                 <div className="min-w-0">
                   <div className="flex flex-wrap items-center gap-2">
                     <p className="font-medium">{t(`capabilities.items.${capability.id}.title`)}</p>
-                    <code className="rounded bg-muted px-1.5 py-0.5 text-xs">{capability.id}</code>
                   </div>
                   <p className="mt-1 text-sm leading-5 text-muted-foreground">
                     {t(`capabilities.items.${capability.id}.description`)}
                   </p>
-                  <div className="mt-2 flex flex-wrap gap-1.5">
-                    {capability.scopes.map((scope) => (
-                      <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
-                    ))}
-                  </div>
                 </div>
                 <Switch
                   checked={draft?.tools.includes(capability.id) ?? false}
@@ -363,53 +359,63 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           {enabledCapabilityCount === 0 ? (
             <p className="text-sm text-amber-700 dark:text-amber-300">{t('capabilities.noneEnabled')}</p>
           ) : null}
-          {plannedCapabilityCount > 0 ? (
-            <p className="text-xs leading-5 text-muted-foreground">
-              {t('capabilities.planned', { count: plannedCapabilityCount })}
-            </p>
-          ) : null}
         </section>
 
-        <section aria-labelledby="mcp-connect-title" className="space-y-4 border-t pt-6">
-          <div>
-            <h3 id="mcp-connect-title" className="font-semibold">{t('connect.title')}</h3>
-            <p className="mt-1 text-sm text-muted-foreground">{t('connect.description')}</p>
-          </div>
-          <ol className="grid gap-3 lg:grid-cols-3">
-            {(['endpoint', 'transport', 'oauth'] as const).map((step, index) => (
-              <li key={step} className="rounded-lg border p-4">
-                <div className="mb-3 flex h-7 w-7 items-center justify-center rounded-full bg-primary text-xs font-bold text-primary-foreground">
-                  {index + 1}
+        <details className="group overflow-hidden rounded-lg border">
+          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-medium marker:hidden [&::-webkit-details-marker]:hidden">
+            <span>{t('developer.title')}</span>
+            <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
+          </summary>
+          <div className="space-y-4 border-t bg-muted/20 p-4">
+            <p className="text-sm leading-5 text-muted-foreground">{t('developer.description')}</p>
+            <div className="overflow-hidden rounded-lg border bg-slate-950 text-slate-100 dark:bg-black">
+              <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
+                <div className="flex items-center gap-2 text-xs text-slate-300">
+                  <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                  {t('developer.example')}
                 </div>
-                <p className="font-medium">{t(`connect.steps.${step}.title`)}</p>
-                <p className="mt-1 text-sm leading-5 text-muted-foreground">{t(`connect.steps.${step}.description`)}</p>
-              </li>
-            ))}
-          </ol>
-          <div className="overflow-hidden rounded-lg border bg-slate-950 text-slate-100 dark:bg-black">
-            <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
-              <div className="flex items-center gap-2 text-xs text-slate-300">
-                <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-                {t('connect.example')}
+                <Button
+                  type="button"
+                  variant="ghost"
+                  size="xs"
+                  className="text-slate-200 hover:bg-white/10 hover:text-white"
+                  disabled={!connectionConfig}
+                  onClick={() => connectionConfig && void copyText('config', connectionConfig)}
+                >
+                  {copied === 'config' ? <Check /> : <Copy />}
+                  {copied === 'config' ? t('copied') : t('copy')}
+                </Button>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="xs"
-                className="text-slate-200 hover:bg-white/10 hover:text-white"
-                onClick={() => void copyText('config', connectionConfig)}
-              >
-                {copied === 'config' ? <Check /> : <Copy />}
-                {copied === 'config' ? t('copied') : t('copy')}
-              </Button>
+              <pre className="overflow-x-auto p-4 text-xs leading-5"><code>{connectionConfig ?? t('endpoint.notConfigured')}</code></pre>
             </div>
-            <pre className="overflow-x-auto p-4 text-xs leading-5"><code>{connectionConfig}</code></pre>
+            <dl className="grid gap-3 text-sm sm:grid-cols-2">
+              <div>
+                <dt className="text-muted-foreground">{t('developer.endpoint')}</dt>
+                <dd className="mt-1 break-all font-mono text-xs">{status?.endpoint ?? t('endpoint.notConfigured')}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('developer.issuer')}</dt>
+                <dd className="mt-1 break-all font-mono text-xs">{status?.issuer ?? t('endpoint.notConfigured')}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('developer.protocol')}</dt>
+                <dd className="mt-1 font-mono text-xs">MCP {status?.protocolVersion}</dd>
+              </div>
+              <div>
+                <dt className="text-muted-foreground">{t('developer.authentication')}</dt>
+                <dd className="mt-1 font-mono text-xs">OAuth 2.1 + PKCE · {status?.transport}</dd>
+              </div>
+            </dl>
+            <div>
+              <p className="text-xs font-medium text-muted-foreground">{t('developer.scopes')}</p>
+              <div className="mt-2 flex flex-wrap gap-1.5">
+                {availableCapabilities.flatMap((capability) => capability.scopes).filter((scope, index, scopes) => scopes.indexOf(scope) === index).map((scope) => (
+                  <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
+                ))}
+              </div>
+            </div>
           </div>
-          <p className="flex items-start gap-2 text-xs leading-5 text-muted-foreground">
-            <ShieldCheck className="mt-0.5 h-4 w-4 shrink-0" aria-hidden="true" />
-            {t('connect.security')}
-          </p>
-        </section>
+        </details>
 
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         {success ? <p className="text-sm text-primary">{success}</p> : null}

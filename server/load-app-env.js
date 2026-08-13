@@ -7,7 +7,16 @@ const DIRECT_MCP_FEATURE_ENV = 'CANVAS_MCP_DIRECT_ENABLED';
 const DIRECT_MCP_TOOLS_ENV = 'CANVAS_MCP_DIRECT_TOOLS';
 const DIRECT_MCP_SETTINGS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_SETTINGS_SOURCE';
 const DIRECT_MCP_TOOLS_SOURCE_ENV = 'CANVAS_MCP_DIRECT_TOOLS_SOURCE';
-const DIRECT_MCP_TOOLS = new Set(['auth_probe']);
+const DIRECT_MCP_TOOL_CONFIGURATION_VERSION = 2;
+const DIRECT_MCP_TOOLS = [
+  'auth_probe',
+  'list_workspaces',
+  'get_workspace_overview',
+  'list_knowledge_tree',
+  'search_knowledge',
+  'read_knowledge_source',
+];
+const DIRECT_MCP_TOOL_SET = new Set(DIRECT_MCP_TOOLS);
 
 function resolveEnvFilePath(filePath, cwd = process.cwd()) {
   return path.isAbsolute(filePath) ? filePath : path.resolve(cwd, filePath);
@@ -45,13 +54,20 @@ function readDirectMcpPreferences(cwd) {
     if (
       typeof preferences?.enabled !== 'boolean'
       || !Array.isArray(preferences.tools)
-      || preferences.tools.some((tool) => typeof tool !== 'string' || !DIRECT_MCP_TOOLS.has(tool))
+      || preferences.tools.some((tool) => typeof tool !== 'string' || !DIRECT_MCP_TOOL_SET.has(tool))
     ) {
       return null;
     }
+    const tools = [...new Set(preferences.tools)];
+    const toolsVersion = Number.isSafeInteger(preferences.toolsVersion)
+      ? preferences.toolsVersion
+      : 1;
+    const isLegacyAuthProbeDefault = toolsVersion < DIRECT_MCP_TOOL_CONFIGURATION_VERSION
+      && tools.length === 1
+      && tools[0] === 'auth_probe';
     return {
       enabled: preferences.enabled,
-      tools: [...new Set(preferences.tools)],
+      tools: isLegacyAuthProbeDefault ? [...DIRECT_MCP_TOOLS] : tools,
     };
   } catch (error) {
     console.warn('[Startup] Ignoring invalid Direct MCP server preferences.', {

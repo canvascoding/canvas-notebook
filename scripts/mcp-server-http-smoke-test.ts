@@ -4,6 +4,14 @@ const MCP_ACCEPT = 'application/json, text/event-stream';
 const MCP_PROTOCOL_VERSION = '2025-06-18';
 const MODERN_MCP_PROTOCOL_VERSION = '2026-07-28';
 const REQUEST_TIMEOUT_MS = 10_000;
+const DIRECT_MCP_TOOL_NAMES = [
+  'auth_probe',
+  'list_workspaces',
+  'get_workspace_overview',
+  'list_knowledge_tree',
+  'search_knowledge',
+  'read_knowledge_source',
+];
 
 type JsonRecord = Record<string, unknown>;
 
@@ -156,7 +164,14 @@ async function main(): Promise<void> {
   assert.equal(authorizationCanonical.body.issuer, issuer);
   const supportedScopes = authorizationCanonical.body.scopes_supported;
   assert.ok(Array.isArray(supportedScopes));
-  for (const scope of ['openid', 'offline_access', 'workspace:list']) {
+  for (const scope of [
+    'openid',
+    'offline_access',
+    'workspace:list',
+    'knowledge:tree',
+    'knowledge:search',
+    'knowledge:read',
+  ]) {
     assert.ok(supportedScopes.includes(scope), `Missing OAuth scope ${scope}.`);
   }
   const challengeMethods =
@@ -179,8 +194,9 @@ async function main(): Promise<void> {
 
   const toolsResult = await rpcRequest(origin, 2, 'tools/list', {});
   const tools = toolsResult.tools as JsonRecord[];
-  assert.equal(tools.length, 1);
+  assert.equal(tools.length, DIRECT_MCP_TOOL_NAMES.length);
   assert.equal(tools[0].name, 'auth_probe');
+  assert.deepEqual(tools.map((tool) => tool.name), DIRECT_MCP_TOOL_NAMES);
   assert.deepEqual(tools[0].securitySchemes, [{
     type: 'oauth2',
     scopes: ['workspace:list'],
@@ -220,7 +236,10 @@ async function main(): Promise<void> {
   const modernToolsResult = (
     await modernRpcRequest(origin, 101, 'tools/list')
   ).result;
-  assert.equal((modernToolsResult.tools as JsonRecord[])[0].name, 'auth_probe');
+  assert.deepEqual(
+    (modernToolsResult.tools as JsonRecord[]).map((tool) => tool.name),
+    DIRECT_MCP_TOOL_NAMES,
+  );
   assert.equal(modernToolsResult.cacheScope, 'private');
   assert.equal(modernToolsResult.ttlMs, 0);
 

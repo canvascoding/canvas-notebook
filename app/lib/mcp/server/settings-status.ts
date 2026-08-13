@@ -45,12 +45,13 @@ export type DirectMcpServerSettingsStatus = {
   capabilities: DirectMcpCapabilityStatus[];
 };
 
-const PLANNED_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'enabled'>> = [
-  { id: 'list_workspaces', available: false, scopes: ['workspace:list'] },
-  { id: 'get_workspace_overview', available: false, scopes: ['workspace:list'] },
-  { id: 'list_knowledge_tree', available: false, scopes: ['knowledge:tree'] },
-  { id: 'search_knowledge', available: false, scopes: ['knowledge:search'] },
-  { id: 'read_knowledge_source', available: false, scopes: ['knowledge:read'] },
+const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'enabled'>> = [
+  { id: 'auth_probe', available: true, scopes: ['workspace:list'] },
+  { id: 'list_workspaces', available: true, scopes: ['workspace:list'] },
+  { id: 'get_workspace_overview', available: true, scopes: ['workspace:list'] },
+  { id: 'list_knowledge_tree', available: true, scopes: ['knowledge:tree'] },
+  { id: 'search_knowledge', available: true, scopes: ['knowledge:search'] },
+  { id: 'read_knowledge_source', available: true, scopes: ['knowledge:read'] },
 ];
 
 function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
@@ -68,15 +69,10 @@ function settingsSource(
 }
 
 function enabledCapabilities(tools: readonly DirectMcpToolId[]): DirectMcpCapabilityStatus[] {
-  return [
-    {
-      id: 'auth_probe',
-      available: true,
-      enabled: tools.includes('auth_probe'),
-      scopes: ['workspace:list'],
-    },
-    ...PLANNED_CAPABILITIES.map((capability) => ({ ...capability, enabled: false })),
-  ];
+  return DIRECT_MCP_CAPABILITIES.map((capability) => ({
+    ...capability,
+    enabled: tools.includes(capability.id as DirectMcpToolId),
+  }));
 }
 
 export function buildDirectMcpServerSettingsStatus(

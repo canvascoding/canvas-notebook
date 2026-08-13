@@ -5,17 +5,16 @@ import { createHash } from 'node:crypto';
 import {
   ProtocolError,
   ProtocolErrorCode,
-  Server,
   type AuthInfo,
   type CallToolResult,
 } from '@modelcontextprotocol/server';
 
-import packageJson from '@/package.json';
 import {
   DirectMcpAuthorizationError,
   verifyDirectMcpAccessToken,
 } from '@/app/lib/mcp/server/access-token-verifier';
-import { getDirectMcpEnabledTools } from '@/app/lib/mcp/server/config';
+import { directMcpToolAuthorizationError } from '@/app/lib/mcp/server/tool-auth';
+import type { DirectMcpToolDescriptor } from '@/app/lib/mcp/server/tool-descriptor';
 
 export const DIRECT_MCP_AUTH_PROBE_TOOL = 'auth_probe';
 export const DIRECT_MCP_AUTH_PROBE_SCOPE = 'workspace:list';
@@ -27,7 +26,7 @@ const AUTH_PROBE_SECURITY_SCHEMES = [
   },
 ];
 
-export function getDirectMcpAuthProbeToolDescriptor() {
+export function getDirectMcpAuthProbeToolDescriptor(): DirectMcpToolDescriptor {
   return {
     name: DIRECT_MCP_AUTH_PROBE_TOOL,
     title: 'Verify Canvas Notebook connection',
@@ -70,36 +69,25 @@ function redactedUserReference(userId: string): string {
   return createHash('sha256').update(userId).digest('hex').slice(0, 12);
 }
 
-function toolAuthorizationError(
-  error?: DirectMcpAuthorizationError,
-): CallToolResult {
-  const authorizationError = error ?? new DirectMcpAuthorizationError(
-    'invalid_token',
-    401,
-    'Authentication is required.',
-    {
-      challengeError: 'invalid_token',
-    },
-  );
-  const result: CallToolResult = {
-    content: [{
-      type: 'text',
-      text: authorizationError.status === 503
-        ? 'Authorization is temporarily unavailable.'
-        : 'Authentication is required to verify this connection.',
-    }],
-    isError: true,
-  };
-  if (authorizationError.challenge) {
-    result._meta = {
-      'mcp/www_authenticate': [authorizationError.challenge],
-    };
+export async function runDirectMcpAuthProbe(
+  args: unknown,
+  authInfo?: AuthInfo,
+): Promise<CallToolResult> {
+  if (
+    args !== undefined
+    && (
+      typeof args !== 'object'
+      || args === null
+      || Array.isArray(args)
+      || Object.keys(args).length > 0
+    )
+  ) {
+    throw new ProtocolError(
+      ProtocolErrorCode.InvalidParams,
+      `${DIRECT_MCP_AUTH_PROBE_TOOL} does not accept arguments.`,
+    );
   }
-  return result;
-}
-
-async function runAuthProbe(authInfo?: AuthInfo): Promise<CallToolResult> {
-  if (!authInfo?.token) return toolAuthorizationError();
+  if (!authInfo?.token) return directMcpToolAuthorizationError();
 
   try {
     const principal = await verifyDirectMcpAccessToken(
@@ -123,61 +111,8 @@ async function runAuthProbe(authInfo?: AuthInfo): Promise<CallToolResult> {
     };
   } catch (error) {
     if (error instanceof DirectMcpAuthorizationError) {
-      return toolAuthorizationError(error);
+      return directMcpToolAuthorizationError(error);
     }
     throw error;
   }
-}
-
-export function createDirectMcpAuthProbeServer(): Server {
-  const authProbeEnabled = getDirectMcpEnabledTools().includes(
-    DIRECT_MCP_AUTH_PROBE_TOOL,
-  );
-  const server = new Server(
-    {
-      name: 'canvas-notebook-direct-mcp',
-      version: packageJson.version,
-    },
-    {
-      capabilities: {
-        tools: {},
-      },
-      instructions: (
-        authProbeEnabled
-          ? 'This authentication probe verifies the local OAuth connection. It does not expose workspace or knowledge data.'
-          : 'No MCP tools are currently enabled for this Canvas Notebook instance.'
-      ),
-    },
-  );
-
-  server.setRequestHandler('tools/list', async () => ({
-    tools: authProbeEnabled ? [getDirectMcpAuthProbeToolDescriptor()] : [],
-  }));
-
-  server.setRequestHandler('tools/call', async (request, context) => {
-    if (!authProbeEnabled || request.params.name !== DIRECT_MCP_AUTH_PROBE_TOOL) {
-      throw new ProtocolError(
-        ProtocolErrorCode.MethodNotFound,
-        `Unknown tool ${request.params.name}.`,
-      );
-    }
-    const args = request.params.arguments;
-    if (
-      args !== undefined
-      && (
-        typeof args !== 'object'
-        || args === null
-        || Array.isArray(args)
-        || Object.keys(args).length > 0
-      )
-    ) {
-      throw new ProtocolError(
-        ProtocolErrorCode.InvalidParams,
-        `${DIRECT_MCP_AUTH_PROBE_TOOL} does not accept arguments.`,
-      );
-    }
-    return runAuthProbe(context.http?.authInfo);
-  });
-
-  return server;
 }
