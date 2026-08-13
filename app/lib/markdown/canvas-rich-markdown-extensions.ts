@@ -9,6 +9,7 @@ import {
   type MarkdownParseHelpers,
   type MarkdownToken,
 } from '@tiptap/core';
+import Paragraph from '@tiptap/extension-paragraph';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -61,6 +62,14 @@ function quoteMarkdown(markdown: string): string {
     .map((line) => line ? `> ${line}` : '>')
     .join('\n');
 }
+
+// Rich Markdown tokenizers need to run before generic block tokenizers, which
+// gives their nodes a high schema priority. Keep paragraph above those block
+// nodes so ProseMirror fills empty containers (especially table cells) with an
+// editable paragraph instead of an empty callout.
+export const CanvasParagraph = Paragraph.extend({
+  priority: 1200,
+});
 
 export const CanvasHighlight = Mark.create({
   name: 'canvasHighlight',
@@ -612,6 +621,7 @@ export const MarkdownFootnoteDefinition = Node.create({
 
 export function canvasRichMarkdownExtensions() {
   return [
+    CanvasParagraph,
     CanvasHighlight,
     CanvasCalloutTitle,
     CanvasCallout,

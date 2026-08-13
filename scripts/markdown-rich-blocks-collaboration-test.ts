@@ -60,7 +60,32 @@ try {
   richDocument.destroy();
 }
 
+const blankTableMarkdown = `|   |   |   |
+| --- | --- | --- |
+|   |   |   |`;
+const blankTableDocument = createRichMarkdownYDoc(blankTableMarkdown);
+try {
+  const serializedTable = richMarkdownFromYDoc(blankTableDocument);
+  assert.doesNotMatch(
+    serializedTable,
+    /> \[!note\]/u,
+    'blank collaborative table cells must not materialize as Note callouts',
+  );
+  assert.equal(
+    validateRichMarkdownYDoc(blankTableDocument).valid,
+    true,
+    'blank tables must remain valid collaborative Markdown documents',
+  );
+} finally {
+  blankTableDocument.destroy();
+}
+
 const schema = getSchema(richMarkdownSchemaExtensions());
+assert.equal(
+  schema.topNodeType.contentMatch.defaultType?.name,
+  'paragraph',
+  'the collaboration schema must fill empty containers with paragraphs, not callouts',
+);
 
 for (const [label, transientNode] of [
   [

@@ -23,7 +23,7 @@ export const RICH_MARKDOWN_UNIQUE_ID_TYPES = 'all' as const;
 
 export function richMarkdownSchemaExtensions() {
   return [
-    StarterKit.configure({ link: false }),
+    StarterKit.configure({ link: false, paragraph: false }),
     ...canvasRichMarkdownExtensions(),
     Link.configure({ openOnClick: false, autolink: false }),
     Image,

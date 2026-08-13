@@ -2025,6 +2025,7 @@ function createEditorExtensions(
     StarterKit.configure({
       codeBlock: false,
       link: false,
+      paragraph: false,
       undoRedo: collaboration ? false : undefined,
     }),
     Placeholder.configure({

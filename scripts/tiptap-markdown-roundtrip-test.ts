@@ -91,6 +91,35 @@ function collectTableAlignments(node: JsonNode): string[] {
   ];
 }
 
+function collectTableCellContentTypes(node: JsonNode): string[] {
+  return [
+    ...(node.type === 'tableCell' || node.type === 'tableHeader'
+      ? [node.content?.[0]?.type ?? 'missing']
+      : []),
+    ...(node.content ?? []).flatMap(collectTableCellContentTypes),
+  ];
+}
+
+function findEmptyTableCellTextPosition(editor: TiptapEditor): number | null {
+  let found: number | null = null;
+
+  editor.state.doc.descendants((node, position) => {
+    if (found !== null) return false;
+    if (
+      (node.type.name === 'tableCell' || node.type.name === 'tableHeader')
+      && node.textContent === ''
+      && node.firstChild?.type.name === 'paragraph'
+    ) {
+      found = position + 2;
+      return false;
+    }
+
+    return true;
+  });
+
+  return found;
+}
+
 function findDocTextPosition(editor: TiptapEditor, text: string): number | null {
   let found: number | null = null;
 
@@ -234,7 +263,7 @@ async function main() {
     content: sampleMarkdown,
     contentType: 'markdown',
     extensions: [
-      StarterKit.configure({ link: false }),
+      StarterKit.configure({ link: false, paragraph: false }),
       Link.configure({ openOnClick: false }),
       Mathematics.configure({
         katexOptions: {
@@ -275,6 +304,12 @@ async function main() {
   const nodeTypes = collectNodeTypes(json);
   const markTypes = collectMarkTypes(json);
   const tableAlignments = collectTableAlignments(json);
+
+  assert.equal(
+    editor.schema.topNodeType.contentMatch.defaultType?.name,
+    'paragraph',
+    'paragraphs must remain the default block so empty containers never auto-fill with callouts',
+  );
 
   assert.match(output, /^# Title/m);
   assert.match(output, /\*\*bold\*\*/);
@@ -399,6 +434,35 @@ $$`));
     getReorderableBlockRangeAt(editor, tablePosition ?? 0)?.kind,
     'topLevel',
     'tables should drag as top-level blocks',
+  );
+
+  const calloutCountBeforeBlankTable = collectNodeTypes(editor.getJSON())
+    .filter((type) => type === 'canvasCallout').length;
+  editor.commands.insertContentAt(editor.state.doc.content.size, { type: 'paragraph' });
+  editor.commands.setTextSelection(editor.state.doc.content.size - 1);
+  assert.equal(
+    editor.commands.insertTable({ rows: 3, cols: 3, withHeaderRow: true }),
+    true,
+    'a blank table should be insertable',
+  );
+  const tableCellContentTypes = collectTableCellContentTypes(editor.getJSON());
+  assert.ok(tableCellContentTypes.length >= 9, 'the inserted table should expose all editable cells');
+  assert.ok(
+    tableCellContentTypes.every((type) => type === 'paragraph'),
+    'every table cell must start with an editable paragraph instead of a callout',
+  );
+  assert.equal(
+    collectNodeTypes(editor.getJSON()).filter((type) => type === 'canvasCallout').length,
+    calloutCountBeforeBlankTable,
+    'inserting a table must not add phantom callouts to cells or the document',
+  );
+  const emptyCellPosition = findEmptyTableCellTextPosition(editor);
+  assert.notEqual(emptyCellPosition, null, 'a blank table cell should expose a text cursor position');
+  editor.commands.setTextSelection(emptyCellPosition ?? 0);
+  editor.commands.insertContent('Editable cell');
+  assert.ok(
+    editor.state.doc.textContent.includes('Editable cell'),
+    'users must be able to type into a newly inserted table cell',
   );
 
   const smallEditor = new Editor({
