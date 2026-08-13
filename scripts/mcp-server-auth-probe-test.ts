@@ -121,6 +121,42 @@ async function main(): Promise<void> {
     assert.equal(proxyResponse.headers.get('x-middleware-next'), '1');
     assert.equal(proxyResponse.headers.get('x-middleware-rewrite'), null);
 
+    const untrustedOriginResponse = await mcpRoute.POST(new Request(`${ORIGIN}/mcp`, {
+      method: 'POST',
+      headers: {
+        accept: MCP_ACCEPT,
+        'content-type': 'application/json',
+        'mcp-protocol-version': MCP_PROTOCOL_VERSION,
+        origin: 'https://attacker.example.test',
+      },
+      body: JSON.stringify({
+        jsonrpc: '2.0',
+        id: 0,
+        method: 'initialize',
+        params: {
+          protocolVersion: MCP_PROTOCOL_VERSION,
+          capabilities: {},
+          clientInfo: { name: 'untrusted-origin', version: '1.0.0' },
+        },
+      }),
+    }));
+    assert.equal(untrustedOriginResponse.status, 403);
+    assert.equal(untrustedOriginResponse.headers.get('access-control-allow-origin'), null);
+
+    const trustedPreflight = mcpRoute.OPTIONS(new Request(`${ORIGIN}/mcp`, {
+      method: 'OPTIONS',
+      headers: { origin: ORIGIN },
+    }));
+    assert.equal(trustedPreflight.status, 204);
+    assert.equal(trustedPreflight.headers.get('access-control-allow-origin'), ORIGIN);
+    assert.match(trustedPreflight.headers.get('vary') || '', /Origin/u);
+
+    const untrustedPreflight = mcpRoute.OPTIONS(new Request(`${ORIGIN}/mcp`, {
+      method: 'OPTIONS',
+      headers: { origin: 'https://attacker.example.test' },
+    }));
+    assert.equal(untrustedPreflight.status, 403);
+
     const registrationRequest = new Request(`${issuer}/oauth2/register`, {
       method: 'POST',
       headers: {
@@ -369,10 +405,12 @@ async function main(): Promise<void> {
     });
     assert.equal(invalidAccept.status, 406);
 
-    const getResponse = mcpRoute.GET();
+    const getResponse = mcpRoute.GET(new Request(`${ORIGIN}/mcp`));
     assert.equal(getResponse.status, 405);
     assert.equal(getResponse.headers.get('allow'), 'POST, OPTIONS');
-    const optionsResponse = mcpRoute.OPTIONS();
+    const optionsResponse = mcpRoute.OPTIONS(new Request(`${ORIGIN}/mcp`, {
+      method: 'OPTIONS',
+    }));
     assert.equal(optionsResponse.status, 204);
     assert.ok(
       optionsResponse.headers

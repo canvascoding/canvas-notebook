@@ -13,6 +13,7 @@ import {
   isDirectMcpEnabled,
   resolveDirectMcpServerConfig,
 } from '@/app/lib/mcp/server/config';
+import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 
 const MCP_ALLOWED_METHODS = 'POST, GET, DELETE, OPTIONS';
 const MCP_ALLOWED_HEADERS = [
@@ -29,9 +30,13 @@ const MCP_EXPOSED_HEADERS = [
   'www-authenticate',
 ].join(', ');
 
-function withDirectMcpHeaders(response: Response): Response {
+function withDirectMcpHeaders(response: Response, request?: Request): Response {
   const headers = new Headers(response.headers);
-  headers.set('access-control-allow-origin', '*');
+  const requestOrigin = request?.headers.get('origin');
+  if (requestOrigin && isConfiguredTrustedOrigin(requestOrigin)) {
+    headers.set('access-control-allow-origin', new URL(requestOrigin).origin);
+    headers.append('vary', 'Origin');
+  }
   headers.set('access-control-expose-headers', MCP_EXPOSED_HEADERS);
   headers.set('cache-control', 'no-store');
   headers.set('x-content-type-options', 'nosniff');
@@ -40,6 +45,22 @@ function withDirectMcpHeaders(response: Response): Response {
     statusText: response.statusText,
     headers,
   });
+}
+
+function rejectUntrustedOrigin(request: Request): Response | null {
+  const origin = request.headers.get('origin');
+  if (!origin || isConfiguredTrustedOrigin(origin)) return null;
+
+  return withDirectMcpHeaders(Response.json({
+    jsonrpc: '2.0',
+    error: {
+      code: -32000,
+      message: 'Forbidden: untrusted Origin header.',
+    },
+    id: null,
+  }, {
+    status: 403,
+  }), request);
 }
 
 function directMcpNotFound(): Response {
@@ -84,13 +105,15 @@ async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> 
 
 export async function handleDirectMcpPost(request: Request): Promise<Response> {
   if (!isDirectMcpEnabled()) return directMcpNotFound();
+  const originRejection = rejectUntrustedOrigin(request);
+  if (originRejection) return originRejection;
 
   let authInfo: AuthInfo | undefined;
   try {
     authInfo = await resolveAuthInfo(request);
   } catch (error) {
     if (error instanceof DirectMcpAuthorizationError) {
-      return withDirectMcpHeaders(error.toResponse());
+      return withDirectMcpHeaders(error.toResponse(), request);
     }
     throw error;
   }
@@ -103,28 +126,35 @@ export async function handleDirectMcpPost(request: Request): Promise<Response> {
   try {
     await server.connect(transport);
     const response = await transport.handleRequest(request, { authInfo });
-    return withDirectMcpHeaders(response);
+    return withDirectMcpHeaders(response, request);
   } finally {
     await server.close().catch(() => undefined);
   }
 }
 
-export function handleDirectMcpUnsupportedMethod(): Response {
+export function handleDirectMcpUnsupportedMethod(request: Request): Response {
   if (!isDirectMcpEnabled()) return directMcpNotFound();
-  return methodNotAllowed();
+  return rejectUntrustedOrigin(request) || methodNotAllowed();
 }
 
-export function handleDirectMcpOptions(): Response {
+export function handleDirectMcpOptions(request: Request): Response {
   if (!isDirectMcpEnabled()) return directMcpNotFound();
+  const originRejection = rejectUntrustedOrigin(request);
+  if (originRejection) return originRejection;
+  const origin = request.headers.get('origin');
+  const headers = new Headers({
+    'access-control-allow-headers': MCP_ALLOWED_HEADERS,
+    'access-control-allow-methods': MCP_ALLOWED_METHODS,
+    'access-control-expose-headers': MCP_EXPOSED_HEADERS,
+    'access-control-max-age': '300',
+    allow: MCP_ALLOWED_METHODS,
+  });
+  if (origin && isConfiguredTrustedOrigin(origin)) {
+    headers.set('access-control-allow-origin', new URL(origin).origin);
+    headers.append('vary', 'Origin');
+  }
   return new Response(null, {
     status: 204,
-    headers: {
-      'access-control-allow-headers': MCP_ALLOWED_HEADERS,
-      'access-control-allow-methods': MCP_ALLOWED_METHODS,
-      'access-control-allow-origin': '*',
-      'access-control-expose-headers': MCP_EXPOSED_HEADERS,
-      'access-control-max-age': '300',
-      allow: MCP_ALLOWED_METHODS,
-    },
+    headers,
   });
 }
