@@ -12,6 +12,7 @@ import { toUploadMediaUrl, toUploadPreviewUrl } from '@/app/lib/utils/media-url'
 export const dynamic = 'force-dynamic';
 
 const MAX_ATTACHMENT_BYTES = 10 * 1024 * 1024;
+const MAX_ATTACHMENTS = 4;
 const responseHeaders = {
   'Cache-Control': 'no-store, max-age=0',
   'Vary': 'Cookie, X-Canvas-Workspace-Id',
@@ -55,41 +56,71 @@ export async function POST(
     });
     const parsed = await parseMultipartFormData(request);
     if (!parsed.ok) return parsed.response;
-    const value = parsed.formData.get('file');
-    if (!(value instanceof File)) {
-      throw new MobileChatError('ATTACHMENT_REQUIRED', 'Choose one file to attach.', 400);
+    const values = parsed.formData.getAll('file');
+    if (values.length === 0 || values.some((value) => !(value instanceof File))) {
+      throw new MobileChatError('ATTACHMENT_REQUIRED', 'Choose at least one file to attach.', 400);
     }
-    if (value.size < 1 || value.size > MAX_ATTACHMENT_BYTES) {
+    if (values.length > MAX_ATTACHMENTS) {
+      throw new MobileChatError(
+        'ATTACHMENT_LIMIT_EXCEEDED',
+        `A message can contain up to ${MAX_ATTACHMENTS} attachments.`,
+        400,
+      );
+    }
+
+    const files = values as File[];
+    if (files.length === 1 && (files[0].size < 1 || files[0].size > MAX_ATTACHMENT_BYTES)) {
       throw new MobileChatError('ATTACHMENT_SIZE_INVALID', 'Attachments must be between 1 byte and 10 MB.', 413);
     }
-    const originalMimeType = value.type || 'application/octet-stream';
-    let normalized;
-    try {
-      normalized = await normalizeUploadImageBuffer({
-        buffer: Buffer.from(await value.arrayBuffer()),
-        filename: value.name,
-        mimeType: originalMimeType,
-        convertParams: null,
-      });
-    } catch (error) {
-      throw new MobileChatError('ATTACHMENT_INVALID', getImageConversionErrorMessage(value.name, error), 400);
+
+    const attachments = [];
+    const errors: string[] = [];
+    for (const file of files) {
+      if (file.size < 1 || file.size > MAX_ATTACHMENT_BYTES) {
+        errors.push(`${file.name}: Attachments must be between 1 byte and 10 MB.`);
+        continue;
+      }
+      try {
+        const originalMimeType = file.type || 'application/octet-stream';
+        const normalized = await normalizeUploadImageBuffer({
+          buffer: Buffer.from(await file.arrayBuffer()),
+          filename: file.name,
+          mimeType: originalMimeType,
+          convertParams: null,
+        });
+        const saved = await saveUploadBuffer(normalized.buffer, normalized.filename, normalized.mimeType, {
+          ownerUserId: authSession.user.id,
+          workspaceId,
+        });
+        const isImage = saved.category === 'image' || saved.mimeType.startsWith('image/');
+        attachments.push({
+          id: saved.id,
+          name: saved.originalName,
+          contentKind: isImage ? 'image' : 'document',
+          mimeType: saved.mimeType,
+          size: saved.size,
+          previewUrl: isImage ? toUploadPreviewUrl(saved.id, 192, { preset: 'mini' }) : null,
+          mediaUrl: isImage ? toUploadMediaUrl(saved.id) : null,
+        });
+      } catch (error) {
+        errors.push(getImageConversionErrorMessage(file.name, error));
+      }
     }
-    const saved = await saveUploadBuffer(normalized.buffer, normalized.filename, normalized.mimeType, {
-      ownerUserId: authSession.user.id,
-      workspaceId,
-    });
-    const isImage = saved.category === 'image' || saved.mimeType.startsWith('image/');
+    if (attachments.length === 0) {
+      throw new MobileChatError(
+        'ATTACHMENT_INVALID',
+        errors.join('; ') || 'None of the attachments could be uploaded.',
+        400,
+      );
+    }
+
     return NextResponse.json({
       success: true,
-      attachment: {
-        id: saved.id,
-        name: saved.originalName,
-        contentKind: isImage ? 'image' : 'document',
-        mimeType: saved.mimeType,
-        size: saved.size,
-        previewUrl: isImage ? toUploadPreviewUrl(saved.id, 192, { preset: 'mini' }) : null,
-        mediaUrl: isImage ? toUploadMediaUrl(saved.id) : null,
-      },
+      // Keep the singular field for existing app versions while exposing the
+      // complete batch to clients that submit multiple `file` parts.
+      attachment: attachments[0],
+      attachments,
+      errors: errors.length > 0 ? errors : undefined,
     }, { status: 201, headers: responseHeaders });
   } catch (error) {
     return errorResponse(error);
