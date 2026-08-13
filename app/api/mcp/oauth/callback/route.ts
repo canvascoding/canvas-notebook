@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { completeMcpOAuthCallback } from '@/app/lib/mcp/oauth';
+import { completeMcpOAuthCallback, rejectMcpOAuthCallback } from '@/app/lib/mcp/oauth';
 
 function escapeHtml(value: string): string {
   return value
@@ -32,16 +32,26 @@ export async function GET(request: NextRequest) {
   const code = request.nextUrl.searchParams.get('code');
   const state = request.nextUrl.searchParams.get('state');
   const error = request.nextUrl.searchParams.get('error');
+  const responseIssuer = request.nextUrl.searchParams.get('iss');
 
   if (error) {
-    return htmlResponse('MCP OAuth failed', `Provider returned: ${error}`, 400);
+    if (!state) {
+      return htmlResponse('MCP OAuth failed', 'Missing OAuth state.', 400);
+    }
+    try {
+      await rejectMcpOAuthCallback(state, responseIssuer, { userId: session.user.id });
+      return htmlResponse('MCP OAuth failed', `Provider returned: ${error}`, 400);
+    } catch (callbackError) {
+      const message = callbackError instanceof Error ? callbackError.message : 'OAuth callback failed.';
+      return htmlResponse('MCP OAuth failed', message, 400);
+    }
   }
   if (!code || !state) {
     return htmlResponse('MCP OAuth failed', 'Missing authorization code or state.', 400);
   }
 
   try {
-    const token = await completeMcpOAuthCallback(code, state, { userId: session.user.id });
+    const token = await completeMcpOAuthCallback(code, state, responseIssuer, { userId: session.user.id });
     return htmlResponse('MCP OAuth complete', `Authorization saved for ${token.serverName}. You can close this window.`);
   } catch (callbackError) {
     const message = callbackError instanceof Error ? callbackError.message : 'OAuth callback failed.';

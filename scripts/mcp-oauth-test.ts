@@ -35,6 +35,7 @@ async function main() {
   let refreshCalls = 0;
   let registrationCalls = 0;
   const registeredRedirectUris: string[] = [];
+  const registeredApplicationTypes: string[] = [];
   const server = http.createServer(async (req, res) => {
     if (req.url === '/register' && req.method === 'POST') {
       const body = await readJson(req);
@@ -42,6 +43,7 @@ async function main() {
         ? body.redirect_uris.filter((value): value is string => typeof value === 'string')
         : [];
       registeredRedirectUris.push(...redirectUris);
+      if (typeof body.application_type === 'string') registeredApplicationTypes.push(body.application_type);
       registrationCalls += 1;
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({ client_id: 'dynamic-client', client_secret: 'dynamic-secret' }));
@@ -54,6 +56,9 @@ async function main() {
         authorization_endpoint: `${baseUrl}/authorize`,
         token_endpoint: `${baseUrl}/token`,
         registration_endpoint: `${baseUrl}/register`,
+        code_challenge_methods_supported: ['S256'],
+        authorization_response_iss_parameter_supported: true,
+        client_id_metadata_document_supported: true,
       }));
       return;
     }
@@ -65,6 +70,15 @@ async function main() {
       }));
       return;
     }
+    if (req.url === '/.well-known/oauth-protected-resource/oidc/mcp' && req.method === 'GET') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        resource: `${baseUrl}/oidc/mcp`,
+        authorization_servers: [`${baseUrl}/oidc-auth`],
+        scopes_supported: ['tools', 'resources'],
+      }));
+      return;
+    }
     if (req.url === '/.well-known/oauth-authorization-server/tenant-auth' && req.method === 'GET') {
       res.setHeader('Content-Type', 'application/json');
       res.end(JSON.stringify({
@@ -72,6 +86,19 @@ async function main() {
         authorization_endpoint: `${baseUrl}/tenant-auth/authorize`,
         token_endpoint: `${baseUrl}/token`,
         registration_endpoint: `${baseUrl}/register`,
+        code_challenge_methods_supported: ['S256'],
+        authorization_response_iss_parameter_supported: true,
+      }));
+      return;
+    }
+    if (req.url === '/.well-known/openid-configuration/oidc-auth' && req.method === 'GET') {
+      res.setHeader('Content-Type', 'application/json');
+      res.end(JSON.stringify({
+        issuer: `${baseUrl}/oidc-auth`,
+        authorization_endpoint: `${baseUrl}/oidc-auth/authorize`,
+        token_endpoint: `${baseUrl}/token`,
+        registration_endpoint: `${baseUrl}/register`,
+        code_challenge_methods_supported: ['S256'],
       }));
       return;
     }
@@ -80,6 +107,7 @@ async function main() {
       res.setHeader('Content-Type', 'application/json');
       if (form.get('grant_type') === 'refresh_token') {
         assert.equal(req.headers.authorization, `Basic ${Buffer.from('dynamic-client:dynamic-secret').toString('base64')}`);
+        assert.equal(form.get('resource'), 'https://example.test/mcp');
         refreshCalls += 1;
         res.end(JSON.stringify({
           access_token: 'refreshed-token',
@@ -93,6 +121,7 @@ async function main() {
       assert.equal(form.get('grant_type'), 'authorization_code');
       assert.equal(form.get('code'), 'auth-code');
       assert.equal(Boolean(form.get('code_verifier')), true);
+      assert.equal(form.get('resource'), 'https://example.test/mcp');
       res.end(JSON.stringify({
         access_token: 'initial-token',
         refresh_token: 'refresh-token-1',
@@ -117,6 +146,7 @@ async function main() {
       clearMcpOAuth,
       completeMcpOAuthCallback,
       getMcpOAuthStatus,
+      getMcpOAuthClientMetadata,
       getOAuthTokenPath,
       getValidMcpAccessToken,
       startMcpOAuth,
@@ -147,13 +177,24 @@ async function main() {
     assert.equal(authorizationUrl.searchParams.get('redirect_uri'), 'http://localhost:3000/api/mcp/oauth/callback');
     assert.equal(authorizationUrl.searchParams.get('code_challenge_method'), 'S256');
     assert.equal(Boolean(authorizationUrl.searchParams.get('code_challenge')), true);
+    assert.equal(authorizationUrl.searchParams.get('resource'), 'https://example.test/mcp');
     assert.equal(registrationCalls, 1);
     assert.deepEqual(registeredRedirectUris, ['http://localhost:3000/api/mcp/oauth/callback']);
 
     const productionStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
     const productionAuthorizationUrl = new URL(productionStarted.authorizationUrl);
     assert.equal(productionAuthorizationUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/mcp/oauth/callback');
-    assert.equal(registrationCalls, 2);
+    assert.equal(productionAuthorizationUrl.searchParams.get('client_id'), 'https://canvas.example.com/api/mcp/oauth/client-metadata');
+    assert.equal(registrationCalls, 1);
+    assert.deepEqual(getMcpOAuthClientMetadata('https://canvas.example.com'), {
+      client_id: 'https://canvas.example.com/api/mcp/oauth/client-metadata',
+      client_name: 'Canvas Notebook MCP',
+      client_uri: 'https://canvas.example.com',
+      redirect_uris: ['https://canvas.example.com/api/mcp/oauth/callback'],
+      grant_types: ['authorization_code', 'refresh_token'],
+      response_types: ['code'],
+      token_endpoint_auth_method: 'none',
+    });
 
     let status = await getMcpOAuthStatus('remote', 'https://canvas.example.com');
     assert.equal(status.redirectUri, 'https://canvas.example.com/api/mcp/oauth/callback');
@@ -162,25 +203,26 @@ async function main() {
     const publicStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
     const publicAuthorizationUrl = new URL(publicStarted.authorizationUrl);
     assert.equal(publicAuthorizationUrl.searchParams.get('redirect_uri'), 'https://canvas.example.com/api/mcp/oauth/callback');
-    assert.equal(registrationCalls, 2);
+    assert.equal(publicAuthorizationUrl.searchParams.get('client_id'), 'https://canvas.example.com/api/mcp/oauth/client-metadata');
+    assert.equal(registrationCalls, 1);
 
     process.env.MCP_OAUTH_BASE_URL = 'https://mcp-callback.example.com';
     const overrideStarted = await startMcpOAuth('remote', 'https://canvas.example.com');
     const overrideAuthorizationUrl = new URL(overrideStarted.authorizationUrl);
     assert.equal(overrideAuthorizationUrl.searchParams.get('redirect_uri'), 'https://mcp-callback.example.com/api/mcp/oauth/callback');
-    assert.equal(registrationCalls, 3);
+    assert.equal(overrideAuthorizationUrl.searchParams.get('client_id'), 'https://mcp-callback.example.com/api/mcp/oauth/client-metadata');
+    assert.equal(registrationCalls, 1);
     delete process.env.MCP_OAUTH_BASE_URL;
 
-    assert.deepEqual(registeredRedirectUris, [
-      'http://localhost:3000/api/mcp/oauth/callback',
-      'https://canvas.example.com/api/mcp/oauth/callback',
-      'https://mcp-callback.example.com/api/mcp/oauth/callback',
-    ]);
+    assert.deepEqual(registeredRedirectUris, ['http://localhost:3000/api/mcp/oauth/callback']);
+    assert.deepEqual(registeredApplicationTypes, ['native']);
     process.env.BASE_URL = 'http://localhost:3000';
 
-    const token = await completeMcpOAuthCallback('auth-code', started.state);
+    const token = await completeMcpOAuthCallback('auth-code', started.state, baseUrl);
     assert.equal(token.accessToken, 'initial-token');
     assert.equal(token.refreshToken, 'refresh-token-1');
+    assert.equal(token.issuer, baseUrl);
+    assert.equal(token.resource, 'https://example.test/mcp');
     assert.equal(getOAuthTokenPath('remote'), path.join(tempRoot, 'settings', 'mcp-oauth', 'remote', 'tokens.json'));
     assert.equal(await modeOf(getOAuthTokenPath('remote')), 0o600);
 
@@ -234,6 +276,26 @@ async function main() {
     const pathDiscoveredUrl = new URL(pathDiscovered.authorizationUrl);
     assert.equal(pathDiscoveredUrl.origin + pathDiscoveredUrl.pathname, `${baseUrl}/tenant-auth/authorize`);
     assert.equal(pathDiscoveredUrl.searchParams.get('client_id'), 'dynamic-client');
+    assert.equal(pathDiscoveredUrl.searchParams.get('resource'), `${baseUrl}/tenant/mcp`);
+
+    const oidcConfig = {
+      url: `${baseUrl}/oidc/mcp`,
+      auth: 'oauth',
+    };
+    await writeMcpConfigRaw(JSON.stringify({
+      settings: { toolPrefix: 'server', idleTimeout: 10 },
+      mcpServers: { oidcDiscovered: oidcConfig },
+    }, null, 2));
+    const oidcDiscovered = await startMcpOAuth('oidcDiscovered', 'http://localhost:3000');
+    const oidcDiscoveredUrl = new URL(oidcDiscovered.authorizationUrl);
+    assert.equal(oidcDiscoveredUrl.origin + oidcDiscoveredUrl.pathname, `${baseUrl}/oidc-auth/authorize`);
+    assert.equal(oidcDiscoveredUrl.searchParams.get('resource'), `${baseUrl}/oidc/mcp`);
+    assert.equal(oidcDiscoveredUrl.searchParams.get('scope'), 'tools resources');
+
+    await assert.rejects(
+      () => completeMcpOAuthCallback('auth-code', overrideStarted.state, `${baseUrl}/unexpected`),
+      /issuer does not exactly match/u,
+    );
 
     await writeMcpConfigRaw(JSON.stringify({
       settings: { toolPrefix: 'server', idleTimeout: 10 },

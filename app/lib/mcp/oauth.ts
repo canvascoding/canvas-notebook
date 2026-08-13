@@ -26,17 +26,28 @@ type OAuthServerConfig = {
   redirectUri?: string;
 };
 
-type OAuthEndpoints = Required<Pick<OAuthServerConfig, 'authorizationUrl' | 'tokenUrl'>> & Pick<OAuthServerConfig, 'registrationUrl'>;
+type AuthorizationServerMetadata = Required<Pick<OAuthServerConfig, 'authorizationUrl' | 'tokenUrl'>> & Pick<OAuthServerConfig, 'registrationUrl'> & {
+  issuer: string;
+  authorizationResponseIssParameterSupported: boolean;
+  clientIdMetadataDocumentSupported: boolean;
+};
+
+type OAuthResolution = AuthorizationServerMetadata & {
+  resource: string;
+  scopesSupported: string[];
+};
 
 type ProtectedResourceMetadata = {
   resource?: string;
   authorization_servers?: string[];
+  scopes_supported?: string[];
 };
 
 type OAuthClientRecord = {
   clientId?: string;
   clientSecret?: string;
   redirectUri?: string;
+  issuer?: string;
   registeredAt?: string;
 };
 
@@ -50,6 +61,9 @@ type OAuthStateRecord = {
   clientSecret?: string;
   scope?: string;
   serverUrl?: string;
+  issuer: string;
+  resource: string;
+  authorizationResponseIssParameterSupported: boolean;
   configHash: string;
   createdAt: string;
   expiresAt: string;
@@ -58,6 +72,8 @@ type OAuthStateRecord = {
 export type OAuthTokenRecord = {
   serverName: string;
   serverUrl?: string;
+  issuer: string;
+  resource: string;
   configHash: string;
   clientId: string;
   scope?: string;
@@ -83,6 +99,16 @@ export type McpOAuthStartResult = {
   authorizationUrl: string;
   state: string;
   redirectUri: string;
+};
+
+export type McpOAuthClientMetadata = {
+  client_id: string;
+  client_name: string;
+  client_uri: string;
+  redirect_uris: string[];
+  grant_types: string[];
+  response_types: string[];
+  token_endpoint_auth_method: 'none';
 };
 
 class McpOAuthError extends Error {
@@ -183,23 +209,63 @@ function getRedirectUri(oauth: OAuthServerConfig, requestOrigin: string | null |
   return oauth.redirectUri || `${origin}/api/mcp/oauth/callback`;
 }
 
-async function readAuthorizationServerMetadataUrl(metadataUrl: string): Promise<OAuthEndpoints> {
+export function getMcpOAuthClientMetadata(requestOrigin?: string | null): McpOAuthClientMetadata {
+  const origin = getOriginFromRequest(requestOrigin);
+  const clientId = `${origin}/api/mcp/oauth/client-metadata`;
+  return {
+    client_id: clientId,
+    client_name: 'Canvas Notebook MCP',
+    client_uri: origin,
+    redirect_uris: [`${origin}/api/mcp/oauth/callback`],
+    grant_types: ['authorization_code', 'refresh_token'],
+    response_types: ['code'],
+    token_endpoint_auth_method: 'none',
+  };
+}
+
+function requireAbsoluteUrl(value: string, label: string): string {
+  let parsed: URL;
+  try {
+    parsed = new URL(value);
+  } catch {
+    throw new McpOAuthError(`${label} must be an absolute URL.`);
+  }
+  if (parsed.hash) {
+    throw new McpOAuthError(`${label} must not contain a fragment.`);
+  }
+  return value;
+}
+
+async function readAuthorizationServerMetadataUrl(metadataUrl: string, expectedIssuer: string): Promise<AuthorizationServerMetadata> {
   const response = await fetch(await assertMcpHttpUrlAllowed(metadataUrl, 'OAuth authorization-server metadata URL'));
   if (!response.ok) {
     throw new McpOAuthError(`OAuth discovery failed with status ${response.status}.`, response.status);
   }
   const metadata = await response.json() as {
+    issuer?: string;
     authorization_endpoint?: string;
     token_endpoint?: string;
     registration_endpoint?: string;
+    code_challenge_methods_supported?: string[];
+    authorization_response_iss_parameter_supported?: boolean;
+    client_id_metadata_document_supported?: boolean;
   };
+  if (metadata.issuer !== expectedIssuer) {
+    throw new McpOAuthError('OAuth authorization-server metadata issuer does not exactly match the requested issuer.');
+  }
   if (!metadata.authorization_endpoint || !metadata.token_endpoint) {
     throw new McpOAuthError('OAuth discovery response is missing authorization_endpoint or token_endpoint.');
   }
+  if (!Array.isArray(metadata.code_challenge_methods_supported) || !metadata.code_challenge_methods_supported.includes('S256')) {
+    throw new McpOAuthError('OAuth authorization server does not advertise required PKCE S256 support.');
+  }
   return {
+    issuer: expectedIssuer,
     authorizationUrl: metadata.authorization_endpoint,
     tokenUrl: metadata.token_endpoint,
     registrationUrl: metadata.registration_endpoint,
+    authorizationResponseIssParameterSupported: metadata.authorization_response_iss_parameter_supported === true,
+    clientIdMetadataDocumentSupported: metadata.client_id_metadata_document_supported === true,
   };
 }
 
@@ -209,33 +275,56 @@ async function readProtectedResourceMetadataUrl(metadataUrl: string): Promise<Pr
     throw new McpOAuthError(`OAuth protected resource discovery failed with status ${response.status}.`, response.status);
   }
   const metadata = await response.json() as ProtectedResourceMetadata;
+  const resource = typeof metadata.resource === 'string'
+    ? requireAbsoluteUrl(metadata.resource, 'OAuth protected resource identifier')
+    : undefined;
   return {
-    resource: typeof metadata.resource === 'string' ? metadata.resource : undefined,
+    resource,
     authorization_servers: Array.isArray(metadata.authorization_servers)
       ? metadata.authorization_servers.filter((issuer): issuer is string => typeof issuer === 'string' && issuer.trim().length > 0)
+      : undefined,
+    scopes_supported: Array.isArray(metadata.scopes_supported)
+      ? metadata.scopes_supported.filter((entry): entry is string => typeof entry === 'string' && entry.trim().length > 0)
       : undefined,
   };
 }
 
-function buildWellKnownUrls(baseUrl: string, metadataName: 'oauth-authorization-server' | 'oauth-protected-resource'): string[] {
+function buildProtectedResourceMetadataUrls(baseUrl: string): string[] {
   const url = new URL(baseUrl);
   const pathname = url.pathname.replace(/\/+$/u, '');
   const candidates: string[] = [];
 
   if (pathname) {
-    candidates.push(new URL(`/.well-known/${metadataName}${pathname}`, url.origin).toString());
+    candidates.push(new URL(`/.well-known/oauth-protected-resource${pathname}`, url.origin).toString());
   }
-  candidates.push(new URL(`/.well-known/${metadataName}`, url.origin).toString());
+  candidates.push(new URL('/.well-known/oauth-protected-resource', url.origin).toString());
   return Array.from(new Set(candidates));
 }
 
-async function readAuthorizationServerMetadata(issuer: string): Promise<OAuthEndpoints> {
-  const candidates = buildWellKnownUrls(issuer, 'oauth-authorization-server');
+function buildAuthorizationServerMetadataUrls(issuer: string): string[] {
+  const url = new URL(requireAbsoluteUrl(issuer, 'OAuth authorization server issuer'));
+  const pathname = url.pathname.replace(/\/+$/u, '');
+  const candidates: string[] = [];
+
+  if (pathname) {
+    candidates.push(new URL(`/.well-known/oauth-authorization-server${pathname}`, url.origin).toString());
+    candidates.push(new URL(`/.well-known/openid-configuration${pathname}`, url.origin).toString());
+    candidates.push(`${issuer.replace(/\/+$/u, '')}/.well-known/openid-configuration`);
+  } else {
+    candidates.push(new URL('/.well-known/oauth-authorization-server', url.origin).toString());
+    candidates.push(new URL('/.well-known/openid-configuration', url.origin).toString());
+  }
+
+  return Array.from(new Set(candidates));
+}
+
+async function readAuthorizationServerMetadata(issuer: string): Promise<AuthorizationServerMetadata> {
+  const candidates = buildAuthorizationServerMetadataUrls(issuer);
   let lastError: unknown = null;
 
   for (const metadataUrl of candidates) {
     try {
-      return await readAuthorizationServerMetadataUrl(metadataUrl);
+      return await readAuthorizationServerMetadataUrl(metadataUrl, issuer);
     } catch (error) {
       lastError = error;
     }
@@ -245,7 +334,7 @@ async function readAuthorizationServerMetadata(issuer: string): Promise<OAuthEnd
 }
 
 async function discoverProtectedResourceMetadata(serverUrl: string): Promise<ProtectedResourceMetadata | null> {
-  const candidates = buildWellKnownUrls(serverUrl, 'oauth-protected-resource');
+  const candidates = buildProtectedResourceMetadataUrls(serverUrl);
   let lastNonNotFoundError: unknown = null;
 
   for (const metadataUrl of candidates) {
@@ -263,67 +352,94 @@ async function discoverProtectedResourceMetadata(serverUrl: string): Promise<Pro
   return null;
 }
 
-async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: McpServerConfig): Promise<OAuthEndpoints> {
-  if (oauth.authorizationUrl && oauth.tokenUrl) {
-    return {
-      authorizationUrl: oauth.authorizationUrl,
-      tokenUrl: oauth.tokenUrl,
-      registrationUrl: oauth.registrationUrl,
-    };
-  }
-
+async function resolveOAuthEndpoints(oauth: OAuthServerConfig, serverConfig?: McpServerConfig): Promise<OAuthResolution> {
   const issuers: string[] = [];
-  if (oauth.issuer) {
-    issuers.push(oauth.issuer);
-  }
+  let protectedResourceMetadata: ProtectedResourceMetadata | null = null;
 
   if (oauth.resourceMetadataUrl) {
-    const protectedResourceMetadata = await readProtectedResourceMetadataUrl(oauth.resourceMetadataUrl);
-    issuers.push(...(protectedResourceMetadata.authorization_servers || []));
+    protectedResourceMetadata = await readProtectedResourceMetadataUrl(oauth.resourceMetadataUrl);
   }
 
   const serverUrl = typeof serverConfig?.url === 'string' ? serverConfig.url.trim() : '';
-  if (serverUrl) {
-    const protectedResourceMetadata = await discoverProtectedResourceMetadata(serverUrl).catch((error) => {
-      if (oauth.issuer || oauth.resourceMetadataUrl) return null;
+  if (!protectedResourceMetadata && serverUrl) {
+    protectedResourceMetadata = await discoverProtectedResourceMetadata(serverUrl).catch((error) => {
+      if (oauth.issuer || (oauth.authorizationUrl && oauth.tokenUrl)) return null;
       throw error;
     });
-    if (protectedResourceMetadata?.authorization_servers?.length) {
-      issuers.push(...protectedResourceMetadata.authorization_servers);
-    }
-    issuers.push(new URL(serverUrl).origin);
   }
 
-  const uniqueIssuers = Array.from(new Set(issuers.map((issuer) => issuer.replace(/\/+$/u, '')).filter(Boolean)));
+  if (oauth.issuer) issuers.push(oauth.issuer);
+  issuers.push(...(protectedResourceMetadata?.authorization_servers || []));
+  if (!issuers.length && oauth.authorizationUrl) issuers.push(new URL(oauth.authorizationUrl).origin);
+  if (!issuers.length && serverUrl) issuers.push(new URL(serverUrl).origin);
+
+  const resource = protectedResourceMetadata?.resource
+    || (serverUrl ? requireAbsoluteUrl(serverUrl, 'MCP server URL') : '');
+  if (!resource) {
+    throw new McpOAuthError('OAuth MCP server requires an HTTP url or protected resource metadata with a resource identifier.');
+  }
+
+  const uniqueIssuers = Array.from(new Set(issuers.filter(Boolean)));
   let lastError: unknown = null;
   for (const issuer of uniqueIssuers) {
     try {
-      return await readAuthorizationServerMetadata(issuer);
+      const metadata = await readAuthorizationServerMetadata(issuer);
+      return {
+        ...metadata,
+        authorizationUrl: oauth.authorizationUrl || metadata.authorizationUrl,
+        tokenUrl: oauth.tokenUrl || metadata.tokenUrl,
+        registrationUrl: oauth.registrationUrl || metadata.registrationUrl,
+        resource,
+        scopesSupported: protectedResourceMetadata?.scopes_supported || [],
+      };
     } catch (error) {
       lastError = error;
     }
   }
 
   if (!uniqueIssuers.length) {
-    throw new McpOAuthError('OAuth MCP server requires oauth.authorizationUrl and oauth.tokenUrl, oauth.issuer, or an HTTP url for discovery.');
+    throw new McpOAuthError('OAuth MCP server requires oauth.issuer, protected resource metadata, or an HTTP url for discovery.');
   }
 
   throw lastError instanceof Error ? lastError : new McpOAuthError('OAuth discovery failed.');
 }
 
-async function resolveClient(serverName: string, oauth: OAuthServerConfig, redirectUri: string, registrationUrl?: string, scope?: McpScope | null): Promise<{ clientId: string; clientSecret?: string }> {
+function getOAuthApplicationType(redirectUri: string): 'native' | 'web' {
+  const hostname = new URL(redirectUri).hostname.toLowerCase();
+  return hostname === 'localhost' || hostname === '127.0.0.1' || hostname === '[::1]' || hostname === '::1'
+    ? 'native'
+    : 'web';
+}
+
+async function resolveClient(
+  serverName: string,
+  oauth: OAuthServerConfig,
+  redirectUri: string,
+  issuer: string,
+  clientIdMetadataDocumentSupported: boolean,
+  registrationUrl?: string,
+  scope?: McpScope | null,
+): Promise<{ clientId: string; clientSecret?: string }> {
   if (oauth.clientId) {
     return { clientId: oauth.clientId, clientSecret: oauth.clientSecret };
   }
 
+  const clientMetadataUrl = new URL('/api/mcp/oauth/client-metadata', redirectUri);
+  if (clientIdMetadataDocumentSupported && clientMetadataUrl.protocol === 'https:') {
+    return { clientId: clientMetadataUrl.toString() };
+  }
+
   const existing = await readJsonIfExists<OAuthClientRecord>(getOAuthClientRelativePath(serverName), scope);
-  if (existing?.clientId && existing.redirectUri === redirectUri) {
+  if (existing?.clientId && existing.redirectUri === redirectUri && existing.issuer === issuer) {
     return { clientId: existing.clientId, clientSecret: existing.clientSecret };
   }
 
   if (!registrationUrl) {
-    if (existing?.clientId && !existing.redirectUri) {
+    if (existing?.clientId && !existing.redirectUri && existing.issuer === issuer) {
       return { clientId: existing.clientId, clientSecret: existing.clientSecret };
+    }
+    if (existing?.clientId && existing.issuer !== issuer) {
+      throw new McpOAuthError(`Stored OAuth client for MCP server "${serverName}" belongs to a different authorization-server issuer. Clear OAuth credentials and authorize again.`);
     }
     if (existing?.clientId) {
       throw new McpOAuthError(`Stored OAuth client for MCP server "${serverName}" was registered with a different redirect URI. Clear OAuth credentials and authorize again.`);
@@ -339,6 +455,7 @@ async function resolveClient(serverName: string, oauth: OAuthServerConfig, redir
       redirect_uris: [redirectUri],
       grant_types: ['authorization_code', 'refresh_token'],
       response_types: ['code'],
+      application_type: getOAuthApplicationType(redirectUri),
     }),
   });
   if (!response.ok) {
@@ -353,6 +470,7 @@ async function resolveClient(serverName: string, oauth: OAuthServerConfig, redir
     clientId: registered.client_id,
     clientSecret: registered.client_secret,
     redirectUri,
+    issuer,
     registeredAt: new Date().toISOString(),
   } satisfies OAuthClientRecord;
   await writeJsonPrivate(getOAuthClientRelativePath(serverName), client, scope);
@@ -403,7 +521,13 @@ export async function getMcpOAuthStatus(serverName: string, requestOrigin?: stri
     const configHash = hashMcpServerConfig(serverConfig);
     const token = await readJsonIfExists<OAuthTokenRecord>(getOAuthTokenRelativePath(serverName), normalizedScope);
     const serverUrl = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
-    const bound = Boolean(token && token.configHash === configHash && (!serverUrl || token.serverUrl === serverUrl));
+    const bound = Boolean(
+      token
+      && token.configHash === configHash
+      && token.issuer
+      && token.resource
+      && (!serverUrl || token.serverUrl === serverUrl),
+    );
     const redirectUri = getRedirectUri(oauth, requestOrigin);
     return {
       serverName,
@@ -434,10 +558,20 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
   const { serverConfig, oauth, configHash } = await resolveServerForOAuth(serverName, normalizedScope);
   const redirectUri = getRedirectUri(oauth, requestOrigin);
   const endpoints = await resolveOAuthEndpoints(oauth, serverConfig);
-  const client = await resolveClient(serverName, oauth, redirectUri, endpoints.registrationUrl, normalizedScope);
+  const client = await resolveClient(
+    serverName,
+    oauth,
+    redirectUri,
+    endpoints.issuer,
+    endpoints.clientIdMetadataDocumentSupported,
+    endpoints.registrationUrl,
+    normalizedScope,
+  );
   const pkce = createPkcePair();
   const state = base64Url(crypto.randomBytes(24));
-  const oauthScope = Array.isArray(oauth.scopes) ? oauth.scopes.join(' ') : undefined;
+  const oauthScope = Array.isArray(oauth.scopes)
+    ? oauth.scopes.join(' ')
+    : (endpoints.scopesSupported.length ? endpoints.scopesSupported.join(' ') : undefined);
 
   const authorizationUrl = new URL(endpoints.authorizationUrl);
   authorizationUrl.searchParams.set('response_type', 'code');
@@ -446,6 +580,7 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
   authorizationUrl.searchParams.set('state', state);
   authorizationUrl.searchParams.set('code_challenge', pkce.challenge);
   authorizationUrl.searchParams.set('code_challenge_method', 'S256');
+  authorizationUrl.searchParams.set('resource', endpoints.resource);
   if (oauthScope) {
     authorizationUrl.searchParams.set('scope', oauthScope);
   }
@@ -460,6 +595,9 @@ export async function startMcpOAuth(serverName: string, requestOrigin?: string |
     clientSecret: client.clientSecret,
     scope: oauthScope,
     serverUrl: typeof serverConfig.url === 'string' ? serverConfig.url : undefined,
+    issuer: endpoints.issuer,
+    resource: endpoints.resource,
+    authorizationResponseIssParameterSupported: endpoints.authorizationResponseIssParameterSupported,
     configHash,
     createdAt: new Date().toISOString(),
     expiresAt: new Date(Date.now() + 10 * 60_000).toISOString(),
@@ -495,20 +633,26 @@ async function exchangeToken(params: URLSearchParams, tokenUrl: string, clientSe
   };
 }
 
-async function resolveClientSecretForRefresh(serverName: string, oauth: OAuthServerConfig | null, clientId: string, scope?: McpScope | null): Promise<string | undefined> {
+async function resolveClientSecretForRefresh(
+  serverName: string,
+  oauth: OAuthServerConfig | null,
+  clientId: string,
+  issuer: string,
+  scope?: McpScope | null,
+): Promise<string | undefined> {
   if (oauth?.clientSecret) {
     return oauth.clientSecret;
   }
 
-  const storedClient = await readJsonIfExists<{ clientId?: string; clientSecret?: string }>(getOAuthClientRelativePath(serverName), scope);
-  if (storedClient?.clientId === clientId) {
+  const storedClient = await readJsonIfExists<OAuthClientRecord>(getOAuthClientRelativePath(serverName), scope);
+  if (storedClient?.clientId === clientId && storedClient.issuer === issuer) {
     return storedClient.clientSecret;
   }
 
   return undefined;
 }
 
-export async function completeMcpOAuthCallback(code: string, state: string, scope?: McpScope | null): Promise<OAuthTokenRecord> {
+async function consumeOAuthState(state: string, responseIssuer: string | null | undefined, scope?: McpScope | null): Promise<OAuthStateRecord> {
   const normalizedScope = normalizeMcpScope(scope);
   const stateRelativePath = getOAuthStateRelativePath(state);
   const stored = await readJsonIfExists<OAuthStateRecord>(stateRelativePath, normalizedScope);
@@ -518,12 +662,35 @@ export async function completeMcpOAuthCallback(code: string, state: string, scop
   }
   await removeMcpStoragePath(stateRelativePath, normalizedScope);
 
+  if (stored.authorizationResponseIssParameterSupported && !responseIssuer) {
+    throw new McpOAuthError('OAuth authorization response is missing the required issuer parameter.');
+  }
+  if (responseIssuer && responseIssuer !== stored.issuer) {
+    throw new McpOAuthError('OAuth authorization response issuer does not exactly match the expected issuer.');
+  }
+  return stored;
+}
+
+export async function rejectMcpOAuthCallback(state: string, responseIssuer?: string | null, scope?: McpScope | null): Promise<void> {
+  await consumeOAuthState(state, responseIssuer, scope);
+}
+
+export async function completeMcpOAuthCallback(
+  code: string,
+  state: string,
+  responseIssuer?: string | null,
+  scope?: McpScope | null,
+): Promise<OAuthTokenRecord> {
+  const normalizedScope = normalizeMcpScope(scope);
+  const stored = await consumeOAuthState(state, responseIssuer, normalizedScope);
+
   const params = new URLSearchParams();
   params.set('grant_type', 'authorization_code');
   params.set('code', code);
   params.set('redirect_uri', stored.redirectUri);
   params.set('client_id', stored.clientId);
   params.set('code_verifier', stored.codeVerifier);
+  params.set('resource', stored.resource);
   if (stored.clientSecret) {
     params.set('client_secret', stored.clientSecret);
   }
@@ -536,6 +703,8 @@ export async function completeMcpOAuthCallback(code: string, state: string, scop
   const token: OAuthTokenRecord = {
     serverName: stored.serverName,
     serverUrl: stored.serverUrl,
+    issuer: stored.issuer,
+    resource: stored.resource,
     configHash: stored.configHash,
     clientId: stored.clientId,
     scope: exchanged.scope || stored.scope,
@@ -560,7 +729,7 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
   const tokenRelativePath = getOAuthTokenRelativePath(serverName);
   const token = await readJsonIfExists<OAuthTokenRecord>(tokenRelativePath, normalizedScope);
   const serverUrl = typeof serverConfig.url === 'string' ? serverConfig.url : undefined;
-  if (!token || token.configHash !== configHash || (serverUrl && token.serverUrl !== serverUrl)) {
+  if (!token || !token.issuer || !token.resource || token.configHash !== configHash || (serverUrl && token.serverUrl !== serverUrl)) {
     throw new McpOAuthError(`MCP server "${serverName}" requires OAuth authorization. Use mcp auth_start.`);
   }
   if (!isExpired(token)) {
@@ -572,11 +741,15 @@ export async function getValidMcpAccessToken(serverName: string, serverConfig: M
 
   const oauth = getOAuthConfig(serverConfig);
   const endpoints = await resolveOAuthEndpoints(oauth || {}, serverConfig);
-  const clientSecret = await resolveClientSecretForRefresh(serverName, oauth, token.clientId, normalizedScope);
+  if (token.issuer !== endpoints.issuer || token.resource !== endpoints.resource) {
+    throw new McpOAuthError(`OAuth credentials for MCP server "${serverName}" do not match the current authorization server or resource. Reauthorize the server in Settings > Integrations.`);
+  }
+  const clientSecret = await resolveClientSecretForRefresh(serverName, oauth, token.clientId, endpoints.issuer, normalizedScope);
   const params = new URLSearchParams();
   params.set('grant_type', 'refresh_token');
   params.set('refresh_token', token.refreshToken);
   params.set('client_id', token.clientId);
+  params.set('resource', endpoints.resource);
   if (clientSecret) params.set('client_secret', clientSecret);
   let refreshed: Awaited<ReturnType<typeof exchangeToken>>;
   try {
