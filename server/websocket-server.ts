@@ -20,7 +20,6 @@ import {
   broadcastToSession,
   broadcastToUser,
 } from './websocket-broadcast';
-import type { AgentMessage } from '@earendil-works/pi-agent-core';
 import { initializeWebSocketBridge } from './chat-event-bridge';
 import { checkWsRateLimit } from './websocket-rate-limit';
 import { runWebSocketSessionAction } from './websocket-session-queue';
@@ -39,9 +38,13 @@ import {
   hasPendingMobileChatTicket,
   MOBILE_CHAT_WEBSOCKET_PROTOCOL,
 } from '@/app/lib/mobile/ws-ticket';
-
-type ControlAction = 'follow_up' | 'steer' | 'promote_queued_to_steer' | 'remove_queued_item' | 'abort' | 'replace' | 'compact';
-type PiRuntimeStatus = Record<string, unknown>;
+import {
+  CHAT_WEBSOCKET_CLOSE_CODES,
+  CHAT_WEBSOCKET_PATH,
+  parseClientMessage,
+  type ClientMessage,
+  type ServerMessage,
+} from '@/app/lib/websocket/protocol';
 
 async function isLicensedForRuntime(): Promise<boolean> {
   if (!isOnboardingEnabled() || !(await isOnboardingComplete())) {
@@ -67,65 +70,6 @@ function getClientError(error: unknown): { code: string; message: string } {
 
 // Initialize WebSocket bridge on module load
 initializeWebSocketBridge();
-
-// ── Message Types ─────────────────────────────────────────────────────────────
-
-/** Messages sent from the browser client to this server. */
-type ClientMessage =
-  | { type: 'subscribe_session'; requestId?: string; sessionId: string }
-  | { type: 'unsubscribe_session'; sessionId: string }
-  | {
-      type: 'send_message';
-      requestId?: string;
-      sessionId: string;
-      agentId?: string;
-      message: AgentMessage;
-      context?: ChatRequestContext;
-    }
-  | {
-      type: 'control';
-      requestId?: string;
-      sessionId: string;
-      action: ControlAction;
-      message?: AgentMessage;
-      queueItemId?: string;
-      context?: ChatRequestContext;
-    }
-  | { type: 'get_status'; requestId?: string; sessionId: string };
-
-/**
- * Messages pushed from this server to connected browser clients.
- *
- * Event semantics:
- *   agent_event     — forwarded PI runtime event (tool call, text chunk, etc.)
- *   session_updated — new assistant message was saved → update unread badge in all tabs
- *   session_title_updated — a background title generation completed
- *   notification    — AI finished in a background session → show toast
- *   session_read    — (reserved) user marked session as read → clear unread badge in other tabs
- *                     Currently emitted server-side after HTTP PATCH /api/sessions marks the session.
- */
-type ServerMessage =
-  | { type: 'auth_success'; userId: string }
-  | { type: 'auth_error'; error: string }
-  | { type: 'subscribe_result'; requestId?: string; success: boolean; sessionId?: string; error?: string }
-  | { type: 'send_message_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
-  | { type: 'control_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
-  | { type: 'status_result'; requestId?: string; success: boolean; status?: PiRuntimeStatus; error?: string }
-  | { type: 'agent_event'; sessionId: string; event: Record<string, unknown> }
-  | { type: 'session_updated'; sessionId: string; workspaceId?: string; lastMessageAt: string; title?: string }
-  | { type: 'session_title_updated'; sessionId: string; title: string; titleGenerationState?: string | null }
-  | { type: 'session_read'; sessionId: string; timestamp: number }
-  | {
-      type: 'notification';
-      sessionId: string;
-      sessionTitle: string;
-      workspaceId?: string;
-      notificationType: 'new_response' | 'tool_complete' | 'error';
-      messagePreview?: string;
-      lastMessageAt?: string;
-      timestamp: number;
-    }
-  | { type: 'error'; error: string; code: string };
 
 function shouldSerializeSessionAction(message: ClientMessage): message is Extract<ClientMessage, {
   type: 'send_message' | 'control';
@@ -218,7 +162,15 @@ function summarizeServerMessage(message: ServerMessage): Record<string, unknown>
 }
 
 /** Type-safe helper: serialise and send a ServerMessage over a WebSocket. */
-function sendWs(ws: WebSocket, msg: ServerMessage): void {
+function sendWs(ws: WebSocket, msg: ServerMessage): boolean {
+  if (ws.readyState !== WebSocket.OPEN) {
+    console.warn('[WebSocket] server_send skipped socket_not_open', {
+      connectionId: connections.get(ws)?.id ?? 'preauth',
+      readyState: ws.readyState,
+      type: msg.type,
+    });
+    return false;
+  }
   if (!QUIET_SERVER_MESSAGE_TYPES.has(msg.type)) {
     console.log('[WebSocket] server_send', {
       connectionId: connections.get(ws)?.id ?? 'preauth',
@@ -226,6 +178,7 @@ function sendWs(ws: WebSocket, msg: ServerMessage): void {
     });
   }
   ws.send(JSON.stringify(msg));
+  return true;
 }
 
 async function findSessionIdentity(sessionId: string): Promise<{
@@ -261,12 +214,9 @@ async function userOwnsSession(
 }
 
 function subscribeConnectionToSession(connection: WebSocketConnection, sessionId: string): boolean {
-  if (connection.sessionId && connection.sessionId !== sessionId) {
-    unsubscribeFromSession(connection.sessionId, connection.ws);
-  }
-
-  connection.sessionId = sessionId;
-  return subscribeToSession(sessionId, connection.ws);
+  const isNew = subscribeToSession(sessionId, connection.ws);
+  connection.sessionIds.add(sessionId);
+  return isNew;
 }
 
 // Connection State
@@ -275,7 +225,7 @@ interface WebSocketConnection {
   ws: WebSocket;
   userId: string;
   workspace?: NonNullable<ChatRequestContext['workspace']>;
-  sessionId?: string;
+  sessionIds: Set<string>;
   isAlive: boolean;
   lastActivity: number;
   connectedAt: number;
@@ -283,7 +233,6 @@ interface WebSocketConnection {
 
 const connections = new Map<WebSocket, WebSocketConnection>();
 const HEARTBEAT_INTERVAL = 30000; // 30 seconds
-const CHAT_WEBSOCKET_PATH = '/ws/chat';
 const LOG_HEARTBEAT_SUCCESS = process.env.WS_HEARTBEAT_LOGS === '1';
 const MAX_INBOUND_MESSAGE_BYTES = 4 * 1024 * 1024;
 const MAX_PREAUTH_BUFFERED_MESSAGES = 20;
@@ -320,6 +269,7 @@ export function createWebSocketServer(server: http.Server): WebSocketServer {
   const wss = new WebSocketServer({
     noServer: true,
     path: CHAT_WEBSOCKET_PATH,
+    maxPayload: MAX_INBOUND_MESSAGE_BYTES,
     handleProtocols: (protocols) => (
       protocols.has(MOBILE_CHAT_WEBSOCKET_PROTOCOL)
         ? MOBILE_CHAT_WEBSOCKET_PROTOCOL
@@ -392,7 +342,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
         connectionId,
         source,
         userId: connection.userId,
-        sessionId: connection.sessionId,
+        subscribedSessions: connection.sessionIds.size,
         uptimeMs: Date.now() - connection.connectedAt,
         ...details,
       });
@@ -421,7 +371,18 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     const authenticatedConnection = connection;
 
     try {
-      const message = JSON.parse(data.toString()) as ClientMessage;
+      const parsedMessage = parseClientMessage(JSON.parse(data.toString()));
+      if (!parsedMessage.ok) {
+        console.warn('[WebSocket] invalid client message', {
+          connectionId,
+          userId: authenticatedConnection.userId,
+          code: parsedMessage.code,
+          error: parsedMessage.error,
+        });
+        sendWs(ws, { type: 'error', error: parsedMessage.error, code: parsedMessage.code });
+        return;
+      }
+      const message = parsedMessage.message;
       console.log('[WebSocket] server_receive', {
         connectionId,
         userId: authenticatedConnection.userId,
@@ -516,6 +477,15 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
   });
   const authResult = await authenticateWebSocketConnection(request.headers);
 
+  if (cleanupDone || ws.readyState !== WebSocket.OPEN) {
+    console.log('[WebSocket] auth_aborted socket_closed', {
+      connectionId,
+      stage: 'identity',
+      readyState: ws.readyState,
+    });
+    return;
+  }
+
   if (!authResult.isAuthenticated) {
     console.error('[WebSocket] auth_failed', {
       connectionId,
@@ -523,17 +493,27 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
       bufferedMessages: pendingMessages.length,
     });
     sendWs(ws, { type: 'auth_error', error: authResult.error || 'Authentication failed' });
-    ws.close(4001, 'Unauthorized');
+    ws.close(CHAT_WEBSOCKET_CLOSE_CODES.unauthorized, 'Unauthorized');
     return;
   }
 
-  if (!(await isLicensedForRuntime())) {
+  const isLicensed = await isLicensedForRuntime();
+  if (cleanupDone || ws.readyState !== WebSocket.OPEN) {
+    console.log('[WebSocket] auth_aborted socket_closed', {
+      connectionId,
+      stage: 'license',
+      readyState: ws.readyState,
+    });
+    return;
+  }
+
+  if (!isLicensed) {
     console.warn('[WebSocket] auth_rejected_license_required', {
       connectionId,
       userId: authResult.userId,
     });
     sendWs(ws, { type: 'auth_error', error: 'License activation required' });
-    ws.close(4003, 'License activation required');
+    ws.close(CHAT_WEBSOCKET_CLOSE_CODES.licenseRequired, 'License activation required');
     return;
   }
 
@@ -550,6 +530,7 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
     ws,
     userId: authResult.userId!,
     workspace: authResult.workspace,
+    sessionIds: new Set(),
     isAlive: true,
     lastActivity: Date.now(),
     connectedAt,
@@ -573,13 +554,14 @@ async function handleConnection(ws: WebSocket, request: IncomingMessage): Promis
 
   // Handle pong (heartbeat response)
   ws.on('pong', () => {
-    connection!.isAlive = true;
-    connection!.lastActivity = Date.now();
+    if (!connection || cleanupDone) return;
+    connection.isAlive = true;
+    connection.lastActivity = Date.now();
     if (LOG_HEARTBEAT_SUCCESS) {
       console.log('[WebSocket] heartbeat_pong', {
         connectionId,
-        userId: connection!.userId,
-        sessionId: connection!.sessionId,
+        userId: connection.userId,
+        subscribedSessions: connection.sessionIds.size,
       });
     }
   });
@@ -671,9 +653,7 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
     case 'unsubscribe_session': {
       if (message.sessionId) {
         unsubscribeFromSession(message.sessionId, ws);
-        if (connection.sessionId === message.sessionId) {
-          connection.sessionId = undefined;
-        }
+        connection.sessionIds.delete(message.sessionId);
         console.log('[WebSocket] unsubscribe completed', {
           connectionId: connection.id,
           userId,
@@ -1048,20 +1028,21 @@ async function handleMessage(connection: WebSocketConnection, message: ClientMes
  * Handle WebSocket disconnect
  */
 function handleDisconnect(connection: WebSocketConnection): void {
-  const { id, ws, userId, sessionId } = connection;
+  const { id, ws, userId, sessionIds } = connection;
 
   if (!connections.has(ws)) {
     console.log('[WebSocket] disconnect cleanup skipped already removed', {
       connectionId: id,
       userId,
-      sessionId,
+      subscribedSessions: sessionIds.size,
     });
     return;
   }
 
-  if (sessionId) {
+  for (const sessionId of sessionIds) {
     unsubscribeFromSession(sessionId, ws);
   }
+  sessionIds.clear();
 
   removeUserConnection(userId, ws);
   connections.delete(ws);
@@ -1073,7 +1054,7 @@ function handleDisconnect(connection: WebSocketConnection): void {
   console.log('[WebSocket] disconnect cleanup complete', {
     connectionId: id,
     userId,
-    sessionId,
+    subscribedSessions: 0,
     remainingUserConnections: allRemainingUserConnections.length,
     trackedConnections: connections.size,
   });
@@ -1086,13 +1067,14 @@ function handleDisconnect(connection: WebSocketConnection): void {
 /**
  * Start heartbeat to detect stale connections
  */
-let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
+const heartbeatIntervals = new WeakMap<WebSocketServer, ReturnType<typeof setInterval>>();
 
 function startHeartbeat(wss: WebSocketServer): void {
-  if (heartbeatInterval) {
-    clearInterval(heartbeatInterval);
+  const existingInterval = heartbeatIntervals.get(wss);
+  if (existingInterval) {
+    clearInterval(existingInterval);
   }
-  heartbeatInterval = setInterval(() => {
+  const heartbeatInterval = setInterval(() => {
     wss.clients.forEach((ws: WebSocket) => {
       const connection = connections.get(ws);
       
@@ -1104,11 +1086,10 @@ function startHeartbeat(wss: WebSocketServer): void {
         console.log('[WebSocket] heartbeat stale terminating connection', {
           connectionId: connection.id,
           userId: connection.userId,
-          sessionId: connection.sessionId,
+          subscribedSessions: connection.sessionIds.size,
           idleMs: Date.now() - connection.lastActivity,
         });
         ws.terminate();
-        handleDisconnect(connection);
         return;
       }
 
@@ -1117,15 +1098,53 @@ function startHeartbeat(wss: WebSocketServer): void {
         console.log('[WebSocket] heartbeat_ping', {
           connectionId: connection.id,
           userId: connection.userId,
-          sessionId: connection.sessionId,
+          subscribedSessions: connection.sessionIds.size,
         });
       }
       ws.ping();
     });
   }, HEARTBEAT_INTERVAL);
+  heartbeatIntervals.set(wss, heartbeatInterval);
   heartbeatInterval.unref?.();
 
   console.log('[WebSocket] Heartbeat started (30s interval)');
+}
+
+/** Stop accepting chat sockets and ask connected clients to reconnect elsewhere. */
+export async function closeWebSocketServer(
+  wss: WebSocketServer,
+  code = CHAT_WEBSOCKET_CLOSE_CODES.serviceRestart,
+  reason = 'Service restart',
+): Promise<void> {
+  const heartbeatInterval = heartbeatIntervals.get(wss);
+  if (heartbeatInterval) {
+    clearInterval(heartbeatInterval);
+    heartbeatIntervals.delete(wss);
+  }
+
+  for (const ws of wss.clients) {
+    if (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING) {
+      ws.close(code, reason);
+    }
+  }
+
+  await new Promise<void>((resolve, reject) => {
+    const forceCloseTimer = setTimeout(() => {
+      for (const ws of wss.clients) {
+        ws.terminate();
+      }
+    }, 2_000);
+    forceCloseTimer.unref?.();
+
+    wss.close((error) => {
+      clearTimeout(forceCloseTimer);
+      if (error) {
+        reject(error);
+        return;
+      }
+      resolve();
+    });
+  });
 }
 
 /**
@@ -1154,7 +1173,13 @@ export function broadcastNotification(
   lastMessageAt?: string,
   workspaceId?: string,
 ): void {
-  console.log(`[WS Server] broadcastNotification: userId=${userId}, sessionId=${sessionId}, type=${notificationType}, title="${sessionTitle}", preview="${messagePreview?.slice(0, 50) ?? '(none)'}"`);
+  console.log('[WebSocket] broadcast_notification', {
+    userId,
+    sessionId,
+    notificationType,
+    hasPreview: Boolean(messagePreview),
+    workspaceId,
+  });
   broadcastToUser(userId, {
     type: 'notification',
     sessionId,
@@ -1191,7 +1216,13 @@ export function broadcastSessionUpdateToUser(
   title?: string,
   workspaceId?: string,
 ): void {
-  console.log(`[WS Server] broadcastSessionUpdateToUser: userId=${userId}, sessionId=${sessionId}, lastMessageAt=${lastMessageAt}, title="${title ?? '(none)'}"`);
+  console.log('[WebSocket] broadcast_session_update', {
+    userId,
+    sessionId,
+    lastMessageAt,
+    hasTitle: Boolean(title),
+    workspaceId,
+  });
   broadcastToUser(userId, {
     type: 'session_updated',
     sessionId,
@@ -1208,7 +1239,12 @@ export function broadcastSessionTitleUpdateToUser(
   title: string,
   titleGenerationState?: string | null,
 ): void {
-  console.log(`[WS Server] broadcastSessionTitleUpdateToUser: userId=${userId}, sessionId=${sessionId}, title="${title}"`);
+  console.log('[WebSocket] broadcast_session_title_update', {
+    userId,
+    sessionId,
+    hasTitle: Boolean(title),
+    titleGenerationState,
+  });
   broadcastToUser(userId, {
     type: 'session_title_updated',
     sessionId,

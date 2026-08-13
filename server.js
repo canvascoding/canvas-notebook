@@ -560,6 +560,7 @@ const server = http.createServer((req, res) => {
 let shutdownInProgress = false;
 let flushCollaborationDocuments = async () => {};
 let flushExcalidrawCollaborationDocuments = async () => {};
+let closeChatWebSocketServer = async () => {};
 
 function exitCodeForSignal(signal) {
   if (signal === 'SIGINT') return 130;
@@ -584,6 +585,7 @@ async function shutdownServer(signal) {
     await Promise.all([
       flushCollaborationDocuments(),
       flushExcalidrawCollaborationDocuments(),
+      closeChatWebSocketServer(),
     ]);
   } catch (error) {
     console.error('[Startup] Error while flushing collaboration documents:', error);
@@ -681,7 +683,8 @@ async function startServer() {
     ) {
       throw new Error('WebSocket server module did not expose expected functions');
     }
-    websocketServer.createWebSocketServer(server);
+    const chatWebSocketServer = websocketServer.createWebSocketServer(server);
+    closeChatWebSocketServer = () => websocketServer.closeWebSocketServer(chatWebSocketServer);
     console.log('[Startup] WebSocket Server ready on ws://localhost:' + port + '/ws/chat');
     const browserViewModule = await import('./server/browser-view-server.ts');
     const browserViewServer = browserViewModule.createBrowserViewServer
