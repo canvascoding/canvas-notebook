@@ -11,6 +11,7 @@ import {
   renameNotebookDocumentTabs,
   writeNotebookDocumentTabs,
 } from '../app/lib/notebook/document-tabs';
+import { getNotebookTabRevealDelta } from '../app/lib/notebook/tab-strip';
 
 function memoryStorage() {
   const values = new Map<string, string>();
@@ -70,5 +71,18 @@ assert.deepEqual(readNotebookDocumentTabs(storage, 'workspace-legacy'), {
   activePath: 'legacy/readme.md',
   openPaths: ['legacy/readme.md'],
 });
+
+assert.equal(
+  getNotebookTabRevealDelta({ left: 0, right: 320 }, { left: 80, right: 200 }),
+  0,
+);
+assert.equal(
+  getNotebookTabRevealDelta({ left: 0, right: 320 }, { left: -24, right: 96 }),
+  -32,
+);
+assert.equal(
+  getNotebookTabRevealDelta({ left: 0, right: 320 }, { left: 280, right: 380 }),
+  68,
+);
 
 console.log('notebook-document-tabs-test: ok');

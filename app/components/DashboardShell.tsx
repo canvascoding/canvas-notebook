@@ -116,6 +116,7 @@ import {
 } from '@/app/lib/notebook/document-tabs';
 import { registerNotebookDocumentOpenGuard } from '@/app/lib/notebook/document-tab-open-guard';
 import { resolveNotebookChatContext } from '@/app/lib/notebook/chat-context';
+import { getNotebookTabRevealDelta } from '@/app/lib/notebook/tab-strip';
 import { useEditorStore } from '@/app/store/editor-store';
 import { useFileStore } from '@/app/store/file-store';
 import {
@@ -150,7 +151,7 @@ function SurfaceTab({
     <div
       title={label}
       className={cn(
-        'group/tab flex h-8 shrink-0 items-center overflow-hidden rounded-md border transition-colors',
+        'group/tab flex h-10 shrink-0 items-center overflow-hidden rounded-md border transition-colors sm:h-8',
         active
           ? 'border-primary/35 bg-primary/10 text-foreground shadow-[inset_0_-2px_0_hsl(var(--primary))]'
           : 'border-transparent text-muted-foreground hover:border-border hover:bg-muted/70 hover:text-foreground',
@@ -163,21 +164,21 @@ function SurfaceTab({
         aria-controls={controlsId}
         aria-selected={active}
         data-testid={testId}
-        className="flex h-full min-w-0 items-center gap-1 px-1.5 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:gap-2 sm:px-2.5"
+        className="flex h-full min-w-0 items-center gap-1 px-2 text-xs font-medium outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset sm:gap-2 sm:px-2.5"
         onClick={onSelect}
       >
         {icon}
-        <span className="max-w-36 truncate sm:max-w-52">{label}</span>
+        <span className="max-w-28 truncate sm:max-w-52">{label}</span>
       </button>
       {onClose ? (
         <button
           type="button"
-          className="mr-0.5 flex h-6 w-5 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:mr-1 sm:w-6"
+          className="flex h-10 w-10 shrink-0 items-center justify-center rounded-sm text-muted-foreground outline-none hover:bg-background hover:text-foreground focus-visible:ring-2 focus-visible:ring-ring sm:mr-1 sm:h-6 sm:w-6"
           aria-label={closeLabel}
           title={closeLabel}
           onClick={onClose}
         >
-          <X className="h-3.5 w-3.5" />
+          <X className="h-4 w-4 sm:h-3.5 sm:w-3.5" />
         </button>
       ) : null}
     </div>
@@ -404,6 +405,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const desktopExplorerRef = useRef<HTMLDivElement | null>(null);
   const desktopMainPanelRef = useRef<HTMLDivElement | null>(null);
   const desktopChatRef = useRef<HTMLDivElement | null>(null);
+  const surfaceTabsRef = useRef<HTMLDivElement | null>(null);
   const openedPathRef = useRef<string | null>(null);
   const initialNotebookStateResolvedRef = useRef(false);
   const previousCurrentFileIdentityRef = useRef<string | null>(null);
@@ -1031,6 +1033,26 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     ? `notebook-document-${activeDocumentTabIndex}-tab`
     : 'notebook-surface-document-tab';
 
+  useEffect(() => {
+    const animationFrame = window.requestAnimationFrame(() => {
+      const strip = surfaceTabsRef.current;
+      const activeTab = strip?.querySelector<HTMLElement>('[role="tab"][aria-selected="true"]');
+      if (!strip || !activeTab) return;
+
+      const delta = getNotebookTabRevealDelta(
+        strip.getBoundingClientRect(),
+        activeTab.getBoundingClientRect(),
+      );
+      if (Math.abs(delta) < 1) return;
+
+      strip.scrollBy({
+        left: delta,
+        behavior: window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'auto' : 'smooth',
+      });
+    });
+    return () => window.cancelAnimationFrame(animationFrame);
+  }, [documentTabs.activePath, documentTabs.openPaths, state.mainSurface]);
+
   return (
     <FileWatcherProvider>
       <HintProvider page="notebook" enabled={hintEnabled}>
@@ -1092,9 +1114,10 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
             <div className="h-5 w-px shrink-0 bg-border" />
             <div
+              ref={surfaceTabsRef}
               role="tablist"
               aria-label={tNotebook('surfaceTabsLabel')}
-              className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              className="flex min-w-0 flex-1 touch-pan-x items-center gap-1 overflow-x-auto overscroll-x-contain scroll-smooth [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
             >
               <SurfaceTab
                 active={state.mainSurface === 'chat'}
