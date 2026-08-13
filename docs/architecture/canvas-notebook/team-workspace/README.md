@@ -30,6 +30,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - `21-third-party-license-inventory-and-notices-policy.md`: vollstaendiger Drittanbieter-/MIT-Lizenz-Audit, maschinenlesbares Inventar, ausgelieferte Notices und blockierender CI-Drift-Check.
 - `22-excalidraw-live-collaboration-policy.md`: eigene Excalidraw-Scene-Collaboration ausserhalb von Aufgabe 48, inklusive Variantenvergleich, Canvas-native Empfehlung, Auth/Persistenz/Assets/Presence und Entscheidungstor.
 - `23-composio-user-workspace-profiles.md`: persoenliche Composio-Standard-/Zusatzprofile, per-user Workspace-Overrides, Effective-Profile-Resolver, UI-, OAuth-, Cache- und Automation-Regeln.
+- `24-multi-participant-conversations-and-agent-collaboration.md`: Zielmodell fuer Einzel-/Gruppenchats mit mehreren Menschen und Agents, Agent-Mentions, Agent-zu-Agent-Tools, Conversation ACL, Runtime-Trennung, KI-Mitarbeiterverwaltung und Legacy-Session-Migration.
 - `../todo.json`: Aufgabenindex fuer Agenten und Fortschrittsverfolgung.
 
 ## Arbeitsregeln
@@ -68,6 +69,7 @@ Dieses Verzeichnis ist der zentrale Arbeitsbereich fuer den Team-Workspace-Umbau
 - Die Drittanbieter-/MIT-Lizenzinventur und eine verpflichtend mitausgelieferte Notice-Liste sind als eigene Aufgabe `51` geplant.
 - Excalidraw-Live-Collaboration ist bewusst nicht Teil von Aufgabe `48`; der Architektur-Spike und der eigene Scene-Provider sind in Aufgabe `52` implementiert und UI-/E2E-verifiziert.
 - Composio-Connection-Profile und per-user Workspace-Overrides sind als Aufgabe `53` spezifiziert und in Umsetzung.
+- Multi-Participant Conversations, Gruppenchat, Agent-Mentions und sichtbare Agent-zu-Agent-Kommunikation sind als Architekturentwurf dokumentiert; Implementierungsaufgaben und offene Produktentscheidungen sind noch nicht in `todo.json` uebernommen.
 - Control-Plane-Status-Quo fuer Managed Env, Installer-Artefakte, VM-Agent, VM-Actions und VM-Detailseite ist in der Database-Provider-Policy mit konkreten Zielpfaden abgeglichen.
 - Control Plane Managed Mode, Team-Claims, Managed ENV und Organization-Runtime-Provisioning sind umgesetzt und in PR #3 gemerged.
 - Workspace-Modell, Workspace-Service, Bootstrap-Erzeugung und `/api/workspaces` in Canvas Notebook sind eingefuehrt.
