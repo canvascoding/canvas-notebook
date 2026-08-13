@@ -4,6 +4,7 @@ import React, { useCallback, useEffect, useImperativeHandle, useMemo, useRef, us
 import { createPortal } from 'react-dom';
 import { createRoot, type Root } from 'react-dom/client';
 import { Extension, getMarkRange, type Editor, type JSONContent, type Range } from '@tiptap/core';
+import katex from 'katex';
 import {
   EditorContent,
   NodeViewContent,
@@ -96,6 +97,7 @@ import { Label } from '@/components/ui/label';
 import { MermaidDiagram } from '@/components/ui/mermaid-diagram';
 import { Switch } from '@/components/ui/switch';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { Textarea } from '@/components/ui/textarea';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import { SafeMarkdownImage } from '@/app/components/shared/SafeMarkdownImage';
 import { MarkdownRenderer } from '@/app/components/shared/MarkdownRenderer';
@@ -231,6 +233,7 @@ type ToolbarState = {
 
 type SlashCommandActions = {
   editMath?: (kind: 'inline' | 'block', latex: string, pos: number) => void;
+  openRichBlockDialog?: (kind: RichBlockKind, editor: Editor, range: Range) => void;
   openEmojiDialog?: (editor: Editor, range: Range) => void;
   openImageDialog?: (editor: Editor, range: Range) => void;
   openTableDialog?: (editor: Editor, range: Range) => void;
@@ -281,12 +284,8 @@ type SlashCommandLabels = {
   dragBlockHint: string;
   empty: string;
   group: string;
-  calloutTitlePrompt: string;
-  detailsSummaryPrompt: string;
-  footnoteContentPrompt: string;
   imageAltPrompt: string;
   imageSrcPrompt: string;
-  latexPrompt: string;
   items: Record<SlashCommandItemId, SlashCommandItemLabel>;
   openBlockMenuHint: string;
   placeholder: string;
@@ -331,12 +330,26 @@ type EmojiDialogSeed = {
   range?: Range;
 };
 
-type MathEditRequest = {
+type RichBlockKind = 'callout' | 'details' | 'footnote' | 'inlineMath' | 'blockMath';
+
+type RichBlockDialogSeed = {
   id: number;
-  kind: 'inline' | 'block';
-  latex: string;
-  pos: number;
+  kind: RichBlockKind;
+  range?: Range;
+  footnoteId?: string;
+  nodePosition?: number;
+  initialCalloutType?: string;
+  initialContent?: string;
+  initialTitle?: string;
+  initialLatex?: string;
+  initialOpen?: boolean;
 };
+
+type RichBlockDialogSubmission =
+  | { kind: 'callout'; title: string; calloutType: string; content: string }
+  | { kind: 'details'; title: string; content: string; open: boolean }
+  | { kind: 'footnote'; content: string }
+  | { kind: 'inlineMath' | 'blockMath'; latex: string };
 
 type ColorSwatchWidgetHost = HTMLSpanElement & {
   colorSwatchRoot?: Root;
@@ -970,7 +983,10 @@ function prepareCommandDialogInsertionRange(editor: Editor, range: Range): Range
     chain.setTextSelection(range.from).run();
   }
 
-  return { from: range.from, to: range.from };
+  return clampEditorRangeToDoc(editor, {
+    from: editor.state.selection.from,
+    to: editor.state.selection.to,
+  });
 }
 
 const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
@@ -1027,16 +1043,13 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     keywords: ['note', 'warning', 'admonition', 'info'],
     Icon: BadgeInfo,
     command: (context) => {
-      const title = window.prompt(
-        context.labels.calloutTitlePrompt,
-        context.labels.items.callout.title,
-      );
-      if (title === null) {
-        runAfterSlashDelete(context).run();
+      if (context.actions?.openRichBlockDialog) {
+        context.actions.openRichBlockDialog('callout', context.editor, context.range);
         return;
       }
+
       runAfterSlashDelete(context).insertCanvasCallout({
-        title: title.trim() || context.labels.items.callout.title,
+        title: context.labels.items.callout.title,
         type: 'note',
       }).run();
     },
@@ -1046,16 +1059,13 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     keywords: ['collapse', 'toggle', 'summary', 'expand'],
     Icon: ListCollapse,
     command: (context) => {
-      const summary = window.prompt(
-        context.labels.detailsSummaryPrompt,
-        context.labels.items.details.title,
-      );
-      if (summary === null) {
-        runAfterSlashDelete(context).run();
+      if (context.actions?.openRichBlockDialog) {
+        context.actions.openRichBlockDialog('details', context.editor, context.range);
         return;
       }
+
       runAfterSlashDelete(context).insertCanvasDetails({
-        summary: summary.trim() || context.labels.items.details.title,
+        summary: context.labels.items.details.title,
       }).run();
     },
   },
@@ -1064,12 +1074,12 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     keywords: ['reference', 'citation', 'annotation'],
     Icon: Superscript,
     command: (context) => {
-      const content = window.prompt(context.labels.footnoteContentPrompt);
-      if (content === null) {
-        runAfterSlashDelete(context).run();
+      if (context.actions?.openRichBlockDialog) {
+        context.actions.openRichBlockDialog('footnote', context.editor, context.range);
         return;
       }
-      runAfterSlashDelete(context).insertMarkdownFootnote({ content: content.trim() }).run();
+
+      runAfterSlashDelete(context).insertMarkdownFootnote().run();
     },
   },
   {
@@ -1083,12 +1093,12 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     keywords: ['latex', 'katex', 'formula', 'equation'],
     Icon: Sigma,
     command: (context) => {
-      const latex = window.prompt(context.labels.latexPrompt);
-      if (!latex?.trim()) {
-        runAfterSlashDelete(context).run();
+      if (context.actions?.openRichBlockDialog) {
+        context.actions.openRichBlockDialog('inlineMath', context.editor, context.range);
         return;
       }
-      runAfterSlashDelete(context).insertInlineMath({ latex: latex.trim() }).run();
+
+      runAfterSlashDelete(context).run();
     },
   },
   {
@@ -1096,12 +1106,12 @@ const SLASH_COMMAND_DEFINITIONS: SlashCommandDefinition[] = [
     keywords: ['latex', 'katex', 'formula', 'equation', 'display'],
     Icon: SquareSigma,
     command: (context) => {
-      const latex = window.prompt(context.labels.latexPrompt);
-      if (!latex?.trim()) {
-        runAfterSlashDelete(context).run();
+      if (context.actions?.openRichBlockDialog) {
+        context.actions.openRichBlockDialog('blockMath', context.editor, context.range);
         return;
       }
-      runAfterSlashDelete(context).insertBlockMath({ latex: latex.trim() }).run();
+
+      runAfterSlashDelete(context).run();
     },
   },
   {
@@ -1601,12 +1611,8 @@ function createSlashCommandLabels(t: (key: string) => string): SlashCommandLabel
     dragBlockHint: t('markdownEditorDragBlockHint'),
     empty: t('markdownEditorNoCommandFound'),
     group: t('markdownEditorSlashGroup'),
-    calloutTitlePrompt: t('markdownEditorCalloutTitlePrompt'),
-    detailsSummaryPrompt: t('markdownEditorDetailsSummaryPrompt'),
-    footnoteContentPrompt: t('markdownEditorFootnoteContentPrompt'),
     imageAltPrompt: t('markdownEditorImageAltPrompt'),
     imageSrcPrompt: t('markdownEditorImageSrcPrompt'),
-    latexPrompt: t('markdownEditorLatexPrompt'),
     items: itemLabels,
     openBlockMenuHint: t('markdownEditorOpenBlockMenuHint'),
     placeholder: t('markdownEditorPlaceholder'),
@@ -2265,6 +2271,130 @@ function getSelectedText(editor: Editor) {
   const { from, to, empty } = editor.state.selection;
   if (empty) return '';
   return editor.state.doc.textBetween(from, to, ' ');
+}
+
+function findSelectedRichBlockPosition(editor: Editor, typeName: string): number | null {
+  const selectedNode = editor.state.doc.nodeAt(editor.state.selection.from);
+  if (selectedNode?.type.name === typeName) return editor.state.selection.from;
+
+  const { $from } = editor.state.selection;
+  for (let depth = $from.depth; depth > 0; depth -= 1) {
+    if ($from.node(depth).type.name === typeName) {
+      return $from.before(depth);
+    }
+  }
+
+  return null;
+}
+
+function getRichBlockTitle(editor: Editor, position: number, titleType: string) {
+  const node = editor.state.doc.nodeAt(position);
+  const titleNode = node?.firstChild?.type.name === titleType ? node.firstChild : null;
+  return titleNode?.textContent ?? '';
+}
+
+function findFootnoteDefinitionPosition(editor: Editor, footnoteId: string): number | null {
+  let definitionPosition: number | null = null;
+  editor.state.doc.descendants((node, position) => {
+    if (
+      node.type.name === 'markdownFootnoteDefinition'
+      && String(node.attrs.footnoteId ?? '') === footnoteId
+    ) {
+      definitionPosition = position;
+      return false;
+    }
+    return definitionPosition === null;
+  });
+  return definitionPosition;
+}
+
+function getSelectedFootnoteId(editor: Editor): string | null {
+  const { from, empty } = editor.state.selection;
+  const candidates = [editor.state.doc.nodeAt(from)];
+  if (empty && from > 0) candidates.push(editor.state.doc.nodeAt(from - 1));
+
+  const reference = candidates.find((node) => node?.type.name === 'markdownFootnoteReference');
+  return reference ? String(reference.attrs.footnoteId ?? '') : null;
+}
+
+function replaceRichBlockTitle(
+  editor: Editor,
+  position: number,
+  blockType: string,
+  titleType: string,
+  title: string,
+  attrs: Record<string, unknown>,
+) {
+  const node = editor.state.doc.nodeAt(position);
+  if (!node || node.type.name !== blockType) return false;
+
+  const transaction = editor.state.tr.setNodeMarkup(position, node.type, {
+    ...node.attrs,
+    ...attrs,
+  });
+  const currentTitle = node.firstChild?.type.name === titleType ? node.firstChild : null;
+  const titleNodeType = editor.schema.nodes[titleType];
+  const content = title ? editor.schema.text(title) : undefined;
+
+  if (currentTitle) {
+    transaction.replaceWith(
+      position + 1,
+      position + 1 + currentTitle.nodeSize,
+      currentTitle.type.create(currentTitle.attrs, content),
+    );
+  } else if (titleNodeType) {
+    transaction.insert(position + 1, titleNodeType.create(null, content));
+  }
+
+  editor.view.dispatch(transaction.scrollIntoView());
+  return true;
+}
+
+function updateFootnoteDefinition(editor: Editor, footnoteId: string, content: string) {
+  const position = findFootnoteDefinitionPosition(editor, footnoteId);
+  if (position === null) return false;
+
+  const definition = editor.state.doc.nodeAt(position);
+  if (!definition) return false;
+
+  const firstBlock = definition.firstChild;
+  const paragraphType = editor.schema.nodes.paragraph;
+  if (!paragraphType) return false;
+
+  const paragraph = paragraphType.create(
+    firstBlock?.type.name === 'paragraph' ? firstBlock.attrs : null,
+    content ? editor.schema.text(content) : undefined,
+  );
+  const transaction = editor.state.tr;
+  if (firstBlock) {
+    transaction.replaceWith(position + 1, position + 1 + firstBlock.nodeSize, paragraph);
+  } else {
+    transaction.insert(position + 1, paragraph);
+  }
+  editor.view.dispatch(transaction.scrollIntoView());
+  return true;
+}
+
+function insertMathAtRange(
+  editor: Editor,
+  kind: Extract<RichBlockKind, 'inlineMath' | 'blockMath'>,
+  latex: string,
+  range?: Range,
+) {
+  const safeRange = range ? clampEditorRangeToDoc(editor, range) : null;
+  if (safeRange) {
+    const chain = editor.chain().focus();
+    if (safeRange.from < safeRange.to) {
+      chain.deleteRange(safeRange).run();
+    } else {
+      chain.setTextSelection(safeRange.from).run();
+    }
+  }
+
+  const position = editor.state.selection.from;
+  return kind === 'inlineMath'
+    ? editor.chain().focus().insertInlineMath({ latex, pos: position }).run()
+    : editor.chain().focus().insertBlockMath({ latex, pos: position }).run();
 }
 
 function isEditorRangeInsideCurrentDoc(editor: Editor, range: Range) {
@@ -3236,6 +3366,251 @@ function MarkdownTableDialog({
   );
 }
 
+const CALLOUT_TYPE_OPTIONS = ['note', 'info', 'warning', 'success', 'danger'] as const;
+
+function MarkdownLatexPreview({ latex, displayMode }: { latex: string; displayMode: boolean }) {
+  const rendered = useMemo(() => {
+    const value = latex.trim() || String.raw`\text{LaTeX}`;
+    return katex.renderToString(value, {
+      ...CANVAS_KATEX_OPTIONS,
+      displayMode,
+    });
+  }, [displayMode, latex]);
+
+  return (
+    <div
+      aria-live="polite"
+      className="min-h-14 overflow-x-auto rounded-lg border bg-muted/35 px-3 py-3 text-center text-sm"
+      dangerouslySetInnerHTML={{ __html: rendered }}
+    />
+  );
+}
+
+function MarkdownRichBlockDialog({
+  open,
+  onOpenChange,
+  seed,
+  onSubmit,
+}: {
+  open: boolean;
+  onOpenChange: (open: boolean) => void;
+  seed: RichBlockDialogSeed;
+  onSubmit: (submission: RichBlockDialogSubmission) => void;
+}) {
+  const t = useTranslations('notebook');
+  const isEditing = seed.nodePosition !== undefined || seed.footnoteId !== undefined;
+  const [title, setTitle] = useState(seed.initialTitle ?? '');
+  const [content, setContent] = useState(seed.initialContent ?? '');
+  const [calloutType, setCalloutType] = useState(seed.initialCalloutType ?? 'note');
+  const [latex, setLatex] = useState(seed.initialLatex ?? '');
+  const [detailsOpen, setDetailsOpen] = useState(Boolean(seed.initialOpen));
+  const [error, setError] = useState<string | null>(null);
+  const isMath = seed.kind === 'inlineMath' || seed.kind === 'blockMath';
+  const dialogTitle = seed.kind === 'callout'
+    ? t('markdownEditorCalloutDialogTitle')
+    : seed.kind === 'details'
+      ? t('markdownEditorDetailsDialogTitle')
+      : seed.kind === 'footnote'
+        ? t('markdownEditorFootnoteDialogTitle')
+        : seed.kind === 'inlineMath'
+          ? t('markdownEditorInlineMathDialogTitle')
+          : t('markdownEditorBlockMathDialogTitle');
+  const dialogDescription = seed.kind === 'callout'
+    ? t('markdownEditorCalloutDialogDescription')
+    : seed.kind === 'details'
+      ? t('markdownEditorDetailsDialogDescription')
+      : seed.kind === 'footnote'
+        ? t('markdownEditorFootnoteDialogDescription')
+        : t('markdownEditorMathDialogDescription');
+
+  const submit = useCallback(() => {
+    const nextTitle = title.trim();
+    const nextContent = content.trim();
+    const nextLatex = latex.trim();
+
+    if (isMath && !nextLatex) {
+      setError(t('markdownEditorFormulaRequired'));
+      return;
+    }
+    if (seed.kind === 'footnote' && !nextContent) {
+      setError(t('markdownEditorFootnoteRequired'));
+      return;
+    }
+
+    if (seed.kind === 'callout') {
+      onSubmit({
+        kind: 'callout',
+        title: nextTitle || t('markdownEditorCommands.callout.title'),
+        calloutType,
+        content: nextContent,
+      });
+    } else if (seed.kind === 'details') {
+      onSubmit({
+        kind: 'details',
+        title: nextTitle || t('markdownEditorCommands.details.title'),
+        content: nextContent,
+        open: detailsOpen,
+      });
+    } else if (seed.kind === 'footnote') {
+      onSubmit({ kind: 'footnote', content: nextContent });
+    } else {
+      onSubmit({ kind: seed.kind, latex: nextLatex });
+    }
+  }, [calloutType, content, detailsOpen, isMath, latex, onSubmit, seed.kind, t, title]);
+
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange}>
+      <DialogContent className="sm:max-w-lg" data-testid="markdown-rich-block-dialog">
+        <DialogHeader>
+          <DialogTitle>{dialogTitle}</DialogTitle>
+          <DialogDescription>{dialogDescription}</DialogDescription>
+        </DialogHeader>
+
+        <div className="grid gap-5">
+          {seed.kind === 'callout' ? (
+            <>
+              <div className="grid gap-2">
+                <Label>{t('markdownEditorCalloutType')}</Label>
+                <div className="grid grid-cols-5 gap-2" role="group" aria-label={t('markdownEditorCalloutType')}>
+                  {CALLOUT_TYPE_OPTIONS.map((option) => (
+                    <Button
+                      key={option}
+                      type="button"
+                      size="sm"
+                      variant={calloutType === option ? 'secondary' : 'outline'}
+                      className="capitalize"
+                      onClick={() => setCalloutType(option)}
+                    >
+                      {t(`markdownEditorCalloutType${option[0].toUpperCase()}${option.slice(1)}`)}
+                    </Button>
+                  ))}
+                </div>
+              </div>
+              <div className="grid gap-2">
+                <Label htmlFor="markdown-callout-title">{t('markdownEditorCalloutTitleLabel')}</Label>
+                <Input
+                  autoFocus
+                  id="markdown-callout-title"
+                  value={title}
+                  placeholder={t('markdownEditorCommands.callout.title')}
+                  onChange={(event) => setTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      submit();
+                    }
+                  }}
+                />
+              </div>
+              {!isEditing ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="markdown-callout-content">{t('markdownEditorInitialContentLabel')}</Label>
+                  <Textarea
+                    id="markdown-callout-content"
+                    value={content}
+                    placeholder={t('markdownEditorInitialContentPlaceholder')}
+                    onChange={(event) => setContent(event.target.value)}
+                  />
+                </div>
+              ) : null}
+            </>
+          ) : null}
+
+          {seed.kind === 'details' ? (
+            <>
+              <div className="grid gap-2">
+                <Label htmlFor="markdown-details-summary">{t('markdownEditorDetailsSummaryLabel')}</Label>
+                <Input
+                  autoFocus
+                  id="markdown-details-summary"
+                  value={title}
+                  placeholder={t('markdownEditorCommands.details.title')}
+                  onChange={(event) => setTitle(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter' && !event.shiftKey) {
+                      event.preventDefault();
+                      submit();
+                    }
+                  }}
+                />
+              </div>
+              {!isEditing ? (
+                <div className="grid gap-2">
+                  <Label htmlFor="markdown-details-content">{t('markdownEditorInitialContentLabel')}</Label>
+                  <Textarea
+                    id="markdown-details-content"
+                    value={content}
+                    placeholder={t('markdownEditorInitialContentPlaceholder')}
+                    onChange={(event) => setContent(event.target.value)}
+                  />
+                </div>
+              ) : null}
+              <div className="flex items-center justify-between gap-3 rounded-lg border bg-muted/25 px-3 py-2.5">
+                <div className="grid gap-0.5">
+                  <Label htmlFor="markdown-details-open">{t('markdownEditorDetailsInitiallyOpen')}</Label>
+                  <p className="text-xs text-muted-foreground">{t('markdownEditorDetailsInitiallyOpenHint')}</p>
+                </div>
+                <Switch id="markdown-details-open" checked={detailsOpen} onCheckedChange={setDetailsOpen} />
+              </div>
+            </>
+          ) : null}
+
+          {seed.kind === 'footnote' ? (
+            <div className="grid gap-2">
+              <Label htmlFor="markdown-footnote-content">{t('markdownEditorFootnoteContentLabel')}</Label>
+              <Textarea
+                autoFocus
+                id="markdown-footnote-content"
+                value={content}
+                placeholder={t('markdownEditorFootnoteContentPlaceholder')}
+                onChange={(event) => setContent(event.target.value)}
+              />
+            </div>
+          ) : null}
+
+          {isMath ? (
+            <>
+              <div className="grid gap-2">
+                <Label htmlFor="markdown-latex">{t('markdownEditorLatexLabel')}</Label>
+                <Textarea
+                  autoFocus
+                  id="markdown-latex"
+                  value={latex}
+                  className="min-h-24 font-mono"
+                  placeholder={String.raw`E = mc^2`}
+                  spellCheck={false}
+                  onChange={(event) => setLatex(event.target.value)}
+                  onKeyDown={(event) => {
+                    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                      event.preventDefault();
+                      submit();
+                    }
+                  }}
+                />
+              </div>
+              <div className="grid gap-2">
+                <Label>{t('markdownEditorMathPreview')}</Label>
+                <MarkdownLatexPreview latex={latex} displayMode={seed.kind === 'blockMath'} />
+              </div>
+            </>
+          ) : null}
+
+          {error ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
+        </div>
+
+        <DialogFooter>
+          <Button type="button" variant="outline" onClick={() => onOpenChange(false)}>
+            {t('cancel')}
+          </Button>
+          <Button type="button" onClick={submit}>
+            {isEditing ? t('markdownEditorRichBlockUpdate') : t('markdownEditorRichBlockInsert')}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
+}
+
 function MarkdownEmojiDialog({
   editor,
   onOpenChange,
@@ -3314,6 +3689,7 @@ function MarkdownToolbar({
   showSourceModeSwitch,
   onOpenEmojiDialog,
   onImageDialogOpenChange,
+  onOpenRichBlockDialog,
   onOpenTableDialog,
 }: {
   editor: MarkdownEditorWithMarkdown | null;
@@ -3325,6 +3701,7 @@ function MarkdownToolbar({
   showSourceModeSwitch: boolean;
   onOpenEmojiDialog: (range?: Range) => void;
   onImageDialogOpenChange: (open: boolean, range?: Range) => void;
+  onOpenRichBlockDialog: (kind: RichBlockKind, range?: Range) => void;
   onOpenTableDialog: (range?: Range | null) => void;
 }) {
   const t = useTranslations('notebook');
@@ -3372,42 +3749,23 @@ function MarkdownToolbar({
   const insertMath = useCallback((kind: 'inline' | 'block') => {
     if (!editor) return;
 
-    const latex = window.prompt(labels.latexPrompt, getSelectedText(editor));
-    if (!latex?.trim()) return;
-
-    const chain = editor.chain().focus();
-    if (kind === 'inline') {
-      chain.insertInlineMath({ latex: latex.trim() }).run();
-    } else {
-      chain.insertBlockMath({ latex: latex.trim() }).run();
-    }
-  }, [editor, labels.latexPrompt]);
+    onOpenRichBlockDialog(kind === 'inline' ? 'inlineMath' : 'blockMath', getCurrentToolbarRange());
+  }, [editor, getCurrentToolbarRange, onOpenRichBlockDialog]);
 
   const insertCallout = useCallback(() => {
     if (!editor) return;
-    const title = window.prompt(labels.calloutTitlePrompt, labels.items.callout.title);
-    if (title === null) return;
-    editor.chain().focus().insertCanvasCallout({
-      title: title.trim() || labels.items.callout.title,
-      type: 'note',
-    }).run();
-  }, [editor, labels.calloutTitlePrompt, labels.items.callout.title]);
+    onOpenRichBlockDialog('callout', getCurrentToolbarRange());
+  }, [editor, getCurrentToolbarRange, onOpenRichBlockDialog]);
 
   const insertDetails = useCallback(() => {
     if (!editor) return;
-    const summary = window.prompt(labels.detailsSummaryPrompt, labels.items.details.title);
-    if (summary === null) return;
-    editor.chain().focus().insertCanvasDetails({
-      summary: summary.trim() || labels.items.details.title,
-    }).run();
-  }, [editor, labels.detailsSummaryPrompt, labels.items.details.title]);
+    onOpenRichBlockDialog('details', getCurrentToolbarRange());
+  }, [editor, getCurrentToolbarRange, onOpenRichBlockDialog]);
 
   const insertFootnote = useCallback(() => {
     if (!editor) return;
-    const content = window.prompt(labels.footnoteContentPrompt);
-    if (content === null) return;
-    editor.chain().focus().insertMarkdownFootnote({ content: content.trim() }).run();
-  }, [editor, labels.footnoteContentPrompt]);
+    onOpenRichBlockDialog('footnote', getCurrentToolbarRange());
+  }, [editor, getCurrentToolbarRange, onOpenRichBlockDialog]);
 
   const openLinkPopoverFromSelection = useCallback(() => {
     if (!editor || linkDialogOpen) return;
@@ -4391,7 +4749,6 @@ function RichMarkdownEditor({
   const acceptedExternalValueRef = useRef(documentParts.body);
   const applyingExternalValueRef = useRef(false);
   const pendingBlockCommandMenuFrameRef = useRef<number | null>(null);
-  const appliedMathEditRequestRef = useRef(0);
   const appliedNavigationRequestRef = useRef<string | null>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
   const [tableDialogOpen, setTableDialogOpen] = useState(false);
@@ -4400,7 +4757,7 @@ function RichMarkdownEditor({
   const [imageDialogSeed, setImageDialogSeed] = useState<ImageDialogSeed>({ id: 0 });
   const [emojiDialogOpen, setEmojiDialogOpen] = useState(false);
   const [emojiDialogSeed, setEmojiDialogSeed] = useState<EmojiDialogSeed>({ id: 0 });
-  const [mathEditRequest, setMathEditRequest] = useState<MathEditRequest | null>(null);
+  const [richBlockDialog, setRichBlockDialog] = useState<RichBlockDialogSeed | null>(null);
   const [blockCommandMenu, setBlockCommandMenu] = useState<BlockCommandMenuState | null>(null);
   const [findOpen, setFindOpen] = useState(false);
   const [outlinePinned, setOutlinePinned] = useState(false);
@@ -4444,6 +4801,71 @@ function RichMarkdownEditor({
     setTableDialogOpen(open);
     if (!open) setTableDialogRange(null);
   }, []);
+  const openRichBlockDialog = useCallback((
+    kind: RichBlockKind,
+    targetEditor: Editor,
+    range?: Range,
+  ) => {
+    const safeRange = range ? clampEditorRangeToDoc(targetEditor, range) ?? undefined : undefined;
+    const selectedText = safeRange ? targetEditor.state.doc.textBetween(safeRange.from, safeRange.to, ' ') : '';
+    const selectedNodePosition = kind === 'callout'
+      ? findSelectedRichBlockPosition(targetEditor, 'canvasCallout')
+      : kind === 'details'
+        ? findSelectedRichBlockPosition(targetEditor, 'canvasDetails')
+        : null;
+
+    if (kind === 'callout' && selectedNodePosition !== null) {
+      const node = targetEditor.state.doc.nodeAt(selectedNodePosition);
+      setRichBlockDialog((current) => ({
+        id: (current?.id ?? 0) + 1,
+        kind,
+        nodePosition: selectedNodePosition,
+        initialCalloutType: String(node?.attrs.calloutType ?? 'note'),
+        initialTitle: getRichBlockTitle(targetEditor, selectedNodePosition, 'canvasCalloutTitle'),
+      }));
+      return;
+    }
+
+    if (kind === 'details' && selectedNodePosition !== null) {
+      const node = targetEditor.state.doc.nodeAt(selectedNodePosition);
+      setRichBlockDialog((current) => ({
+        id: (current?.id ?? 0) + 1,
+        kind,
+        nodePosition: selectedNodePosition,
+        initialOpen: Boolean(node?.attrs.open),
+        initialTitle: getRichBlockTitle(targetEditor, selectedNodePosition, 'canvasDetailsSummary'),
+      }));
+      return;
+    }
+
+    if (kind === 'footnote') {
+      const footnoteId = getSelectedFootnoteId(targetEditor);
+      if (footnoteId) {
+        const definitionPosition = findFootnoteDefinitionPosition(targetEditor, footnoteId);
+        const definition = definitionPosition === null ? null : targetEditor.state.doc.nodeAt(definitionPosition);
+        setRichBlockDialog((current) => ({
+          id: (current?.id ?? 0) + 1,
+          kind,
+          footnoteId,
+          initialContent: definition?.textContent ?? '',
+        }));
+        return;
+      }
+    }
+
+    setRichBlockDialog((current) => ({
+      id: (current?.id ?? 0) + 1,
+      kind,
+      range: safeRange,
+      initialContent: kind === 'callout' || kind === 'details' || kind === 'footnote' ? selectedText : undefined,
+      initialLatex: kind === 'inlineMath' || kind === 'blockMath' ? selectedText : undefined,
+    }));
+  }, []);
+  const openRichBlockDialogFromSlash = useCallback((kind: RichBlockKind, slashEditor: Editor, range: Range) => {
+    const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
+    if (!insertionRange) return;
+    openRichBlockDialog(kind, slashEditor, insertionRange);
+  }, [openRichBlockDialog]);
   const openImageDialogFromSlash = useCallback((slashEditor: Editor, range: Range) => {
     const insertionRange = prepareCommandDialogInsertionRange(slashEditor, range);
     const insertPosition = insertionRange?.from ?? slashEditor.state.selection.from;
@@ -4470,24 +4892,22 @@ function RichMarkdownEditor({
     openTableDialogAtRange({ from: insertPosition, to: insertPosition });
   }, [openTableDialogAtRange]);
   const editMath = useCallback((kind: 'inline' | 'block', latex: string, pos: number) => {
-    const nextLatex = window.prompt(labels.latexPrompt, latex);
-    if (nextLatex === null) return;
-
-    setMathEditRequest({
-      id: Date.now(),
-      kind,
-      latex: nextLatex.trim(),
-      pos,
-    });
-  }, [labels.latexPrompt]);
+    setRichBlockDialog((current) => ({
+      id: (current?.id ?? 0) + 1,
+      kind: kind === 'inline' ? 'inlineMath' : 'blockMath',
+      nodePosition: pos,
+      initialLatex: latex,
+    }));
+  }, []);
   const slashCommandActions = useMemo<SlashCommandActions>(
     () => ({
       editMath,
+      openRichBlockDialog: openRichBlockDialogFromSlash,
       openEmojiDialog: openEmojiDialogFromSlash,
       openImageDialog: openImageDialogFromSlash,
       openTableDialog: openTableDialogFromSlash,
     }),
-    [editMath, openEmojiDialogFromSlash, openImageDialogFromSlash, openTableDialogFromSlash],
+    [editMath, openEmojiDialogFromSlash, openImageDialogFromSlash, openRichBlockDialogFromSlash, openTableDialogFromSlash],
   );
   const remoteCaretLabel = useCallback(
     (name: string) => t('collaboration.remoteCaretLabel', { name }),
@@ -4559,6 +4979,14 @@ function RichMarkdownEditor({
     },
   }, [collaboration?.provider]);
 
+  const openRichBlockDialogFromToolbar = useCallback((kind: RichBlockKind, range?: Range) => {
+    if (!editor) return;
+    openRichBlockDialog(kind, editor, range ?? {
+      from: editor.state.selection.from,
+      to: editor.state.selection.to,
+    });
+  }, [editor, openRichBlockDialog]);
+
   const handlePropertiesChange = useCallback((nextValue: string) => {
     if (collaborationEnabled && collaboration) {
       const prefix = splitCanvasMarkdownForRichEditor(nextValue).prefix;
@@ -4586,26 +5014,67 @@ function RichMarkdownEditor({
   }, [collaboration, editor, onChange]);
 
   const markdownEditor = asMarkdownEditor(editor);
-  useEffect(() => {
-    if (!editor || !mathEditRequest || mathEditRequest.id <= appliedMathEditRequestRef.current) return;
+  const submitRichBlockDialog = useCallback((submission: RichBlockDialogSubmission) => {
+    if (!editor || !richBlockDialog || editor.isDestroyed || !editor.isEditable) return;
 
-    appliedMathEditRequestRef.current = mathEditRequest.id;
-    const { kind, latex, pos } = mathEditRequest;
-    if (kind === 'inline') {
-      if (latex) {
-        editor.chain().focus().updateInlineMath({ latex, pos }).run();
+    const seed = richBlockDialog;
+    if (submission.kind === 'callout') {
+      if (seed.nodePosition !== undefined) {
+        replaceRichBlockTitle(
+          editor,
+          seed.nodePosition,
+          'canvasCallout',
+          'canvasCalloutTitle',
+          submission.title,
+          { calloutType: submission.calloutType },
+        );
       } else {
-        editor.chain().focus().deleteInlineMath({ pos }).run();
+        editor.chain().focus().insertCanvasCallout({
+          title: submission.title,
+          type: submission.calloutType,
+          content: submission.content,
+          range: seed.range,
+        }).run();
       }
-      return;
+    } else if (submission.kind === 'details') {
+      if (seed.nodePosition !== undefined) {
+        replaceRichBlockTitle(
+          editor,
+          seed.nodePosition,
+          'canvasDetails',
+          'canvasDetailsSummary',
+          submission.title,
+          { open: submission.open },
+        );
+      } else {
+        editor.chain().focus().insertCanvasDetails({
+          summary: submission.title,
+          content: submission.content,
+          open: submission.open,
+          range: seed.range,
+        }).run();
+      }
+    } else if (submission.kind === 'footnote') {
+      if (seed.footnoteId) {
+        updateFootnoteDefinition(editor, seed.footnoteId, submission.content);
+      } else {
+        editor.chain().focus().insertMarkdownFootnote({
+          content: submission.content,
+          range: seed.range,
+        }).run();
+      }
+    } else if (seed.nodePosition !== undefined) {
+      if (submission.kind === 'inlineMath') {
+        editor.chain().focus().updateInlineMath({ latex: submission.latex, pos: seed.nodePosition }).run();
+      } else {
+        editor.chain().focus().updateBlockMath({ latex: submission.latex, pos: seed.nodePosition }).run();
+      }
+    } else {
+      insertMathAtRange(editor, submission.kind, submission.latex, seed.range);
     }
 
-    if (latex) {
-      editor.chain().focus().updateBlockMath({ latex, pos }).run();
-    } else {
-      editor.chain().focus().deleteBlockMath({ pos }).run();
-    }
-  }, [editor, mathEditRequest]);
+    setRichBlockDialog(null);
+  }, [editor, richBlockDialog]);
   useEffect(() => {
     if (
       !editor
@@ -4776,6 +5245,82 @@ function RichMarkdownEditor({
 
   useEffect(() => {
     if (!editor) return undefined;
+    const editorElement = editor.options.element;
+    if (!(editorElement instanceof HTMLElement)) return undefined;
+
+    const handleDetailsToggle = (event: Event) => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement) || !editorElement.contains(details)) return;
+      if (details.dataset.type !== 'canvas-details') return;
+
+      let position: number | null = null;
+      try {
+        const resolved = editor.state.doc.resolve(editor.view.posAtDOM(details, 0));
+        for (let depth = resolved.depth; depth > 0; depth -= 1) {
+          if (resolved.node(depth).type.name === 'canvasDetails') {
+            position = resolved.before(depth);
+            break;
+          }
+        }
+      } catch {
+        return;
+      }
+      if (position === null) return;
+
+      const node = editor.state.doc.nodeAt(position);
+      if (!node || node.type.name !== 'canvasDetails' || Boolean(node.attrs.open) === details.open) return;
+      editor.view.dispatch(editor.state.tr.setNodeMarkup(position, node.type, {
+        ...node.attrs,
+        open: details.open,
+      }));
+    };
+
+    editorElement.addEventListener('toggle', handleDetailsToggle, true);
+    return () => editorElement.removeEventListener('toggle', handleDetailsToggle, true);
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return undefined;
+    const editorElement = editor.options.element;
+    if (!(editorElement instanceof HTMLElement)) return undefined;
+
+    const focusFootnoteDefinition = (reference: Element) => {
+      const footnoteId = reference.getAttribute('data-footnote-id');
+      if (!footnoteId) return;
+      const definitionPosition = findFootnoteDefinitionPosition(editor, footnoteId);
+      if (definitionPosition === null) return;
+      editor.chain().focus().setTextSelection(definitionPosition + 1).scrollIntoView().run();
+    };
+
+    const handleFootnoteClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const reference = target.closest('sup[data-type="markdown-footnote-reference"]');
+      if (!reference || !editorElement.contains(reference)) return;
+
+      event.preventDefault();
+      event.stopPropagation();
+      focusFootnoteDefinition(reference);
+    };
+    const handleFootnoteKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== 'Enter' && event.key !== ' ') return;
+      const target = event.target;
+      if (!(target instanceof Element) || !target.matches('sup[data-type="markdown-footnote-reference"]')) return;
+
+      event.preventDefault();
+      focusFootnoteDefinition(target);
+    };
+
+    editorElement.addEventListener('click', handleFootnoteClick, true);
+    editorElement.addEventListener('keydown', handleFootnoteKeyDown, true);
+    return () => {
+      editorElement.removeEventListener('click', handleFootnoteClick, true);
+      editorElement.removeEventListener('keydown', handleFootnoteKeyDown, true);
+    };
+  }, [editor]);
+
+  useEffect(() => {
+    if (!editor) return undefined;
 
     const editorElement = editor.options.element;
     if (!(editorElement instanceof HTMLElement)) return undefined;
@@ -4829,6 +5374,7 @@ function RichMarkdownEditor({
           imageDialogSeed={imageDialogSeed}
           labels={labels}
           onOpenEmojiDialog={openEmojiDialogFromToolbar}
+          onOpenRichBlockDialog={openRichBlockDialogFromToolbar}
           onSourceMode={onSourceMode}
           showSourceModeSwitch={!collaborationEnabled}
           onImageDialogOpenChange={openImageDialogFromToolbar}
@@ -4837,6 +5383,17 @@ function RichMarkdownEditor({
       ) : null}
       {!effectiveReadOnly ? (
         <MarkdownTableDialog open={tableDialogOpen} onOpenChange={handleTableDialogOpenChange} onInsert={insertTable} />
+      ) : null}
+      {!effectiveReadOnly && richBlockDialog ? (
+        <MarkdownRichBlockDialog
+          key={`rich-block-${richBlockDialog.id}`}
+          open
+          onOpenChange={(open) => {
+            if (!open) setRichBlockDialog(null);
+          }}
+          seed={richBlockDialog}
+          onSubmit={submitRichBlockDialog}
+        />
       ) : null}
       {!effectiveReadOnly ? (
         <MarkdownEmojiDialog

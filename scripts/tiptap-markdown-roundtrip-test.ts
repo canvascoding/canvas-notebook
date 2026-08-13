@@ -192,6 +192,13 @@ Hidden **details** body.
 
 </details>
 
+<details open>
+<summary>Initially visible</summary>
+
+This details block stays open.
+
+</details>
+
 Inline math $E = mc^2$ remains in the paragraph.
 
 $$
@@ -328,6 +335,8 @@ async function main() {
   assert.match(output, /^\[\^1\]: Standard footnote content\.$/mu);
   assert.match(output, /^<details>\n<summary>More context<\/summary>/mu);
   assert.match(output, /Hidden \*\*details\*\* body\./u);
+  assert.match(output, /^<details open>\n<summary>Initially visible<\/summary>/mu);
+  assert.match(output, /This details block stays open\./u);
   assert.match(output, /Inline math \$E = mc\^2\$/);
   assert.ok(output.includes(String.raw`$$
 \int_0^1 x^2 \, dx = \frac{1}{3}
@@ -475,6 +484,104 @@ $$`));
     /^> \[!note\] Note$/mu,
     'switching to Markdown source must not append a phantom Note block',
   );
+
+  const calloutCountBeforeInsert = collectNodeTypes(editor.getJSON())
+    .filter((type) => type === 'canvasCallout').length;
+  editor.commands.insertContentAt(editor.state.doc.content.size, {
+    type: 'paragraph',
+    content: [{ type: 'text', text: 'callout insertion anchor' }],
+  });
+  const calloutAnchor = findDocTextPosition(editor, 'callout insertion anchor');
+  assert.notEqual(calloutAnchor, null, 'callout insertion anchor should be discoverable');
+  assert.equal(
+    editor.commands.insertCanvasCallout({
+      title: 'Dialog callout',
+      type: 'info',
+      content: 'Inserted callout body',
+      range: {
+        from: calloutAnchor ?? 0,
+        to: (calloutAnchor ?? 0) + 'callout insertion anchor'.length,
+      },
+    }),
+    true,
+    'callouts should insert at an explicit stored range',
+  );
+  assert.equal(
+    collectNodeTypes(editor.getJSON()).filter((type) => type === 'canvasCallout').length,
+    calloutCountBeforeInsert + 1,
+    'a callout command must create exactly one callout node',
+  );
+  assert.match(editor.getMarkdown(), /^> \[!info\] Dialog callout\n> Inserted callout body$/mu);
+
+  editor.commands.insertContentAt(editor.state.doc.content.size, {
+    type: 'paragraph',
+    content: [{ type: 'text', text: 'details insertion anchor' }],
+  });
+  const detailsAnchor = findDocTextPosition(editor, 'details insertion anchor');
+  assert.notEqual(detailsAnchor, null, 'details insertion anchor should be discoverable');
+  assert.equal(
+    editor.commands.insertCanvasDetails({
+      summary: 'Dialog details',
+      content: 'Inserted details body',
+      open: true,
+      range: {
+        from: detailsAnchor ?? 0,
+        to: (detailsAnchor ?? 0) + 'details insertion anchor'.length,
+      },
+    }),
+    true,
+    'details should insert at an explicit stored range',
+  );
+  assert.match(
+    editor.getMarkdown(),
+    /^<details open>\n<summary>Dialog details<\/summary>\n\nInserted details body\n\n<\/details>$/mu,
+    'the open state of a collapsible section must survive Markdown serialization',
+  );
+
+  editor.commands.insertContentAt(editor.state.doc.content.size, {
+    type: 'paragraph',
+    content: [{ type: 'text', text: 'footnote insertion anchor' }],
+  });
+  const footnoteAnchor = findDocTextPosition(editor, 'footnote insertion anchor');
+  assert.notEqual(footnoteAnchor, null, 'footnote insertion anchor should be discoverable');
+  assert.equal(
+    editor.commands.insertMarkdownFootnote({
+      content: 'Inserted footnote definition',
+      range: {
+        from: footnoteAnchor ?? 0,
+        to: (footnoteAnchor ?? 0) + 'footnote insertion anchor'.length,
+      },
+    }),
+    true,
+    'footnotes should insert their reference at the stored range',
+  );
+  const insertedFootnoteMarkdown = editor.getMarkdown();
+  assert.match(insertedFootnoteMarkdown, /\[\^2\]/u, 'the new footnote should receive the next available reference number');
+  assert.match(
+    insertedFootnoteMarkdown,
+    /^\[\^2\]: Inserted footnote definition$/mu,
+    'the new footnote should append an editable definition exactly once',
+  );
+
+  editor.commands.insertContentAt(editor.state.doc.content.size, {
+    type: 'paragraph',
+    content: [{ type: 'text', text: 'formula insertion anchor' }],
+  });
+  const formulaAnchor = findDocTextPosition(editor, 'formula insertion anchor');
+  assert.notEqual(formulaAnchor, null, 'formula insertion anchor should be discoverable');
+  editor.chain().deleteRange({
+    from: formulaAnchor ?? 0,
+    to: (formulaAnchor ?? 0) + 'formula insertion anchor'.length,
+  }).run();
+  assert.equal(
+    editor.chain().insertInlineMath({
+      latex: 'x^2',
+      pos: editor.state.selection.from,
+    }).run(),
+    true,
+    'inline formulas should be inserted only after the prior deletion transaction has committed',
+  );
+  assert.match(editor.getMarkdown(), /\$x\^2\$/u);
 
   const smallEditor = new Editor({
     content: 'x',

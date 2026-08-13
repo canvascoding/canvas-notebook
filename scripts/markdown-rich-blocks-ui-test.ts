@@ -26,6 +26,48 @@ for (const command of ['callout', 'details', 'footnote', 'highlight']) {
   );
 }
 
+for (const command of ['callout', 'details', 'footnote', 'inlineMath', 'blockMath']) {
+  const start = editorSource.indexOf(`id: '${command}'`);
+  const end = editorSource.indexOf("\n  {", start + 1);
+  assert.notEqual(start, -1, `${command} must have a slash-command definition`);
+  assert.doesNotMatch(
+    editorSource.slice(start, end === -1 ? undefined : end),
+    /window\.prompt/u,
+    `${command} must use the editor dialog instead of a browser prompt`,
+  );
+}
+
+assert.match(
+  editorSource,
+  /function MarkdownRichBlockDialog/u,
+  'rich Markdown blocks must use a shared editor dialog',
+);
+assert.match(
+  editorSource,
+  /function MarkdownLatexPreview/u,
+  'the formula dialog must render a LaTeX preview before insertion',
+);
+assert.match(
+  editorSource,
+  /openRichBlockDialog: openRichBlockDialogFromSlash/u,
+  'slash commands must share the same dialog insertion path as the toolbar',
+);
+assert.match(
+  editorSource,
+  /insertMathAtRange[\s\S]*?deleteRange[\s\S]*?insertInlineMath/u,
+  'inline formulas must delete a selected/slash range before calculating their insert position',
+);
+assert.match(
+  editorSource,
+  /handleDetailsToggle/u,
+  'toggling a collapsible section must persist its open state in the editor document',
+);
+assert.match(
+  editorSource,
+  /focusFootnoteDefinition/u,
+  'footnote references must navigate to their editable definition',
+);
+
 assert.match(
   editorSource,
   /toggleCanvasHighlight\(\)/u,
@@ -53,5 +95,16 @@ for (const selector of [
     `${selector} must have an intentional rich-editor presentation`,
   );
 }
+
+assert.match(
+  editorStyles,
+  /summary\[data-type='canvas-details-summary'\][\s\S]*?cursor: pointer/u,
+  'collapsible summaries must visibly communicate that they can be toggled',
+);
+assert.match(
+  editorStyles,
+  /sup\[data-type='markdown-footnote-reference'\][\s\S]*?cursor: pointer/u,
+  'footnote references must visibly communicate that they are navigable',
+);
 
 console.log('markdown-rich-blocks-ui-test: ok');

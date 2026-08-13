@@ -890,9 +890,15 @@ li.task-list-item > p {
 
 .tiptap-editor-shell summary[data-type='canvas-details-summary'] {
   background: color-mix(in oklab, var(--muted) 52%, transparent);
-  cursor: text;
+  cursor: pointer;
   font-weight: 650;
   padding: 0.75rem 1rem;
+}
+
+.tiptap-editor-shell summary[data-type='canvas-details-summary']:focus-visible,
+.tiptap-editor-shell sup[data-type='markdown-footnote-reference']:focus-visible {
+  outline: 2px solid color-mix(in oklab, var(--primary) 70%, transparent);
+  outline-offset: 2px;
 }
 
 .tiptap-editor-shell [data-type='canvas-details-content'] {
@@ -904,7 +910,7 @@ li.task-list-item > p {
   background: color-mix(in oklab, var(--primary) 10%, transparent);
   border-radius: 0.3rem;
   color: var(--primary);
-  cursor: default;
+  cursor: pointer;
   font-size: 0.7em;
   font-weight: 700;
   padding: 0.08rem 0.2rem;

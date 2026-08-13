@@ -8,15 +8,27 @@ import {
   type JSONContent,
   type MarkdownParseHelpers,
   type MarkdownToken,
+  type Range,
 } from '@tiptap/core';
 import Paragraph from '@tiptap/extension-paragraph';
+import { TextSelection } from '@tiptap/pm/state';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
     canvasRichMarkdown: {
-      insertCanvasCallout: (options?: { title?: string; type?: string }) => ReturnType;
-      insertCanvasDetails: (options?: { summary?: string }) => ReturnType;
-      insertMarkdownFootnote: (options?: { content?: string }) => ReturnType;
+      insertCanvasCallout: (options?: {
+        title?: string;
+        type?: string;
+        content?: string;
+        range?: Range;
+      }) => ReturnType;
+      insertCanvasDetails: (options?: {
+        summary?: string;
+        content?: string;
+        open?: boolean;
+        range?: Range;
+      }) => ReturnType;
+      insertMarkdownFootnote: (options?: { content?: string; range?: Range }) => ReturnType;
       insertMarkdownMention: (options: { label: string; userId: string }) => ReturnType;
       toggleCanvasHighlight: () => ReturnType;
     };
@@ -31,6 +43,7 @@ type CalloutToken = MarkdownToken & {
 };
 
 type DetailsToken = MarkdownToken & {
+  detailsOpen?: boolean;
   detailsSummary?: string;
   detailsSummaryTokens?: MarkdownToken[];
 };
@@ -335,17 +348,23 @@ export const CanvasCallout = Node.create({
 
   addCommands() {
     return {
-      insertCanvasCallout: (options = {}) => ({ commands }) => commands.insertContent({
-        type: this.name,
-        attrs: { calloutType: options.type || 'note', fold: null },
-        content: [
-          {
-            type: 'canvasCalloutTitle',
-            content: options.title ? [{ type: 'text', text: options.title }] : [],
-          },
-          { type: 'paragraph' },
-        ],
-      }),
+      insertCanvasCallout: (options = {}) => ({ commands, state }) => commands.insertContentAt(
+        options.range ?? { from: state.selection.from, to: state.selection.to },
+        {
+          type: this.name,
+          attrs: { calloutType: options.type || 'note', fold: null },
+          content: [
+            {
+              type: 'canvasCalloutTitle',
+              content: options.title ? [{ type: 'text', text: options.title }] : [],
+            },
+            {
+              type: 'paragraph',
+              content: options.content ? [{ type: 'text', text: options.content }] : [],
+            },
+          ],
+        },
+      ),
     };
   },
 });
@@ -392,14 +411,27 @@ export const CanvasDetails = Node.create({
   isolating: true,
   priority: 1100,
 
-  parseHTML() {
-    return [{ tag: 'details[data-type="canvas-details"]' }];
+  addAttributes() {
+    return {
+      open: {
+        default: false,
+        parseHTML: (element) => element instanceof HTMLElement && element.hasAttribute('open'),
+        renderHTML: (attributes) => attributes.open ? { open: 'open' } : {},
+      },
+    };
   },
 
-  renderHTML({ HTMLAttributes }) {
+  parseHTML() {
+    return [{
+      tag: 'details[data-type="canvas-details"]',
+      getAttrs: (element) => element instanceof HTMLElement ? { open: element.hasAttribute('open') } : false,
+    }];
+  },
+
+  renderHTML({ HTMLAttributes, node }) {
     return ['details', mergeAttributes(HTMLAttributes, {
       'data-type': 'canvas-details',
-      open: 'open',
+      ...(node.attrs.open ? { open: 'open' } : {}),
     }), 0];
   },
 
@@ -410,7 +442,7 @@ export const CanvasDetails = Node.create({
       ?? helpers.tokenizeInline?.(summary)
       ?? [{ type: 'text', raw: summary, text: summary }],
     );
-    return helpers.createNode('canvasDetails', {}, [
+    return helpers.createNode('canvasDetails', { open: Boolean(token.detailsOpen) }, [
       helpers.createNode('canvasDetailsSummary', {}, summaryContent),
       helpers.createNode('canvasDetailsContent', {}, blockContent(token, helpers)),
     ]);
@@ -421,23 +453,25 @@ export const CanvasDetails = Node.create({
     const contentNode = node.content?.find((child) => child.type === 'canvasDetailsContent');
     const summary = summaryNode ? helpers.renderChildren(summaryNode.content ?? []) : 'Details';
     const body = contentNode ? helpers.renderChildren(contentNode.content ?? [], '\n\n') : '';
-    return `<details>\n<summary>${summary}</summary>\n\n${body}\n\n</details>`;
+    const open = node.attrs?.open ? ' open' : '';
+    return `<details${open}>\n<summary>${summary}</summary>\n\n${body}\n\n</details>`;
   },
 
   markdownTokenizer: {
     name: 'canvasDetails',
     level: 'block',
-    start: (source) => source.search(/^<details>[ \t]*$/mu),
+    start: (source) => source.search(/^<details(?:\s+open(?:=(?:"open"|'open'|open))?)?>[ \t]*$/mu),
     tokenize: (source, _tokens, lexer) => {
       const match = source.match(
-        /^<details>[ \t]*\r?\n<summary>([^\r\n]*)<\/summary>[ \t]*\r?\n([\s\S]*?)\r?\n<\/details>(?:\r?\n|$)/u,
+        /^<details(?:\s+(open)(?:=(?:"open"|'open'|open))?)?>[ \t]*\r?\n<summary>([^\r\n]*)<\/summary>[ \t]*\r?\n([\s\S]*?)\r?\n<\/details>(?:\r?\n|$)/u,
       );
       if (!match) return undefined;
-      const summary = match[1].trim() || 'Details';
-      const body = match[2].trim();
+      const summary = match[2].trim() || 'Details';
+      const body = match[3].trim();
       return {
         type: 'canvasDetails',
         raw: match[0],
+        detailsOpen: Boolean(match[1]),
         detailsSummary: summary,
         detailsSummaryTokens: lexer.inlineTokens(summary),
         tokens: body ? lexer.blockTokens(body) : [],
@@ -447,19 +481,26 @@ export const CanvasDetails = Node.create({
 
   addCommands() {
     return {
-      insertCanvasDetails: (options = {}) => ({ commands }) => commands.insertContent({
-        type: this.name,
-        content: [
-          {
-            type: 'canvasDetailsSummary',
-            content: options.summary ? [{ type: 'text', text: options.summary }] : [],
-          },
-          {
-            type: 'canvasDetailsContent',
-            content: [{ type: 'paragraph' }],
-          },
-        ],
-      }),
+      insertCanvasDetails: (options = {}) => ({ commands, state }) => commands.insertContentAt(
+        options.range ?? { from: state.selection.from, to: state.selection.to },
+        {
+          type: this.name,
+          attrs: { open: Boolean(options.open) },
+          content: [
+            {
+              type: 'canvasDetailsSummary',
+              content: options.summary ? [{ type: 'text', text: options.summary }] : [],
+            },
+            {
+              type: 'canvasDetailsContent',
+              content: [{
+                type: 'paragraph',
+                content: options.content ? [{ type: 'text', text: options.content }] : [],
+              }],
+            },
+          ],
+        },
+      ),
     };
   },
 });
@@ -491,6 +532,9 @@ export const MarkdownFootnoteReference = Node.create({
       'data-type': 'markdown-footnote-reference',
       'data-footnote-id': id,
       contenteditable: 'false',
+      role: 'button',
+      tabindex: '0',
+      'aria-label': `Footnote ${id}`,
     }), `[${id}]`];
   },
 
@@ -604,14 +648,22 @@ export const MarkdownFootnoteDefinition = Node.create({
         const footnoteId = String(sequence);
         if (!dispatch) return true;
 
+        const range = options.range ?? {
+          from: state.selection.from,
+          to: state.selection.to,
+        };
+        const from = Math.min(Math.max(range.from, 0), state.doc.content.size);
+        const to = Math.min(Math.max(range.to, from), state.doc.content.size);
         const reference = state.schema.nodes.markdownFootnoteReference.create({ footnoteId });
         const paragraph = state.schema.nodes.paragraph.create(
           null,
           options.content ? state.schema.text(options.content) : undefined,
         );
         const definition = this.type.create({ footnoteId }, paragraph);
-        const transaction = state.tr.replaceSelectionWith(reference);
+        const transaction = state.tr.replaceWith(from, to, reference);
+        const referenceEnd = transaction.mapping.map(from, 1) + reference.nodeSize;
         transaction.insert(transaction.doc.content.size, definition);
+        transaction.setSelection(TextSelection.create(transaction.doc, referenceEnd));
         dispatch(transaction.scrollIntoView());
         return true;
       },
