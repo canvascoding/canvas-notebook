@@ -75,6 +75,15 @@ async function main(): Promise<void> {
       ],
     );
 
+    const localDockerStatus = buildDirectMcpServerSettingsStatus(preferences, {
+      NODE_ENV: 'production',
+      BASE_URL: 'http://localhost:3456',
+      BETTER_AUTH_BASE_URL: 'http://localhost:3456',
+      CANVAS_MCP_DIRECT_ENABLED: 'false',
+    });
+    assert.equal(localDockerStatus.endpoint, 'http://localhost:3456/mcp');
+    assert.equal(localDockerStatus.configurationError, null);
+
     const pendingRestartStatus = buildDirectMcpServerSettingsStatus(preferences, {
       NODE_ENV: 'production',
       BASE_URL: 'https://canvas.example.test',

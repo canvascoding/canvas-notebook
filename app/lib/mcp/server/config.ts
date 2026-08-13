@@ -86,18 +86,15 @@ export function resolveDirectMcpOrigin(environment: DirectMcpEnvironment = proce
     );
   }
 
+  const isLocalHttpOrigin = parsed.protocol === 'http:'
+    && ['localhost', '127.0.0.1', '[::1]'].includes(parsed.hostname);
   const nodeEnvironment = environment.NODE_ENV?.trim().toLowerCase();
   const isProductionRuntime = nodeEnvironment === 'production'
     && environment.NEXT_PHASE !== 'phase-production-build';
-  if (isProductionRuntime && parsed.protocol !== 'https:') {
+  if (isProductionRuntime && parsed.protocol !== 'https:' && !isLocalHttpOrigin) {
     throw new Error('Direct MCP OAuth requires an HTTPS public origin in production.');
   }
-  if (
-    parsed.protocol === 'http:'
-    && parsed.hostname !== 'localhost'
-    && parsed.hostname !== '127.0.0.1'
-    && parsed.hostname !== '[::1]'
-  ) {
+  if (parsed.protocol === 'http:' && !isLocalHttpOrigin) {
     throw new Error('Direct MCP OAuth permits HTTP only on a local development origin.');
   }
 

@@ -48,6 +48,15 @@ function assertConfigurationContract(): void {
     }),
     /requires an HTTPS public origin/u,
   );
+  assert.equal(
+    resolveDirectMcpServerConfig({
+      CANVAS_MCP_DIRECT_ENABLED: 'true',
+      NODE_ENV: 'production',
+      BETTER_AUTH_BASE_URL: 'http://localhost:3456',
+      BASE_URL: 'http://localhost:3456',
+    }).resource,
+    'http://localhost:3456/mcp',
+  );
   assert.throws(
     () => resolveDirectMcpServerConfig({
       CANVAS_MCP_DIRECT_ENABLED: 'true',
