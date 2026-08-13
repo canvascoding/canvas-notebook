@@ -7,6 +7,7 @@ import { useLocale, useTranslations } from 'next-intl';
 import { ChevronDown, Copy, ExternalLink, Eye, EyeOff, Loader2, Mail, Plus, RefreshCw, Save, Search, Settings, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
+import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
 import { SystemEmailSettingsPanel } from '@/app/components/settings/SystemEmailSettingsPanel';
 import {
   McpServerDialog,
@@ -2279,13 +2280,18 @@ export function IntegrationsSettingsClient({
   const locale = useLocale();
   const searchParams = useSearchParams();
 
-  const requestedTab = searchParams.get('tab');
+  const requestedTabParam = searchParams.get('tab');
+  const requestedTab = requestedTabParam === 'integrations'
+    && normalizeIntegrationsSection(searchParams.get('section')) === 'mcpConfig'
+    ? 'mcp'
+    : requestedTabParam;
   const initialTab = getInitialSettingsTab(requestedTab);
   const [settingsTab, setSettingsTab] = useState<SettingsTab>(initialTab);
   const [loadedTabs, setLoadedTabs] = useState<Set<SettingsTab>>(() => new Set([initialTab]));
   const [settingsSidebarCollapsed, setSettingsSidebarCollapsed] = useState(initialSettingsSidebarCollapsed);
   const { activeTabOverride } = useHintContext();
   const integrationsInitialLoadStartedRef = useRef(false);
+  const mcpInitialLoadStartedRef = useRef(false);
 
   const effectiveTab = normalizeSettingsTab(activeTabOverride) ?? settingsTab;
   const workspaceManagementOpen = searchParams.get('workspaceManagement') === '1';
@@ -2580,6 +2586,19 @@ export function IntegrationsSettingsClient({
     startTransition(() => {
       void Promise.all([
         ...SCOPE_CARDS.map((card) => loadState(card.scope)),
+      ]);
+    });
+  }, [effectiveTab, loadState]);
+
+  useEffect(() => {
+    if (effectiveTab !== 'mcp' || mcpInitialLoadStartedRef.current) {
+      return;
+    }
+
+    mcpInitialLoadStartedRef.current = true;
+    startTransition(() => {
+      void Promise.all([
+        loadState('integrations'),
         loadMcpConfig(),
         loadMcpStatus(),
       ]);
@@ -2587,7 +2606,11 @@ export function IntegrationsSettingsClient({
   }, [effectiveTab, loadMcpConfig, loadMcpStatus, loadState]);
 
   useEffect(() => {
-    const tab = searchParams.get('tab');
+    const tabParam = searchParams.get('tab');
+    const tab = tabParam === 'integrations'
+      && normalizeIntegrationsSection(searchParams.get('section')) === 'mcpConfig'
+      ? 'mcp'
+      : tabParam;
     const requestedNextTab = normalizeSettingsTab(tab) ?? getStoredSettingsTab() ?? DEFAULT_SETTINGS_TAB;
     const nextTab = visibleSettingsTabs.has(requestedNextTab) ? requestedNextTab : DEFAULT_SETTINGS_TAB;
     startTransition(() => {
@@ -3061,18 +3084,6 @@ export function IntegrationsSettingsClient({
                 isOpen={integrationsSectionOpenById.emailAccounts}
                 onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
               />
-              <McpConfigCard
-                isOpen={integrationsSectionOpenById.mcpConfig}
-                onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
-                editor={mcpEditor}
-                onLoad={loadMcpConfig}
-                onLoadStatus={loadMcpStatus}
-                onServerAction={runMcpServerAction}
-                onSaveServer={saveMcpServer}
-                onDeleteServer={deleteMcpServer}
-                onRawChange={setMcpRawContent}
-                onSave={saveMcpConfig}
-              />
               {SCOPE_CARDS.map((card) => (
                 <EnvEditorCard
                   key={card.scope}
@@ -3093,6 +3104,25 @@ export function IntegrationsSettingsClient({
               ))}
             </>,
             { id: 'onboarding-settings-integrations' },
+          )}
+
+          {renderLazyTabContent('mcp',
+            <>
+              <McpServerSettingsPanel isAdmin={isAdmin} />
+              <McpConfigCard
+                isOpen={integrationsSectionOpenById.mcpConfig}
+                onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
+                editor={mcpEditor}
+                onLoad={loadMcpConfig}
+                onLoadStatus={loadMcpStatus}
+                onServerAction={runMcpServerAction}
+                onSaveServer={saveMcpServer}
+                onDeleteServer={deleteMcpServer}
+                onRawChange={setMcpRawContent}
+                onSave={saveMcpConfig}
+              />
+            </>,
+            { id: 'onboarding-settings-mcp' },
           )}
 
           {renderLazyTabContent('agent-settings', (

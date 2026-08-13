@@ -21,6 +21,7 @@ import {
   Settings2,
   UserRound,
   Users,
+  Waypoints,
   type LucideProps,
 } from 'lucide-react';
 import { useTranslations } from 'next-intl';
@@ -45,6 +46,7 @@ import { cn } from '@/lib/utils';
 export type SettingsTab =
   | 'general'
   | 'integrations'
+  | 'mcp'
   | 'agent-settings'
   | 'browser'
   | 'workspace'
@@ -128,6 +130,13 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.integrations',
     group: 'connections',
     icon: Plug,
+  },
+  {
+    value: 'mcp',
+    labelKey: 'tabs.mcp',
+    descriptionKey: 'navigation.descriptions.mcp',
+    group: 'connections',
+    icon: Waypoints,
   },
   {
     value: 'channels',

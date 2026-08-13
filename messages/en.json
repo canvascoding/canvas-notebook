@@ -2300,6 +2300,7 @@
     "tabs": {
       "general": "General",
       "integrations": "Integrations",
+      "mcp": "MCP",
       "agentSettings": "Agent Settings",
       "browser": "Browser",
       "workspace": "Workspace",
@@ -2337,7 +2338,8 @@
         "agentSettings": "Control agent identity, capabilities, tools, and runtime behavior.",
         "browser": "Configure the browser runtime and browser access for agents.",
         "skills": "Manage plugins, skills, and their connections.",
-        "integrations": "Set up API keys, connected apps, email, and MCP services.",
+        "integrations": "Set up API keys, connected apps, and email services.",
+        "mcp": "Expose Canvas as an MCP server and connect external MCP servers.",
         "channels": "Manage external communication channels and user bindings.",
         "userManagement": "Manage user accounts, roles, permissions, and access.",
         "dataMigration": "Manage VM migrations, import checks, and restores for this instance.",
@@ -3017,14 +3019,94 @@
         "save": "Failed to save search settings."
       }
     },
+    "mcpServer": {
+      "eyebrow": "External clients → Canvas",
+      "title": "Canvas as an MCP server",
+      "description": "Expose selected Canvas capabilities to ChatGPT, Claude, or other MCP clients. Access and permissions are protected by the Canvas sign-in flow.",
+      "loading": "Loading MCP server status…",
+      "refresh": "Refresh",
+      "copy": "Copy",
+      "copied": "Copied",
+      "save": "Save changes",
+      "saving": "Saving…",
+      "saved": "MCP server settings saved.",
+      "unsaved": "Unsaved changes",
+      "upToDate": "Settings are up to date",
+      "adminOnly": "You can view connection details. Only instance administrators can change activation and capability access.",
+      "activation": {
+        "label": "MCP server"
+      },
+      "status": {
+        "active": "Active",
+        "inactive": "Disabled",
+        "restartRequired": "Restart required",
+        "configurationError": "Check configuration"
+      },
+      "restart": {
+        "title": "Saved — restart required",
+        "description": "Restart Canvas Notebook so activation and capability access are applied safely together with OAuth. Until then, the displayed runtime status remains in effect."
+      },
+      "configuration": {
+        "title": "The public instance address is not configured correctly yet"
+      },
+      "managed": {
+        "title": "Managed by the server environment",
+        "description": "At least one setting is supplied by the deployment. These controls remain visible here but cannot be overridden."
+      },
+      "endpoint": {
+        "title": "Public MCP endpoint",
+        "domain": "Available through {domain}",
+        "missing": "The public Canvas domain has not been configured yet.",
+        "notConfigured": "No endpoint available",
+        "issuer": "OAuth issuer"
+      },
+      "capabilities": {
+        "title": "What clients may use",
+        "description": "Only enabled tools are advertised over MCP.",
+        "enabledCount": "{count, plural, =0 {No tools} one {# tool} other {# tools}} enabled",
+        "noneEnabled": "Clients can connect, but no tools are currently available to them.",
+        "planned": "{count, plural, one {One additional read-only capability is prepared but not released yet.} other {# additional read-only capabilities are prepared but not released yet.}}",
+        "items": {
+          "auth_probe": {
+            "title": "Verify connection",
+            "description": "Verifies sign-in and OAuth access without reading workspace or knowledge content."
+          }
+        }
+      },
+      "connect": {
+        "title": "How to connect a client",
+        "description": "Menu labels differ between clients; the endpoint, transport, and sign-in flow remain the same.",
+        "example": "Typical configuration example",
+        "security": "Canvas never shares passwords or tokens with the client. The client discovers OAuth automatically and opens the Canvas sign-in page in a browser.",
+        "steps": {
+          "endpoint": {
+            "title": "Add the endpoint",
+            "description": "Copy the /mcp address shown above into the client's MCP settings."
+          },
+          "transport": {
+            "title": "Choose Streamable HTTP",
+            "description": "Use the remote server or URL option. No local launch command is required."
+          },
+          "oauth": {
+            "title": "Sign in to Canvas",
+            "description": "The client opens the Canvas sign-in page. Approve the requested permissions there."
+          }
+        }
+      },
+      "errors": {
+        "load": "Could not load MCP server settings.",
+        "save": "Could not save MCP server settings.",
+        "copy": "Could not copy the text to the clipboard."
+      }
+    },
     "mcpConfig": {
-      "title": "MCP Configuration",
-      "description": "Configure Model Context Protocol servers for the agent.",
+      "title": "External MCP servers",
+      "description": "Connect Canvas as a client to external MCP servers.",
       "loading": "Loading MCP configuration...",
       "summary": "{count, plural, =0 {No servers} one {# server} other {# servers}}",
       "connectedSummary": "{count} connected",
       "errorSummary": "Load error",
-      "secretNote": "Do not paste API keys or OAuth tokens here. Reference environment variables managed in this tab instead.",
+      "secretNote": "Do not paste API keys or OAuth tokens here. Reference environment variables from Settings → Integrations instead.",
       "examplesLink": "Example MCP servers",
       "registryLink": "MCP Registry",
       "examplesCaution": "Use with caution: review external MCP servers before using them.",

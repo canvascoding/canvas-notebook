@@ -2299,6 +2299,7 @@
     "tabs": {
       "general": "Allgemein",
       "integrations": "Integrationen",
+      "mcp": "MCP",
       "agentSettings": "Agent-Einstellungen",
       "browser": "Browser",
       "workspace": "Workspace",
@@ -2336,7 +2337,8 @@
         "agentSettings": "Identität, Fähigkeiten, Tools und Laufzeitverhalten der Agents steuern.",
         "browser": "Browser-Laufzeit und Browser-Zugriff für Agents konfigurieren.",
         "skills": "Plugins, Skills und deren Verbindungen verwalten.",
-        "integrations": "API-Schlüssel, verbundene Apps, E-Mail und MCP-Dienste einrichten.",
+        "integrations": "API-Schlüssel, verbundene Apps und E-Mail-Dienste einrichten.",
+        "mcp": "Canvas als MCP-Server freigeben und externe MCP-Server verbinden.",
         "channels": "Externe Kommunikationskanäle und Benutzerverknüpfungen verwalten.",
         "userManagement": "Benutzerkonten, Rollen, Rechte und Zugriff verwalten.",
         "dataMigration": "VM-Migrationen, Import-Prüfungen und Wiederherstellungen dieser Instanz verwalten.",
@@ -3016,14 +3018,94 @@
         "save": "Search-Einstellungen konnten nicht gespeichert werden."
       }
     },
+    "mcpServer": {
+      "eyebrow": "Externe Clients → Canvas",
+      "title": "Canvas als MCP-Server",
+      "description": "Gib ausgewählte Canvas-Funktionen für ChatGPT, Claude oder andere MCP-Clients frei. Zugang und Berechtigungen werden über den Canvas-Login geschützt.",
+      "loading": "MCP-Serverstatus wird geladen …",
+      "refresh": "Aktualisieren",
+      "copy": "Kopieren",
+      "copied": "Kopiert",
+      "save": "Änderungen speichern",
+      "saving": "Wird gespeichert …",
+      "saved": "MCP-Servereinstellungen gespeichert.",
+      "unsaved": "Noch nicht gespeicherte Änderungen",
+      "upToDate": "Einstellungen sind aktuell",
+      "adminOnly": "Du kannst die Verbindungsdaten ansehen. Nur Instanz-Administratoren dürfen Aktivierung und Freigaben ändern.",
+      "activation": {
+        "label": "MCP-Server"
+      },
+      "status": {
+        "active": "Aktiv",
+        "inactive": "Deaktiviert",
+        "restartRequired": "Neustart erforderlich",
+        "configurationError": "Konfiguration prüfen"
+      },
+      "restart": {
+        "title": "Gespeichert – Neustart erforderlich",
+        "description": "Starte Canvas Notebook neu, damit Aktivierung und Werkzeugfreigaben sicher zusammen mit OAuth übernommen werden. Bis dahin gilt weiterhin der angezeigte Laufzeitstatus."
+      },
+      "configuration": {
+        "title": "Die öffentliche Instanzadresse ist noch nicht gültig konfiguriert"
+      },
+      "managed": {
+        "title": "Durch die Serverumgebung verwaltet",
+        "description": "Mindestens eine Einstellung wird beim Deployment vorgegeben. Solche Schalter sind hier sichtbar, können aber nicht überschrieben werden."
+      },
+      "endpoint": {
+        "title": "Öffentlicher MCP-Endpunkt",
+        "domain": "Erreichbar über {domain}",
+        "missing": "Die öffentliche Canvas-Domain ist noch nicht konfiguriert.",
+        "notConfigured": "Kein Endpunkt verfügbar",
+        "issuer": "OAuth-Aussteller"
+      },
+      "capabilities": {
+        "title": "Was Clients verwenden dürfen",
+        "description": "Nur aktivierte Werkzeuge werden über MCP bekanntgegeben.",
+        "enabledCount": "{count, plural, =0 {Keine Werkzeuge} one {# Werkzeug} other {# Werkzeuge}} aktiv",
+        "noneEnabled": "Clients können sich verbinden, erhalten aber derzeit keine Werkzeuge.",
+        "planned": "{count, plural, one {Eine weitere schreibgeschützte Funktion ist vorbereitet, aber noch nicht freigegeben.} other {# weitere schreibgeschützte Funktionen sind vorbereitet, aber noch nicht freigegeben.}}",
+        "items": {
+          "auth_probe": {
+            "title": "Verbindung prüfen",
+            "description": "Prüft Login und OAuth-Berechtigung, ohne Workspace- oder Knowledge-Inhalte zu lesen."
+          }
+        }
+      },
+      "connect": {
+        "title": "So verbindet sich ein Client",
+        "description": "Die genaue Menübezeichnung unterscheidet sich je nach Client; Endpunkt, Transport und Login bleiben gleich.",
+        "example": "Typisches Konfigurationsbeispiel",
+        "security": "Canvas gibt keine Passwörter oder Tokens an den Client weiter. Der Client entdeckt OAuth automatisch und öffnet den Canvas-Login im Browser.",
+        "steps": {
+          "endpoint": {
+            "title": "Endpunkt eintragen",
+            "description": "Kopiere die oben angezeigte /mcp-Adresse in die MCP-Einstellungen des Clients."
+          },
+          "transport": {
+            "title": "Streamable HTTP wählen",
+            "description": "Nutze die Remote-Server- oder URL-Option. Ein lokaler Startbefehl ist nicht erforderlich."
+          },
+          "oauth": {
+            "title": "Mit Canvas anmelden",
+            "description": "Der Client öffnet den Canvas-Login. Bestätige dort die angeforderten Berechtigungen."
+          }
+        }
+      },
+      "errors": {
+        "load": "MCP-Servereinstellungen konnten nicht geladen werden.",
+        "save": "MCP-Servereinstellungen konnten nicht gespeichert werden.",
+        "copy": "Der Text konnte nicht in die Zwischenablage kopiert werden."
+      }
+    },
     "mcpConfig": {
-      "title": "MCP-Konfiguration",
-      "description": "Konfiguriere Model-Context-Protocol-Server für den Agenten.",
+      "title": "Externe MCP-Server",
+      "description": "Verbinde Canvas als Client mit externen MCP-Servern.",
       "loading": "Lade MCP-Konfiguration...",
       "summary": "{count, plural, =0 {Keine Server} one {# Server} other {# Server}}",
       "connectedSummary": "{count} verbunden",
       "errorSummary": "Fehler beim Laden",
-      "secretNote": "Füge hier keine API-Keys oder OAuth-Tokens ein. Referenziere stattdessen Umgebungsvariablen, die in diesem Tab verwaltet werden.",
+      "secretNote": "Füge hier keine API-Keys oder OAuth-Tokens ein. Referenziere stattdessen Umgebungsvariablen aus Einstellungen → Integrationen.",
       "examplesLink": "Beispielhafte MCP-Server",
       "registryLink": "MCP Registry",
       "examplesCaution": "Mit Vorsicht verwenden: Externe MCP-Server vor dem Einsatz prüfen.",
