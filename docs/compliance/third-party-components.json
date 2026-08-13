@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.8.12.1",
-  "lockfileSha256": "9c7a5dd2ddb359b78edff18ec105c0478e8979a3fe92886ddfdb9022742544ff",
+  "lockfileSha256": "14e6e3d64372cfd8e3a54124d28cf0d256d1d724f704b73c9d500b3dfd9bdab5",
   "summary": {
-    "totalComponents": 1969,
-    "npmComponents": 1946,
+    "totalComponents": 1968,
+    "npmComponents": 1945,
     "nonNpmComponents": 23,
-    "runtimeComponents": 1439,
+    "runtimeComponents": 1438,
     "developmentOnlyComponents": 530,
-    "allowed": 1919,
+    "allowed": 1918,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -29456,7 +29456,7 @@
     },
     {
       "name": "fast-uri",
-      "versionOrCommit": "3.1.4",
+      "versionOrCommit": "3.1.5",
       "sourceUrl": "https://github.com/fastify/fast-uri",
       "packagePathOrArtifact": "node_modules/fast-uri",
       "usage": "runtime",
@@ -35141,7 +35141,7 @@
     },
     {
       "name": "nanoid",
-      "versionOrCommit": "3.3.12",
+      "versionOrCommit": "3.3.18",
       "sourceUrl": "ai/nanoid",
       "packagePathOrArtifact": "node_modules/nanoid",
       "usage": "runtime",
@@ -35154,28 +35154,6 @@
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
       "licenseTextRef": "node_modules/nanoid/LICENSE",
-      "licenseTextSha256": "da4db1480d9beea3483a2eda5c53b22238d0827d57da162b48f122e04d2d9987",
-      "copyrightNotices": [
-        "Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "nanoid",
-      "versionOrCommit": "3.3.18",
-      "sourceUrl": "ai/nanoid",
-      "packagePathOrArtifact": "node_modules/postcss/node_modules/nanoid",
-      "usage": "runtime",
-      "distributedIn": [
-        "source-release",
-        "next-server",
-        "docker-image",
-        "electron-web-app"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/postcss/node_modules/nanoid/LICENSE",
       "licenseTextSha256": "da4db1480d9beea3483a2eda5c53b22238d0827d57da162b48f122e04d2d9987",
       "copyrightNotices": [
         "Copyright 2017 Andrey Sitnik <andrey@sitnik.ru>"

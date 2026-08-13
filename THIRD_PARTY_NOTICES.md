@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.8.12.1
-- Lockfile SHA-256: `9c7a5dd2ddb359b78edff18ec105c0478e8979a3fe92886ddfdb9022742544ff`
-- Distributed components: 1439
+- Lockfile SHA-256: `14e6e3d64372cfd8e3a54124d28cf0d256d1d724f704b73c9d500b3dfd9bdab5`
+- Distributed components: 1438
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -843,7 +843,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | fast-deep-equal | 3.1.3 | runtime | MIT | allowed |
 | fast-equals | 5.4.1 | runtime | MIT | allowed |
 | fast-fifo | 1.3.2 | runtime | MIT | allowed |
-| fast-uri | 3.1.4 | runtime | BSD-3-Clause | allowed |
+| fast-uri | 3.1.5 | runtime | BSD-3-Clause | allowed |
 | fault | 1.0.4 | runtime | MIT | allowed |
 | fault | 2.0.1 | runtime | MIT | allowed |
 | fd-slicer | 1.1.0 | runtime | MIT | allowed |
@@ -1098,7 +1098,6 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | ms | 2.0.0 | runtime | MIT | allowed |
 | ms | 2.1.3 | runtime | MIT | allowed |
 | multimath | 2.0.0 | runtime | MIT | allowed |
-| nanoid | 3.3.12 | runtime | MIT | allowed |
 | nanoid | 3.3.18 | runtime | MIT | allowed |
 | nanoid | 5.1.16 | runtime | MIT | allowed |
 | nanostores | 1.4.0 | runtime | MIT | allowed |
@@ -25625,7 +25624,7 @@ SOFTWARE.
 
 ### License text da4db1480d9b
 
-Applies to nanoid@3.3.12, nanoid@3.3.18.
+Applies to nanoid@3.3.18.
 
 Copyright notices:
 
@@ -26908,7 +26907,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text df7464922225
 
-Applies to fast-uri@3.1.4.
+Applies to fast-uri@3.1.5.
 
 Copyright notices:
 

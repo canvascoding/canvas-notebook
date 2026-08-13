@@ -280,20 +280,37 @@ async function assertTokenPolicy(
   clientId: string,
   enforcePolicy: (request: Request) => Promise<Response | null>,
 ): Promise<void> {
-  const missingResourceRequest = new Request(`${ISSUER}/oauth2/token`, {
-    method: 'POST',
-    headers: { 'content-type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
+  const tokenRequest = (resourceValues: string[]) => {
+    const body = new URLSearchParams({
       grant_type: 'authorization_code',
       client_id: clientId,
       code: 'unused-code',
       code_verifier: 'unused-verifier',
       redirect_uri: REDIRECT_URI,
-    }),
-  });
+    });
+    for (const resource of resourceValues) body.append('resource', resource);
+
+    return new Request(`${ISSUER}/oauth2/token`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/x-www-form-urlencoded' },
+      body,
+    });
+  };
+
+  const missingResourceRequest = tokenRequest([]);
   const missingResourceResponse = await enforcePolicy(missingResourceRequest);
   assert.equal(missingResourceResponse?.status, 400);
   assert.equal((await readJson(missingResourceResponse!)).error, 'invalid_target');
+
+  for (const resourceValues of [
+    ['https://attacker.example.test/mcp'],
+    [RESOURCE, 'https://attacker.example.test/mcp'],
+    [RESOURCE, RESOURCE],
+  ]) {
+    const response = await enforcePolicy(tokenRequest(resourceValues));
+    assert.equal(response?.status, 400);
+    assert.equal((await readJson(response!)).error, 'invalid_target');
+  }
 
   const unsupportedGrant = await auth.handler(new Request(`${ISSUER}/oauth2/token`, {
     method: 'POST',

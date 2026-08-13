@@ -240,6 +240,19 @@
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-07-17"
     },
+    "@better-auth/utils@0.5.0": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "sourceUrl": "https://github.com/better-auth/utils/tree/aae93c6618c22bee39e867055e61fa310fefb46c",
+      "verificationSource": "https://github.com/better-auth/utils/blob/v0.5.0/package.json",
+      "reason": "The exact npm release declares MIT, has signed npm provenance, and the matching v0.5.0 tag resolves to aae93c6618c22bee39e867055e61fa310fefb46c, but the release omits a LICENSE and explicit copyright statement. Responsible reviewer Frank Alexander Weber approved this exact version on 2026-08-13 under documented residual attribution risk. Canvas supplies the canonical MIT terms and uses the exact publisher author metadata, Bereket Engida, with a contributors qualifier as the best available attribution. Any version change requires a new review.",
+      "copyrightNotices": [
+        "Copyright (c) Bereket Engida and contributors"
+      ],
+      "policyDecision": "allowed",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-08-13"
+    },
     "@eigenpal/docx-js-editor@0.5.3": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
