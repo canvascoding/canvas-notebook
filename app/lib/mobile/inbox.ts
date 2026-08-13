@@ -31,12 +31,13 @@ import {
   todoItems,
 } from '@/app/lib/db/schema';
 import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
-import { getTodo, listTodos, markTodoSeen } from '@/app/lib/todos/store';
+import { getTodo, listTodos, markTodoSeen, type TodoWithRelations } from '@/app/lib/todos/store';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const BASELINE_KEY = '__baseline__';
 const MAX_SOURCE_ITEMS = 200;
 const INITIAL_UNREAD_WINDOW_MS = 24 * 60 * 60 * 1_000;
+const TODO_PRESENTATION_GROUP_WINDOW_MS = 5 * 60 * 1_000;
 
 export const MOBILE_INBOX_FILTERS = ['all', 'unread', 'chat', 'todos', 'studio', 'automation'] as const;
 export type MobileInboxFilter = typeof MOBILE_INBOX_FILTERS[number];
@@ -61,6 +62,31 @@ export type MobileAggregateInboxItem = MobileInboxItem & {
   workspaceId: string;
 };
 
+export type MobileAggregateInboxEntry = MobileAggregateInboxItem & {
+  todoGroup?: {
+    id: string;
+    items: MobileAggregateInboxItem[];
+    workspaceCount: number;
+  };
+};
+
+type TodoPresentationCandidate = {
+  createdAt: string;
+  fingerprint: string;
+};
+
+type CollectedInboxItem = MobileInboxItem & {
+  todoPresentationCandidate?: TodoPresentationCandidate;
+};
+
+type CollectedAggregateInboxItem = CollectedInboxItem & {
+  workspaceId: string;
+};
+
+type GroupableAggregateInboxItem = CollectedAggregateInboxItem & {
+  todoPresentationGroupId?: string;
+};
+
 type InboxCursor = {
   workspaceId: string;
   filter: MobileInboxFilter;
@@ -71,6 +97,7 @@ type InboxCursor = {
 type AggregateInboxCursor = {
   scopeKey: string;
   filter: MobileInboxFilter;
+  groupWorkspaceTodos: boolean;
   occurredAt: string;
   workspaceId: string;
   id: string;
@@ -117,6 +144,38 @@ function todoBelongsToWorkspace(todo: Awaited<ReturnType<typeof getTodo>>, works
   return todo.workspaceType === workspace.workspaceType && todo.workspaceId === workspace.workspaceId;
 }
 
+function normalizeTodoPresentationText(value: string | null | undefined): string {
+  return value?.trim().replace(/\s+/gu, ' ').toLocaleLowerCase('en-US') || '';
+}
+
+function todoPresentationCandidate(todo: TodoWithRelations): TodoPresentationCandidate | undefined {
+  if (todo.scopeKind !== 'workspace') return undefined;
+  const fingerprint = createHash('sha256').update(JSON.stringify({
+    assigneeUserId: todo.assigneeUserId || null,
+    category: normalizeTodoPresentationText(todo.category?.name),
+    description: normalizeTodoPresentationText(todo.description),
+    dueAt: todo.dueAt?.toISOString() || null,
+    priority: todo.priority,
+    sourceType: todo.sourceType,
+    title: normalizeTodoPresentationText(todo.title),
+  })).digest('hex').slice(0, 24);
+  return { createdAt: todo.createdAt.toISOString(), fingerprint };
+}
+
+function publicInboxItem(item: CollectedInboxItem): MobileInboxItem {
+  const { todoPresentationCandidate: _candidate, ...publicItem } = item;
+  return publicItem;
+}
+
+function publicAggregateInboxItem(item: GroupableAggregateInboxItem): MobileAggregateInboxItem {
+  const {
+    todoPresentationCandidate: _candidate,
+    todoPresentationGroupId: _groupId,
+    ...publicItem
+  } = item;
+  return publicItem;
+}
+
 function normalizeLimit(value: number | undefined): number {
   if (value === undefined) return 30;
   if (!Number.isSafeInteger(value) || value < 1) {
@@ -161,6 +220,7 @@ function decodeAggregateCursor(
   value: string | null | undefined,
   scopeKey: string,
   filter: MobileInboxFilter,
+  groupWorkspaceTodos: boolean,
 ): AggregateInboxCursor | null {
   if (!value) return null;
   try {
@@ -168,6 +228,7 @@ function decodeAggregateCursor(
     if (
       parsed.scopeKey !== scopeKey
       || parsed.filter !== filter
+      || parsed.groupWorkspaceTodos !== groupWorkspaceTodos
       || typeof parsed.workspaceId !== 'string'
       || typeof parsed.id !== 'string'
       || typeof parsed.occurredAt !== 'string'
@@ -283,7 +344,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
     }
   }
 
-  const items: MobileInboxItem[] = [];
+  const items: CollectedInboxItem[] = [];
   for (const row of sessionRows) {
     if (!row.lastMessageAt || !hasUnreadAssistantResponse(row.lastMessageAt, row.lastViewedAt)) continue;
     items.push({
@@ -315,6 +376,7 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
       unread,
       priority: todo.priority === 'high' || isDue ? 'high' : 'normal',
       target: { kind: 'todo', todoId: todo.id },
+      todoPresentationCandidate: todoPresentationCandidate(todo),
     });
   }
   for (const row of generationRows) {
@@ -397,7 +459,7 @@ export async function listMobileInbox(input: {
   const last = page.at(-1);
   return {
     counts,
-    items: page,
+    items: page.map(publicInboxItem),
     nextCursor: filtered.length > limit && last
       ? encodeCursor({ workspaceId: input.workspace.workspaceId, filter, occurredAt: last.occurredAt, id: last.id })
       : null,
@@ -407,8 +469,8 @@ export async function listMobileInbox(input: {
 async function collectAggregateInboxItems(input: {
   userId: string;
   workspaces: WorkspaceContext[];
-}): Promise<MobileAggregateInboxItem[]> {
-  const items: MobileAggregateInboxItem[] = [];
+}): Promise<CollectedAggregateInboxItem[]> {
+  const items: CollectedAggregateInboxItem[] = [];
   const concurrency = 4;
   for (let index = 0; index < input.workspaces.length; index += concurrency) {
     const batch = input.workspaces.slice(index, index + concurrency);
@@ -425,10 +487,102 @@ async function collectAggregateInboxItems(input: {
     seenTodoIds.add(item.target.todoId);
     return true;
   }).sort((left, right) => (
-    right.occurredAt.localeCompare(left.occurredAt)
-    || right.workspaceId.localeCompare(left.workspaceId)
-    || right.id.localeCompare(left.id)
+    compareAggregateInboxItems(left, right)
   ));
+}
+
+function compareAggregateInboxItems(
+  left: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId'>,
+  right: Pick<MobileAggregateInboxItem, 'id' | 'occurredAt' | 'workspaceId'>,
+): number {
+  return right.occurredAt.localeCompare(left.occurredAt)
+    || right.workspaceId.localeCompare(left.workspaceId)
+    || right.id.localeCompare(left.id);
+}
+
+function assignTodoPresentationGroups(
+  items: CollectedAggregateInboxItem[],
+): GroupableAggregateInboxItem[] {
+  const groupedItems: GroupableAggregateInboxItem[] = items.map((item) => ({ ...item }));
+  const candidatesByFingerprint = new Map<string, GroupableAggregateInboxItem[]>();
+  for (const item of groupedItems) {
+    const candidate = item.todoPresentationCandidate;
+    if (item.target.kind !== 'todo' || !candidate) continue;
+    const candidates = candidatesByFingerprint.get(candidate.fingerprint) || [];
+    candidates.push(item);
+    candidatesByFingerprint.set(candidate.fingerprint, candidates);
+  }
+
+  const commitCluster = (cluster: GroupableAggregateInboxItem[]) => {
+    if (cluster.length < 2 || new Set(cluster.map((item) => item.workspaceId)).size !== cluster.length) return;
+    const groupId = createHash('sha256').update([
+      cluster[0]?.todoPresentationCandidate?.fingerprint || '',
+      ...cluster.map((item) => item.target.kind === 'todo' ? item.target.todoId : item.id).sort(),
+    ].join('\n')).digest('hex').slice(0, 24);
+    for (const item of cluster) item.todoPresentationGroupId = groupId;
+  };
+
+  for (const candidates of candidatesByFingerprint.values()) {
+    candidates.sort((left, right) => (
+      String(left.todoPresentationCandidate?.createdAt).localeCompare(String(right.todoPresentationCandidate?.createdAt))
+      || left.id.localeCompare(right.id)
+    ));
+    let cluster: GroupableAggregateInboxItem[] = [];
+    let clusterStartedAt = 0;
+    for (const candidate of candidates) {
+      const createdAt = new Date(candidate.todoPresentationCandidate?.createdAt || '').getTime();
+      if (cluster.length > 0 && createdAt - clusterStartedAt > TODO_PRESENTATION_GROUP_WINDOW_MS) {
+        commitCluster(cluster);
+        cluster = [];
+      }
+      if (cluster.length === 0) clusterStartedAt = createdAt;
+      cluster.push(candidate);
+    }
+    commitCluster(cluster);
+  }
+  return groupedItems;
+}
+
+function createTodoPresentationEntries(
+  items: GroupableAggregateInboxItem[],
+): MobileAggregateInboxEntry[] {
+  const groupItems = new Map<string, GroupableAggregateInboxItem[]>();
+  const entries: MobileAggregateInboxEntry[] = [];
+  for (const item of items) {
+    if (!item.todoPresentationGroupId) {
+      entries.push(publicAggregateInboxItem(item));
+      continue;
+    }
+    const members = groupItems.get(item.todoPresentationGroupId) || [];
+    members.push(item);
+    groupItems.set(item.todoPresentationGroupId, members);
+  }
+  for (const [groupId, members] of groupItems) {
+    if (members.length < 2) {
+      entries.push(...members.map(publicAggregateInboxItem));
+      continue;
+    }
+    members.sort(compareAggregateInboxItems);
+    const representative = publicAggregateInboxItem(members[0]!);
+    entries.push({
+      ...representative,
+      id: `todo-group:${groupId}`,
+      priority: members.some((item) => item.priority === 'high') ? 'high' : 'normal',
+      todoGroup: {
+        id: groupId,
+        items: members.map(publicAggregateInboxItem),
+        workspaceCount: new Set(members.map((item) => item.workspaceId)).size,
+      },
+      unread: members.some((item) => item.unread),
+    });
+  }
+  return entries.sort(compareAggregateInboxItems);
+}
+
+export function groupMobileAggregateInboxItemsForPresentation(
+  items: CollectedAggregateInboxItem[],
+): MobileAggregateInboxEntry[] {
+  return createTodoPresentationEntries(assignTodoPresentationGroups(items));
 }
 
 export async function listMobileAggregateInbox(input: {
@@ -437,14 +591,16 @@ export async function listMobileAggregateInbox(input: {
   filter?: string | null;
   cursor?: string | null;
   limit?: number;
+  groupWorkspaceTodos?: boolean;
 }) {
   const filter = MOBILE_INBOX_FILTERS.includes(input.filter as MobileInboxFilter)
     ? input.filter as MobileInboxFilter
     : 'all';
   const limit = normalizeLimit(input.limit);
   const scopeKey = aggregateScopeKey(input.workspaces);
-  const cursor = decodeAggregateCursor(input.cursor, scopeKey, filter);
-  const allItems = await collectAggregateInboxItems(input);
+  const groupWorkspaceTodos = input.groupWorkspaceTodos === true;
+  const cursor = decodeAggregateCursor(input.cursor, scopeKey, filter, groupWorkspaceTodos);
+  const allItems = assignTodoPresentationGroups(await collectAggregateInboxItems(input));
   const counts = {
     unread: allItems.filter((item) => item.unread).length,
     chat: allItems.filter((item) => item.target.kind === 'chat').length,
@@ -452,7 +608,10 @@ export async function listMobileAggregateInbox(input: {
     studio: allItems.filter((item) => item.target.kind === 'studio').length,
     automation: allItems.filter((item) => item.target.kind === 'automation').length,
   };
-  let filtered = allItems.filter((item) => matchesFilter(item, filter));
+  const filteredItems = allItems.filter((item) => matchesFilter(item, filter));
+  let filtered: MobileAggregateInboxEntry[] = groupWorkspaceTodos
+    ? createTodoPresentationEntries(filteredItems)
+    : filteredItems.map(publicAggregateInboxItem);
   if (cursor) {
     filtered = filtered.filter((item) => (
       item.occurredAt < cursor.occurredAt
@@ -478,6 +637,7 @@ export async function listMobileAggregateInbox(input: {
       ? encodeAggregateCursor({
           scopeKey,
           filter,
+          groupWorkspaceTodos,
           occurredAt: last.occurredAt,
           workspaceId: last.workspaceId,
           id: last.id,

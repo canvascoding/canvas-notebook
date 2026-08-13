@@ -74,6 +74,7 @@ async function main() {
     const { getMobileTodo, listMobileTodos } = await import('../app/lib/mobile/todos');
     const {
       countMobileUnreadMessages,
+      groupMobileAggregateInboxItemsForPresentation,
       listMobileAggregateInbox,
       listMobileInbox,
       markMobileAggregateInboxRead,
@@ -125,6 +126,46 @@ async function main() {
       limit: 2,
     });
     assert.equal(aggregateNextPage.items.length, 2);
+    const groupedTodoEntries = groupMobileAggregateInboxItemsForPresentation([
+      ...['workspace-alex', 'workspace-coding', 'workspace-notebook'].map((workspaceId, index) => ({
+        id: `todo:grouped-${index}`,
+        occurredAt: new Date(now - index * 1_000).toISOString(),
+        previewUrl: null,
+        priority: 'normal' as const,
+        title: 'Social Media: Performance data',
+        detail: 'To-do',
+        target: { kind: 'todo' as const, todoId: `grouped-${index}` },
+        todoPresentationCandidate: {
+          createdAt: new Date(now - index * 1_000).toISOString(),
+          fingerprint: 'same-cross-workspace-task',
+        },
+        type: 'todo.attention' as const,
+        unread: true,
+        workspaceId,
+      })),
+      {
+        id: 'todo:independent',
+        occurredAt: new Date(now - 500).toISOString(),
+        previewUrl: null,
+        priority: 'normal' as const,
+        title: 'Social Media: Performance data',
+        detail: 'To-do',
+        target: { kind: 'todo' as const, todoId: 'independent' },
+        todoPresentationCandidate: {
+          createdAt: new Date(now - 500).toISOString(),
+          fingerprint: 'independent-task-with-the-same-title',
+        },
+        type: 'todo.attention' as const,
+        unread: true,
+        workspaceId: 'workspace-independent',
+      },
+    ]);
+    assert.equal(groupedTodoEntries.length, 2);
+    const groupedTodo = groupedTodoEntries.find((item) => item.todoGroup);
+    assert.equal(groupedTodo?.id.startsWith('todo-group:'), true);
+    assert.equal(groupedTodo?.todoGroup?.workspaceCount, 3);
+    assert.equal(groupedTodo?.todoGroup?.items.length, 3);
+    assert.equal(groupedTodoEntries.some((item) => item.id === 'todo:independent'), true);
     await assert.rejects(
       () => listMobileAggregateInbox({
         userId: 'mobile-attention-user',

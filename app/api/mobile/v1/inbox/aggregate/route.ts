@@ -38,6 +38,7 @@ export async function GET(request: NextRequest) {
       userId: session.user.id,
       workspaces: scope.includedWorkspaces,
       filter: request.nextUrl.searchParams.get('filter'),
+      groupWorkspaceTodos: request.nextUrl.searchParams.get('groupTodos') === 'workspace',
       cursor: request.nextUrl.searchParams.get('cursor'),
       limit: limitValue === null ? undefined : Number(limitValue),
     });
