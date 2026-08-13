@@ -2,7 +2,7 @@
 
 ## Overview
 
-This document provides Node/TypeScript-specific best practices and examples for implementing MCP servers using the MCP TypeScript SDK. It covers project structure, server setup, tool registration patterns, input validation with Zod, error handling, and complete working examples.
+This document provides Node/TypeScript-specific best practices and examples for implementing MCP servers with the v2 MCP TypeScript SDK and the MCP 2026-07-28 protocol. It covers project structure, server setup, tool registration patterns, input validation with Zod, error handling, and complete working examples. New servers should support both the 2025 and 2026 protocol eras unless a deliberately modern-only endpoint is required.
 
 ---
 
@@ -10,11 +10,15 @@ This document provides Node/TypeScript-specific best practices and examples for 
 
 ### Key Imports
 ```typescript
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import express from "express";
-import { z } from "zod";
+import { createServer } from "node:http";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import {
+  localhostHostValidation,
+  localhostOriginValidation,
+  toNodeHandler
+} from "@modelcontextprotocol/node";
+import * as z from "zod/v4";
 ```
 
 ### Server Initialization
@@ -32,8 +36,8 @@ server.registerTool(
   {
     title: "Tool Display Name",
     description: "What the tool does",
-    inputSchema: { param: z.string() },
-    outputSchema: { result: z.string() }
+    inputSchema: z.object({ param: z.string() }),
+    outputSchema: z.object({ result: z.string() })
   },
   async ({ param }) => {
     const output = { result: `Processed: ${param}` };
@@ -54,6 +58,10 @@ The official MCP TypeScript SDK provides:
 - `registerTool` method for tool registration
 - Zod schema integration for runtime input validation
 - Type-safe tool handler implementations
+- `serveStdio(factory)` for dual-era stdio servers
+- `createMcpHandler(factory)` for stateless dual-era HTTP servers
+
+Use the split v2 packages. `@modelcontextprotocol/server` and optional runtime adapters such as `@modelcontextprotocol/node` replace the monolithic v1 `@modelcontextprotocol/sdk` package.
 
 **IMPORTANT - Use Modern APIs Only:**
 - **DO use**: `server.registerTool()`, `server.registerResource()`, `server.registerPrompt()`
@@ -114,8 +122,8 @@ Tools are registered using the `registerTool` method with the following requirem
 - Type all parameters and return values explicitly
 
 ```typescript
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { z } from "zod";
+import { McpServer } from "@modelcontextprotocol/server";
+import * as z from "zod/v4";
 
 const server = new McpServer({
   name: "example-mcp",
@@ -541,12 +549,13 @@ async function getUser(id: string): Promise<any> {
     "clean": "rm -rf dist"
   },
   "engines": {
-    "node": ">=18"
+    "node": ">=20"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.6.1",
+    "@modelcontextprotocol/node": "^2.0.0",
+    "@modelcontextprotocol/server": "^2.0.0",
     "axios": "^1.7.9",
-    "zod": "^3.23.8"
+    "zod": "^4.0.0"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
@@ -565,6 +574,7 @@ async function getUser(id: string): Promise<any> {
     "module": "Node16",
     "moduleResolution": "Node16",
     "lib": ["ES2022"],
+    "types": ["node"],
     "outDir": "./dist",
     "rootDir": "./src",
     "strict": true,
@@ -592,9 +602,15 @@ async function getUser(id: string): Promise<any> {
  * project management, and data export capabilities.
  */
 
-import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
-import { z } from "zod";
+import { createServer } from "node:http";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
+import {
+  localhostHostValidation,
+  localhostOriginValidation,
+  toNodeHandler
+} from "@modelcontextprotocol/node";
+import * as z from "zod/v4";
 import axios, { AxiosError } from "axios";
 
 // Constants
@@ -676,41 +692,43 @@ function handleApiError(error: unknown): string {
   return `Error: Unexpected error occurred: ${error instanceof Error ? error.message : String(error)}`;
 }
 
-// Create MCP server instance
-const server = new McpServer({
-  name: "example-mcp",
-  version: "1.0.0"
-});
+// A fresh server instance is required by the v2 serving entries.
+function buildServer(): McpServer {
+  const server = new McpServer({
+    name: "example-mcp",
+    version: "1.0.0"
+  });
 
-// Register tools
-server.registerTool(
-  "example_search_users",
-  {
-    title: "Search Example Users",
-    description: `[Full description as shown above]`,
-    inputSchema: UserSearchInputSchema,
-    annotations: {
-      readOnlyHint: true,
-      destructiveHint: false,
-      idempotentHint: true,
-      openWorldHint: true
+  server.registerTool(
+    "example_search_users",
+    {
+      title: "Search Example Users",
+      description: `[Full description as shown above]`,
+      inputSchema: UserSearchInputSchema,
+      annotations: {
+        readOnlyHint: true,
+        destructiveHint: false,
+        idempotentHint: true,
+        openWorldHint: true
+      }
+    },
+    async (params: UserSearchInput) => {
+      // Implementation as shown above
     }
-  },
-  async (params: UserSearchInput) => {
-    // Implementation as shown above
-  }
-);
+  );
+
+  return server;
+}
 
 // Main function
 // For stdio (local):
-async function runStdio() {
+function runStdio() {
   if (!process.env.EXAMPLE_API_KEY) {
     console.error("ERROR: EXAMPLE_API_KEY environment variable is required");
     process.exit(1);
   }
 
-  const transport = new StdioServerTransport();
-  await server.connect(transport);
+  serveStdio(buildServer);
   console.error("MCP server running via stdio");
 }
 
@@ -721,22 +739,21 @@ async function runHTTP() {
     process.exit(1);
   }
 
-  const app = express();
-  app.use(express.json());
+  const mcpHandler = toNodeHandler(createMcpHandler(buildServer));
+  const validateHost = localhostHostValidation();
+  const validateOrigin = localhostOriginValidation();
+  const port = Number.parseInt(process.env.PORT || "3000", 10);
 
-  app.post('/mcp', async (req, res) => {
-    const transport = new StreamableHTTPServerTransport({
-      sessionIdGenerator: undefined,
-      enableJsonResponse: true
-    });
-    res.on('close', () => transport.close());
-    await server.connect(transport);
-    await transport.handleRequest(req, res, req.body);
-  });
-
-  const port = parseInt(process.env.PORT || '3000');
-  app.listen(port, () => {
-    console.error(`MCP server running on http://localhost:${port}/mcp`);
+  createServer((req, res) => {
+    const pathname = new URL(req.url || "/", `http://${req.headers.host || "localhost"}`).pathname;
+    if (pathname !== "/mcp") {
+      res.writeHead(404).end();
+      return;
+    }
+    if (!validateHost(req, res) || !validateOrigin(req, res)) return;
+    void mcpHandler(req, res);
+  }).listen(port, "127.0.0.1", () => {
+    console.error(`MCP server running on http://127.0.0.1:${port}/mcp`);
   });
 }
 
@@ -748,10 +765,7 @@ if (transport === 'http') {
     process.exit(1);
   });
 } else {
-  runStdio().catch(error => {
-    console.error("Server error:", error);
-    process.exit(1);
-  });
+  runStdio();
 }
 ```
 
@@ -764,48 +778,47 @@ if (transport === 'http') {
 Expose data as resources for efficient, URI-based access:
 
 ```typescript
-import { ResourceTemplate } from "@modelcontextprotocol/sdk/types.js";
+import { ResourceTemplate } from "@modelcontextprotocol/server";
+
+const documentTemplate = new ResourceTemplate(
+  "file://documents/{name}",
+  {
+    list: async () => {
+      const documents = await getAvailableDocuments();
+      return {
+        resources: documents.map(doc => ({
+          uri: `file://documents/${encodeURIComponent(doc.name)}`,
+          name: doc.name,
+          mimeType: "text/plain",
+          description: doc.description
+        }))
+      };
+    }
+  }
+);
 
 // Register a resource with URI template
 server.registerResource(
+  "document",
+  documentTemplate,
   {
-    uri: "file://documents/{name}",
-    name: "Document Resource",
+    title: "Document Resource",
     description: "Access documents by name",
     mimeType: "text/plain"
   },
-  async (uri: string) => {
-    // Extract parameter from URI
-    const match = uri.match(/^file:\/\/documents\/(.+)$/);
-    if (!match) {
-      throw new Error("Invalid URI format");
-    }
-
-    const documentName = match[1];
+  async (uri, variables) => {
+    const documentName = String(variables.name);
     const content = await loadDocument(documentName);
 
     return {
       contents: [{
-        uri,
+        uri: uri.href,
         mimeType: "text/plain",
         text: content
       }]
     };
   }
 );
-
-// List available resources dynamically
-server.registerResourceList(async () => {
-  const documents = await getAvailableDocuments();
-  return {
-    resources: documents.map(doc => ({
-      uri: `file://documents/${doc.name}`,
-      name: doc.name,
-      mimeType: "text/plain",
-      description: doc.description
-    }))
-  };
-});
 ```
 
 **When to use Resources vs Tools:**
@@ -821,36 +834,35 @@ The TypeScript SDK supports two main transport mechanisms:
 #### Streamable HTTP (Recommended for Remote Servers)
 
 ```typescript
-import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
-import express from "express";
+import { createServer } from "node:http";
+import { createMcpHandler } from "@modelcontextprotocol/server";
+import {
+  localhostHostValidation,
+  localhostOriginValidation,
+  toNodeHandler
+} from "@modelcontextprotocol/node";
 
-const app = express();
-app.use(express.json());
+const mcpHandler = toNodeHandler(createMcpHandler(buildServer));
+const validateHost = localhostHostValidation();
+const validateOrigin = localhostOriginValidation();
 
-app.post('/mcp', async (req, res) => {
-  // Create new transport for each request (stateless, prevents request ID collisions)
-  const transport = new StreamableHTTPServerTransport({
-    sessionIdGenerator: undefined,
-    enableJsonResponse: true
-  });
-
-  res.on('close', () => transport.close());
-
-  await server.connect(transport);
-  await transport.handleRequest(req, res, req.body);
-});
-
-app.listen(3000);
+createServer((req, res) => {
+  if (!validateHost(req, res) || !validateOrigin(req, res)) return;
+  void mcpHandler(req, res);
+}).listen(3000, "127.0.0.1");
 ```
+
+`createMcpHandler(buildServer)` creates one server per HTTP request and supports both the 2025 and 2026 protocol eras by default. Keep Host and Origin validation in front of the handler. For a public deployment, replace the localhost guards with explicit trusted-host/origin rules and terminate HTTPS at the application or a trusted reverse proxy.
 
 #### stdio (For Local Integrations)
 
 ```typescript
-import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { serveStdio } from "@modelcontextprotocol/server/stdio";
 
-const transport = new StdioServerTransport();
-await server.connect(transport);
+serveStdio(buildServer);
 ```
+
+Use `serveStdio(factory)` instead of connecting a `StdioServerTransport` directly. The factory entry negotiates modern `server/discover` connections and still serves legacy `initialize` clients.
 
 **Transport selection:**
 - **Streamable HTTP**: Web services, remote access, multiple clients
@@ -862,17 +874,13 @@ Notify clients when server state changes:
 
 ```typescript
 // Notify when tools list changes
-server.notification({
-  method: "notifications/tools/list_changed"
-});
+server.sendToolListChanged();
 
 // Notify when resources change
-server.notification({
-  method: "notifications/resources/list_changed"
-});
+server.sendResourceListChanged();
 ```
 
-Use notifications sparingly - only when server capabilities genuinely change.
+Use notifications sparingly and only when server capabilities genuinely change. On the 2026 protocol era, long-lived change delivery uses `subscriptions/listen`; the v2 serving entries handle the era-specific wire behavior.
 
 ---
 
