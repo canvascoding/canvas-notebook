@@ -55,6 +55,7 @@ function addEsmOnlyPackageAliases(packageName, aliases) {
 const esmOnlyPackageAliases = new Map();
 addEsmOnlyPackageAliases('@earendil-works/pi-ai', esmOnlyPackageAliases);
 addEsmOnlyPackageAliases('@earendil-works/pi-agent-core', esmOnlyPackageAliases);
+addEsmOnlyPackageAliases('@earendil-works/pi-telemetry', esmOnlyPackageAliases);
 
 Module._resolveFilename = function resolveWithEsmPackageAliases(request, parent, isMain, options) {
   const aliasedPath = esmOnlyPackageAliases.get(request);
