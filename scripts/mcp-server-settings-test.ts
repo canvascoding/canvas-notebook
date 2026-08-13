@@ -6,6 +6,15 @@ import path from 'node:path';
 async function main(): Promise<void> {
   const dataDir = await mkdtemp(path.join(tmpdir(), 'canvas-mcp-server-settings-'));
   const previousCanvasDataRoot = process.env.CANVAS_DATA_ROOT;
+  const runtimeEnvironmentKeys = [
+    'CANVAS_MCP_DIRECT_ENABLED',
+    'CANVAS_MCP_DIRECT_TOOLS',
+    'CANVAS_MCP_DIRECT_SETTINGS_SOURCE',
+    'CANVAS_MCP_DIRECT_TOOLS_SOURCE',
+  ] as const;
+  const previousRuntimeEnvironment = Object.fromEntries(
+    runtimeEnvironmentKeys.map((key) => [key, process.env[key]]),
+  );
 
   try {
     process.env.CANVAS_DATA_ROOT = dataDir;
@@ -17,6 +26,9 @@ async function main(): Promise<void> {
     } = await import('../app/lib/server-settings');
     const { buildDirectMcpServerSettingsStatus } = await import(
       '../app/lib/mcp/server/settings-status'
+    );
+    const { applyDirectMcpSettingsToRuntime } = await import(
+      '../app/lib/mcp/server/runtime-settings'
     );
 
     assert.equal(await getDirectMcpServerPreferences(), null);
@@ -84,6 +96,28 @@ async function main(): Promise<void> {
     assert.equal(localDockerStatus.endpoint, 'http://localhost:3456/mcp');
     assert.equal(localDockerStatus.configurationError, null);
 
+    applyDirectMcpSettingsToRuntime({
+      enabled: false,
+      tools: [],
+    }, {
+      activation: true,
+      capabilities: true,
+    });
+    const disabledPreferences = {
+      ...preferences,
+      enabled: false,
+      tools: [],
+    };
+    const immediateDisableStatus = buildDirectMcpServerSettingsStatus(disabledPreferences, {
+      ...process.env,
+      NODE_ENV: 'production',
+      BASE_URL: 'https://canvas.example.test',
+      BETTER_AUTH_BASE_URL: 'https://canvas.example.test',
+    });
+    assert.equal(immediateDisableStatus.desiredEnabled, false);
+    assert.equal(immediateDisableStatus.runtimeEnabled, false);
+    assert.equal(immediateDisableStatus.restartRequired, false);
+
     const pendingRestartStatus = buildDirectMcpServerSettingsStatus(preferences, {
       NODE_ENV: 'production',
       BASE_URL: 'https://canvas.example.test',
@@ -111,6 +145,10 @@ async function main(): Promise<void> {
 
     console.log('mcp-server-settings-test: ok');
   } finally {
+    for (const key of runtimeEnvironmentKeys) {
+      if (previousRuntimeEnvironment[key] === undefined) delete process.env[key];
+      else process.env[key] = previousRuntimeEnvironment[key];
+    }
     if (previousCanvasDataRoot === undefined) {
       delete process.env.CANVAS_DATA_ROOT;
     } else {

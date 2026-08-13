@@ -133,7 +133,8 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const isDirty = Boolean(draft && savedDraft && !draftsEqual(draft, savedDraft));
   const availableCapabilities = status?.capabilities.filter((capability) => capability.available) ?? [];
   const enabledCapabilityCount = draft?.tools.length ?? 0;
-  const connectionConfig = status?.endpoint
+  const serverIsActive = Boolean(status?.runtimeEnabled && !status.configurationError);
+  const connectionConfig = serverIsActive && status?.endpoint
     ? JSON.stringify({
       mcpServers: {
         canvas: {
@@ -279,36 +280,38 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           </div>
         ) : null}
 
-        <section aria-labelledby="mcp-server-address-title" className="space-y-3">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h3 id="mcp-server-address-title" className="font-semibold">{t('endpoint.title')}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">
-                {status?.endpoint ? t('endpoint.description') : t('endpoint.missing')}
-              </p>
+        {serverIsActive ? (
+          <section aria-labelledby="mcp-server-address-title" className="space-y-3">
+            <div className="flex flex-wrap items-end justify-between gap-2">
+              <div>
+                <h3 id="mcp-server-address-title" className="font-semibold">{t('endpoint.title')}</h3>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {status?.endpoint ? t('endpoint.description') : t('endpoint.missing')}
+                </p>
+              </div>
+              <Button type="button" variant="ghost" size="sm" onClick={() => void loadStatus()} disabled={isLoading}>
+                {isLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
+                {t('refresh')}
+              </Button>
             </div>
-            <Button type="button" variant="ghost" size="sm" onClick={() => void loadStatus()} disabled={isLoading}>
-              {isLoading ? <Loader2 className="animate-spin" /> : <RefreshCw />}
-              {t('refresh')}
-            </Button>
-          </div>
-          <div className="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center">
-            <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <code className="min-w-0 flex-1 break-all text-sm font-semibold">
-              {status?.endpoint ?? t('endpoint.notConfigured')}
-            </code>
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              disabled={!status?.endpoint}
-              onClick={() => status?.endpoint && void copyText('endpoint', status.endpoint)}
-            >
-              {copied === 'endpoint' ? <Check /> : <Copy />}
-              {copied === 'endpoint' ? t('copied') : t('copy')}
-            </Button>
-          </div>
-        </section>
+            <div className="flex min-w-0 flex-col gap-2 rounded-lg border bg-muted/30 p-3 sm:flex-row sm:items-center">
+              <Link2 className="h-4 w-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+              <code className="min-w-0 flex-1 break-all text-sm font-semibold">
+                {status?.endpoint ?? t('endpoint.notConfigured')}
+              </code>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                disabled={!status?.endpoint}
+                onClick={() => status?.endpoint && void copyText('endpoint', status.endpoint)}
+              >
+                {copied === 'endpoint' ? <Check /> : <Copy />}
+                {copied === 'endpoint' ? t('copied') : t('copy')}
+              </Button>
+            </div>
+          </section>
+        ) : null}
 
         <section aria-labelledby="mcp-connect-title" className="space-y-4 border-t pt-6">
           <div>

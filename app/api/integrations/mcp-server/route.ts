@@ -4,6 +4,7 @@ import { isAdminUser } from '@/app/lib/admin-auth';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
 import { getDirectMcpServerSettingsStatus } from '@/app/lib/mcp/server/settings-status';
+import { applyDirectMcpSettingsToRuntime } from '@/app/lib/mcp/server/runtime-settings';
 import { setDirectMcpServerPreferences } from '@/app/lib/server-settings';
 
 function errorMessage(error: unknown, fallback: string): string {
@@ -87,9 +88,13 @@ export async function PATCH(request: NextRequest) {
       );
     }
 
-    await setDirectMcpServerPreferences(session.user.id, {
+    const preferences = await setDirectMcpServerPreferences(session.user.id, {
       enabled: payload.enabled,
       tools: payload.tools,
+    });
+    applyDirectMcpSettingsToRuntime(preferences, {
+      activation: !current.activationManagedByEnvironment,
+      capabilities: !current.capabilitiesManagedByEnvironment,
     });
     const status = await getDirectMcpServerSettingsStatus();
     await recordAuditEvent({
