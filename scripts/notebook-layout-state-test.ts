@@ -19,6 +19,26 @@ function reduce(...actions: Parameters<typeof notebookLayoutReducer>[1][]) {
 const documentState = reduce({ type: 'DOCUMENT_OPENED' });
 assert.equal(documentState.mainSurface, 'document');
 assert.equal(documentState.documentAvailable, true);
+assert.equal(documentState.chatDocked, false);
+
+const documentOpenedFromFullChatState = reduce({
+  type: 'DOCUMENT_OPENED',
+  dockChatIfFull: true,
+});
+assert.equal(documentOpenedFromFullChatState.mainSurface, 'document');
+assert.equal(documentOpenedFromFullChatState.documentAvailable, true);
+assert.equal(documentOpenedFromFullChatState.chatDocked, true);
+
+const mobileChatState = notebookLayoutReducer(initialNotebookLayoutState, {
+  type: 'VIEWPORT_CHANGED',
+  viewport: 'mobile',
+});
+const mobileDocumentOpenedFromChatState = notebookLayoutReducer(mobileChatState, {
+  type: 'DOCUMENT_OPENED',
+  dockChatIfFull: true,
+});
+assert.equal(mobileDocumentOpenedFromChatState.mainSurface, 'document');
+assert.equal(mobileDocumentOpenedFromChatState.chatDocked, false);
 
 const chatState = notebookLayoutReducer(documentState, { type: 'SHOW_CHAT' });
 assert.equal(chatState.mainSurface, 'chat');

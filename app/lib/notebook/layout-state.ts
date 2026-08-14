@@ -24,7 +24,7 @@ export type NotebookLayoutAction =
   | { type: 'VIEWPORT_CHANGED'; viewport: NotebookViewport }
   | { type: 'SHOW_CHAT' }
   | { type: 'SHOW_SURFACE'; surface: NotebookWorkSurface }
-  | { type: 'DOCUMENT_OPENED' }
+  | { type: 'DOCUMENT_OPENED'; dockChatIfFull?: boolean }
   | { type: 'DOCUMENT_CLOSED' }
   | { type: 'CONTEXT_OPENED'; surface: NotebookContextSurface }
   | { type: 'CONTEXT_CLOSED'; surface: NotebookContextSurface }
@@ -153,14 +153,20 @@ export function notebookLayoutReducer(
     case 'SHOW_SURFACE':
       return withMainSurface(state, action.surface);
 
-    case 'DOCUMENT_OPENED':
-      return withMainSurface(
+    case 'DOCUMENT_OPENED': {
+      const nextState = withMainSurface(
         {
           ...state,
           documentAvailable: true,
         },
         'document',
       );
+      return action.dockChatIfFull
+        && state.mainSurface === 'chat'
+        && state.viewport === 'desktop-wide'
+        ? { ...nextState, chatDocked: true }
+        : nextState;
+    }
 
     case 'DOCUMENT_CLOSED': {
       const nextState = {
