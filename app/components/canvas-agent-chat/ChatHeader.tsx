@@ -187,11 +187,13 @@ export function ChatHeader({
               runtimeStatus={runtimeStatus}
               sessionId={sessionId}
             />
-            <WorkspaceSwitcher
-              source="chat"
-              variant={compactSelectors ? 'chat-compact' : 'compact'}
-              className="hidden @[44rem]:inline-flex"
-            />
+            {showWorkspaceSwitcher ? (
+              <WorkspaceSwitcher
+                source="chat"
+                variant={compactSelectors ? 'chat-compact' : 'compact'}
+                className="hidden @[44rem]:inline-flex"
+              />
+            ) : null}
             <button
               type="button"
               aria-label={t('newChatTitle')}
