@@ -3090,7 +3090,7 @@ export function EmailClient({
     attachmentsTabWorkspace: t('attachmentsTabWorkspace'),
     attachmentsUploadDrop: t('attachmentsUploadDrop'),
     attachmentsUploadHint: t('attachmentsUploadHint'),
-    attachmentsUsageLabel: t('attachmentsUsageLabel'),
+    attachmentsUsageLabel: t('attachmentsUsageLabel', { used: '{used}', limit: '{limit}' }),
     cancel: t('composeCancel'),
     cc: t('cc'),
     composeAiReplyTitle: t('composeAiReplyTitle'),
