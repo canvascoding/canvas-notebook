@@ -4837,6 +4837,26 @@
         "remoteImagesTitle": "Externe Bilder automatisch laden",
         "remoteImagesDescription": "Wenn aktiviert, lädt die E-Mail-Vorschau Remote-Bilder und externe Bildressourcen ohne zusätzlichen Klick. Aus Datenschutzgründen bleibt das standardmäßig deaktiviert."
       },
+      "setup": {
+        "eyebrow": "Konto verbinden",
+        "chooseProviderTitle": "Wie möchtest du dein Konto verbinden?",
+        "chooseProviderDescription": "Wähle zuerst den Verbindungstyp. Technische Details zeigen wir erst im nächsten Schritt.",
+        "connectionTitle": "Verbindung einrichten",
+        "connectionDescription": "Vervollständige nur die Angaben, die für diesen Verbindungstyp benötigt werden.",
+        "chooseProvider": "Auswählen",
+        "backToProviders": "Verbindungstyp ändern",
+        "googleDescription": "Gmail sicher per Google-Anmeldung verbinden.",
+        "microsoftDescription": "Outlook oder Microsoft 365 per Anmeldung verbinden.",
+        "smtpDescription": "Eigenes oder klassisches Mailkonto mit Serverdaten verbinden.",
+        "configureOAuthApp": "OAuth-App einrichten",
+        "configureOAuthAppDescription": "Nur für Self-Hosted-Installationen: Trage die Daten deiner Google-OAuth-App ein. Anschließend werden sie beim Verbinden gespeichert.",
+        "saveAndConnect": "Speichern & mit Google verbinden",
+        "smtpSendingTitle": "Versand einrichten",
+        "smtpSendingDescription": "Diese Angaben werden zum Senden von E-Mails benötigt.",
+        "advancedConnectionSettings": "Erweiterte SMTP-Einstellungen",
+        "advancedImapSettings": "Erweiterte IMAP-Einstellungen",
+        "saveWithoutTest": "Ohne Test speichern"
+      },
       "oauth": {
         "googleTitle": "Google OAuth",
         "googleManagedDescription": "Gmail-Konten über Canvas Managed Services verbinden.",

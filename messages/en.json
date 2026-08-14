@@ -4838,6 +4838,26 @@
         "remoteImagesTitle": "Load external images automatically",
         "remoteImagesDescription": "When enabled, the email preview loads remote images and external image resources without an extra click. It stays disabled by default for privacy."
       },
+      "setup": {
+        "eyebrow": "Connect an account",
+        "chooseProviderTitle": "How would you like to connect your account?",
+        "chooseProviderDescription": "Choose the connection type first. Technical details are shown only in the next step.",
+        "connectionTitle": "Set up connection",
+        "connectionDescription": "Complete only the details needed for this connection type.",
+        "chooseProvider": "Choose",
+        "backToProviders": "Change connection type",
+        "googleDescription": "Connect Gmail securely with Google sign-in.",
+        "microsoftDescription": "Connect Outlook or Microsoft 365 with sign-in.",
+        "smtpDescription": "Connect a custom or classic email account with server details.",
+        "configureOAuthApp": "Set up OAuth app",
+        "configureOAuthAppDescription": "Self-hosted installations only: enter your Google OAuth app credentials. They will be saved when you connect.",
+        "saveAndConnect": "Save & connect Google",
+        "smtpSendingTitle": "Set up sending",
+        "smtpSendingDescription": "These details are required to send emails.",
+        "advancedConnectionSettings": "Advanced SMTP settings",
+        "advancedImapSettings": "Advanced IMAP settings",
+        "saveWithoutTest": "Save without testing"
+      },
       "oauth": {
         "googleTitle": "Google OAuth",
         "googleManagedDescription": "Connect Gmail accounts with Canvas Managed Services.",
