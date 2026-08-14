@@ -36,6 +36,7 @@ export function useNotebookLayoutController() {
   const [viewportWidth, setViewportWidth] = useState(0);
   const [explorerWidth, setExplorerWidthState] = useState(NOTEBOOK_EXPLORER_DEFAULT_WIDTH);
   const [chatWidth, setChatWidthState] = useState(NOTEBOOK_CHAT_DEFAULT_WIDTH);
+  const [chatDockedPreference, setChatDockedPreference] = useState(true);
   const [preferencesHydrated, setPreferencesHydrated] = useState(false);
 
   useEffect(() => {
@@ -48,8 +49,10 @@ export function useNotebookLayoutController() {
       }
       setExplorerWidthState(preferences.explorerWidth);
       setChatWidthState(preferences.chatWidth);
+      setChatDockedPreference(preferences.chatDocked);
       dispatch({
         type: 'HYDRATE_PREFERENCES',
+        chatDocked: preferences.chatDocked,
         explorerOpen: preferences.explorerOpen,
         terminalOpen: preferences.terminalOpen,
       });
@@ -77,12 +80,18 @@ export function useNotebookLayoutController() {
   }, [viewport]);
 
   useEffect(() => {
+    if (!preferencesHydrated || viewport !== 'desktop-wide') return;
+    dispatch({ type: 'SET_CHAT_DOCKED', docked: chatDockedPreference });
+  }, [chatDockedPreference, preferencesHydrated, viewport]);
+
+  useEffect(() => {
     if (!preferencesHydrated) return;
     try {
       writeNotebookLayoutPreferences(window.localStorage, {
         version: 2,
         explorerOpen: state.explorerOpen,
         explorerWidth,
+        chatDocked: chatDockedPreference,
         chatWidth,
         terminalOpen: state.terminalOpen,
       });
@@ -91,6 +100,7 @@ export function useNotebookLayoutController() {
     }
   }, [
     chatWidth,
+    chatDockedPreference,
     explorerWidth,
     preferencesHydrated,
     state.explorerOpen,
@@ -111,6 +121,11 @@ export function useNotebookLayoutController() {
     ));
   }, []);
 
+  const setChatDocked = useCallback((docked: boolean) => {
+    setChatDockedPreference(docked);
+    dispatch({ type: 'SET_CHAT_DOCKED', docked });
+  }, [dispatch]);
+
   return {
     state,
     dispatch,
@@ -119,6 +134,8 @@ export function useNotebookLayoutController() {
     setExplorerWidth,
     chatWidth,
     setChatWidth,
+    chatDockedPreference,
+    setChatDocked,
     preferencesHydrated,
     isMobile: state.viewport === 'mobile',
     isDesktop: state.viewport !== 'mobile',

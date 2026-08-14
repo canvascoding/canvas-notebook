@@ -394,7 +394,8 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   const tNav = useTranslations('navigation');
   const searchParams = useSearchParams();
   const layout = useNotebookLayoutController();
-  const { state, dispatch } = layout;
+  const { state, dispatch, setChatDocked } = layout;
+  const setChatDockedRef = useRef(setChatDocked);
   const [mobileExplorerOpen, setMobileExplorerOpen] = useState(false);
   const [activeChatContext, setActiveChatContext] = useState<{
     agentId: string;
@@ -554,8 +555,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
   }), [tNotebook]);
 
   const showOpenedDocument = useCallback((dockChatIfFull = false) => {
-    dispatch({ type: 'DOCUMENT_OPENED', dockChatIfFull });
-  }, [dispatch]);
+    dispatch({
+      type: 'DOCUMENT_OPENED',
+      dockChatIfFull: dockChatIfFull && layout.chatDockedPreference,
+    });
+  }, [dispatch, layout.chatDockedPreference]);
 
   const openNotebookFile = useCallback(async (
     path: string,
@@ -905,7 +909,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       if (key === 'k') {
         event.preventDefault();
         if (event.shiftKey) {
-          dispatch({ type: 'SET_CHAT_DOCKED', docked: !state.chatDocked });
+          setChatDockedRef.current(!state.chatDocked);
         } else {
           dispatch({ type: 'SHOW_CHAT' });
         }
@@ -1209,10 +1213,7 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
                         disabled={!layout.canDockChat && !state.chatDocked}
                         aria-label={state.chatDocked ? tNotebook('unpinChat') : tNotebook('pinChat')}
                         aria-pressed={state.chatDocked}
-                        onClick={() => dispatch({
-                          type: 'SET_CHAT_DOCKED',
-                          docked: !state.chatDocked,
-                        })}
+                        onClick={() => setChatDocked(!state.chatDocked)}
                       >
                         <PanelRight className="h-4 w-4" />
                       </Button>

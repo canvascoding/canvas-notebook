@@ -18,6 +18,7 @@ export type NotebookLayoutState = {
 export type NotebookLayoutAction =
   | {
       type: 'HYDRATE_PREFERENCES';
+      chatDocked: boolean;
       explorerOpen: boolean;
       terminalOpen: boolean;
     }
@@ -36,6 +37,7 @@ export type NotebookLayoutPreferences = {
   version: 2;
   explorerOpen: boolean;
   explorerWidth: number;
+  chatDocked: boolean;
   chatWidth: number;
   terminalOpen: boolean;
 };
@@ -119,17 +121,29 @@ function withEmptyWorkbenchBesideChat(state: NotebookLayoutState): NotebookLayou
   };
 }
 
+function withChatDocked(state: NotebookLayoutState, docked: boolean): NotebookLayoutState {
+  if (!docked) return { ...state, chatDocked: false };
+  if (state.viewport !== 'desktop-wide') return withMainSurface(state, 'chat');
+  if (state.mainSurface !== 'chat') return { ...state, chatDocked: true };
+  const fallback = fallbackWorkSurface(state);
+  return fallback
+    ? { ...withMainSurface(state, fallback), chatDocked: true }
+    : withEmptyWorkbenchBesideChat(state);
+}
+
 export function notebookLayoutReducer(
   state: NotebookLayoutState,
   action: NotebookLayoutAction,
 ): NotebookLayoutState {
   switch (action.type) {
-    case 'HYDRATE_PREFERENCES':
-      return {
+    case 'HYDRATE_PREFERENCES': {
+      const hydratedState = {
         ...state,
         explorerOpen: state.viewport === 'mobile' ? false : action.explorerOpen,
         terminalOpen: state.viewport === 'mobile' ? false : action.terminalOpen,
       };
+      return withChatDocked(hydratedState, action.chatDocked);
+    }
 
     case 'VIEWPORT_CHANGED': {
       if (action.viewport === state.viewport) return state;
@@ -214,15 +228,8 @@ export function notebookLayoutReducer(
         explorerOpen: state.viewport === 'mobile' ? false : action.open,
       };
 
-    case 'SET_CHAT_DOCKED': {
-      if (!action.docked) return { ...state, chatDocked: false };
-      if (state.viewport !== 'desktop-wide') return withMainSurface(state, 'chat');
-      if (state.mainSurface !== 'chat') return { ...state, chatDocked: true };
-      const fallback = fallbackWorkSurface(state);
-      return fallback
-        ? { ...withMainSurface(state, fallback), chatDocked: true }
-        : withEmptyWorkbenchBesideChat(state);
-    }
+    case 'SET_CHAT_DOCKED':
+      return withChatDocked(state, action.docked);
 
     case 'SET_TERMINAL':
       return {
@@ -255,6 +262,7 @@ export function defaultNotebookLayoutPreferences(): NotebookLayoutPreferences {
     version: 2,
     explorerOpen: true,
     explorerWidth: NOTEBOOK_EXPLORER_DEFAULT_WIDTH,
+    chatDocked: true,
     chatWidth: NOTEBOOK_CHAT_DEFAULT_WIDTH,
     terminalOpen: false,
   };
@@ -276,6 +284,7 @@ export function readNotebookLayoutPreferences(storage: Storage): NotebookLayoutP
             NOTEBOOK_EXPLORER_MIN_WIDTH,
             NOTEBOOK_EXPLORER_MAX_WIDTH,
           ),
+          chatDocked: typeof parsed.chatDocked === 'boolean' ? parsed.chatDocked : defaults.chatDocked,
           chatWidth: clampNotebookPanelWidth(
             finiteNumber(parsed.chatWidth, defaults.chatWidth),
             NOTEBOOK_CHAT_MIN_WIDTH,
@@ -297,6 +306,7 @@ export function readNotebookLayoutPreferences(storage: Storage): NotebookLayoutP
       NOTEBOOK_EXPLORER_MIN_WIDTH,
       NOTEBOOK_EXPLORER_MAX_WIDTH,
     ),
+    chatDocked: defaults.chatDocked,
     chatWidth: clampNotebookPanelWidth(
       storedNumber(storage, LEGACY_CHAT_WIDTH_KEY, defaults.chatWidth),
       NOTEBOOK_CHAT_MIN_WIDTH,

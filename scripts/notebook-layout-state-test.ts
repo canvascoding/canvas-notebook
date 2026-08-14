@@ -56,6 +56,24 @@ assert.equal(emptyWorkbenchDockedState.mainSurface, 'document');
 assert.equal(emptyWorkbenchDockedState.documentAvailable, false);
 assert.equal(emptyWorkbenchDockedState.chatDocked, true);
 
+const hydratedDockedState = notebookLayoutReducer(initialNotebookLayoutState, {
+  type: 'HYDRATE_PREFERENCES',
+  chatDocked: true,
+  explorerOpen: true,
+  terminalOpen: false,
+});
+assert.equal(hydratedDockedState.chatDocked, true);
+assert.equal(hydratedDockedState.mainSurface, 'document');
+
+const hydratedHiddenChatState = notebookLayoutReducer(initialNotebookLayoutState, {
+  type: 'HYDRATE_PREFERENCES',
+  chatDocked: false,
+  explorerOpen: true,
+  terminalOpen: false,
+});
+assert.equal(hydratedHiddenChatState.chatDocked, false);
+assert.equal(hydratedHiddenChatState.mainSurface, 'chat');
+
 const mobileEmptyWorkbenchState = notebookLayoutReducer(emptyWorkbenchDockedState, {
   type: 'VIEWPORT_CHANGED',
   viewport: 'mobile',
@@ -134,11 +152,13 @@ assert.deepEqual(migrated, {
   version: 2,
   explorerOpen: false,
   explorerWidth: 510,
+  chatDocked: true,
   chatWidth: 480,
   terminalOpen: true,
 });
 writeNotebookLayoutPreferences(storage, migrated);
 assert.equal(JSON.parse(values.get(NOTEBOOK_LAYOUT_STORAGE_KEY) || '{}').version, 2);
+assert.equal(JSON.parse(values.get(NOTEBOOK_LAYOUT_STORAGE_KEY) || '{}').chatDocked, true);
 
 const emailStart = notebookContextIntentFromAgentEvent({
   type: 'tool_execution_start',
