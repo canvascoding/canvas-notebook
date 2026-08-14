@@ -55,14 +55,15 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await readJsonBody<{ path?: unknown }>(request);
+  const requestedPath = typeof body.path === 'string' ? body.path.trim().toLowerCase() : '';
   const collaborationRequest = parseCollaborationSessionRequest({
     path: body.path,
     provider: 'yjs',
-    representation: 'tiptap_xml',
+    representation: requestedPath.endsWith('.txt') ? 'plain_text' : 'tiptap_xml',
   });
   if (!collaborationRequest) {
     return NextResponse.json(
-      { success: false, error: 'A supported Markdown path is required.' },
+      { success: false, error: 'A supported Markdown or plain-text path is required.' },
       { status: 400 },
     );
   }

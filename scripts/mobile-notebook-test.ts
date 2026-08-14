@@ -14,6 +14,7 @@ async function main() {
     await fs.mkdir(path.join(workspaceRoot, 'Research'), { recursive: true });
     await fs.writeFile(path.join(workspaceRoot, 'Alpha.md'), '# Alpha\n\nFirst notebook note.');
     await fs.writeFile(path.join(workspaceRoot, 'Research', 'Beta.markdown'), '# Beta\n\nNeedle in content.');
+    await fs.writeFile(path.join(workspaceRoot, 'Research', 'Shared.txt'), 'A shared plain-text document.');
 
     const { closeDatabaseConnections, openDb } = await import('../app/lib/db');
     const database = await openDb();
@@ -62,6 +63,27 @@ async function main() {
     });
     assert.equal(loaded.canEdit, true);
     assert.match(loaded.sha256, /^[a-f0-9]{64}$/u);
+
+    const textDocument = await readMobileNotebookDocument({
+      workspace,
+      fileOptions,
+      actorUserId: 'notebook-user',
+      path: 'Research/Shared.txt',
+    });
+    assert.equal(textDocument.content, 'A shared plain-text document.');
+    assert.equal(textDocument.collaboration.strategy, 'crdt_text');
+
+    const savedTextDocument = await saveMobileNotebookDocument({
+      workspace,
+      fileOptions,
+      actorUserId: 'notebook-user',
+      actorSessionId: 'auth-session',
+      path: textDocument.path,
+      content: 'A safely saved plain-text document.',
+      expectedSha256: textDocument.sha256,
+      baseRevisionId: textDocument.revisionId,
+    });
+    assert.equal(savedTextDocument.content, 'A safely saved plain-text document.');
 
     const saved = await saveMobileNotebookDocument({
       workspace,

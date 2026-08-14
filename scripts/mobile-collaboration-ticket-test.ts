@@ -68,6 +68,15 @@ assert.deepEqual(parseCollaborationSessionRequest({
   provider: 'yjs',
   representation: 'tiptap_xml',
 });
+assert.deepEqual(parseCollaborationSessionRequest({
+  path: 'Notes/Shared.txt',
+  provider: 'yjs',
+  representation: 'plain_text',
+}), {
+  path: 'Notes/Shared.txt',
+  provider: 'yjs',
+  representation: 'plain_text',
+});
 assert.equal(parseCollaborationSessionRequest({
   path: 'Notes/Shared.pdf',
   provider: 'yjs',
@@ -81,7 +90,7 @@ const routeSource = readFileSync(
 );
 const serverSource = readFileSync(path.join(root, 'server/collaboration-server.ts'), 'utf8');
 assert.match(routeSource, /issueMobileCollaborationTicket/u);
-assert.match(routeSource, /representation: 'tiptap_xml'/u);
+assert.match(routeSource, /requestedPath\.endsWith\('\.txt'\) \? 'plain_text' : 'tiptap_xml'/u);
 assert.match(serverSource, /consumeMobileCollaborationTicket/u);
 assert.match(serverSource, /hasMobileCollaborationProtocol/u);
 assert.match(serverSource, /MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL/u);

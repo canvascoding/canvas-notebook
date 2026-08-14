@@ -38,6 +38,7 @@ import type { FileNode } from '@/app/lib/files/types';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 const MARKDOWN_EXTENSIONS = new Set(['.md', '.markdown']);
+const MOBILE_TEXT_DOCUMENT_EXTENSIONS = new Set([...MARKDOWN_EXTENSIONS, '.txt']);
 const MAX_DOCUMENT_BYTES = 2 * 1024 * 1024;
 const MAX_INDEXED_DOCUMENTS = 5_000;
 const MAX_CONTENT_SEARCH_DOCUMENTS = 200;
@@ -100,9 +101,13 @@ function isMarkdownPath(filePath: string): boolean {
   return MARKDOWN_EXTENSIONS.has(path.posix.extname(filePath).toLowerCase());
 }
 
+function isMobileTextDocumentPath(filePath: string): boolean {
+  return MOBILE_TEXT_DOCUMENT_EXTENSIONS.has(path.posix.extname(filePath).toLowerCase());
+}
+
 export function normalizeMobileNotebookPath(value: unknown): string {
   if (typeof value !== 'string') {
-    throw new MobileNotebookError('A Markdown path is required.', 400, 'INVALID_NOTEBOOK_PATH');
+    throw new MobileNotebookError('A Markdown or plain-text path is required.', 400, 'INVALID_NOTEBOOK_PATH');
   }
   const normalized = value.trim().replace(/\\/gu, '/');
   if (
@@ -111,9 +116,9 @@ export function normalizeMobileNotebookPath(value: unknown): string {
     || normalized.startsWith('/')
     || normalized.split('/').some((part) => !part || part === '.' || part === '..')
     || /[\u0000-\u001f\u007f]/u.test(normalized)
-    || !isMarkdownPath(normalized)
+    || !isMobileTextDocumentPath(normalized)
   ) {
-    throw new MobileNotebookError('The Markdown path is invalid.', 400, 'INVALID_NOTEBOOK_PATH');
+    throw new MobileNotebookError('The Markdown or plain-text path is invalid.', 400, 'INVALID_NOTEBOOK_PATH');
   }
   return normalized;
 }
