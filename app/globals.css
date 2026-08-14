@@ -594,7 +594,7 @@ li.task-list-item > p {
 /* tiptap markdown editor */
 .tiptap-editor-shell {
   background: #fff;
-  min-height: 100%;
+  min-height: max(100%, 32rem);
 }
 
 .dark .tiptap-editor-shell {
@@ -603,7 +603,7 @@ li.task-list-item > p {
 
 .tiptap-editor-shell .ProseMirror {
   background: inherit;
-  min-height: 100%;
+  min-height: max(100%, 32rem);
   padding: 20px 20px 20px 4.75rem;
   outline: none;
   color: var(--foreground);

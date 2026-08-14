@@ -116,5 +116,15 @@ assert.match(
   /sup\[data-type='markdown-footnote-reference'\][\s\S]*?cursor: pointer/u,
   'footnote references must visibly communicate that they are navigable',
 );
+assert.match(
+  editorStyles,
+  /\.tiptap-editor-shell\s*\{[\s\S]*?min-height: max\(100%, 32rem\)/u,
+  'the Markdown editor must provide a substantial blank writing surface',
+);
+assert.match(
+  editorStyles,
+  /\.tiptap-editor-shell \.ProseMirror\s*\{[\s\S]*?min-height: max\(100%, 32rem\)/u,
+  'the editable canvas must fill the blank writing surface',
+);
 
 console.log('markdown-rich-blocks-ui-test: ok');

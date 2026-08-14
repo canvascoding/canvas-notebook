@@ -583,6 +583,22 @@ $$`));
   );
   assert.match(editor.getMarkdown(), /\$x\^2\$/u);
 
+  editor.commands.setContent('', {
+    contentType: 'markdown',
+    emitUpdate: false,
+  });
+  assert.deepEqual(
+    editor.getJSON(),
+    { type: 'doc', content: [{ type: 'paragraph' }] },
+    'a blank Markdown document should start as an editable paragraph',
+  );
+  assert.equal(editor.getMarkdown(), '', 'a blank Markdown document should remain empty on disk');
+  assert.doesNotMatch(
+    editor.getMarkdown(),
+    /> \[!note\]/u,
+    'a blank Markdown document must not materialize a Note callout',
+  );
+
   const smallEditor = new Editor({
     content: 'x',
     extensions: [StarterKit],
