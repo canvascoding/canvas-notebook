@@ -1,4 +1,4 @@
-export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 3;
+export const CANVAS_MARKDOWN_GUIDANCE_REVISION = 4;
 export const CANVAS_MARKDOWN_GUIDANCE_MARKER =
   `<!-- canvas-markdown-guidance:v${CANVAS_MARKDOWN_GUIDANCE_REVISION} -->`;
 
@@ -12,6 +12,8 @@ Canvas renders GitHub Flavored Markdown plus Obsidian-style workspace notation a
 - Repeated headings receive unique suffixes in document order: \`#topic\`, \`#topic-1\`, \`#topic-2\`, and so on. Prefer unique heading text when creating a table of contents. Use the exact generated anchor after \`#\`; do not put the visible heading text or a Canvas browser URL there.
 - Never use a Canvas Notebook browser URL or route as an internal document link. Use wiki-links for other workspace documents, document-local anchors for jumps within the current document, and ordinary Markdown links for external websites or non-note files.
 - Embed workspace content with \`![[path/to/file]]\`. Use \`==highlight==\` for highlighted text and \`> [!note] Title\` for callouts.
+- Use collapsible sections with \`<details>\`, a \`<summary>Visible title</summary>\` on the next line, the section content, and a closing \`</details>\`. Do not put blank lines between the opening tag and the summary.
+- Add a footnote reference with \`[^source]\` and its definition on a separate line as \`[^source]: Footnote content\`. Keep every footnote identifier unique within the document.
 - Write inline math as \`$E = mc^2$\`. Write display math with opening and closing \`$$\` delimiters on separate lines. Escape a literal currency dollar as \`\\$\` when it could be mistaken for math.
 - Keep every Markdown fence, wiki-link bracket, and math delimiter balanced. Do not put formulas in code fences unless the user wants literal LaTeX source.
 - Mermaid diagrams use fenced \`mermaid\` code blocks.

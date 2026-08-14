@@ -41,6 +41,10 @@ assert.doesNotMatch(populated.systemPrompt, /^You are an AI assistant in Canvas 
 assert.match(populated.systemPrompt, /^# Canvas Notebook Runtime/);
 assert.match(populated.systemPrompt, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')));
 assert.match(populated.systemPrompt, /Write inline math as `\$E = mc\^2\$`/);
+assert.match(populated.systemPrompt, /Use collapsible sections with `<details>`/);
+assert.match(populated.systemPrompt, /<summary>Visible title<\/summary>/);
+assert.match(populated.systemPrompt, /Add a footnote reference with `\[\^source\]`/);
+assert.match(populated.systemPrompt, /`\[\^source\]: Footnote content`/);
 assert.match(populated.systemPrompt, /\[Visible link label\]\(#heading-anchor\)/);
 assert.match(populated.systemPrompt, /`## Installation & Setup` is linked as `\[Go to setup\]\(#installation-setup\)`/);
 assert.match(populated.systemPrompt, /Repeated headings receive unique suffixes in document order/);
@@ -66,7 +70,7 @@ assert.match(populated.systemPrompt, /## File Access for Uploaded Attachments/);
 assert.match(populated.systemPrompt, /\*\*PDF\*\*: Use the `read` tool first for ordinary text extraction/);
 assert.doesNotMatch(populated.systemPrompt, /Use the `pdf` skill to read and extract content/);
 
-const legacyGuidance = `<!-- canvas-markdown-guidance:v2 -->
+const legacyGuidance = `<!-- canvas-markdown-guidance:v3 -->
 ## Canvas Markdown Formatting
 
 Legacy formatting instructions that must be replaced.
@@ -78,7 +82,7 @@ const migratedGuidance = ensureCanvasMarkdownAgentGuidance(legacyGuidance);
 assert.match(migratedGuidance, new RegExp(CANVAS_MARKDOWN_GUIDANCE_MARKER));
 assert.match(migratedGuidance, /title: Clear document title/);
 assert.match(migratedGuidance, /Keep this tool guidance/);
-assert.doesNotMatch(migratedGuidance, /canvas-markdown-guidance:v2/);
+assert.doesNotMatch(migratedGuidance, /canvas-markdown-guidance:v3/);
 assert.doesNotMatch(migratedGuidance, /Legacy formatting instructions/);
 assert.equal(
   ensureCanvasMarkdownAgentGuidance(migratedGuidance),
