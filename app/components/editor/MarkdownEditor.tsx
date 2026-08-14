@@ -38,6 +38,7 @@ import {
   BadgeInfo,
   ChevronLeft,
   ChevronDown,
+  ChevronRight,
   ChevronUp,
   Code,
   Code2,
@@ -141,7 +142,7 @@ import {
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
-import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
+import { CanvasDetails, canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
 import {
   createMarkdownHeadingAnchorFactory,
   markdownHeadingAnchorFromHref,
@@ -1587,6 +1588,51 @@ function MermaidCodeBlockNodeView({ node }: NodeViewProps) {
   );
 }
 
+function CanvasDetailsNodeView({ node, updateAttributes }: NodeViewProps) {
+  const isOpen = Boolean(node.attrs.open);
+  const toggle = useCallback(() => {
+    updateAttributes({ open: !isOpen });
+  }, [isOpen, updateAttributes]);
+  const toggleFromSummary = useCallback((event: React.MouseEvent<HTMLElement>) => {
+    const target = event.target;
+    if (!(target instanceof Element) || !target.closest('summary[data-type="canvas-details-summary"]')) return;
+    event.preventDefault();
+    toggle();
+  }, [toggle]);
+
+  return (
+    <NodeViewWrapper as="div" className="canvas-details-node-view" data-type="canvas-details-wrapper">
+      <button
+        type="button"
+        className="canvas-details-toggle"
+        contentEditable={false}
+        aria-label={isOpen ? 'Collapse section' : 'Expand section'}
+        aria-expanded={isOpen}
+        onMouseDown={(event) => event.preventDefault()}
+        onClick={(event) => {
+          event.preventDefault();
+          toggle();
+        }}
+      >
+        {isOpen ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
+      </button>
+      <NodeViewContent<'details'>
+        as="details"
+        className="canvas-details-node-content"
+        data-type="canvas-details"
+        open={isOpen}
+        onMouseDownCapture={toggleFromSummary}
+      />
+    </NodeViewWrapper>
+  );
+}
+
+const CanvasDetailsWithToggle = CanvasDetails.extend({
+  addNodeView() {
+    return ReactNodeViewRenderer(CanvasDetailsNodeView);
+  },
+});
+
 const CodeBlockWithMermaid = CodeBlock.extend({
   addNodeView() {
     return ReactNodeViewRenderer(MermaidCodeBlockNodeView);
@@ -2076,7 +2122,8 @@ function createEditorExtensions(
     ColorSwatchDecorations,
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
-    ...canvasRichMarkdownExtensions(),
+    ...canvasRichMarkdownExtensions().filter((extension) => extension.name !== 'canvasDetails'),
+    CanvasDetailsWithToggle,
     createMarkdownMentionSuggestions({ labels: mentionLabels, workspaceId }),
     ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
     ObsidianInlineFootnoteExtension,
