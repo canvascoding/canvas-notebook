@@ -888,43 +888,11 @@ li.task-list-item > p {
   overflow: clip;
 }
 
-.tiptap-editor-shell .canvas-details-node-view {
-  position: relative;
-}
-
-.tiptap-editor-shell .canvas-details-toggle {
-  align-items: center;
-  background: transparent;
-  border: 0;
-  border-radius: 0.3rem;
-  color: var(--muted-foreground);
-  cursor: pointer;
-  display: inline-flex;
-  height: 1.75rem;
-  justify-content: center;
-  left: 0.45rem;
-  padding: 0;
-  position: absolute;
-  top: 0.42rem;
-  width: 1.75rem;
-  z-index: 2;
-}
-
-.tiptap-editor-shell .canvas-details-toggle:hover {
-  background: color-mix(in oklab, var(--muted) 75%, transparent);
-  color: var(--foreground);
-}
-
-.tiptap-editor-shell .canvas-details-toggle svg {
-  height: 1rem;
-  width: 1rem;
-}
-
 .tiptap-editor-shell summary[data-type='canvas-details-summary'] {
   background: color-mix(in oklab, var(--muted) 52%, transparent);
   cursor: pointer;
   font-weight: 650;
-  padding: 0.75rem 1rem 0.75rem 2.65rem;
+  padding: 0.75rem 1rem;
 }
 
 .tiptap-editor-shell summary[data-type='canvas-details-summary']:focus-visible,

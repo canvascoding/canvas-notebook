@@ -64,6 +64,16 @@ assert.match(
 );
 assert.match(
   editorSource,
+  /handleDetailsSummaryClick[\s\S]*?setDetailsOpen/u,
+  'clicking the native details summary must persist the open state without a second toggle control',
+);
+assert.doesNotMatch(
+  editorSource,
+  /canvas-details-toggle/u,
+  'collapsible sections must not render a detached duplicate toggle button',
+);
+assert.match(
+  editorSource,
   /focusFootnoteDefinition/u,
   'footnote references must navigate to their editable definition',
 );

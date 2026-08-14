@@ -38,7 +38,6 @@ import {
   BadgeInfo,
   ChevronLeft,
   ChevronDown,
-  ChevronRight,
   ChevronUp,
   Code,
   Code2,
@@ -142,7 +141,7 @@ import {
 } from '@/app/lib/editor/reorderable-blocks';
 import { createInlineColorRegex, isColorCode } from '@/app/lib/markdown/color-code';
 import { CANVAS_KATEX_OPTIONS } from '@/app/lib/markdown/canvas-markdown';
-import { CanvasDetails, canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
+import { canvasRichMarkdownExtensions } from '@/app/lib/markdown/canvas-rich-markdown-extensions';
 import {
   createMarkdownHeadingAnchorFactory,
   markdownHeadingAnchorFromHref,
@@ -1588,51 +1587,6 @@ function MermaidCodeBlockNodeView({ node }: NodeViewProps) {
   );
 }
 
-function CanvasDetailsNodeView({ node, updateAttributes }: NodeViewProps) {
-  const isOpen = Boolean(node.attrs.open);
-  const toggle = useCallback(() => {
-    updateAttributes({ open: !isOpen });
-  }, [isOpen, updateAttributes]);
-  const toggleFromSummary = useCallback((event: React.MouseEvent<HTMLElement>) => {
-    const target = event.target;
-    if (!(target instanceof Element) || !target.closest('summary[data-type="canvas-details-summary"]')) return;
-    event.preventDefault();
-    toggle();
-  }, [toggle]);
-
-  return (
-    <NodeViewWrapper as="div" className="canvas-details-node-view" data-type="canvas-details-wrapper">
-      <button
-        type="button"
-        className="canvas-details-toggle"
-        contentEditable={false}
-        aria-label={isOpen ? 'Collapse section' : 'Expand section'}
-        aria-expanded={isOpen}
-        onMouseDown={(event) => event.preventDefault()}
-        onClick={(event) => {
-          event.preventDefault();
-          toggle();
-        }}
-      >
-        {isOpen ? <ChevronDown aria-hidden="true" /> : <ChevronRight aria-hidden="true" />}
-      </button>
-      <NodeViewContent<'details'>
-        as="details"
-        className="canvas-details-node-content"
-        data-type="canvas-details"
-        open={isOpen}
-        onMouseDownCapture={toggleFromSummary}
-      />
-    </NodeViewWrapper>
-  );
-}
-
-const CanvasDetailsWithToggle = CanvasDetails.extend({
-  addNodeView() {
-    return ReactNodeViewRenderer(CanvasDetailsNodeView);
-  },
-});
-
 const CodeBlockWithMermaid = CodeBlock.extend({
   addNodeView() {
     return ReactNodeViewRenderer(MermaidCodeBlockNodeView);
@@ -2122,8 +2076,7 @@ function createEditorExtensions(
     ColorSwatchDecorations,
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
-    ...canvasRichMarkdownExtensions().filter((extension) => extension.name !== 'canvasDetails'),
-    CanvasDetailsWithToggle,
+    ...canvasRichMarkdownExtensions(),
     createMarkdownMentionSuggestions({ labels: mentionLabels, workspaceId }),
     ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
     ObsidianInlineFootnoteExtension,
@@ -5295,35 +5248,74 @@ function RichMarkdownEditor({
     const editorElement = editor.options.element;
     if (!(editorElement instanceof HTMLElement)) return undefined;
 
-    const handleDetailsToggle = (event: Event) => {
-      const details = event.target;
-      if (!(details instanceof HTMLDetailsElement) || !editorElement.contains(details)) return;
-      if (details.dataset.type !== 'canvas-details') return;
+    const getDetailsPosition = (details: HTMLDetailsElement) => {
+      const detailsId = details.dataset.id;
+      if (detailsId) {
+        let matchingPosition: number | null = null;
+        editor.state.doc.descendants((node, position) => {
+          if (node.type.name === 'canvasDetails' && String(node.attrs.id ?? '') === detailsId) {
+            matchingPosition = position;
+            return false;
+          }
+          return true;
+        });
+        if (matchingPosition !== null) return matchingPosition;
+      }
 
-      let position: number | null = null;
       try {
         const resolved = editor.state.doc.resolve(editor.view.posAtDOM(details, 0));
         for (let depth = resolved.depth; depth > 0; depth -= 1) {
           if (resolved.node(depth).type.name === 'canvasDetails') {
-            position = resolved.before(depth);
-            break;
+            return resolved.before(depth);
           }
         }
       } catch {
-        return;
+        // Ignore clicks while ProseMirror is reconciling a DOM update.
       }
+      return null;
+    };
+
+    const setDetailsOpen = (details: HTMLDetailsElement, open: boolean) => {
+      const position = getDetailsPosition(details);
       if (position === null) return;
 
       const node = editor.state.doc.nodeAt(position);
-      if (!node || node.type.name !== 'canvasDetails' || Boolean(node.attrs.open) === details.open) return;
+      if (!node || node.type.name !== 'canvasDetails' || Boolean(node.attrs.open) === open) return;
       editor.view.dispatch(editor.state.tr.setNodeMarkup(position, node.type, {
         ...node.attrs,
-        open: details.open,
+        open,
       }));
     };
 
+    const handleDetailsToggle = (event: Event) => {
+      const details = event.target;
+      if (!(details instanceof HTMLDetailsElement) || !editorElement.contains(details)) return;
+      if (details.dataset.type !== 'canvas-details') return;
+      setDetailsOpen(details, details.open);
+    };
+
+    const handleDetailsSummaryClick = (event: MouseEvent) => {
+      const target = event.target;
+      if (!(target instanceof Element)) return;
+      const summary = target.closest('summary[data-type="canvas-details-summary"]');
+      if (!summary || !editorElement.contains(summary)) return;
+      const details = summary.closest('details[data-type="canvas-details"]');
+      if (!(details instanceof HTMLDetailsElement)) return;
+
+      event.preventDefault();
+      const position = getDetailsPosition(details);
+      if (position === null) return;
+      const node = editor.state.doc.nodeAt(position);
+      if (!node || node.type.name !== 'canvasDetails') return;
+      setDetailsOpen(details, !Boolean(node.attrs.open));
+    };
+
     editorElement.addEventListener('toggle', handleDetailsToggle, true);
-    return () => editorElement.removeEventListener('toggle', handleDetailsToggle, true);
+    editorElement.addEventListener('click', handleDetailsSummaryClick, true);
+    return () => {
+      editorElement.removeEventListener('toggle', handleDetailsToggle, true);
+      editorElement.removeEventListener('click', handleDetailsSummaryClick, true);
+    };
   }, [editor]);
 
   useEffect(() => {

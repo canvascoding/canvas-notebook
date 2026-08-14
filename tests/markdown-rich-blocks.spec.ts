@@ -116,9 +116,9 @@ Table anchor`,
       await expect(details).toContainText('Details body');
       await expect(details.locator('summary')).toHaveText('UI details');
       await expect(details).not.toHaveAttribute('open');
-      await editor.getByRole('button', { name: 'Expand section', exact: true }).click();
+      await details.locator('summary').click();
       await expect(details).toHaveAttribute('open', '');
-      await editor.getByRole('button', { name: 'Collapse section', exact: true }).click();
+      await details.locator('summary').click();
       await expect(details).not.toHaveAttribute('open');
 
       await editor.getByText('Formula anchor', { exact: true }).click();
