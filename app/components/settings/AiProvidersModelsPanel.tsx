@@ -53,6 +53,7 @@ import {
   AiProviderCatalogCard,
   type AiProviderCatalogCardCopy,
 } from './ai-runtime/AiProviderCatalogCard';
+import { ProviderInstallationCredentialEditor } from './ProviderInstallationCredentialEditor';
 import {
   catalogDataToDraft,
   readAdminRuntimeCatalog,
@@ -205,8 +206,8 @@ const DE_COPY: PanelCopy = {
   setupDetails: 'Informationen zur Einrichtung',
   cancel: 'Abbrechen',
   reviewIssue: 'Hinweiscode',
-  secretNoticeTitle: 'Keine Zugangsdaten in diesem Katalog',
-  secretNoticeDescription: 'API-Keys und Tokens werden weiterhin zentral über Integrationen verwaltet. Hier werden ausschließlich sichere Provider-Metadaten und Modellfreigaben gespeichert.',
+  secretNoticeTitle: 'Zugangsdaten bleiben zentral geschützt',
+  secretNoticeDescription: 'API-Keys und OAuth-Verbindungen richtest du direkt in der jeweiligen Provider-Karte ein. Sie werden zentral im passenden Credential-Scope gespeichert; im Modellkatalog bleiben nur sichere Metadaten.',
   managedTitle: 'Canvas Control Plane',
   managedDescription: 'Synchronisiert die zentral freigegebenen Managed-Modelle und übernimmt auf Wunsch deren Standardmodell.',
   managedReady: 'Verbunden',
@@ -223,7 +224,7 @@ const DE_COPY: PanelCopy = {
   noProvidersTitle: 'Noch keine Provider installiert',
   noProvidersDescription: 'Füge einen verfügbaren Provider hinzu oder synchronisiere eine verbundene Control Plane.',
   addProviderTitle: 'Provider hinzufügen',
-  addProviderDescription: 'Wähle einen Anbieter aus. Zugangsdaten richtest du anschließend separat ein.',
+  addProviderDescription: 'Wähle einen Anbieter aus. Danach öffnet sich seine Karte, in der du die Verbindung direkt einrichten kannst.',
   provider: 'Provider',
   credentialScope: 'Verfügbar für',
   chooseProvider: 'Provider auswählen',
@@ -268,8 +269,15 @@ const DE_COPY: PanelCopy = {
     contextWindow: (tokens) => `${tokens} Kontext`,
     managedScopeLocked: 'Der Credential-Scope eines Managed Providers wird von der Control Plane vorgegeben.',
     oauthScopeLocked: 'OAuth-Verbindungen sind persönlich und werden deshalb immer pro Nutzer gespeichert.',
+    authentication: 'Anmeldung',
+    apiKeyAuthentication: 'API-Key',
+    oauthAuthentication: 'Mit Konto anmelden (OAuth)',
+    connection: 'Verbindung',
+    connectionDescription: 'API-Key oder Konto-Zugang direkt für diesen Provider einrichten.',
+    configureConnection: 'Einrichten',
+    collapseConnection: 'Schließen',
     selfHostedConfiguration: 'Self-hosted Runtime',
-    selfHostedDescription: 'Konfiguriere hier nur Endpoint und Modell-Metadaten. Zugangsdaten bleiben im getrennten Secret-Scope.',
+    selfHostedDescription: 'Konfiguriere Endpoint und Modell-Metadaten. Den API-Key speicherst du direkt im Bereich „Verbindung“ dieser Karte.',
     openAiBaseUrl: 'OpenAI-kompatible Base URL',
     openAiBaseUrlPlaceholder: 'http://localhost:8080/v1',
     ollamaMode: 'Server-Modus',
@@ -283,8 +291,6 @@ const DE_COPY: PanelCopy = {
     customModel: 'Eigenes Modell',
     customModelId: 'Custom Model ID',
     customModelPlaceholder: 'z. B. llama3.3:70b oder mein-modell',
-    credentialsSeparated: 'Speichere den Katalog und verwalte die Zugangsdaten des App-Standards danach getrennt.',
-    configureCredentials: 'Zum Secret-Scope',
     status: SHARED_STATUS_DE,
     source: SOURCE_DE,
     scope: SCOPE_DE,
@@ -330,8 +336,8 @@ const EN_COPY: PanelCopy = {
   setupDetails: 'Setup information',
   cancel: 'Cancel',
   reviewIssue: 'Issue code',
-  secretNoticeTitle: 'No credentials are stored in this catalog',
-  secretNoticeDescription: 'API keys and tokens remain centrally managed in Integrations. This page only stores safe provider metadata and model access rules.',
+  secretNoticeTitle: 'Credentials stay centrally protected',
+  secretNoticeDescription: 'Set up API keys and OAuth connections directly in each provider card. They are stored centrally in the appropriate credential scope; the model catalog contains safe metadata only.',
   managedTitle: 'Canvas Control Plane',
   managedDescription: 'Synchronizes centrally approved managed models and can adopt the Control Plane default model.',
   managedReady: 'Connected',
@@ -348,7 +354,7 @@ const EN_COPY: PanelCopy = {
   noProvidersTitle: 'No providers installed yet',
   noProvidersDescription: 'Add an available provider or synchronize a connected Control Plane.',
   addProviderTitle: 'Add provider',
-  addProviderDescription: 'Choose a provider. You can set up credentials separately afterwards.',
+  addProviderDescription: 'Choose a provider. Its card then opens so you can set up the connection right there.',
   provider: 'Provider',
   credentialScope: 'Available to',
   chooseProvider: 'Select a provider',
@@ -393,8 +399,15 @@ const EN_COPY: PanelCopy = {
     contextWindow: (tokens) => `${tokens} context`,
     managedScopeLocked: 'The credential scope of a managed provider is controlled by the Control Plane.',
     oauthScopeLocked: 'OAuth connections are personal, so their credentials are always stored per user.',
+    authentication: 'Sign-in method',
+    apiKeyAuthentication: 'API key',
+    oauthAuthentication: 'Sign in with account (OAuth)',
+    connection: 'Connection',
+    connectionDescription: 'Set up this provider’s API key or account connection here.',
+    configureConnection: 'Set up',
+    collapseConnection: 'Close',
     selfHostedConfiguration: 'Self-hosted runtime',
-    selfHostedDescription: 'Configure endpoint and model metadata here. Credentials remain in their separate secret scope.',
+    selfHostedDescription: 'Configure endpoint and model metadata here. Save the API key directly in this card’s Connection section.',
     openAiBaseUrl: 'OpenAI-compatible base URL',
     openAiBaseUrlPlaceholder: 'http://localhost:8080/v1',
     ollamaMode: 'Server mode',
@@ -408,8 +421,6 @@ const EN_COPY: PanelCopy = {
     customModel: 'Custom model',
     customModelId: 'Custom model ID',
     customModelPlaceholder: 'e.g. llama3.3:70b or my-model',
-    credentialsSeparated: 'Save the catalog, then manage the app default credentials in its separate secret scope.',
-    configureCredentials: 'Go to secret scope',
     status: SHARED_STATUS_EN,
     source: SOURCE_EN,
     scope: SCOPE_EN,
@@ -694,6 +705,7 @@ export function AiProvidersModelsPanel({
   const [isAddProviderDialogOpen, setIsAddProviderDialogOpen] = useState(false);
   const [addProviderId, setAddProviderId] = useState('');
   const [addCredentialScope, setAddCredentialScope] = useState<AiCredentialScope>('organization');
+  const [connectionOpenProviderClientKey, setConnectionOpenProviderClientKey] = useState<string | null>(null);
   const [setManagedAsDefault, setSetManagedAsDefault] = useState(true);
 
   const applyCatalogData = useCallback((nextData: AdminRuntimeCatalogData) => {
@@ -832,6 +844,7 @@ export function AiProvidersModelsPanel({
       lastSyncedAt: null,
     };
     updateProviders((providers) => [...providers, provider]);
+    setConnectionOpenProviderClientKey(clientKey);
     setAddProviderId('');
     setIsAddProviderDialogOpen(false);
   };
@@ -1107,6 +1120,21 @@ export function AiProvidersModelsPanel({
                 copy={copy.providerCard}
                 disabled={busy}
                 verifying={verifyingInstallationId === provider.providerInstallationId}
+                initialCredentialsOpen={provider.clientKey === connectionOpenProviderClientKey}
+                credentialEditor={(
+                  <ProviderInstallationCredentialEditor
+                    installation={{
+                      installationId: provider.providerInstallationId ?? provider.clientKey,
+                      providerId: provider.providerId,
+                      name: provider.name,
+                      credentialScope: provider.credentialScope,
+                      authMethod: provider.config.authMethod,
+                    }}
+                    locale={locale}
+                    showIdentity={false}
+                    onCredentialsSaved={() => void saveCatalog()}
+                  />
+                )}
                 onVerify={provider.providerInstallationId && !isDirty
                   ? () => void verifyProvider(provider.providerInstallationId!)
                   : undefined}
@@ -1131,6 +1159,28 @@ export function AiProvidersModelsPanel({
                     ...current,
                     providerInstallationId: data.discovery[current.providerId]?.installationIds?.[credentialScope],
                     credentialScope,
+                    status: current.enabled ? 'unverified' : 'disabled',
+                  }));
+                }}
+                onAuthMethodChange={(authMethod) => {
+                  const credentialScopes = getAllowedCredentialScopesForProvider(provider.providerId, authMethod);
+                  const credentialScope = credentialScopes.includes(provider.credentialScope)
+                    ? provider.credentialScope
+                    : credentialScopes[0];
+                  const duplicate = draft.providers.some((candidate) => (
+                    candidate.clientKey !== provider.clientKey
+                    && candidate.providerId === provider.providerId
+                    && candidate.credentialScope === credentialScope
+                  ));
+                  if (duplicate) {
+                    setError(copy.errors.duplicateBinding);
+                    return;
+                  }
+                  updateProvider(provider.clientKey, (current) => ({
+                    ...current,
+                    credentialScope,
+                    providerInstallationId: data.discovery[current.providerId]?.installationIds?.[credentialScope],
+                    config: { ...current.config, authMethod },
                     status: current.enabled ? 'unverified' : 'disabled',
                   }));
                 }}

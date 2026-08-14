@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState, startTransition } from 'react';
+import { useCallback, useEffect, useRef, useState, startTransition } from 'react';
 import { useTranslations } from 'next-intl';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -43,6 +43,8 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   const [deviceCode, setDeviceCode] = useState('');
   const [code, setCode] = useState('');
   const [providers, setProviders] = useState<OAuthStatus[]>([]);
+  const [isStatusLoading, setIsStatusLoading] = useState(true);
+  const [statusError, setStatusError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
@@ -51,25 +53,38 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
   const completedFlowRef = useRef<string | null>(null);
   const flowProviderRef = useRef<OAuthStatus | null>(null);
 
-  const loadStatus = async () => {
+  const loadStatus = useCallback(async () => {
+    setIsStatusLoading(true);
+    setStatusError(null);
     try {
-      const response = await fetch('/api/oauth/pi/status', {
+      const url = activeProviderId
+        ? `/api/oauth/pi/status?provider=${encodeURIComponent(activeProviderId)}`
+        : '/api/oauth/pi/status';
+      const response = await fetch(url, {
         credentials: 'include',
       });
-      const data = await response.json();
-      
-      if (data.success && data.providers) {
-        setProviders(data.providers);
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || `OAuth status request failed (${response.status})`);
       }
+      const nextProviders = activeProviderId
+        ? (data.provider ? [data.provider] : [])
+        : (data.providers ?? []);
+      setProviders(nextProviders);
     } catch (err) {
       console.error('Failed to load OAuth status:', err);
+      setProviders([]);
+      setStatusError(t('oauth.errors.status'));
+    } finally {
+      setIsStatusLoading(false);
     }
-  };
+  }, [activeProviderId, t]);
 
   // Load OAuth status on mount
   useEffect(() => {
     startTransition(() => { void loadStatus(); });
-  }, []);
+  }, [loadStatus]);
 
   // Auto-select active provider when providers are loaded
   useEffect(() => {
@@ -444,7 +459,18 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
       )}
 
       {/* Connect New Account Section */}
-      {availableProviders.length > 0 ? (
+      {isStatusLoading ? (
+        <div className="py-3 text-center text-sm text-muted-foreground">
+          {t('oauth.sections.loadingStatus')}
+        </div>
+      ) : statusError ? (
+        <div role="alert" className="flex flex-col gap-2 rounded-lg border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+          <span>{statusError}</span>
+          <Button type="button" variant="outline" size="sm" onClick={() => void loadStatus()}>
+            {t('oauth.sections.retryStatus')}
+          </Button>
+        </div>
+      ) : availableProviders.length > 0 ? (
         <div className="space-y-3">
           <h4 className="text-sm font-semibold text-foreground">{t('oauth.sections.connectAccount')}</h4>
           <div className="flex gap-2">

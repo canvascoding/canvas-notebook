@@ -1,13 +1,13 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { type ReactNode, useMemo, useState } from 'react';
 import {
-  ArrowDown,
   BrainCircuit,
   Check,
   ChevronDown,
   Cloud,
   Eye,
+  KeyRound,
   Network,
   Search,
   ServerCog,
@@ -25,6 +25,7 @@ import type {
   AiRuntimeSelection,
 } from '@/app/lib/agent-runtime-policy/types';
 import { getAllowedCredentialScopesForProvider } from '@/app/lib/agent-runtime-policy/provider-auth-policy';
+import { getAuthMethodForProvider } from '@/app/lib/pi/provider-help';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -63,6 +64,13 @@ export type AiProviderCatalogCardCopy = {
   contextWindow: (tokens: string) => string;
   managedScopeLocked: string;
   oauthScopeLocked: string;
+  authentication: string;
+  apiKeyAuthentication: string;
+  oauthAuthentication: string;
+  connection: string;
+  connectionDescription: string;
+  configureConnection: string;
+  collapseConnection: string;
   selfHostedConfiguration: string;
   selfHostedDescription: string;
   openAiBaseUrl: string;
@@ -78,8 +86,6 @@ export type AiProviderCatalogCardCopy = {
   customModel: string;
   customModelId: string;
   customModelPlaceholder: string;
-  credentialsSeparated: string;
-  configureCredentials: string;
   status: Record<AiProviderStatus, string>;
   source: Record<AiProviderSource, string>;
   scope: Record<AiCredentialScope, string>;
@@ -99,6 +105,9 @@ type AiProviderCatalogCardProps = {
   onProviderDefaultChange: (model: AiCatalogDiscoveryModel) => void;
   onRemove: () => void;
   onVerify?: () => void;
+  onAuthMethodChange?: (authMethod: 'api-key' | 'oauth') => void;
+  credentialEditor?: ReactNode;
+  initialCredentialsOpen?: boolean;
 };
 
 function statusVariant(status: AiProviderStatus): 'default' | 'secondary' | 'destructive' | 'outline' {
@@ -128,11 +137,18 @@ export function AiProviderCatalogCard({
   onProviderDefaultChange,
   onRemove,
   onVerify,
+  onAuthMethodChange,
+  credentialEditor,
+  initialCredentialsOpen = false,
 }: AiProviderCatalogCardProps) {
   const [modelsOpen, setModelsOpen] = useState(false);
+  const [credentialsOpen, setCredentialsOpen] = useState(initialCredentialsOpen);
   const [search, setSearch] = useState('');
   const [showAll, setShowAll] = useState(false);
   const isManaged = provider.source === 'managed' || provider.credentialScope === 'managed';
+  const providerAuthMethod = getAuthMethodForProvider(provider.providerId);
+  const supportsAuthChoice = !isManaged && providerAuthMethod === 'both';
+  const selectedAuthMethod = provider.config.authMethod === 'oauth' ? 'oauth' : 'api-key';
   const credentialScopes = isManaged
     ? (['managed'] as const)
     : getAllowedCredentialScopesForProvider(provider.providerId, provider.config.authMethod);
@@ -205,24 +221,44 @@ export function AiProviderCatalogCard({
         </div>
 
         <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-end">
-          <div className="space-y-2">
-            <Label htmlFor={`${provider.clientKey}-credential-scope`}>{copy.credentialScope}</Label>
-            <div className="relative">
-              <select
-                id={`${provider.clientKey}-credential-scope`}
-                value={provider.credentialScope}
-                disabled={disabled || isManaged || isPersonalOAuthScope}
-                onChange={(event) => onCredentialScopeChange(event.target.value as AiCredentialScope)}
-                className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
-              >
-                {credentialScopes.map((scope) => (
-                  <option key={scope} value={scope}>{copy.scope[scope]}</option>
-                ))}
-              </select>
-              <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+          <div className={cn('grid gap-3', supportsAuthChoice && 'sm:grid-cols-2')}>
+            {supportsAuthChoice && (
+              <div className="space-y-2">
+                <Label htmlFor={`${provider.clientKey}-authentication`}>{copy.authentication}</Label>
+                <div className="relative">
+                  <select
+                    id={`${provider.clientKey}-authentication`}
+                    value={selectedAuthMethod}
+                    disabled={disabled}
+                    onChange={(event) => onAuthMethodChange?.(event.target.value as 'api-key' | 'oauth')}
+                    className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                  >
+                    <option value="api-key">{copy.apiKeyAuthentication}</option>
+                    <option value="oauth">{copy.oauthAuthentication}</option>
+                  </select>
+                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+                </div>
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label htmlFor={`${provider.clientKey}-credential-scope`}>{copy.credentialScope}</Label>
+              <div className="relative">
+                <select
+                  id={`${provider.clientKey}-credential-scope`}
+                  value={provider.credentialScope}
+                  disabled={disabled || isManaged || isPersonalOAuthScope}
+                  onChange={(event) => onCredentialScopeChange(event.target.value as AiCredentialScope)}
+                  className="h-9 w-full appearance-none rounded-md border border-input bg-background px-3 pr-9 text-sm shadow-xs outline-none transition-[color,box-shadow] focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-input/30"
+                >
+                  {credentialScopes.map((scope) => (
+                    <option key={scope} value={scope}>{copy.scope[scope]}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              </div>
+              {isManaged && <p className="text-xs text-muted-foreground">{copy.managedScopeLocked}</p>}
+              {isPersonalOAuthScope && <p className="text-xs text-muted-foreground">{copy.oauthScopeLocked}</p>}
             </div>
-            {isManaged && <p className="text-xs text-muted-foreground">{copy.managedScopeLocked}</p>}
-            {isPersonalOAuthScope && <p className="text-xs text-muted-foreground">{copy.oauthScopeLocked}</p>}
           </div>
           <div className="flex flex-wrap justify-end gap-2">
             {onVerify && (
@@ -254,6 +290,36 @@ export function AiProviderCatalogCard({
           </div>
         </div>
       </CardHeader>
+
+      {credentialEditor && (
+        <Collapsible open={credentialsOpen} onOpenChange={setCredentialsOpen}>
+          <CollapsibleTrigger asChild>
+            <button
+              type="button"
+              className="flex w-full items-center justify-between gap-3 border-b px-4 py-3 text-left transition-colors hover:bg-muted/40 focus-visible:outline-none focus-visible:ring-[3px] focus-visible:ring-inset focus-visible:ring-ring/50 sm:px-5"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span className="flex size-7 shrink-0 items-center justify-center rounded-md border bg-muted/40 text-muted-foreground">
+                  <KeyRound className="size-3.5" aria-hidden="true" />
+                </span>
+                <span className="min-w-0">
+                  <span className="block text-sm font-medium">{copy.connection}</span>
+                  <span className="block truncate text-xs text-muted-foreground">{copy.connectionDescription}</span>
+                </span>
+              </span>
+              <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                {credentialsOpen ? copy.collapseConnection : copy.configureConnection}
+                <ChevronDown className={cn('size-4 transition-transform', credentialsOpen && 'rotate-180')} aria-hidden="true" />
+              </span>
+            </button>
+          </CollapsibleTrigger>
+          <CollapsibleContent>
+            <CardContent className="border-b bg-muted/10 px-4 py-4 sm:px-5">
+              {credentialEditor}
+            </CardContent>
+          </CollapsibleContent>
+        </Collapsible>
+      )}
 
       {hasSelfHostedConfiguration && (
         <div className="border-b bg-muted/10 px-4 py-4 sm:px-5">
@@ -396,17 +462,6 @@ export function AiProviderCatalogCard({
                 )}
               </div>
             )}
-
-            <div className="flex flex-col gap-2 rounded-md border border-dashed bg-muted/20 px-3 py-2.5 text-xs text-muted-foreground sm:flex-row sm:items-center sm:justify-between">
-              <span>{copy.credentialsSeparated}</span>
-              <a
-                href="#ai-provider-credentials"
-                className="inline-flex shrink-0 items-center gap-1 font-medium text-foreground underline-offset-4 hover:underline"
-              >
-                {copy.configureCredentials}
-                <ArrowDown className="size-3" aria-hidden="true" />
-              </a>
-            </div>
           </div>
         </div>
       )}
