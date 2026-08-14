@@ -7,8 +7,6 @@ import {
   CheckCircle2,
   ChevronDown,
   CloudDownload,
-  DatabaseZap,
-  Layers3,
   Loader2,
   LockKeyhole,
   Plus,
@@ -16,7 +14,6 @@ import {
   RotateCcw,
   Save,
   Server,
-  ShieldCheck,
 } from 'lucide-react';
 
 import type {
@@ -37,6 +34,16 @@ import { getAuthMethodForProvider } from '@/app/lib/pi/provider-help';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Label } from '@/components/ui/label';
 import { Skeleton } from '@/components/ui/skeleton';
 import { Switch } from '@/components/ui/switch';
@@ -57,7 +64,6 @@ import {
   type AdminRuntimeCatalogData,
   type AiCatalogProviderDraft,
   type AiRuntimeCatalogDraft,
-  type CatalogInitializationAction,
 } from './ai-runtime/catalog-client';
 
 const CONTROL_PLANE_PROVIDER_ID = 'canvas-control-plane';
@@ -79,13 +85,12 @@ type PanelCopy = {
   saved: string;
   verified: string;
   unsaved: string;
-  deployment: string;
-  revision: string;
-  initialization: string;
-  managedDeployment: string;
-  selfHostedDeployment: string;
-  initializationAction: Record<CatalogInitializationAction, string>;
-  migrationState: Record<AdminRuntimeCatalogData['catalog']['migrationState'], string>;
+  savedState: string;
+  setupComplete: string;
+  setupIncomplete: string;
+  currentDefault: (provider: string, model: string) => string;
+  setupDetails: string;
+  cancel: string;
   reviewIssue: string;
   secretNoticeTitle: string;
   secretNoticeDescription: string;
@@ -95,7 +100,6 @@ type PanelCopy = {
   managedAvailable: string;
   managedUnavailable: string;
   managedLastSync: (value: string) => string;
-  managedRevision: (value: string) => string;
   managedSetDefault: string;
   managedSetDefaultDescription: string;
   managedSync: string;
@@ -183,35 +187,23 @@ const SCOPE_EN: Record<AiCredentialScope, string> = {
 
 const DE_COPY: PanelCopy = {
   title: 'KI-Provider & Modelle',
-  description: 'Lege app-weit fest, welche Provider, Modelle und Standardwerte in Agent-Runtimes verfügbar sind.',
+  description: 'Lege fest, welche KI-Modelle in Canvas zur Verfügung stehen.',
   loading: 'KI-Katalog wird geladen …',
   retry: 'Erneut versuchen',
   reload: 'Neu laden',
   discardReload: 'Änderungen verwerfen & neu laden',
   reset: 'Zurücksetzen',
-  save: 'Katalog speichern',
+  save: 'Änderungen speichern',
   saving: 'Wird gespeichert …',
-  saved: 'Der KI-Katalog wurde gespeichert.',
+  saved: 'Die Änderungen wurden gespeichert.',
   verified: 'Die Provider-Installation wurde erfolgreich verifiziert.',
   unsaved: 'Nicht gespeicherte Änderungen',
-  deployment: 'Deployment',
-  revision: 'Katalog-Revision',
-  initialization: 'Initialisierung',
-  managedDeployment: 'Managed über Control Plane',
-  selfHostedDeployment: 'Selbst verwaltet',
-  initializationAction: {
-    existing: 'Bestehende Konfiguration',
-    managed_initialized: 'Managed initialisiert',
-    legacy_migrated: 'Legacy-Konfiguration migriert',
-    review_required: 'Prüfung erforderlich',
-    uninitialized: 'Noch nicht konfiguriert',
-  },
-  migrationState: {
-    uninitialized: 'Nicht konfiguriert',
-    review_required: 'Prüfung erforderlich',
-    configured: 'Konfiguriert',
-    migrated: 'Migriert',
-  },
+  savedState: 'Alle Änderungen gespeichert',
+  setupComplete: 'Bereit für neue Chats',
+  setupIncomplete: 'Modell auswählen',
+  currentDefault: (provider, model) => `${provider} · ${model}`,
+  setupDetails: 'Informationen zur Einrichtung',
+  cancel: 'Abbrechen',
   reviewIssue: 'Hinweiscode',
   secretNoticeTitle: 'Keine Zugangsdaten in diesem Katalog',
   secretNoticeDescription: 'API-Keys und Tokens werden weiterhin zentral über Integrationen verwaltet. Hier werden ausschließlich sichere Provider-Metadaten und Modellfreigaben gespeichert.',
@@ -221,25 +213,24 @@ const DE_COPY: PanelCopy = {
   managedAvailable: 'Verfügbar',
   managedUnavailable: 'Nicht verbunden',
   managedLastSync: (value) => `Zuletzt synchronisiert: ${value}`,
-  managedRevision: (value) => `Control-Plane-Revision: ${value}`,
   managedSetDefault: 'Als App-Standard verwenden',
   managedSetDefaultDescription: 'Übernimmt beim Synchronisieren das Standardmodell der Control Plane.',
   managedSync: 'Managed-Katalog synchronisieren',
   managedSyncing: 'Synchronisiert …',
   managedDirtyHint: 'Speichere oder verwirf zuerst deine lokalen Änderungen.',
-  providersTitle: 'Installierte Provider',
-  providersDescription: 'Jede Installation definiert ihren Credential-Scope, ihre Modell-Allowlist und ihr Provider-Standardmodell.',
+  providersTitle: 'KI-Provider',
+  providersDescription: 'Verwalte die Anbieter und Modelle, die in Canvas verwendet werden dürfen.',
   noProvidersTitle: 'Noch keine Provider installiert',
   noProvidersDescription: 'Füge einen verfügbaren Provider hinzu oder synchronisiere eine verbundene Control Plane.',
   addProviderTitle: 'Provider hinzufügen',
-  addProviderDescription: 'Zugangsdaten werden dabei nicht abgefragt. Derselbe Provider kann einmal je Credential-Scope installiert werden.',
+  addProviderDescription: 'Wähle einen Anbieter aus. Zugangsdaten richtest du anschließend separat ein.',
   provider: 'Provider',
-  credentialScope: 'Credential-Scope',
+  credentialScope: 'Verfügbar für',
   chooseProvider: 'Provider auswählen',
   addProvider: 'Hinzufügen',
   noProvidersAvailable: 'Alle erkannten Provider sind bereits in ihren verfügbaren Credential-Scopes installiert.',
-  appDefaultTitle: 'App-Standard',
-  appDefaultDescription: 'Dieser Wert gilt als Fallback, wenn Workspace, Agent und Nutzer keine spezifischere Auswahl festlegen.',
+  appDefaultTitle: 'Standard für neue Chats',
+  appDefaultDescription: 'Dieses Modell wird verwendet, wenn noch keine persönlichere Auswahl getroffen wurde.',
   appDefaultProvider: 'Standard-Provider',
   appDefaultModel: 'Standardmodell',
   intelligence: 'Intelligence',
@@ -259,11 +250,11 @@ const DE_COPY: PanelCopy = {
     removeAria: 'Provider {provider} entfernen',
     verify: 'Verifizieren',
     verifying: 'Wird geprüft …',
-    credentialScope: 'Credential-Scope',
-    providerDefault: 'Provider-Standard',
+    credentialScope: 'Verfügbar für',
+    providerDefault: 'Standardmodell',
     appDefault: 'App-Standard',
-    modelAllowlist: 'Modell-Allowlist',
-    modelAllowlistDescription: 'Nur ausgewählte Modelle können später von Nutzern, Workspaces und Agents verwendet werden.',
+    modelAllowlist: 'Freigegebene Modelle',
+    modelAllowlistDescription: 'Nur diese Modelle können in Canvas verwendet werden.',
     selectedModels: (selected, total) => `${selected} von ${total} Modellen freigegeben`,
     configureModels: 'Konfigurieren',
     collapseModels: 'Schließen',
@@ -321,35 +312,23 @@ const DE_COPY: PanelCopy = {
 
 const EN_COPY: PanelCopy = {
   title: 'AI providers & models',
-  description: 'Define which providers, models, and defaults are available to agent runtimes across the app.',
+  description: 'Choose which AI models are available throughout Canvas.',
   loading: 'Loading AI catalog…',
   retry: 'Try again',
   reload: 'Reload',
   discardReload: 'Discard changes & reload',
   reset: 'Reset',
-  save: 'Save catalog',
+  save: 'Save changes',
   saving: 'Saving…',
-  saved: 'The AI catalog was saved.',
+  saved: 'The changes were saved.',
   verified: 'The provider installation was verified successfully.',
   unsaved: 'Unsaved changes',
-  deployment: 'Deployment',
-  revision: 'Catalog revision',
-  initialization: 'Initialization',
-  managedDeployment: 'Managed by Control Plane',
-  selfHostedDeployment: 'Self-managed',
-  initializationAction: {
-    existing: 'Existing configuration',
-    managed_initialized: 'Managed initialization',
-    legacy_migrated: 'Legacy configuration migrated',
-    review_required: 'Review required',
-    uninitialized: 'Not configured yet',
-  },
-  migrationState: {
-    uninitialized: 'Not configured',
-    review_required: 'Review required',
-    configured: 'Configured',
-    migrated: 'Migrated',
-  },
+  savedState: 'All changes saved',
+  setupComplete: 'Ready for new chats',
+  setupIncomplete: 'Choose a model',
+  currentDefault: (provider, model) => `${provider} · ${model}`,
+  setupDetails: 'Setup information',
+  cancel: 'Cancel',
   reviewIssue: 'Issue code',
   secretNoticeTitle: 'No credentials are stored in this catalog',
   secretNoticeDescription: 'API keys and tokens remain centrally managed in Integrations. This page only stores safe provider metadata and model access rules.',
@@ -359,25 +338,24 @@ const EN_COPY: PanelCopy = {
   managedAvailable: 'Available',
   managedUnavailable: 'Not connected',
   managedLastSync: (value) => `Last synchronized: ${value}`,
-  managedRevision: (value) => `Control Plane revision: ${value}`,
   managedSetDefault: 'Use as app default',
   managedSetDefaultDescription: 'Adopts the Control Plane default model during synchronization.',
   managedSync: 'Sync managed catalog',
   managedSyncing: 'Synchronizing…',
   managedDirtyHint: 'Save or discard your local changes first.',
-  providersTitle: 'Installed providers',
-  providersDescription: 'Each installation defines its credential scope, model allowlist, and provider default model.',
+  providersTitle: 'AI providers',
+  providersDescription: 'Manage the providers and models that can be used in Canvas.',
   noProvidersTitle: 'No providers installed yet',
   noProvidersDescription: 'Add an available provider or synchronize a connected Control Plane.',
   addProviderTitle: 'Add provider',
-  addProviderDescription: 'No credentials are requested here. The same provider can be installed once per credential scope.',
+  addProviderDescription: 'Choose a provider. You can set up credentials separately afterwards.',
   provider: 'Provider',
-  credentialScope: 'Credential scope',
+  credentialScope: 'Available to',
   chooseProvider: 'Select a provider',
   addProvider: 'Add',
   noProvidersAvailable: 'All discovered providers are already installed in their available credential scopes.',
-  appDefaultTitle: 'App default',
-  appDefaultDescription: 'This fallback applies when no workspace, agent, or user has selected a more specific runtime.',
+  appDefaultTitle: 'Default for new chats',
+  appDefaultDescription: 'This model is used when no more personal selection has been made yet.',
   appDefaultProvider: 'Default provider',
   appDefaultModel: 'Default model',
   intelligence: 'Intelligence',
@@ -397,11 +375,11 @@ const EN_COPY: PanelCopy = {
     removeAria: 'Remove provider {provider}',
     verify: 'Verify',
     verifying: 'Verifying…',
-    credentialScope: 'Credential scope',
-    providerDefault: 'Provider default',
+    credentialScope: 'Available to',
+    providerDefault: 'Default model',
     appDefault: 'App default',
-    modelAllowlist: 'Model allowlist',
-    modelAllowlistDescription: 'Only selected models can later be used by users, workspaces, and agents.',
+    modelAllowlist: 'Available models',
+    modelAllowlistDescription: 'Only these models can be used in Canvas.',
     selectedModels: (selected, total) => `${selected} of ${total} models allowed`,
     configureModels: 'Configure',
     collapseModels: 'Close',
@@ -696,12 +674,6 @@ function errorMessage(error: unknown, fallback: string, copy: PanelCopy): string
   return error instanceof Error ? error.message : fallback;
 }
 
-function initializationVariant(state: AdminRuntimeCatalogData['catalog']['migrationState']) {
-  if (state === 'configured' || state === 'migrated') return 'default' as const;
-  if (state === 'review_required') return 'destructive' as const;
-  return 'secondary' as const;
-}
-
 export function AiProvidersModelsPanel({
   locale,
   deploymentMode,
@@ -719,6 +691,7 @@ export function AiProvidersModelsPanel({
   const [verifyingInstallationId, setVerifyingInstallationId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [message, setMessage] = useState<string | null>(null);
+  const [isAddProviderDialogOpen, setIsAddProviderDialogOpen] = useState(false);
   const [addProviderId, setAddProviderId] = useState('');
   const [addCredentialScope, setAddCredentialScope] = useState<AiCredentialScope>('organization');
   const [setManagedAsDefault, setSetManagedAsDefault] = useState(true);
@@ -788,6 +761,15 @@ export function AiProvidersModelsPanel({
     ? addCredentialScope
     : addableCredentialScopes[0];
 
+  const openAddProviderDialog = () => {
+    const providerId = addableProviders[0]?.id ?? '';
+    setAddProviderId(providerId);
+    if (draft && providerId) {
+      setAddCredentialScope(availableCredentialScopesForNewProvider(draft.providers, providerId)[0] ?? 'organization');
+    }
+    setIsAddProviderDialogOpen(true);
+  };
+
   const defaultProvider = draft ? selectionProvider(draft.providers, draft.defaultSelection) : undefined;
   const defaultModel = defaultProvider && draft?.defaultSelection
     ? modelForProvider(defaultProvider, draft.defaultSelection.modelId)
@@ -795,6 +777,7 @@ export function AiProvidersModelsPanel({
   const selectableDefaultProviders = draft?.providers.filter((provider) => (
     provider.enabled && provider.modelIds.length > 0
   )) ?? [];
+  const hasDefault = Boolean(defaultProvider && defaultModel && draft?.defaultSelection);
 
   const updateProviders = (updater: (providers: AiCatalogProviderDraft[]) => AiCatalogProviderDraft[]) => {
     setDraft((current) => {
@@ -850,6 +833,7 @@ export function AiProvidersModelsPanel({
     };
     updateProviders((providers) => [...providers, provider]);
     setAddProviderId('');
+    setIsAddProviderDialogOpen(false);
   };
 
   const saveCatalog = async () => {
@@ -940,17 +924,16 @@ export function AiProvidersModelsPanel({
     );
   }
 
-  const initializationAction = data.initialization?.action ?? 'existing';
   const busy = isSaving || isSyncing || verifyingInstallationId !== null;
 
   return (
     <div className={cn('space-y-4', className)}>
       <Card className="gap-0 overflow-hidden py-0">
         <CardHeader className="border-b px-4 py-5 sm:px-6">
-          <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
             <div className="flex min-w-0 items-start gap-3">
               <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border bg-muted/50 text-muted-foreground shadow-xs">
-                <DatabaseZap className="size-5" aria-hidden="true" />
+                <BrainCircuit className="size-5" aria-hidden="true" />
               </div>
               <div className="space-y-1.5">
                 <div className="flex flex-wrap items-center gap-2">
@@ -960,53 +943,61 @@ export function AiProvidersModelsPanel({
                 <CardDescription className="max-w-3xl leading-relaxed">{copy.description}</CardDescription>
               </div>
             </div>
-            <div className="flex flex-wrap gap-2">
-              <Button
-                type="button"
-                variant="outline"
-                size="sm"
-                disabled={busy || isLoading}
-                onClick={() => void loadCatalog()}
-              >
-                {isLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
-                {isDirty ? copy.discardReload : copy.reload}
-              </Button>
-            </div>
+            <Button
+              type="button"
+              variant="outline"
+              size="sm"
+              disabled={busy || isLoading}
+              onClick={() => void loadCatalog()}
+            >
+              {isLoading ? <Loader2 className="size-4 animate-spin" /> : <RefreshCw className="size-4" />}
+              {isDirty ? copy.discardReload : copy.reload}
+            </Button>
           </div>
         </CardHeader>
 
         <CardContent className="space-y-4 px-4 py-4 sm:px-6">
-          <div className="grid gap-3 md:grid-cols-3">
-            <StatusTile
-              icon={resolvedDeploymentMode === 'managed' ? ShieldCheck : Server}
-              label={copy.deployment}
-              value={resolvedDeploymentMode === 'managed' ? copy.managedDeployment : copy.selfHostedDeployment}
-            />
-            <StatusTile
-              icon={Layers3}
-              label={copy.initialization}
-              value={copy.initializationAction[initializationAction]}
-              badge={copy.migrationState[data.catalog.migrationState]}
-              badgeVariant={initializationVariant(data.catalog.migrationState)}
-            />
-            <StatusTile icon={DatabaseZap} label={copy.revision} value={String(data.catalog.revision)} />
+          <div className="flex flex-col gap-3 rounded-xl border bg-muted/20 p-4 sm:flex-row sm:items-center sm:justify-between">
+            <div className="min-w-0 space-y-1">
+              <p className="text-sm font-medium">{copy.appDefaultTitle}</p>
+              <p className="text-sm text-muted-foreground">
+                {hasDefault && defaultProvider && defaultModel
+                  ? copy.currentDefault(defaultProvider.name, defaultModel.name)
+                  : copy.noDefaultAvailable}
+              </p>
+            </div>
+            <Badge variant={hasDefault && !isDirty ? 'default' : 'secondary'}>
+              {isDirty ? copy.unsaved : hasDefault ? copy.setupComplete : copy.setupIncomplete}
+            </Badge>
           </div>
 
-          {data.initialization?.issueCode && (
-            <div role="status" className="flex flex-wrap items-center gap-2 rounded-lg border border-amber-500/30 bg-amber-500/10 px-3 py-2 text-sm text-amber-950 dark:text-amber-100">
-              <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
-              <span>{copy.reviewIssue}:</span>
-              <code className="rounded bg-background/70 px-1.5 py-0.5 text-xs">{data.initialization.issueCode}</code>
-            </div>
-          )}
-
-          <div className="flex items-start gap-3 rounded-lg border bg-muted/30 p-3">
-            <LockKeyhole className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-            <div className="space-y-1">
-              <p className="text-sm font-medium">{copy.secretNoticeTitle}</p>
-              <p className="text-xs leading-relaxed text-muted-foreground">{copy.secretNoticeDescription}</p>
-            </div>
-          </div>
+          <Collapsible>
+            <CollapsibleTrigger asChild>
+              <Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground">
+                <LockKeyhole className="size-4" aria-hidden="true" />
+                {copy.setupDetails}
+                <ChevronDown className="size-4" aria-hidden="true" />
+              </Button>
+            </CollapsibleTrigger>
+            <CollapsibleContent className="pt-2">
+              <div className="space-y-3 rounded-lg border bg-muted/20 p-3">
+                <div className="flex items-start gap-3">
+                  <LockKeyhole className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{copy.secretNoticeTitle}</p>
+                    <p className="text-xs leading-relaxed text-muted-foreground">{copy.secretNoticeDescription}</p>
+                  </div>
+                </div>
+                {data.initialization?.issueCode && (
+                  <div role="status" className="flex flex-wrap items-center gap-2 border-t pt-3 text-sm text-amber-950 dark:text-amber-100">
+                    <AlertTriangle className="size-4 shrink-0" aria-hidden="true" />
+                    <span>{copy.reviewIssue}:</span>
+                    <code className="rounded bg-background px-1.5 py-0.5 text-xs">{data.initialization.issueCode}</code>
+                  </div>
+                )}
+              </div>
+            </CollapsibleContent>
+          </Collapsible>
 
           {error && (
             <div role="alert" className="flex gap-2 rounded-lg border border-destructive/40 bg-destructive/10 p-3 text-sm text-destructive">
@@ -1043,16 +1034,6 @@ export function AiProvidersModelsPanel({
                     </Badge>
                   </div>
                   <CardDescription>{copy.managedDescription}</CardDescription>
-                  {managedProvider?.lastSyncedAt && (
-                    <p className="text-xs text-muted-foreground">
-                      {copy.managedLastSync(formatDate(managedProvider.lastSyncedAt, resolvedLocale))}
-                    </p>
-                  )}
-                  {managedProvider?.sourceRevision && (
-                    <p className="break-all font-mono text-[11px] text-muted-foreground">
-                      {copy.managedRevision(managedProvider.sourceRevision)}
-                    </p>
-                  )}
                 </div>
               </div>
               <Button
@@ -1066,28 +1047,54 @@ export function AiProvidersModelsPanel({
               </Button>
             </div>
           </CardHeader>
-          <CardContent className="px-4 py-4 sm:px-6">
-            <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="space-y-1">
-                <p className="text-sm font-medium">{copy.managedSetDefault}</p>
-                <p className="text-xs text-muted-foreground">{copy.managedSetDefaultDescription}</p>
-                {isDirty && <p className="text-xs text-amber-700 dark:text-amber-300">{copy.managedDirtyHint}</p>}
-              </div>
-              <Switch
-                checked={setManagedAsDefault}
-                disabled={busy}
-                onCheckedChange={setSetManagedAsDefault}
-                aria-label={copy.managedSetDefault}
-              />
-            </div>
+          <CardContent className="px-4 py-3 sm:px-6">
+            <Collapsible>
+              <CollapsibleTrigger asChild>
+                <Button type="button" variant="ghost" size="sm" className="-ml-2 text-muted-foreground">
+                  {copy.setupDetails}
+                  <ChevronDown className="size-4" aria-hidden="true" />
+                </Button>
+              </CollapsibleTrigger>
+              <CollapsibleContent className="pt-2">
+                <div className="flex flex-col gap-3 rounded-lg border bg-muted/20 p-3 sm:flex-row sm:items-center sm:justify-between">
+                  <div className="space-y-1">
+                    <p className="text-sm font-medium">{copy.managedSetDefault}</p>
+                    <p className="text-xs text-muted-foreground">{copy.managedSetDefaultDescription}</p>
+                    {managedProvider?.lastSyncedAt && (
+                      <p className="text-xs text-muted-foreground">
+                        {copy.managedLastSync(formatDate(managedProvider.lastSyncedAt, resolvedLocale))}
+                      </p>
+                    )}
+                    {isDirty && <p className="text-xs text-amber-700 dark:text-amber-300">{copy.managedDirtyHint}</p>}
+                  </div>
+                  <Switch
+                    checked={setManagedAsDefault}
+                    disabled={busy}
+                    onCheckedChange={setSetManagedAsDefault}
+                    aria-label={copy.managedSetDefault}
+                  />
+                </div>
+              </CollapsibleContent>
+            </Collapsible>
           </CardContent>
         </Card>
       )}
 
       <section className="space-y-3" aria-labelledby="ai-providers-heading">
-        <div className="space-y-1 px-1">
-          <h2 id="ai-providers-heading" className="text-sm font-semibold">{copy.providersTitle}</h2>
-          <p className="text-sm text-muted-foreground">{copy.providersDescription}</p>
+        <div className="flex flex-col gap-3 px-1 sm:flex-row sm:items-end sm:justify-between">
+          <div className="space-y-1">
+            <h2 id="ai-providers-heading" className="text-sm font-semibold">{copy.providersTitle}</h2>
+            <p className="text-sm text-muted-foreground">{copy.providersDescription}</p>
+          </div>
+          <Button
+            type="button"
+            size="sm"
+            disabled={busy || addableProviders.length === 0}
+            onClick={openAddProviderDialog}
+          >
+            <Plus className="size-4" aria-hidden="true" />
+            {copy.addProvider}
+          </Button>
         </div>
 
         {draft.providers.length > 0 ? (
@@ -1179,86 +1186,83 @@ export function AiProvidersModelsPanel({
               <Server className="size-6 text-muted-foreground" aria-hidden="true" />
               <p className="text-sm font-medium">{copy.noProvidersTitle}</p>
               <p className="max-w-lg text-sm text-muted-foreground">{copy.noProvidersDescription}</p>
+              {addableProviders.length === 0 && (
+                <p className="max-w-lg text-xs text-muted-foreground">{copy.noProvidersAvailable}</p>
+              )}
             </CardContent>
           </Card>
         )}
       </section>
 
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <Card>
-          <CardHeader className="px-4 sm:px-6">
-            <div className="flex items-center gap-2">
-              <Plus className="size-5 text-muted-foreground" aria-hidden="true" />
-              <CardTitle>{copy.addProviderTitle}</CardTitle>
-            </div>
-            <CardDescription>{copy.addProviderDescription}</CardDescription>
-          </CardHeader>
-          <CardContent className="space-y-4 px-4 sm:px-6">
-            <div className="grid gap-3 sm:grid-cols-2">
-              <div className="space-y-2">
-                <Label htmlFor="ai-catalog-add-provider">{copy.provider}</Label>
-                <div className="relative">
-                  <select
-                    id="ai-catalog-add-provider"
-                    value={resolvedAddProviderId}
-                    disabled={busy || addableProviders.length === 0}
-                    onChange={(event) => {
-                      const providerId = event.target.value;
-                      setAddProviderId(providerId);
-                      if (!draft) return;
-                      const availableScopes = availableCredentialScopesForNewProvider(draft.providers, providerId);
-                      setAddCredentialScope((current) => (
-                        availableScopes.includes(current) ? current : availableScopes[0] ?? 'organization'
-                      ));
-                    }}
-                    className={selectClassName()}
-                  >
-                    <option value="" disabled>
-                      {addableProviders.length > 0 ? copy.chooseProvider : copy.noProvidersAvailable}
-                    </option>
-                    {addableProviders.map((provider) => (
-                      <option key={provider.id} value={provider.id}>{provider.name}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                </div>
-              </div>
-              <div className="space-y-2">
-                <Label htmlFor="ai-catalog-add-scope">{copy.credentialScope}</Label>
-                <div className="relative">
-                  <select
-                    id="ai-catalog-add-scope"
-                    value={resolvedAddCredentialScope ?? ''}
-                    disabled={busy || addableCredentialScopes.length === 0}
-                    onChange={(event) => setAddCredentialScope(event.target.value as AiCredentialScope)}
-                    className={selectClassName()}
-                  >
-                    {addableCredentialScopes.map((scope) => (
-                      <option key={scope} value={scope}>{copy.providerCard.scope[scope]}</option>
-                    ))}
-                  </select>
-                  <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
-                </div>
+      <Dialog open={isAddProviderDialogOpen} onOpenChange={setIsAddProviderDialogOpen}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>{copy.addProviderTitle}</DialogTitle>
+            <DialogDescription>{copy.addProviderDescription}</DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            <div className="space-y-2">
+              <Label htmlFor="ai-catalog-add-provider">{copy.provider}</Label>
+              <div className="relative">
+                <select
+                  id="ai-catalog-add-provider"
+                  value={resolvedAddProviderId}
+                  disabled={busy || addableProviders.length === 0}
+                  onChange={(event) => {
+                    const providerId = event.target.value;
+                    setAddProviderId(providerId);
+                    const availableScopes = availableCredentialScopesForNewProvider(draft.providers, providerId);
+                    setAddCredentialScope((current) => (
+                      availableScopes.includes(current) ? current : availableScopes[0] ?? 'organization'
+                    ));
+                  }}
+                  className={selectClassName()}
+                >
+                  <option value="" disabled>
+                    {addableProviders.length > 0 ? copy.chooseProvider : copy.noProvidersAvailable}
+                  </option>
+                  {addableProviders.map((provider) => (
+                    <option key={provider.id} value={provider.id}>{provider.name}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
               </div>
             </div>
-            {addableProviders.length === 0 && (
-              <p className="rounded-lg border border-dashed p-3 text-sm text-muted-foreground">{copy.noProvidersAvailable}</p>
-            )}
-            <div className="flex justify-end">
-              <Button
-                type="button"
-                variant="outline"
-                disabled={busy || !resolvedAddProviderId || !resolvedAddCredentialScope}
-                onClick={addProvider}
-              >
-                <Plus className="size-4" aria-hidden="true" />
-                {copy.addProvider}
-              </Button>
+            <div className="space-y-2">
+              <Label htmlFor="ai-catalog-add-scope">{copy.credentialScope}</Label>
+              <div className="relative">
+                <select
+                  id="ai-catalog-add-scope"
+                  value={resolvedAddCredentialScope ?? ''}
+                  disabled={busy || addableCredentialScopes.length === 0}
+                  onChange={(event) => setAddCredentialScope(event.target.value as AiCredentialScope)}
+                  className={selectClassName()}
+                >
+                  {addableCredentialScopes.map((scope) => (
+                    <option key={scope} value={scope}>{copy.providerCard.scope[scope]}</option>
+                  ))}
+                </select>
+                <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" aria-hidden="true" />
+              </div>
             </div>
-          </CardContent>
-        </Card>
+          </div>
+          <DialogFooter>
+            <DialogClose asChild>
+              <Button type="button" variant="outline">{copy.cancel}</Button>
+            </DialogClose>
+            <Button
+              type="button"
+              disabled={busy || !resolvedAddProviderId || !resolvedAddCredentialScope}
+              onClick={addProvider}
+            >
+              <Plus className="size-4" aria-hidden="true" />
+              {copy.addProvider}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
-        <Card>
+      <Card>
           <CardHeader className="px-4 sm:px-6">
             <div className="flex items-center gap-2">
               <BrainCircuit className="size-5 text-muted-foreground" aria-hidden="true" />
@@ -1368,12 +1372,11 @@ export function AiProvidersModelsPanel({
               <p className="rounded-lg border border-dashed p-4 text-sm text-muted-foreground">{copy.noDefaultAvailable}</p>
             )}
           </CardContent>
-        </Card>
-      </div>
+      </Card>
 
       <div className="flex flex-col gap-3 rounded-lg border bg-card p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between">
         <div className="min-w-0 text-sm text-muted-foreground">
-          {isDirty ? copy.unsaved : `${copy.revision}: ${data.catalog.revision}`}
+          {isDirty ? copy.unsaved : copy.savedState}
         </div>
         <div className="flex flex-wrap justify-end gap-2">
           <Button
@@ -1400,33 +1403,6 @@ export function AiProvidersModelsPanel({
   );
 }
 
-function StatusTile({
-  icon: Icon,
-  label,
-  value,
-  badge,
-  badgeVariant = 'outline',
-}: {
-  icon: typeof Server;
-  label: string;
-  value: string;
-  badge?: string;
-  badgeVariant?: 'default' | 'secondary' | 'destructive' | 'outline';
-}) {
-  return (
-    <div className="flex min-w-0 items-start gap-3 rounded-lg border bg-background p-3">
-      <Icon className="mt-0.5 size-4 shrink-0 text-muted-foreground" aria-hidden="true" />
-      <div className="min-w-0 space-y-1">
-        <p className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">{label}</p>
-        <div className="flex flex-wrap items-center gap-2">
-          <p className="text-sm font-medium">{value}</p>
-          {badge && <Badge variant={badgeVariant}>{badge}</Badge>}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 function AiProvidersModelsPanelSkeleton({ label, className }: { label: string; className?: string }) {
   return (
     <div className={cn('space-y-4', className)} aria-busy="true" aria-label={label}>
@@ -1440,10 +1416,9 @@ function AiProvidersModelsPanelSkeleton({ label, className }: { label: string; c
             </div>
           </div>
         </CardHeader>
-        <CardContent className="grid gap-3 md:grid-cols-3">
+        <CardContent className="space-y-3">
           <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
-          <Skeleton className="h-20" />
+          <Skeleton className="h-8 w-48" />
         </CardContent>
       </Card>
       <div className="grid gap-3 xl:grid-cols-2">
