@@ -9,44 +9,9 @@ import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
-import type { DefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
-
-type NotificationSummary = {
-  unreadCount: number;
-  sessions: {
-    unreadCount: number;
-    items: Array<{
-      sessionId: string;
-      title: string;
-      agentId: string;
-      workspaceId: string | null;
-      lastMessageAt: string | null;
-    }>;
-  };
-  todos: {
-    unreadCount: number;
-    dueCount: number;
-    items: Array<{
-      id: string;
-      title: string;
-      priority: 'low' | 'normal' | 'high';
-      dueAt: string | null;
-      seenAt: string | null;
-      categoryName: string | null;
-      categoryKey: DefaultTodoCategoryKey | null;
-      workspaceId: string | null;
-      isDue: boolean;
-    }>;
-  };
-};
-
-type ApiResponse<T> = {
-  success: boolean;
-  data?: T;
-  error?: string;
-};
+import { readNotificationSummary, type NotificationSummary } from './notification-summary';
 
 function formatBadgeCount(count: number) {
   if (count <= 0) return '';
@@ -58,18 +23,6 @@ function formatDate(value: string | null, locale: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return new Intl.DateTimeFormat(locale, { dateStyle: 'short' }).format(date);
-}
-
-async function readSummary(): Promise<NotificationSummary> {
-  const response = await fetch('/api/notifications/summary', {
-    credentials: 'include',
-    cache: 'no-store',
-  });
-  const payload = await response.json().catch(() => null) as ApiResponse<NotificationSummary> | null;
-  if (!response.ok || !payload?.success || !payload.data) {
-    throw new Error(payload?.error || 'Failed to load notifications.');
-  }
-  return payload.data;
 }
 
 export function NotificationBell() {
@@ -87,7 +40,7 @@ export function NotificationBell() {
   const refresh = useCallback(async () => {
     setIsLoading(true);
     try {
-      setSummary(await readSummary());
+      setSummary(await readNotificationSummary());
     } catch {
       setSummary(null);
     } finally {

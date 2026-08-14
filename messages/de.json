@@ -1640,6 +1640,62 @@
       "placeholder": "Was möchtest du erstellen?",
       "submit": "In Notebook öffnen"
     },
+    "focus": {
+      "promptTitle": "Woran arbeitest du heute?",
+      "promptDescription": "Starte im Notebook oder wechsle direkt zur Studio-Generierung.",
+      "title": "Im Fokus",
+      "composer": {
+        "title": "Schnellstart",
+        "modeLabel": "Arbeitsmodus",
+        "notebook": "Notebook",
+        "studio": "Studio",
+        "studioPlaceholder": "Beschreibe das Bild, das du generieren möchtest …",
+        "studioSubmit": "Generieren",
+        "studioDescription": "Bild · Standardmodus",
+        "studioAttachmentHint": "Deine Anhänge bleiben für den Notebook-Start erhalten. Referenzen kannst du direkt in Studio ergänzen.",
+        "studioSuggestions": {
+          "product": "Erstelle ein hochwertiges Produktbild im Editorial-Stil",
+          "campaign": "Entwickle ein Key Visual für eine Herbstkampagne",
+          "editorial": "Generiere eine moderne Lifestyle-Szene für ein Lookbook"
+        }
+      },
+      "email": {
+        "title": "Ungelesene E-Mails",
+        "openAll": "Alle E-Mails öffnen",
+        "loading": "E-Mails werden geladen …",
+        "empty": "Verbinde ein E-Mail-Konto, um neue Nachrichten hier zu sehen.",
+        "unavailable": "Die E-Mails konnten gerade nicht geladen werden.",
+        "allRead": "Alles gelesen – neue E-Mails erscheinen hier.",
+        "unread": "Ungelesen",
+        "unknownSender": "Unbekannter Absender",
+        "noSubject": "Ohne Betreff"
+      },
+      "todos": {
+        "title": "To-dos im Fokus",
+        "openAll": "Alle To-dos öffnen",
+        "loading": "To-dos werden geladen …",
+        "empty": "Keine To-dos brauchen gerade deine Aufmerksamkeit.",
+        "due": "Fällig",
+        "unread": "Ungelesenes To-do"
+      },
+      "attention": {
+        "title": "Jetzt relevant",
+        "loading": "Wird aktualisiert …",
+        "summary": "{count, plural, =0 {Alles aufgearbeitet} one {# Hinweis} other {# Hinweise}}",
+        "sessions": {
+          "title": "Neue Antworten",
+          "empty": "Keine ungelesenen Antworten.",
+          "newResponse": "Neue Antwort"
+        },
+        "todos": {
+          "title": "Braucht Aufmerksamkeit",
+          "empty": "Keine dringenden To-dos.",
+          "due": "Fällig",
+          "unread": "Ungelesenes To-do"
+        },
+        "openAll": "Alle Benachrichtigungen"
+      }
+    },
     "categories": {
       "campaign": "Kampagne",
       "creative": "Kreativ",

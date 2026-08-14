@@ -61,13 +61,8 @@ export default async function Home() {
             </div>
           </header>
 
-          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-6 pb-10 md:px-6 md:pt-10">
-            <div className="mx-auto max-w-2xl space-y-6">
-              <div className="text-center">
-                <p className="text-xs font-bold uppercase tracking-[0.18em] text-muted-foreground">{tHome('hero.eyebrow')}</p>
-                <h1 className="mt-2 text-2xl font-bold tracking-tight md:text-3xl">{tHome('hero.title')}</h1>
-              </div>
-
+          <main className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pt-6 pb-10 md:px-6 md:pt-8">
+            <div className="mx-auto max-w-6xl space-y-6">
               {showPersonalTour && <GettingStartedCard />}
 
               <HomeWorkspaceView

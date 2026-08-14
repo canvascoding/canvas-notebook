@@ -1641,6 +1641,62 @@
       "placeholder": "What would you like to create?",
       "submit": "Open in Notebook"
     },
+    "focus": {
+      "promptTitle": "What are you working on today?",
+      "promptDescription": "Start in Notebook or switch straight to Studio generation.",
+      "title": "In focus",
+      "composer": {
+        "title": "Quick start",
+        "modeLabel": "Work mode",
+        "notebook": "Notebook",
+        "studio": "Studio",
+        "studioPlaceholder": "Describe the image you want to generate …",
+        "studioSubmit": "Generate",
+        "studioDescription": "Image · default mode",
+        "studioAttachmentHint": "Your attachments stay ready for a Notebook start. Add references directly in Studio.",
+        "studioSuggestions": {
+          "product": "Create a premium product image in an editorial style",
+          "campaign": "Develop a key visual for an autumn campaign",
+          "editorial": "Generate a modern lifestyle scene for a lookbook"
+        }
+      },
+      "email": {
+        "title": "Unread emails",
+        "openAll": "Open all emails",
+        "loading": "Loading emails …",
+        "empty": "Connect an email account to see new messages here.",
+        "unavailable": "Emails could not be loaded right now.",
+        "allRead": "All caught up — new emails will appear here.",
+        "unread": "Unread",
+        "unknownSender": "Unknown sender",
+        "noSubject": "No subject"
+      },
+      "todos": {
+        "title": "To-dos in focus",
+        "openAll": "Open all to-dos",
+        "loading": "Loading to-dos …",
+        "empty": "No to-dos need your attention right now.",
+        "due": "Due",
+        "unread": "Unread to-do"
+      },
+      "attention": {
+        "title": "Relevant now",
+        "loading": "Updating …",
+        "summary": "{count, plural, =0 {All caught up} one {# item} other {# items}}",
+        "sessions": {
+          "title": "New replies",
+          "empty": "No unread replies.",
+          "newResponse": "New reply"
+        },
+        "todos": {
+          "title": "Needs attention",
+          "empty": "No urgent to-dos.",
+          "due": "Due",
+          "unread": "Unread to-do"
+        },
+        "openAll": "All notifications"
+      }
+    },
     "categories": {
       "campaign": "Campaign",
       "creative": "Creative",

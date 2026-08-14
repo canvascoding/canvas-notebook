@@ -3,7 +3,7 @@
 import React, { FormEvent, useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import { getPathname } from '@/i18n/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { Send, Paperclip, Loader2, Upload } from 'lucide-react';
+import { Send, Paperclip, Loader2, NotebookPen, Sparkles, Upload } from 'lucide-react';
 import { getFileIconComponent } from '@/app/lib/files/file-icons';
 import { clearCanvasChatActiveSessionStorage, CANVAS_CHAT_INITIAL_PROMPT_STORAGE_KEY } from '@/app/lib/chat/constants';
 import { DEFAULT_AGENT_ID } from '@/app/lib/channels/constants';
@@ -27,6 +27,9 @@ import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
+import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
+import { persistStudioGenerateHandoff } from '@/app/apps/studio/utils/studio-generate-handoff';
+import type { StudioGeneratePayload } from '@/app/apps/studio/types/generation';
 
 type Attachment = ChatAttachment;
 type UploadProgressOptions = {
@@ -34,6 +37,7 @@ type UploadProgressOptions = {
 };
 
 type FilePickerFile = WorkspaceFileReferenceEntry;
+type HomePromptMode = 'notebook' | 'studio';
 
 const DEFAULT_AGENT_PROFILE: AgentProfile = {
   agentId: DEFAULT_AGENT_ID,
@@ -56,6 +60,7 @@ export function PromptHero() {
   const tHome = useTranslations('home');
   const tChat = useTranslations('chat');
   const [prompt, setPrompt] = useState('');
+  const [mode, setMode] = useState<HomePromptMode>('notebook');
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [attachments, setAttachments] = useState<Attachment[]>([]);
@@ -82,6 +87,8 @@ export function PromptHero() {
   const [previewAttachment, setPreviewAttachment] = useState<Attachment | null>(null);
   const isUploading = pendingUploads > 0;
   const notebookHref = getPathname({ href: '/notebook', locale });
+  const studioHref = getPathname({ href: '/studio', locale });
+  const isStudioMode = mode === 'studio';
   const availableAgents = useMemo(() => (
     agentListState.workspaceId === activeWorkspaceId ? agentListState.agents : []
   ), [activeWorkspaceId, agentListState]);
@@ -91,11 +98,19 @@ export function PromptHero() {
   const selectedAgent = agentOptions.find((agent) => agent.agentId === selectedAgentId);
   const effectiveSelectedAgentId = selectedAgent?.agentId || DEFAULT_AGENT_ID;
   const selectedAgentName = selectedAgent?.name || getAgentDisplayName(effectiveSelectedAgentId);
-  const promptSuggestions = useMemo(() => [
-    tChat('promptSuggestions.campaign'),
-    tChat('promptSuggestions.creative'),
-    tChat('promptSuggestions.strategy'),
-  ], [tChat]);
+  const promptSuggestions = useMemo(() => (
+    isStudioMode
+      ? [
+        tHome('focus.composer.studioSuggestions.product'),
+        tHome('focus.composer.studioSuggestions.campaign'),
+        tHome('focus.composer.studioSuggestions.editorial'),
+      ]
+      : [
+        tChat('promptSuggestions.campaign'),
+        tChat('promptSuggestions.creative'),
+        tChat('promptSuggestions.strategy'),
+      ]
+  ), [isStudioMode, tChat, tHome]);
 
   useEffect(() => {
     let isActive = true;
@@ -417,11 +432,22 @@ export function PromptHero() {
     if (isUploading) {
       return;
     }
-    if (!normalizedPrompt && attachments.length === 0) {
+    if (!normalizedPrompt && (isStudioMode || attachments.length === 0)) {
       return;
     }
 
     setIsSubmitting(true);
+
+    if (isStudioMode) {
+      const payload: StudioGeneratePayload = {
+        prompt: normalizedPrompt,
+        mode: 'image',
+      };
+      const id = useStudioGenerationStore.getState().queueGenerateRequest(payload);
+      persistStudioGenerateHandoff({ id, payload });
+      window.location.assign(`${studioHref}?generateRequest=${encodeURIComponent(id)}`);
+      return;
+    }
 
     try {
       clearCanvasChatActiveSessionStorage();
@@ -448,7 +474,7 @@ export function PromptHero() {
   }, []);
 
   const { isDraggingFiles, dropHandlers } = useChatFileDrop({
-    disabled: isUploading,
+    disabled: isUploading || isStudioMode,
     onFiles: uploadFiles,
   });
 
@@ -456,7 +482,30 @@ export function PromptHero() {
     <>
     <div id="onboarding-home-promptHero" className="mx-auto w-full max-w-2xl">
       <form onSubmit={handleSubmit} className="space-y-3">
-        <h2 className="sr-only">{tHome('hero.placeholder')}</h2>
+        <h2 className="sr-only">{tHome('focus.composer.title')}</h2>
+
+        <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/50 p-1" role="tablist" aria-label={tHome('focus.composer.modeLabel')}>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={!isStudioMode}
+            onClick={() => setMode('notebook')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${!isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <NotebookPen className="h-3.5 w-3.5" />
+            {tHome('focus.composer.notebook')}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={isStudioMode}
+            onClick={() => setMode('studio')}
+            className={`inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium transition-colors ${isStudioMode ? 'bg-background text-foreground shadow-sm' : 'text-muted-foreground hover:text-foreground'}`}
+          >
+            <Sparkles className="h-3.5 w-3.5" />
+            {tHome('focus.composer.studio')}
+          </button>
+        </div>
 
         {attachments.length > 0 && (
           <div className="flex flex-wrap gap-2 border border-border bg-muted/60 p-2">
@@ -472,6 +521,10 @@ export function PromptHero() {
             ))}
           </div>
         )}
+
+        {isStudioMode && attachments.length > 0 ? (
+          <p className="text-xs text-muted-foreground">{tHome('focus.composer.studioAttachmentHint')}</p>
+        ) : null}
 
         {isUploading && (
           <div className="flex items-center gap-2 text-xs text-muted-foreground">
@@ -490,11 +543,11 @@ export function PromptHero() {
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
             onPaste={handlePaste}
-            placeholder={tHome('hero.placeholder')}
+            placeholder={isStudioMode ? tHome('focus.composer.studioPlaceholder') : tHome('hero.placeholder')}
             data-prompt-hero-textarea
             className={`min-h-24 w-full resize-y rounded-lg border bg-background p-3 text-base focus:outline-none focus:ring-2 ${isDraggingFiles ? 'border-primary ring-2 ring-primary/30' : 'border-border focus:ring-ring'} ${prompt.length === 0 ? 'placeholder:text-transparent' : 'placeholder:text-muted-foreground'}`}
             rows={3}
-            {...dropHandlers}
+            {...(!isStudioMode ? dropHandlers : {})}
           />
           {prompt.length === 0 ? (
             <TypewriterPromptSuggestion
@@ -503,7 +556,7 @@ export function PromptHero() {
               className="left-0 right-0 top-0 overflow-hidden whitespace-nowrap px-3 py-3 text-base leading-normal"
             />
           ) : null}
-          {isDraggingFiles ? (
+          {isDraggingFiles && !isStudioMode ? (
             <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center rounded-lg border border-primary bg-background/90 text-xs font-medium text-primary">
               <span className="inline-flex items-center gap-2">
                 <Upload className="h-4 w-4" />
@@ -545,49 +598,53 @@ export function PromptHero() {
         </div>
 
         <div className="flex items-center justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-2">
-            <button
-              type="button"
-              onClick={() => fileInputRef.current?.click()}
-              className="rounded-md border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
-              title={tChat('attachImage')}
-            >
-              <Paperclip className="h-5 w-5" />
-            </button>
-            <input
-              type="file"
-              ref={fileInputRef}
-              onChange={onFileChange}
-              className="hidden"
-              accept="image/*,application/pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.html"
-              multiple
-            />
-            <ChatAgentSelector
-              variant="desktop"
-              activeAgentId={effectiveSelectedAgentId}
-              activeAgentName={selectedAgentName}
-              activeAgentIconId={selectedAgent?.iconId}
-              agents={agentOptions}
-              className="max-w-[11rem] bg-background"
-              testId="home-agent-id"
-              onSelectAgent={handleAgentSelect}
-              onReloadAgents={async () => {
-                if (!activeWorkspaceId) return;
-                setAgentListState({
-                  workspaceId: activeWorkspaceId,
-                  agents: await fetchChatAgents(activeWorkspaceId),
-                });
-              }}
-            />
-          </div>
+          {isStudioMode ? (
+            <p className="text-xs text-muted-foreground">{tHome('focus.composer.studioDescription')}</p>
+          ) : (
+            <div className="flex min-w-0 items-center gap-2">
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                className="rounded-md border border-transparent p-2 text-muted-foreground transition-colors hover:border-border hover:bg-accent"
+                title={tChat('attachImage')}
+              >
+                <Paperclip className="h-5 w-5" />
+              </button>
+              <input
+                type="file"
+                ref={fileInputRef}
+                onChange={onFileChange}
+                className="hidden"
+                accept="image/*,application/pdf,.docx,.txt,.md,.csv,.json,.yaml,.yml,.xml,.html"
+                multiple
+              />
+              <ChatAgentSelector
+                variant="desktop"
+                activeAgentId={effectiveSelectedAgentId}
+                activeAgentName={selectedAgentName}
+                activeAgentIconId={selectedAgent?.iconId}
+                agents={agentOptions}
+                className="max-w-[11rem] bg-background"
+                testId="home-agent-id"
+                onSelectAgent={handleAgentSelect}
+                onReloadAgents={async () => {
+                  if (!activeWorkspaceId) return;
+                  setAgentListState({
+                    workspaceId: activeWorkspaceId,
+                    agents: await fetchChatAgents(activeWorkspaceId),
+                  });
+                }}
+              />
+            </div>
+          )}
 
           <button
             type="submit"
             className="inline-flex items-center justify-center gap-2 rounded-md bg-primary px-3 py-2 text-sm font-medium text-primary-foreground transition-colors hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-50 sm:px-4"
-            disabled={isUploading || isSubmitting || (!prompt.trim() && attachments.length === 0)}
+            disabled={isSubmitting || isUploading || (!prompt.trim() && (isStudioMode || attachments.length === 0))}
           >
-            <Send className="h-4 w-4" />
-            <span className="sr-only sm:not-sr-only">{tHome('hero.submit')}</span>
+            {isStudioMode ? <Sparkles className="h-4 w-4" /> : <Send className="h-4 w-4" />}
+            <span className="sr-only sm:not-sr-only">{isStudioMode ? tHome('focus.composer.studioSubmit') : tHome('hero.submit')}</span>
           </button>
         </div>
       </form>
