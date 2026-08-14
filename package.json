@@ -107,6 +107,7 @@
     "test:auth:secret": "tsx scripts/auth-secret-security-test.ts",
     "test:file-watcher": "tsx --conditions react-server scripts/file-watcher-service-test.ts && tsx scripts/file-watcher-client-test.ts && tsx scripts/file-browser-refresh-test.ts && tsx scripts/file-open-flow-test.ts && tsx scripts/notebook-open-file-storage-test.ts",
     "test:notebook:layout": "tsx scripts/notebook-layout-state-test.ts",
+    "test:layout-scripts": "tsx scripts/layout-script-test.ts",
     "test:notebook:tabs": "tsx scripts/notebook-document-tabs-test.ts",
     "test:notebook:context": "tsx scripts/notebook-chat-context-test.ts",
     "test:files:zip": "tsx --conditions react-server scripts/zip-extraction-test.ts",

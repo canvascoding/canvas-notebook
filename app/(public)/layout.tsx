@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from 'next';
+import Script from 'next/script';
 import { NextIntlClientProvider } from 'next-intl';
 
 import '@excalidraw/excalidraw/index.css';
@@ -43,7 +44,9 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <script
+        <Script
+          id="excalidraw-asset-path"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: 'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";',
           }}

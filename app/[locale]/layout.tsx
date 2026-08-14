@@ -1,4 +1,5 @@
 import type { Metadata, Viewport } from "next";
+import Script from 'next/script';
 import { Suspense } from 'react';
 
 import "@xterm/xterm/css/xterm.css";
@@ -79,12 +80,14 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
-        <script
+        <Script
+          id="excalidraw-asset-path"
+          strategy="beforeInteractive"
           dangerouslySetInnerHTML={{
             __html: 'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";',
           }}
         />
-        <script src="/theme-init.js" async />
+        <Script id="theme-init" src="/theme-init.js" strategy="beforeInteractive" />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
