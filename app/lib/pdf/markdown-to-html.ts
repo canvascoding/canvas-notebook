@@ -472,6 +472,105 @@ export async function markdownTextToHtmlDocument(
       font-style: italic;
     }
 
+    .canvas-pdf-callout {
+      background: #f6f8fa;
+      border: 1px solid #d0d7de;
+      border-left: 4px solid #0969da;
+      break-inside: avoid;
+      margin: 1em 0;
+      padding: 0.8em 1em;
+      page-break-inside: avoid;
+    }
+
+    .canvas-pdf-callout-title {
+      color: #0969da;
+      font-weight: 700;
+      margin-bottom: 0.35em;
+    }
+
+    .canvas-pdf-callout-content > :first-child,
+    .canvas-pdf-details-content > :first-child,
+    .canvas-pdf-footnote-content > :first-child {
+      margin-top: 0;
+    }
+
+    .canvas-pdf-callout-content > :last-child,
+    .canvas-pdf-details-content > :last-child,
+    .canvas-pdf-footnote-content > :last-child {
+      margin-bottom: 0;
+    }
+
+    .canvas-pdf-callout-warning {
+      border-left-color: #9a6700;
+    }
+
+    .canvas-pdf-callout-warning .canvas-pdf-callout-title {
+      color: #9a6700;
+    }
+
+    .canvas-pdf-callout-danger,
+    .canvas-pdf-callout-error {
+      border-left-color: #cf222e;
+    }
+
+    .canvas-pdf-callout-danger .canvas-pdf-callout-title,
+    .canvas-pdf-callout-error .canvas-pdf-callout-title {
+      color: #cf222e;
+    }
+
+    .canvas-pdf-callout-success,
+    .canvas-pdf-callout-tip {
+      border-left-color: #1a7f37;
+    }
+
+    .canvas-pdf-callout-success .canvas-pdf-callout-title,
+    .canvas-pdf-callout-tip .canvas-pdf-callout-title {
+      color: #1a7f37;
+    }
+
+    .canvas-pdf-details {
+      border: 1px solid #d0d7de;
+      break-inside: avoid;
+      margin: 1em 0;
+      page-break-inside: avoid;
+    }
+
+    .canvas-pdf-details-summary {
+      background: #f6f8fa;
+      border-bottom: 1px solid #d0d7de;
+      font-weight: 700;
+      padding: 0.65em 0.9em;
+    }
+
+    .canvas-pdf-details-content {
+      display: block;
+      padding: 0.1em 0.9em;
+    }
+
+    .canvas-pdf-footnote-reference {
+      font-size: 0.75em;
+      line-height: 0;
+      vertical-align: super;
+    }
+
+    .canvas-pdf-footnote-definition {
+      border-top: 1px solid #d0d7de;
+      break-inside: avoid;
+      display: flex;
+      gap: 0.5em;
+      margin: 1.2em 0 0;
+      padding-top: 0.65em;
+      page-break-inside: avoid;
+    }
+
+    .canvas-pdf-footnote-label {
+      font-weight: 700;
+    }
+
+    .canvas-pdf-footnote-content {
+      flex: 1;
+    }
+
     ul, ol {
       margin: 0.8em 0;
       padding-left: 2em;
