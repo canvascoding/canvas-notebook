@@ -97,7 +97,10 @@ async function main() {
     syncManagedAgentRuntimeCatalog,
   } = await import('../app/lib/agent-runtime-policy/bootstrap-service');
   const { parseAiCatalogUpdate, replaceAiAppRuntimeCatalog } = await import('../app/lib/agent-runtime-policy/catalog-service');
-  const { readAppRuntimeCatalog } = await import('../app/lib/agent-runtime-policy/catalog-store');
+  const {
+    readAppRuntimeCatalog,
+    replaceAppRuntimeCatalogStore,
+  } = await import('../app/lib/agent-runtime-policy/catalog-store');
   const {
     AiRuntimeExecutionError,
     resolveExecutableAgentRuntime,
@@ -340,6 +343,41 @@ async function main() {
   assert.equal(chatRuntime.effectiveSelection?.selection.modelId, 'managed-second');
   assert.equal((await readAppRuntimeCatalog(organization.organizationId)).revision, 1);
 
+  const managedCatalogWithoutDefault = await readAppRuntimeCatalog(organization.organizationId);
+  await replaceAppRuntimeCatalogStore({
+    organizationId: organization.organizationId,
+    actorUserId: owner.id,
+    expectedRevision: managedCatalogWithoutDefault.revision,
+    migrationState: 'uninitialized',
+    defaultSelection: null,
+    providers: managedCatalogWithoutDefault.providers.map((provider) => ({
+      ...provider,
+      verifiedAt: provider.verifiedAt ? Date.parse(provider.verifiedAt) : null,
+      lastSyncedAt: provider.lastSyncedAt ? Date.parse(provider.lastSyncedAt) : null,
+    })),
+  });
+  assert.equal((await readAppRuntimeCatalog(organization.organizationId)).defaultSelection, null);
+
+  const repairContext = {
+    organizationId: organization.organizationId,
+    userId: owner.id,
+    workspaceId: personalWorkspace.id,
+    workspaceType: 'personal' as const,
+    agentId: 'canvas-agent',
+  };
+  const repairedChatRuntimes = await Promise.all([
+    resolveEffectiveAgentRuntime(repairContext),
+    resolveEffectiveAgentRuntime(repairContext),
+  ]);
+  for (const repairedChatRuntime of repairedChatRuntimes) {
+    assert.equal(repairedChatRuntime.valid, true);
+    assert.equal(repairedChatRuntime.effectiveSelection?.selection.providerId, 'canvas-control-plane');
+    assert.equal(repairedChatRuntime.effectiveSelection?.selection.modelId, 'managed-second');
+  }
+  assert.equal((await readAppRuntimeCatalog(organization.organizationId)).revision, 3);
+  assert.equal((await resolveEffectiveAgentRuntime(repairContext)).valid, true);
+  assert.equal((await readAppRuntimeCatalog(organization.organizationId)).revision, 3);
+
   globalThis.fetch = async () => {
     throw new Error('control plane unavailable');
   };
@@ -347,13 +385,13 @@ async function main() {
     () => syncManagedAgentRuntimeCatalog({
       organizationId: organization.organizationId,
       actorUserId: owner.id,
-      expectedRevision: 1,
+      expectedRevision: 3,
       setAsDefault: false,
     }),
     (error) => error instanceof ManagedCatalogSyncError && error.code === 'MANAGED_CATALOG_REQUEST_FAILED',
   );
   const lastKnownGood = await readAppRuntimeCatalog(organization.organizationId);
-  assert.equal(lastKnownGood.revision, 1);
+  assert.equal(lastKnownGood.revision, 3);
   assert.equal(lastKnownGood.defaultSelection?.modelId, 'managed-second');
 
   payload = managedPayload({
@@ -369,19 +407,19 @@ async function main() {
     () => syncManagedAgentRuntimeCatalog({
       organizationId: organization.organizationId,
       actorUserId: owner.id,
-      expectedRevision: 1,
+      expectedRevision: 3,
       setAsDefault: false,
     }),
     (error) => error instanceof ManagedCatalogSyncError && error.code === 'MANAGED_CURRENT_DEFAULT_REMOVED',
   );
-  assert.equal((await readAppRuntimeCatalog(organization.organizationId)).revision, 1);
+  assert.equal((await readAppRuntimeCatalog(organization.organizationId)).revision, 3);
   const confirmedManagedDefault = await syncManagedAgentRuntimeCatalog({
     organizationId: organization.organizationId,
     actorUserId: owner.id,
-    expectedRevision: 1,
+    expectedRevision: 3,
     setAsDefault: true,
   });
-  assert.equal(confirmedManagedDefault.revision, 2);
+  assert.equal(confirmedManagedDefault.revision, 4);
   assert.equal(confirmedManagedDefault.defaultSelection?.modelId, 'managed-first');
 
   resetRuntimeCatalog(sqlite);

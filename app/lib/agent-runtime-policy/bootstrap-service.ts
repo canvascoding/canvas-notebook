@@ -70,6 +70,10 @@ export class ManagedCatalogSyncError extends Error {
   }
 }
 
+// Multiple clients can resolve their first chat runtime at the same time after
+// startup. Share the repair per organization so they cannot race catalog writes.
+const managedDefaultRepairRequests = new Map<string, Promise<AgentRuntimeBootstrapResult>>();
+
 function safeProviderConfig(config: PiProviderConfig): AiProviderSafeConfig {
   return {
     ...(config.authMethod ? { authMethod: config.authMethod } : {}),
@@ -497,26 +501,83 @@ async function migrateLegacyRuntimeConfig(input: {
   };
 }
 
+async function repairMissingManagedDefault(input: {
+  organizationId: string;
+  actorUserId: string;
+  expectedRevision: number;
+}): Promise<AgentRuntimeBootstrapResult> {
+  try {
+    const catalog = await syncManagedAgentRuntimeCatalog({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      expectedRevision: input.expectedRevision,
+      setAsDefault: true,
+    });
+    return { catalog, action: 'managed_initialized', issueCode: null };
+  } catch (error) {
+    if (error instanceof CatalogRevisionConflictError) {
+      return {
+        catalog: await readAppRuntimeCatalog(input.organizationId),
+        action: 'existing',
+        issueCode: null,
+      };
+    }
+    if (error instanceof ManagedCatalogSyncError) {
+      return {
+        catalog: await readAppRuntimeCatalog(input.organizationId),
+        action: 'uninitialized',
+        issueCode: error.code,
+      };
+    }
+    throw error;
+  }
+}
+
 export async function ensureAgentRuntimeCatalogInitialized(input: {
   organizationId: string;
   actorUserId: string;
 }): Promise<AgentRuntimeBootstrapResult> {
+  const pendingRepair = managedDefaultRepairRequests.get(input.organizationId);
+  if (pendingRepair) return pendingRepair;
+
   const [current, state] = await Promise.all([
     readAppRuntimeCatalog(input.organizationId),
     readBootstrapDatabaseState(input.organizationId),
   ]);
+  const managedControlPlaneAvailable = isManagedControlPlaneAvailable();
+  const shouldRepairMissingManagedDefault = current.revision > 0
+    && !current.defaultSelection
+    && managedControlPlaneAvailable;
+  if (shouldRepairMissingManagedDefault) {
+    const concurrentRepair = managedDefaultRepairRequests.get(input.organizationId);
+    if (concurrentRepair) return concurrentRepair;
+
+    const repairRequest = repairMissingManagedDefault({
+      organizationId: input.organizationId,
+      actorUserId: input.actorUserId,
+      expectedRevision: current.revision,
+    });
+    const trackedRepairRequest = repairRequest.finally(() => {
+      if (managedDefaultRepairRequests.get(input.organizationId) === trackedRepairRequest) {
+        managedDefaultRepairRequests.delete(input.organizationId);
+      }
+    });
+    managedDefaultRepairRequests.set(input.organizationId, trackedRepairRequest);
+    return trackedRepairRequest;
+  }
   if (current.revision > 0) {
     await ensureMigratedOwnerPreference({ catalog: current, organizationId: input.organizationId, state });
     return { catalog: current, action: 'existing', issueCode: null };
   }
 
   try {
-    if (isManagedControlPlaneAvailable()) {
+    if (managedControlPlaneAvailable) {
       const catalog = await syncManagedAgentRuntimeCatalog({
         organizationId: input.organizationId,
         actorUserId: input.actorUserId,
+        expectedRevision: current.revision,
         setAsDefault: true,
-        initialOnboarding: true,
+        initialOnboarding: current.revision === 0,
       });
       return { catalog, action: 'managed_initialized', issueCode: null };
     }
