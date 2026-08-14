@@ -39,7 +39,9 @@ export function HomeWorkspaceView({
   }, []);
 
   useEffect(() => {
-    void refreshSummary();
+    const initialRefresh = window.setTimeout(() => {
+      void refreshSummary();
+    }, 0);
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') void refreshSummary();
     }, 30_000);
@@ -49,6 +51,7 @@ export function HomeWorkspaceView({
     window.addEventListener('notification_summary_updated', refreshAfterUpdate);
 
     return () => {
+      window.clearTimeout(initialRefresh);
       window.clearInterval(interval);
       window.removeEventListener('session_updated', refreshAfterUpdate);
       window.removeEventListener('todo_updated', refreshAfterUpdate);

@@ -127,11 +127,16 @@ function HomeEmailFocusCard() {
   }, []);
 
   useEffect(() => {
-    void load();
+    const initialLoad = window.setTimeout(() => {
+      void load();
+    }, 0);
     const interval = window.setInterval(() => {
       if (document.visibilityState === 'visible') void load();
     }, 60_000);
-    return () => window.clearInterval(interval);
+    return () => {
+      window.clearTimeout(initialLoad);
+      window.clearInterval(interval);
+    };
   }, [load]);
 
   return (

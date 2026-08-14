@@ -11,6 +11,34 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.14.1] - 2026-08-14
+
+### Added
+
+- Added multi-document Notebook tabs, document-aware agent context, and a docked Notebook chat workspace.
+- Added mobile support for scoped to-dos, grouped Inbox items, chat attachment batches, and TXT collaboration.
+- Added configurable Direct MCP server settings, an expanded workspace-tool surface, and modern MCP OAuth and transport support.
+
+### Changed
+
+- Refined the focused Home workspace, Markdown editor, provider configuration, and email account setup flows.
+- Improved rich Markdown authoring and PDF export for callouts, details blocks, tables, and other formatted content.
+- Updated the Pi runtime and refreshed the related dependency license inventory.
+
+### Fixed
+
+- Hardened SQLite and Postgres startup failure handling, WebSocket lifecycle behavior, and inline-script rendering during client navigation.
+- Stabilized Direct MCP tool isolation, runtime initialization, telemetry startup, and browser and desktop connection handling.
+- Preserved Notebook chat visibility and preferences while navigating or opening documents.
+
+### Security
+
+- Hardened Direct MCP origin handling and applied non-breaking dependency audit fixes.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.12.1] - 2026-08-12
 
 ### Fixed
