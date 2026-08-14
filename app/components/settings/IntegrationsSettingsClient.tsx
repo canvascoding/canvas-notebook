@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, startTransition, typ
 import dynamic from 'next/dynamic';
 import { useSearchParams } from 'next/navigation';
 import { useLocale, useTranslations } from 'next-intl';
-import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Loader2, Mail, Plus, RefreshCw, Save, Search, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
+import { ChevronDown, ChevronLeft, Copy, ExternalLink, Eye, EyeOff, Inbox, Loader2, Mail, MoreHorizontal, Plus, RefreshCw, Save, Search, Send, Server, Settings, ShieldCheck, Star, Trash2 } from 'lucide-react';
 
 import { GeneralSettingsPanel } from '@/app/components/settings/GeneralSettingsPanel';
 import { McpServerSettingsPanel } from '@/app/components/settings/McpServerSettingsPanel';
@@ -33,6 +33,24 @@ import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogMedia,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { ScrollArea } from '@/components/ui/scroll-area';
@@ -1349,6 +1367,10 @@ export function EmailAccountsCard({
   const [isGoogleOAuthConfigurationOpen, setIsGoogleOAuthConfigurationOpen] = useState(false);
   const [isSmtpAdvancedOpen, setIsSmtpAdvancedOpen] = useState(false);
   const [isImapAdvancedOpen, setIsImapAdvancedOpen] = useState(false);
+  const [openAccountDetailsById, setOpenAccountDetailsById] = useState<Record<string, boolean>>({});
+  const [openAccountPolicyById, setOpenAccountPolicyById] = useState<Record<string, boolean>>({});
+  const [isPreviewPreferencesOpen, setIsPreviewPreferencesOpen] = useState(false);
+  const [pendingDisconnectAccount, setPendingDisconnectAccount] = useState<EmailAccount | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingPreviewPreferences, setIsLoadingPreviewPreferences] = useState(false);
   const [isSavingPreviewPreferences, setIsSavingPreviewPreferences] = useState(false);
@@ -1840,23 +1862,6 @@ export function EmailAccountsCard({
         </div>
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
-        <div className="flex flex-col gap-3 border border-border bg-muted/30 px-4 py-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="min-w-0 space-y-1">
-            <Label className="text-sm font-medium" htmlFor="email-preview-remote-images">
-              {t('preview.remoteImagesTitle')}
-            </Label>
-            <p className="text-sm leading-5 text-muted-foreground">{t('preview.remoteImagesDescription')}</p>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {(isLoadingPreviewPreferences || isSavingPreviewPreferences) && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
-            <Switch
-              id="email-preview-remote-images"
-              checked={previewPreferences.emailAllowRemoteImages}
-              onCheckedChange={(checked) => void saveRemoteImagesPreference(checked)}
-              disabled={isLoadingPreviewPreferences || isSavingPreviewPreferences}
-            />
-          </div>
-        </div>
         {showAddAccountPanel && (
           <section className="space-y-4 rounded-xl border border-border bg-gradient-to-b from-muted/40 to-background p-4 shadow-sm sm:p-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
@@ -2135,103 +2140,204 @@ export function EmailAccountsCard({
           </section>
         )}
         {accounts.length === 0 ? (
-          <div className="border border-border p-4 text-sm text-muted-foreground">{t('noAccounts')}</div>
+          <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">{t('noAccounts')}</div>
         ) : (
-          accounts.map((account) => {
-            const draft = drafts[account.id] || { readFrom: '', sendTo: '' };
-            return (
-              <div key={account.id} className="space-y-3 border border-border p-4">
-                <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
-                  <div>
-                    <div className="flex flex-wrap items-center gap-2">
-                      <h3 className="text-base font-semibold">{account.emailAddress}</h3>
-                      {account.isPrimary && (
-                        <Badge variant="secondary" className="gap-1">
-                          <Star className="h-3 w-3" />
-                          {t('mainEmail')}
-                        </Badge>
-                      )}
-                      <Badge variant="outline">{providerLabel(account.provider)}</Badge>
-                      <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>{statusLabel(account.status)}</Badge>
-                    </div>
-                    {account.displayName && <p className="text-sm text-muted-foreground">{account.displayName}</p>}
-                    {account.provider === 'smtp_imap' && account.smtpHost && (
-                      <div className="mt-1 space-y-1 text-xs text-muted-foreground">
-                        <p>
-                          SMTP {account.smtpHost}:{account.smtpPort}{account.smtpSecure ? ` ${t('smtp.secureBadge')}` : ''}
-                        </p>
-                        {account.imapHost && (
-                          <p>
-                            IMAP {account.imapHost}:{account.imapPort}{account.imapSecure ? ` ${t('smtp.secureBadge')}` : ''}
-                          </p>
-                        )}
-                        {!account.imapHost && (
-                          <p>{t('smtp.sendOnlyInfo')}</p>
-                        )}
+          <div className="space-y-3">
+            {accounts.map((account) => {
+              const draft = drafts[account.id] || { readFrom: '', sendTo: '' };
+              const detailsOpen = Boolean(openAccountDetailsById[account.id]);
+              const policyOpen = Boolean(openAccountPolicyById[account.id]);
+              const readPolicySummary = account.policy.readFrom.length === 0
+                ? t('policy.allSenders')
+                : t('policy.ruleCount', { count: account.policy.readFrom.length });
+              const sendPolicySummary = account.policy.sendTo.length === 0
+                ? t('policy.allRecipients')
+                : t('policy.ruleCount', { count: account.policy.sendTo.length });
+
+              return (
+                <Collapsible
+                  key={account.id}
+                  open={detailsOpen}
+                  onOpenChange={(open) => setOpenAccountDetailsById((current) => ({ ...current, [account.id]: open }))}
+                >
+                  <article className="overflow-hidden rounded-xl border border-border bg-card shadow-xs transition-shadow hover:shadow-sm">
+                    <div className="flex flex-col gap-4 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                      <div className="min-w-0">
+                        <div className="flex flex-wrap items-center gap-2">
+                          <h3 className="truncate text-base font-semibold tracking-tight">{account.emailAddress}</h3>
+                          {account.isPrimary && (
+                            <Badge variant="secondary" className="gap-1"><Star className="h-3 w-3" />{t('mainEmail')}</Badge>
+                          )}
+                          <Badge variant="outline">{providerLabel(account.provider)}</Badge>
+                          <Badge variant={account.status === 'active' ? 'default' : 'secondary'}>{statusLabel(account.status)}</Badge>
+                        </div>
+                        {account.displayName && <p className="mt-1 text-sm text-muted-foreground">{account.displayName}</p>}
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          <Badge variant="outline" className="gap-1.5 font-normal"><Send className="h-3 w-3" />{t('capabilities.sending')}</Badge>
+                          {account.imapHost ? (
+                            <Badge variant="outline" className="gap-1.5 font-normal"><Inbox className="h-3 w-3" />{t('capabilities.mailbox')}</Badge>
+                          ) : (
+                            <Badge variant="outline" className="font-normal text-muted-foreground">{t('capabilities.sendOnly')}</Badge>
+                          )}
+                        </div>
                       </div>
-                    )}
+
+                      <div className="flex shrink-0 items-center gap-2 self-end sm:self-auto">
+                        <CollapsibleTrigger asChild>
+                          <Button type="button" variant="outline" size="sm" aria-label={`${detailsOpen ? t('account.collapse') : t('account.manage')} ${account.emailAddress}`}>
+                            <Settings className="mr-2 h-4 w-4" />
+                            {detailsOpen ? t('account.collapse') : t('account.manage')}
+                            <ChevronDown className={`ml-2 h-4 w-4 transition-transform ${detailsOpen ? 'rotate-180' : ''}`} />
+                          </Button>
+                        </CollapsibleTrigger>
+                        <DropdownMenu>
+                          <DropdownMenuTrigger asChild>
+                            <Button type="button" variant="ghost" size="icon-sm" aria-label={t('account.moreActions')} disabled={activeAction !== null}>
+                              <MoreHorizontal className="h-4 w-4" />
+                            </Button>
+                          </DropdownMenuTrigger>
+                          <DropdownMenuContent align="end" className="w-52">
+                            {account.provider === 'smtp_imap' && (
+                              <>
+                                <DropdownMenuItem onSelect={() => void testStoredAccount(account.id)}>
+                                  <RefreshCw />
+                                  {t('testAccount')}
+                                </DropdownMenuItem>
+                                <DropdownMenuItem onSelect={() => editSmtpAccount(account)}>
+                                  <Settings />
+                                  {t('editAccount')}
+                                </DropdownMenuItem>
+                              </>
+                            )}
+                            {!account.isPrimary && (
+                              <DropdownMenuItem onSelect={() => void setMainEmail(account.id)}>
+                                <Star />
+                                {t('setMainEmail')}
+                              </DropdownMenuItem>
+                            )}
+                            <DropdownMenuSeparator />
+                            <DropdownMenuItem variant="destructive" onSelect={() => setPendingDisconnectAccount(account)}>
+                              <Trash2 />
+                              {t('disconnect')}
+                            </DropdownMenuItem>
+                          </DropdownMenuContent>
+                        </DropdownMenu>
+                      </div>
+                    </div>
+
+                    <CollapsibleContent>
+                      <div className="space-y-4 border-t border-border bg-muted/15 p-4 sm:p-5">
+                        {account.provider === 'smtp_imap' && account.smtpHost && (
+                          <div className="rounded-lg border border-border bg-background p-3 text-sm">
+                            <div className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground">{t('account.connectionDetails')}</div>
+                            <div className="mt-2 grid gap-2 text-muted-foreground sm:grid-cols-2">
+                              <p>SMTP · {account.smtpHost}:{account.smtpPort}{account.smtpSecure ? ` · ${t('smtp.secureBadge')}` : ''}</p>
+                              <p>{account.imapHost ? `IMAP · ${account.imapHost}:${account.imapPort}${account.imapSecure ? ` · ${t('smtp.secureBadge')}` : ''}` : t('smtp.sendOnlyInfo')}</p>
+                            </div>
+                          </div>
+                        )}
+
+                        <Collapsible
+                          open={policyOpen}
+                          onOpenChange={(open) => setOpenAccountPolicyById((current) => ({ ...current, [account.id]: open }))}
+                        >
+                          <div className="rounded-lg border border-border bg-background">
+                            <CollapsibleTrigger asChild>
+                              <button type="button" className="flex w-full flex-col gap-3 px-3 py-3 text-left hover:bg-muted/40 sm:flex-row sm:items-center sm:justify-between">
+                                <span>
+                                  <span className="block text-sm font-medium">{t('policy.title')}</span>
+                                  <span className="mt-1 block text-xs leading-5 text-muted-foreground">{t('policy.description')}</span>
+                                </span>
+                                <span className="flex shrink-0 items-center gap-2 text-xs text-muted-foreground">
+                                  <Badge variant="secondary" className="font-normal">{readPolicySummary}</Badge>
+                                  <Badge variant="secondary" className="font-normal">{sendPolicySummary}</Badge>
+                                  <ChevronDown className={`h-4 w-4 transition-transform ${policyOpen ? 'rotate-180' : ''}`} />
+                                </span>
+                              </button>
+                            </CollapsibleTrigger>
+                            <CollapsibleContent>
+                              <div className="space-y-4 border-t border-border p-3 sm:p-4">
+                                <div className="grid gap-4 md:grid-cols-2">
+                                  <div>
+                                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t('policy.readFromLabel')}</Label>
+                                    <textarea className="mt-2 min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={draft.readFrom} onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, readFrom: event.target.value } }))} placeholder={t('policy.readFromPlaceholder')} disabled={activeAction !== null} />
+                                    <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('policy.readFromDescription')}</p>
+                                  </div>
+                                  <div>
+                                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t('policy.sendToLabel')}</Label>
+                                    <textarea className="mt-2 min-h-28 w-full rounded-md border border-input bg-background px-3 py-2 text-sm" value={draft.sendTo} onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, sendTo: event.target.value } }))} placeholder={t('policy.sendToPlaceholder')} disabled={activeAction !== null} />
+                                    <p className="mt-2 text-xs leading-5 text-muted-foreground">{t('policy.sendToDescription')}</p>
+                                  </div>
+                                </div>
+                                <div className="flex justify-end">
+                                  <Button type="button" onClick={() => void savePolicy(account.id)} disabled={activeAction !== null}>
+                                    {activeAction === `policy:${account.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Save className="mr-2 h-4 w-4" />}
+                                    {t('savePolicy')}
+                                  </Button>
+                                </div>
+                              </div>
+                            </CollapsibleContent>
+                          </div>
+                        </Collapsible>
+                      </div>
+                    </CollapsibleContent>
+                  </article>
+                </Collapsible>
+              );
+            })}
+
+            <Collapsible open={isPreviewPreferencesOpen} onOpenChange={setIsPreviewPreferencesOpen}>
+              <section className="overflow-hidden rounded-xl border border-border bg-card shadow-xs">
+                <CollapsibleTrigger asChild>
+                  <button type="button" className="flex w-full items-center justify-between gap-4 p-4 text-left hover:bg-muted/30 sm:p-5">
+                    <span>
+                      <span className="flex items-center gap-2 text-sm font-semibold"><Eye className="h-4 w-4 text-primary" />{t('preview.title')}</span>
+                      <span className="mt-1 block text-sm text-muted-foreground">{t('preview.summary')}</span>
+                    </span>
+                    <ChevronDown className={`h-4 w-4 shrink-0 text-muted-foreground transition-transform ${isPreviewPreferencesOpen ? 'rotate-180' : ''}`} />
+                  </button>
+                </CollapsibleTrigger>
+                <CollapsibleContent>
+                  <div className="flex flex-col gap-3 border-t border-border bg-muted/15 p-4 sm:flex-row sm:items-center sm:justify-between sm:p-5">
+                    <div className="min-w-0 space-y-1">
+                      <Label className="text-sm font-medium" htmlFor="email-preview-remote-images">{t('preview.remoteImagesTitle')}</Label>
+                      <p className="text-sm leading-5 text-muted-foreground">{t('preview.remoteImagesDescription')}</p>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-2">
+                      {(isLoadingPreviewPreferences || isSavingPreviewPreferences) && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
+                      <Switch id="email-preview-remote-images" checked={previewPreferences.emailAllowRemoteImages} onCheckedChange={(checked) => void saveRemoteImagesPreference(checked)} disabled={isLoadingPreviewPreferences || isSavingPreviewPreferences} />
+                    </div>
                   </div>
-                  <div className="flex flex-wrap justify-end gap-2">
-                    {account.provider === 'smtp_imap' && (
-                      <>
-                        <Button type="button" variant="outline" size="sm" onClick={() => void testStoredAccount(account.id)} disabled={activeAction !== null}>
-                          {activeAction === `test:${account.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
-                          {t('testAccount')}
-                        </Button>
-                        <Button type="button" variant="outline" size="sm" onClick={() => editSmtpAccount(account)} disabled={activeAction !== null}>
-                          <Settings className="mr-2 h-4 w-4" />
-                          {t('editAccount')}
-                        </Button>
-                      </>
-                    )}
-                    {!account.isPrimary && (
-                      <Button type="button" variant="outline" size="sm" onClick={() => void setMainEmail(account.id)} disabled={activeAction !== null}>
-                        {activeAction === `main:${account.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Star className="mr-2 h-4 w-4" />}
-                        {t('setMainEmail')}
-                      </Button>
-                    )}
-                    <Button type="button" variant="ghost" size="sm" onClick={() => void disconnect(account.id)} disabled={activeAction !== null}>
-                      <Trash2 className="mr-2 h-4 w-4" />
-                      {t('disconnect')}
-                    </Button>
-                  </div>
-                </div>
-                <div className="grid gap-3 md:grid-cols-2">
-                  <div>
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t('policy.readFromLabel')}</Label>
-                    <textarea
-                      className="mt-2 min-h-28 w-full border border-input bg-background px-3 py-2 text-sm"
-                      value={draft.readFrom}
-                      onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, readFrom: event.target.value } }))}
-                      placeholder={t('policy.readFromPlaceholder')}
-                    />
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {t('policy.readFromDescription')}
-                    </p>
-                  </div>
-                  <div>
-                    <Label className="text-xs uppercase tracking-wider text-muted-foreground">{t('policy.sendToLabel')}</Label>
-                    <textarea
-                      className="mt-2 min-h-28 w-full border border-input bg-background px-3 py-2 text-sm"
-                      value={draft.sendTo}
-                      onChange={(event) => setDrafts((current) => ({ ...current, [account.id]: { ...draft, sendTo: event.target.value } }))}
-                      placeholder={t('policy.sendToPlaceholder')}
-                    />
-                    <p className="mt-2 text-xs text-muted-foreground">
-                      {t('policy.sendToDescription')}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex justify-end">
-                  <Button type="button" onClick={() => void savePolicy(account.id)} disabled={activeAction !== null}>
-                    <Save className="mr-2 h-4 w-4" />
-                    {t('savePolicy')}
-                  </Button>
-                </div>
-              </div>
-            );
-          })
+                </CollapsibleContent>
+              </section>
+            </Collapsible>
+          </div>
         )}
+
+        <AlertDialog open={Boolean(pendingDisconnectAccount)} onOpenChange={(open) => !open && setPendingDisconnectAccount(null)}>
+          <AlertDialogContent>
+            <AlertDialogHeader>
+              <AlertDialogMedia><Trash2 className="text-destructive" /></AlertDialogMedia>
+              <AlertDialogTitle>{t('disconnectDialog.title')}</AlertDialogTitle>
+              <AlertDialogDescription>{pendingDisconnectAccount ? t('disconnectDialog.description', { email: pendingDisconnectAccount.emailAddress }) : ''}</AlertDialogDescription>
+            </AlertDialogHeader>
+            <AlertDialogFooter>
+              <AlertDialogCancel disabled={activeAction !== null}>{t('cancel')}</AlertDialogCancel>
+              <AlertDialogAction
+                variant="destructive"
+                disabled={activeAction !== null}
+                onClick={() => {
+                  const accountId = pendingDisconnectAccount?.id;
+                  setPendingDisconnectAccount(null);
+                  if (accountId) void disconnect(accountId);
+                }}
+              >
+                {activeAction?.startsWith('disconnect:') ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}
+                {t('disconnectDialog.confirm')}
+              </AlertDialogAction>
+            </AlertDialogFooter>
+          </AlertDialogContent>
+        </AlertDialog>
     </SettingsAccordionCard>
   );
 }

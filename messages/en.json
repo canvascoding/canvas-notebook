@@ -4813,6 +4813,7 @@
       "errorSummary": "Load error",
       "refresh": "Refresh",
       "save": "Save",
+      "cancel": "Cancel",
       "connect": "Connect",
       "disconnect": "Disconnect",
       "addAccount": "Add account",
@@ -4834,7 +4835,20 @@
         "revoked": "Revoked",
         "disconnected": "Disconnected"
       },
+      "capabilities": {
+        "sending": "Sending",
+        "mailbox": "Mailbox",
+        "sendOnly": "Send only"
+      },
+      "account": {
+        "manage": "Manage",
+        "collapse": "Close",
+        "moreActions": "More account actions",
+        "connectionDetails": "Connection details"
+      },
       "preview": {
+        "title": "Display & privacy",
+        "summary": "Settings for external content in emails.",
         "remoteImagesTitle": "Load external images automatically",
         "remoteImagesDescription": "When enabled, the email preview loads remote images and external image resources without an extra click. It stays disabled by default for privacy."
       },
@@ -4901,6 +4915,11 @@
         "sendOnlyInfo": "Send-only: IMAP is not configured."
       },
       "policy": {
+        "title": "Agent & email permissions",
+        "description": "Choose which senders may be read and which recipients may be used.",
+        "allSenders": "All senders",
+        "allRecipients": "All recipients",
+        "ruleCount": "{count, plural, one {# rule} other {# rules}}",
         "readFromLabel": "Read from emails",
         "readFromPlaceholder": "All senders allowed",
         "readFromDescription": "Add one sender per line or separate with commas. Use full addresses like name@example.com or domains like @example.com. Empty means all senders are allowed.",
@@ -4921,6 +4940,11 @@
         "previewPreferencesSaved": "Email preview settings saved.",
         "policySaved": "Email policy saved.",
         "mainEmailSaved": "Main email saved."
+      },
+      "disconnectDialog": {
+        "title": "Disconnect email account?",
+        "description": "The stored connection for {email} will be removed. Drafts and emails already sent remain unchanged.",
+        "confirm": "Disconnect account"
       },
       "errors": {
         "loadOAuthSettings": "Failed to load email OAuth settings",

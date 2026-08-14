@@ -4812,6 +4812,7 @@
       "errorSummary": "Fehler beim Laden",
       "refresh": "Aktualisieren",
       "save": "Speichern",
+      "cancel": "Abbrechen",
       "connect": "Verbinden",
       "disconnect": "Trennen",
       "addAccount": "Konto hinzufügen",
@@ -4833,7 +4834,20 @@
         "revoked": "Widerrufen",
         "disconnected": "Getrennt"
       },
+      "capabilities": {
+        "sending": "Versand",
+        "mailbox": "Postfach",
+        "sendOnly": "Nur Versand"
+      },
+      "account": {
+        "manage": "Verwalten",
+        "collapse": "Schließen",
+        "moreActions": "Weitere Kontoaktionen",
+        "connectionDetails": "Verbindungsdetails"
+      },
       "preview": {
+        "title": "Anzeige & Datenschutz",
+        "summary": "Einstellungen für externe Inhalte in E-Mails.",
         "remoteImagesTitle": "Externe Bilder automatisch laden",
         "remoteImagesDescription": "Wenn aktiviert, lädt die E-Mail-Vorschau Remote-Bilder und externe Bildressourcen ohne zusätzlichen Klick. Aus Datenschutzgründen bleibt das standardmäßig deaktiviert."
       },
@@ -4900,6 +4914,11 @@
         "sendOnlyInfo": "Send-only: IMAP ist nicht konfiguriert."
       },
       "policy": {
+        "title": "Berechtigungen für Agent und E-Mail",
+        "description": "Lege fest, welche Absender gelesen und welche Empfänger verwendet werden dürfen.",
+        "allSenders": "Alle Absender",
+        "allRecipients": "Alle Empfänger",
+        "ruleCount": "{count, plural, one {# Regel} other {# Regeln}}",
         "readFromLabel": "Lesbare Absender",
         "readFromPlaceholder": "Alle Absender erlaubt",
         "readFromDescription": "Füge einen Absender pro Zeile ein oder trenne Einträge mit Kommas. Nutze vollständige Adressen wie name@example.com oder Domains wie @example.com. Leer bedeutet, dass alle Absender erlaubt sind.",
@@ -4920,6 +4939,11 @@
         "previewPreferencesSaved": "E-Mail-Vorschau-Einstellungen gespeichert.",
         "policySaved": "E-Mail-Richtlinie gespeichert.",
         "mainEmailSaved": "Main Email gespeichert."
+      },
+      "disconnectDialog": {
+        "title": "E-Mail-Konto trennen?",
+        "description": "Die gespeicherte Verbindung für {email} wird entfernt. Entwürfe und bereits gesendete E-Mails bleiben unverändert.",
+        "confirm": "Konto trennen"
       },
       "errors": {
         "loadOAuthSettings": "E-Mail-OAuth-Einstellungen konnten nicht geladen werden",
