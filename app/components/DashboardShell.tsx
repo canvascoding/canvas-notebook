@@ -137,6 +137,10 @@ type SurfaceTabProps = {
   testId: string;
 };
 
+type OpenNotebookFileOptions = {
+  dockChatIfFull?: boolean;
+};
+
 function SurfaceTab({
   active,
   closeLabel,
@@ -549,11 +553,18 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       : { allowed: true };
   }), [tNotebook]);
 
-  const openNotebookFile = useCallback(async (path: string) => {
+  const showOpenedDocument = useCallback((dockChatIfFull = false) => {
+    dispatch({ type: 'DOCUMENT_OPENED', dockChatIfFull });
+  }, [dispatch]);
+
+  const openNotebookFile = useCallback(async (
+    path: string,
+    options: OpenNotebookFileOptions = {},
+  ) => {
     const normalizedPath = normalizeNotebookFilePath(path);
     if (!normalizedPath) return null;
 
-    dispatch({ type: 'DOCUMENT_OPENED' });
+    showOpenedDocument(options.dockChatIfFull);
     const transitionId = createWorkspaceFileTransitionId();
     const workspaceId = useWorkspaceStore.getState().activeWorkspaceId;
     const result = await useFileStore.getState().revealAndLoadFile(normalizedPath, {
@@ -576,11 +587,11 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
       }
     }
     return result;
-  }, [dispatch]);
+  }, [showOpenedDocument]);
 
   const openBridgedNotebookFile = useCallback(async (request: NotebookFileReferenceRequest) => {
     openedPathRef.current = request.path;
-    const result = await openNotebookFile(request.path);
+    const result = await openNotebookFile(request.path, { dockChatIfFull: true });
     if (result?.status !== 'opened') {
       if (openedPathRef.current === request.path) openedPathRef.current = null;
       return;
@@ -747,12 +758,12 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
 
   useEffect(() => {
     const handleWorkspaceFileOpen = () => {
-      dispatch({ type: 'DOCUMENT_OPENED' });
+      showOpenedDocument(true);
       setMobileExplorerOpen(false);
     };
     window.addEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
     return () => window.removeEventListener(WORKSPACE_FILE_OPENED_EVENT, handleWorkspaceFileOpen);
-  }, [dispatch]);
+  }, [showOpenedDocument]);
 
   const flushActiveDocument = useCallback(async (path: string) => {
     const editorState = useEditorStore.getState();
@@ -994,19 +1005,19 @@ export function DashboardShell({ hintEnabled = true }: { hintEnabled?: boolean }
     setBrowserActivityOpen((open) => !open);
   }, [dispatch, layout.canDockChat, state.chatDocked]);
   const handleFileSelected = useCallback(() => {
-    dispatch({ type: 'DOCUMENT_OPENED' });
+    showOpenedDocument(true);
     setMobileExplorerOpen(false);
-  }, [dispatch]);
+  }, [showOpenedDocument]);
   const handleSelectDocumentTab = useCallback(async (path: string) => {
     if (documentTabsRef.current.activePath === path && currentFile?.path === path) {
-      dispatch({ type: 'SHOW_SURFACE', surface: 'document' });
+      showOpenedDocument(true);
       return;
     }
-    const result = await openNotebookFile(path);
+    const result = await openNotebookFile(path, { dockChatIfFull: true });
     if (result?.status !== 'opened' && result?.status !== 'superseded') {
       toast.error(result?.error || tNotebook('failedToLoadPreview'));
     }
-  }, [currentFile?.path, dispatch, openNotebookFile, tNotebook]);
+  }, [currentFile?.path, openNotebookFile, showOpenedDocument, tNotebook]);
 
   const chatVisible =
     state.mainSurface === 'chat' || state.chatDocked || browserActivityUsesSheet;
