@@ -75,7 +75,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
     } catch (err) {
       console.error('Failed to load OAuth status:', err);
       setProviders([]);
-      setStatusError(t('oauth.errors.status'));
+      setStatusError(err instanceof Error && err.message ? err.message : t('oauth.errors.status'));
     } finally {
       setIsStatusLoading(false);
     }
@@ -347,6 +347,7 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
 
   const disconnect = async (provider: OAuthStatus) => {
     setIsLoading(true);
+    setError(null);
     try {
       const response = await fetch('/api/oauth/pi/disconnect', {
         method: 'POST',
@@ -355,13 +356,18 @@ export function PiOAuthButton({ onStatusChange, activeProviderId }: PiOAuthButto
         body: JSON.stringify({ provider: provider.provider }),
       });
 
-      if (response.ok) {
-        setSuccessMessage(t('oauth.disconnected', { provider: provider.displayName }));
-        await loadStatus();
-        onStatusChange?.();
+      const data = await response.json().catch(() => null);
+
+      if (!response.ok || !data?.success) {
+        throw new Error(data?.error || t('oauth.errors.unknown'));
       }
+
+      setSuccessMessage(t('oauth.disconnected', { provider: provider.displayName }));
+      await loadStatus();
+      onStatusChange?.();
     } catch (err) {
       console.error('Failed to disconnect:', err);
+      setStatusError(err instanceof Error && err.message ? err.message : t('oauth.errors.unknown'));
     } finally {
       setIsLoading(false);
     }

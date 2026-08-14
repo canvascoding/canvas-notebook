@@ -90,7 +90,12 @@ function getDatabaseUrlProtocol(databaseUrl: string | null | undefined): string 
 }
 
 export function resolveDataDir(): string {
-  return process.env.DATA || path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'data');
+  const configuredDataDir = process.env.DATA?.trim();
+  if (configuredDataDir) {
+    return path.resolve(/*turbopackIgnore: true*/ configuredDataDir);
+  }
+
+  return path.resolve(/*turbopackIgnore: true*/ process.cwd(), 'data');
 }
 
 export function resolveSqlitePath(): string {

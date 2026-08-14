@@ -396,6 +396,10 @@ async function runStartupDatabaseMigrations() {
   }
   const { runStartupDatabaseMigrations: migrateDatabase } = require('./app/lib/db/startup-migrations');
   await migrateDatabase();
+  // Runtime modules can be loaded later by Next.js on demand. They must not
+  // reopen the schema migration path while long-lived SQLite connections are
+  // already serving requests.
+  process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED = 'true';
 }
 
 // Ensure all runtime directories and tokens are set up before starting the server

@@ -622,7 +622,11 @@ export function openOrganizationBootstrapDatabase(): Database.Database {
     sqlite = new Database(sqlitePath);
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('busy_timeout = 5000');
-    runMigrations(sqlite);
+    // Startup owns schema changes for the running server. This function is
+    // also used by isolated scripts, which still need the local fallback.
+    if (process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED !== 'true') {
+      runMigrations(sqlite);
+    }
     return sqlite;
   } catch (error) {
     sqlite?.close();

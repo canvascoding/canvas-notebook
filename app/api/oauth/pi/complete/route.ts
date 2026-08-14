@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { 
   isOAuthProvider,
   PROVIDER_DISPLAY_NAMES,
@@ -102,10 +103,6 @@ export async function POST(request: NextRequest) {
       );
     }
   } catch (error) {
-    console.error('OAuth complete failed:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to complete OAuth' },
-      { status: 500 }
-    );
+    return jsonServerError('[OAuth complete] Failed to complete OAuth:', error, 'Failed to complete OAuth');
   }
 }

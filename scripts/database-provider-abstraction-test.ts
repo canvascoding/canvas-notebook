@@ -79,6 +79,10 @@ async function main() {
     assert.equal(config.runtimeAdapter, 'sqlite');
     assert.deepEqual(config.problems, []);
 
+    process.env.DATA = './data';
+    assert.equal(resolveSqlitePath(), path.join(process.cwd(), 'data', 'sqlite.db'));
+    resetProviderEnv(dataDir);
+
     let gate = resolveDatabaseProviderGate({ teamFeaturesEnabled: false });
     assert.equal(gate.ok, true);
     assert.deepEqual(gate.blockers, []);

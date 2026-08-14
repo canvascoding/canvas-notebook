@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { 
   isOAuthProvider,
   PI_OAUTH_PROVIDERS,
@@ -156,10 +157,6 @@ export async function POST(request: NextRequest) {
       message: 'Authorization code received. Waiting for provider completion...',
     }, { status: 202 });
   } catch (error) {
-    console.error('OAuth exchange failed:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to exchange code' },
-      { status: 500 }
-    );
+    return jsonServerError('[OAuth exchange] Failed to exchange OAuth code:', error, 'Failed to exchange OAuth code');
   }
 }

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { 
   getAllProviderStatus,
   isOAuthProvider,
@@ -57,10 +58,6 @@ export async function GET(request: NextRequest) {
       providers: allStatus,
     });
   } catch (error) {
-    console.error('OAuth status check failed:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to get OAuth status' },
-      { status: 500 }
-    );
+    return jsonServerError('[OAuth status] Failed to get OAuth status:', error, 'Failed to get OAuth status');
   }
 }

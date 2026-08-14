@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { 
   isOAuthProvider,
   PI_OAUTH_PROVIDERS,
@@ -199,11 +200,7 @@ export async function POST(request: NextRequest) {
         : 'Waiting for OAuth flow to start...',
     });
   } catch (error) {
-    console.error('OAuth initiate failed:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to initiate OAuth' },
-      { status: 500 }
-    );
+    return jsonServerError('[OAuth initiate] Failed to initiate OAuth:', error, 'Failed to initiate OAuth');
   }
 }
 

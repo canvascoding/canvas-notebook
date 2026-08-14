@@ -120,7 +120,12 @@ function openSetupDatabase() {
     sqlite = new Database(sqlitePath);
     sqlite.pragma('foreign_keys = ON');
     sqlite.pragma('busy_timeout = 5000');
-    runMigrations(sqlite);
+    // The HTTP server migrates once before loading request handlers. Keep this
+    // fallback for standalone setup scripts, but never change journal state
+    // again from a request after the server has started.
+    if (process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED !== 'true') {
+      runMigrations(sqlite);
+    }
     return sqlite;
   } catch (error) {
     sqlite?.close();

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { 
   removeProviderCredentials,
   isOAuthProvider,
@@ -39,10 +40,6 @@ export async function POST(request: NextRequest) {
       message: `Successfully disconnected from ${provider}`,
     });
   } catch (error) {
-    console.error('OAuth disconnect failed:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to disconnect' },
-      { status: 500 }
-    );
+    return jsonServerError('[OAuth disconnect] Failed to disconnect OAuth:', error, 'Failed to disconnect OAuth');
   }
 }

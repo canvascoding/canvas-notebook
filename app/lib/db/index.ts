@@ -26,7 +26,13 @@ export type SqlConnection = {
 };
 
 const provider = getDatabaseProvider();
-const shouldRunSqliteStartupMigrations = process.env.NEXT_PHASE !== 'phase-production-build';
+// The custom server applies migrations before it imports long-lived runtime
+// modules. Reapplying them from every dynamically loaded Next.js module can
+// race with active SQLite connections in development, so only standalone
+// scripts retain the on-open migration fallback.
+const shouldRunSqliteStartupMigrations =
+  process.env.NEXT_PHASE !== 'phase-production-build'
+  && process.env.CANVAS_DATABASE_MIGRATIONS_COMPLETED !== 'true';
 
 function getSqlitePath(): string {
   return resolveSqlitePath();
@@ -37,6 +43,8 @@ function createSqliteDatabase() {
   mkdirSync(path.dirname(sqlitePath), {recursive: true});
 
   const sqlite = new Database(sqlitePath);
+  sqlite.pragma('foreign_keys = ON');
+  sqlite.pragma('busy_timeout = 5000');
   if (shouldRunSqliteStartupMigrations) {
     runMigrations(sqlite);
   }
@@ -164,8 +172,21 @@ async function openPostgresDb(): Promise<SqlConnection> {
   if (!pool) {
     throw new Error('Postgres runtime pool is not initialized.');
   }
-  const client = await pool.connect();
-  const query = (sql: string, params?: unknown[]) => client.query(translateSqlitePlaceholders(sql), params);
+  const runPostgresOperation = async <T>(operation: () => Promise<T>): Promise<T> => {
+    try {
+      return await operation();
+    } catch (error) {
+      const unavailableError = coerceDatabaseUnavailableError(error, { provider: 'postgres' });
+      if (unavailableError) {
+        throw unavailableError;
+      }
+      throw error;
+    }
+  };
+  const client = await runPostgresOperation(() => pool.connect());
+  const query = (sql: string, params?: unknown[]) => runPostgresOperation(
+    () => client.query(translateSqlitePlaceholders(sql), params),
+  );
 
   return {
     get: async (sql: string, params?: unknown[]) => {
@@ -193,6 +214,8 @@ export async function openDb(): Promise<SqlConnection> {
 
   const sqlitePath = getSqlitePath();
   const freshSqlite = runSqliteOperation(sqlitePath, () => new Database(sqlitePath));
+  freshSqlite.pragma('foreign_keys = ON');
+  freshSqlite.pragma('busy_timeout = 5000');
   return {
     get: (sql: string, params?: unknown[]) => runSqliteOperation(
       sqlitePath,

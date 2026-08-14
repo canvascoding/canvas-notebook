@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { readFile } from 'fs/promises';
 import { resolveScopedPiOAuthStatesDir } from '@/app/lib/runtime-data-paths';
 import { normalizeOAuthFlowId, resolvePiOAuthFlowPaths } from '@/app/lib/pi/oauth-flow-files';
@@ -63,10 +64,6 @@ export async function GET(request: NextRequest) {
       );
     }
   } catch (error) {
-    console.error('OAuth poll failed:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to poll OAuth status' },
-      { status: 500 }
-    );
+    return jsonServerError('[OAuth poll] Failed to poll OAuth status:', error, 'Failed to poll OAuth status');
   }
 }

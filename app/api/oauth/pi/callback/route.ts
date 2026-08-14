@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { auth } from '@/app/lib/auth';
+import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { 
   isOAuthProvider,
   PI_OAUTH_PROVIDERS,
@@ -65,10 +66,6 @@ export async function POST(request: NextRequest) {
       { status: 400 }
     );
   } catch (error) {
-    console.error('OAuth callback failed:', error);
-    return NextResponse.json(
-      { success: false, error: error instanceof Error ? error.message : 'Failed to process callback' },
-      { status: 500 }
-    );
+    return jsonServerError('[OAuth callback] Failed to process OAuth callback:', error, 'Failed to process OAuth callback');
   }
 }
