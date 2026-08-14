@@ -7,6 +7,7 @@ import "@excalidraw/excalidraw/index.css";
 import "../globals.css";
 import { geistMono, geistSans } from '@/app/lib/fonts';
 import { Toaster } from "@/components/ui/sonner";
+import { InlineScript } from '@/app/components/InlineScript';
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
 import { WorkspaceAppearanceProvider } from '@/app/components/WorkspaceAppearanceProvider';
 import { WorkspaceNavigationSync } from '@/app/components/workspaces/WorkspaceNavigationSync';
@@ -80,13 +81,7 @@ export default async function LocaleLayout({
   return (
     <html lang={locale} suppressHydrationWarning>
       <head>
-        <Script
-          id="excalidraw-asset-path"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: 'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";',
-          }}
-        />
+        <InlineScript html={'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";'} />
         <Script id="theme-init" src="/theme-init.js" strategy="beforeInteractive" />
       </head>
       <body

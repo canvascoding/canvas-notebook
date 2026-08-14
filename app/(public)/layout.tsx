@@ -1,10 +1,10 @@
 import type { Metadata, Viewport } from 'next';
-import Script from 'next/script';
 import { NextIntlClientProvider } from 'next-intl';
 
 import '@excalidraw/excalidraw/index.css';
 import '../globals.css';
 import { AppThemeProvider } from '@/app/components/ThemeProvider';
+import { InlineScript } from '@/app/components/InlineScript';
 import { geistMono, geistSans } from '@/app/lib/fonts';
 import { Toaster } from '@/components/ui/sonner';
 import messages from '@/messages/de.json';
@@ -44,13 +44,7 @@ export default function PublicLayout({ children }: { children: React.ReactNode }
   return (
     <html lang="en" suppressHydrationWarning>
       <head>
-        <Script
-          id="excalidraw-asset-path"
-          strategy="beforeInteractive"
-          dangerouslySetInnerHTML={{
-            __html: 'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";',
-          }}
-        />
+        <InlineScript html={'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";'} />
       </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <NextIntlClientProvider locale="de" messages={messages}>
