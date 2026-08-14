@@ -1813,6 +1813,7 @@
     "title": "Email",
     "description": "Manage connected email accounts for inboxes, sending, agent tools, and system mail.",
     "emptyDescription": "Connect an email account first. Inboxes, messages, and the reader will appear here afterward.",
+    "connectAccount": "Connect account",
     "loadingAccounts": "Loading email accounts...",
     "loadingFolders": "Loading folders...",
     "loadingMessages": "Loading messages...",
@@ -4772,6 +4773,8 @@
         "connectAccount": "Connect account",
         "selectProvider": "Select provider...",
         "connect": "Connect",
+        "loadingStatus": "Checking account connection…",
+        "retryStatus": "Try again",
         "noProvidersAvailable": "No OAuth providers available"
       },
       "dialog": {
@@ -4802,7 +4805,8 @@
         "initiate": "Failed to initiate OAuth.",
         "enterCode": "Please enter the authorization code or callback URL",
         "missingFlowInfo": "Missing flow information",
-        "exchangeCode": "Failed to exchange code"
+        "exchangeCode": "Failed to exchange code",
+        "status": "The account connection could not be checked. Try again."
       }
     },
     "emailAccounts": {
@@ -4856,6 +4860,7 @@
         "eyebrow": "Connect an account",
         "chooseProviderTitle": "How would you like to connect your account?",
         "chooseProviderDescription": "Choose the connection type first. Technical details are shown only in the next step.",
+        "manageSummary": "Manage accounts",
         "connectionTitle": "Set up connection",
         "connectionDescription": "Complete only the details needed for this connection type.",
         "chooseProvider": "Choose",

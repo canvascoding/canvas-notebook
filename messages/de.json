@@ -1812,6 +1812,7 @@
     "title": "E-Mail",
     "description": "Verwalte die verbundenen E-Mail-Konten für Postfächer, Versand, Agent-Tools und Systemmails.",
     "emptyDescription": "Verbinde zuerst ein E-Mail-Konto. Danach erscheinen hier Postfächer, Nachrichten und Reader.",
+    "connectAccount": "Konto verbinden",
     "loadingAccounts": "E-Mail-Konten werden geladen...",
     "loadingFolders": "Folder werden geladen...",
     "loadingMessages": "Nachrichten werden geladen...",
@@ -4771,6 +4772,8 @@
         "connectAccount": "Konto verbinden",
         "selectProvider": "Provider auswählen...",
         "connect": "Verbinden",
+        "loadingStatus": "Kontoverbindung wird geprüft…",
+        "retryStatus": "Erneut versuchen",
         "noProvidersAvailable": "Keine OAuth-Provider verfügbar"
       },
       "dialog": {
@@ -4801,7 +4804,8 @@
         "initiate": "OAuth konnte nicht gestartet werden.",
         "enterCode": "Bitte gib den Autorisierungscode oder die Callback-URL ein",
         "missingFlowInfo": "Flow-Informationen fehlen",
-        "exchangeCode": "Code konnte nicht ausgetauscht werden"
+        "exchangeCode": "Code konnte nicht ausgetauscht werden",
+        "status": "Die Kontoverbindung konnte nicht geprüft werden. Versuche es erneut."
       }
     },
     "emailAccounts": {
@@ -4855,6 +4859,7 @@
         "eyebrow": "Konto verbinden",
         "chooseProviderTitle": "Wie möchtest du dein Konto verbinden?",
         "chooseProviderDescription": "Wähle zuerst den Verbindungstyp. Technische Details zeigen wir erst im nächsten Schritt.",
+        "manageSummary": "Konten verwalten",
         "connectionTitle": "Verbindung einrichten",
         "connectionDescription": "Vervollständige nur die Angaben, die für diesen Verbindungstyp benötigt werden.",
         "chooseProvider": "Auswählen",

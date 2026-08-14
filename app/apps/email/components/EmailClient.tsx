@@ -3161,6 +3161,10 @@ export function EmailClient({
             </div>
           </div>
         </section>
+        <Button type="button" className="self-start" onClick={() => setAccountsOpen(true)}>
+          <Mail className="mr-2 h-4 w-4" />
+          {t('connectAccount')}
+        </Button>
         <EmailAccountsCard
           isOpen={accountsOpen}
           onOpenChange={setAccountsOpen}
@@ -3594,28 +3598,12 @@ export function EmailClient({
               <DialogTitle className="text-base leading-6">{t('manageAccounts')}</DialogTitle>
               <DialogDescription className="text-xs leading-5 sm:text-sm">{t('manageAccountsDescription')}</DialogDescription>
             </DialogHeader>
-            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-3 py-3 sm:px-5">
-              <section className="border border-border bg-muted/25 px-3 py-3">
-                <label className="text-xs font-semibold uppercase tracking-[0.14em] text-muted-foreground" htmlFor="email-account-switcher">
-                  {t('accountLabel')}
-                </label>
-                <select
-                  id="email-account-switcher"
-                  className="mt-2 h-10 w-full min-w-0 border border-input bg-background px-3 text-sm"
-                  value={activeAccountId}
-                  onChange={(event) => selectAccount(event.target.value)}
-                >
-                  {accounts.map((account) => (
-                    <option key={account.id} value={account.id}>
-                      {account.isPrimary ? `${account.emailAddress} (${t('mainEmail')})` : account.emailAddress}
-                    </option>
-                  ))}
-                </select>
-              </section>
+            <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5">
               <EmailAccountsCard
                 isOpen={true}
                 onOpenChange={() => undefined}
                 onAccountsChanged={loadAccounts}
+                presentation="dialog"
                 onPreviewPreferencesChanged={(preferences) => {
                   setEmailAllowRemoteImages(preferences.emailAllowRemoteImages);
                   setEmailRemoteImageAllowedSenders(preferences.emailRemoteImageAllowedSenders || []);

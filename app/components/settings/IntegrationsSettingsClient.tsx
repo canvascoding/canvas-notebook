@@ -1338,11 +1338,13 @@ export function EmailAccountsCard({
   onOpenChange,
   onAccountsChanged,
   onPreviewPreferencesChanged,
+  presentation = 'settings',
 }: {
   isOpen: boolean;
   onOpenChange: (isOpen: boolean) => void;
   onAccountsChanged?: () => void | Promise<void>;
   onPreviewPreferencesChanged?: (preferences: EmailPreviewPreferences) => void;
+  presentation?: 'settings' | 'dialog';
 }) {
   const t = useTranslations('settings.emailAccounts');
   const searchParams = useSearchParams();
@@ -1491,20 +1493,23 @@ export function EmailAccountsCard({
   }, []);
 
   useEffect(() => {
+    if (!isOpen) return;
     const timeout = window.setTimeout(() => {
       void loadAccounts();
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [loadAccounts]);
+  }, [isOpen, loadAccounts]);
 
   useEffect(() => {
+    if (!isOpen) return;
     const timeout = window.setTimeout(() => {
       void loadPreviewPreferences();
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [loadPreviewPreferences]);
+  }, [isOpen, loadPreviewPreferences]);
 
   useEffect(() => {
+    if (!isOpen) return;
     const timeout = window.setTimeout(() => {
       if (emailMode === 'local') {
         void loadOAuthEnv();
@@ -1521,7 +1526,7 @@ export function EmailAccountsCard({
       }
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [emailMode, loadOAuthEnv]);
+  }, [emailMode, isOpen, loadOAuthEnv]);
 
   useEffect(() => {
     if (handledEmailOAuthReturn.current) return;
@@ -1530,6 +1535,7 @@ export function EmailAccountsCard({
     if (emailOAuthStatus === 'connected') {
       handledEmailOAuthReturn.current = true;
       const timeout = window.setTimeout(() => {
+        onOpenChange(true);
         setMessage(t('messages.accountConnected'));
         setError(null);
         void reloadAccountsAfterChange();
@@ -1546,7 +1552,7 @@ export function EmailAccountsCard({
       }, 0);
       return () => window.clearTimeout(timeout);
     }
-  }, [clearEmailOAuthParams, reloadAccountsAfterChange, searchParams, t]);
+  }, [clearEmailOAuthParams, onOpenChange, reloadAccountsAfterChange, searchParams, t]);
 
   const persistOAuthProvider = async (provider: 'google' | 'microsoft') => {
     const keys = provider === 'google'
@@ -1829,7 +1835,7 @@ export function EmailAccountsCard({
     return status;
   };
   const summaryItems = [
-    isLoading ? t('loadingSummary') : t('summary', { count: accounts.length }),
+    isLoading ? t('loadingSummary') : isOpen ? t('summary', { count: accounts.length }) : t('setup.manageSummary'),
     error ? t('errorSummary') : null,
   ].filter((item): item is string => Boolean(item));
 
@@ -1841,7 +1847,9 @@ export function EmailAccountsCard({
       isOpen={isOpen}
       onOpenChange={onOpenChange}
       summaryItems={summaryItems}
-      contentClassName="space-y-4"
+      hideHeader={presentation === 'dialog'}
+      cardClassName={presentation === 'dialog' ? 'border-0 bg-transparent shadow-none' : undefined}
+      contentClassName={presentation === 'dialog' ? 'space-y-4 p-0' : 'space-y-4'}
     >
         <div className="flex flex-wrap justify-end gap-2">
           {hasConnectedEmailAccount && (
