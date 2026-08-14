@@ -1181,6 +1181,25 @@ li.task-list-item > p {
   row-gap: 0.25rem;
 }
 
+.tiptap-desktop-editor-toolbar.tiptap-markdown-format-toolbar {
+  container-type: inline-size;
+  flex-wrap: nowrap;
+  height: 2.25rem;
+  min-height: 2.25rem;
+  overflow: hidden;
+  row-gap: 0;
+}
+
+.tiptap-toolbar-secondary-inline {
+  display: none;
+}
+
+@container (min-width: 900px) {
+  .tiptap-toolbar-secondary-inline {
+    display: contents;
+  }
+}
+
 .tiptap-mobile-toolbar {
   align-items: center;
   backdrop-filter: blur(18px);

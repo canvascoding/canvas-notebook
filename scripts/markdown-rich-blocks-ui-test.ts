@@ -83,6 +83,49 @@ assert.match(
   /toggleCanvasHighlight\(\)/u,
   'highlight must be directly available in the desktop and mobile editing controls',
 );
+for (const testId of [
+  'markdown-toolbar-text-style',
+  'markdown-toolbar-lists',
+  'markdown-toolbar-blocks',
+  'markdown-toolbar-insert',
+  'markdown-toolbar-formula',
+]) {
+  assert.match(
+    editorSource,
+    new RegExp(`testId="${testId}"`, 'u'),
+    `${testId} must provide progressive disclosure for related editor actions`,
+  );
+}
+assert.match(
+  editorSource,
+  /tiptap-toolbar-secondary-inline[\s\S]*?toggleCanvasHighlight\(\)/u,
+  'secondary inline formatting must collapse into a More menu before the toolbar overflows',
+);
+assert.match(
+  editorSource,
+  /tiptap-markdown-format-toolbar/u,
+  'the format toolbar must opt into container-responsive disclosure',
+);
+assert.match(
+  editorStyles,
+  /\.tiptap-desktop-editor-toolbar\.tiptap-markdown-format-toolbar\s*\{[\s\S]*?container-type:\s*inline-size;[\s\S]*?flex-wrap:\s*nowrap;/u,
+  'the format toolbar must stay on one row based on its own available width',
+);
+assert.match(
+  editorStyles,
+  /@container\s*\(min-width:\s*900px\)[\s\S]*?\.tiptap-toolbar-secondary-inline\s*\{[\s\S]*?display:\s*contents;/u,
+  'secondary inline formatting must only expand when the editor pane has enough room',
+);
+assert.match(
+  editorSource,
+  /markdown-toolbar-more[\s\S]*?markdownEditorEditAsText/u,
+  'the source-mode switch must remain available from the compact More menu',
+);
+assert.match(
+  editorSource,
+  /Tabs\s*[\s\S]*?value=\{mathKind\}[\s\S]*?<TabsTrigger value="inlineMath"[\s\S]*?<TabsTrigger value="blockMath"/u,
+  'the formula dialog must let users choose inline or block math from one tab selector',
+);
 assert.match(
   editorSource,
   /MOBILE_BLOCK_COMMAND_IDS[\s\S]*?'callout'[\s\S]*?'details'[\s\S]*?'footnote'/u,

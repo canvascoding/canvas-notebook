@@ -36,6 +36,7 @@ import {
   AtSign,
   Bold,
   BadgeInfo,
+  Check,
   ChevronLeft,
   ChevronDown,
   ChevronUp,
@@ -56,11 +57,13 @@ import {
   Italic,
   Keyboard,
   Link as LinkIcon,
+  Layers,
   List,
   ListChecks,
   ListCollapse,
   ListOrdered,
   Minus,
+  MoreHorizontal,
   Plus,
   Pencil,
   Quote,
@@ -84,6 +87,14 @@ import { toast } from 'sonner';
 
 import { Button } from '@/components/ui/button';
 import { Command, CommandEmpty, CommandGroup, CommandItem, CommandList } from '@/components/ui/command';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import {
   Dialog,
   DialogContent,
@@ -634,6 +645,69 @@ function TooltipIconButton({
 
 function ToolbarDivider() {
   return <span aria-hidden="true" className="mx-1 h-5 w-px shrink-0 bg-border" />;
+}
+
+type ToolbarDropdownTriggerProps = {
+  active?: boolean;
+  children: React.ReactNode;
+  label: string;
+  testId?: string;
+} & Omit<React.ComponentPropsWithoutRef<typeof Button>, 'aria-label' | 'children' | 'size' | 'type' | 'variant'>;
+
+const ToolbarDropdownTrigger = React.forwardRef<HTMLButtonElement, ToolbarDropdownTriggerProps>(function ToolbarDropdownTrigger({
+  active = false,
+  children,
+  className,
+  disabled = false,
+  label,
+  testId,
+  ...triggerProps
+}, ref) {
+  return (
+    <Button
+      ref={ref}
+      type="button"
+      variant={active ? 'secondary' : 'ghost'}
+      size="sm"
+      className={cn('h-7 shrink-0 gap-1.5 px-2 text-xs font-medium', className)}
+      aria-label={label}
+      title={label}
+      data-testid={testId}
+      disabled={disabled}
+      {...triggerProps}
+    >
+      {children}
+      <ChevronDown className="size-3.5 text-muted-foreground" />
+    </Button>
+  );
+});
+
+ToolbarDropdownTrigger.displayName = 'ToolbarDropdownTrigger';
+
+function ToolbarDropdownItem({
+  active = false,
+  disabled = false,
+  Icon,
+  label,
+  onSelect,
+}: {
+  active?: boolean;
+  disabled?: boolean;
+  Icon: React.ComponentType<{ className?: string }>;
+  label: string;
+  onSelect: () => void;
+}) {
+  return (
+    <DropdownMenuItem
+      className={cn('min-w-48', active && 'bg-accent text-accent-foreground')}
+      disabled={disabled}
+      onSelect={onSelect}
+    >
+      <Icon className="size-4" />
+      <span>{label}</span>
+      {active ? <Check className="ml-auto size-3.5" /> : null}
+    </DropdownMenuItem>
+  );
 }
 
 function MarkdownDocumentStatus({
@@ -3406,15 +3480,18 @@ function MarkdownRichBlockDialog({
   const [detailsOpen, setDetailsOpen] = useState(Boolean(seed.initialOpen));
   const [error, setError] = useState<string | null>(null);
   const isMath = seed.kind === 'inlineMath' || seed.kind === 'blockMath';
-  const dialogTitle = seed.kind === 'callout'
+  const [mathKind, setMathKind] = useState<Extract<RichBlockKind, 'inlineMath' | 'blockMath'>>(
+    seed.kind === 'blockMath' ? 'blockMath' : 'inlineMath',
+  );
+  const dialogTitle = isMath
+    ? t('markdownEditorFormulaDialogTitle')
+    : seed.kind === 'callout'
     ? t('markdownEditorCalloutDialogTitle')
     : seed.kind === 'details'
       ? t('markdownEditorDetailsDialogTitle')
       : seed.kind === 'footnote'
         ? t('markdownEditorFootnoteDialogTitle')
-        : seed.kind === 'inlineMath'
-          ? t('markdownEditorInlineMathDialogTitle')
-          : t('markdownEditorBlockMathDialogTitle');
+        : t('markdownEditorFormulaDialogTitle');
   const dialogDescription = seed.kind === 'callout'
     ? t('markdownEditorCalloutDialogDescription')
     : seed.kind === 'details'
@@ -3454,9 +3531,9 @@ function MarkdownRichBlockDialog({
     } else if (seed.kind === 'footnote') {
       onSubmit({ kind: 'footnote', content: nextContent });
     } else {
-      onSubmit({ kind: seed.kind, latex: nextLatex });
+      onSubmit({ kind: mathKind, latex: nextLatex });
     }
-  }, [calloutType, content, detailsOpen, isMath, latex, onSubmit, seed.kind, t, title]);
+  }, [calloutType, content, detailsOpen, isMath, latex, mathKind, onSubmit, seed.kind, t, title]);
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
@@ -3569,30 +3646,51 @@ function MarkdownRichBlockDialog({
           ) : null}
 
           {isMath ? (
-            <>
+            <Tabs
+              value={mathKind}
+              onValueChange={(value) => {
+                if (value === 'inlineMath' || value === 'blockMath') setMathKind(value);
+              }}
+              className="gap-4"
+            >
               <div className="grid gap-2">
-                <Label htmlFor="markdown-latex">{t('markdownEditorLatexLabel')}</Label>
-                <Textarea
-                  autoFocus
-                  id="markdown-latex"
-                  value={latex}
-                  className="min-h-24 font-mono"
-                  placeholder={String.raw`E = mc^2`}
-                  spellCheck={false}
-                  onChange={(event) => setLatex(event.target.value)}
-                  onKeyDown={(event) => {
-                    if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
-                      event.preventDefault();
-                      submit();
-                    }
-                  }}
-                />
+                <Label>{t('markdownEditorFormulaType')}</Label>
+                <TabsList className="grid w-full grid-cols-2">
+                  <TabsTrigger value="inlineMath" disabled={seed.nodePosition !== undefined && seed.kind !== 'inlineMath'}>
+                    <Sigma />
+                    {t('markdownEditorInlineMathDialogTitle')}
+                  </TabsTrigger>
+                  <TabsTrigger value="blockMath" disabled={seed.nodePosition !== undefined && seed.kind !== 'blockMath'}>
+                    <SquareSigma />
+                    {t('markdownEditorBlockMathDialogTitle')}
+                  </TabsTrigger>
+                </TabsList>
               </div>
-              <div className="grid gap-2">
-                <Label>{t('markdownEditorMathPreview')}</Label>
-                <MarkdownLatexPreview latex={latex} displayMode={seed.kind === 'blockMath'} />
-              </div>
-            </>
+              <TabsContent value={mathKind} className="mt-0 grid gap-5">
+                <div className="grid gap-2">
+                  <Label htmlFor="markdown-latex">{t('markdownEditorLatexLabel')}</Label>
+                  <Textarea
+                    autoFocus
+                    id="markdown-latex"
+                    value={latex}
+                    className="min-h-24 font-mono"
+                    placeholder={String.raw`E = mc^2`}
+                    spellCheck={false}
+                    onChange={(event) => setLatex(event.target.value)}
+                    onKeyDown={(event) => {
+                      if ((event.metaKey || event.ctrlKey) && event.key === 'Enter') {
+                        event.preventDefault();
+                        submit();
+                      }
+                    }}
+                  />
+                </div>
+                <div className="grid gap-2">
+                  <Label>{t('markdownEditorMathPreview')}</Label>
+                  <MarkdownLatexPreview latex={latex} displayMode={mathKind === 'blockMath'} />
+                </div>
+              </TabsContent>
+            </Tabs>
           ) : null}
 
           {error ? <p role="alert" className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</p> : null}
@@ -3833,9 +3931,22 @@ function MarkdownToolbar({
     };
   }, [editor, openLinkPopoverFromSelection]);
 
+  const activeTextStyle = toolbarState.isHeading1
+    ? labels.items.heading1.title
+    : toolbarState.isHeading2
+      ? labels.items.heading2.title
+      : toolbarState.isHeading3
+        ? labels.items.heading3.title
+        : labels.items.text.title;
+
   return (
     <TooltipProvider>
-      <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-background px-2 md:flex">
+      <div
+        className="tiptap-desktop-editor-toolbar tiptap-markdown-format-toolbar hidden h-9 shrink-0 items-center gap-1 border-b border-border bg-background px-2 md:flex"
+        role="toolbar"
+        aria-label={t('markdownEditorToolbar')}
+        data-testid="markdown-desktop-toolbar"
+      >
         <TooltipIconButton
           label="Undo"
           disabled={!canUseCommands || !toolbarState.canUndo}
@@ -3853,6 +3964,47 @@ function MarkdownToolbar({
 
         <ToolbarDivider />
 
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ToolbarDropdownTrigger label={t('markdownEditorToolbarTextStyle')} disabled={!canUseCommands} active={toolbarState.isHeading1 || toolbarState.isHeading2 || toolbarState.isHeading3} testId="markdown-toolbar-text-style">
+              <Type className="size-4" />
+              <span className="max-w-24 truncate">{activeTextStyle}</span>
+            </ToolbarDropdownTrigger>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>{t('markdownEditorToolbarTextStyle')}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <ToolbarDropdownItem
+              Icon={Type}
+              label={labels.items.text.title}
+              active={!toolbarState.isHeading1 && !toolbarState.isHeading2 && !toolbarState.isHeading3}
+              disabled={!canUseCommands}
+              onSelect={() => editor?.chain().focus().setParagraph().run()}
+            />
+            <ToolbarDropdownItem
+              Icon={Heading1}
+              label={labels.items.heading1.title}
+              active={toolbarState.isHeading1}
+              disabled={!canUseCommands}
+              onSelect={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+            />
+            <ToolbarDropdownItem
+              Icon={Heading2}
+              label={labels.items.heading2.title}
+              active={toolbarState.isHeading2}
+              disabled={!canUseCommands}
+              onSelect={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+            />
+            <ToolbarDropdownItem
+              Icon={Heading3}
+              label={labels.items.heading3.title}
+              active={toolbarState.isHeading3}
+              disabled={!canUseCommands}
+              onSelect={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
+            />
+          </DropdownMenuContent>
+        </DropdownMenu>
+
         <TooltipIconButton
           label="Bold"
           active={toolbarState.isBold}
@@ -3869,191 +4021,118 @@ function MarkdownToolbar({
         >
           <Italic />
         </TooltipIconButton>
-        <TooltipIconButton
-          label="Strike"
-          active={toolbarState.isStrike}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleStrike().run()}
-        >
-          <Strikethrough />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={labels.items.highlight.title}
-          active={toolbarState.isHighlight}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleCanvasHighlight().run()}
-        >
-          <Highlighter />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label="Inline code"
-          active={toolbarState.isCode}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleCode().run()}
-        >
-          <Code />
-        </TooltipIconButton>
 
-        <ToolbarDivider />
+        <div className="tiptap-toolbar-secondary-inline">
+          <TooltipIconButton
+            label="Strike"
+            active={toolbarState.isStrike}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().toggleStrike().run()}
+          >
+            <Strikethrough />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label={labels.items.highlight.title}
+            active={toolbarState.isHighlight}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().toggleCanvasHighlight().run()}
+          >
+            <Highlighter />
+          </TooltipIconButton>
+          <TooltipIconButton
+            label="Inline code"
+            active={toolbarState.isCode}
+            disabled={!canUseCommands}
+            onClick={() => editor?.chain().focus().toggleCode().run()}
+          >
+            <Code />
+          </TooltipIconButton>
+        </div>
 
-        <TooltipIconButton
-          label="Heading 1"
-          active={toolbarState.isHeading1}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-        >
-          <Heading1 />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label="Heading 2"
-          active={toolbarState.isHeading2}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-        >
-          <Heading2 />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label="Heading 3"
-          active={toolbarState.isHeading3}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
-        >
-          <Heading3 />
-        </TooltipIconButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ToolbarDropdownTrigger label={t('markdownEditorToolbarLists')} disabled={!canUseCommands} active={toolbarState.isBulletList || toolbarState.isOrderedList || toolbarState.isTaskList} testId="markdown-toolbar-lists">
+              <List className="size-4" />
+            </ToolbarDropdownTrigger>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>{t('markdownEditorToolbarLists')}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <ToolbarDropdownItem Icon={List} label={labels.items.bulletList.title} active={toolbarState.isBulletList} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleBulletList().run()} />
+            <ToolbarDropdownItem Icon={ListOrdered} label={labels.items.numberedList.title} active={toolbarState.isOrderedList} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleOrderedList().run()} />
+            <ToolbarDropdownItem Icon={ListChecks} label={labels.items.taskList.title} active={toolbarState.isTaskList} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleTaskList().run()} />
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        <ToolbarDivider />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ToolbarDropdownTrigger label={t('markdownEditorToolbarBlocks')} disabled={!canUseCommands} active={toolbarState.isBlockquote || toolbarState.isCallout || toolbarState.isDetails || toolbarState.isCodeBlock} testId="markdown-toolbar-blocks">
+              <Layers className="size-4" />
+            </ToolbarDropdownTrigger>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>{t('markdownEditorToolbarBlocks')}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <ToolbarDropdownItem Icon={Quote} label={labels.items.quote.title} active={toolbarState.isBlockquote} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleBlockquote().run()} />
+            <ToolbarDropdownItem Icon={BadgeInfo} label={labels.items.callout.title} active={toolbarState.isCallout} disabled={!canUseCommands} onSelect={insertCallout} />
+            <ToolbarDropdownItem Icon={ListCollapse} label={labels.items.details.title} active={toolbarState.isDetails} disabled={!canUseCommands} onSelect={insertDetails} />
+            <ToolbarDropdownItem Icon={Superscript} label={labels.items.footnote.title} disabled={!canUseCommands} onSelect={insertFootnote} />
+            <ToolbarDropdownItem Icon={Code2} label={labels.items.codeBlock.title} active={toolbarState.isCodeBlock} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleCodeBlock().run()} />
+            <ToolbarDropdownItem Icon={Minus} label={labels.items.divider.title} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().setHorizontalRule().run()} />
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        <TooltipIconButton
-          label="Bullet list"
-          active={toolbarState.isBulletList}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleBulletList().run()}
-        >
-          <List />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label="Ordered list"
-          active={toolbarState.isOrderedList}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleOrderedList().run()}
-        >
-          <ListOrdered />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label="Task list"
-          active={toolbarState.isTaskList}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleTaskList().run()}
-        >
-          <ListChecks />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label="Quote"
-          active={toolbarState.isBlockquote}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleBlockquote().run()}
-        >
-          <Quote />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={labels.items.callout.title}
-          active={toolbarState.isCallout}
-          disabled={!canUseCommands}
-          onClick={insertCallout}
-        >
-          <BadgeInfo />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={labels.items.details.title}
-          active={toolbarState.isDetails}
-          disabled={!canUseCommands}
-          onClick={insertDetails}
-        >
-          <ListCollapse />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={labels.items.footnote.title}
-          disabled={!canUseCommands}
-          onClick={insertFootnote}
-        >
-          <Superscript />
-        </TooltipIconButton>
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ToolbarDropdownTrigger label={t('markdownEditorToolbarInsert')} disabled={!canUseCommands} active={toolbarState.isLink} testId="markdown-toolbar-insert">
+              <Plus className="size-4" />
+            </ToolbarDropdownTrigger>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>{t('markdownEditorToolbarInsert')}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <ToolbarDropdownItem Icon={LinkIcon} label="Link" active={toolbarState.isLink} disabled={!canUseCommands} onSelect={openToolbarLinkDialog} />
+            <ToolbarDropdownItem Icon={ImageIcon} label={labels.items.image.title} disabled={!canUseCommands} onSelect={() => onImageDialogOpenChange(true, getCurrentToolbarRange())} />
+            <ToolbarDropdownItem Icon={Table2} label={labels.items.table.title} disabled={!canUseCommands} onSelect={() => onOpenTableDialog(getCurrentToolbarRange())} />
+            <ToolbarDropdownItem Icon={SmilePlus} label={labels.items.emoji.title} disabled={!canUseCommands} onSelect={() => onOpenEmojiDialog(getCurrentToolbarRange())} />
+            <ToolbarDropdownItem Icon={AtSign} label={labels.items.mention.title} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().insertContent('@').run()} />
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        <ToolbarDivider />
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ToolbarDropdownTrigger label={t('markdownEditorToolbarFormula')} disabled={!canUseCommands} testId="markdown-toolbar-formula">
+              <Sigma className="size-4" />
+            </ToolbarDropdownTrigger>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>{t('markdownEditorToolbarFormula')}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <ToolbarDropdownItem Icon={Sigma} label={labels.items.inlineMath.title} disabled={!canUseCommands} onSelect={() => insertMath('inline')} />
+            <ToolbarDropdownItem Icon={SquareSigma} label={labels.items.blockMath.title} disabled={!canUseCommands} onSelect={() => insertMath('block')} />
+          </DropdownMenuContent>
+        </DropdownMenu>
 
-        <TooltipIconButton
-          label="Link"
-          active={toolbarState.isLink}
-          disabled={!canUseCommands}
-          onClick={openToolbarLinkDialog}
-        >
-          <LinkIcon />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={t('markdownEditorImageDialogTitle')}
-          disabled={!canUseCommands}
-          onClick={() => onImageDialogOpenChange(true, getCurrentToolbarRange())}
-        >
-          <ImageIcon />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={labels.items.emoji.title}
-          disabled={!canUseCommands}
-          onClick={() => onOpenEmojiDialog(getCurrentToolbarRange())}
-        >
-          <SmilePlus />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={labels.items.mention.title}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().insertContent('@').run()}
-        >
-          <AtSign />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={t('markdownEditorTableInsert')}
-          disabled={!canUseCommands}
-          onClick={() => onOpenTableDialog(getCurrentToolbarRange())}
-        >
-          <Table2 />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label="Code block"
-          active={toolbarState.isCodeBlock}
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().toggleCodeBlock().run()}
-        >
-          <Code2 />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={labels.items.inlineMath.title}
-          disabled={!canUseCommands}
-          onClick={() => insertMath('inline')}
-        >
-          <Sigma />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label={labels.items.blockMath.title}
-          disabled={!canUseCommands}
-          onClick={() => insertMath('block')}
-        >
-          <SquareSigma />
-        </TooltipIconButton>
-        <TooltipIconButton
-          label="Horizontal rule"
-          disabled={!canUseCommands}
-          onClick={() => editor?.chain().focus().setHorizontalRule().run()}
-        >
-          <Minus />
-        </TooltipIconButton>
-
-        {showSourceModeSwitch ? (
-          <div className="ml-auto shrink-0">
-            <TooltipIconButton label={t('markdownEditorEditAsText')} onClick={onSourceMode}>
-              <Code2 />
-            </TooltipIconButton>
-          </div>
-        ) : null}
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <ToolbarDropdownTrigger label={t('markdownEditorToolbarMore')} disabled={!canUseCommands} testId="markdown-toolbar-more">
+              <MoreHorizontal className="size-4" />
+            </ToolbarDropdownTrigger>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="start">
+            <DropdownMenuLabel>{t('markdownEditorToolbarMore')}</DropdownMenuLabel>
+            <DropdownMenuSeparator />
+            <ToolbarDropdownItem Icon={Strikethrough} label="Strike" active={toolbarState.isStrike} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleStrike().run()} />
+            <ToolbarDropdownItem Icon={Highlighter} label={labels.items.highlight.title} active={toolbarState.isHighlight} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleCanvasHighlight().run()} />
+            <ToolbarDropdownItem Icon={Code} label="Inline code" active={toolbarState.isCode} disabled={!canUseCommands} onSelect={() => editor?.chain().focus().toggleCode().run()} />
+            {showSourceModeSwitch ? (
+              <>
+                <DropdownMenuSeparator />
+                <ToolbarDropdownItem Icon={Code2} label={t('markdownEditorEditAsText')} onSelect={onSourceMode} />
+              </>
+            ) : null}
+          </DropdownMenuContent>
+        </DropdownMenu>
       </div>
       {toolbarState.isTable ? (
         <div className="tiptap-desktop-editor-toolbar hidden h-9 shrink-0 items-center gap-1 overflow-x-auto border-b border-border bg-muted/30 px-2 md:flex">
