@@ -7,7 +7,21 @@ import { agents, piSessions } from '@/app/lib/db/schema';
 import { deletePiSessionsByDbIds } from '@/app/lib/pi/session-deletion';
 import type { PiThinkingLevel } from '@/app/lib/pi/config';
 import { DEFAULT_AGENT_ICON_ID, normalizeAgentIconId, type AgentIconId } from './icons';
-import { DEFAULT_MANAGED_AGENT_ID } from './storage';
+import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID, SYSTEM_MANAGED_AGENT_IDS } from './storage';
+
+export { EMAIL_MANAGED_AGENT_ID } from './storage';
+
+const EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
+  'email_list_accounts',
+  'email_search',
+  'email_read',
+  'email_create_draft',
+  'email_update_draft',
+];
+
+function isSystemManagedAgentId(agentId: string): boolean {
+  return (SYSTEM_MANAGED_AGENT_IDS as readonly string[]).includes(agentId);
+}
 
 export type AgentProfile = {
   id: number;
@@ -101,7 +115,7 @@ function mapAgent(row: typeof agents.$inferSelect): AgentProfile {
     enabledTools: parseEnabledTools(row.enabledToolsJson),
     relevantSkills: parseStringList(row.relevantSkillsJson),
     relevantConnections: parseStringList(row.relevantConnectionsJson),
-    scopeType: row.type === 'main'
+    scopeType: row.scopeType === 'system' || isSystemManagedAgentId(row.agentId)
       ? 'system'
       : row.scopeType === 'organization'
         ? 'organization'
@@ -189,8 +203,33 @@ export async function ensureCanvasAgent(): Promise<AgentProfile> {
   return mapAgent(row);
 }
 
+export async function ensureEmailAgent(): Promise<AgentProfile> {
+  const now = new Date();
+  await db
+    .insert(agents)
+    .values({
+      agentId: EMAIL_MANAGED_AGENT_ID,
+      name: 'Email Agent',
+      iconId: 'messages',
+      type: 'special',
+      removable: false,
+      enabledToolsJson: JSON.stringify(EMAIL_AGENT_DEFAULT_ENABLED_TOOLS),
+      scopeType: 'system',
+      revision: 1,
+      createdAt: now,
+      updatedAt: now,
+    })
+    .onConflictDoNothing();
+
+  const row = await db.query.agents.findFirst({
+    where: eq(agents.agentId, EMAIL_MANAGED_AGENT_ID),
+  });
+  if (!row) throw new Error('Email Agent could not be loaded.');
+  return mapAgent(row);
+}
+
 export async function listAgentProfiles(): Promise<AgentProfile[]> {
-  await ensureCanvasAgent();
+  await Promise.all([ensureCanvasAgent(), ensureEmailAgent()]);
   const rows = await db.select().from(agents).orderBy(asc(agents.type), asc(agents.name), asc(agents.createdAt));
   return rows.map(mapAgent);
 }
@@ -199,6 +238,9 @@ export async function getAgentProfile(agentId?: string | null): Promise<AgentPro
   const normalizedAgentId = normalizeManagedAgentId(agentId);
   if (normalizedAgentId === DEFAULT_MANAGED_AGENT_ID) {
     return ensureCanvasAgent();
+  }
+  if (normalizedAgentId === EMAIL_MANAGED_AGENT_ID) {
+    return ensureEmailAgent();
   }
 
   const row = await db.query.agents.findFirst({
@@ -240,8 +282,8 @@ export async function createAgentProfile(input: {
   }
 
   const agentId = normalizeManagedAgentId(input.agentId || slugifyAgentId(name));
-  if (agentId === DEFAULT_MANAGED_AGENT_ID) {
-    throw new Error('Canvas Agent already exists and cannot be recreated.');
+  if (isSystemManagedAgentId(agentId)) {
+    throw new Error('Built-in agents cannot be recreated.');
   }
 
   const agentDefault = normalizeAgentDefaultTuple(input);
@@ -332,15 +374,16 @@ export async function updateAgentProfile(input: {
       })
     : null;
 
-  const nextScopeType = input.scopeType ?? (existing.scopeType === 'system' ? 'user' : existing.scopeType);
+  const isSystemAgent = isSystemManagedAgentId(existing.agentId);
+  const nextScopeType = isSystemAgent ? 'system' : (input.scopeType ?? existing.scopeType);
   const nextOrganizationId = input.organizationId === undefined
     ? existing.organizationId
     : input.organizationId?.trim() || null;
   const nextOwnerUserId = input.ownerUserId === undefined
     ? existing.ownerUserId
     : input.ownerUserId?.trim() || null;
-  if (existing.type === 'main' && input.scopeType !== undefined) {
-    throw new Error('Canvas Agent scope cannot be changed.');
+  if (isSystemAgent && input.scopeType !== undefined) {
+    throw new Error('Built-in agent scope cannot be changed.');
   }
   if (nextScopeType === 'organization' && !nextOrganizationId) {
     throw new Error('organizationId is required for an organization agent.');
@@ -362,9 +405,9 @@ export async function updateAgentProfile(input: {
       enabledToolsJson: input.enabledTools === undefined ? stringifyEnabledTools(existing.enabledTools) : stringifyEnabledTools(input.enabledTools),
       relevantSkillsJson: input.relevantSkills === undefined ? stringifyStringList(existing.relevantSkills) : stringifyStringList(input.relevantSkills),
       relevantConnectionsJson: input.relevantConnections === undefined ? stringifyStringList(existing.relevantConnections) : stringifyStringList(input.relevantConnections),
-      scopeType: existing.type === 'main' ? 'system' : nextScopeType,
-      organizationId: existing.type === 'main' ? null : nextOrganizationId,
-      ownerUserId: existing.type === 'main' ? null : nextOwnerUserId,
+      scopeType: isSystemAgent ? 'system' : nextScopeType,
+      organizationId: isSystemAgent ? null : nextOrganizationId,
+      ownerUserId: isSystemAgent ? null : nextOwnerUserId,
       revision: sql`${agents.revision} + 1`,
       updatedAt: new Date(),
     })
@@ -392,7 +435,7 @@ export async function deleteAgentProfile(agentIdInput: string, expectedRevision?
     throw new Error('Agent not found.');
   }
   if (!existing.removable) {
-    throw new Error('Canvas Agent cannot be removed.');
+    throw new Error('Built-in agents cannot be removed.');
   }
   if (expectedRevision !== undefined && expectedRevision !== existing.revision) {
     throw new AgentRevisionConflictError(existing.revision);

@@ -25,6 +25,8 @@ import {
 export const AGENT_STORAGE_DIR = resolveAgentStorageDir();
 export const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
 export const DEFAULT_MANAGED_AGENT_ID = 'canvas-agent';
+export const EMAIL_MANAGED_AGENT_ID = 'email-agent';
+export const SYSTEM_MANAGED_AGENT_IDS = [DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID] as const;
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
 export const PI_RUNTIME_CONFIG_PATH = resolveSettingsStoragePath(PI_RUNTIME_CONFIG_FILE);
 const LEGACY_HEARTBEAT_FILE_NAME = 'HEARTBEAT.md' as const;
@@ -50,14 +52,20 @@ export type AgentStorageScope = {
 const SEED_SYS_PROMPTS_DIR = path.join(process.cwd(), 'seed_sys_prompts');
 
 // Helper to read seed file content
-async function readSeedFile(fileName: string): Promise<string | null> {
-  const seedPath = path.join(SEED_SYS_PROMPTS_DIR, fileName);
-  try {
-    return await fs.readFile(seedPath, 'utf8');
-  } catch {
-    console.warn(`[storage] Seed file not found: ${seedPath}`);
-    return null;
+async function readSeedFile(fileName: string, agentId?: string | null): Promise<string | null> {
+  const normalizedAgentId = normalizeManagedAgentId(agentId);
+  const candidatePaths = normalizedAgentId === EMAIL_MANAGED_AGENT_ID
+    ? [path.join(SEED_SYS_PROMPTS_DIR, EMAIL_MANAGED_AGENT_ID, fileName), path.join(SEED_SYS_PROMPTS_DIR, fileName)]
+    : [path.join(SEED_SYS_PROMPTS_DIR, fileName)];
+  for (const seedPath of candidatePaths) {
+    try {
+      return await fs.readFile(seedPath, 'utf8');
+    } catch {
+      // Try the generic seed when this is a specialized agent.
+    }
   }
+  console.warn(`[storage] Seed file not found: ${candidatePaths[0]}`);
+  return null;
 }
 
 export type AgentConfigReadiness = {
@@ -247,6 +255,9 @@ function resolveAgentStorageRootForScope(
   scope?: AgentStorageScope | null,
 ): string {
   const normalizedAgentId = normalizeManagedAgentId(agentId);
+  if (normalizedAgentId === EMAIL_MANAGED_AGENT_ID) {
+    return AGENTS_STORAGE_ROOT;
+  }
   if (normalizedAgentId !== DEFAULT_MANAGED_AGENT_ID && scope?.agentScopeType === 'organization') {
     const organizationId = scope.organizationId?.trim();
     if (!organizationId) {
@@ -388,7 +399,7 @@ export async function ensureAgentManagedFilesExist(agentId?: string | null, scop
     }
 
     // Read seed content and write if available
-    const seedContent = await readSeedFile(fileName);
+    const seedContent = await readSeedFile(fileName, agentId);
     if (seedContent !== null) {
       await writeTextAtomic(filePath, seedContent);
     }
@@ -447,7 +458,7 @@ export async function resetManagedAgentFile(
 ): Promise<string> {
   const filePath = resolveManagedFilePath(fileName, agentId, scope);
   await fs.mkdir(path.dirname(filePath), { recursive: true });
-  const seedContent = await readSeedFile(fileName);
+  const seedContent = await readSeedFile(fileName, agentId);
 
   await writeTextAtomic(filePath, seedContent ?? '');
   return (await readFileIfExists(filePath)) ?? '';

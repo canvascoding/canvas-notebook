@@ -8,6 +8,8 @@ import {
 } from '@/app/lib/organization/permissions';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
+import { agentAccessContextForWorkspace, getAgentAccess, type AgentAccessWorkspace } from '@/app/lib/agents/access';
+import { getAgentProfile, normalizeManagedAgentId } from '@/app/lib/agents/registry';
 
 import type {
   AutomationScope,
@@ -43,6 +45,26 @@ export class AutomationPolicyError extends Error {
     super(message);
     this.name = 'AutomationPolicyError';
   }
+}
+
+/**
+ * Email inbox automations always receive their narrowly scoped email tools at
+ * runtime. This check therefore validates the agent identity and its access to
+ * the selected workspace, rather than requiring generic email tools that would
+ * be unsafe in a normal chat session.
+ */
+export async function assertEmailAutomationAgentCompatible(input: {
+  userId: string;
+  agentId: string;
+  workspace: AgentAccessWorkspace;
+}): Promise<void> {
+  const agentId = normalizeManagedAgentId(input.agentId);
+  const [profile, access] = await Promise.all([
+    getAgentProfile(agentId),
+    getAgentAccess(input.userId, agentId, agentAccessContextForWorkspace(input.workspace)),
+  ]);
+  if (!profile) throw new AutomationPolicyError('The selected email automation agent no longer exists.');
+  if (!access.canUse) throw new AutomationPolicyError('The selected agent is not available in this workspace.');
 }
 
 function readStringField(record: Record<string, unknown>, key: string): string {

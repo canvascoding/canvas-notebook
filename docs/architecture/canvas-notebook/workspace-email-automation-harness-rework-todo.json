@@ -59,12 +59,18 @@
     {
       "id": "EAH-04",
       "title": "Eingebauten E-Mail-Agenten und Vorlagenprofil bereitstellen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": ["EAH-03"],
       "deliverables": [
         "Nicht loeschbarer, konfigurierbarer email-agent",
         "Voreingestellte Persona und Tool-Auswahl",
         "Kompatibilitaetspruefung fuer eigene Agenten"
+      ],
+      "verification": [
+        "npm run test:email:agent-profile",
+        "npm run lint",
+        "npx tsc --noEmit"
       ]
     },
     {

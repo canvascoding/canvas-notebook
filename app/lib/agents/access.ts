@@ -3,7 +3,7 @@ import 'server-only';
 import { openDb, type SqlConnection } from '@/app/lib/db';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
 import { listAgentProfiles, normalizeManagedAgentId } from '@/app/lib/agents/registry';
-import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import { SYSTEM_MANAGED_AGENT_IDS } from '@/app/lib/agents/storage';
 import type { WorkspaceContext } from '@/app/lib/workspaces/types';
 
 export type AgentAccess = {
@@ -139,8 +139,8 @@ async function assertSpecialAgent(database: SqlConnection, agentId: string): Pro
   if (!agent) {
     throw new AgentAccessError('AGENT_NOT_FOUND', 'Agent not found.', 404);
   }
-  if (agent.type === 'main') {
-    throw new AgentAccessError('AGENT_MEMBERS_UNSUPPORTED', 'Canvas Agent access is available to every user.', 403);
+  if (agent.type === 'main' || (SYSTEM_MANAGED_AGENT_IDS as readonly string[]).includes(agentId)) {
+    throw new AgentAccessError('AGENT_MEMBERS_UNSUPPORTED', 'Built-in agent access is available to every user.', 403);
   }
 }
 
@@ -150,7 +150,7 @@ export async function getAgentAccess(
   context: AgentAccessContext = {},
 ): Promise<AgentAccess> {
   const agentId = normalizeManagedAgentId(agentIdInput);
-  if (agentId === DEFAULT_MANAGED_AGENT_ID) return MAIN_AGENT_ACCESS;
+  if ((SYSTEM_MANAGED_AGENT_IDS as readonly string[]).includes(agentId)) return MAIN_AGENT_ACCESS;
 
   const database = await openDb();
   try {

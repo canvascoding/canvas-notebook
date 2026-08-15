@@ -18,6 +18,7 @@ import { computeNextRunAt, validateFriendlySchedule } from './schedule';
 import { generateAutomationWebhookSecret } from './webhook-secret';
 import {
   assertCanAccessAutomationJob,
+  assertEmailAutomationAgentCompatible,
   canAccessAutomationJob,
   getAutomationListAccess,
   resolveAutomationScopeForCreate,
@@ -893,6 +894,11 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
     await requireActiveWorkspaceMailboxForAutomation({
       emailAccountId: eventConfig.mailboxId,
       workspaceId: automationScope.workspaceId,
+    });
+    await assertEmailAutomationAgentCompatible({
+      userId,
+      agentId,
+      workspace: automationScope.workspace,
     });
   }
   const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
