@@ -8,7 +8,10 @@ import {
   resolveCapabilityStorageScope,
 } from '@/app/lib/capabilities/request-scope';
 import { readOrganizationPermissionForUser } from '@/app/lib/organization/permissions';
-import { listCanvasPlugins } from '@/app/lib/plugins/canvas-plugin-registry';
+import {
+  deduplicateCanvasPluginInstallRecords,
+  listCanvasPlugins,
+} from '@/app/lib/plugins/canvas-plugin-registry';
 
 export async function GET(request: NextRequest) {
   const session = await auth.api.getSession({ headers: await headers() });
@@ -67,6 +70,7 @@ export async function GET(request: NextRequest) {
           }];
         });
     }
+    plugins = deduplicateCanvasPluginInstallRecords(plugins, scope.scopeType);
     return NextResponse.json({
       success: true,
       plugins,

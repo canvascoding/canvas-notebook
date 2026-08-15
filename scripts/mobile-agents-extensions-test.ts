@@ -3,9 +3,9 @@ import { readFile } from 'node:fs/promises';
 import path from 'node:path';
 
 import { createMobileCompatibility } from '../app/lib/mobile/compatibility';
+import { deduplicateCanvasPluginInstallRecords } from '../app/lib/plugins/canvas-plugin-registry';
 import type { CanvasPluginStorePluginWithState } from '../app/lib/plugins/canvas-plugin-store';
 import {
-  deduplicateMobileInstalledPlugins,
   serializeMobileInstalledPlugin,
   serializeMobilePluginPreflight,
   serializeMobilePluginSummary,
@@ -41,6 +41,7 @@ async function main() {
   }
 
   const mobileRouteMarkers = new Map<string, string>([
+    ['app/api/plugins/route.ts', 'deduplicateCanvasPluginInstallRecords'],
     ['app/api/mobile/v1/extensions/plugins/route.ts', 'serializeMobileInstalledPlugin'],
     ['app/api/mobile/v1/extensions/plugins/[name]/route.ts', 'serializeMobileInstalledPluginDetail'],
     ['app/api/mobile/v1/extensions/plugins/store/route.ts', 'serializeMobilePluginSummary'],
@@ -118,7 +119,7 @@ async function main() {
   assert.equal('installDir' in installed, false);
   assert.equal('checksum' in installed, false);
   assert.equal(installed.icon.initials, 'SH');
-  const deduplicatedInstalled = deduplicateMobileInstalledPlugins([
+  const deduplicatedInstalled = deduplicateCanvasPluginInstallRecords([
     {
       ...storePlugin.installed.installedPlugin!,
       resourceId: 'organization-sales-helper',
@@ -135,7 +136,7 @@ async function main() {
       name: 'document-suite',
       scopeType: 'organization',
     },
-  ]);
+  ], 'user');
   assert.equal(deduplicatedInstalled.length, 2);
   assert.equal(deduplicatedInstalled[1]?.name, 'sales-helper');
   assert.equal(deduplicatedInstalled[1]?.scopeType, 'user');

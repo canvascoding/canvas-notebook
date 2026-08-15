@@ -1314,6 +1314,30 @@ export async function listCanvasPlugins(
     .sort((left, right) => left.name.localeCompare(right.name));
 }
 
+/**
+ * Collapses the personal and organization records for a plugin into the one
+ * appropriate for a scoped installed-plugin list. The package name is the
+ * user-visible identity; resource IDs intentionally remain scope-specific.
+ */
+export function deduplicateCanvasPluginInstallRecords(
+  plugins: CanvasPluginInstallRecord[],
+  preferredScope?: DataStorageScopeType | null,
+): CanvasPluginInstallRecord[] {
+  const byName = new Map<string, CanvasPluginInstallRecord>();
+  for (const plugin of plugins) {
+    const key = plugin.name.toLowerCase();
+    const current = byName.get(key);
+    if (!current || (
+      preferredScope
+      && plugin.scopeType === preferredScope
+      && current.scopeType !== preferredScope
+    )) {
+      byName.set(key, plugin);
+    }
+  }
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
 export async function getCanvasPlugin(
   name: string,
   scope?: CanvasPluginStorageScope | null,
