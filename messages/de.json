@@ -5405,6 +5405,7 @@
         "status": "Status",
         "prompt": "Was soll erledigt werden?",
         "timeZone": "Zeitzone",
+        "agent": "Agent",
         "preferredSkill": "Skill",
         "workspaceContext": "Relevante Dateien oder Ordner"
       },
@@ -5464,6 +5465,29 @@
     },
     "templates": {
       "title": "Vorlagen"
+    },
+    "resultPolicy": {
+      "label": "Ergebnis weitergeben",
+      "deliverAll": "Jedes Ergebnis zustellen",
+      "deliverRelevantOnly": "Nur bei Relevanz zustellen",
+      "recordOnly": "Nur in der Historie speichern",
+      "description": {
+        "deliver_all": "Jeder erfolgreiche Lauf wird an das gewählte Ziel zugestellt.",
+        "deliver_relevant_only": "NO_ACTION bleibt nur in der Historie und erzeugt keine Nachricht oder Push-Benachrichtigung.",
+        "record_only": "Ergebnisse bleiben ausschließlich in der Automationshistorie."
+      }
+    },
+    "trigger": {
+      "label": "Auslöser",
+      "schedule": "Nach Zeitplan",
+      "emailEvent": "Bei neuer E-Mail",
+      "mailbox": "Zugeordnetes Postfach",
+      "selectMailbox": "Postfach auswählen",
+      "noMailbox": "Für diesen Workspace ist noch kein lesbares Postfach zugeordnet. Ordne es zuerst unter Einstellungen → Integrationen zu.",
+      "description": {
+        "schedule": "Die Automation läuft im gewählten Rhythmus.",
+        "event": "Die Automation wartet auf ein neues E-Mail-Ereignis. Der technische Eingang verarbeitet keine E-Mail selbstständig als Agentenlauf."
+      }
     },
     "workspaceScope": {
       "personal": "Persönlich",

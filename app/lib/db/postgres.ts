@@ -682,6 +682,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_active_account ON workspace_email_mailboxes (email_account_id) WHERE status = 'active'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS trigger_kind text NOT NULL DEFAULT 'schedule'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS result_policy text NOT NULL DEFAULT 'deliver_all'");
+  await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS event_config_json text');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_yjs_states (

@@ -87,6 +87,20 @@ async function main() {
       }),
       /not actively assigned/i,
     );
+    const { createAutomationJob, listDueAutomationJobs } = await import('../app/lib/automations/store');
+    const eventAutomation = await createAutomationJob({
+      name: 'Email triage',
+      prompt: 'Prepare an outbox draft but never send it.',
+      workspaceId: ownerWorkspace.id,
+      triggerKind: 'event',
+      eventConfig: { eventType: 'email_inbox_event', mailboxId: created.id },
+      resultPolicy: 'record_only',
+      schedule: { kind: 'daily', times: ['09:00'], timeZone: 'UTC' },
+    }, { id: 'owner-user', email: 'owner@example.test', role: 'admin' });
+    assert.equal(eventAutomation.triggerKind, 'event');
+    assert.deepEqual(eventAutomation.eventConfig, { eventType: 'email_inbox_event', mailboxId: created.id });
+    assert.equal(eventAutomation.nextRunAt, null);
+    assert.equal((await listDueAutomationJobs(new Date(Date.now() + 86_400_000))).some((job) => job.id === eventAutomation.id), false);
     const activeMailbox = sqlite.prepare(`
       SELECT workspace_id, status, created_by_user_id, last_edited_by_user_id
       FROM workspace_email_mailboxes
@@ -118,6 +132,18 @@ async function main() {
         emailAccountId: created.id,
         workspaceId: ownerWorkspace.id,
       }),
+      /not actively assigned/i,
+    );
+    await assert.rejects(
+      () => createAutomationJob({
+        name: 'Unassigned email triage',
+        prompt: 'Prepare an outbox draft but never send it.',
+        workspaceId: ownerWorkspace.id,
+        triggerKind: 'event',
+        eventConfig: { eventType: 'email_inbox_event', mailboxId: created.id },
+        resultPolicy: 'record_only',
+        schedule: { kind: 'daily', times: ['09:00'], timeZone: 'UTC' },
+      }, { id: 'owner-user', email: 'owner@example.test', role: 'admin' }),
       /not actively assigned/i,
     );
     const archivedMailboxCount = sqlite.prepare(`

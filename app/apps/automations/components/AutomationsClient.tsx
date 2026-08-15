@@ -49,6 +49,7 @@ import type {
   AutomationDeliverySessionMode,
   AutomationRunRecord,
   AutomationRunStatus,
+  AutomationResultPolicy,
   AutomationTriggerType,
   AutomationWeekday,
   AutomationWorkspaceChangeIssue,
@@ -106,6 +107,9 @@ type JobDraft = {
   deliverySessionMode: AutomationDeliverySessionMode;
   deliverySessionId: string;
   deliveryChannelSessionKey: string;
+  resultPolicy: AutomationResultPolicy;
+  triggerKind: 'schedule' | 'event';
+  emailMailboxId: string;
 };
 
 type PersistedAutomationSessionMessage = {
@@ -124,10 +128,20 @@ type AutomationTemplate = {
   weeklyTime?: string;
   weeklyDays?: AutomationWeekday[];
   targetOutputPath?: string;
+  resultPolicy?: AutomationResultPolicy;
+  triggerKind?: 'schedule' | 'event';
 };
 
 type SkillOption = CanvasSkillIconSource & {
   enabled?: boolean;
+};
+
+type WorkspaceMailboxAccount = {
+  id: string;
+  emailAddress: string;
+  displayName: string | null;
+  workspaceId: string | null;
+  imapHost?: string | null;
 };
 
 type ComposioToolkitInfo = {
@@ -358,6 +372,9 @@ function defaultDraft(defaultTimeZone?: string, workspaceId = ''): JobDraft {
     deliverySessionMode: 'new_session',
     deliverySessionId: '',
     deliveryChannelSessionKey: '',
+    resultPolicy: 'deliver_all',
+    triggerKind: 'schedule',
+    emailMailboxId: '',
   };
 }
 
@@ -404,6 +421,30 @@ function getAutomationTemplates(locale: string): AutomationTemplate[] {
   return isGerman
     ? [
         {
+          id: 'email-triage',
+          name: 'E-Mail-Triage',
+          prompt: 'Prüfe neue, dem Workspace zugeordnete E-Mail-Ereignisse. Ordne sie einem bestehenden oder neuen Inbox-Fall zu, schlage Priorität und Bearbeitung vor und bereite bei Bedarf einen Antwortentwurf für die Outbox vor. Sende niemals E-Mails selbst.',
+          scheduleKind: 'daily',
+          triggerKind: 'event',
+          resultPolicy: 'record_only',
+        },
+        {
+          id: 'regular-workspace-check',
+          name: 'Regelmäßige Workspace-Prüfung',
+          prompt: 'Prüfe den Workspace auf neue oder blockierte Aufgaben, Fristen und wichtige Änderungen. Gib nur dann eine kurze, konkrete Zusammenfassung aus, wenn etwas Aufmerksamkeit braucht. Wenn nichts Relevantes vorliegt, antworte exakt mit NO_ACTION.',
+          scheduleKind: 'daily',
+          dailyTime: '09:00',
+          resultPolicy: 'deliver_relevant_only',
+        },
+        {
+          id: 'email-triage',
+          name: 'Email Triage',
+          prompt: 'Review new email events assigned to this workspace. Associate each with an existing or new inbox case, suggest a priority and owner, and prepare an outbox reply draft when appropriate. Never send email yourself.',
+          scheduleKind: 'daily',
+          triggerKind: 'event',
+          resultPolicy: 'record_only',
+        },
+        {
           id: 'daily-workspace-briefing',
           name: 'Tägliches Workspace Briefing',
           prompt: 'Prüfe die wichtigsten Projektordner und erstelle eine kurze Tagesübersicht mit offenen Aufgaben, blockierten Punkten und nächsten Schritten.',
@@ -439,6 +480,14 @@ function getAutomationTemplates(locale: string): AutomationTemplate[] {
         },
       ]
     : [
+        {
+          id: 'regular-workspace-check',
+          name: 'Regular Workspace Check',
+          prompt: 'Review the workspace for new or blocked tasks, deadlines, and important changes. Return a concise, actionable summary only when something needs attention. If there is nothing relevant, reply exactly with NO_ACTION.',
+          scheduleKind: 'daily',
+          dailyTime: '09:00',
+          resultPolicy: 'deliver_relevant_only',
+        },
         {
           id: 'daily-workspace-briefing',
           name: 'Daily Workspace Briefing',
@@ -688,6 +737,11 @@ function buildPayload(
     deliverySessionMode: draft.deliverySessionMode,
     deliverySessionId: draft.deliverySessionId.trim() || null,
     deliveryChannelSessionKey: normalizeDeliveryChannelSessionKeyForPayload(deliveryChannelId, draft.deliveryChannelSessionKey),
+    resultPolicy: draft.resultPolicy,
+    triggerKind: draft.triggerKind,
+    eventConfig: draft.triggerKind === 'event'
+      ? { eventType: 'email_inbox_event', mailboxId: draft.emailMailboxId }
+      : null,
     schedule,
   };
 
@@ -828,6 +882,9 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.deliverySessionMode = job.deliverySessionMode || 'new_session';
   draft.deliverySessionId = job.deliverySessionId || '';
   draft.deliveryChannelSessionKey = job.deliveryChannelSessionKey || '';
+  draft.resultPolicy = job.resultPolicy;
+  draft.triggerKind = job.triggerKind === 'event' ? 'event' : 'schedule';
+  draft.emailMailboxId = typeof job.eventConfig?.mailboxId === 'string' ? job.eventConfig.mailboxId : '';
   draft.scheduleKind = job.schedule.kind === 'webhook' ? 'interval' : job.schedule.kind;
   draft.timeZone = jobTimeZone;
 
@@ -892,6 +949,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const [skills, setSkills] = useState<SkillOption[]>([]);
   const [agents, setAgents] = useState<AgentOption[]>([]);
   const [deliveryChannels, setDeliveryChannels] = useState<DeliveryChannelOption[]>([]);
+  const [emailAccounts, setEmailAccounts] = useState<WorkspaceMailboxAccount[]>([]);
   const [composerMode, setComposerMode] = useState<ComposerMode>('scheduled');
   const [triggerSource, setTriggerSource] = useState<TriggerSource>('custom');
   const [triggerApps, setTriggerApps] = useState<TriggerCapableApp[]>([]);
@@ -940,6 +998,10 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   const selectedWorkspaceChangeTarget = workspaceChangeTargetId
     ? workspaceById.get(workspaceChangeTargetId) || null
     : null;
+  const workspaceMailboxAccounts = useMemo(
+    () => emailAccounts.filter((account) => account.workspaceId === draftWorkspaceId && Boolean(account.imapHost)),
+    [draftWorkspaceId, emailAccounts],
+  );
   const scheduledWorkspaceReady = Boolean(draft.id) || (workspaceInitialized && Boolean(draftWorkspaceId));
   const triggerWorkspaceReady = workspaceInitialized && Boolean(triggerWorkspaceId);
   const customWebhookWorkspaceReady = workspaceInitialized && Boolean(customWebhookWorkspaceId);
@@ -1231,6 +1293,19 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   }, [hydrateWorkspaces]);
 
   useEffect(() => {
+    let cancelled = false;
+    void fetch('/api/email/accounts', { credentials: 'include', cache: 'no-store' })
+      .then(async (response) => ({ response, payload: await response.json() }))
+      .then(({ response, payload }) => {
+        if (cancelled || !response.ok || !payload.success) return;
+        const accounts = Array.isArray(payload.data?.accounts) ? payload.data.accounts as WorkspaceMailboxAccount[] : [];
+        setEmailAccounts(accounts);
+      })
+      .catch(() => undefined);
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
     if (!workspaceInitialized || !defaultAutomationWorkspaceId || selectedJobId) return;
     /* eslint-disable react-hooks/set-state-in-effect */
     setDraft((current) => current.workspaceId ? current : { ...current, workspaceId: defaultAutomationWorkspaceId });
@@ -1425,6 +1500,9 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     setIsSaving(true);
     try {
       const effectiveDraft = draftWorkspaceId ? { ...draft, workspaceId: draftWorkspaceId } : draft;
+      if (effectiveDraft.triggerKind === 'event' && !effectiveDraft.emailMailboxId) {
+        throw new Error(t('trigger.selectMailbox'));
+      }
       const payload = selectedJob?.jobType === 'webhook'
         ? (() => {
             const deliveryChannelId = normalizeDeliveryChannelIdForPayload(effectiveDraft.deliveryMode, effectiveDraft.deliveryChannelId);
@@ -1696,6 +1774,9 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       weeklyTime: template.weeklyTime || current.weeklyTime,
       weeklyDays: template.weeklyDays || current.weeklyDays,
       targetOutputPath: template.targetOutputPath || current.targetOutputPath,
+      resultPolicy: template.resultPolicy || current.resultPolicy,
+      triggerKind: template.triggerKind || 'schedule',
+      emailMailboxId: template.triggerKind === 'event' ? current.emailMailboxId : '',
     }));
   }
 
@@ -1710,6 +1791,66 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
         placeholder={t('skills.auto')}
         description={t('skills.description')}
       />
+    );
+  }
+
+  function renderResultPolicyControl() {
+    return (
+      <label className="flex min-w-0 flex-col gap-1 text-sm">
+        <span className="text-xs text-muted-foreground">{t('resultPolicy.label')}</span>
+        <select
+          className={AUTOMATION_FIELD_CLASS}
+          value={draft.resultPolicy}
+          onChange={(event) => setDraft((current) => ({ ...current, resultPolicy: event.target.value as AutomationResultPolicy }))}
+          data-testid="automation-result-policy"
+        >
+          <option value="deliver_all">{t('resultPolicy.deliverAll')}</option>
+          <option value="deliver_relevant_only">{t('resultPolicy.deliverRelevantOnly')}</option>
+          <option value="record_only">{t('resultPolicy.recordOnly')}</option>
+        </select>
+        <span className="text-xs leading-5 text-muted-foreground">{t(`resultPolicy.description.${draft.resultPolicy}`)}</span>
+      </label>
+    );
+  }
+
+  function renderAutomationTriggerControl() {
+    return (
+      <div className="space-y-3 rounded-md border bg-muted/20 p-3">
+        <label className="flex min-w-0 flex-col gap-1 text-sm">
+          <span className="text-xs text-muted-foreground">{t('trigger.label')}</span>
+          <select
+            className={AUTOMATION_FIELD_CLASS}
+            value={draft.triggerKind}
+            onChange={(event) => setDraft((current) => ({ ...current, triggerKind: event.target.value as JobDraft['triggerKind'] }))}
+            data-testid="automation-trigger-kind"
+          >
+            <option value="schedule">{t('trigger.schedule')}</option>
+            <option value="event">{t('trigger.emailEvent')}</option>
+          </select>
+          <span className="text-xs leading-5 text-muted-foreground">{t(`trigger.description.${draft.triggerKind}`)}</span>
+        </label>
+        {draft.triggerKind === 'event' ? (
+          <label className="flex min-w-0 flex-col gap-1 text-sm">
+            <span className="text-xs text-muted-foreground">{t('trigger.mailbox')}</span>
+            <select
+              className={AUTOMATION_FIELD_CLASS}
+              value={draft.emailMailboxId}
+              onChange={(event) => setDraft((current) => ({ ...current, emailMailboxId: event.target.value }))}
+              data-testid="automation-email-mailbox"
+            >
+              <option value="">{t('trigger.selectMailbox')}</option>
+              {workspaceMailboxAccounts.map((account) => (
+                <option key={account.id} value={account.id}>
+                  {account.displayName ? `${account.displayName} · ${account.emailAddress}` : account.emailAddress}
+                </option>
+              ))}
+            </select>
+            {workspaceMailboxAccounts.length === 0 ? (
+              <span className="text-xs leading-5 text-muted-foreground">{t('trigger.noMailbox')}</span>
+            ) : null}
+          </label>
+        ) : null}
+      </div>
     );
   }
 
@@ -2079,6 +2220,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     </label>
                   </div>
                   {renderWorkspaceSelector('scheduled')}
+                  {renderAutomationTriggerControl()}
                   <label className="flex min-w-0 flex-col gap-1 text-sm">
                     <span className="text-xs text-muted-foreground">{t('editor.fields.prompt')}</span>
                     <AutomationPromptEditor
@@ -2094,6 +2236,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                       <textarea data-testid="automation-context-paths" className={AUTOMATION_TEXTAREA_CLASS} value={draft.workspaceContextText} onChange={(event) => setDraft((current) => ({ ...current, workspaceContextText: event.target.value }))} placeholder="00_dashboard&#10;03_offer-and-sales" />
                     </label>
                     {renderSkillSelect('automation-preferred-skill')}
+                    {renderResultPolicyControl()}
                   </div>
                   {renderAgentDeliveryControls('scheduled')}
                   <div className="space-y-3 rounded-md border bg-muted/20 p-3">
@@ -2363,8 +2506,11 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                                   <div className="mt-1 max-h-[2.5em] overflow-hidden text-xs text-muted-foreground">
                                     <MarkdownRenderer content={job.prompt} variant="muted" />
                                   </div>
-                                  <div className="mt-3 grid min-w-0 gap-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-4">
+                                  <div className="mt-3 grid min-w-0 gap-1 text-xs text-muted-foreground sm:grid-cols-2 lg:grid-cols-3">
                                     <span className="min-w-0 truncate">{describeFriendlyScheduleLocalized(job.schedule, t, weekdayLabels)}</span>
+                                    <span className="min-w-0 truncate">{job.triggerKind === 'event' ? t('trigger.emailEvent') : t('trigger.schedule')}</span>
+                                    <span className="min-w-0 truncate">{t('editor.fields.agent')}: {job.agentId}</span>
+                                    <span className="min-w-0 truncate">{locale.startsWith('de') ? 'Ziel' : 'Delivery'}: {deliveryTargetSummary(job)}</span>
                                     <span className="min-w-0 truncate">{t('overview.nextRun')}: {formatDateTime(job.nextRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
                                     <span className="min-w-0 truncate">{t('runs.finishedAt')}: {formatDateTime(job.lastRunAt, locale, t('scheduleSummary.notScheduled'))}</span>
                                     <span className="min-w-0 truncate">{t('results.title')}: {job.effectiveTargetOutputPath || t('output.none')}</span>
@@ -2426,7 +2572,9 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
                     value={draft.prompt}
                     onChange={(value) => setDraft((current) => ({ ...current, prompt: value }))}
                   />
-                  <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} locale={locale} compact />
+                  {draft.triggerKind === 'schedule' ? <ScheduleEditor draft={draft} setDraft={setDraft} t={t} weekdayLabels={weekdayLabels} locale={locale} compact /> : null}
+                  {renderAutomationTriggerControl()}
+                  {renderResultPolicyControl()}
                   {renderAgentDeliveryControls('scheduled')}
                   <div className="grid min-w-0 gap-3 sm:grid-cols-[minmax(0,1fr)_auto]">
                     {renderSkillSelect('automation-composer-preferred-skill')}

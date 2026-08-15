@@ -183,10 +183,17 @@
     {
       "id": "WEA-V1-07",
       "title": "Workspace-Automationsoberflaeche mit Vorlagen bereitstellen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-04",
         "WEA-V1-06"
+      ],
+      "evidence": [
+        "Die Automationsoberflaeche zeigt Workspace, Agent, Ausloeser, Zustellziel, Ergebnisregel, Ausgabepfad und letzten Lauf; neue Jobs besitzen immer einen serverseitig validierten Workspace.",
+        "Die Vorlagen Regelmaessige Workspace-Pruefung, E-Mail-Triage und die freie geplante Automation verwenden denselben normalen Jobtyp. Die Pruefung nutzt deliver_relevant_only und NO_ACTION, die Triage den ereignisbasierten Trigger mit einer explizit gebundenen Mailbox.",
+        "E-Mail-Triage-Jobs werden nicht vom Zeitplan-Scheduler abgeholt. Das Binding-Testskript beweist, dass ein Ereignisjob nur mit aktiver, passender Workspace-Mailbox gespeichert werden kann.",
+        "npm run test:automation:schedule, npm run test:automation:workspace-scope, npm run test:automation:runner, npm run test:email:workspace-binding sowie TypeScript- und zielgerichtete ESLint-Pruefungen sind erfolgreich gelaufen."
       ],
       "deliverables": [
         "Workspace-Bereich Automationen mit Liste, Status und Laufhistorie",

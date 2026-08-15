@@ -11,6 +11,7 @@ import {
 } from '@/app/lib/agents/storage';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
+import { requireActiveWorkspaceMailboxForAutomation } from '@/app/lib/email/account-store';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { computeNextRunAt, validateFriendlySchedule } from './schedule';
@@ -439,6 +440,19 @@ function parseOptionalJsonObject(value: string | null | undefined): Record<strin
   }
 }
 
+function normalizeEmailInboxEventConfig(value: unknown): Record<string, string> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    throw new Error('Email inbox event configuration is required.');
+  }
+  const config = value as Record<string, unknown>;
+  const eventType = typeof config.eventType === 'string' ? config.eventType.trim() : '';
+  const mailboxId = typeof config.mailboxId === 'string' ? config.mailboxId.trim() : '';
+  if (eventType !== 'email_inbox_event' || !mailboxId) {
+    throw new Error('Email inbox event configuration requires a mailbox.');
+  }
+  return { eventType, mailboxId };
+}
+
 function applyDefaultScheduleTimeZone(input: unknown, timeZone: string): unknown {
   if (!input || typeof input !== 'object' || Array.isArray(input)) {
     return input;
@@ -509,6 +523,7 @@ function mapJobRow(
     jobType: (row.jobType as AutomationJobType) || 'default',
     triggerKind: normalizeAutomationJobTriggerKind(row.triggerKind, row.scheduleKind === 'webhook' ? 'webhook' : 'schedule'),
     resultPolicy: normalizeAutomationResultPolicy(row.resultPolicy),
+    eventConfig: parseOptionalJsonObject(row.eventConfigJson),
     channelId: row.channelId ?? null,
     composioTriggerId: row.composioTriggerId ?? null,
     composioTriggerSlug: row.composioTriggerSlug ?? null,
@@ -858,6 +873,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
   const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
   const resultPolicy = normalizeAutomationResultPolicy(input.resultPolicy);
+  const triggerKind = normalizeAutomationJobTriggerKind(input.triggerKind, 'schedule');
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const preferredTimeZone = await getServerPreferredTimeZone();
@@ -867,9 +883,17 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
   }
 
   const automationScope = await resolveAutomationScopeForCreate(input, policyUser);
+  const eventConfig = triggerKind === 'event' ? normalizeEmailInboxEventConfig(input.eventConfig) : null;
+  if (eventConfig) {
+    if (!automationScope.workspaceId) throw new Error('Email inbox automations require a workspace.');
+    await requireActiveWorkspaceMailboxForAutomation({
+      emailAccountId: eventConfig.mailboxId,
+      workspaceId: automationScope.workspaceId,
+    });
+  }
   const jobScope = buildAutomationJobScope({ ...automationScope, createdByUserId: userId });
   const now = new Date();
-  const nextRunAt = input.status === 'paused' ? null : computeNextRunAt(schedule, { from: now });
+  const nextRunAt = input.status === 'paused' || triggerKind !== 'schedule' ? null : computeNextRunAt(schedule, { from: now });
   const id = `job-${randomUUID()}`;
 
   const [inserted] = await db
@@ -905,8 +929,9 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       deliverySessionMode,
       deliverySessionId: normalizeOptionalShortString(input.deliverySessionId, 500),
       deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
-      triggerKind: schedule.kind === 'webhook' ? 'webhook' : 'schedule',
+      triggerKind,
       resultPolicy,
+      eventConfigJson: eventConfig ? JSON.stringify(eventConfig) : null,
       createdAt: now,
       updatedAt: now,
     })
@@ -1131,7 +1156,19 @@ export async function updateAutomationJob(
   }
 
   const status = input.status ?? (existing.status as AutomationJobRecord['status']);
-  const nextRunAt = status === 'paused'
+  const triggerKind = input.triggerKind === undefined
+    ? normalizeAutomationJobTriggerKind(existing.triggerKind, existing.scheduleKind === 'webhook' ? 'webhook' : 'schedule')
+    : normalizeAutomationJobTriggerKind(input.triggerKind, 'schedule');
+  const eventConfig = triggerKind === 'event'
+    ? normalizeEmailInboxEventConfig(input.eventConfig ?? parseOptionalJsonObject(existing.eventConfigJson))
+    : null;
+  if (eventConfig && existing.workspaceId) {
+    await requireActiveWorkspaceMailboxForAutomation({
+      emailAccountId: eventConfig.mailboxId,
+      workspaceId: existing.workspaceId,
+    });
+  }
+  const nextRunAt = status === 'paused' || triggerKind !== 'schedule'
     ? null
     : computeNextRunAt(schedule, { from: new Date(), lastRunAt: existing.lastRunAt });
 
@@ -1166,6 +1203,8 @@ export async function updateAutomationJob(
       resultPolicy: input.resultPolicy === undefined
         ? normalizeAutomationResultPolicy(existing.resultPolicy)
         : normalizeAutomationResultPolicy(input.resultPolicy),
+      triggerKind,
+      eventConfigJson: eventConfig ? JSON.stringify(eventConfig) : null,
       status,
       scheduleKind: schedule.kind,
       scheduleConfigJson: JSON.stringify(schedule),
@@ -1605,6 +1644,7 @@ export async function listDueAutomationJobs(now = new Date()): Promise<Automatio
     .where(
       and(
         eq(automationJobs.status, 'active'),
+        eq(automationJobs.triggerKind, 'schedule'),
         lte(automationJobs.nextRunAt, now),
       ),
     )

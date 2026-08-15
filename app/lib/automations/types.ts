@@ -98,6 +98,7 @@ export type AutomationJobRecord = {
   jobType: AutomationJobType;
   triggerKind: AutomationJobTriggerKind;
   resultPolicy: AutomationResultPolicy;
+  eventConfig: Record<string, unknown> | null;
   channelId: string | null;
   composioTriggerId: string | null;
   composioTriggerSlug: string | null;
@@ -162,6 +163,8 @@ export type CreateAutomationJobInput = {
   deliverySessionId?: string | null;
   deliveryChannelSessionKey?: string | null;
   resultPolicy?: AutomationResultPolicy;
+  triggerKind?: Extract<AutomationJobTriggerKind, 'schedule' | 'event'>;
+  eventConfig?: Record<string, unknown> | null;
   schedule: FriendlySchedule;
   status?: AutomationJobStatus;
 };

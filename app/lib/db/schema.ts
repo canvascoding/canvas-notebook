@@ -1467,6 +1467,7 @@ export const automationJobs = sqliteTable("automation_jobs", {
   jobType: text("job_type").notNull().default('default'),
   triggerKind: text("trigger_kind").notNull().default('schedule'),
   resultPolicy: text("result_policy").notNull().default('deliver_all'),
+  eventConfigJson: text("event_config_json"),
   channelId: text("channel_id"),
   composioTriggerId: text("composio_trigger_id"),
   composioTriggerSlug: text("composio_trigger_slug"),

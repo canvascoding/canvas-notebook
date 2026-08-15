@@ -5406,6 +5406,7 @@
         "status": "Status",
         "prompt": "What should be done?",
         "timeZone": "Time zone",
+        "agent": "Agent",
         "preferredSkill": "Skill",
         "workspaceContext": "Relevant files or folders"
       },
@@ -5465,6 +5466,29 @@
     },
     "templates": {
       "title": "Templates"
+    },
+    "resultPolicy": {
+      "label": "Deliver results",
+      "deliverAll": "Deliver every result",
+      "deliverRelevantOnly": "Deliver only when relevant",
+      "recordOnly": "Record in history only",
+      "description": {
+        "deliver_all": "Every successful run is delivered to the selected destination.",
+        "deliver_relevant_only": "NO_ACTION stays in the history and creates no message or push notification.",
+        "record_only": "Results remain only in the automation history."
+      }
+    },
+    "trigger": {
+      "label": "Trigger",
+      "schedule": "On a schedule",
+      "emailEvent": "When a new email arrives",
+      "mailbox": "Assigned mailbox",
+      "selectMailbox": "Select a mailbox",
+      "noMailbox": "No readable mailbox is assigned to this workspace yet. Assign one first in Settings → Integrations.",
+      "description": {
+        "schedule": "The automation runs on the selected cadence.",
+        "event": "The automation waits for a new email event. Technical ingestion never starts an agent run on its own."
+      }
     },
     "workspaceScope": {
       "personal": "Personal",

@@ -78,6 +78,7 @@ async function main() {
     jobType: 'default',
     triggerKind: 'schedule',
     resultPolicy: 'deliver_all',
+    eventConfig: null,
     channelId: null,
     composioTriggerId: null,
     composioTriggerSlug: null,
