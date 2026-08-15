@@ -702,10 +702,11 @@ export async function countMobileUnreadMessages(input: {
   })));
   return sessions.filter((session) => {
     const state = states.get(session.workspace.workspaceId);
-    return Boolean(
-      state
-      && session.lastMessageAt > state.baseline
-      && hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt),
+    const lastMessageAt = session.lastMessageAt;
+    if (!state || !lastMessageAt) return false;
+    return (
+      lastMessageAt > state.baseline
+      && hasUnreadAssistantResponse(lastMessageAt, session.lastViewedAt)
     );
   }).length;
 }
