@@ -15,6 +15,7 @@ async function main() {
   const {
     agentResponsePushSuppressionReason,
     createAgentResponseReadyMessages,
+    createInboxWidgetRefreshMessages,
     createMobilePushMessages,
     getMobilePushDeviceStatus,
     parseMobilePushRegistration,
@@ -224,8 +225,23 @@ async function main() {
   assert.equal(previewMessages[0].title, 'Push session');
   assert.equal(previewMessages[0].body, 'Done See the finished report and code.');
   assert.equal(previewMessages[0].badge, 1);
-  assert.equal(previewMessages[0]._contentAvailable, true);
+  assert.equal(previewMessages[0]._contentAvailable, undefined);
   assert.equal(JSON.stringify(previewMessages).includes('private.example.test'), false);
+  const widgetRefreshMessages = createInboxWidgetRefreshMessages({
+    tokens: [registration.expoPushToken],
+    instanceId: 'cni_0123456789abcdef01234567',
+    responseCount: 1,
+  });
+  assert.deepEqual(widgetRefreshMessages, [{
+    to: registration.expoPushToken,
+    data: {
+      type: 'inbox.widget_refresh',
+      instanceId: 'cni_0123456789abcdef01234567',
+      widgetRefresh: true,
+      responseCount: 1,
+    },
+    _contentAvailable: true,
+  }]);
   assert.deepEqual(createAutomationRunNotificationPreview({
     jobName: '**Daily** [brief](https://private.example.test)',
     status: 'success',
@@ -376,7 +392,7 @@ async function main() {
   assert.equal(categoryMessages[0].body.includes('workspace-secret'), false);
   assert.equal(categoryMessages[0].body.includes('run-secret'), false);
 
-  let sentPayload: unknown = null;
+  const sentPayloads: unknown[] = [];
   const delivery = await sendAgentResponseReadyPush({
     userId: 'push-user',
     instanceId: 'cni_0123456789abcdef01234567',
@@ -384,16 +400,19 @@ async function main() {
     sessionId: 'session-1',
     delayMs: 0,
     fetcher: async (_url, init) => {
-      sentPayload = JSON.parse(String(init?.body));
+      sentPayloads.push(JSON.parse(String(init?.body)));
       return Response.json({ data: [{ status: 'ok', id: 'ticket-1' }] });
     },
   });
   assert.deepEqual(delivery, { attempted: 1, accepted: 1 });
-  assert.deepEqual(sentPayload, previewMessages);
+  assert.deepEqual(sentPayloads, [previewMessages, widgetRefreshMessages]);
 
   let duplicatePushAttempts = 0;
   const duplicateFetcher = async () => {
     duplicatePushAttempts += 1;
+    if (duplicatePushAttempts === 2) {
+      return Response.json({ data: [{ status: 'ok', id: 'widget-refresh-ticket' }] });
+    }
     return Response.json({
       data: [{ status: 'error', details: { error: 'MessageTooBig' } }],
     });
@@ -416,7 +435,7 @@ async function main() {
       fetcher: duplicateFetcher,
     }),
   ]);
-  assert.equal(duplicatePushAttempts, 1);
+  assert.equal(duplicatePushAttempts, 2);
   assert.deepEqual(duplicateDeliveries, [
     { attempted: 1, accepted: 0 },
     { attempted: 1, accepted: 0 },
@@ -540,7 +559,7 @@ async function main() {
   });
   assert.deepEqual(mutedStudio, { attempted: 0, accepted: 0 });
 
-  let automationStatusPayload: unknown = null;
+  const automationStatusPayloads: unknown[] = [];
   const automationStatusDelivery = await sendAutomationRunStatusPush({
     userId: 'push-user',
     workspaceId: 'workspace-1',
@@ -550,22 +569,34 @@ async function main() {
     instanceId: 'cni_0123456789abcdef01234567',
     now,
     fetcher: async (_url, init) => {
-      automationStatusPayload = JSON.parse(String(init?.body));
+      automationStatusPayloads.push(JSON.parse(String(init?.body)));
+      if (automationStatusPayloads.length === 2) {
+        return Response.json({ data: [{ status: 'ok', id: 'automation-widget-refresh-ticket' }] });
+      }
       return Response.json({
         data: [{ status: 'error', details: { error: 'MessageTooBig' } }],
       });
     },
   });
   assert.deepEqual(automationStatusDelivery, { attempted: 1, accepted: 0 });
-  assert.deepEqual(automationStatusPayload, [{
-    ...automationStatusMessages[0],
-    title: 'Daily brief',
-    body: 'Scheduled automation completed successfully.',
-    data: {
-      ...automationStatusMessages[0].data,
-      runId: 'run-scheduled-1',
-    },
-  }]);
+  assert.deepEqual(automationStatusPayloads, [[{
+      ...automationStatusMessages[0],
+      title: 'Daily brief',
+      body: 'Scheduled automation completed successfully.',
+      data: {
+        ...automationStatusMessages[0].data,
+        runId: 'run-scheduled-1',
+      },
+    }], [{
+      to: registration.expoPushToken,
+      data: {
+        type: 'inbox.widget_refresh',
+        instanceId: 'cni_0123456789abcdef01234567',
+        widgetRefresh: true,
+        responseCount: 1,
+      },
+      _contentAvailable: true,
+    }]]);
 
   let pushAttempts = 0;
   await sendMobileAttentionPush({
@@ -575,12 +606,13 @@ async function main() {
     fetcher: async () => {
       pushAttempts += 1;
       if (pushAttempts === 1) return new Response(null, { status: 503 });
+      if (pushAttempts === 3) return Response.json({ data: [{ status: 'ok', id: 'disabled-widget-refresh-ticket' }] });
       return Response.json({
         data: [{ status: 'error', details: { error: 'DeviceNotRegistered' } }],
       });
     },
   });
-  assert.equal(pushAttempts, 2);
+  assert.equal(pushAttempts, 3);
   const disabled = await getMobilePushDeviceStatus({
     userId: 'push-user',
     installationId: 'installation-1',

@@ -118,17 +118,22 @@ type MobilePushDeviceRow = {
   last_error_code: string | null;
 };
 
-type MobilePushData = MobilePushTarget & {
+type MobilePushData = (MobilePushTarget & {
   instanceId: string;
+}) | {
+  type: 'inbox.widget_refresh';
+  instanceId: string;
+  widgetRefresh: true;
+  responseCount?: number;
 };
 
 export type ExpoPushMessage = {
   to: string;
-  title: string;
-  body: string;
-  sound: 'default';
-  priority: 'default';
-  channelId: 'canvas-activity';
+  title?: string;
+  body?: string;
+  sound?: 'default';
+  priority?: 'default';
+  channelId?: 'canvas-activity';
   data: MobilePushData;
   badge?: number;
   _contentAvailable?: true;
@@ -574,10 +579,7 @@ export function createMobilePushMessages(input: {
         instanceId: input.instanceId,
         ...input.target,
       } as MobilePushData,
-      ...(input.badge === undefined ? {} : {
-        badge: input.badge,
-        _contentAvailable: true as const,
-      }),
+      ...(input.badge === undefined ? {} : { badge: input.badge }),
       ...(imageUrl ? {
         richContent: { image: imageUrl },
         mutableContent: true as const,
@@ -585,6 +587,28 @@ export function createMobilePushMessages(input: {
       } : {}),
     };
   });
+}
+
+/**
+ * iOS only runs Expo's notification task reliably for a data-only push. This
+ * is intentionally separate from the user-visible alert so the widget can
+ * refresh its complete private snapshot without showing a second alert.
+ */
+export function createInboxWidgetRefreshMessages(input: {
+  tokens: string[];
+  instanceId: string;
+  responseCount?: number;
+}): ExpoPushMessage[] {
+  return input.tokens.map((token) => ({
+    to: token,
+    data: {
+      type: 'inbox.widget_refresh',
+      instanceId: input.instanceId,
+      widgetRefresh: true,
+      ...(input.responseCount === undefined ? {} : { responseCount: input.responseCount }),
+    },
+    _contentAvailable: true as const,
+  }));
 }
 
 export function createAgentResponseReadyMessages(input: {
@@ -772,6 +796,37 @@ async function recordTicketResult(input: {
   return false;
 }
 
+async function sendInboxWidgetRefreshPush(input: {
+  rows: MobilePushDeviceRow[];
+  instanceId: string;
+  responseCount?: number;
+  fetcher: typeof fetch;
+}): Promise<void> {
+  for (let offset = 0; offset < input.rows.length; offset += MAX_EXPO_BATCH_SIZE) {
+    const batch = input.rows.slice(offset, offset + MAX_EXPO_BATCH_SIZE);
+    const messages = createInboxWidgetRefreshMessages({
+      tokens: batch.map((row) => row.expo_push_token),
+      instanceId: input.instanceId,
+      responseCount: input.responseCount,
+    });
+    try {
+      const response = await postExpoWithRetry({
+        endpoint: EXPO_PUSH_ENDPOINT,
+        body: messages,
+        fetcher: input.fetcher,
+      });
+      const payload = await response.json() as { data?: ExpoPushTicket[] | ExpoPushTicket };
+      const tickets = Array.isArray(payload.data) ? payload.data : payload.data ? [payload.data] : [];
+      if (tickets.length !== batch.length || tickets.some((ticket) => ticket.status !== 'ok')) {
+        console.warn('[Mobile Push] Inbox widget refresh push was not accepted.');
+      }
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Unknown Expo push error.';
+      console.warn('[Mobile Push] Inbox widget refresh push failed:', message);
+    }
+  }
+}
+
 export async function sendMobileAttentionPush(input: {
   userId: string;
   target: MobilePushTarget;
@@ -808,11 +863,11 @@ export async function sendMobileAttentionPush(input: {
         console.warn('[Mobile Push] App badge count could not be resolved:', message);
       }
     }
+    const instanceId = input.instanceId || createPublicMobileInstanceId(getLicenseInstanceId());
     let accepted = 0;
 
     for (let offset = 0; offset < rows.length; offset += MAX_EXPO_BATCH_SIZE) {
       const batch = rows.slice(offset, offset + MAX_EXPO_BATCH_SIZE);
-      const instanceId = input.instanceId || createPublicMobileInstanceId(getLicenseInstanceId());
       const messages = batch.flatMap((row) => createMobilePushMessages({
         tokens: [row.expo_push_token],
         instanceId,
@@ -843,6 +898,15 @@ export async function sendMobileAttentionPush(input: {
           accepted += 1;
         }
       }
+    }
+    const iosRows = rows.filter((row) => row.platform === 'ios');
+    if (iosRows.length) {
+      await sendInboxWidgetRefreshPush({
+        rows: iosRows,
+        instanceId,
+        responseCount: badge,
+        fetcher,
+      });
     }
     return { attempted: rows.length, accepted };
   });
