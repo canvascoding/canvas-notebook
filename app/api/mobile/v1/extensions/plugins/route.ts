@@ -2,7 +2,10 @@ import { NextRequest, NextResponse } from 'next/server';
 
 import { GET as getPlugins } from '@/app/api/plugins/route';
 import type { CanvasPluginInstallRecord } from '@/app/lib/plugins/canvas-plugin-registry';
-import { serializeMobileInstalledPlugin } from '@/app/lib/mobile/extensions';
+import {
+  deduplicateMobileInstalledPlugins,
+  serializeMobileInstalledPlugin,
+} from '@/app/lib/mobile/extensions';
 
 export async function GET(request: NextRequest) {
   const response = await getPlugins(request);
@@ -20,7 +23,8 @@ export async function GET(request: NextRequest) {
     }, { status: response.status });
   }
 
-  const plugins = payload.plugins.map(serializeMobileInstalledPlugin);
+  const plugins = deduplicateMobileInstalledPlugins(payload.plugins)
+    .map(serializeMobileInstalledPlugin);
   return NextResponse.json({
     success: true,
     plugins,

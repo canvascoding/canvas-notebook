@@ -5,6 +5,7 @@ import path from 'node:path';
 import { createMobileCompatibility } from '../app/lib/mobile/compatibility';
 import type { CanvasPluginStorePluginWithState } from '../app/lib/plugins/canvas-plugin-store';
 import {
+  deduplicateMobileInstalledPlugins,
   serializeMobileInstalledPlugin,
   serializeMobilePluginPreflight,
   serializeMobilePluginSummary,
@@ -117,6 +118,27 @@ async function main() {
   assert.equal('installDir' in installed, false);
   assert.equal('checksum' in installed, false);
   assert.equal(installed.icon.initials, 'SH');
+  const deduplicatedInstalled = deduplicateMobileInstalledPlugins([
+    {
+      ...storePlugin.installed.installedPlugin!,
+      resourceId: 'organization-sales-helper',
+      scopeType: 'organization',
+    },
+    {
+      ...storePlugin.installed.installedPlugin!,
+      resourceId: 'personal-sales-helper',
+      enabled: false,
+      scopeType: 'user',
+    },
+    {
+      ...storePlugin.installed.installedPlugin!,
+      name: 'document-suite',
+      scopeType: 'organization',
+    },
+  ]);
+  assert.equal(deduplicatedInstalled.length, 2);
+  assert.equal(deduplicatedInstalled[1]?.name, 'sales-helper');
+  assert.equal(deduplicatedInstalled[1]?.scopeType, 'user');
 
   const preflight = serializeMobilePluginPreflight({
     pluginName: 'sales-helper',

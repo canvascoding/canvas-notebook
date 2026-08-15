@@ -101,6 +101,33 @@ export type MobilePluginPreflight = {
   skillSummary: CanvasPluginStorePreflight['skillSummary'];
 };
 
+function installedPluginScopePriority(plugin: CanvasPluginInstallRecord): number {
+  // A personal workspace opens the personal plugin detail route, so keep that
+  // installation when both scopes contain the same package.
+  if (plugin.scopeType === 'user') return 0;
+  if (plugin.scopeType === 'organization') return 1;
+  return 2;
+}
+
+/**
+ * The effective capability snapshot can include a personal and organization
+ * installation of the same package. Mobile presents packages, not their
+ * per-scope installation records, so expose one stable entry per name.
+ */
+export function deduplicateMobileInstalledPlugins(
+  plugins: CanvasPluginInstallRecord[],
+): CanvasPluginInstallRecord[] {
+  const byName = new Map<string, CanvasPluginInstallRecord>();
+  for (const plugin of plugins) {
+    const key = plugin.name.toLowerCase();
+    const current = byName.get(key);
+    if (!current || installedPluginScopePriority(plugin) < installedPluginScopePriority(current)) {
+      byName.set(key, plugin);
+    }
+  }
+  return [...byName.values()].sort((left, right) => left.name.localeCompare(right.name));
+}
+
 function initialsFor(value: string): string {
   const words = value
     .replace(/[-_]+/g, ' ')
