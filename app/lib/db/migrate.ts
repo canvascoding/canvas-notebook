@@ -2505,6 +2505,31 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       ON workspace_email_mailboxes (email_account_id, status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_active_account
       ON workspace_email_mailboxes (email_account_id) WHERE status = 'active';
+
+    CREATE TABLE IF NOT EXISTS email_inbox_events (
+      id TEXT PRIMARY KEY NOT NULL,
+      mailbox_id TEXT NOT NULL,
+      workspace_id TEXT NOT NULL,
+      provider_message_id TEXT,
+      provider_thread_id TEXT,
+      idempotency_key TEXT NOT NULL,
+      event_type TEXT NOT NULL,
+      received_at INTEGER NOT NULL,
+      processed_at INTEGER,
+      status TEXT NOT NULL DEFAULT 'pending',
+      attempt_count INTEGER NOT NULL DEFAULT 0,
+      next_attempt_at INTEGER,
+      error_code TEXT,
+      case_id TEXT,
+      metadata_json TEXT,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (mailbox_id) REFERENCES workspace_email_mailboxes(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_email_inbox_events_mailbox_idempotency
+      ON email_inbox_events (mailbox_id, idempotency_key);
+    CREATE INDEX IF NOT EXISTS idx_email_inbox_events_workspace_status
+      ON email_inbox_events (workspace_id, status, received_at);
   `);
 
   addColumns(sqlite, 'pi_usage_events', {

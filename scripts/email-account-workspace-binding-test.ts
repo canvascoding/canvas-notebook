@@ -101,6 +101,31 @@ async function main() {
     assert.deepEqual(eventAutomation.eventConfig, { eventType: 'email_inbox_event', mailboxId: created.id });
     assert.equal(eventAutomation.nextRunAt, null);
     assert.equal((await listDueAutomationJobs(new Date(Date.now() + 86_400_000))).some((job) => job.id === eventAutomation.id), false);
+    const { pollWorkspaceMailboxInboxEvents } = await import('../app/lib/email/inbox-events');
+    const pollNow = new Date(Date.now() + 1_000);
+    const firstPoll = await pollWorkspaceMailboxInboxEvents({
+      now: pollNow,
+      fetchMessages: async () => [
+        { id: 'historical-message', date: new Date(pollNow.getTime() - 60_000).toISOString() },
+        { id: 'new-message', threadId: 'thread-1', date: pollNow.toISOString(), folder: 'INBOX' },
+      ],
+    });
+    assert.deepEqual(firstPoll, { checked: 1, created: 1, duplicate: 0, historical: 1, failed: 0 });
+    const duplicatePoll = await pollWorkspaceMailboxInboxEvents({
+      now: new Date(pollNow.getTime() + 1_000),
+      fetchMessages: async () => [{ id: 'new-message', threadId: 'thread-1', date: pollNow.toISOString(), folder: 'INBOX' }],
+    });
+    assert.deepEqual(duplicatePoll, { checked: 1, created: 0, duplicate: 1, historical: 0, failed: 0 });
+    const storedEvent = sqlite.prepare(`
+      SELECT workspace_id, provider_message_id, provider_thread_id, status
+      FROM email_inbox_events WHERE provider_message_id = 'new-message'
+    `).get() as { workspace_id: string; provider_message_id: string; provider_thread_id: string; status: string } | undefined;
+    assert.deepEqual(storedEvent, {
+      workspace_id: ownerWorkspace.id,
+      provider_message_id: 'new-message',
+      provider_thread_id: 'thread-1',
+      status: 'pending',
+    });
     const activeMailbox = sqlite.prepare(`
       SELECT workspace_id, status, created_by_user_id, last_edited_by_user_id
       FROM workspace_email_mailboxes

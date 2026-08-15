@@ -149,6 +149,29 @@ export const workspaceEmailMailboxes = sqliteTable("workspace_email_mailboxes", 
     .where(sql`${table.status} = 'active'`),
 }));
 
+export const emailInboxEvents = sqliteTable("email_inbox_events", {
+  id: text("id").primaryKey(),
+  mailboxId: text("mailbox_id").notNull().references(() => workspaceEmailMailboxes.id, { onDelete: 'cascade' }),
+  workspaceId: text("workspace_id").notNull(),
+  providerMessageId: text("provider_message_id"),
+  providerThreadId: text("provider_thread_id"),
+  idempotencyKey: text("idempotency_key").notNull(),
+  eventType: text("event_type").notNull(),
+  receivedAt: integer("received_at", { mode: "timestamp" }).notNull(),
+  processedAt: integer("processed_at", { mode: "timestamp" }),
+  status: text("status").notNull().default('pending'),
+  attemptCount: integer("attempt_count").notNull().default(0),
+  nextAttemptAt: integer("next_attempt_at", { mode: "timestamp" }),
+  errorCode: text("error_code"),
+  caseId: text("case_id"),
+  metadataJson: text("metadata_json"),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  mailboxIdempotencyIdx: uniqueIndex("idx_email_inbox_events_mailbox_idempotency").on(table.mailboxId, table.idempotencyKey),
+  workspaceStatusIdx: index("idx_email_inbox_events_workspace_status").on(table.workspaceId, table.status, table.receivedAt),
+}));
+
 export const emailDrafts = sqliteTable("email_drafts", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),

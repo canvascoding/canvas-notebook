@@ -211,9 +211,16 @@
     {
       "id": "WEA-V1-08",
       "title": "E-Mail-Eingang, Idempotenz und Klaerungswarteschlange implementieren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-06"
+      ],
+      "evidence": [
+        "Der interne Poller /api/email/inbox-events/poll verarbeitet ausschließlich aktive workspace_email_mailboxes und ist vom Automation-Scheduler getrennt.",
+        "email_inbox_events speichert Workspace, Mailbox, Provider-Nachricht, Thread, Idempotenzschluessel, Status und redigierte technische Metadaten. Der eindeutige Mailbox-/Idempotenzindex verhindert doppelte Ereignisse.",
+        "Nachrichten vor der Aktivierung der Workspace-Mailbox werden ignoriert. Ohne aktive, eindeutige Bindung wird keine Nachricht gepollt und damit keine Agentenaktion ausgeloest; mehrdeutige aktive Bindungen sind per Unique-Constraint ausgeschlossen.",
+        "Der Binding-Test deckt Neuereignis, historische Nachricht, Wiederholung und die fehlende Agenten-Ausfuehrung des ereignisbasierten Jobs ab."
       ],
       "deliverables": [
         "Provider-Ereignisverarbeitung oder inkrementeller zentraler Poller fuer lesbare Mailboxen",
