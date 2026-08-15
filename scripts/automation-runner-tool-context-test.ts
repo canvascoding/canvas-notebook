@@ -20,7 +20,7 @@ const toolCalls: Array<{
   sessionId: string | null | undefined;
 }> = [];
 let agentLoopToolNames: string[] = [];
-let agentLoopMode: 'success' | 'heartbeat-ok' | 'empty-error' = 'success';
+let agentLoopMode: 'success' | 'heartbeat-ok' | 'no-action' | 'empty-error' = 'success';
 let exclusiveMode: 'pass' | 'busy' = 'pass';
 let timeoutMode: 'pass' | 'non-quiescent' = 'pass';
 let beforeExclusivePreflight: (() => Promise<void>) | null = null;
@@ -206,6 +206,31 @@ moduleInternals._load = (request, parent, isMain) => {
               {
                 role: 'assistant',
                 content: [{ type: 'text', text: 'HEARTBEAT_OK' }],
+                api: testModel.api,
+                provider: testModel.provider,
+                model: testModel.id,
+                usage: {
+                  input: 0,
+                  output: 0,
+                  cacheRead: 0,
+                  cacheWrite: 0,
+                  totalTokens: 0,
+                  cost: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, total: 0 },
+                },
+                stopReason: 'stop',
+                timestamp: Date.now(),
+              },
+            ],
+          };
+          return;
+        }
+        if (agentLoopMode === 'no-action') {
+          yield {
+            type: 'agent_end',
+            messages: [
+              {
+                role: 'assistant',
+                content: [{ type: 'text', text: 'NO_ACTION' }],
                 api: testModel.api,
                 provider: testModel.provider,
                 model: testModel.id,
@@ -878,6 +903,46 @@ async function main() {
     jobName: scheduledSuccessJob.name,
     status: 'success',
   });
+
+  const scheduledNoActionJob = await createAutomationJob(
+    {
+      name: 'Scheduled No Action',
+      prompt: 'Only report an important update.',
+      preferredSkill: 'auto',
+      workspaceContextPaths: [],
+      targetOutputPath: null,
+      agentId,
+      deliveryMode: 'web',
+      deliverySessionMode: 'new_session',
+      resultPolicy: 'deliver_relevant_only',
+      schedule: { kind: 'interval', every: 1, unit: 'hours', timeZone: 'UTC' },
+    },
+    userId,
+  );
+  const scheduledNoActionRun = await scheduleAutomationJobRun(scheduledNoActionJob.id, 'scheduled', now);
+  assert.ok(scheduledNoActionRun);
+  const statusPushesBeforeScheduledNoAction = automationStatusPushCalls.length;
+  const responsePushesBeforeScheduledNoAction = agentResponsePushCalls.length;
+  agentLoopMode = 'no-action';
+  await executeAutomationRun(scheduledNoActionRun.id);
+  agentLoopMode = 'success';
+  const finishedScheduledNoActionRun = await getAutomationRun(scheduledNoActionRun.id);
+  assert.equal(finishedScheduledNoActionRun?.status, 'success');
+  assert.equal(finishedScheduledNoActionRun?.resultText, 'Automation completed without relevant updates.');
+  assert.deepEqual(finishedScheduledNoActionRun?.metadataJson?.automation, {
+    outcome: 'no_action',
+    acknowledgement: 'NO_ACTION',
+    deliverySuppressed: true,
+    resultPolicy: 'deliver_relevant_only',
+  });
+  assert.deepEqual((finishedScheduledNoActionRun?.metadataJson?.delivery as Record<string, unknown>)?.dispatch, {
+    attempted: false,
+    delivered: false,
+    skippedReason: 'no_action',
+    error: null,
+  });
+  assert.equal(agentResponsePushCalls.length, responsePushesBeforeScheduledNoAction);
+  assert.equal(automationStatusPushCalls.length, statusPushesBeforeScheduledNoAction);
 
   const scheduledFailureJob = await createAutomationJob(
     {

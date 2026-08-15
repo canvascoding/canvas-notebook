@@ -1,10 +1,12 @@
-import { type AutomationJobRecord } from './types';
+import { type AutomationJobRecord, type AutomationResultPolicy } from './types';
+import { NO_ACTION_TOKEN } from './result-policy';
 
 type BuildAutomationPromptInput = Pick<
   AutomationJobRecord,
   'name' | 'workspaceContextPaths' | 'prompt' | 'preferredSkill'
 > & {
   executionKind?: 'automation' | 'heartbeat';
+  resultPolicy?: AutomationResultPolicy;
   effectiveTargetOutputPath?: string | null;
   webhookContext?: {
     provider: string;
@@ -75,6 +77,18 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
       eventJson.length > 50_000 ? `${eventJson.slice(0, 50_000)}\n...[truncated]` : eventJson,
       '```',
     ].join('\n'));
+  }
+
+  if (input.resultPolicy === 'deliver_relevant_only') {
+    sections.push([
+      '### Result Delivery Policy',
+      '',
+      'Only report a result when there is a new, concrete, or otherwise relevant update for the user.',
+      `If the configured task finishes without a relevant update, respond with exactly ${NO_ACTION_TOKEN} and no additional text or formatting.`,
+      `A standalone ${NO_ACTION_TOKEN} response is recorded as a successful no-op and is not delivered to the user.`,
+    ].join('\n'));
+  } else if (input.resultPolicy === 'record_only') {
+    sections.push('### Result Delivery Policy\n\nComplete the configured task and provide a concise final result. The result is recorded but is not delivered externally.');
   }
 
   sections.push(`### ${isHeartbeat ? 'Heartbeat Task' : 'Task'}\n${input.prompt}`);

@@ -103,9 +103,15 @@
     {
       "id": "WEA-V1-04",
       "title": "Automationskern auf einen expliziten Workspace-Scope vereinheitlichen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-03"
+      ],
+      "evidence": [
+        "Automation-Jobs speichern nun einen Ausloeser und eine Ergebnisregel; alle Neuanlagen werden weiterhin mit dem serverseitig aufgeloesten Workspace erstellt.",
+        "NO_ACTION unterdrueckt bei der Ergebnisregel deliver_relevant_only jede Zustellung und jede Push-Benachrichtigung.",
+        "Die Zeitplan- und Runner-Regressionstests sowie der bestehende Heartbeat-Konfigurationstest sind erfolgreich gelaufen."
       ],
       "deliverables": [
         "Automation-Jobs mit verpflichtendem Workspace-Kontext",

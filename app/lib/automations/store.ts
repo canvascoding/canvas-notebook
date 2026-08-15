@@ -22,6 +22,7 @@ import {
 import {
   type AutomationJobRecord,
   type AutomationJobStatus,
+  type AutomationJobTriggerKind,
   type AutomationActorType,
   type AutomationDeliveryMode,
   type AutomationDeliverySessionMode,
@@ -29,6 +30,7 @@ import {
   type AutomationPreferredSkill,
   type AutomationRunRecord,
   type AutomationRunStatus,
+  type AutomationResultPolicy,
   type AutomationScope,
   type AutomationWorkspaceType,
   type CreateCustomWebhookAutomationJobInput,
@@ -41,8 +43,11 @@ import {
 const STALE_AUTOMATION_RUN_TTL_MS = 15 * 60_000;
 const DEFAULT_DELIVERY_MODE: AutomationDeliveryMode = 'web';
 const DEFAULT_DELIVERY_SESSION_MODE: AutomationDeliverySessionMode = 'new_session';
+const DEFAULT_AUTOMATION_RESULT_POLICY: AutomationResultPolicy = 'deliver_all';
 const DELIVERY_MODES = new Set<AutomationDeliveryMode>(['web', 'origin', 'session', 'channel_home', 'last_active', 'silent']);
 const DELIVERY_SESSION_MODES = new Set<AutomationDeliverySessionMode>(['new_session', 'channel_active', 'fixed_session']);
+const AUTOMATION_JOB_TRIGGER_KINDS = new Set<AutomationJobTriggerKind>(['schedule', 'event', 'webhook', 'manual']);
+const AUTOMATION_RESULT_POLICIES = new Set<AutomationResultPolicy>(['deliver_all', 'deliver_relevant_only', 'record_only']);
 const AUTOMATION_RUN_RESULT_PREVIEW_LENGTH = 1000;
 const AUTOMATION_RUN_LOG_MAX_JSON_LENGTH = 250_000;
 
@@ -366,6 +371,24 @@ function normalizeDeliverySessionMode(value: unknown): AutomationDeliverySession
   return normalized as AutomationDeliverySessionMode;
 }
 
+function normalizeAutomationJobTriggerKind(value: unknown, fallback: AutomationJobTriggerKind): AutomationJobTriggerKind {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return fallback;
+  if (!AUTOMATION_JOB_TRIGGER_KINDS.has(normalized as AutomationJobTriggerKind)) {
+    throw new Error('Automation trigger kind is invalid.');
+  }
+  return normalized as AutomationJobTriggerKind;
+}
+
+function normalizeAutomationResultPolicy(value: unknown): AutomationResultPolicy {
+  const normalized = typeof value === 'string' ? value.trim() : '';
+  if (!normalized) return DEFAULT_AUTOMATION_RESULT_POLICY;
+  if (!AUTOMATION_RESULT_POLICIES.has(normalized as AutomationResultPolicy)) {
+    throw new Error('Automation result policy is invalid.');
+  }
+  return normalized as AutomationResultPolicy;
+}
+
 function normalizeWorkspaceContextPaths(value: unknown): string[] {
   if (!Array.isArray(value)) {
     return [];
@@ -480,6 +503,8 @@ function mapJobRow(
     createdAt: row.createdAt.toISOString(),
     updatedAt: row.updatedAt.toISOString(),
     jobType: (row.jobType as AutomationJobType) || 'default',
+    triggerKind: normalizeAutomationJobTriggerKind(row.triggerKind, row.scheduleKind === 'webhook' ? 'webhook' : 'schedule'),
+    resultPolicy: normalizeAutomationResultPolicy(row.resultPolicy),
     channelId: row.channelId ?? null,
     composioTriggerId: row.composioTriggerId ?? null,
     composioTriggerSlug: row.composioTriggerSlug ?? null,
@@ -827,6 +852,7 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
   const agentId = normalizeAgentId(input.agentId);
   const deliveryMode = normalizeDeliveryMode(input.deliveryMode);
   const deliverySessionMode = normalizeDeliverySessionMode(input.deliverySessionMode);
+  const resultPolicy = normalizeAutomationResultPolicy(input.resultPolicy);
   const workspaceContextPaths = normalizeWorkspaceContextPaths(input.workspaceContextPaths);
   const targetOutputPath = normalizeTargetOutputPath(input.targetOutputPath);
   const preferredTimeZone = await getServerPreferredTimeZone();
@@ -874,6 +900,8 @@ export async function createAutomationJob(input: CreateAutomationJobInput, user:
       deliverySessionMode,
       deliverySessionId: normalizeOptionalShortString(input.deliverySessionId, 500),
       deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
+      triggerKind: schedule.kind === 'webhook' ? 'webhook' : 'schedule',
+      resultPolicy,
       createdAt: now,
       updatedAt: now,
     })
@@ -943,6 +971,8 @@ export async function createWebhookAutomationJob(input: CreateWebhookAutomationJ
       deliverySessionMode,
       deliverySessionId: normalizeOptionalShortString(input.deliverySessionId, 500),
       deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
+      triggerKind: 'webhook',
+      resultPolicy: 'deliver_all',
       createdAt: now,
       updatedAt: now,
       jobType: 'webhook',
@@ -1017,6 +1047,8 @@ export async function createCustomWebhookAutomationJob(
     deliverySessionMode,
     deliverySessionId: normalizeOptionalShortString(input.deliverySessionId, 500),
     deliveryChannelSessionKey: normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
+    triggerKind: 'webhook',
+    resultPolicy: 'deliver_all',
     createdAt: now,
     updatedAt: now,
     jobType: 'webhook',
@@ -1126,6 +1158,9 @@ export async function updateAutomationJob(
       deliveryChannelSessionKey: input.deliveryChannelSessionKey === undefined
         ? existing.deliveryChannelSessionKey
         : normalizeOptionalShortString(input.deliveryChannelSessionKey, 500),
+      resultPolicy: input.resultPolicy === undefined
+        ? normalizeAutomationResultPolicy(existing.resultPolicy)
+        : normalizeAutomationResultPolicy(input.resultPolicy),
       status,
       scheduleKind: schedule.kind,
       scheduleConfigJson: JSON.stringify(schedule),

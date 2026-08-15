@@ -53,6 +53,7 @@ import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
 import { buildHeartbeatPrompt } from './heartbeat';
 import { classifyHeartbeatResult, HEARTBEAT_OK_TOKEN } from './heartbeat-result';
+import { classifyAutomationResult, NO_ACTION_TOKEN } from './result-policy';
 import {
   AutomationLoopShutdownError,
   AutomationRunTimeoutError,
@@ -432,6 +433,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         prompt: jobPrompt,
         preferredSkill: job.preferredSkill,
         executionKind: job.jobType === 'heartbeat' ? 'heartbeat' : 'automation',
+        resultPolicy: job.jobType === 'heartbeat' ? 'deliver_all' : job.resultPolicy,
         effectiveTargetOutputPath,
         webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
       });
@@ -676,15 +678,24 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         const heartbeatResult = job.jobType === 'heartbeat'
           ? classifyHeartbeatResult(assistantText)
           : null;
+        const automationResult = job.jobType === 'heartbeat'
+          ? null
+          : classifyAutomationResult(assistantText, job.resultPolicy);
         if (heartbeatResult?.kind === 'empty') {
           throw new Error(`Heartbeat completed without a final response. Return ${HEARTBEAT_OK_TOKEN} when there are no relevant updates.`);
         }
+        if (automationResult?.kind === 'empty') {
+          throw new Error(job.resultPolicy === 'deliver_relevant_only'
+            ? `Automation completed without a final response. Return ${NO_ACTION_TOKEN} when there are no relevant updates.`
+            : 'Automation completed without a final response.');
+        }
         const heartbeatOk = heartbeatResult?.kind === 'ok';
-        dispatchResult = heartbeatOk
+        const automationNoop = heartbeatOk || automationResult?.kind === 'no_action';
+        dispatchResult = automationNoop
           ? {
               attempted: false,
               delivered: false,
-              skippedReason: 'heartbeat_ok',
+              skippedReason: heartbeatOk ? 'heartbeat_ok' : 'no_action',
               error: null,
             }
           : await dispatchAutomationResult({
@@ -698,7 +709,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         if (deliveryFailureMessage) {
           throw new Error(deliveryFailureMessage);
         }
-        if (heartbeatOk) {
+        if (automationNoop) {
           await finalizePiSessionAfterNoop({
             sessionId: piSessionId,
             userId: automationUserId,
@@ -740,8 +751,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         console.log(`[Automationen] Saved session ${piSessionId} for run ${runId}`);
         const finishedRun = await markAutomationRunFinished(run.id, {
           status: 'success',
-          resultText: heartbeatOk
-            ? 'Heartbeat completed without relevant updates.'
+          resultText: automationNoop
+            ? heartbeatOk
+              ? 'Heartbeat completed without relevant updates.'
+              : 'Automation completed without relevant updates.'
             : assistantText || 'Run completed without assistant text output.',
           eventsLog: events,
           metadataJson: {
@@ -756,6 +769,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
                 deliverySuppressed: heartbeatOk,
               },
             } : {}),
+            ...(automationResult ? {
+              automation: {
+                outcome: automationNoop ? 'no_action' : 'message',
+                acknowledgement: automationNoop ? NO_ACTION_TOKEN : null,
+                deliverySuppressed: automationNoop,
+                resultPolicy: job.resultPolicy,
+              },
+            } : {}),
             status: 'success',
             targetOutputPath: job.targetOutputPath,
             effectiveTargetOutputPath,
@@ -766,7 +787,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           console.warn(`[Automationen] Run ${runId} completed but its terminal transition lost the run CAS`);
           return;
         }
-        if (run.triggerType === 'scheduled') {
+        if (run.triggerType === 'scheduled' && !automationNoop) {
           await sendAutomationTerminalPush({
             userId: automationUserId,
             workspaceId: automationWorkspace.workspaceId,
@@ -775,7 +796,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             triggerType: run.triggerType,
             status: 'success',
           });
-        } else if (!heartbeatOk) {
+        } else if (!automationNoop) {
           queueAutomationResponsePush({
             userId: automationUserId,
             workspaceId: automationWorkspace.workspaceId,

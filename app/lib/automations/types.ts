@@ -1,6 +1,8 @@
 export type AutomationJobStatus = 'active' | 'paused';
 export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'retry_scheduled';
 export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook';
+export type AutomationJobTriggerKind = 'schedule' | 'event' | 'webhook' | 'manual';
+export type AutomationResultPolicy = 'deliver_all' | 'deliver_relevant_only' | 'record_only';
 export type AutomationPreferredSkill = string;
 export type AutomationJobType = 'default' | 'heartbeat' | 'webhook';
 export type AutomationScope = 'personal' | 'organization';
@@ -94,6 +96,8 @@ export type AutomationJobRecord = {
   createdAt: string;
   updatedAt: string;
   jobType: AutomationJobType;
+  triggerKind: AutomationJobTriggerKind;
+  resultPolicy: AutomationResultPolicy;
   channelId: string | null;
   composioTriggerId: string | null;
   composioTriggerSlug: string | null;
@@ -157,6 +161,7 @@ export type CreateAutomationJobInput = {
   deliverySessionMode?: AutomationDeliverySessionMode;
   deliverySessionId?: string | null;
   deliveryChannelSessionKey?: string | null;
+  resultPolicy?: AutomationResultPolicy;
   schedule: FriendlySchedule;
   status?: AutomationJobStatus;
 };
