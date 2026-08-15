@@ -166,7 +166,6 @@ async function main() {
       listAutomationJobs,
       moveAutomationJobToWorkspace,
       scheduleAutomationJobRun,
-      upsertHeartbeatJob,
     } = await import('../app/lib/automations/store');
     const { resolveAutomationScopeForWorkspaceChange } = await import('../app/lib/automations/policy');
 
@@ -325,18 +324,6 @@ async function main() {
     assert.equal(loadedRun?.scope, 'organization');
     assert.equal(loadedRun?.jobScope, ownerOrganizationJob.jobScope);
 
-    const heartbeatJob = await upsertHeartbeatJob({
-      userId: 'user-member',
-      agentId: 'agent-member',
-      enabled: true,
-      schedule: { kind: 'interval', every: 30, unit: 'minutes', timeZone: 'UTC' },
-    });
-    assert.equal(heartbeatJob.scope, 'personal');
-    assert.equal(heartbeatJob.workspaceType, 'personal');
-    assert.equal(heartbeatJob.ownerUserId, 'user-member');
-    assert.equal(heartbeatJob.responsibleUserId, 'user-member');
-    assert.equal(heartbeatJob.lastEditedByUserId, 'user-member');
-    assert.equal(heartbeatJob.jobScope, 'personal:user-member:personal');
   } finally {
     if (sqlite.open) {
       sqlite.close();

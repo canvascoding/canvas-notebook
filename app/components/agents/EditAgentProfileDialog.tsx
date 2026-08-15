@@ -89,7 +89,6 @@ const EMPTY_FILES: Record<ManagedFileName, string> = {
   'MEMORY.md': '',
   'SOUL.md': '',
   'TOOLS.md': '',
-  'HEARTBEAT.md': '',
 };
 
 type AgentCapabilityBinding = {

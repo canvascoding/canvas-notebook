@@ -5,7 +5,6 @@ type BuildAutomationPromptInput = Pick<
   AutomationJobRecord,
   'name' | 'workspaceContextPaths' | 'prompt' | 'preferredSkill'
 > & {
-  executionKind?: 'automation' | 'heartbeat';
   resultPolicy?: AutomationResultPolicy;
   effectiveTargetOutputPath?: string | null;
   webhookContext?: {
@@ -21,22 +20,13 @@ type BuildAutomationPromptInput = Pick<
 };
 
 export function buildAutomationPrompt(input: BuildAutomationPromptInput): string {
-  const isHeartbeat = input.executionKind === 'heartbeat';
-  const sections = isHeartbeat
-    ? [
-        '## Heartbeat Execution Context',
-        'This heartbeat is being **executed now** (not created).',
-        'The user has already configured this heartbeat. Your task is to execute the heartbeat prompt below.',
-        '**Do not create a new automation.** Execute the heartbeat as configured.',
-        `**Heartbeat name:** ${input.name}`,
-      ]
-    : [
-        '## Automation Execution Context',
-        'This automation is being **executed now** (not created).',
-        'The user has already configured this automation. Your task is to execute the prompt below.',
-        '**Do not create a new automation.** Execute the task as described.',
-        `**Automation name:** ${input.name}`,
-      ];
+  const sections = [
+    '## Automation Execution Context',
+    'This automation is being **executed now** (not created).',
+    'The user has already configured this automation. Your task is to execute the prompt below.',
+    '**Do not create a new automation.** Execute the task as described.',
+    `**Automation name:** ${input.name}`,
+  ];
 
   if (input.workspaceContextPaths.length > 0) {
     sections.push(`**Relevant workspace paths:**\n${input.workspaceContextPaths.map((entry) => `- ${entry}`).join('\n')}`);
@@ -91,7 +81,7 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
     sections.push('### Result Delivery Policy\n\nComplete the configured task and provide a concise final result. The result is recorded but is not delivered externally.');
   }
 
-  sections.push(`### ${isHeartbeat ? 'Heartbeat Task' : 'Task'}\n${input.prompt}`);
+  sections.push(`### Task\n${input.prompt}`);
   sections.push('**Workspace file operations:** Use workspace-relative file operations. Read the listed paths when relevant instead of assuming their contents.');
 
   return sections.join('\n\n');

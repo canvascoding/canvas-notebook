@@ -4,7 +4,6 @@ export const MANAGED_AGENT_FILE_LIMIT_BYTES = {
   'MEMORY.md': 6_144,
   'SOUL.md': 4_096,
   'TOOLS.md': 8_192,
-  'HEARTBEAT.md': 4_096,
 } as const;
 
 export const MAX_MANAGED_SYSTEM_PROMPT_BYTES = 16_384;

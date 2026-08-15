@@ -27,10 +27,11 @@ export const AGENTS_STORAGE_ROOT = resolveAgentsStorageRoot();
 export const DEFAULT_MANAGED_AGENT_ID = 'canvas-agent';
 export const PI_RUNTIME_CONFIG_FILE = 'pi-runtime-config.json';
 export const PI_RUNTIME_CONFIG_PATH = resolveSettingsStoragePath(PI_RUNTIME_CONFIG_FILE);
-export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
-export const SPECIAL_AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+const LEGACY_HEARTBEAT_FILE_NAME = 'HEARTBEAT.md' as const;
+export const AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
+export const SPECIAL_AGENT_MANAGED_FILE_NAMES = ['AGENTS.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 export const CANVAS_INHERITED_FILE_NAMES = ['USER.md'] as const;
-export const ORGANIZATION_AGENT_DEFINITION_FILE_NAMES = ['AGENTS.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+export const ORGANIZATION_AGENT_DEFINITION_FILE_NAMES = ['AGENTS.md', 'SOUL.md', 'TOOLS.md'] as const;
 
 export type AgentManagedFileName = (typeof AGENT_MANAGED_FILE_NAMES)[number];
 export type AgentManagedFiles = Record<AgentManagedFileName, string>;
@@ -241,7 +242,7 @@ async function writeTextAtomic(filePath: string, content: string): Promise<void>
 }
 
 function resolveAgentStorageRootForScope(
-  fileName: AgentManagedFileName,
+  fileName: AgentManagedFileName | typeof LEGACY_HEARTBEAT_FILE_NAME,
   agentId?: string | null,
   scope?: AgentStorageScope | null,
 ): string {
@@ -288,7 +289,7 @@ function resolveScopedChildPath(root: string, childName: string, label: string):
 }
 
 function resolveAgentScopedStorageDir(
-  fileName: AgentManagedFileName,
+  fileName: AgentManagedFileName | typeof LEGACY_HEARTBEAT_FILE_NAME,
   agentId?: string | null,
   scope?: AgentStorageScope | null,
 ): string {
@@ -303,11 +304,15 @@ function resolveAgentScopedStorageDir(
   return resolveScopedChildPath(root, normalizeManagedAgentId(agentId), 'agentId');
 }
 
-function resolveManagedFilePath(fileName: AgentManagedFileName, agentId?: string | null, scope?: AgentStorageScope | null): string {
+function resolveManagedFilePath(
+  fileName: AgentManagedFileName | typeof LEGACY_HEARTBEAT_FILE_NAME,
+  agentId?: string | null,
+  scope?: AgentStorageScope | null,
+): string {
   return resolveScopedChildPath(resolveAgentScopedStorageDir(fileName, agentId, scope), fileName, 'agent managed file');
 }
 
-function resolveLegacyManagedFilePath(fileName: AgentManagedFileName): string {
+function resolveLegacyManagedFilePath(fileName: AgentManagedFileName | typeof LEGACY_HEARTBEAT_FILE_NAME): string {
   return path.join(AGENT_STORAGE_DIR, fileName);
 }
 
@@ -400,6 +405,39 @@ export async function readManagedAgentFile(
   const content = await readFileIfExists(filePath);
 
   return content ?? '';
+}
+
+/**
+ * Reads the retired HEARTBEAT.md directly, without creating a missing file or
+ * exposing it through the managed-files API. It exists only for the one-time
+ * migration to workspace automations.
+ */
+export async function readLegacyHeartbeatInstructions(input: {
+  userId: string;
+  agentId?: string | null;
+}): Promise<string> {
+  const scopedPath = resolveManagedFilePath(LEGACY_HEARTBEAT_FILE_NAME, input.agentId, { userId: input.userId });
+  const scopedContent = await readFileIfExists(scopedPath);
+  if (scopedContent !== null) return scopedContent;
+
+  if (shouldMigrateLegacyCanvasAgentFiles(input.agentId)) {
+    return (await readFileIfExists(resolveLegacyManagedFilePath(LEGACY_HEARTBEAT_FILE_NAME))) ?? '';
+  }
+
+  return '';
+}
+
+/** Removes the retired file after its content has been persisted in an automation. */
+export async function removeLegacyHeartbeatInstructions(input: {
+  userId: string;
+  agentId?: string | null;
+}): Promise<void> {
+  const scopedPath = resolveManagedFilePath(LEGACY_HEARTBEAT_FILE_NAME, input.agentId, { userId: input.userId });
+  await fs.rm(scopedPath, { force: true });
+
+  if (shouldMigrateLegacyCanvasAgentFiles(input.agentId)) {
+    await fs.rm(resolveLegacyManagedFilePath(LEGACY_HEARTBEAT_FILE_NAME), { force: true });
+  }
 }
 
 export async function resetManagedAgentFile(

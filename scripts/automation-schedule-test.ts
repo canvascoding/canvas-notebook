@@ -289,19 +289,6 @@ assert.match(prompt, /\*\*Relevant workspace paths:\*\*\n- README\.md/);
 assert.match(prompt, /\*\*Preferred skill:\*\* `\/pdf`/);
 assert.match(prompt, /Run logs and metadata are stored automatically in the database/);
 
-const heartbeatPrompt = buildAutomationPrompt({
-  name: 'Heartbeat',
-  workspaceContextPaths: [],
-  prompt: 'Lies HEARTBEAT.md.',
-  preferredSkill: 'auto',
-  executionKind: 'heartbeat',
-});
-
-assert.match(heartbeatPrompt, /## Heartbeat Execution Context/);
-assert.match(heartbeatPrompt, /\*\*Do not create a new automation\.\*\* Execute the heartbeat as configured/);
-assert.match(heartbeatPrompt, /### Heartbeat Task/);
-assert.doesNotMatch(heartbeatPrompt, /## Automation Execution Context/);
-
 const composioPrompt = buildAutomationPrompt({
   name: 'Gmail Follow-up',
   workspaceContextPaths: [],

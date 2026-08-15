@@ -51,8 +51,6 @@ import { getPiTools } from '@/app/lib/pi/tool-registry';
 
 import { getEffectiveAutomationTargetOutputPath } from './paths';
 import { buildAutomationPrompt } from './prompt';
-import { buildHeartbeatPrompt } from './heartbeat';
-import { classifyHeartbeatResult, HEARTBEAT_OK_TOKEN } from './heartbeat-result';
 import { classifyAutomationResult, NO_ACTION_TOKEN } from './result-policy';
 import {
   AutomationLoopShutdownError,
@@ -74,6 +72,7 @@ import {
   markAutomationRunFinished,
   markAutomationRunRetryScheduled,
   markAutomationRunStarted,
+  migrateLegacyHeartbeatJobs,
   revalidateAutomationRunClaim,
   updateAutomationJob,
 } from './store';
@@ -314,6 +313,7 @@ function sameAutomationWorkspaceIdentity(
 }
 
 export async function executeAutomationRun(runId: string): Promise<void> {
+  await migrateLegacyHeartbeatJobs();
   const runStartTime = Date.now();
   const run = await getAutomationRun(runId);
   if (!run) {
@@ -422,18 +422,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       }
       assertAutomationExecutionActive(executionSignal);
 
-      const includeAutomatedHeartbeatContext = job.jobType === 'heartbeat' && run.triggerType !== 'manual';
-      const jobPrompt = job.jobType === 'heartbeat'
-        ? await buildHeartbeatPrompt(job, { includeAutomatedRuntimeContext: includeAutomatedHeartbeatContext, userId: automationUserId })
-        : job.prompt;
+      const jobPrompt = job.prompt;
       assertAutomationExecutionActive(executionSignal);
       const promptText = buildAutomationPrompt({
         name: job.name,
         workspaceContextPaths: job.workspaceContextPaths,
         prompt: jobPrompt,
         preferredSkill: job.preferredSkill,
-        executionKind: job.jobType === 'heartbeat' ? 'heartbeat' : 'automation',
-        resultPolicy: job.jobType === 'heartbeat' ? 'deliver_all' : job.resultPolicy,
+        resultPolicy: job.resultPolicy,
         effectiveTargetOutputPath,
         webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
       });
@@ -675,27 +671,18 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         }
 
         const assistantText = extractAssistantText(finalMessages);
-        const heartbeatResult = job.jobType === 'heartbeat'
-          ? classifyHeartbeatResult(assistantText)
-          : null;
-        const automationResult = job.jobType === 'heartbeat'
-          ? null
-          : classifyAutomationResult(assistantText, job.resultPolicy);
-        if (heartbeatResult?.kind === 'empty') {
-          throw new Error(`Heartbeat completed without a final response. Return ${HEARTBEAT_OK_TOKEN} when there are no relevant updates.`);
-        }
+        const automationResult = classifyAutomationResult(assistantText, job.resultPolicy);
         if (automationResult?.kind === 'empty') {
           throw new Error(job.resultPolicy === 'deliver_relevant_only'
             ? `Automation completed without a final response. Return ${NO_ACTION_TOKEN} when there are no relevant updates.`
             : 'Automation completed without a final response.');
         }
-        const heartbeatOk = heartbeatResult?.kind === 'ok';
-        const automationNoop = heartbeatOk || automationResult?.kind === 'no_action';
+        const automationNoop = automationResult?.kind === 'no_action';
         dispatchResult = automationNoop
           ? {
               attempted: false,
               delivered: false,
-              skippedReason: heartbeatOk ? 'heartbeat_ok' : 'no_action',
+              skippedReason: 'no_action',
               error: null,
             }
           : await dispatchAutomationResult({
@@ -752,9 +739,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         const finishedRun = await markAutomationRunFinished(run.id, {
           status: 'success',
           resultText: automationNoop
-            ? heartbeatOk
-              ? 'Heartbeat completed without relevant updates.'
-              : 'Automation completed without relevant updates.'
+            ? 'Automation completed without relevant updates.'
             : assistantText || 'Run completed without assistant text output.',
           eventsLog: events,
           metadataJson: {
@@ -762,13 +747,6 @@ export async function executeAutomationRun(runId: string): Promise<void> {
             model: model.id,
             runtime: buildAutomationRuntimeMetadata(executableRuntime),
             ...buildAutomationRunMetadata(job, deliveryResolution, dispatchResult),
-            ...(heartbeatResult ? {
-              heartbeat: {
-                outcome: heartbeatOk ? 'no_updates' : 'message',
-                acknowledgement: heartbeatOk ? HEARTBEAT_OK_TOKEN : null,
-                deliverySuppressed: heartbeatOk,
-              },
-            } : {}),
             ...(automationResult ? {
               automation: {
                 outcome: automationNoop ? 'no_action' : 'message',

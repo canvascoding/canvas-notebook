@@ -122,7 +122,6 @@ assert.deepEqual(bootstrap.mobileApi.capabilities, [
   'automations.jobs',
   'automations.run_control',
   'automations.run_history',
-  'automations.heartbeat',
   'automations.webhooks',
   'automations.composio_triggers',
   'extensions.store',

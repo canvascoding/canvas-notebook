@@ -129,9 +129,16 @@
     {
       "id": "WEA-V1-05",
       "title": "Bestehende Heartbeats und HEARTBEAT.md kontrolliert migrieren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-04"
+      ],
+      "evidence": [
+        "Die idempotente Laufzeitmigration stellt jeden Legacy-Job im selben Datensatz auf eine normale Workspace-Automation mit schedule-Trigger und deliver_relevant_only um.",
+        "Zeitplan, Zustellziel und Historie bleiben erhalten; HEARTBEAT.md wird in den Prompt übernommen und danach aus dem verwalteten Speicher entfernt.",
+        "Die alten Settings, Managed-File-Editoren und produktiven Heartbeat-Ausführungspfade wurden entfernt; die ehemalige API antwortet nur noch mit 410 Gone.",
+        "Der dedizierte Migrationstest sowie Automation-, Workspace-Scope- und TypeScript-Prüfungen sind erfolgreich gelaufen."
       ],
       "deliverables": [
         "Idempotente Datenmigration in den persoenlichen Standard-Workspace",

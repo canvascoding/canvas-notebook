@@ -8,7 +8,7 @@ import {
 import type { AgentStorageScope } from './storage';
 import { CANVAS_MARKDOWN_AGENT_GUIDANCE } from '../markdown/canvas-markdown-agent-guidance';
 
-export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+export const MANAGED_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 export const SYSTEM_PROMPT_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 
 export type ManagedPromptFileName = (typeof MANAGED_PROMPT_FILE_NAMES)[number];

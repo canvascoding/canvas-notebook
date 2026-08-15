@@ -41,7 +41,6 @@ assert.match(
 const nonNotebookEditorFiles = [
   'app/apps/automations/components/AutomationsClient.tsx',
   'app/components/public-sharing/PublicFilePreview.tsx',
-  'app/components/settings/AgentHeartbeatCard.tsx',
   'app/components/settings/AgentManagedFilesCard.tsx',
   'app/components/settings/SkillsPanel.tsx',
   'app/components/skills/SkillDetailDialog.tsx',

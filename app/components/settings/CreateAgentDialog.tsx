@@ -69,7 +69,6 @@ const EMPTY_FILE_DRAFTS: Record<ManagedFileName, string> = {
   'MEMORY.md': '',
   'SOUL.md': '',
   'TOOLS.md': '',
-  'HEARTBEAT.md': '',
 };
 
 const AGENT_TEMPLATES: CreateAgentTemplate[] = [

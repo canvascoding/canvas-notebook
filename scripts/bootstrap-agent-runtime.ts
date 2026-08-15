@@ -93,7 +93,7 @@ const SKILL_REGISTRY_PATH = path.join(SKILLS_STORAGE_DIR, 'registry.json');
 const PI_RUNTIME_CONFIG_PATH = path.join(SETTINGS_STORAGE_DIR, 'pi-runtime-config.json');
 
 // All managed files (excluding BOOTSTRAP.md which is only for initial setup)
-const MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md', 'HEARTBEAT.md'] as const;
+const MANAGED_FILE_NAMES = ['AGENTS.md', 'USER.md', 'MEMORY.md', 'SOUL.md', 'TOOLS.md'] as const;
 const GLOBAL_SETTINGS_FILE_NAMES = [
   'agent-runtime-config.json',
   'pi-runtime-config.json',

@@ -461,7 +461,6 @@ async function main() {
     getAutomationRun,
     markAutomationRunRetryScheduled,
     scheduleAutomationJobRun,
-    upsertHeartbeatJob,
   } = await import('../app/lib/automations/store');
   const { executeAutomationRun } = await import('../app/lib/automations/runner');
 
@@ -561,6 +560,7 @@ async function main() {
   assert.equal(session?.thinkingLevel, 'off');
   assert.doesNotMatch(session?.systemPromptSnapshot || '', /## Current Workspace File Tree/);
 
+  /* Legacy heartbeat execution coverage moved to automation-heartbeat-migration-test.ts.
   const heartbeatMessagesBefore = await db.query.piMessages.findMany({
     where: eq(piMessages.piSessionDbId, session.id),
     orderBy: [asc(piMessages.sequence)],
@@ -674,6 +674,7 @@ async function main() {
     where: eq(sessionChannelLinks.sessionId, newHeartbeatSessionId),
   }), undefined);
   assert.equal(agentResponsePushCalls.length, 2, 'a new-session no-op heartbeat must not emit a response push');
+  */
 
   const busyJob = await createAutomationJob(
     {
@@ -874,7 +875,7 @@ async function main() {
   });
   assert.equal(retrySessions.length, 1);
   assert.equal(agentLoopStreamFns.at(-1), testStreamFn);
-  assert.equal(agentResponsePushCalls.length, 3, 'a successful retry must emit one unread-aware response push');
+  assert.equal(agentResponsePushCalls.length, 2, 'a successful retry must emit one unread-aware response push');
 
   const scheduledSuccessJob = await createAutomationJob(
     {

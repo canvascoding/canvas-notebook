@@ -4,7 +4,11 @@ import { and, asc, desc, eq, inArray, lte, ne, notInArray, or, sql } from 'drizz
 
 import { db, getDatabaseProvider } from '@/app/lib/db';
 import { automationJobs, automationRuns, automationWebhookEvents, automationWebhookTriggers, composioWebhookEvents, piSessions } from '@/app/lib/db/schema';
-import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
+import {
+  DEFAULT_MANAGED_AGENT_ID,
+  readLegacyHeartbeatInstructions,
+  removeLegacyHeartbeatInstructions,
+} from '@/app/lib/agents/storage';
 import { validatePath } from '@/app/lib/filesystem/workspace-files';
 import { getServerPreferredTimeZone } from '@/app/lib/server-settings';
 
@@ -612,6 +616,7 @@ async function mapJobRowWithWebhookTrigger(row: typeof automationJobs.$inferSele
 }
 
 export async function listAutomationJobs(userId: string): Promise<AutomationJobRecord[]> {
+  await migrateLegacyHeartbeatJobs();
   const access = await getAutomationListAccess(userId);
   const personalAccess = and(
     or(
@@ -1593,6 +1598,7 @@ export async function markAutomationWebhookEventStatus(id: string, status: strin
 }
 
 export async function listDueAutomationJobs(now = new Date()): Promise<AutomationJobRecord[]> {
+  await migrateLegacyHeartbeatJobs();
   const rows = await db
     .select()
     .from(automationJobs)
@@ -2117,133 +2123,103 @@ export async function markAutomationRunFinished(
   );
 }
 
-export async function getHeartbeatJob(input: {
-  userId: string;
-  agentId?: string | null;
-}): Promise<AutomationJobRecord | null> {
-  const agentId = normalizeAgentId(input.agentId);
-  const row = await db.query.automationJobs.findFirst({
-    where: and(
-      eq(automationJobs.createdByUserId, input.userId),
-      eq(automationJobs.agentId, agentId),
-      eq(automationJobs.jobType, 'heartbeat'),
-    ),
-  });
+function buildMigratedHeartbeatPrompt(instructions: string): string {
+  const trimmedInstructions = instructions.trim();
+  if (!trimmedInstructions) {
+    return 'Review this workspace for changes that need the user\'s attention. Report only a concrete, relevant update.';
+  }
 
-  return row ? mapJobRow(row) : null;
+  return [
+    'Run the following migrated workspace-review instructions.',
+    '',
+    trimmedInstructions,
+  ].join('\n');
 }
 
-export async function upsertHeartbeatJob(data: {
-  userId: string;
-  agentId?: string | null;
-  enabled: boolean;
-  schedule: FriendlySchedule;
-  deliveryMode?: AutomationDeliveryMode;
-  deliveryChannelId?: string | null;
-  deliverySessionMode?: AutomationDeliverySessionMode;
-  deliverySessionId?: string | null;
-  deliveryChannelSessionKey?: string | null;
-}): Promise<AutomationJobRecord> {
-  const agentId = normalizeAgentId(data.agentId);
-  const existing = await getHeartbeatJob({ userId: data.userId, agentId });
+/**
+ * Converts legacy heartbeat jobs in place. The original job ID, schedule,
+ * delivery target, and run history remain intact; only the obsolete heartbeat
+ * type and file-backed instruction source are replaced.
+ */
+export async function migrateLegacyHeartbeatJobs(): Promise<number> {
+  const legacyJobs = await db
+    .select()
+    .from(automationJobs)
+    .where(eq(automationJobs.jobType, 'heartbeat'));
 
-  const status: AutomationJobStatus = data.enabled ? 'active' : 'paused';
-  const defaultTimeZone = existing?.timeZone || await getServerPreferredTimeZone();
-  const { schedule, error } = validateFriendlySchedule(applyDefaultScheduleTimeZone(data.schedule, defaultTimeZone));
-  if (!schedule || error) {
-    throw new Error(error || 'Schedule is invalid.');
-  }
-  const nextRunAt = data.enabled
-    ? computeNextRunAt(schedule, { from: new Date(), lastRunAt: existing?.lastRunAt ? new Date(existing.lastRunAt) : null })
-    : null;
-  const deliveryMode = normalizeDeliveryMode(data.deliveryMode ?? existing?.deliveryMode);
-  const deliverySessionMode = normalizeDeliverySessionMode(data.deliverySessionMode ?? existing?.deliverySessionMode);
-  const deliveryChannelId = data.deliveryChannelId === undefined
-    ? existing?.deliveryChannelId ?? (deliveryMode === 'web' ? 'web' : null)
-    : normalizeOptionalShortString(data.deliveryChannelId, 120);
-  const deliverySessionId = data.deliverySessionId === undefined
-    ? existing?.deliverySessionId ?? null
-    : normalizeOptionalShortString(data.deliverySessionId, 500);
-  const deliveryChannelSessionKey = data.deliveryChannelSessionKey === undefined
-    ? existing?.deliveryChannelSessionKey ?? null
-    : normalizeOptionalShortString(data.deliveryChannelSessionKey, 500);
+  if (legacyJobs.length === 0) return 0;
 
-  if (existing) {
-    const [updated] = await db
-      .update(automationJobs)
-      .set({
-        status,
-        jobScope: existing.jobScope || buildAutomationJobScope({
-          scope: 'personal',
-          ownerUserId: data.userId,
-          responsibleUserId: data.userId,
-          createdByUserId: data.userId,
-          workspaceId: existing.workspaceId,
-          workspaceType: existing.workspaceType,
-        }),
-        scheduleKind: schedule.kind,
-        scheduleConfigJson: JSON.stringify(schedule),
-        timeZone: schedule.timeZone,
-        nextRunAt,
-        deliveryMode,
-        deliveryChannelId,
-        deliverySessionMode,
-        deliverySessionId,
-        deliveryChannelSessionKey,
-        updatedAt: new Date(),
-      })
-      .where(eq(automationJobs.id, existing.id))
-      .returning();
-
-    console.log(`[Heartbeat] Updated heartbeat job ${existing.id} (agent=${agentId}, status=${status}, schedule=${schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
-    return mapJobRow(updated);
+  const instructionByJobId = new Map<string, string>();
+  for (const job of legacyJobs) {
+    const userId = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+    instructionByJobId.set(job.id, await readLegacyHeartbeatInstructions({
+      userId,
+      agentId: job.agentId,
+    }));
   }
 
-  const id = `job-heartbeat-${agentId}-${Date.now()}`;
-  const now = new Date();
+  const migratedFileKeys = new Map<string, { userId: string; agentId: string }>();
+  let migratedCount = 0;
 
-  const [inserted] = await db
-    .insert(automationJobs)
-    .values({
-      id,
-      name: 'Heartbeat',
-      status,
-      scope: 'personal',
-      jobScope: buildAutomationJobScope({
-        scope: 'personal',
-        ownerUserId: data.userId,
-        responsibleUserId: data.userId,
-        createdByUserId: data.userId,
-        workspaceType: 'personal',
-      }),
-      workspaceType: 'personal',
-      ownerUserId: data.userId,
-      responsibleUserId: data.userId,
-      lastEditedByUserId: data.userId,
-      prompt: 'Heartbeat',
-      preferredSkill: 'auto',
-      workspaceContextPathsJson: '[]',
-      targetOutputPath: null,
-      scheduleKind: schedule.kind,
-      scheduleConfigJson: JSON.stringify(schedule),
-      timeZone: schedule.timeZone,
-      nextRunAt,
-      lastRunAt: null,
-      lastRunStatus: null,
-      createdByUserId: data.userId,
-      agentId,
-      deliveryMode,
-      deliveryChannelId,
-      deliverySessionMode,
-      deliverySessionId,
-      deliveryChannelSessionKey,
-      createdAt: now,
-      updatedAt: now,
-      jobType: 'heartbeat',
-      channelId: deliveryChannelId,
-    })
-    .returning();
+  for (const job of legacyJobs) {
+    const userId = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+    try {
+      const scope = await resolveAutomationScopeForCreate(
+        { scope: 'personal' },
+        { id: userId },
+      );
+      const jobScope = buildAutomationJobScope({ ...scope, createdByUserId: job.createdByUserId });
+      const [updated] = await db
+        .update(automationJobs)
+        .set({
+          name: 'Regelmäßige Workspace-Prüfung',
+          prompt: buildMigratedHeartbeatPrompt(instructionByJobId.get(job.id) || ''),
+          scope: scope.scope,
+          jobScope,
+          organizationId: scope.organizationId,
+          workspaceId: scope.workspaceId,
+          workspaceType: scope.workspaceType,
+          ownerUserId: scope.ownerUserId,
+          responsibleUserId: scope.responsibleUserId,
+          serviceActorId: scope.serviceActorId,
+          approvedByUserId: scope.approvedByUserId,
+          lastEditedByUserId: scope.lastEditedByUserId,
+          jobType: 'default',
+          triggerKind: 'schedule',
+          resultPolicy: 'deliver_relevant_only',
+          updatedAt: new Date(),
+        })
+        .where(and(eq(automationJobs.id, job.id), eq(automationJobs.jobType, 'heartbeat')))
+        .returning();
 
-  console.log(`[Heartbeat] Created heartbeat job ${id} (agent=${agentId}, status=${status}, schedule=${schedule.kind}, nextRunAt=${nextRunAt?.toISOString() ?? 'null'})`);
-  return mapJobRow(inserted);
+      if (!updated) continue;
+
+      await db
+        .update(automationRuns)
+        .set({
+          scope: scope.scope,
+          jobScope,
+          organizationId: scope.organizationId,
+          workspaceId: scope.workspaceId,
+          workspaceType: scope.workspaceType,
+          actorUserId: scope.responsibleUserId,
+          serviceActorId: scope.serviceActorId,
+        })
+        .where(eq(automationRuns.jobId, job.id));
+
+      migratedCount += 1;
+      migratedFileKeys.set(`${userId}:${job.agentId}`, { userId, agentId: job.agentId });
+    } catch (error) {
+      console.warn(`[Automationen] Could not migrate legacy heartbeat ${job.id}:`, error instanceof Error ? error.message : error);
+    }
+  }
+
+  for (const file of migratedFileKeys.values()) {
+    await removeLegacyHeartbeatInstructions(file);
+  }
+
+  if (migratedCount > 0) {
+    console.log(`[Automationen] Migrated ${migratedCount} legacy heartbeat job(s) to workspace automations.`);
+  }
+  return migratedCount;
 }

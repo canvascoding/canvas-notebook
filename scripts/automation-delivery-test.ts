@@ -76,6 +76,8 @@ async function main() {
     createdAt: now.toISOString(),
     updatedAt: now.toISOString(),
     jobType: 'default',
+    triggerKind: 'schedule',
+    resultPolicy: 'deliver_all',
     channelId: null,
     composioTriggerId: null,
     composioTriggerSlug: null,

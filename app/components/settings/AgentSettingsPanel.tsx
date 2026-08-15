@@ -24,21 +24,8 @@ import { AgentSelectorCard, type AgentProfileItem } from './AgentSelectorCard';
 import { AgentSettingsAccordionCard } from './AgentSettingsAccordionCard';
 import { AgentRuntimePreferenceCard } from './AgentRuntimePreferenceCard';
 import type { CreateAgentInput } from './CreateAgentDialog';
-import {
-  AgentHeartbeatCard,
-  type AgentHeartbeatConfig,
-  type AgentHeartbeatDeliveryChannelOption,
-  type AgentHeartbeatDeliveryDraft,
-  type AgentHeartbeatScheduleDraft,
-} from './AgentHeartbeatCard';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Switch } from '@/components/ui/switch';
-import type {
-  AutomationWorkingHours,
-  AutomationWeekday,
-  FriendlySchedule,
-} from '@/app/lib/automations/types';
-import { DEFAULT_USER_TIME_ZONE } from '@/app/lib/time-zones';
 
 function buildAgentQuery(agentId: string): string {
   return new URLSearchParams({ agentId }).toString();
@@ -51,7 +38,7 @@ type AgentToolsConfigData = {
   enabledTools: string[];
 };
 
-type AgentSettingsSectionId = 'runtime' | 'tools' | 'connections' | 'skills' | 'heartbeat' | 'files' | 'sessions' | 'doctor';
+type AgentSettingsSectionId = 'runtime' | 'tools' | 'connections' | 'skills' | 'files' | 'sessions' | 'doctor';
 type AgentSettingsSectionOpenState = Record<AgentSettingsSectionId, boolean>;
 
 const AGENT_SETTINGS_SECTION_OPEN_STORAGE_KEY = 'canvas-settings-agent-section-open-state';
@@ -61,7 +48,6 @@ const DEFAULT_AGENT_SETTINGS_SECTION_OPEN_STATE: AgentSettingsSectionOpenState =
   tools: false,
   connections: false,
   skills: false,
-  heartbeat: false,
   files: false,
   sessions: false,
   doctor: false,
@@ -87,7 +73,6 @@ function getInitialAgentSectionOpenState(requestedPanel: string | null): AgentSe
       tools: typeof storedState.tools === 'boolean' ? storedState.tools : fallback.tools,
       connections: typeof storedState.connections === 'boolean' ? storedState.connections : fallback.connections,
       skills: typeof storedState.skills === 'boolean' ? storedState.skills : fallback.skills,
-      heartbeat: typeof storedState.heartbeat === 'boolean' ? storedState.heartbeat : fallback.heartbeat,
       files: typeof storedState.files === 'boolean' ? storedState.files : fallback.files,
       sessions: typeof storedState.sessions === 'boolean' ? storedState.sessions : fallback.sessions,
       doctor: SHOW_AGENT_DOCTOR_SECTION
@@ -120,6 +105,7 @@ async function fetchJson<T>(input: string, init?: RequestInit): Promise<T> {
   return (payload.data as T) ?? (payload as unknown as T);
 }
 
+/* Retired legacy heartbeat settings. Migration is handled by workspace automations.
 function defaultHeartbeatScheduleDraft(): AgentHeartbeatScheduleDraft {
   const timeZone = DEFAULT_USER_TIME_ZONE;
   return {
@@ -277,6 +263,7 @@ function normalizeDeliveryChannels(channels: unknown[], telegramStatus: Record<s
       };
     });
 }
+*/
 
 export function AgentSettingsPanel({
   canManageAgentDefaults = false,
@@ -312,18 +299,12 @@ export function AgentSettingsPanel({
     'MEMORY.md': '',
     'SOUL.md': '',
     'TOOLS.md': '',
-    'HEARTBEAT.md': '',
   });
   const [activeFile, setActiveFile] = useState<ManagedFileName>('AGENTS.md');
   const [filesResetting, setFilesResetting] = useState(false);
-  const [heartbeatFileSaving, setHeartbeatFileSaving] = useState(false);
-  const [heartbeatFileResetting, setHeartbeatFileResetting] = useState(false);
-  const [heartbeatFileError, setHeartbeatFileError] = useState<string | null>(null);
-  const [heartbeatFileSuccess, setHeartbeatFileSuccess] = useState<string | null>(null);
 
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
   const [resetTarget, setResetTarget] = useState<ResetTarget | null>(null);
-  const [heartbeatResetDialogOpen, setHeartbeatResetDialogOpen] = useState(false);
 
   const [sessions, setSessions] = useState<SessionItem[]>([]);
   const [sessionsLoading, setSessionsLoading] = useState(true);
@@ -349,14 +330,6 @@ export function AgentSettingsPanel({
   const [modelOverrideSaving, setModelOverrideSaving] = useState(false);
   const [modelOverrideError, setModelOverrideError] = useState<string | null>(null);
 
-  const [heartbeatConfig, setHeartbeatConfig] = useState<AgentHeartbeatConfig | null>(null);
-  const [heartbeatScheduleDraft, setHeartbeatScheduleDraft] = useState<AgentHeartbeatScheduleDraft>(() => defaultHeartbeatScheduleDraft());
-  const [heartbeatDeliveryDraft, setHeartbeatDeliveryDraft] = useState<AgentHeartbeatDeliveryDraft>(() => defaultHeartbeatDeliveryDraft());
-  const [heartbeatDeliveryChannels, setHeartbeatDeliveryChannels] = useState<AgentHeartbeatDeliveryChannelOption[]>([]);
-  const [heartbeatLoading, setHeartbeatLoading] = useState(true);
-  const [heartbeatSaving, setHeartbeatSaving] = useState(false);
-  const [heartbeatError, setHeartbeatError] = useState<string | null>(null);
-  const [heartbeatSuccess, setHeartbeatSuccess] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -377,11 +350,8 @@ export function AgentSettingsPanel({
     setFiles(null);
     setFilesError(null);
     setFilesSuccess(null);
-    setHeartbeatFileError(null);
-    setHeartbeatFileSuccess(null);
     setResetDialogOpen(false);
     setResetTarget(null);
-    setHeartbeatResetDialogOpen(false);
     setSessions([]);
     setSessionsLoading(true);
     setSessionError(null);
@@ -394,11 +364,6 @@ export function AgentSettingsPanel({
     setCapabilitiesError(null);
     setModelOverrideEnabled(false);
     setModelOverrideError(null);
-    setHeartbeatConfig(null);
-    setHeartbeatScheduleDraft(defaultHeartbeatScheduleDraft());
-    setHeartbeatDeliveryDraft(defaultHeartbeatDeliveryDraft());
-    setHeartbeatError(null);
-    setHeartbeatSuccess(null);
   }, []);
 
   const selectAgent = useCallback((agentId: string) => {
@@ -640,6 +605,7 @@ export function AgentSettingsPanel({
     }
   }, [selectedAgentId, t]);
 
+  /* Retired legacy heartbeat settings.
   const loadHeartbeatConfig = useCallback(async () => {
     setHeartbeatLoading(true);
     setHeartbeatError(null);
@@ -672,13 +638,14 @@ export function AgentSettingsPanel({
         return;
       }
     } catch {
-      /* ignore */
+      // ignore
     }
 
     setHeartbeatDeliveryChannels([
       { id: 'web', label: 'Web Chat', connected: true, running: true },
     ]);
   }, []);
+  */
 
   const patchSelectedAgent = useCallback(async (payload: Record<string, unknown>) => {
     if (isMainAgent || !selectedAgent) return;
@@ -729,9 +696,8 @@ export function AgentSettingsPanel({
   useEffect(() => {
     startTransition(() => {
       void loadAgents();
-      void loadHeartbeatDeliveryChannels();
     });
-  }, [loadAgents, loadHeartbeatDeliveryChannels]);
+  }, [loadAgents]);
 
   useEffect(() => {
     startTransition(() => {
@@ -739,9 +705,8 @@ export function AgentSettingsPanel({
       void loadSessions();
       void loadTools();
       void loadToolsConfig();
-      void loadHeartbeatConfig();
     });
-  }, [loadFiles, loadSessions, loadTools, loadToolsConfig, loadHeartbeatConfig]);
+  }, [loadFiles, loadSessions, loadTools, loadToolsConfig]);
 
   useEffect(() => {
     if (SHOW_AGENT_DOCTOR_SECTION && searchParams.get('panel') === 'doctor' && !doctorResult && !doctorRunning) {
@@ -749,6 +714,7 @@ export function AgentSettingsPanel({
     }
   }, [searchParams, doctorResult, doctorRunning, runDoctor]);
 
+  /* Retired legacy heartbeat settings.
   const saveHeartbeatConfig = async () => {
     setHeartbeatSaving(true);
     setHeartbeatError(null);
@@ -788,6 +754,7 @@ export function AgentSettingsPanel({
       setHeartbeatSaving(false);
     }
   };
+  */
 
   const applyManagedFileContent = (fileName: ManagedFileName, content: string) => {
     setFiles((current) => ({
@@ -858,6 +825,7 @@ export function AgentSettingsPanel({
     });
   };
 
+  /* Retired legacy heartbeat settings.
   const saveHeartbeatFile = async () => {
     await saveManagedFile('HEARTBEAT.md', {
       setSaving: setHeartbeatFileSaving,
@@ -867,6 +835,7 @@ export function AgentSettingsPanel({
       errorMessage: t('agentPanel.heartbeat.errors.fileSave'),
     });
   };
+  */
 
   const resetFile = async () => {
     if (!resetTarget) return;
@@ -919,6 +888,7 @@ export function AgentSettingsPanel({
     setResetDialogOpen(true);
   };
 
+  /* Retired legacy heartbeat settings.
   const resetHeartbeatFile = async () => {
     setHeartbeatFileResetting(true);
     setHeartbeatFileError(null);
@@ -936,6 +906,7 @@ export function AgentSettingsPanel({
       setHeartbeatResetDialogOpen(false);
     }
   };
+  */
 
   const createSession = async () => {
     setSessionPendingId('create');
@@ -1457,47 +1428,6 @@ export function AgentSettingsPanel({
           />
         </AgentSettingsAccordionCard>
       )}
-
-      <AgentHeartbeatCard
-        config={heartbeatConfig}
-        scheduleDraft={heartbeatScheduleDraft}
-        deliveryDraft={heartbeatDeliveryDraft}
-        deliveryChannels={heartbeatDeliveryChannels}
-        isOpen={agentSectionOpenById.heartbeat}
-        loading={heartbeatLoading}
-        saving={heartbeatSaving}
-        error={heartbeatError}
-        success={heartbeatSuccess}
-        heartbeatFileDraft={fileDrafts['HEARTBEAT.md'] ?? ''}
-        heartbeatFileLoading={filesLoading}
-        heartbeatFileSaving={heartbeatFileSaving}
-        heartbeatFileResetting={heartbeatFileResetting}
-        heartbeatFileError={heartbeatFileError || filesError}
-        heartbeatFileSuccess={heartbeatFileSuccess}
-        heartbeatResetDialogOpen={heartbeatResetDialogOpen}
-        onOpenChange={(isOpen) => setAgentSectionOpen('heartbeat', isOpen)}
-        onEnabledChange={(enabled) => setHeartbeatConfig((current) => current ? { ...current, enabled } : current)}
-        onScheduleDraftChange={(patch) => setHeartbeatScheduleDraft((current) => ({ ...current, ...patch }))}
-        onDeliveryDraftChange={(patch) => setHeartbeatDeliveryDraft((current) => ({ ...current, ...patch }))}
-        onSave={() => void saveHeartbeatConfig()}
-        onReload={() => void Promise.all([loadHeartbeatConfig(), loadHeartbeatDeliveryChannels()])}
-        onHeartbeatFileDraftChange={(value) =>
-          setFileDrafts((current) => ({
-            ...current,
-            'HEARTBEAT.md': value,
-          }))
-        }
-        onSaveHeartbeatFile={() => void saveHeartbeatFile()}
-        onReloadHeartbeatFile={() => {
-          setHeartbeatFileError(null);
-          setHeartbeatFileSuccess(null);
-          void loadFiles();
-        }}
-        onOpenHeartbeatResetDialog={() => setHeartbeatResetDialogOpen(true)}
-        onHeartbeatResetDialogOpenChange={setHeartbeatResetDialogOpen}
-        onClearHeartbeatResetDialog={() => setHeartbeatResetDialogOpen(false)}
-        onResetHeartbeatFile={() => void resetHeartbeatFile()}
-      />
 
       <AgentManagedFilesCard
         isMainAgent={isMainAgent}

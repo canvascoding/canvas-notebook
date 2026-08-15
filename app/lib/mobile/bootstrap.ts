@@ -145,7 +145,6 @@ export function createMobileBootstrap(input: {
     'automations.jobs',
     'automations.run_control',
     'automations.run_history',
-    'automations.heartbeat',
     'automations.webhooks',
     'automations.composio_triggers',
     'extensions.store',
