@@ -32,6 +32,7 @@ async function main() {
   const sqlite = new Database(dbPath);
   try {
     runMigrations(sqlite);
+    runMigrations(sqlite);
     const now = Date.now();
     sqlite.prepare(`
       INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
@@ -192,6 +193,14 @@ async function main() {
     assert.deepEqual(sentInput, { to: ['customer@example.test'], subject: 'Re: Support request', body: '<p>We will help shortly.</p>' });
     assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'answered');
     assert.ok((await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).some((draft) => draft.id === outboxDraft.id));
+    await assert.rejects(
+      () => listWorkspaceInboxCases('owner-user', otherWorkspace.id),
+      /workspace|permission|access/i,
+    );
+    await assert.rejects(
+      () => listWorkspaceOutboxDrafts('owner-user', otherWorkspace.id),
+      /workspace|permission|access/i,
+    );
 
     await pollWorkspaceMailboxInboxEvents({
       now: new Date(pollNow.getTime() + 2_000),

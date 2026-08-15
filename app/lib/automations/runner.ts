@@ -486,7 +486,20 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         + `provider=${provider}, model=${model.id}`,
       );
 
-      const tools = await getPiTools(automationUserId, job.agentId, piSessionId);
+      // Automations may inspect workspace data and produce in-app results, but
+      // never obtain a tool that can send external email. Human review through
+      // the workspace Outbox is the only permitted delivery path.
+      const tools = (await getPiTools(automationUserId, job.agentId, piSessionId))
+        .filter((tool) => !(
+          tool.name === 'email_send_draft'
+          || tool.name === 'terminal'
+          || tool.name === 'browser'
+          || tool.name === 'mcp'
+          || tool.name === 'composio'
+          || tool.name.startsWith('mcp_')
+          || tool.name.startsWith('COMPOSIO_')
+          || tool.name === 'composio_execute'
+        ));
       assertAutomationExecutionActive(executionSignal);
       const promptSnapshot = await loadPiSessionSystemPromptSnapshot({
         sessionId: piSessionId,

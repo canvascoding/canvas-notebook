@@ -350,7 +350,8 @@
     {
       "id": "WEA-V1-13",
       "title": "Automatisierte Sicherheits-, Migrations- und Integrationspruefungen abschliessen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-05",
         "WEA-V1-12"
@@ -366,6 +367,11 @@
         "Cross-Workspace-Zugriffe auf Mail, Inbox, Outbox oder Automation werden abgewiesen.",
         "Doppelte Provider-Ereignisse erzeugen keine Duplikate.",
         "Migrationen sind fuer SQLite und PostgreSQL reproduzierbar und idempotent."
+      ],
+      "evidence": [
+        "Automation-Runs filtern email_send_draft sowie Terminal-, Browser-, MCP- und Composio-Tools zentral aus ihrer Toolregistry. Der Runner-Test liefert absichtlich Send- und MCP-Tools und beweist, dass nur der sichere Toolsatz den Agenten erreicht.",
+        "Der Workspace-Mailbox-Binding-Test prüft aktive Bindung, Cross-Workspace-Ablehnung für Automation, Inbox und Outbox, Idempotenz von Provider-Ereignissen, Normalfall/Auto-Reply/Provider-Fehler der Triage sowie den kontrollierten menschlichen Versand mit Test-Transport.",
+        "Der Heartbeat-Migrationstest prüft die Migration von HEARTBEAT.md und Legacy-Jobs. SQLite-Migrationen werden im Binding-Test zweimal ausgeführt. Der neue PGlite-Test führt die PostgreSQL-Migration zweimal aus und prüft die Inbox-/Outbox-Tabellen und Indizes auf stabilem Schema."
       ]
     },
     {

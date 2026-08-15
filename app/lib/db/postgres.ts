@@ -703,6 +703,26 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   `);
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_email_inbox_events_mailbox_idempotency ON email_inbox_events (mailbox_id, idempotency_key)');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_email_inbox_events_workspace_status ON email_inbox_events (workspace_id, status, received_at)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS email_inbox_cases (
+      id text PRIMARY KEY,
+      workspace_id text NOT NULL,
+      mailbox_id text NOT NULL REFERENCES workspace_email_mailboxes(id) ON DELETE CASCADE,
+      provider_thread_id text NOT NULL,
+      latest_provider_message_id text,
+      requester_address text,
+      requester_name text,
+      subject text NOT NULL,
+      status text NOT NULL DEFAULT 'new',
+      priority text NOT NULL DEFAULT 'normal',
+      assignee_user_id text,
+      closed_at bigint,
+      created_at bigint NOT NULL,
+      updated_at bigint NOT NULL
+    )
+  `);
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_email_inbox_cases_mailbox_thread ON email_inbox_cases (mailbox_id, provider_thread_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_email_inbox_cases_workspace_status ON email_inbox_cases (workspace_id, status, updated_at)');
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS trigger_kind text NOT NULL DEFAULT 'schedule'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS result_policy text NOT NULL DEFAULT 'deliver_all'");
   await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS event_config_json text');

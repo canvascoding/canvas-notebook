@@ -429,6 +429,20 @@ moduleInternals._load = (request, parent, isMain) => {
             parameters: { type: 'object', properties: {} },
             execute: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
           },
+          {
+            name: 'email_send_draft',
+            label: 'Send email draft',
+            description: 'This must never reach an automation run.',
+            parameters: { type: 'object', properties: {} },
+            execute: async () => ({ content: [{ type: 'text', text: 'sent' }] }),
+          },
+          {
+            name: 'mcp',
+            label: 'External MCP',
+            description: 'This must never reach an automation run.',
+            parameters: { type: 'object', properties: {} },
+            execute: async () => ({ content: [{ type: 'text', text: 'ok' }] }),
+          },
         ];
       },
     };
