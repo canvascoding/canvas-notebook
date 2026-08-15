@@ -11,6 +11,26 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.15.1] - 2026-08-15
+
+### Added
+
+- Added Obsidian-style wiki links to the rich collaborative Markdown editor.
+- Added a mobile viewport mode to HTML previews and clearer mobile license status details.
+
+### Changed
+
+- Refreshed mobile and web plugin listings without duplicate installed-plugin entries.
+- Sent background refresh pushes to keep mobile widgets current.
+
+### Fixed
+
+- Corrected mobile app badge counts for Inbox activity.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.14.1] - 2026-08-14
 
 ### Added
