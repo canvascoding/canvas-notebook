@@ -47,9 +47,17 @@
     {
       "id": "WEA-V1-02",
       "title": "Datenmodell und idempotente Migration detailliert planen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-01"
+      ],
+      "artifacts": [
+        "docs/architecture/canvas-notebook/workspace-email-automations-v1-data-model.md"
+      ],
+      "evidence": [
+        "Das Datenmodell deckt Workspace-Mailboxen, Inbox-Ereignisse, Inbox-Faelle, Outbox-Entwuerfe und die allgemeine Automation-Engine ab.",
+        "Die Migrationsreihenfolge ist fuer SQLite und PostgreSQL idempotent dokumentiert."
       ],
       "deliverables": [
         "Schemaentwurf fuer Workspace-Mailbox-Zuordnungen",

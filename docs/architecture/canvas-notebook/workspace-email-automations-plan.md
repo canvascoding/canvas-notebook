@@ -13,7 +13,7 @@ Dieses Dokument ist eine Architekturentscheidung und keine unmittelbare Implemen
 
 ## Umsetzungstracking
 
-Die sequenzielle, abhakbare V1-Aufgabenliste steht in [workspace-email-automations-v1-todo.json](./workspace-email-automations-v1-todo.json). Sie ist die verbindliche Reihenfolge fuer die Umsetzung; pro Zeitpunkt darf nur eine Aufgabe in Arbeit sein.
+Die sequenzielle, abhakbare V1-Aufgabenliste steht in [workspace-email-automations-v1-todo.json](./workspace-email-automations-v1-todo.json). Sie ist die verbindliche Reihenfolge fuer die Umsetzung; pro Zeitpunkt darf nur eine Aufgabe in Arbeit sein. Das konkrete Schema- und Migrationsmodell steht in [workspace-email-automations-v1-data-model.md](./workspace-email-automations-v1-data-model.md).
 
 ## Begriffe
 
