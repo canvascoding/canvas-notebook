@@ -4922,6 +4922,8 @@
         "remoteImagesDescription": "Wenn aktiviert, lädt die E-Mail-Vorschau Remote-Bilder und externe Bildressourcen ohne zusätzlichen Klick. Aus Datenschutzgründen bleibt das standardmäßig deaktiviert."
       },
       "setup": {
+        "title": "Konto verbinden",
+        "initialDescription": "Wähle den passenden Verbindungstyp, um dein E-Mail-Konto einzurichten.",
         "eyebrow": "Konto verbinden",
         "chooseProviderTitle": "Wie möchtest du dein Konto verbinden?",
         "chooseProviderDescription": "Wähle zuerst den Verbindungstyp. Technische Details zeigen wir erst im nächsten Schritt.",

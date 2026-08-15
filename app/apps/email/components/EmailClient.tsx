@@ -3149,26 +3149,12 @@ export function EmailClient({
 
   if (accounts.length === 0) {
     return (
-      <div className="mx-auto flex h-full w-full max-w-6xl flex-col gap-4 overflow-y-auto px-3 py-4 sm:px-6 sm:py-6">
-        <section className="border border-border bg-card px-4 py-4 sm:px-6">
-          <div className="flex items-start gap-3">
-            <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-md border border-border bg-muted">
-              <Inbox className="h-5 w-5 text-primary" aria-hidden="true" />
-            </div>
-            <div className="min-w-0 space-y-1">
-              <h2 className="text-lg font-semibold tracking-tight">{t('title')}</h2>
-              <p className="max-w-3xl text-sm leading-6 text-muted-foreground">{t('emptyDescription')}</p>
-            </div>
-          </div>
-        </section>
-        <Button type="button" className="self-start" onClick={() => setAccountsOpen(true)}>
-          <Mail className="mr-2 h-4 w-4" />
-          {t('connectAccount')}
-        </Button>
+      <div className="mx-auto flex h-full w-full max-w-4xl flex-col overflow-y-auto px-3 py-6 sm:px-6 sm:py-10">
         <EmailAccountsCard
-          isOpen={accountsOpen}
-          onOpenChange={setAccountsOpen}
+          isOpen={true}
+          onOpenChange={() => undefined}
           onAccountsChanged={loadAccounts}
+          presentation="setup"
           onPreviewPreferencesChanged={(preferences) => {
             setEmailAllowRemoteImages(preferences.emailAllowRemoteImages);
             setEmailRemoteImageAllowedSenders(preferences.emailRemoteImageAllowedSenders || []);

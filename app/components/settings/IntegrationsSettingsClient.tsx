@@ -1336,7 +1336,7 @@ export function EmailAccountsCard({
   onOpenChange: (isOpen: boolean) => void;
   onAccountsChanged?: () => void | Promise<void>;
   onPreviewPreferencesChanged?: (preferences: EmailPreviewPreferences) => void;
-  presentation?: 'settings' | 'dialog';
+  presentation?: 'settings' | 'dialog' | 'setup';
 }) {
   const t = useTranslations('settings.emailAccounts');
   const searchParams = useSearchParams();
@@ -1811,6 +1811,8 @@ export function EmailAccountsCard({
   const isManagedEmailMode = emailMode === 'managed';
   const isLocalEmailMode = emailMode === 'local';
   const hasConnectedEmailAccount = accounts.length > 0;
+  const isStandaloneSetup = presentation === 'setup';
+  const isInitialEmailSetup = !hasConnectedEmailAccount;
   const showAddAccountPanel = !hasConnectedEmailAccount || isAddingEmailAccount;
   const oauthActionDisabled = activeAction !== null || isOAuthLoading || emailMode === 'unknown';
   const providerLabel = (provider: string) => {
@@ -1833,17 +1835,17 @@ export function EmailAccountsCard({
 
   return (
     <SettingsAccordionCard
-      title={t('title')}
-      description={t('description')}
+      title={isInitialEmailSetup ? t('setup.title') : t('title')}
+      description={isInitialEmailSetup ? t('setup.initialDescription') : t('description')}
       icon={Mail}
       isOpen={isOpen}
       onOpenChange={onOpenChange}
-      summaryItems={summaryItems}
-      hideHeader={presentation === 'dialog'}
-      cardClassName={presentation === 'dialog' ? 'border-0 bg-transparent shadow-none' : undefined}
-      contentClassName={presentation === 'dialog' ? 'space-y-4 p-0' : 'space-y-4'}
+      summaryItems={isInitialEmailSetup ? [] : summaryItems}
+      hideHeader={presentation === 'dialog' || isStandaloneSetup}
+      cardClassName={presentation === 'dialog' || isStandaloneSetup ? 'border-0 bg-transparent shadow-none' : undefined}
+      contentClassName={presentation === 'dialog' || isStandaloneSetup ? 'space-y-4 p-0' : 'space-y-4'}
     >
-        <div className="flex flex-wrap justify-end gap-2">
+        {!isInitialEmailSetup && <div className="flex flex-wrap justify-end gap-2">
           {hasConnectedEmailAccount && (
             <Button
               type="button"
@@ -1859,38 +1861,43 @@ export function EmailAccountsCard({
             {isLoading ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}
             {t('refresh')}
           </Button>
-        </div>
+        </div>}
         {error && <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">{error}</div>}
         {message && <div className="border border-border bg-muted px-3 py-2 text-sm text-muted-foreground">{message}</div>}
         {showAddAccountPanel && (
-          <section className="space-y-4 rounded-xl border border-border bg-gradient-to-b from-muted/40 to-background p-4 shadow-sm sm:p-5">
-            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <section className={cn(
+            'space-y-4',
+            isInitialEmailSetup ? 'py-1' : 'rounded-xl border border-border bg-gradient-to-b from-muted/40 to-background p-4 shadow-sm sm:p-5',
+          )}>
+            {isStandaloneSetup && !setupProvider && (
+              <div className="max-w-2xl">
+                <h2 className="text-xl font-semibold tracking-tight">{t('setup.title')}</h2>
+                <p className="mt-2 text-sm leading-6 text-muted-foreground">{t('setup.initialDescription')}</p>
+              </div>
+            )}
+            {setupProvider && <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="min-w-0">
                 <p className="text-xs font-semibold uppercase tracking-[0.16em] text-primary">{t('setup.eyebrow')}</p>
-                <h3 className="mt-1 text-lg font-semibold tracking-tight">
-                  {setupProvider ? t('setup.connectionTitle') : t('setup.chooseProviderTitle')}
-                </h3>
+                <h3 className="mt-1 text-lg font-semibold tracking-tight">{t('setup.connectionTitle')}</h3>
                 <p className="mt-1 max-w-2xl text-sm leading-6 text-muted-foreground">
-                  {setupProvider ? t('setup.connectionDescription') : t('setup.chooseProviderDescription')}
+                  {t('setup.connectionDescription')}
                 </p>
               </div>
-              {setupProvider && (
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => {
-                    setSetupProvider(null);
-                    setError(null);
-                    setMessage(null);
-                  }}
-                  disabled={activeAction !== null}
-                >
-                  <ChevronLeft className="mr-1 h-4 w-4" />
-                  {t('setup.backToProviders')}
-                </Button>
-              )}
-            </div>
+              <Button
+                type="button"
+                variant="ghost"
+                size="sm"
+                onClick={() => {
+                  setSetupProvider(null);
+                  setError(null);
+                  setMessage(null);
+                }}
+                disabled={activeAction !== null}
+              >
+                <ChevronLeft className="mr-1 h-4 w-4" />
+                {t('setup.backToProviders')}
+              </Button>
+            </div>}
 
             {!setupProvider && (
               <div className={`grid gap-3 ${SHOW_MICROSOFT_EMAIL_OAUTH ? 'lg:grid-cols-3' : 'md:grid-cols-2'}`}>
@@ -2139,9 +2146,7 @@ export function EmailAccountsCard({
             )}
           </section>
         )}
-        {accounts.length === 0 ? (
-          <div className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">{t('noAccounts')}</div>
-        ) : (
+        {accounts.length > 0 && (
           <div className="space-y-3">
             {accounts.map((account) => {
               const draft = drafts[account.id] || { readFrom: '', sendTo: '' };

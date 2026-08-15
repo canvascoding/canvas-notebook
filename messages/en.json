@@ -4923,6 +4923,8 @@
         "remoteImagesDescription": "When enabled, the email preview loads remote images and external image resources without an extra click. It stays disabled by default for privacy."
       },
       "setup": {
+        "title": "Connect an account",
+        "initialDescription": "Choose the connection type that fits your email account.",
         "eyebrow": "Connect an account",
         "chooseProviderTitle": "How would you like to connect your account?",
         "chooseProviderDescription": "Choose the connection type first. Technical details are shown only in the next step.",
