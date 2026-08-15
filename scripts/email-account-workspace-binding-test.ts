@@ -179,7 +179,19 @@ async function main() {
       last_edited_by_user_id: 'owner-user',
     });
     assert.ok(activeMailbox?.id);
-    const { getWorkspaceEmailAutomationEventContext, queuePendingWorkspaceEmailAutomationRuns } = await import('../app/lib/email/workspace-email-automation-events');
+    const {
+      getWorkspaceEmailAutomationEventContext,
+      markWorkspaceEmailAutomationEventRunFinished,
+      migrateWorkspaceEmailAutomationJobs,
+      queuePendingWorkspaceEmailAutomationRuns,
+    } = await import('../app/lib/email/workspace-email-automation-events');
+    sqlite.prepare(`UPDATE automation_jobs SET event_config_json = ? WHERE id = ?`).run(
+      JSON.stringify({ eventType: 'email_inbox_event', mailboxId: created.id }),
+      eventAutomation.id,
+    );
+    assert.equal(await migrateWorkspaceEmailAutomationJobs(), 1);
+    const migratedEventConfig = sqlite.prepare(`SELECT event_config_json FROM automation_jobs WHERE id = ?`).get(eventAutomation.id) as { event_config_json: string };
+    assert.equal(JSON.parse(migratedEventConfig.event_config_json).outboundMode, 'human_review');
     const queued = await queuePendingWorkspaceEmailAutomationRuns();
     assert.deepEqual(queued, { checked: 1, queued: 1, deferred: 0, ignored: 0, failed: 0 });
     const queuedEvent = sqlite.prepare(`SELECT status FROM email_inbox_events WHERE provider_message_id = 'new-message'`).get() as { status: string };
@@ -210,6 +222,13 @@ async function main() {
       outboundMode: 'human_review',
     });
     assert.match(eventContext?.sessionId || '', /^automation-email:/);
+    await markWorkspaceEmailAutomationEventRunFinished({ run: queuedRun, status: 'success' });
+    const processedEvent = sqlite.prepare(`SELECT status, processed_at, error_code FROM email_inbox_events WHERE id = ?`).get(storedEvent.id) as {
+      status: string; processed_at: number | null; error_code: string | null;
+    };
+    assert.equal(processedEvent.status, 'processed');
+    assert.ok(processedEvent.processed_at);
+    assert.equal(processedEvent.error_code, null);
     const { createWorkspaceInboxCase, createWorkspaceOutboxDraft, listWorkspaceInboxCases, listWorkspaceOutboxDrafts, sendWorkspaceOutboxDraft, updateWorkspaceOutboxDraft } = await import('../app/lib/email/workspace-inbox-outbox');
     const inboxCase = await createWorkspaceInboxCase({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, mailboxId: activeMailbox.id,

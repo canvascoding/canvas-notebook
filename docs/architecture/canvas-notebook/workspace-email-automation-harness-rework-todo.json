@@ -93,12 +93,22 @@
     {
       "id": "EAH-06",
       "title": "Regressionen, Migrationen und UI-Abnahme abschliessen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": ["EAH-05"],
       "deliverables": [
         "Migration bestehender E-Mail-Triage-Jobs",
         "Tests fuer Tool-Policy, Session-Isolation und Versandmodi",
         "Explizit freigegebene UI-Abnahme"
+      ],
+      "verification": [
+        "npm run build",
+        "npx tsc --noEmit",
+        "npm run test:email:workspace-binding",
+        "npm run test:automation:runner",
+        "npm run test:email:agent-profile",
+        "npm run lint",
+        "Playwright: E-Mail-Triage-Vorlage im Produktiv-Build"
       ]
     }
   ]

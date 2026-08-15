@@ -33,6 +33,35 @@ export type WorkspaceEmailAutomationQueueResult = {
   failed: number;
 };
 
+/**
+ * Safely upgrades event jobs created before outboundMode was introduced. The
+ * runtime also defaults to human_review, but persisting that default makes the
+ * approval policy explicit for people reviewing an existing automation.
+ */
+export async function migrateWorkspaceEmailAutomationJobs(): Promise<number> {
+  const jobs = await db.select({ id: automationJobs.id, eventConfigJson: automationJobs.eventConfigJson })
+    .from(automationJobs)
+    .where(eq(automationJobs.triggerKind, 'event'));
+  let migrated = 0;
+
+  for (const job of jobs) {
+    if (!job.eventConfigJson) continue;
+    try {
+      const config = JSON.parse(job.eventConfigJson) as Record<string, unknown>;
+      if (config.eventType !== 'email_inbox_event' || workspaceEmailAutomationOutboundMode(config) !== 'human_review'
+        || config.outboundMode === 'human_review') continue;
+      await db.update(automationJobs).set({
+        eventConfigJson: JSON.stringify({ ...config, outboundMode: 'human_review' }),
+        updatedAt: new Date(),
+      }).where(eq(automationJobs.id, job.id));
+      migrated += 1;
+    } catch {
+      // Invalid event configuration remains the responsibility of the job validator.
+    }
+  }
+  return migrated;
+}
+
 function eventConfigMatchesMailbox(value: string | null, emailAccountId: string): boolean {
   if (!value) return false;
   try {
@@ -107,6 +136,7 @@ async function markEvent(event: InboxEventRow, input: { status: 'queued' | 'igno
  * Agent-Harness tool calls made while the queued run executes.
  */
 export async function queuePendingWorkspaceEmailAutomationRuns(input: { limit?: number } = {}): Promise<WorkspaceEmailAutomationQueueResult> {
+  await migrateWorkspaceEmailAutomationJobs();
   const events = await db.query.emailInboxEvents.findMany({
     where: eq(emailInboxEvents.status, 'pending'),
     orderBy: [asc(emailInboxEvents.receivedAt)],
@@ -139,6 +169,25 @@ export async function queuePendingWorkspaceEmailAutomationRuns(input: { limit?: 
     }
   }
   return result;
+}
+
+/** Marks the source inbox event terminal only after its normal automation run ends. */
+export async function markWorkspaceEmailAutomationEventRunFinished(input: {
+  run: AutomationRunRecord;
+  status: 'success' | 'failed';
+  errorMessage?: string | null;
+}): Promise<void> {
+  const eventId = typeof input.run.metadataJson?.emailInboxEventId === 'string'
+    ? input.run.metadataJson.emailInboxEventId
+    : null;
+  if (!eventId) return;
+
+  await db.update(emailInboxEvents).set({
+    status: input.status === 'success' ? 'processed' : 'failed',
+    processedAt: new Date(),
+    errorCode: input.status === 'failed' ? (input.errorMessage || 'automation_run_failed').slice(0, 250) : null,
+    updatedAt: new Date(),
+  }).where(and(eq(emailInboxEvents.id, eventId), eq(emailInboxEvents.status, 'queued')));
 }
 
 /**

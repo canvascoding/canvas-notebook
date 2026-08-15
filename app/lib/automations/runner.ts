@@ -80,7 +80,10 @@ import { resolveAutomationRunWorkspace } from './policy';
 import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 import { getWorkspaceEmailAttentionSummary } from '@/app/lib/email/workspace-inbox-outbox';
-import { getWorkspaceEmailAutomationEventContext } from '@/app/lib/email/workspace-email-automation-events';
+import {
+  getWorkspaceEmailAutomationEventContext,
+  markWorkspaceEmailAutomationEventRunFinished,
+} from '@/app/lib/email/workspace-email-automation-events';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
@@ -338,13 +341,14 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   const job = await getAutomationJob(run.jobId);
   if (!job) {
     console.error(`[Automationen] Job ${run.jobId} not found for run ${runId}`);
-    await markAutomationRunFinished(runId, {
+    const failedRun = await markAutomationRunFinished(runId, {
       status: 'failed',
       errorMessage: 'Automation job not found.',
       eventsLog: [],
       metadataJson: { provider: 'unknown', model: 'unknown', status: 'failed' },
       expectation: runTransitionExpectation,
     });
+    if (failedRun) await markWorkspaceEmailAutomationEventRunFinished({ run: failedRun, status: 'failed', errorMessage: 'Automation job not found.' });
     return;
   }
 
@@ -799,6 +803,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           console.warn(`[Automationen] Run ${runId} completed but its terminal transition lost the run CAS`);
           return;
         }
+        await markWorkspaceEmailAutomationEventRunFinished({ run: finishedRun, status: 'success' });
         if (run.triggerType === 'scheduled' && !automationNoop) {
           await sendAutomationTerminalPush({
             userId: automationUserId,
@@ -905,6 +910,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
           console.warn(`[Automationen] Run ${runId} could not be marked failed because its status or attempt changed`);
           return;
         }
+        await markWorkspaceEmailAutomationEventRunFinished({ run: failedRun, status: 'failed', errorMessage: message });
         await sendAutomationTerminalPush({
           userId: automationUserId,
           workspaceId: job.workspaceId,
@@ -957,6 +963,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         console.warn(`[Automationen] Run ${runId} timeout lost the run CAS; leaving the current terminal state unchanged`);
         return;
       }
+      await markWorkspaceEmailAutomationEventRunFinished({ run: failedRun, status: 'failed', errorMessage: message });
       await sendAutomationTerminalPush({
         userId: automationUserId,
         workspaceId: job.workspaceId,
@@ -1005,6 +1012,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       console.warn(`[Automationen] Run ${runId} preparation failure lost the run CAS; leaving the current state unchanged`);
       return;
     }
+    await markWorkspaceEmailAutomationEventRunFinished({ run: failedRun, status: 'failed', errorMessage: message });
     await sendAutomationTerminalPush({
       userId: automationUserId,
       workspaceId: job.workspaceId,
