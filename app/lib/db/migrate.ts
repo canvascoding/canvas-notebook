@@ -168,6 +168,19 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       is_html INTEGER NOT NULL DEFAULT 0,
       attachments_json TEXT NOT NULL DEFAULT '[]',
       provider_draft_id TEXT,
+      workspace_id TEXT,
+      mailbox_id TEXT,
+      inbox_case_id TEXT,
+      origin TEXT NOT NULL DEFAULT 'manual',
+      origin_automation_job_id TEXT,
+      origin_run_id TEXT,
+      origin_agent_id TEXT,
+      outbox_status TEXT,
+      version INTEGER NOT NULL DEFAULT 1,
+      assigned_user_id TEXT,
+      editing_by_user_id TEXT,
+      editing_started_at INTEGER,
+      sent_by_user_id TEXT,
       sent_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -2530,7 +2543,26 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       ON email_inbox_events (mailbox_id, idempotency_key);
     CREATE INDEX IF NOT EXISTS idx_email_inbox_events_workspace_status
       ON email_inbox_events (workspace_id, status, received_at);
+
+    CREATE TABLE IF NOT EXISTS email_inbox_cases (
+      id TEXT PRIMARY KEY NOT NULL, workspace_id TEXT NOT NULL, mailbox_id TEXT NOT NULL,
+      provider_thread_id TEXT NOT NULL, latest_provider_message_id TEXT,
+      requester_address TEXT, requester_name TEXT, subject TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new', priority TEXT NOT NULL DEFAULT 'normal', assignee_user_id TEXT,
+      closed_at INTEGER, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+      FOREIGN KEY (mailbox_id) REFERENCES workspace_email_mailboxes(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_email_inbox_cases_mailbox_thread ON email_inbox_cases (mailbox_id, provider_thread_id);
+    CREATE INDEX IF NOT EXISTS idx_email_inbox_cases_workspace_status ON email_inbox_cases (workspace_id, status, updated_at);
   `);
+
+  addColumns(sqlite, 'email_drafts', {
+    workspace_id: 'TEXT', mailbox_id: 'TEXT', inbox_case_id: 'TEXT', origin: "TEXT NOT NULL DEFAULT 'manual'",
+    origin_automation_job_id: 'TEXT', origin_run_id: 'TEXT', origin_agent_id: 'TEXT', outbox_status: 'TEXT',
+    version: 'INTEGER NOT NULL DEFAULT 1', assigned_user_id: 'TEXT', editing_by_user_id: 'TEXT',
+    editing_started_at: 'INTEGER', sent_by_user_id: 'TEXT',
+  });
+  sqlite.exec('CREATE INDEX IF NOT EXISTS idx_email_drafts_workspace_outbox ON email_drafts (workspace_id, outbox_status, updated_at)');
 
   addColumns(sqlite, 'pi_usage_events', {
     organization_id: 'TEXT',

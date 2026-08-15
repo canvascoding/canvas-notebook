@@ -706,6 +706,20 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS trigger_kind text NOT NULL DEFAULT 'schedule'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS result_policy text NOT NULL DEFAULT 'deliver_all'");
   await pool.query('ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS event_config_json text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS workspace_id text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS mailbox_id text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS inbox_case_id text');
+  await pool.query("ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'manual'");
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin_automation_job_id text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin_run_id text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin_agent_id text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS outbox_status text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS version bigint NOT NULL DEFAULT 1');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS assigned_user_id text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS editing_by_user_id text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS editing_started_at bigint');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS sent_by_user_id text');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_email_drafts_workspace_outbox ON email_drafts (workspace_id, outbox_status, updated_at)');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_yjs_states (

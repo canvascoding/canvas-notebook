@@ -172,6 +172,26 @@ export const emailInboxEvents = sqliteTable("email_inbox_events", {
   workspaceStatusIdx: index("idx_email_inbox_events_workspace_status").on(table.workspaceId, table.status, table.receivedAt),
 }));
 
+export const emailInboxCases = sqliteTable("email_inbox_cases", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  mailboxId: text("mailbox_id").notNull().references(() => workspaceEmailMailboxes.id, { onDelete: 'cascade' }),
+  providerThreadId: text("provider_thread_id").notNull(),
+  latestProviderMessageId: text("latest_provider_message_id"),
+  requesterAddress: text("requester_address"),
+  requesterName: text("requester_name"),
+  subject: text("subject").notNull(),
+  status: text("status").notNull().default('new'),
+  priority: text("priority").notNull().default('normal'),
+  assigneeUserId: text("assignee_user_id").references(() => user.id, { onDelete: 'set null' }),
+  closedAt: integer("closed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  mailboxThreadIdx: uniqueIndex("idx_email_inbox_cases_mailbox_thread").on(table.mailboxId, table.providerThreadId),
+  workspaceStatusIdx: index("idx_email_inbox_cases_workspace_status").on(table.workspaceId, table.status, table.updatedAt),
+}));
+
 export const emailDrafts = sqliteTable("email_drafts", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
@@ -185,6 +205,19 @@ export const emailDrafts = sqliteTable("email_drafts", {
   isHtml: integer("is_html", { mode: "boolean" }).notNull().default(false),
   attachmentsJson: text("attachments_json").notNull().default("[]"),
   providerDraftId: text("provider_draft_id"),
+  workspaceId: text("workspace_id"),
+  mailboxId: text("mailbox_id").references(() => workspaceEmailMailboxes.id, { onDelete: 'set null' }),
+  inboxCaseId: text("inbox_case_id").references(() => emailInboxCases.id, { onDelete: 'set null' }),
+  origin: text("origin").notNull().default('manual'),
+  originAutomationJobId: text("origin_automation_job_id"),
+  originRunId: text("origin_run_id"),
+  originAgentId: text("origin_agent_id"),
+  outboxStatus: text("outbox_status"),
+  version: integer("version").notNull().default(1),
+  assignedUserId: text("assigned_user_id").references(() => user.id, { onDelete: 'set null' }),
+  editingByUserId: text("editing_by_user_id").references(() => user.id, { onDelete: 'set null' }),
+  editingStartedAt: integer("editing_started_at", { mode: "timestamp" }),
+  sentByUserId: text("sent_by_user_id").references(() => user.id, { onDelete: 'set null' }),
   sentAt: integer("sent_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
   updatedAt: integer("updated_at", { mode: "timestamp" }).notNull()
@@ -192,6 +225,7 @@ export const emailDrafts = sqliteTable("email_drafts", {
   userIdx: index("idx_email_drafts_user").on(table.userId),
   accountIdx: index("idx_email_drafts_account").on(table.accountId),
   userStatusIdx: index("idx_email_drafts_user_status").on(table.userId, table.status),
+  workspaceOutboxIdx: index("idx_email_drafts_workspace_outbox").on(table.workspaceId, table.outboxStatus, table.updatedAt),
 }));
 
 export const verification = sqliteTable("verification", {
