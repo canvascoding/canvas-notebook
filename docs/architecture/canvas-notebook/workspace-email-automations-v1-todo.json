@@ -404,7 +404,8 @@
     {
       "id": "WEA-V1-15",
       "title": "Produktionsreife verifizieren und V1 abschliessen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-14"
       ],
@@ -419,6 +420,12 @@
         "Es wird kein Container gebaut, sofern dies nicht explizit angefordert wurde.",
         "Alle V1-Aufgaben sind abgeschlossen oder bewusst mit externer Freigabe dokumentiert.",
         "Die Produktionsfreigabe bestaetigt die menschliche Versandpflicht erneut."
+      ],
+      "evidence": [
+        "npm run lint ist erfolgreich abgeschlossen.",
+        "npm run build ist erfolgreich abgeschlossen, einschließlich Lizenzprüfung, TypeScript und statischer Seitengenerierung. Turbopack meldet bestehende Warnungen zu breiten dynamischen Dateipfaden, aber keinen Build-Fehler.",
+        "Relevante Tests wurden abgeschlossen: Automation Runner, Heartbeat-Migration, Workspace-Scope, Workspace-E-Mail-Binding und PostgreSQL-Migration. Die UI-Abnahme lief auf localhost:3000; ein Container wurde nicht gebaut.",
+        "Die zentrale Tool-Filterung, der ausschließlich serverseitig kontrollierte Outbox-Send-Endpunkt und die sichtbaren Human-Review-Hinweise bestätigen erneut: Kein Agent und keine Automation kann E-Mails versenden; nur ein berechtigter Mensch kann den manuellen Versand auslösen."
       ]
     }
   ]
