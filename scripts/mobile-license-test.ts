@@ -132,6 +132,10 @@ async function main() {
   assert.equal(memberStatusResponse.status, 200);
   assert.equal(memberStatus.licensed, false);
   assert.equal(memberStatus.code, 'LICENSE_OPTIONAL');
+  assert.equal(memberStatus.licenseState, 'inactive');
+  assert.equal(memberStatus.hostingMode, null);
+  assert.deepEqual(memberStatus.capabilities, {});
+  assert.deepEqual(memberStatus.features, {});
   assert.equal((memberStatus.activation as Record<string, unknown>).canManage, false);
   assert.equal(JSON.stringify(memberStatus).includes(instanceId), false);
 
@@ -192,6 +196,10 @@ async function main() {
   assert.equal(activated.licensed, true);
   assert.equal(activated.plan, 'community');
   assert.equal(activated.code, 'LICENSE_ACTIVE');
+  assert.equal(activated.licenseState, 'active');
+  assert.equal(activated.hostingMode, 'community');
+  assert.equal(activated.edition, 'solo');
+  assert.equal(activated.seatLimit, 1);
   assert.match(String(activated.instanceId), /^cni_[a-f0-9]{24}$/u);
   assert.equal(JSON.stringify(activated).includes(instanceId), false);
 
