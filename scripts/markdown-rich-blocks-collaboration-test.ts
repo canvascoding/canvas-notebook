@@ -17,6 +17,8 @@ Highlighted ==collaborative text== remains rich-editable.
 
 Workspace member @{Ada Lovelace|user-ada} remains identifiable.
 
+Release notes remain linked as [[03_releases/v2026.5.21.3/social-posts.md|v2026.5.21.3]].
+
 > [!warning]+ Review together
 > This callout is part of the shared document schema.
 
@@ -37,6 +39,7 @@ try {
   const serialized = richMarkdownFromYDoc(richDocument);
   assert.match(serialized, /==collaborative text==/u);
   assert.match(serialized, /@\{Ada Lovelace\|user-ada\}/u);
+  assert.match(serialized, /\[\[03_releases\/v2026\.5\.21\.3\/social-posts\.md\|v2026\.5\.21\.3\]\]/u);
   assert.match(serialized, /^> \[!warning\]\+ Review together$/mu);
   assert.match(serialized, /another editor\.\[\^1\]/u);
   assert.match(serialized, /^\[\^1\]: Shared footnote definition\.$/mu);
@@ -81,6 +84,7 @@ try {
 }
 
 const schema = getSchema(richMarkdownSchemaExtensions());
+assert.ok(schema.nodes.obsidianWikiLink, 'the collaboration schema must preserve workspace wiki links');
 assert.equal(
   schema.topNodeType.contentMatch.defaultType?.name,
   'paragraph',

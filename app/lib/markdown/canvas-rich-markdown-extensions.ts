@@ -5,6 +5,7 @@ import {
   mergeAttributes,
   nodeInputRule,
   nodePasteRule,
+  type AnyExtension,
   type JSONContent,
   type MarkdownParseHelpers,
   type MarkdownToken,
@@ -12,6 +13,8 @@ import {
 } from '@tiptap/core';
 import Paragraph from '@tiptap/extension-paragraph';
 import { TextSelection } from '@tiptap/pm/state';
+
+import { ObsidianWikiLink } from './tiptap-obsidian-wiki-link';
 
 declare module '@tiptap/core' {
   interface Commands<ReturnType> {
@@ -671,10 +674,11 @@ export const MarkdownFootnoteDefinition = Node.create({
   },
 });
 
-export function canvasRichMarkdownExtensions() {
+export function canvasRichMarkdownExtensions(options?: { obsidianWikiLink?: AnyExtension }) {
   return [
     CanvasParagraph,
     CanvasHighlight,
+    options?.obsidianWikiLink ?? ObsidianWikiLink,
     CanvasCalloutTitle,
     CanvasCallout,
     CanvasDetailsSummary,

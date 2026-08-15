@@ -9,6 +9,7 @@ import {
 } from '@/app/lib/collaboration/session-service';
 import {
   COLLABORATION_SCHEMA_VERSION,
+  RICH_MARKDOWN_SCHEMA_VERSION,
   type CollaborationSessionResponse,
 } from '@/app/lib/collaboration/types';
 import { getDatabaseProvider } from '@/app/lib/db/provider';
@@ -108,6 +109,7 @@ export async function POST(request: NextRequest) {
       representation: grant.representation,
       lifecycleGeneration: grant.lifecycleGeneration,
       schemaVersion: COLLABORATION_SCHEMA_VERSION,
+      richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
       permission: grant.permission,
       token: ticket.token,
       expiresAt: ticket.expiresAt,

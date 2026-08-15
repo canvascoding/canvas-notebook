@@ -262,7 +262,10 @@ async function main() {
   const { TableKit } = await import('@tiptap/extension-table');
   const { MarkdownHeadingAnchors } = await import('../app/lib/markdown/tiptap-heading-anchors');
   const { canvasRichMarkdownExtensions } = await import('../app/lib/markdown/canvas-rich-markdown-extensions');
-  const { createObsidianWikiLinkExtensions } = await import('../app/components/editor/ObsidianWikiLinkExtension');
+  const {
+    createObsidianWikiLinkExtensions,
+    createObsidianWikiLinkNode,
+  } = await import('../app/components/editor/ObsidianWikiLinkExtension');
   const { ObsidianInlineFootnoteExtension } = await import('../app/components/editor/ObsidianInlineFootnoteExtension');
   const { getActiveWorkspaceWikiLink } = await import('../app/lib/markdown/tiptap-workspace-link');
 
@@ -291,7 +294,9 @@ async function main() {
       }),
       TableKit.configure({ table: { resizable: false } }),
       MarkdownHeadingAnchors,
-      ...canvasRichMarkdownExtensions(),
+      ...canvasRichMarkdownExtensions({
+        obsidianWikiLink: createObsidianWikiLinkNode(),
+      }),
       ...createObsidianWikiLinkExtensions({
         labels: { empty: 'No match', group: 'Workspace links' },
         workspaceId: null,

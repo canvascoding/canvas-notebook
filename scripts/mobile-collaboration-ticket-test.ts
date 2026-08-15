@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs';
 import path from 'node:path';
 
 import { parseCollaborationSessionRequest } from '@/app/lib/collaboration/session-service';
+import { RICH_MARKDOWN_SCHEMA_VERSION } from '@/app/lib/collaboration/types';
 import {
   consumeMobileCollaborationTicket,
   hasMobileCollaborationProtocol,
@@ -91,6 +92,8 @@ const routeSource = readFileSync(
 const serverSource = readFileSync(path.join(root, 'server/collaboration-server.ts'), 'utf8');
 assert.match(routeSource, /issueMobileCollaborationTicket/u);
 assert.match(routeSource, /requestedPath\.endsWith\('\.txt'\) \? 'plain_text' : 'tiptap_xml'/u);
+assert.match(routeSource, /richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION/u);
+assert.equal(RICH_MARKDOWN_SCHEMA_VERSION, 3);
 assert.match(serverSource, /consumeMobileCollaborationTicket/u);
 assert.match(serverSource, /hasMobileCollaborationProtocol/u);
 assert.match(serverSource, /MOBILE_COLLABORATION_WEBSOCKET_PROTOCOL/u);

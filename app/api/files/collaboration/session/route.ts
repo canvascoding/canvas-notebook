@@ -19,6 +19,7 @@ import {
 } from '@/app/lib/license/entitlements';
 import {
   COLLABORATION_SCHEMA_VERSION,
+  RICH_MARKDOWN_SCHEMA_VERSION,
   type CollaborationProvider,
   type CollaborationRepresentation,
   type CollaborationSessionResponse,
@@ -87,6 +88,7 @@ export async function POST(request: NextRequest) {
       representation: grant.representation,
       lifecycleGeneration: grant.lifecycleGeneration,
       schemaVersion: COLLABORATION_SCHEMA_VERSION,
+      richTextSchemaVersion: RICH_MARKDOWN_SCHEMA_VERSION,
       permission: grant.permission,
       token: issued.token,
       expiresAt: new Date(issued.claims.expiresAt).toISOString(),

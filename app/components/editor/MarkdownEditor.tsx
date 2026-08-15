@@ -197,7 +197,10 @@ import { MarkdownBacklinksPanel } from './MarkdownBacklinksPanel';
 import { createMarkdownMentionSuggestions } from './MarkdownMentionSuggestions';
 import { MarkdownOutlinePanel } from './MarkdownOutlinePanel';
 import { MarkdownPropertiesPanel } from './MarkdownPropertiesPanel';
-import { createObsidianWikiLinkExtensions } from './ObsidianWikiLinkExtension';
+import {
+  createObsidianWikiLinkExtensions,
+  createObsidianWikiLinkNode,
+} from './ObsidianWikiLinkExtension';
 import { ObsidianInlineFootnoteExtension } from './ObsidianInlineFootnoteExtension';
 import Collaboration, { isChangeOrigin } from '@tiptap/extension-collaboration';
 import CollaborationCaret from '@tiptap/extension-collaboration-caret';
@@ -2150,7 +2153,9 @@ function createEditorExtensions(
     ColorSwatchDecorations,
     CanvasBlockDragDropGuard,
     createSlashCommands(labels, actions),
-    ...canvasRichMarkdownExtensions(),
+    ...canvasRichMarkdownExtensions({
+      obsidianWikiLink: createObsidianWikiLinkNode(filePath),
+    }),
     createMarkdownMentionSuggestions({ labels: mentionLabels, workspaceId }),
     ...createObsidianWikiLinkExtensions({ filePath, labels: wikiLabels, workspaceId }),
     ObsidianInlineFootnoteExtension,
