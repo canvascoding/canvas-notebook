@@ -489,13 +489,24 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         + `provider=${provider}, model=${model.id}`,
       );
 
-      // Automations may inspect workspace data and produce in-app results, but
-      // never obtain a tool that can send external email. Human review through
-      // the workspace Outbox is the only permitted delivery path.
-      const tools = (await getPiTools(automationUserId, job.agentId, piSessionId))
+      // Generic email access is never available to an automation. Inbox-event
+      // runs receive only the server-bound workspace email tools above; their
+      // Outbox send tool checks the configured outbound mode on every call.
+      const tools = (await getPiTools(automationUserId, job.agentId, piSessionId, {
+        workspaceEmailAutomation: emailInboxEventContext
+          ? {
+              ...emailInboxEventContext,
+              userId: automationUserId,
+              workspaceId: automationWorkspace.workspaceId,
+              automationJobId: job.id,
+              automationRunId: run.id,
+              agentId: job.agentId,
+            }
+          : undefined,
+      }))
         .filter((tool) => !(
           tool.name === 'email_send_draft'
-          || (run.triggerType === 'event' && tool.name === 'email')
+          || tool.name === 'email'
           || tool.name === 'terminal'
           || tool.name === 'browser'
           || tool.name === 'mcp'

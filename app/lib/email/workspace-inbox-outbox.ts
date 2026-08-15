@@ -136,6 +136,7 @@ export async function createWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; mailboxId: string; inboxCaseId?: string | null;
   subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[];
   originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null; assignedUserId?: string | null;
+  initialStatus?: Extract<OutboxStatus, 'prepared' | 'awaiting_review'>;
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
   const [mailbox] = await db.select({ accountId: emailAccounts.id, accountOwnerId: emailAccounts.userId })
@@ -144,6 +145,17 @@ export async function createWorkspaceOutboxDraft(input: {
     .where(and(eq(workspaceEmailMailboxes.id, input.mailboxId), eq(workspaceEmailMailboxes.workspaceId, input.workspaceId), eq(workspaceEmailMailboxes.status, 'active')))
     .limit(1);
   if (!mailbox) throw new Error('Workspace mailbox not found.');
+  if (input.inboxCaseId) {
+    const inboxCase = await db.query.emailInboxCases.findFirst({
+      where: and(
+        eq(emailInboxCases.id, input.inboxCaseId),
+        eq(emailInboxCases.workspaceId, input.workspaceId),
+        eq(emailInboxCases.mailboxId, input.mailboxId),
+      ),
+      columns: { id: true },
+    });
+    if (!inboxCase) throw new Error('Workspace inbox case does not belong to this mailbox.');
+  }
   if (input.originRunId) {
     const existing = await db.query.emailDrafts.findFirst({
       where: and(eq(emailDrafts.workspaceId, input.workspaceId), eq(emailDrafts.origin, 'automation'), eq(emailDrafts.originRunId, input.originRunId)),
@@ -159,7 +171,7 @@ export async function createWorkspaceOutboxDraft(input: {
     workspaceId: input.workspaceId, mailboxId: input.mailboxId, inboxCaseId: input.inboxCaseId || null,
     origin: 'automation', originAutomationJobId: input.originAutomationJobId || null,
     originRunId: input.originRunId || null, originAgentId: input.originAgentId || null,
-    outboxStatus: 'awaiting_review', version: 1, assignedUserId: input.assignedUserId || null, editingByUserId: null, editingStartedAt: null,
+    outboxStatus: input.initialStatus || 'awaiting_review', version: 1, assignedUserId: input.assignedUserId || null, editingByUserId: null, editingStartedAt: null,
     sentByUserId: null, sentAt: null, createdAt: now, updatedAt: now,
   });
   const draft = await db.query.emailDrafts.findFirst({ where: eq(emailDrafts.id, id) });

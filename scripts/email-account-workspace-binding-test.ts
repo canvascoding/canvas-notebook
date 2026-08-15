@@ -133,7 +133,7 @@ async function main() {
       schedule: { kind: 'daily', times: ['09:00'], timeZone: 'UTC' },
     }, { id: 'owner-user', email: 'owner@example.test', role: 'admin' });
     assert.equal(eventAutomation.triggerKind, 'event');
-    assert.deepEqual(eventAutomation.eventConfig, { eventType: 'email_inbox_event', mailboxId: created.id });
+    assert.deepEqual(eventAutomation.eventConfig, { eventType: 'email_inbox_event', mailboxId: created.id, outboundMode: 'human_review' });
     assert.equal(eventAutomation.nextRunAt, null);
     assert.equal((await listDueAutomationJobs(new Date(Date.now() + 86_400_000))).some((job) => job.id === eventAutomation.id), false);
     const { pollWorkspaceMailboxInboxEvents } = await import('../app/lib/email/inbox-events');
@@ -199,6 +199,7 @@ async function main() {
       providerThreadId: eventContext.providerThreadId,
       folder: eventContext.folder,
       hasAttachments: eventContext.hasAttachments,
+      outboundMode: eventContext.outboundMode,
     }, {
       eventId: eventContext?.eventId,
       mailboxId: activeMailbox?.id,
@@ -206,6 +207,7 @@ async function main() {
       providerThreadId: 'thread-1',
       folder: 'INBOX',
       hasAttachments: false,
+      outboundMode: 'human_review',
     });
     assert.match(eventContext?.sessionId || '', /^automation-email:/);
     const { createWorkspaceInboxCase, createWorkspaceOutboxDraft, listWorkspaceInboxCases, listWorkspaceOutboxDrafts, sendWorkspaceOutboxDraft, updateWorkspaceOutboxDraft } = await import('../app/lib/email/workspace-inbox-outbox');

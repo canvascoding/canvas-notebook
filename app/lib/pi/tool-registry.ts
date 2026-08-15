@@ -20,6 +20,10 @@ import { DEFAULT_MANAGED_AGENT_ID } from '@/app/lib/agents/storage';
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { resolveAgentExecutionContextForSession } from '@/app/lib/pi/session-workspace-context';
 import { getErrorMessage, wrapToolWithExecutionContext } from '@/app/lib/pi/tool-runtime-helpers';
+import {
+  createWorkspaceEmailAutomationTools,
+  type WorkspaceEmailAutomationToolContext,
+} from '@/app/lib/pi/workspace-email-automation-tools';
 import type { BrowserToolMode } from '@/app/lib/pi/browser/tool';
 import { piTools } from '@/app/lib/pi/core-tools';
 import {
@@ -322,6 +326,7 @@ export async function getPiTools(
   options: {
     executionContext?: AgentExecutionContext;
     browserMode?: BrowserToolMode;
+    workspaceEmailAutomation?: WorkspaceEmailAutomationToolContext;
   } = {},
 ): Promise<AgentTool[]> {
   let resolvedExecutionContext: AgentExecutionContext | undefined;
@@ -408,6 +413,13 @@ export async function getPiTools(
     if (onboardingProfileToolAvailable && !allTools.some((tool) => tool.name === ONBOARDING_PROFILE_TOOL_NAME)) {
       allTools.push(createOnboardingProfileTool(userId, agentId, sessionId));
     }
+  }
+
+  // These tools are injected only for a server-validated workspace email event.
+  // They intentionally bypass a general agent's persisted tool list: they are not
+  // general-purpose email capabilities and cannot exist outside this exact run.
+  if (options.workspaceEmailAutomation) {
+    allTools.push(...createWorkspaceEmailAutomationTools(options.workspaceEmailAutomation));
   }
 
   if (resolvedExecutionContext) {

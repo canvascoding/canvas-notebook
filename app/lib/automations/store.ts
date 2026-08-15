@@ -450,7 +450,11 @@ function normalizeEmailInboxEventConfig(value: unknown): Record<string, string> 
   if (eventType !== 'email_inbox_event' || !mailboxId) {
     throw new Error('Email inbox event configuration requires a mailbox.');
   }
-  return { eventType, mailboxId };
+  const outboundMode = typeof config.outboundMode === 'string' ? config.outboundMode.trim() : 'human_review';
+  if (!['draft_only', 'human_review', 'direct_send'].includes(outboundMode)) {
+    throw new Error('Email inbox automation outbound mode must be draft_only, human_review, or direct_send.');
+  }
+  return { eventType, mailboxId, outboundMode };
 }
 
 function applyDefaultScheduleTimeZone(input: unknown, timeZone: string): unknown {

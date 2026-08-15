@@ -42,12 +42,18 @@
     {
       "id": "EAH-03",
       "title": "Workspace-E-Mail-Tools und serverseitige Tool-Policy einfuehren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": ["EAH-02"],
       "deliverables": [
         "Inbox-/Thread-/Outbox-Tools im normalen Registry-Pfad",
         "Workspace-, Mailbox- und Fall-Guards fuer jeden Tool-Call",
         "Versandmodus-Policy fuer bestehende E-Mail-Tools und Gateway"
+      ],
+      "verification": [
+        "npm run test:email:workspace-binding",
+        "npm run test:automation:runner",
+        "npx tsc --noEmit"
       ]
     },
     {

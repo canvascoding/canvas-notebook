@@ -25,6 +25,7 @@ type BuildAutomationPromptInput = Pick<
     folder: string;
     receivedAt: string;
     hasAttachments: boolean;
+    outboundMode: 'draft_only' | 'human_review' | 'direct_send';
   } | null;
   workspaceEmailAttention?: {
     openCaseCount: number;
@@ -101,6 +102,7 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
       `**Folder:** ${input.emailInboxEventContext.folder}`,
       `**Received at:** ${input.emailInboxEventContext.receivedAt}`,
       `**Has attachments:** ${input.emailInboxEventContext.hasAttachments ? 'yes' : 'no'}`,
+      `**Outbound mode:** ${input.emailInboxEventContext.outboundMode}`,
     ].join('\n'));
   }
 

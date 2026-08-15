@@ -19,8 +19,11 @@ export type WorkspaceEmailAutomationEventContext = {
   folder: string;
   receivedAt: string;
   hasAttachments: boolean;
+  outboundMode: WorkspaceEmailAutomationOutboundMode;
   sessionId: string;
 };
+
+export type WorkspaceEmailAutomationOutboundMode = 'draft_only' | 'human_review' | 'direct_send';
 
 export type WorkspaceEmailAutomationQueueResult = {
   checked: number;
@@ -51,6 +54,13 @@ function emailEventMetadata(value: string | null): { folder: string; hasAttachme
   } catch {
     return { folder: 'INBOX', hasAttachments: false };
   }
+}
+
+export function workspaceEmailAutomationOutboundMode(eventConfig: Record<string, unknown> | null | undefined): WorkspaceEmailAutomationOutboundMode {
+  const mode = eventConfig?.outboundMode;
+  return mode === 'draft_only' || mode === 'direct_send' || mode === 'human_review'
+    ? mode
+    : 'human_review';
 }
 
 function emailThreadSessionId(input: { jobId: string; mailboxId: string; providerThreadId: string | null; providerMessageId: string }): string {
@@ -174,6 +184,7 @@ export async function getWorkspaceEmailAutomationEventContext(input: {
     folder: metadata.folder,
     receivedAt: event.receivedAt.toISOString(),
     hasAttachments: metadata.hasAttachments,
+    outboundMode: workspaceEmailAutomationOutboundMode(input.job.eventConfig),
     sessionId: emailThreadSessionId({
       jobId: input.job.id,
       mailboxId: event.mailboxId,
