@@ -112,6 +112,7 @@ export function createMobileBootstrap(input: {
     'notebook.revision_write',
     'notebook.image_import',
     'notebook.collaboration.yjs',
+    'notebook.collaboration.session.v1',
     'files.browse',
     'files.html_preview',
     'files.mutate',

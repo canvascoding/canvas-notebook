@@ -57,6 +57,7 @@ assert.deepEqual(compatibility, {
       'notebook.revision_write',
       'notebook.image_import',
       'notebook.collaboration.yjs',
+      'notebook.collaboration.session.v1',
       'files.browse',
       'files.html_preview',
       'files.mutate',
@@ -92,6 +93,9 @@ assert.deepEqual(compatibility, {
       'automations.webhooks',
       'automations.composio_triggers',
       'extensions.store',
+      'extensions.marketplace_v2',
+      'integrations.composio_catalog',
+      'integrations.composio_mobile_auth',
     ],
   },
   auth: {
