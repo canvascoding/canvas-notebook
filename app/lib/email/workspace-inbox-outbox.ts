@@ -27,6 +27,7 @@ function publicOutboxDraft(draft: typeof emailDrafts.$inferSelect) {
     status: draft.outboxStatus as OutboxStatus | null, version: draft.version, subject: draft.subject, body: draft.body,
     to: parseRecipients(draft.toJson), cc: parseRecipients(draft.ccJson), bcc: parseRecipients(draft.bccJson),
     isHtml: draft.isHtml, origin: draft.origin, assignedUserId: draft.assignedUserId,
+    originAutomationJobId: draft.originAutomationJobId, originRunId: draft.originRunId, originAgentId: draft.originAgentId,
     editingByUserId: draft.editingByUserId, editingStartedAt: draft.editingStartedAt?.toISOString() || null,
     sentByUserId: draft.sentByUserId, sentAt: draft.sentAt?.toISOString() || null,
     updatedAt: draft.updatedAt.toISOString(), createdAt: draft.createdAt.toISOString(),

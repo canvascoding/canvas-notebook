@@ -96,6 +96,7 @@ type WorkspaceInboxCase = { id: string; subject: string; status: string; priorit
 type WorkspaceOutboxDraft = {
   id: string; subject: string; status: string | null; version: number; updatedAt: string;
   body: string; to: string[]; cc: string[]; bcc: string[]; isHtml: boolean;
+  originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null;
 };
 
 function WorkspaceInboxOutboxPanel({ workspaceId, t, onOpenOutboxDraft }: {
@@ -137,7 +138,7 @@ function WorkspaceInboxOutboxPanel({ workspaceId, t, onOpenOutboxDraft }: {
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{t('workspaceQueue.outboxTitle')}</p><Badge variant="secondary">{outboxDrafts.length}</Badge></div>
         <p className="mt-1 text-xs text-muted-foreground">{t('workspaceQueue.humanReview')}</p>
-        <div className="mt-2 space-y-1">{outboxDrafts.slice(0, 3).map((item) => <button key={item.id} type="button" className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted" onClick={() => onOpenOutboxDraft(item)}><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></button>)}{outboxDrafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div>
+        <div className="mt-2 space-y-1">{outboxDrafts.slice(0, 3).map((item) => <div key={item.id} className="rounded-md bg-muted/50 px-2 py-1.5 text-xs"><button type="button" className="flex w-full items-center justify-between gap-2 text-left transition-colors hover:text-primary" onClick={() => onOpenOutboxDraft(item)}><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></button>{item.originAutomationJobId ? <a href={`/automations/${encodeURIComponent(item.originAutomationJobId)}`} className="mt-1 block truncate text-[11px] text-muted-foreground underline-offset-2 hover:text-primary hover:underline">{item.originRunId ? `Automation · Run ${item.originRunId.slice(0, 12)}` : 'Automation öffnen'}</a> : null}</div>)}{outboxDrafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div>
       </div>
     </section>
   );

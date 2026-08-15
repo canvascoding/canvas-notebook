@@ -76,12 +76,18 @@
     {
       "id": "EAH-05",
       "title": "E-Mail-Triage-Vorlage in Automationen und Review-UI anbinden",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": ["EAH-04"],
       "deliverables": [
         "Vorkonfigurierte E-Mail-Triage-Vorlage",
         "Agent-, Mailbox- und Versandmodus-Auswahl",
         "Sichtbare Run-/Session-Verknuepfung an Inbox-Fall und Outbox"
+      ],
+      "verification": [
+        "npm run test:email:workspace-binding",
+        "npm run lint",
+        "npm run build"
       ]
     },
     {
