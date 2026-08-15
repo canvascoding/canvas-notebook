@@ -20,7 +20,41 @@ moduleInternals._load = (request, parent, isMain) => {
 
 type WorkspaceRow = { id: string };
 
+function verifyLegacyEmailAccountMigration() {
+  const legacy = new Database(':memory:');
+  try {
+    legacy.exec(`
+      CREATE TABLE email_accounts (
+        id TEXT PRIMARY KEY NOT NULL,
+        user_id TEXT NOT NULL,
+        provider TEXT NOT NULL,
+        auth_type TEXT NOT NULL,
+        email_address TEXT NOT NULL,
+        display_name TEXT,
+        provider_account_id TEXT,
+        status TEXT NOT NULL DEFAULT 'active',
+        policy_json TEXT NOT NULL,
+        secret_ref TEXT NOT NULL,
+        is_primary INTEGER NOT NULL DEFAULT 0,
+        last_used_at INTEGER,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      );
+    `);
+
+    runMigrations(legacy);
+    runMigrations(legacy);
+
+    const columns = legacy.prepare('PRAGMA table_info(email_accounts)').all() as Array<{ name: string }>;
+    assert.ok(columns.some((column) => column.name === 'workspace_id'));
+    assert.ok(legacy.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_email_accounts_workspace'").get());
+  } finally {
+    legacy.close();
+  }
+}
+
 async function main() {
+  verifyLegacyEmailAccountMigration();
   const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-email-workspace-binding-'));
   const dataRoot = path.join(tempRoot, 'data');
   const dbPath = path.join(dataRoot, 'sqlite.db');
