@@ -25,12 +25,18 @@
     {
       "id": "EAH-02",
       "title": "E-Mail-Ereignis als normalen Automation-Run ausfuehren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": ["EAH-01"],
       "deliverables": [
         "Ereignis-Kontext fuer den Automation-Runner",
         "Regulaere Pi-Session pro Inbox-Fall/Thread",
         "Ablösung des direkten KI-Aufrufs aus workspace-triage.ts"
+      ],
+      "verification": [
+        "npm run test:email:workspace-binding",
+        "npm run lint",
+        "npx tsc --noEmit"
       ]
     },
     {

@@ -1,6 +1,6 @@
 export type AutomationJobStatus = 'active' | 'paused';
 export type AutomationRunStatus = 'pending' | 'running' | 'success' | 'failed' | 'retry_scheduled';
-export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook';
+export type AutomationTriggerType = 'scheduled' | 'manual' | 'retry' | 'webhook' | 'event';
 export type AutomationJobTriggerKind = 'schedule' | 'event' | 'webhook' | 'manual';
 export type AutomationResultPolicy = 'deliver_all' | 'deliver_relevant_only' | 'record_only';
 export type AutomationPreferredSkill = string;

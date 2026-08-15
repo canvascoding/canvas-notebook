@@ -80,6 +80,7 @@ import { resolveAutomationRunWorkspace } from './policy';
 import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
 import { getWorkspaceEmailAttentionSummary } from '@/app/lib/email/workspace-inbox-outbox';
+import { getWorkspaceEmailAutomationEventContext } from '@/app/lib/email/workspace-email-automation-events';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
@@ -351,7 +352,8 @@ export async function executeAutomationRun(runId: string): Promise<void> {
   console.log(`[Automationen] Starting run ${runId} for job "${job.name}" (type=${job.jobType}, scope=${job.scope}, workspace=${job.workspaceId ?? 'legacy'})`);
 
   try {
-    const defaultPiSessionId = buildAutomationSessionId(run.id);
+    const emailInboxEventContext = await getWorkspaceEmailAutomationEventContext({ job, run });
+    const defaultPiSessionId = emailInboxEventContext?.sessionId || buildAutomationSessionId(run.id);
     let automationWorkspace = await resolveAutomationRunWorkspace(job);
     const deliveryResolution = await resolveAutomationDeliveryTarget({
       job,
@@ -437,6 +439,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         resultPolicy: job.resultPolicy,
         effectiveTargetOutputPath,
         webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
+        emailInboxEventContext,
         workspaceEmailAttention,
       });
 
@@ -492,6 +495,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
       const tools = (await getPiTools(automationUserId, job.agentId, piSessionId))
         .filter((tool) => !(
           tool.name === 'email_send_draft'
+          || (run.triggerType === 'event' && tool.name === 'email')
           || tool.name === 'terminal'
           || tool.name === 'browser'
           || tool.name === 'mcp'

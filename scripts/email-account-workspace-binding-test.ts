@@ -152,15 +152,14 @@ async function main() {
     });
     assert.deepEqual(duplicatePoll, { checked: 1, created: 0, duplicate: 1, historical: 0, failed: 0 });
     const storedEvent = sqlite.prepare(`
-      SELECT workspace_id, provider_message_id, provider_thread_id, status
+      SELECT id, workspace_id, provider_message_id, provider_thread_id, status
       FROM email_inbox_events WHERE provider_message_id = 'new-message'
-    `).get() as { workspace_id: string; provider_message_id: string; provider_thread_id: string; status: string } | undefined;
-    assert.deepEqual(storedEvent, {
-      workspace_id: ownerWorkspace.id,
-      provider_message_id: 'new-message',
-      provider_thread_id: 'thread-1',
-      status: 'pending',
-    });
+    `).get() as { id: string; workspace_id: string; provider_message_id: string; provider_thread_id: string; status: string } | undefined;
+    assert.equal(storedEvent?.workspace_id, ownerWorkspace.id);
+    assert.equal(storedEvent?.provider_message_id, 'new-message');
+    assert.equal(storedEvent?.provider_thread_id, 'thread-1');
+    assert.equal(storedEvent?.status, 'pending');
+    assert.ok(storedEvent?.id);
     const activeMailbox = sqlite.prepare(`
       SELECT id, workspace_id, status, created_by_user_id, last_edited_by_user_id
       FROM workspace_email_mailboxes
@@ -180,26 +179,41 @@ async function main() {
       last_edited_by_user_id: 'owner-user',
     });
     assert.ok(activeMailbox?.id);
-    const { processPendingWorkspaceEmailTriageEvents } = await import('../app/lib/email/workspace-triage');
-    const triage = await processPendingWorkspaceEmailTriageEvents({
-      readMessage: async () => ({
-        message: {
-          id: 'new-message', threadId: 'thread-triage', from: 'Customer <customer@example.test>',
-          subject: 'Need help', body: 'Please help us with our workspace.', snippet: 'Please help us',
-        },
-      }),
-      draftReply: async () => 'Thank you for reaching out. We will review this and get back to you shortly.',
+    const { getWorkspaceEmailAutomationEventContext, queuePendingWorkspaceEmailAutomationRuns } = await import('../app/lib/email/workspace-email-automation-events');
+    const queued = await queuePendingWorkspaceEmailAutomationRuns();
+    assert.deepEqual(queued, { checked: 1, queued: 1, deferred: 0, ignored: 0, failed: 0 });
+    const queuedEvent = sqlite.prepare(`SELECT status FROM email_inbox_events WHERE provider_message_id = 'new-message'`).get() as { status: string };
+    assert.equal(queuedEvent.status, 'queued');
+    const automationStore = await import('../app/lib/automations/store');
+    const runs = await automationStore.listAutomationRuns(eventAutomation.id);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].triggerType, 'event');
+    const queuedRun = await automationStore.getAutomationRun(runs[0].id);
+    assert.ok(queuedRun);
+    assert.deepEqual(queuedRun.metadataJson, { emailInboxEventId: storedEvent.id });
+    const eventContext = await getWorkspaceEmailAutomationEventContext({ job: eventAutomation, run: queuedRun });
+    assert.deepEqual(eventContext && {
+      eventId: eventContext.eventId,
+      mailboxId: eventContext.mailboxId,
+      providerMessageId: eventContext.providerMessageId,
+      providerThreadId: eventContext.providerThreadId,
+      folder: eventContext.folder,
+      hasAttachments: eventContext.hasAttachments,
+    }, {
+      eventId: eventContext?.eventId,
+      mailboxId: activeMailbox?.id,
+      providerMessageId: 'new-message',
+      providerThreadId: 'thread-1',
+      folder: 'INBOX',
+      hasAttachments: false,
     });
-    assert.deepEqual(triage, { checked: 1, processed: 0, ignored: 0, drafted: 1, failed: 0 });
-    const processedEvent = sqlite.prepare(`SELECT status, case_id FROM email_inbox_events WHERE provider_message_id = 'new-message'`).get() as { status: string; case_id: string | null };
-    assert.equal(processedEvent.status, 'processed');
-    assert.ok(processedEvent.case_id);
+    assert.match(eventContext?.sessionId || '', /^automation-email:/);
     const { createWorkspaceInboxCase, createWorkspaceOutboxDraft, listWorkspaceInboxCases, listWorkspaceOutboxDrafts, sendWorkspaceOutboxDraft, updateWorkspaceOutboxDraft } = await import('../app/lib/email/workspace-inbox-outbox');
     const inboxCase = await createWorkspaceInboxCase({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, mailboxId: activeMailbox.id,
       providerThreadId: 'thread-1', latestProviderMessageId: 'new-message', requesterAddress: 'customer@example.test', subject: 'Support request',
     });
-    assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).length, 2);
+    assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).length, 1);
     const outboxDraft = await createWorkspaceOutboxDraft({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, mailboxId: activeMailbox.id, inboxCaseId: inboxCase.id,
       subject: 'Re: Support request', body: '<p>We will help.</p>', to: ['customer@example.test'],
@@ -235,31 +249,6 @@ async function main() {
       () => listWorkspaceOutboxDrafts('owner-user', otherWorkspace.id),
       /workspace|permission|access/i,
     );
-
-    await pollWorkspaceMailboxInboxEvents({
-      now: new Date(pollNow.getTime() + 2_000),
-      fetchMessages: async () => [{ id: 'auto-message', threadId: 'thread-auto', date: new Date(pollNow.getTime() + 2_000).toISOString(), folder: 'INBOX' }],
-    });
-    const autoTriage = await processPendingWorkspaceEmailTriageEvents({
-      readMessage: async () => ({
-        message: { id: 'auto-message', threadId: 'thread-auto', from: 'Mailer-Daemon <mailer-daemon@example.test>', subject: 'Delivery status notification', body: 'This is an automated message.' },
-      }),
-      draftReply: async () => { throw new Error('Automatic messages must not produce a draft.'); },
-    });
-    assert.deepEqual(autoTriage, { checked: 1, processed: 0, ignored: 1, drafted: 0, failed: 0 });
-
-    await pollWorkspaceMailboxInboxEvents({
-      now: new Date(pollNow.getTime() + 3_000),
-      fetchMessages: async () => [{ id: 'failed-message', threadId: 'thread-failed', date: new Date(pollNow.getTime() + 3_000).toISOString(), folder: 'INBOX' }],
-    });
-    const failedTriage = await processPendingWorkspaceEmailTriageEvents({
-      readMessage: async () => ({
-        message: { id: 'failed-message', threadId: 'thread-failed', from: 'Customer <customer@example.test>', subject: 'Please help', body: 'A normal support request.' },
-      }),
-      draftReply: async () => { throw new Error('provider unavailable'); },
-    });
-    assert.deepEqual(failedTriage, { checked: 1, processed: 0, ignored: 0, drafted: 0, failed: 1 });
-    assert.equal((sqlite.prepare(`SELECT status FROM email_inbox_events WHERE provider_message_id = 'failed-message'`).get() as { status: string }).status, 'failed');
 
     await assert.rejects(
       () => assignStoredEmailAccountWorkspace('owner-user', created.id, otherWorkspace.id),
