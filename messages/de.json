@@ -4915,6 +4915,13 @@
         "moreActions": "Weitere Kontoaktionen",
         "connectionDetails": "Verbindungsdetails"
       },
+      "workspace": {
+        "title": "Workspace für Automationen",
+        "description": "Ordne das Konto einem Workspace zu, damit dessen Automationen das Postfach verwenden können. Ohne Zuordnung bleibt es ein persönliches Konto.",
+        "personalOption": "Nicht zugeordnet (persönlich)",
+        "managedHint": "Bei zentral verwalteten E-Mail-Konten wird die Workspace-Zuordnung vom Control Plane verwaltet.",
+        "saving": "Workspace-Zuordnung wird gespeichert"
+      },
       "preview": {
         "title": "Anzeige & Datenschutz",
         "summary": "Einstellungen für externe Inhalte in E-Mails.",
@@ -5011,6 +5018,7 @@
         "accountTestedSmtpOnly": "SMTP-Verbindung erfolgreich getestet. IMAP ist nicht konfiguriert.",
         "previewPreferencesSaved": "E-Mail-Vorschau-Einstellungen gespeichert.",
         "policySaved": "E-Mail-Richtlinie gespeichert.",
+        "workspaceSaved": "Workspace-Zuordnung gespeichert.",
         "mainEmailSaved": "Main Email gespeichert."
       },
       "disconnectDialog": {
@@ -5021,6 +5029,7 @@
       "errors": {
         "loadOAuthSettings": "E-Mail-OAuth-Einstellungen konnten nicht geladen werden",
         "loadAccounts": "E-Mail-Konten konnten nicht geladen werden",
+        "loadWorkspaces": "Workspaces konnten nicht geladen werden",
         "oauthFailed": "E-Mail-OAuth fehlgeschlagen.",
         "oauthCredentialsRequired": "Client-ID und Client Secret sind erforderlich, bevor OAuth gespeichert oder verbunden werden kann.",
         "loadIntegrationKeys": "Aktuelle Integrations-Keys konnten nicht geladen werden",
@@ -5034,6 +5043,7 @@
         "testStoredAccount": "Gespeicherte Verbindung konnte nicht getestet werden",
         "saveSmtp": "SMTP-Konto konnte nicht gespeichert werden",
         "savePolicy": "E-Mail-Richtlinie konnte nicht gespeichert werden",
+        "saveWorkspace": "Workspace-Zuordnung konnte nicht gespeichert werden",
         "setMainEmail": "Main Email konnte nicht gespeichert werden",
         "disconnect": "E-Mail-Konto konnte nicht getrennt werden"
       }

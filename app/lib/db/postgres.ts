@@ -657,6 +657,29 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_generations_idempotency ON studio_generations (user_id, workspace_id, idempotency_key)');
   await pool.query('ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS workspace_id text');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_email_accounts_workspace ON email_accounts (workspace_id, status)');
+  await pool.query("ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS account_scope text NOT NULL DEFAULT 'personal'");
+  await pool.query('ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS organization_id text');
+  await pool.query('ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS connected_by_user_id text');
+  await pool.query('ALTER TABLE email_accounts ADD COLUMN IF NOT EXISTS automation_enabled_at bigint');
+  await pool.query("UPDATE email_accounts SET account_scope = 'personal' WHERE account_scope IS NULL OR account_scope = ''");
+  await pool.query("UPDATE email_accounts SET connected_by_user_id = user_id WHERE connected_by_user_id IS NULL OR connected_by_user_id = ''");
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS workspace_email_mailboxes (
+      id text PRIMARY KEY,
+      workspace_id text NOT NULL,
+      email_account_id text NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+      status text NOT NULL DEFAULT 'active',
+      role text NOT NULL DEFAULT 'inbound_outbound',
+      created_by_user_id text NOT NULL,
+      last_edited_by_user_id text NOT NULL,
+      paused_at bigint,
+      created_at bigint NOT NULL,
+      updated_at bigint NOT NULL
+    )
+  `);
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_workspace_status ON workspace_email_mailboxes (workspace_id, status)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_account_status ON workspace_email_mailboxes (email_account_id, status)');
+  await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_active_account ON workspace_email_mailboxes (email_account_id) WHERE status = 'active'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS trigger_kind text NOT NULL DEFAULT 'schedule'");
   await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS result_policy text NOT NULL DEFAULT 'deliver_all'");
 

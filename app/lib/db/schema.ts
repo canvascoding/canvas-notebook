@@ -112,6 +112,12 @@ export const emailAccounts = sqliteTable("email_accounts", {
   policyJson: text("policy_json").notNull(),
   secretRef: text("secret_ref").notNull(),
   isPrimary: integer("is_primary", { mode: "boolean" }).notNull().default(false),
+  accountScope: text("account_scope").notNull().default("personal"),
+  organizationId: text("organization_id"),
+  connectedByUserId: text("connected_by_user_id"),
+  automationEnabledAt: integer("automation_enabled_at", { mode: "timestamp" }),
+  // Compatibility field for the first workspace-binding rollout. New code uses
+  // workspaceEmailMailboxes so historical assignments remain auditable.
   workspaceId: text("workspace_id"),
   lastUsedAt: integer("last_used_at", { mode: "timestamp" }),
   createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
@@ -122,6 +128,25 @@ export const emailAccounts = sqliteTable("email_accounts", {
   workspaceIdx: index("idx_email_accounts_workspace").on(table.workspaceId, table.status),
   userProviderEmailIdx: uniqueIndex("idx_email_accounts_user_provider_email").on(table.userId, table.provider, table.emailAddress),
   userPrimaryIdx: uniqueIndex("idx_email_accounts_user_primary").on(table.userId).where(sql`${table.isPrimary} = 1`),
+}));
+
+export const workspaceEmailMailboxes = sqliteTable("workspace_email_mailboxes", {
+  id: text("id").primaryKey(),
+  workspaceId: text("workspace_id").notNull(),
+  emailAccountId: text("email_account_id").notNull().references(() => emailAccounts.id, { onDelete: 'cascade' }),
+  status: text("status").notNull().default("active"),
+  role: text("role").notNull().default("inbound_outbound"),
+  createdByUserId: text("created_by_user_id").notNull().references(() => user.id),
+  lastEditedByUserId: text("last_edited_by_user_id").notNull().references(() => user.id),
+  pausedAt: integer("paused_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  workspaceStatusIdx: index("idx_workspace_email_mailboxes_workspace_status").on(table.workspaceId, table.status),
+  accountStatusIdx: index("idx_workspace_email_mailboxes_account_status").on(table.emailAccountId, table.status),
+  activeAccountIdx: uniqueIndex("idx_workspace_email_mailboxes_active_account")
+    .on(table.emailAccountId)
+    .where(sql`${table.status} = 'active'`),
 }));
 
 export const emailDrafts = sqliteTable("email_drafts", {

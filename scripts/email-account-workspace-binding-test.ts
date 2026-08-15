@@ -1,0 +1,139 @@
+import assert from 'node:assert/strict';
+import { promises as fs } from 'node:fs';
+import Module from 'node:module';
+import os from 'node:os';
+import path from 'node:path';
+
+import Database from 'better-sqlite3';
+
+import { runMigrations } from '../app/lib/db/migrate';
+import { ensureOrganizationBootstrapForUser } from '../app/lib/organization/bootstrap';
+
+const moduleInternals = Module as typeof Module & {
+  _load: (request: string, parent: NodeModule | null, isMain: boolean) => unknown;
+};
+const originalLoad = moduleInternals._load;
+moduleInternals._load = (request, parent, isMain) => {
+  if (request === 'server-only') return {};
+  return originalLoad(request, parent, isMain);
+};
+
+type WorkspaceRow = { id: string };
+
+async function main() {
+  const tempRoot = await fs.mkdtemp(path.join(os.tmpdir(), 'canvas-email-workspace-binding-'));
+  const dataRoot = path.join(tempRoot, 'data');
+  const dbPath = path.join(dataRoot, 'sqlite.db');
+  process.env.DATA = dataRoot;
+  process.env.CANVAS_DATA_ROOT = dataRoot;
+  process.env.CANVAS_DATABASE_PROVIDER = 'sqlite';
+
+  await fs.mkdir(dataRoot, { recursive: true });
+  const sqlite = new Database(dbPath);
+  try {
+    runMigrations(sqlite);
+    const now = Date.now();
+    sqlite.prepare(`
+      INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('owner-user', 'Owner', 'owner@example.test', 1, 'admin', now, now);
+    sqlite.prepare(`
+      INSERT INTO user (id, name, email, email_verified, role, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run('other-user', 'Other', 'other@example.test', 1, 'member', now, now);
+
+    sqlite.exec('BEGIN IMMEDIATE');
+    ensureOrganizationBootstrapForUser(sqlite, 'owner-user');
+    ensureOrganizationBootstrapForUser(sqlite, 'other-user');
+    sqlite.exec('COMMIT');
+
+    const ownerWorkspace = sqlite.prepare(`
+      SELECT id FROM canvas_workspaces WHERE type = 'personal' AND owner_user_id = ?
+    `).get('owner-user') as WorkspaceRow | undefined;
+    const otherWorkspace = sqlite.prepare(`
+      SELECT id FROM canvas_workspaces WHERE type = 'personal' AND owner_user_id = ?
+    `).get('other-user') as WorkspaceRow | undefined;
+    assert.ok(ownerWorkspace?.id);
+    assert.ok(otherWorkspace?.id);
+
+    const {
+      assignStoredEmailAccountWorkspace,
+      requireActiveWorkspaceMailboxForAutomation,
+      upsertOAuthEmailAccount,
+    } = await import('../app/lib/email/account-store');
+    const created = await upsertOAuthEmailAccount({
+      userId: 'owner-user',
+      provider: 'google',
+      providerAccountId: 'owner-google',
+      emailAddress: 'owner@example.test',
+      displayName: 'Owner',
+      secret: { authType: 'oauth', tokenType: 'Bearer', accessToken: 'test-token' },
+    });
+    assert.equal(created.workspaceId, null);
+
+    const assigned = await assignStoredEmailAccountWorkspace('owner-user', created.id, ownerWorkspace.id);
+    assert.equal(assigned.workspaceId, ownerWorkspace.id);
+    assert.equal(
+      (await requireActiveWorkspaceMailboxForAutomation({
+        emailAccountId: created.id,
+        workspaceId: ownerWorkspace.id,
+      })).workspaceId,
+      ownerWorkspace.id,
+    );
+    await assert.rejects(
+      () => requireActiveWorkspaceMailboxForAutomation({
+        emailAccountId: created.id,
+        workspaceId: otherWorkspace.id,
+      }),
+      /not actively assigned/i,
+    );
+    const activeMailbox = sqlite.prepare(`
+      SELECT workspace_id, status, created_by_user_id, last_edited_by_user_id
+      FROM workspace_email_mailboxes
+      WHERE email_account_id = ? AND status = 'active'
+    `).get(created.id) as {
+      workspace_id: string;
+      status: string;
+      created_by_user_id: string;
+      last_edited_by_user_id: string;
+    } | undefined;
+    assert.deepEqual(activeMailbox, {
+      workspace_id: ownerWorkspace.id,
+      status: 'active',
+      created_by_user_id: 'owner-user',
+      last_edited_by_user_id: 'owner-user',
+    });
+
+    await assert.rejects(
+      () => assignStoredEmailAccountWorkspace('owner-user', created.id, otherWorkspace.id),
+      /workspace|access|permission/i,
+    );
+    const stillAssigned = await assignStoredEmailAccountWorkspace('owner-user', created.id, ownerWorkspace.id);
+    assert.equal(stillAssigned.workspaceId, ownerWorkspace.id);
+
+    const cleared = await assignStoredEmailAccountWorkspace('owner-user', created.id, null);
+    assert.equal(cleared.workspaceId, null);
+    await assert.rejects(
+      () => requireActiveWorkspaceMailboxForAutomation({
+        emailAccountId: created.id,
+        workspaceId: ownerWorkspace.id,
+      }),
+      /not actively assigned/i,
+    );
+    const archivedMailboxCount = sqlite.prepare(`
+      SELECT COUNT(*) AS count FROM workspace_email_mailboxes
+      WHERE email_account_id = ? AND status = 'archived'
+    `).get(created.id) as { count: number };
+    assert.equal(archivedMailboxCount.count, 1);
+  } finally {
+    sqlite.close();
+    await fs.rm(tempRoot, { recursive: true, force: true });
+  }
+
+  console.log('Email account workspace binding test passed.');
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exit(1);
+});

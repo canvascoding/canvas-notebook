@@ -1,10 +1,10 @@
 import 'server-only';
 
 import crypto from 'crypto';
-import { and, eq } from 'drizzle-orm';
+import { and, desc, eq } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { emailAccounts } from '@/app/lib/db/schema';
+import { emailAccounts, workspaceEmailMailboxes } from '@/app/lib/db/schema';
 import { withEmailPolicyDefaultAddresses, type EmailPolicy } from '@/app/lib/email/policy';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import {
@@ -22,6 +22,7 @@ export type StoredEmailAuthType = 'oauth' | 'smtp_imap';
 export type StoredEmailAccountStatus = 'active' | 'expired' | 'revoked' | 'disconnected' | 'legacy_unassigned';
 
 export type StoredEmailAccount = typeof emailAccounts.$inferSelect;
+export type StoredWorkspaceEmailMailbox = typeof workspaceEmailMailboxes.$inferSelect;
 
 export type PublicEmailAccount = {
   id: string;
@@ -82,7 +83,11 @@ function toIso(value: Date | null): string | null {
   return value ? value.toISOString() : null;
 }
 
-export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: EmailAccountSecret | null): PublicEmailAccount {
+export function publicStoredEmailAccount(
+  account: StoredEmailAccount,
+  secret?: EmailAccountSecret | null,
+  mailbox?: StoredWorkspaceEmailMailbox | null,
+): PublicEmailAccount {
   return {
     id: account.id,
     provider: account.provider,
@@ -91,7 +96,7 @@ export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: E
     displayName: account.displayName || null,
     isPrimary: Boolean(account.isPrimary),
     status: account.status,
-    workspaceId: account.workspaceId || null,
+    workspaceId: mailbox?.workspaceId || null,
     scope: secret?.authType === 'oauth' ? secret.scope || null : null,
     expiresAt: secret?.authType === 'oauth' ? secret.expiresAt || null : null,
     smtpHost: secret?.authType === 'smtp_imap' ? secret.smtp.host : null,
@@ -108,6 +113,35 @@ export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: E
   };
 }
 
+export async function getActiveWorkspaceMailboxForEmailAccount(emailAccountId: string): Promise<StoredWorkspaceEmailMailbox | null> {
+  return (await db.query.workspaceEmailMailboxes.findFirst({
+    where: and(
+      eq(workspaceEmailMailboxes.emailAccountId, emailAccountId),
+      eq(workspaceEmailMailboxes.status, 'active'),
+    ),
+  })) || null;
+}
+
+/**
+ * Automation-only guard. A mailbox is never inferred from a user's default
+ * workspace; callers must provide the exact workspace of the automation job.
+ */
+export async function requireActiveWorkspaceMailboxForAutomation(input: {
+  emailAccountId: string;
+  workspaceId: string;
+}): Promise<StoredWorkspaceEmailMailbox> {
+  const mailbox = await getActiveWorkspaceMailboxForEmailAccount(input.emailAccountId);
+  if (!mailbox || mailbox.workspaceId !== input.workspaceId) {
+    throw new Error('Email account is not actively assigned to this automation workspace.');
+  }
+  const account = await db.query.emailAccounts.findFirst({
+    where: and(eq(emailAccounts.id, input.emailAccountId), eq(emailAccounts.status, 'active')),
+    columns: { id: true },
+  });
+  if (!account) throw new Error('Email account is not active for automation use.');
+  return mailbox;
+}
+
 export async function listEmailAccountRecordsForUser(userId: string): Promise<StoredEmailAccount[]> {
   return db.query.emailAccounts.findMany({
     where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active')),
@@ -119,8 +153,11 @@ export async function listPublicEmailAccountsForUser(userId: string): Promise<Pu
   const accounts = await listEmailAccountRecordsForUser(userId);
   const publicAccounts: PublicEmailAccount[] = [];
   for (const account of accounts) {
-    const secret = await readEmailAccountSecret(account.secretRef).catch(() => null);
-    publicAccounts.push(publicStoredEmailAccount(account, secret));
+    const [secret, mailbox] = await Promise.all([
+      readEmailAccountSecret(account.secretRef).catch(() => null),
+      getActiveWorkspaceMailboxForEmailAccount(account.id),
+    ]);
+    publicAccounts.push(publicStoredEmailAccount(account, secret, mailbox));
   }
   return publicAccounts;
 }
@@ -178,8 +215,11 @@ export async function setPrimaryStoredEmailAccount(userId: string, accountId: st
     .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId), eq(emailAccounts.status, 'active')));
 
   const updated = await getEmailAccountForUser(userId, accountId);
-  const secret = await readEmailAccountSecret(updated.secretRef).catch(() => null);
-  return publicStoredEmailAccount(updated, secret);
+  const [secret, mailbox] = await Promise.all([
+    readEmailAccountSecret(updated.secretRef).catch(() => null),
+    getActiveWorkspaceMailboxForEmailAccount(updated.id),
+  ]);
+  return publicStoredEmailAccount(updated, secret, mailbox);
 }
 
 export async function assignStoredEmailAccountWorkspace(
@@ -189,21 +229,81 @@ export async function assignStoredEmailAccountWorkspace(
 ): Promise<PublicEmailAccount> {
   const account = await getEmailAccountForUser(userId, accountId);
   const normalizedWorkspaceId = workspaceId?.trim() || null;
-  if (normalizedWorkspaceId) {
-    await resolveAgentSessionWorkspaceForUser({
+  const activeMailbox = await getActiveWorkspaceMailboxForEmailAccount(account.id);
+  const protectedWorkspaceIds = [activeMailbox?.workspaceId || null, normalizedWorkspaceId]
+    .filter((value): value is string => Boolean(value));
+  const authorizedWorkspaces = new Map<string, Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>>>();
+  for (const protectedWorkspaceId of new Set(protectedWorkspaceIds)) {
+    const workspace = await resolveAgentSessionWorkspaceForUser({
       userId,
-      workspaceId: normalizedWorkspaceId,
-      permissions: ['canRead', 'canWrite'],
+      workspaceId: protectedWorkspaceId,
+      permissions: ['canManageWorkspace'],
     });
+    authorizedWorkspaces.set(protectedWorkspaceId, workspace);
+  }
+
+  if (normalizedWorkspaceId) {
+    const workspace = authorizedWorkspaces.get(normalizedWorkspaceId);
+    if (account.accountScope === 'organization' && account.organizationId && workspace?.organizationId !== account.organizationId) {
+      throw new Error('Organization mailboxes can only be assigned to a workspace in the same organization.');
+    }
+  }
+
+  const now = new Date();
+  if (activeMailbox && activeMailbox.workspaceId !== normalizedWorkspaceId) {
+    await db.update(workspaceEmailMailboxes)
+      .set({ status: 'archived', pausedAt: now, lastEditedByUserId: userId, updatedAt: now })
+      .where(eq(workspaceEmailMailboxes.id, activeMailbox.id));
+  }
+
+  let nextMailbox: StoredWorkspaceEmailMailbox | null = null;
+  if (normalizedWorkspaceId) {
+    if (activeMailbox?.workspaceId === normalizedWorkspaceId) {
+      await db.update(workspaceEmailMailboxes)
+        .set({ lastEditedByUserId: userId, updatedAt: now })
+        .where(eq(workspaceEmailMailboxes.id, activeMailbox.id));
+    } else {
+      const archivedMailbox = await db.query.workspaceEmailMailboxes.findFirst({
+        where: and(
+          eq(workspaceEmailMailboxes.emailAccountId, account.id),
+          eq(workspaceEmailMailboxes.workspaceId, normalizedWorkspaceId),
+        ),
+        orderBy: [desc(workspaceEmailMailboxes.updatedAt)],
+      });
+      if (archivedMailbox) {
+        await db.update(workspaceEmailMailboxes)
+          .set({ status: 'active', pausedAt: null, lastEditedByUserId: userId, updatedAt: now })
+          .where(eq(workspaceEmailMailboxes.id, archivedMailbox.id));
+      } else {
+        await db.insert(workspaceEmailMailboxes).values({
+          id: `mailbox-${crypto.randomUUID()}`,
+          workspaceId: normalizedWorkspaceId,
+          emailAccountId: account.id,
+          status: 'active',
+          role: 'inbound_outbound',
+          createdByUserId: userId,
+          lastEditedByUserId: userId,
+          pausedAt: null,
+          createdAt: now,
+          updatedAt: now,
+        });
+      }
+    }
+    nextMailbox = await getActiveWorkspaceMailboxForEmailAccount(account.id);
   }
 
   await db.update(emailAccounts)
-    .set({ workspaceId: normalizedWorkspaceId, updatedAt: new Date() })
+    .set({
+      workspaceId: null,
+      automationEnabledAt: nextMailbox ? (account.automationEnabledAt || now) : null,
+      connectedByUserId: account.connectedByUserId || userId,
+      updatedAt: now,
+    })
     .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, account.id)));
 
   const updated = await getEmailAccountForUser(userId, account.id);
   const secret = await readEmailAccountSecret(updated.secretRef).catch(() => null);
-  return publicStoredEmailAccount(updated, secret);
+  return publicStoredEmailAccount(updated, secret, nextMailbox);
 }
 
 export async function readStoredEmailAccountSecret(account: StoredEmailAccount): Promise<EmailAccountSecret> {
@@ -243,8 +343,11 @@ export async function updateStoredEmailPolicy(
     .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId)));
 
   const updated = await getEmailAccountForUser(userId, accountId);
-  const secret = await readEmailAccountSecret(updated.secretRef).catch(() => null);
-  return publicStoredEmailAccount(updated, secret);
+  const [secret, mailbox] = await Promise.all([
+    readEmailAccountSecret(updated.secretRef).catch(() => null),
+    getActiveWorkspaceMailboxForEmailAccount(updated.id),
+  ]);
+  return publicStoredEmailAccount(updated, secret, mailbox);
 }
 
 export async function disconnectStoredEmailAccount(userId: string, accountId: string): Promise<boolean> {
@@ -313,6 +416,8 @@ export async function upsertOAuthEmailAccount(params: {
         policyJson: JSON.stringify(policy),
         secretRef,
         isPrimary,
+        accountScope: existing.accountScope || 'personal',
+        connectedByUserId: existing.connectedByUserId || params.userId,
         updatedAt: now,
       })
       .where(and(eq(emailAccounts.userId, params.userId), eq(emailAccounts.id, existing.id)));
@@ -331,6 +436,10 @@ export async function upsertOAuthEmailAccount(params: {
     policyJson: JSON.stringify(policy),
     secretRef,
     isPrimary,
+    accountScope: 'personal',
+    organizationId: null,
+    connectedByUserId: params.userId,
+    automationEnabledAt: null,
     lastUsedAt: null,
     createdAt: params.createdAt || now,
     updatedAt: now,
@@ -399,6 +508,8 @@ export async function upsertSmtpEmailAccount(params: {
         policyJson: JSON.stringify(policy),
         secretRef,
         isPrimary,
+        accountScope: existing.accountScope || 'personal',
+        connectedByUserId: existing.connectedByUserId || params.userId,
         updatedAt: now,
       })
       .where(and(eq(emailAccounts.userId, params.userId), eq(emailAccounts.id, existing.id)));
@@ -417,6 +528,10 @@ export async function upsertSmtpEmailAccount(params: {
     policyJson: JSON.stringify(policy),
     secretRef,
     isPrimary,
+    accountScope: 'personal',
+    organizationId: null,
+    connectedByUserId: params.userId,
+    automationEnabledAt: null,
     lastUsedAt: null,
     createdAt: params.createdAt || now,
     updatedAt: now,

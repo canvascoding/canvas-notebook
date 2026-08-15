@@ -144,6 +144,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       policy_json TEXT NOT NULL,
       secret_ref TEXT NOT NULL,
       is_primary INTEGER NOT NULL DEFAULT 0,
+      account_scope TEXT NOT NULL DEFAULT 'personal',
+      organization_id TEXT,
+      connected_by_user_id TEXT,
+      automation_enabled_at INTEGER,
       workspace_id TEXT,
       last_used_at INTEGER,
       created_at INTEGER NOT NULL,
@@ -2465,8 +2469,42 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
   });
 
   addColumns(sqlite, 'email_accounts', {
+    account_scope: "TEXT NOT NULL DEFAULT 'personal'",
+    organization_id: 'TEXT',
+    connected_by_user_id: 'TEXT',
+    automation_enabled_at: 'INTEGER',
     workspace_id: 'TEXT',
   });
+
+  sqlite.exec(`
+    UPDATE email_accounts
+    SET account_scope = COALESCE(NULLIF(account_scope, ''), 'personal'),
+        connected_by_user_id = COALESCE(NULLIF(connected_by_user_id, ''), user_id)
+    WHERE account_scope IS NULL OR account_scope = '' OR connected_by_user_id IS NULL OR connected_by_user_id = '';
+
+    CREATE TABLE IF NOT EXISTS workspace_email_mailboxes (
+      id TEXT PRIMARY KEY NOT NULL,
+      workspace_id TEXT NOT NULL,
+      email_account_id TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      role TEXT NOT NULL DEFAULT 'inbound_outbound',
+      created_by_user_id TEXT NOT NULL,
+      last_edited_by_user_id TEXT NOT NULL,
+      paused_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (email_account_id) REFERENCES email_accounts(id) ON DELETE CASCADE,
+      FOREIGN KEY (workspace_id) REFERENCES canvas_workspaces(id) ON DELETE CASCADE,
+      FOREIGN KEY (created_by_user_id) REFERENCES user(id),
+      FOREIGN KEY (last_edited_by_user_id) REFERENCES user(id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_workspace_status
+      ON workspace_email_mailboxes (workspace_id, status);
+    CREATE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_account_status
+      ON workspace_email_mailboxes (email_account_id, status);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_active_account
+      ON workspace_email_mailboxes (email_account_id) WHERE status = 'active';
+  `);
 
   addColumns(sqlite, 'pi_usage_events', {
     organization_id: 'TEXT',

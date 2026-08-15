@@ -156,9 +156,16 @@
     {
       "id": "WEA-V1-06",
       "title": "Workspace-Mailbox-Zuordnung und Verwaltung bereitstellen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-03"
+      ],
+      "evidence": [
+        "Die persistierte Tabelle workspace_email_mailboxes entkoppelt die Workspace-Zuordnung vom Provider-Konto, bewahrt historische Zuordnungen und verhindert per partiellem Unique-Index mehr als eine aktive Zuordnung je Mailbox.",
+        "Die Zuordnungsroute und die UI verlangen canManageWorkspace; jede Zuordnung und Aufhebung wird als Audit-Ereignis gespeichert.",
+        "Unzugeordnete Konten bleiben in der manuellen E-Mail-Oberflaeche nutzbar. Der interne Automation-Guard akzeptiert eine Mailbox nur bei einer aktiven, exakt passenden Workspace-Zuordnung.",
+        "npm run test:email:workspace-binding, npm run test:email:accounts, TypeScript- und zielgerichtete ESLint-Pruefungen sind erfolgreich gelaufen."
       ],
       "deliverables": [
         "APIs fuer Zuordnung, Aufhebung und Status einer Mailbox im Workspace",

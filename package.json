@@ -157,6 +157,7 @@
     "test:email:mime": "tsx scripts/email-mime-header-test.ts",
     "test:email:attachments": "tsx scripts/email-attachments-test.ts",
     "test:email:accounts": "tsx scripts/email-accounts-service-test.ts",
+    "test:email:workspace-binding": "tsx --conditions react-server scripts/email-account-workspace-binding-test.ts",
     "test:email:system": "tsx --conditions react-server scripts/system-email-notification-test.ts",
     "test:email:ai-request-body": "tsx --conditions react-server scripts/email-ai-request-body-test.ts",
     "test:email:ai-runtime-scope": "tsx --conditions react-server scripts/email-ai-runtime-scope-test.ts",

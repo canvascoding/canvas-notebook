@@ -4916,6 +4916,13 @@
         "moreActions": "More account actions",
         "connectionDetails": "Connection details"
       },
+      "workspace": {
+        "title": "Workspace for automations",
+        "description": "Assign this account to a workspace so its automations can use the mailbox. Without an assignment, it remains a personal account.",
+        "personalOption": "Unassigned (personal)",
+        "managedHint": "For centrally managed email accounts, workspace assignment is managed by the Control Plane.",
+        "saving": "Saving workspace assignment"
+      },
       "preview": {
         "title": "Display & privacy",
         "summary": "Settings for external content in emails.",
@@ -5012,6 +5019,7 @@
         "accountTestedSmtpOnly": "SMTP connection tested successfully. IMAP is not configured.",
         "previewPreferencesSaved": "Email preview settings saved.",
         "policySaved": "Email policy saved.",
+        "workspaceSaved": "Workspace assignment saved.",
         "mainEmailSaved": "Main email saved."
       },
       "disconnectDialog": {
@@ -5022,6 +5030,7 @@
       "errors": {
         "loadOAuthSettings": "Failed to load email OAuth settings",
         "loadAccounts": "Failed to load email accounts",
+        "loadWorkspaces": "Failed to load workspaces",
         "oauthFailed": "Email OAuth failed.",
         "oauthCredentialsRequired": "Client ID and Client Secret are required before saving or connecting OAuth.",
         "loadIntegrationKeys": "Failed to load current integration keys",
@@ -5035,6 +5044,7 @@
         "testStoredAccount": "Failed to test saved connection",
         "saveSmtp": "Failed to save SMTP account",
         "savePolicy": "Failed to save email policy",
+        "saveWorkspace": "Failed to save workspace assignment",
         "setMainEmail": "Failed to save main email",
         "disconnect": "Failed to disconnect email account"
       }
