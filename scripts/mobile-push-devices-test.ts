@@ -45,6 +45,19 @@ async function main() {
     ['push-user', 'Push User', 'push@example.test', 1, now, now],
   );
   await database.run(
+    `INSERT INTO canvas_organization_settings (
+       organization_id, owner_user_id, deployment_mode, team_features_enabled, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?)`,
+    ['push-organization', 'push-user', 'single_user', 0, now, now],
+  );
+  await database.run(
+    `INSERT INTO canvas_workspaces (
+       id, organization_id, type, owner_user_id, root_relative_path, display_name,
+       status, is_default, created_at, updated_at
+     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+    ['workspace-1', 'push-organization', 'personal', 'push-user', 'workspaces/personal/push-user/files', 'Push Workspace', 'active', 1, now, now],
+  );
+  await database.run(
     `INSERT INTO session (id, expires_at, token, created_at, updated_at, user_id)
      VALUES (?, ?, ?, ?, ?, ?)`,
     ['auth-session', authNow + 60, 'session-token', authNow, authNow, 'push-user'],

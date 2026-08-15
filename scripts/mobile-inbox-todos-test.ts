@@ -29,6 +29,13 @@ async function main() {
       ['attention-session', 'mobile-attention-user', 'canvas-agent', 'openai', 'test', 'Client review', nowSeconds - 10, nowSeconds, nowSeconds, nowSeconds - 20, 'web', 'personal'],
     );
     await database.run(
+      `INSERT INTO pi_sessions (
+        session_id, user_id, agent_id, provider, model, title, created_at, updated_at,
+        last_message_at, last_viewed_at, channel_id, workspace_type
+      ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+      ['historic-unread-session', 'mobile-attention-user', 'canvas-agent', 'openai', 'test', 'Historic review', nowSeconds - 3 * 24 * 60 * 60, nowSeconds, nowSeconds - 3 * 24 * 60 * 60, null, 'web', 'personal'],
+    );
+    await database.run(
       `INSERT INTO studio_generations (
         id, user_id, mode, aspect_ratio, provider, model, status, created_at, updated_at
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
@@ -100,8 +107,9 @@ async function main() {
 
     const inbox = await listMobileInbox({ userId: 'mobile-attention-user', workspace, limit: 20 });
     assert.equal(inbox.counts.unread, 4);
-    assert.equal(await countMobileUnreadMessages('mobile-attention-user'), 1);
+    assert.equal(await countMobileUnreadMessages({ userId: 'mobile-attention-user', workspaces: [workspace] }), 1);
     assert.equal(inbox.items.some((item) => item.id === 'chat:attention-session'), true);
+    assert.equal(inbox.items.some((item) => item.id === 'chat:historic-unread-session'), false);
     assert.equal(inbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(inbox.items.some((item) => item.id === 'studio:generation-ready'), true);
     assert.equal(inbox.items.some((item) => item.id === 'automation:run-failed'), true);
@@ -255,7 +263,7 @@ async function main() {
     const afterAllRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
     assert.equal(afterAllRead.counts.unread, 0, JSON.stringify(afterAllRead));
     assert.equal(afterAllRead.items.length, 0);
-    assert.equal(await countMobileUnreadMessages('mobile-attention-user'), 0);
+    assert.equal(await countMobileUnreadMessages({ userId: 'mobile-attention-user', workspaces: [workspace] }), 0);
     const aggregateReadResult = await markMobileAggregateInboxRead({
       userId: 'mobile-attention-user',
       workspaces: [workspace],

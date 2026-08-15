@@ -5,7 +5,6 @@ import { createHash } from 'node:crypto';
 import {
   and,
   asc,
-  count as countRows,
   desc,
   eq,
   gt,
@@ -346,7 +345,12 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
 
   const items: CollectedInboxItem[] = [];
   for (const row of sessionRows) {
-    if (!row.lastMessageAt || !hasUnreadAssistantResponse(row.lastMessageAt, row.lastViewedAt)) continue;
+    const unread = Boolean(
+      row.lastMessageAt
+      && row.lastMessageAt > state.baseline
+      && hasUnreadAssistantResponse(row.lastMessageAt, row.lastViewedAt),
+    );
+    if (!row.lastMessageAt || !unread) continue;
     items.push({
       id: `chat:${row.sessionId}`,
       type: 'chat.response',
@@ -665,18 +669,45 @@ export async function markMobileAggregateInboxRead(input: {
   };
 }
 
-export async function countMobileUnreadMessages(userId: string): Promise<number> {
-  const [result] = await db.select({ count: countRows() })
-    .from(piSessions)
-    .where(and(
-      eq(piSessions.userId, userId),
-      isNotNull(piSessions.lastMessageAt),
-      or(
-        isNull(piSessions.lastViewedAt),
-        gt(piSessions.lastMessageAt, piSessions.lastViewedAt),
-      ),
-    ));
-  return result?.count ?? 0;
+export async function countMobileUnreadMessages(input: {
+  userId: string;
+  workspaces: WorkspaceContext[];
+}): Promise<number> {
+  if (!input.workspaces.length) return 0;
+  const workspaceById = new Map(input.workspaces.map((workspace) => [workspace.workspaceId, workspace]));
+  const personalWorkspace = input.workspaces.find((workspace) => workspace.workspaceType === 'personal');
+  const rows = await db.select({
+    workspaceId: piSessions.workspaceId,
+    lastMessageAt: piSessions.lastMessageAt,
+    lastViewedAt: piSessions.lastViewedAt,
+  }).from(piSessions).where(and(
+    eq(piSessions.userId, input.userId),
+    isNotNull(piSessions.lastMessageAt),
+    or(
+      isNull(piSessions.lastViewedAt),
+      gt(piSessions.lastMessageAt, piSessions.lastViewedAt),
+    ),
+    or(...input.workspaces.map((workspace) => workspaceCondition(piSessions.workspaceId, workspace))),
+  ));
+  const sessions = rows.flatMap((row) => {
+    const workspace = row.workspaceId
+      ? workspaceById.get(row.workspaceId)
+      : personalWorkspace;
+    return workspace && row.lastMessageAt ? [{ ...row, workspace }] : [];
+  });
+  const workspaceIds = [...new Set(sessions.map((session) => session.workspace.workspaceId))];
+  const states = new Map(await Promise.all(workspaceIds.map(async (workspaceId) => {
+    const state = await readState({ userId: input.userId, workspaceId });
+    return [workspaceId, state] as const;
+  })));
+  return sessions.filter((session) => {
+    const state = states.get(session.workspace.workspaceId);
+    return Boolean(
+      state
+      && session.lastMessageAt > state.baseline
+      && hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt),
+    );
+  }).length;
 }
 
 async function upsertReadState(userId: string, workspaceId: string, itemKey: string, readAt: Date) {

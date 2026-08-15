@@ -8,7 +8,7 @@ import { getLicenseInstanceId } from '@/app/lib/license/instance';
 import { getUserPreferredLocale, type UserLocale } from '@/app/lib/user-preferences';
 
 import { createPublicMobileInstanceId } from './compatibility';
-import { countMobileUnreadMessages } from './inbox';
+import { countMobileAppBadgeForUserId } from './app-badge';
 import {
   createAgentResponseNotificationPreview,
   createAutomationRunNotificationPreview,
@@ -802,7 +802,7 @@ export async function sendMobileAttentionPush(input: {
     let badge: number | undefined;
     if (rows.length) {
       try {
-        badge = await countMobileUnreadMessages(input.userId);
+        badge = await countMobileAppBadgeForUserId(input.userId);
       } catch (error) {
         const message = error instanceof Error ? error.message : 'Unread count unavailable.';
         console.warn('[Mobile Push] App badge count could not be resolved:', message);

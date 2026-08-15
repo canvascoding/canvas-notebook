@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { auth } from '@/app/lib/auth';
-import { countMobileUnreadMessages } from '@/app/lib/mobile/inbox';
+import { countMobileAppBadge } from '@/app/lib/mobile/app-badge';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 export const dynamic = 'force-dynamic';
@@ -28,7 +28,7 @@ export async function GET(request: NextRequest) {
   if (!limited.ok) return limited.response;
 
   try {
-    const count = await countMobileUnreadMessages(session.user.id);
+    const count = await countMobileAppBadge(session.user);
     return NextResponse.json({ success: true, count }, { headers: responseHeaders });
   } catch (error) {
     console.error('[API] Mobile app badge count failed:', error);
