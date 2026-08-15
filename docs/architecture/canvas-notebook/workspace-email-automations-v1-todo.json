@@ -75,9 +75,17 @@
     {
       "id": "WEA-V1-03",
       "title": "Berechtigungs-, Versand- und Inhalts-Sicherheitsmodell festlegen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-02"
+      ],
+      "artifacts": [
+        "docs/architecture/canvas-notebook/workspace-email-automations-v1-security-policy.md"
+      ],
+      "evidence": [
+        "Die Policy definiert die Rollenmatrix, Workspace-Guards, Send-Sperre, Prompt-Injection-Grenzen und Audit-Ereignisse.",
+        "Der einzige zulässige Versandweg ist eine interaktive, serverseitig validierte User-Aktion aus der Workspace-Outbox."
       ],
       "deliverables": [
         "Rechtematrix fuer Organisations-Admin, Workspace-Admin, Bearbeiter und Agent",
