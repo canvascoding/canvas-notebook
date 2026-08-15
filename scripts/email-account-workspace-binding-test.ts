@@ -127,21 +127,48 @@ async function main() {
       status: 'pending',
     });
     const activeMailbox = sqlite.prepare(`
-      SELECT workspace_id, status, created_by_user_id, last_edited_by_user_id
+      SELECT id, workspace_id, status, created_by_user_id, last_edited_by_user_id
       FROM workspace_email_mailboxes
       WHERE email_account_id = ? AND status = 'active'
     `).get(created.id) as {
+      id: string;
       workspace_id: string;
       status: string;
       created_by_user_id: string;
       last_edited_by_user_id: string;
     } | undefined;
     assert.deepEqual(activeMailbox, {
+      id: activeMailbox?.id,
       workspace_id: ownerWorkspace.id,
       status: 'active',
       created_by_user_id: 'owner-user',
       last_edited_by_user_id: 'owner-user',
     });
+    assert.ok(activeMailbox?.id);
+    const { createWorkspaceInboxCase, createWorkspaceOutboxDraft, listWorkspaceInboxCases, listWorkspaceOutboxDrafts, updateWorkspaceOutboxDraft } = await import('../app/lib/email/workspace-inbox-outbox');
+    const inboxCase = await createWorkspaceInboxCase({
+      userId: 'owner-user', workspaceId: ownerWorkspace.id, mailboxId: activeMailbox.id,
+      providerThreadId: 'thread-1', latestProviderMessageId: 'new-message', requesterAddress: 'customer@example.test', subject: 'Support request',
+    });
+    assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).length, 1);
+    const outboxDraft = await createWorkspaceOutboxDraft({
+      userId: 'owner-user', workspaceId: ownerWorkspace.id, mailboxId: activeMailbox.id, inboxCaseId: inboxCase.id,
+      subject: 'Re: Support request', body: '<p>We will help.</p>', to: ['customer@example.test'],
+    });
+    assert.equal(outboxDraft.status, 'awaiting_review');
+    const edited = await updateWorkspaceOutboxDraft({
+      userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: 1,
+      subject: 'Re: Support request', body: '<p>We will help shortly.</p>', to: ['customer@example.test'], status: 'editing',
+    });
+    assert.equal(edited.version, 2);
+    await assert.rejects(
+      () => updateWorkspaceOutboxDraft({
+        userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: 1,
+        subject: 'Re: Support request', body: '<p>Stale update</p>', to: ['customer@example.test'],
+      }),
+      /has changed/i,
+    );
+    assert.equal((await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id))[0]?.id, outboxDraft.id);
 
     await assert.rejects(
       () => assignStoredEmailAccountWorkspace('owner-user', created.id, otherWorkspace.id),
