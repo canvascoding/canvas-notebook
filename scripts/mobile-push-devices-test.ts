@@ -206,14 +206,16 @@ async function main() {
     workspaceId: 'workspace-1',
     sessionId: 'session-1',
   });
-  assert.deepEqual(messages[0].data, {
+  const message = messages[0];
+  assert.ok(message);
+  assert.deepEqual(message.data, {
     type: 'agent.response_ready',
     instanceId: 'cni_0123456789abcdef01234567',
     workspaceId: 'workspace-1',
     sessionId: 'session-1',
   });
-  assert.equal(messages[0].body.includes('workspace-1'), false);
-  assert.equal(messages[0].body.includes('session-1'), false);
+  assert.equal(message.body?.includes('workspace-1'), false);
+  assert.equal(message.body?.includes('session-1'), false);
   const previewMessages = createAgentResponseReadyMessages({
     tokens: [registration.expoPushToken],
     instanceId: 'cni_0123456789abcdef01234567',
@@ -222,10 +224,12 @@ async function main() {
     notification: notificationPreview,
     badge: 1,
   });
-  assert.equal(previewMessages[0].title, 'Push session');
-  assert.equal(previewMessages[0].body, 'Done See the finished report and code.');
-  assert.equal(previewMessages[0].badge, 1);
-  assert.equal(previewMessages[0]._contentAvailable, undefined);
+  const previewMessage = previewMessages[0];
+  assert.ok(previewMessage);
+  assert.equal(previewMessage.title, 'Push session');
+  assert.equal(previewMessage.body, 'Done See the finished report and code.');
+  assert.equal(previewMessage.badge, 1);
+  assert.equal(previewMessage._contentAvailable, undefined);
   assert.equal(JSON.stringify(previewMessages).includes('private.example.test'), false);
   const widgetRefreshMessages = createInboxWidgetRefreshMessages({
     tokens: [registration.expoPushToken],
@@ -382,15 +386,17 @@ async function main() {
       entityId: 'run-secret',
     },
   });
-  assert.deepEqual(categoryMessages[0].data, {
+  const categoryMessage = categoryMessages[0];
+  assert.ok(categoryMessage);
+  assert.deepEqual(categoryMessage.data, {
     type: 'attention.failure',
     instanceId: 'cni_0123456789abcdef01234567',
     workspaceId: 'workspace-secret',
     entityKind: 'automation',
     entityId: 'run-secret',
   });
-  assert.equal(categoryMessages[0].body.includes('workspace-secret'), false);
-  assert.equal(categoryMessages[0].body.includes('run-secret'), false);
+  assert.equal(categoryMessage.body?.includes('workspace-secret'), false);
+  assert.equal(categoryMessage.body?.includes('run-secret'), false);
 
   const sentPayloads: unknown[] = [];
   const delivery = await sendAgentResponseReadyPush({
