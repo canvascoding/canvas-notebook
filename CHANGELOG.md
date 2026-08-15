@@ -11,7 +11,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
-## [2026.8.15.2] - 2026-08-15
+## [2026.8.15.3] - 2026-08-15
 
 ### Added
 
@@ -27,6 +27,7 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Corrected mobile app badge counts for Inbox activity.
 - Fixed the mobile unread-message counter type guard so production builds accept nullable session timestamps.
+- Fixed nullable mobile-push test assertions so the release build typechecks cleanly.
 
 ### Verification
 
