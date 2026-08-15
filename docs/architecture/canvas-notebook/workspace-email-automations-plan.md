@@ -1,10 +1,10 @@
-# Workspace Heartbeats und E-Mail-Automationen
+# Workspace-Automationen und E-Mail-Automationen
 
 ## Zweck
 
 Dieses Dokument beschreibt die Zielarchitektur fuer proaktive Agentenarbeit in Canvas Notebook. Sie verbindet zwei Anforderungen:
 
-- Ein Agent soll einen Workspace regelmaessig auf handlungsrelevante Entwicklungen pruefen (Heartbeat).
+- Ein Agent soll einen Workspace regelmaessig auf handlungsrelevante Entwicklungen pruefen.
 - E-Mails eines Unternehmens sollen sicher einem Arbeitskontext zugeordnet, als Tickets verarbeitet und mit Agentenunterstuetzung beantwortet werden koennen.
 
 Das Ziel ist ein moeglichst einfaches Produktmodell: **Agenten sind wiederverwendbare Rollen; Workspaces besitzen den Arbeitskontext, die Daten, Integrationen und Automationen.** Agenten laufen nicht dauerhaft. Sie werden durch einen Zeitplan oder ein Ereignis gestartet und schlafen danach wieder.
@@ -21,12 +21,12 @@ Dieses Dokument ist eine Architekturentscheidung und keine unmittelbare Implemen
 | Agent-Zuweisung | Die Verwendung eines Agenten in einem Workspace mit lokalen Anweisungen, erlaubten Tools und Zugriffsgrenzen. |
 | E-Mail-Konto / Mailbox | Eine technische Verbindung zu einer Adresse oder einem Postfach inklusive OAuth-/SMTP-Geheimnissen. |
 | Mailbox-Zuordnung | Die explizite Berechtigung, eine Mailbox in einem Workspace zu verwenden. |
-| Automation | Ein durch Zeitplan oder Ereignis gestarteter, nachvollziehbarer Agentenlauf. |
-| Heartbeat | Eine zeitgesteuerte Workspace-Automation, die nur bei relevanten Ergebnissen informiert. |
+| Automation | Ein durch Zeitplan, Ereignis oder manuelle Aktion gestarteter, nachvollziehbarer Agentenlauf. |
+| Regelmaessige Pruefung | Eine UI-Vorlage fuer eine geplante Automation, die nur bei relevanten Ergebnissen informiert. Der Begriff `Heartbeat` kann dafuer in der UI verwendet werden, ist aber kein eigener technischer Typ. |
 
 ## Aktueller Stand
 
-### Heartbeats
+### Aktuelle Heartbeat-Implementierung
 
 Heartbeats werden aktuell in den Settings eines Agenten konfiguriert. Intern wird pro User und Agent ein Automation-Job vom Typ `heartbeat` angelegt. Die Standardkonfiguration ist ein Intervall von 60 Minuten innerhalb der Arbeitszeit Montag bis Freitag, 09:00 bis 18:00 Uhr.
 
@@ -38,7 +38,7 @@ Die fachlichen Anweisungen stehen in der agentenspezifischen `HEARTBEAT.md`. Der
 
 Ein separater Scheduler fragt regelmaessig faellige Automationen ab, reiht sie ein und fuehrt sie aus. Er nutzt Schutzmechanismen gegen parallele Laeufe desselben Jobs sowie Retry- und Stale-Run-Behandlung.
 
-Die wesentliche Luecke ist der Scope: Ein Heartbeat ist heute an User und Agent gebunden, wird jedoch nicht als explizite Workspace-Automation modelliert. Damit sind Workspace-Daten, lokaler Auftrag, Berechtigungen und Benachrichtigungsziel nicht die primaere fachliche Einheit.
+Die wesentliche Luecke ist der Scope: Ein Heartbeat ist heute an User und Agent gebunden, wird jedoch nicht als explizite Workspace-Automation modelliert. Ausserdem verzweigt die eigene `HEARTBEAT.md` die Implementierung unnötig von normalen Automationen. Damit sind Workspace-Daten, lokaler Auftrag, Berechtigungen und Benachrichtigungsziel nicht die primaere fachliche Einheit.
 
 ### E-Mail
 
@@ -63,6 +63,20 @@ Eine Automation wird immer in einem konkreten Workspace ausgefuehrt. Der Workspa
 
 Der Agent selbst bleibt wiederverwendbar. Beispielsweise kann der Agent `Support-Triage` in mehreren Workspaces eingesetzt werden, er sieht und verarbeitet aber stets nur den Kontext seiner jeweiligen Zuweisung.
 
+### Eine Automation-Engine statt Sonderlogik
+
+Die Zielarchitektur kennt keinen technischen Heartbeat-Typ und keine `HEARTBEAT.md`. Es gibt eine einzige Automation-Engine. Jede Automation hat dieselben fachlichen Bausteine:
+
+- Workspace und Agent-Zuweisung;
+- Ausloeser: Zeitplan, E-Mail-Ereignis, Webhook oder manuell;
+- Anweisung bzw. Auftrag;
+- Ergebnisregel: immer zustellen, nur bei Relevanz zustellen oder nur protokollieren;
+- Zustellziel, Laufhistorie und Auditdaten.
+
+Eine regelmaessige Workspace-Pruefung ist daher nur eine geplante Automation mit der Ergebnisregel `nur bei Relevanz zustellen`. Der Name `Heartbeat` darf als vertraute UI-Bezeichnung oder als Vorlage bestehen bleiben, erzeugt aber keinen separaten Codepfad.
+
+Wenn eine Automation mit der Ergebnisregel `nur bei Relevanz zustellen` nichts Handlungsrelevantes findet, antwortet der Agent mit einem universellen internen No-op-Signal, zum Beispiel `NO_ACTION`. Dieses Signal ist kein Heartbeat-Sonderfall und wird nicht im UI angezeigt. Spaeter kann es durch ein providerunabhaengiges strukturiertes Resultat ersetzt werden.
+
 ### Zielbild
 
 ```mermaid
@@ -71,7 +85,8 @@ flowchart LR
   M --> B["Mailbox-Zuordnung"]
   B --> W["Workspace"]
   W --> A["Agent-Zuweisung"]
-  W --> H["Workspace-Monitor / Heartbeat"]
+  W --> U["Workspace-Automationen"]
+  U --> P["Regelmaessige Pruefung"]
   M --> E["Neue E-Mail"]
   E --> T["E-Mail-Triage-Automation"]
   T --> Q["Ticket, Aufgabe oder Antwortentwurf"]
@@ -82,10 +97,10 @@ Es gibt zwei verschiedene Arten proaktiver Arbeit:
 
 | Ausloeser | Beispiel | Richtige Automation |
 | --- | --- | --- |
-| Zeitplan | offene Blocker, SLA-Verletzungen, liegengebliebene Entwuerfe pruefen | Workspace-Heartbeat bzw. geplante Automation |
+| Zeitplan | offene Blocker, SLA-Verletzungen, liegengebliebene Entwuerfe pruefen | geplante Workspace-Automation |
 | Ereignis | neue Kundenmail, Ticket-Update, Webhook | ereignisbasierte E-Mail-Triage |
 
-Eine E-Mail-Eingangsverarbeitung soll nicht auf den naechsten Heartbeat warten. Der Eingang ist ein Ereignis und wird zeitnah verarbeitet. Polling bleibt nur als technische Absicherung oder fuer Provider ohne Webhook-Unterstuetzung.
+Eine E-Mail-Eingangsverarbeitung soll nicht auf den naechsten geplanten Check warten. Der Eingang ist ein Ereignis und wird zeitnah verarbeitet. Polling bleibt nur als technische Absicherung oder fuer Provider ohne Webhook-Unterstuetzung.
 
 ## E-Mail-Konten und Workspace-Zuordnung
 
@@ -121,42 +136,42 @@ Die dritte Stufe ist ausschliesslich ein Komfort-Fallback fuer manuelle, persoen
 
 Eine Business-Mailbox wird nicht als stiller Fallback in den persoenlichen Standard-Workspace gelegt. Fehlt die Zuordnung, werden Eingangsereignisse nicht agentisch verarbeitet und sichtbar als Konfigurationsproblem gemeldet.
 
-## Heartbeats als Workspace-Automationen
+## Geplante Workspace-Automationen
 
 ### Fachliches Modell
 
-Ein Heartbeat wird als besondere, geplante Workspace-Automation behandelt:
+Eine regelmaessige Pruefung wird als normale geplante Workspace-Automation behandelt:
 
 - genau ein Workspace als Ausfuehrungskontext;
 - ein gewaehlter Agent bzw. eine Agent-Zuweisung;
 - ein Zeitplan mit Zeitzone und Arbeitszeitfenster;
-- Workspace-spezifische Pruefanweisungen;
+- eine in der Automation gespeicherte Anweisung;
 - ein konfiguriertes Zustellziel;
 - Laufhistorie mit Ergebnis, Fehlern und Auditdaten.
 
-Die globale `HEARTBEAT.md` eines Agenten bleibt als fachliche Basis sinnvoll. Workspace-spezifische Anforderungen werden als zusaetzliche Anweisungen gespeichert, zum Beispiel:
+Die Anweisung gehoert vollstaendig zur Automation. Agenten behalten ihre allgemeinen Rollen- und Tool-Anweisungen, aber keine eigene Heartbeat-Datei. Ein Auftrag kann zum Beispiel lauten:
 
 > Pruefe im Workspace Kundensupport ueberfaellige Tickets, unbeantwortete Kundenmails und Entwuerfe, die laenger als einen Werktag offen sind.
 
-So wird keine neue, dauerhaft laufende Agentenklasse benoetigt.
+Die UI kann dafuer die Vorlage **Regelmaessige Workspace-Pruefung** anbieten. Sie setzt Zeitplan und Ergebnisregel passend vor, ohne eine zweite technische Kategorie einzufuehren.
 
 ### Ergebnis- und Benachrichtigungsregeln
 
-- `HEARTBEAT_OK` bedeutet erfolgreich, aber ohne Nachricht an den User.
+- `NO_ACTION` bedeutet erfolgreich, aber ohne Nachricht an den User.
 - Relevante Ergebnisse werden kurz und konkret zugestellt und mit dem Workspace verlinkt.
 - Fehler, fehlende Berechtigungen oder nicht erreichbare Integrationen werden als handlungsrelevante Meldung behandelt.
-- Ein erfolgreicher No-op-Heartbeat darf auch keine generische „Automation abgeschlossen“-Push ausloesen. Diese Semantik muss fuer Chat, externe Kanaele und Mobile Push einheitlich sein.
+- Ein erfolgreicher No-op-Lauf darf auch keine generische „Automation abgeschlossen“-Push ausloesen. Diese Semantik muss fuer Chat, externe Kanaele und Mobile Push einheitlich sein.
 
 ### Kontinuitaet
 
-`lastRunAt` und `lastRunStatus` reichen nicht aus, um fachlich sicher zu wissen, ob etwas bereits berichtet wurde. Fuer Checks mit dem Anspruch „seit dem letzten Heartbeat“ braucht die jeweilige Quelle einen belastbaren Vergleichspunkt, etwa:
+`lastRunAt` und `lastRunStatus` reichen nicht aus, um fachlich sicher zu wissen, ob etwas bereits berichtet wurde. Fuer regelmaessige Checks mit dem Anspruch „seit dem letzten Lauf“ braucht die jeweilige Quelle einen belastbaren Vergleichspunkt, etwa:
 
 - Ticket-Aktualisierungszeit oder SLA-Status;
 - E-Mail-Message-ID bzw. Thread-ID;
 - persistierten Watermark/Zeitpunkt pro Quelle;
 - optional eine kleine Liste bereits gemeldeter Ereignis-IDs mit Ablaufzeit.
 
-Der Heartbeat soll keine reine Chat-Erinnerung als Zustand missbrauchen. Wiederholungsfreiheit gehoert in die fachliche Datenquelle bzw. den Automation-State.
+Eine Automation soll keine reine Chat-Erinnerung als Zustand missbrauchen. Wiederholungsfreiheit gehoert in die fachliche Datenquelle bzw. den Automation-State.
 
 ## E-Mail-Triage und Support-Automation
 
@@ -170,12 +185,12 @@ Der Heartbeat soll keine reine Chat-Erinnerung als Zustand missbrauchen. Wiederh
 6. Ein Mensch gibt den Entwurf frei, oder eine explizite Workspace-Regel erlaubt den Versand fuer eng begrenzte Faelle.
 7. Versand, Ergebnis und alle Entscheidungen werden nachvollziehbar protokolliert.
 
-### Warum nicht ausschliesslich Heartbeats?
+### Warum verschiedene Ausloeser noetig sind
 
-Ein Heartbeat ist richtig fuer regelmaessige Kontrollen wie „welche Tickets sind ueberfaellig?“. Neue E-Mails brauchen dagegen eine zeitnahe, genau-einmalige und idempotente Verarbeitung. Die Kombination ist sinnvoll:
+Eine geplante Automation ist richtig fuer regelmaessige Kontrollen wie „welche Tickets sind ueberfaellig?“. Neue E-Mails brauchen dagegen eine zeitnahe, genau-einmalige und idempotente Verarbeitung. Die Kombination ist sinnvoll:
 
 - **E-Mail-Ereignisautomation:** Neue Nachricht klassifizieren, Ticket anlegen, Entwurf vorbereiten.
-- **Workspace-Heartbeat:** offene oder ueberfaellige Tickets, fehlende Freigaben, eskalierte Threads und fehlgeschlagene Aktionen pruefen.
+- **Geplante Workspace-Automation:** offene oder ueberfaellige Tickets, fehlende Freigaben, eskalierte Threads und fehlgeschlagene Aktionen pruefen.
 
 ## Sicherheits-, Berechtigungs- und Betriebsregeln
 
@@ -230,9 +245,9 @@ Die erste Version soll leicht erklaerbar und sicher sein. Sie umfasst:
 1. Eine Business-Mailbox ist genau einem Workspace zugeordnet.
 2. Persoenliche Mailboxen duerfen ohne Zuordnung existieren und nutzen manuell den persoenlichen Standard-Workspace als Fallback.
 3. Automationen duerfen nur mit expliziter Workspace- und Mailbox-Zuordnung laufen.
-4. Ein Workspace kann einen Support-Triage-Agenten und einen Workspace-Monitor konfigurieren.
+4. Ein Workspace kann einen Support-Triage-Agenten und geplante Workspace-Automationen konfigurieren.
 5. Neue E-Mails erzeugen Tickets bzw. Antwortentwuerfe; es gibt keinen automatischen Versand.
-6. Der Workspace-Heartbeat prueft unter anderem ueberfaellige Tickets, offene Entwuerfe und Fehler bei E-Mail-Automationen.
+6. Eine regelmaessige Workspace-Pruefung kann unter anderem ueberfaellige Tickets, offene Entwuerfe und Fehler bei E-Mail-Automationen pruefen.
 7. Eine unklare Zuordnung, fehlende Berechtigung oder fehlende Integration wird sichtbar gemeldet und nicht geraten.
 8. Alle Laeufe sind idempotent, auditierbar und korrekt Workspace-gescoped.
 
@@ -247,33 +262,40 @@ Die konkreten Namen koennen sich bei der Umsetzung aendern. Fachlich werden mind
 | `email_accounts` | Verbindung, Provider, Secrets-Referenz, Eigentuemertyp und Eigentuemer-ID; darf ohne Workspace existieren. |
 | `workspace_email_mailboxes` | `workspace_id`, `email_account_id`, Status, Rolle (eingehend/ausgehend), Routing- und Versandpolicy. |
 | `workspace_agent_assignments` | `workspace_id`, `agent_id`, lokale Anweisungen, erlaubte Tools/Integrationen, Status. |
-| `automation_jobs` | immer explizites `workspace_id`; Typ wie `heartbeat` oder `email_event`; Agent-Zuweisung und Zustellung. |
+| `automation_jobs` | immer explizites `workspace_id`; `trigger_type`, Zeitplan bzw. Ereigniskonfiguration, Anweisung, Ergebnisregel, Agent-Zuweisung und Zustellung. |
 | `email_events` bzw. Inbox-State | Provider-ID, Message-ID, Thread-ID, Idempotenzstatus, zugeordneter Workspace und Verarbeitungsresultat. |
 | `tickets` / `email_drafts` | Workspace, Mailbox, Thread, Status, Entwurf, Freigabe, Auditverweise. |
 
-Fuer die Migration ist zu beachten: Bestehende User-Konten bleiben zunaechst unzugeordnet. Sie erhalten keine Automation, bis ein User oder Admin bewusst eine Workspace-Zuordnung setzt.
+Fuer die Migration ist zu beachten:
+
+- Bestehende User-Konten bleiben zunaechst unzugeordnet. Sie erhalten keine Automation, bis ein User oder Admin bewusst eine Workspace-Zuordnung setzt.
+- Bestehende Heartbeat-Konfigurationen werden zu geplanten Workspace-Automationen im persoenlichen Standard-Workspace migriert.
+- Der Inhalt einer bestehenden `HEARTBEAT.md` wird einmalig in die Anweisung der migrierten Automation uebernommen. Danach wird die Datei nicht mehr als verwaltete Agent-Datei benoetigt.
 
 ## Produktoberflaeche
 
 Die Produktoberflaeche soll die Architektur sichtbar machen, ohne Datenmodellbegriffe vorauszusetzen.
 
-### Workspace-Einstellungen
+### Workspace-Automationen
 
-Ein Bereich **Proaktive Arbeit** enthaelt zwei Karten:
+Der Bereich **Automationen** zeigt alle Automationen des Workspace. Beim Anlegen stehen einfache Vorlagen zur Auswahl:
 
-1. **Workspace-Monitor**
-   - Ein/Aus
+1. **Regelmaessige Workspace-Pruefung** (optional mit dem Label `Heartbeat`)
    - zuständiger Agent
    - Rhythmus und Arbeitszeit
-   - was geprueft wird
-   - wohin relevante Hinweise gehen
+   - Auftrag
+   - Ergebnisregel: nur bei Relevanz zustellen
+   - Zustellziel
 
-2. **E-Mail-Automation**
+2. **E-Mail-Triage**
    - zugeordnete Mailbox
    - zuständiger Triage-Agent
    - Verhalten bei neuer E-Mail
    - Entwuerfe und Freigabe
    - sichtbarer Status von Verbindung und letzter Verarbeitung
+
+3. **Eigene Automation**
+   - Ausloeser, Agent, Auftrag, Ergebnisregel und Zustellung frei konfigurieren
 
 ### Persoenliche Einstellungen
 
@@ -283,10 +305,10 @@ Der User kann eigene E-Mail-Konten verbinden und einen persoenlichen Standard-Wo
 
 1. Fachliche Entscheidungen finalisieren: Ownership von Business-Mailboxen, V1-Ticketziel und Freigabeprozess.
 2. Workspace-Mailbox-Zuordnung und Berechtigungschecks implementieren, inklusive Migration bestehender User-Konten als unzugeordnet.
-3. Heartbeat-Job auf expliziten Workspace-Scope umstellen und die UI in die Workspace-Einstellungen verschieben bzw. dort zusaetzlich anbieten.
+3. Bestehende Heartbeats zu geplanten Workspace-Automationen migrieren: Workspace zuordnen, `HEARTBEAT.md` in den Auftragsinhalt uebernehmen, No-op-Verhalten als allgemeine Ergebnisregel implementieren und die Agent-Settings bereinigen.
 4. Ereignisbasierte E-Mail-Inbox mit Idempotenz und Klaerungswarteschlange bereitstellen.
 5. Support-Triage fuer Ticket und Entwurf implementieren, zunaechst ohne Auto-Send.
-6. Workspace-Monitor mit Ticket-/Entwurfs-/Fehlerchecks integrieren.
+6. Vorlage fuer regelmaessige Workspace-Pruefungen mit Ticket-/Entwurfs-/Fehlerchecks integrieren.
 7. End-to-End pruefen: Berechtigungen, Workspace-Isolation, Duplikate, Token-Ablauf, Fehlermeldungen, No-op-Benachrichtigungen und Offboarding.
 
 ## Offene Entscheidungen vor der Implementierung
