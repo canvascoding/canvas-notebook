@@ -2,7 +2,7 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { and, desc, eq } from 'drizzle-orm';
+import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
 import { emailAccounts, emailDrafts, emailInboxCases, workspaceEmailMailboxes } from '@/app/lib/db/schema';
@@ -65,6 +65,39 @@ export async function listWorkspaceOutboxDrafts(userId: string, workspaceId: str
   return rows.map(publicOutboxDraft);
 }
 
+/**
+ * Internal read model for regular workspace automations. It deliberately
+ * exposes only the queue state that is actionable for the current workspace;
+ * it has no provider access and cannot trigger a send.
+ */
+export async function getWorkspaceEmailAttentionSummary(workspaceId: string) {
+  const [cases, drafts] = await Promise.all([
+    db.query.emailInboxCases.findMany({
+      where: and(eq(emailInboxCases.workspaceId, workspaceId), notInArray(emailInboxCases.status, ['answered', 'closed'])),
+      orderBy: [desc(emailInboxCases.updatedAt)],
+      limit: 20,
+    }),
+    db.query.emailDrafts.findMany({
+      where: and(
+        eq(emailDrafts.workspaceId, workspaceId),
+        eq(emailDrafts.origin, 'automation'),
+        inArray(emailDrafts.outboxStatus, ['awaiting_review', 'editing', 'send_failed']),
+      ),
+      orderBy: [desc(emailDrafts.updatedAt)],
+      limit: 20,
+    }),
+  ]);
+  const overdueBefore = Date.now() - 24 * 60 * 60 * 1_000;
+  return {
+    openCaseCount: cases.length,
+    overdueCaseCount: cases.filter((item) => item.updatedAt.getTime() < overdueBefore).length,
+    reviewDraftCount: drafts.length,
+    sendFailureCount: drafts.filter((item) => item.outboxStatus === 'send_failed').length,
+    cases: cases.map((item) => ({ id: item.id, subject: item.subject, status: item.status, priority: item.priority, updatedAt: item.updatedAt.toISOString() })),
+    drafts: drafts.map((item) => ({ id: item.id, subject: item.subject, status: item.outboxStatus, updatedAt: item.updatedAt.toISOString() })),
+  };
+}
+
 export async function createWorkspaceInboxCase(input: {
   userId: string; workspaceId: string; mailboxId: string; providerThreadId: string; subject: string;
   latestProviderMessageId?: string | null; requesterAddress?: string | null; requesterName?: string | null;
@@ -102,7 +135,7 @@ export async function createWorkspaceInboxCase(input: {
 export async function createWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; mailboxId: string; inboxCaseId?: string | null;
   subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[];
-  originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null;
+  originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null; assignedUserId?: string | null;
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
   const [mailbox] = await db.select({ accountId: emailAccounts.id, accountOwnerId: emailAccounts.userId })
@@ -126,7 +159,7 @@ export async function createWorkspaceOutboxDraft(input: {
     workspaceId: input.workspaceId, mailboxId: input.mailboxId, inboxCaseId: input.inboxCaseId || null,
     origin: 'automation', originAutomationJobId: input.originAutomationJobId || null,
     originRunId: input.originRunId || null, originAgentId: input.originAgentId || null,
-    outboxStatus: 'awaiting_review', version: 1, assignedUserId: null, editingByUserId: null, editingStartedAt: null,
+    outboxStatus: 'awaiting_review', version: 1, assignedUserId: input.assignedUserId || null, editingByUserId: null, editingStartedAt: null,
     sentByUserId: null, sentAt: null, createdAt: now, updatedAt: now,
   });
   const draft = await db.query.emailDrafts.findFirst({ where: eq(emailDrafts.id, id) });

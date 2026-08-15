@@ -311,6 +311,26 @@ assert.match(composioPrompt, /This run was started by a Composio trigger/);
 assert.match(composioPrompt, /\*\*Composio integration\/toolkit used:\*\* gmail/);
 assert.match(composioPrompt, /\*\*Webhook source:\*\* managed/);
 
+const attentionPrompt = buildAutomationPrompt({
+  name: 'Regular Workspace Check',
+  workspaceContextPaths: [],
+  prompt: 'Report only new attention.',
+  preferredSkill: 'auto',
+  effectiveTargetOutputPath: null,
+  resultPolicy: 'deliver_relevant_only',
+  workspaceEmailAttention: {
+    openCaseCount: 1,
+    overdueCaseCount: 0,
+    reviewDraftCount: 1,
+    sendFailureCount: 0,
+    cases: [{ id: 'case-1', subject: 'Support request', status: 'new', priority: 'normal', updatedAt: '2026-08-15T10:00:00.000Z' }],
+    drafts: [{ id: 'draft-1', subject: 'Re: Support request', status: 'awaiting_review', updatedAt: '2026-08-15T10:00:00.000Z' }],
+  },
+});
+assert.match(attentionPrompt, /Workspace Email Attention/);
+assert.match(attentionPrompt, /"reviewDraftCount": 1/);
+assert.match(attentionPrompt, /If this queue has no change worth reporting/);
+
 const createMutationPayload = buildAutomationMutationPayload(
   { name: 'Create automation' },
   { jobId: null, workspaceId: 'workspace-personal', scope: 'personal' },

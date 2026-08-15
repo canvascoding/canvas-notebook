@@ -175,7 +175,7 @@ async function processEvent(event: InboxEventRow, dependencies: TriageDependenci
         const { draftEmailReplyWithAi } = await import('@/app/lib/email/ai-service');
         return draftEmailReplyWithAi({ userId: mailbox.accountOwnerId, workspaceId: event.workspaceId }, message, instruction);
       })();
-  await createWorkspaceOutboxDraft({
+  const draft = await createWorkspaceOutboxDraft({
     userId: automationUserId,
     workspaceId: event.workspaceId,
     mailboxId: event.mailboxId,
@@ -186,9 +186,35 @@ async function processEvent(event: InboxEventRow, dependencies: TriageDependenci
     originAutomationJobId: job.id,
     originRunId: `email-event:${event.id}`,
     originAgentId: job.agentId,
+    assignedUserId: automationUserId,
   });
   await markEvent(event, { status: 'processed', caseId: inboxCase.id });
+  void (async () => {
+    const { sendWorkspaceOutboxReviewPush } = await import('@/app/lib/mobile/push-devices');
+    await sendWorkspaceOutboxReviewPush({ userId: automationUserId, workspaceId: event.workspaceId, draftId: draft.id, subject: draft.subject });
+  })().catch((error) => {
+    console.warn('[WorkspaceEmailTriage] Review notification failed', event.id, error instanceof Error ? error.message : error);
+  });
   return 'drafted';
+}
+
+async function notifyTriageFailure(event: InboxEventRow): Promise<void> {
+  const [mailbox] = await db.select({ accountId: emailAccounts.id })
+    .from(workspaceEmailMailboxes)
+    .innerJoin(emailAccounts, eq(emailAccounts.id, workspaceEmailMailboxes.emailAccountId))
+    .where(and(eq(workspaceEmailMailboxes.id, event.mailboxId), eq(workspaceEmailMailboxes.status, 'active')))
+    .limit(1);
+  if (!mailbox) return;
+  const jobs = await db.select().from(automationJobs).where(and(
+    eq(automationJobs.workspaceId, event.workspaceId),
+    eq(automationJobs.triggerKind, 'event'),
+    eq(automationJobs.status, 'active'),
+  )).orderBy(asc(automationJobs.createdAt));
+  const job = jobs.find((candidate) => eventConfigMatchesMailbox(candidate.eventConfigJson, mailbox.accountId));
+  if (!job) return;
+  const userId = job.responsibleUserId || job.ownerUserId || job.createdByUserId;
+  const { sendFailureAttentionPush } = await import('@/app/lib/mobile/push-devices');
+  await sendFailureAttentionPush({ userId, workspaceId: event.workspaceId, entityKind: 'automation', entityId: job.id });
 }
 
 export async function processPendingWorkspaceEmailTriageEvents(options: { limit?: number } & TriageDependencies = {}): Promise<TriageResult> {
@@ -209,6 +235,9 @@ export async function processPendingWorkspaceEmailTriageEvents(options: { limit?
       await markEvent(event, { status: 'failed', errorCode: message.slice(0, 250) });
       result.failed += 1;
       console.warn('[WorkspaceEmailTriage] Event failed', event.id, message);
+      void notifyTriageFailure(event).catch((notificationError) => {
+        console.warn('[WorkspaceEmailTriage] Failure notification failed', event.id, notificationError instanceof Error ? notificationError.message : notificationError);
+      });
     }
   }
   return result;

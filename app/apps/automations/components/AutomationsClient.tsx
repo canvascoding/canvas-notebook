@@ -431,7 +431,7 @@ function getAutomationTemplates(locale: string): AutomationTemplate[] {
         {
           id: 'regular-workspace-check',
           name: 'Regelmäßige Workspace-Prüfung',
-          prompt: 'Prüfe den Workspace auf neue oder blockierte Aufgaben, Fristen und wichtige Änderungen. Gib nur dann eine kurze, konkrete Zusammenfassung aus, wenn etwas Aufmerksamkeit braucht. Wenn nichts Relevantes vorliegt, antworte exakt mit NO_ACTION.',
+          prompt: 'Prüfe den Workspace auf neue oder blockierte Aufgaben, Fristen und wichtige Änderungen sowie die serverseitig bereitgestellte Inbox- und Outbox-Aufmerksamkeit. Gib nur dann eine kurze, konkrete Zusammenfassung aus, wenn etwas neu oder erneut Aufmerksamkeit braucht. Wenn nichts Relevantes vorliegt, antworte exakt mit NO_ACTION.',
           scheduleKind: 'daily',
           dailyTime: '09:00',
           resultPolicy: 'deliver_relevant_only',
@@ -483,7 +483,7 @@ function getAutomationTemplates(locale: string): AutomationTemplate[] {
         {
           id: 'regular-workspace-check',
           name: 'Regular Workspace Check',
-          prompt: 'Review the workspace for new or blocked tasks, deadlines, and important changes. Return a concise, actionable summary only when something needs attention. If there is nothing relevant, reply exactly with NO_ACTION.',
+          prompt: 'Review the workspace for new or blocked tasks, deadlines, important changes, and the server-provided inbox and outbox attention summary. Return a concise, actionable summary only when something is new or newly actionable. If there is nothing relevant, reply exactly with NO_ACTION.',
           scheduleKind: 'daily',
           dailyTime: '09:00',
           resultPolicy: 'deliver_relevant_only',

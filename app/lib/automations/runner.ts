@@ -79,6 +79,7 @@ import {
 import { resolveAutomationRunWorkspace } from './policy';
 import { type AutomationJobRecord, type AutomationRunRecord } from './types';
 import { LEGACY_PERSONAL_WORKSPACE_ID } from '@/app/lib/workspaces/constants';
+import { getWorkspaceEmailAttentionSummary } from '@/app/lib/email/workspace-inbox-outbox';
 
 const MAX_ATTEMPTS = 3;
 const RETRY_BACKOFF_MS = [60_000, 5 * 60_000] as const;
@@ -424,6 +425,10 @@ export async function executeAutomationRun(runId: string): Promise<void> {
 
       const jobPrompt = job.prompt;
       assertAutomationExecutionActive(executionSignal);
+      const workspaceEmailAttention = job.resultPolicy === 'deliver_relevant_only'
+        ? await getWorkspaceEmailAttentionSummary(automationWorkspace.workspaceId)
+        : null;
+      assertAutomationExecutionActive(executionSignal);
       const promptText = buildAutomationPrompt({
         name: job.name,
         workspaceContextPaths: job.workspaceContextPaths,
@@ -432,6 +437,7 @@ export async function executeAutomationRun(runId: string): Promise<void> {
         resultPolicy: job.resultPolicy,
         effectiveTargetOutputPath,
         webhookContext: run.triggerType === 'webhook' ? getWebhookPromptContext(run) : null,
+        workspaceEmailAttention,
       });
 
       const events: string[] = [];

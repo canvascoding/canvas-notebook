@@ -83,6 +83,11 @@ export type MobilePushTarget =
       todoId: string;
     }
   | {
+      type: 'email.outbox_review';
+      workspaceId: string;
+      draftId: string;
+    }
+  | {
       type: 'studio.completed';
       workspaceId: string;
       generationId: string;
@@ -542,6 +547,8 @@ function notificationBody(target: MobilePushTarget, locale: UserLocale): string 
       return isGerman ? 'Dein Agent hat eine Antwort fertiggestellt.' : 'Your agent has finished a response.';
     case 'todo.attention':
       return isGerman ? 'Ein Canvas-To-do benötigt deine Aufmerksamkeit.' : 'A Canvas To-do needs your attention.';
+    case 'email.outbox_review':
+      return isGerman ? 'Ein E-Mail-Entwurf wartet auf deine Freigabe.' : 'An email draft is waiting for your review.';
     case 'studio.completed':
       return isGerman ? 'Dein Studio-Ergebnis ist bereit.' : 'Your Studio result is ready.';
     case 'attention.failure':
@@ -693,6 +700,8 @@ function pushPreferenceColumn(target: MobilePushTarget): string {
       return 'agent_response_ready';
     case 'todo.attention':
       return 'todo_attention';
+    case 'email.outbox_review':
+      return 'todo_attention';
     case 'studio.completed':
       return 'studio_completed';
     case 'attention.failure':
@@ -708,6 +717,8 @@ function pushEntityId(target: MobilePushTarget): string {
       return target.sessionId;
     case 'todo.attention':
       return target.todoId;
+    case 'email.outbox_review':
+      return target.draftId;
     case 'studio.completed':
       return target.generationId;
     case 'attention.failure':
@@ -976,6 +987,25 @@ export async function sendTodoAttentionPush(input: {
   return sendMobileAttentionPush({
     userId: input.userId,
     target: { type: 'todo.attention', workspaceId: input.workspaceId, todoId: input.todoId },
+  });
+}
+
+export async function sendWorkspaceOutboxReviewPush(input: {
+  userId: string;
+  workspaceId: string;
+  draftId: string;
+  subject: string;
+}): Promise<{ attempted: number; accepted: number }> {
+  const locale = await getUserPreferredLocale(input.userId).catch(() => 'en' as const);
+  const isGerman = locale === 'de';
+  return sendMobileAttentionPush({
+    userId: input.userId,
+    locale,
+    target: { type: 'email.outbox_review', workspaceId: input.workspaceId, draftId: input.draftId },
+    notification: {
+      title: isGerman ? 'E-Mail-Freigabe erforderlich' : 'Email review required',
+      body: input.subject || (isGerman ? 'Ein Entwurf wartet in der Outbox.' : 'A draft is waiting in the outbox.'),
+    },
   });
 }
 

@@ -321,7 +321,8 @@
     {
       "id": "WEA-V1-12",
       "title": "Benachrichtigungen und regelmaessige Workspace-Pruefung integrieren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-07",
         "WEA-V1-09",
@@ -339,6 +340,11 @@
         "Workspace-Admins werden bei Verbindungs- und Synchronisationsfehlern informiert.",
         "Ein Lauf ohne Ergebnis erzeugt keine Benachrichtigung.",
         "Die regelmaessige Pruefung erkennt nur neue oder erneut handlungsrelevante Ereignisse."
+      ],
+      "evidence": [
+        "Ein neuer, automatisiert erzeugter Outbox-Entwurf ist dem verantwortlichen Workspace-User zugeordnet und löst genau eine Review-Benachrichtigung aus. Die Benachrichtigung ist nach dem bestehenden Attention-Präferenzkanal steuerbar und kann keinen Versand auslösen.",
+        "Triage-Fehler werden am Inbox-Ereignis gespeichert und als Failure-Attention für den verantwortlichen Automations-User gemeldet. So bleibt ein Provider-, Token- oder Berechtigungsproblem in der Laufhistorie und im Attention-Kanal sichtbar.",
+        "Regelmäßige Automationen mit deliver_relevant_only erhalten eine serverseitig begrenzte, workspace-spezifische Übersicht offener/überfälliger Inbox-Fälle, Review-Entwürfe und Sendefehler. Der Prompt verlangt explizit NO_ACTION bei keinem neuen bzw. erneut handlungsrelevanten Ergebnis; der vorhandene Result-Policy-Pfad unterdrückt dessen Zustellung."
       ]
     },
     {

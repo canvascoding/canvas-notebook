@@ -205,6 +205,19 @@ async function main() {
     });
     assert.deepEqual(autoTriage, { checked: 1, processed: 0, ignored: 1, drafted: 0, failed: 0 });
 
+    await pollWorkspaceMailboxInboxEvents({
+      now: new Date(pollNow.getTime() + 3_000),
+      fetchMessages: async () => [{ id: 'failed-message', threadId: 'thread-failed', date: new Date(pollNow.getTime() + 3_000).toISOString(), folder: 'INBOX' }],
+    });
+    const failedTriage = await processPendingWorkspaceEmailTriageEvents({
+      readMessage: async () => ({
+        message: { id: 'failed-message', threadId: 'thread-failed', from: 'Customer <customer@example.test>', subject: 'Please help', body: 'A normal support request.' },
+      }),
+      draftReply: async () => { throw new Error('provider unavailable'); },
+    });
+    assert.deepEqual(failedTriage, { checked: 1, processed: 0, ignored: 0, drafted: 0, failed: 1 });
+    assert.equal((sqlite.prepare(`SELECT status FROM email_inbox_events WHERE provider_message_id = 'failed-message'`).get() as { status: string }).status, 'failed');
+
     await assert.rejects(
       () => assignStoredEmailAccountWorkspace('owner-user', created.id, otherWorkspace.id),
       /workspace|access|permission/i,

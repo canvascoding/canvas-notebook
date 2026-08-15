@@ -17,6 +17,14 @@ type BuildAutomationPromptInput = Pick<
     timestamp: string;
     data: unknown;
   } | null;
+  workspaceEmailAttention?: {
+    openCaseCount: number;
+    overdueCaseCount: number;
+    reviewDraftCount: number;
+    sendFailureCount: number;
+    cases: Array<{ id: string; subject: string; status: string; priority: string; updatedAt: string }>;
+    drafts: Array<{ id: string; subject: string; status: string | null; updatedAt: string }>;
+  } | null;
 };
 
 export function buildAutomationPrompt(input: BuildAutomationPromptInput): string {
@@ -65,6 +73,18 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
       '**Event data:**',
       '```json',
       eventJson.length > 50_000 ? `${eventJson.slice(0, 50_000)}\n...[truncated]` : eventJson,
+      '```',
+    ].join('\n'));
+  }
+
+  if (input.workspaceEmailAttention) {
+    sections.push([
+      '### Workspace Email Attention',
+      '',
+      'This is workspace-scoped queue data prepared by the server. It is read-only context; you cannot send email from this automation.',
+      'Report only a new or newly action-relevant item. If this queue has no change worth reporting, follow the configured no-op policy.',
+      '```json',
+      JSON.stringify(input.workspaceEmailAttention, null, 2),
       '```',
     ].join('\n'));
   }
