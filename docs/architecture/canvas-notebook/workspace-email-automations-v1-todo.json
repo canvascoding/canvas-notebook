@@ -294,7 +294,8 @@
     {
       "id": "WEA-V1-11",
       "title": "Menschlichen Review- und Versandablauf im bestehenden E-Mail-Composer anbinden",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-03",
         "WEA-V1-09"
@@ -310,6 +311,11 @@
         "Der User kann den Entwurf vor dem Versand vollstaendig bearbeiten.",
         "Nur ein berechtigter menschlicher User kann senden.",
         "Jeder Versand ist dem konkreten User, Workspace, Entwurf und der versendeten Version zuordenbar."
+      ],
+      "evidence": [
+        "Die Workspace-Outbox zeigt anklickbare Entwürfe. Sie werden im bestehenden E-Mail-Composer geöffnet, dort vollständig bearbeitet und vor dem Versand über den versionierten Workspace-Outbox-Endpunkt gespeichert.",
+        "POST /api/workspaces/:workspaceId/email/outbox/:draftId/send verlangt eine Session, canWrite im Workspace und die aktuelle Entwurfsversion. Der Server reserviert den Entwurf vor der Provider-Aktion und schreibt danach sent oder send_failed.",
+        "Der Versand verwendet die explizit gebundene, aktive Mailbox, protokolliert User, Workspace, Fall, Mailbox, Version und Empfängeranzahl als Audit-Ereignis und setzt den zugehörigen Inbox-Fall auf answered. Der Binding-Test prüft den kontrollierten Versand mit einer Test-Transportfunktion."
       ]
     },
     {

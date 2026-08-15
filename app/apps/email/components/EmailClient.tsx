@@ -93,9 +93,16 @@ type EmailAccount = {
 };
 
 type WorkspaceInboxCase = { id: string; subject: string; status: string; priority: string; updatedAt: string };
-type WorkspaceOutboxDraft = { id: string; subject: string; status: string | null; version: number; updatedAt: string };
+type WorkspaceOutboxDraft = {
+  id: string; subject: string; status: string | null; version: number; updatedAt: string;
+  body: string; to: string[]; cc: string[]; bcc: string[]; isHtml: boolean;
+};
 
-function WorkspaceInboxOutboxPanel({ workspaceId, t }: { workspaceId: string | null; t: ReturnType<typeof useTranslations> }) {
+function WorkspaceInboxOutboxPanel({ workspaceId, t, onOpenOutboxDraft }: {
+  workspaceId: string | null;
+  t: ReturnType<typeof useTranslations>;
+  onOpenOutboxDraft(draft: WorkspaceOutboxDraft): void;
+}) {
   const [inboxCases, setInboxCases] = useState<WorkspaceInboxCase[]>([]);
   const [outboxDrafts, setOutboxDrafts] = useState<WorkspaceOutboxDraft[]>([]);
   const [isLoading, setIsLoading] = useState(false);
@@ -129,7 +136,7 @@ function WorkspaceInboxOutboxPanel({ workspaceId, t }: { workspaceId: string | n
       </div>
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{t('workspaceQueue.outboxTitle')}</p><Badge variant="secondary">{outboxDrafts.length}</Badge></div>
-        <div className="mt-2 space-y-1">{outboxDrafts.slice(0, 3).map((item) => <div key={item.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-xs"><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></div>)}{outboxDrafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div>
+        <div className="mt-2 space-y-1">{outboxDrafts.slice(0, 3).map((item) => <button key={item.id} type="button" className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted" onClick={() => onOpenOutboxDraft(item)}><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></button>)}{outboxDrafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div>
       </div>
     </section>
   );
@@ -2065,6 +2072,7 @@ export function EmailClient({
   const [activeMessageListAction, setActiveMessageListAction] = useState<EmailMessageListActionState>(null);
   const [isAddingSendPolicyRecipient, setIsAddingSendPolicyRecipient] = useState(false);
   const [composeDraft, setComposeDraft] = useState<EmailComposeDraft | null>(null);
+  const [workspaceOutboxEditing, setWorkspaceOutboxEditing] = useState<{ id: string; version: number; workspaceId: string } | null>(null);
   const [composeError, setComposeError] = useState<string | null>(null);
   const [composeAgentEvents, setComposeAgentEvents] = useState<EmailComposeAgentToolEvent[]>([]);
   const [composeAgentStatus, setComposeAgentStatus] = useState<string | null>(null);
@@ -2609,6 +2617,23 @@ export function EmailClient({
     setMessageDialogOpen(false);
   }, [activeFolder]);
 
+  const openWorkspaceOutboxDraft = useCallback((outboxDraft: WorkspaceOutboxDraft) => {
+    if (!activeWorkspaceId) return;
+    const bodyValues = outboxDraft.isHtml
+      ? { body: outboxDraft.body.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim(), bodyHtml: outboxDraft.body }
+      : composeEmailEditorBodyValues(outboxDraft.body);
+    setComposeError(null);
+    setError(null);
+    setComposeAgentEvents([]);
+    setComposeAgentStatus(null);
+    setWorkspaceOutboxEditing({ id: outboxDraft.id, version: outboxDraft.version, workspaceId: activeWorkspaceId });
+    setComposeDraft({
+      aiGenerated: true, aiMode: 'workspace-agent', aiPrompt: '', aiTone: 'casual', attachments: [],
+      ...bodyValues, ccText: composeRecipientText(outboxDraft.cc), contextFiles: [], mode: 'compose',
+      subject: outboxDraft.subject, toText: composeRecipientText(outboxDraft.to), usedContext: [],
+    });
+  }, [activeWorkspaceId]);
+
   const updateComposeDraft = useCallback((updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>) => {
     if (Object.prototype.hasOwnProperty.call(updates, 'aiMode') || Object.prototype.hasOwnProperty.call(updates, 'contextFiles')) {
       setComposeAgentEvents([]);
@@ -2620,6 +2645,7 @@ export function EmailClient({
   const closeComposeDialog = useCallback(() => {
     if (isSubmittingCompose || isGeneratingComposeAi) return;
     setComposeDraft(null);
+    setWorkspaceOutboxEditing(null);
     setComposeError(null);
     setComposeAgentEvents([]);
     setComposeAgentStatus(null);
@@ -2812,7 +2838,7 @@ export function EmailClient({
   }, [activeAccount, activeWorkspaceId, composeDraft, t, updateQuickAiProgress]);
 
   const submitComposeDraft = useCallback(async () => {
-    if (!activeAccount || !composeDraft) return;
+    if (!composeDraft || (!workspaceOutboxEditing && !activeAccount)) return;
     setIsSubmittingCompose(true);
     setComposeError(null);
     setError(null);
@@ -2822,6 +2848,30 @@ export function EmailClient({
       const isNewCompose = composeDraft.mode === 'compose';
       const bodyHtml = sanitizeEmailEditorHtml(composeDraft.bodyHtml) || plainTextToEmailHtml(composeDraft.body);
       const attachments = pruneUnreferencedInlineEmailAttachments(composeDraft.attachments, bodyHtml);
+      if (workspaceOutboxEditing) {
+        if (attachments.length > 0) throw new Error('Attachments are not supported for workspace outbox drafts yet.');
+        const basePath = `/api/workspaces/${encodeURIComponent(workspaceOutboxEditing.workspaceId)}/email/outbox/${encodeURIComponent(workspaceOutboxEditing.id)}`;
+        const saveResponse = await fetch(basePath, {
+          method: 'PATCH', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({
+            expectedVersion: workspaceOutboxEditing.version, subject: composeDraft.subject, body: bodyHtml,
+            to: splitRecipientInput(composeDraft.toText), cc: splitRecipientInput(composeDraft.ccText), bcc: [], status: 'editing',
+          }),
+        });
+        const savedPayload = await saveResponse.json().catch(() => ({}));
+        if (!saveResponse.ok || !savedPayload.success) throw new Error(savedPayload.error || t('errors.updateMessage'));
+        const sendResponse = await fetch(`${basePath}/send`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, credentials: 'include',
+          body: JSON.stringify({ expectedVersion: savedPayload.data.version }),
+        });
+        const sendPayload = await sendResponse.json().catch(() => ({}));
+        if (!sendResponse.ok || !sendPayload.success) throw new Error(sendPayload.error || t('errors.updateMessage'));
+        setWorkspaceOutboxEditing(null);
+        setComposeDraft(null);
+        setComposeError(null);
+        setMessageActionNotice(t('messageSent'));
+        return;
+      }
       const response = await fetch(isNewCompose ? '/api/email/send' : `/api/email/accounts/${encodeURIComponent(activeAccount.id)}/messages/actions`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2864,7 +2914,7 @@ export function EmailClient({
     } finally {
       setIsSubmittingCompose(false);
     }
-  }, [activeAccount, composeDraft, t]);
+  }, [activeAccount, composeDraft, t, workspaceOutboxEditing]);
 
   const handleMessageAction = useCallback(async (action: EmailMessageActionName, destination?: string) => {
     if (!activeAccount || !selectedMessage) return;
@@ -3217,7 +3267,7 @@ export function EmailClient({
           : 'max-w-7xl gap-3 px-3 py-3 sm:px-6 sm:py-5',
       )}
     >
-      <WorkspaceInboxOutboxPanel workspaceId={activeWorkspaceId} t={t} />
+      <WorkspaceInboxOutboxPanel workspaceId={activeWorkspaceId} t={t} onOpenOutboxDraft={openWorkspaceOutboxDraft} />
       <section className={cn(
         'shrink-0 flex flex-col gap-2 border border-border bg-card px-3 py-2 sm:px-4',
         embedded && 'border-x-0 border-t-0',

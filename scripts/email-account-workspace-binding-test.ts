@@ -159,7 +159,7 @@ async function main() {
     const processedEvent = sqlite.prepare(`SELECT status, case_id FROM email_inbox_events WHERE provider_message_id = 'new-message'`).get() as { status: string; case_id: string | null };
     assert.equal(processedEvent.status, 'processed');
     assert.ok(processedEvent.case_id);
-    const { createWorkspaceInboxCase, createWorkspaceOutboxDraft, listWorkspaceInboxCases, listWorkspaceOutboxDrafts, updateWorkspaceOutboxDraft } = await import('../app/lib/email/workspace-inbox-outbox');
+    const { createWorkspaceInboxCase, createWorkspaceOutboxDraft, listWorkspaceInboxCases, listWorkspaceOutboxDrafts, sendWorkspaceOutboxDraft, updateWorkspaceOutboxDraft } = await import('../app/lib/email/workspace-inbox-outbox');
     const inboxCase = await createWorkspaceInboxCase({
       userId: 'owner-user', workspaceId: ownerWorkspace.id, mailboxId: activeMailbox.id,
       providerThreadId: 'thread-1', latestProviderMessageId: 'new-message', requesterAddress: 'customer@example.test', subject: 'Support request',
@@ -182,6 +182,15 @@ async function main() {
       }),
       /has changed/i,
     );
+    let sentInput: { to: string[]; subject: string; body: string } | null = null;
+    const sent = await sendWorkspaceOutboxDraft({
+      userId: 'owner-user', workspaceId: ownerWorkspace.id, draftId: outboxDraft.id, expectedVersion: edited.version,
+    }, {
+      sendMessage: async (input) => { sentInput = { to: input.to, subject: input.subject, body: input.body }; },
+    });
+    assert.equal(sent.status, 'sent');
+    assert.deepEqual(sentInput, { to: ['customer@example.test'], subject: 'Re: Support request', body: '<p>We will help shortly.</p>' });
+    assert.equal((await listWorkspaceInboxCases('owner-user', ownerWorkspace.id)).find((item) => item.id === inboxCase.id)?.status, 'answered');
     assert.ok((await listWorkspaceOutboxDrafts('owner-user', ownerWorkspace.id)).some((draft) => draft.id === outboxDraft.id));
 
     await pollWorkspaceMailboxInboxEvents({
