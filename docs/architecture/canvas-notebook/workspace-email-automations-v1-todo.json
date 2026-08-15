@@ -24,8 +24,14 @@
     {
       "id": "WEA-V1-01",
       "title": "V1-Produktentscheidungen verbindlich bestaetigen",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [],
+      "evidence": [
+        "Produktfreigabe im Codex-Task am 2026-08-15.",
+        "Die verbindliche menschliche Versandpflicht ist im Architekturplan dokumentiert.",
+        "Aufbewahrungsfristen werden als konfigurierbare Policy umgesetzt und vor Produktionsfreigabe fachlich/rechtlich finalisiert."
+      ],
       "deliverables": [
         "Bestaetigte Definition des Inbox-Falls statt eines vollstaendigen Helpdesk-Systems",
         "Bestaetigte Ownership- und Rollenregeln fuer persoenliche und Business-Mailboxen",
