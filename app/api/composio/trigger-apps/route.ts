@@ -21,12 +21,11 @@ export async function GET(request: NextRequest) {
       },
     });
   } catch (error) {
-    const message = error instanceof Error ? error.message : 'Unknown error';
+    console.error('[Composio Trigger Apps API] Failed to load trigger apps', error);
     return NextResponse.json({
       apps: [],
       totalCount: 0,
       status: { configured: true, apiKeyValid: false, mode: 'disabled', connectedAccounts: [] },
-      error: message,
     }, { status: 500 });
   }
 }

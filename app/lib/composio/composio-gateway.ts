@@ -272,6 +272,14 @@ export async function getGatewayTriggerApps(context: ResolvedComposioContext) {
     };
   }
 
+  // Check the configuration before asking Composio for trigger metadata. This
+  // keeps provider errors (which can include API-key details) out of the
+  // automation composer and lets it show its normal setup-required state.
+  const status = await getGatewayStatus(context);
+  if (!status.configured || status.apiKeyValid === false) {
+    return { apps: [], totalCount: 0, status };
+  }
+
   const now = Date.now();
   const cacheKey = composioContextCacheKey(context);
   const cached = triggerAppCache.get(cacheKey);
@@ -311,7 +319,6 @@ export async function getGatewayTriggerApps(context: ResolvedComposioContext) {
     });
   }
 
-  const status = await getGatewayStatus(context);
   const connectedBySlug = new Map(status.connectedAccounts.map((account) => [account.toolkit.slug, account]));
   const apps = baseApps
     .map((app) => {
