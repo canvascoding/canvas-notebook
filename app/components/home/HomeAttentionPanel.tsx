@@ -1,6 +1,6 @@
 'use client';
 
-import { Bell, CheckCircle2, Clock3, MessageSquare } from 'lucide-react';
+import { Bell, CheckCircle2, Clock3, FolderKanban, MessageSquare } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { Link } from '@/i18n/navigation';
@@ -70,6 +70,12 @@ export function HomeAttentionPanel({ summary, isLoading }: HomeAttentionPanelPro
                   <span className="mt-0.5 block text-xs text-muted-foreground">
                     {formatDate(session.lastMessageAt, locale) ?? t('sessions.newResponse')}
                   </span>
+                  {session.workspaceName ? (
+                    <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                      <FolderKanban className="h-3 w-3 shrink-0" />
+                      {t('sessions.workspace', { workspace: session.workspaceName })}
+                    </span>
+                  ) : null}
                 </span>
               </Link>
             ))}

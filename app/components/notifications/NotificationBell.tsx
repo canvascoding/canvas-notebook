@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { Bell, Check, CheckCircle2, Circle, Clock3, MessageSquare, ListTodo } from 'lucide-react';
+import { Bell, Check, CheckCircle2, Circle, Clock3, FolderKanban, MessageSquare, ListTodo } from 'lucide-react';
 
 import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
@@ -215,6 +215,12 @@ export function NotificationBell() {
                         <span className="block text-xs text-muted-foreground">
                           {formatDate(session.lastMessageAt, locale) ?? t('sessions.newResponse')}
                         </span>
+                        {session.workspaceName ? (
+                          <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                            <FolderKanban className="h-3 w-3 shrink-0" />
+                            {t('sessions.workspace', { workspace: session.workspaceName })}
+                          </span>
+                        ) : null}
                       </span>
                     </Link>
                   </Button>

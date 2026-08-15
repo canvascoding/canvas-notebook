@@ -2171,7 +2171,8 @@
     "sessions": {
       "title": "Sitzungen",
       "empty": "Keine ungelesenen Sitzungen.",
-      "newResponse": "Neue Antwort"
+      "newResponse": "Neue Antwort",
+      "workspace": "Workspace: {workspace}"
     },
     "todos": {
       "open": "To-dos",

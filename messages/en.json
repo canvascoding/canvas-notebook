@@ -2172,7 +2172,8 @@
     "sessions": {
       "title": "Sessions",
       "empty": "No unread sessions.",
-      "newResponse": "New reply"
+      "newResponse": "New reply",
+      "workspace": "Workspace: {workspace}"
     },
     "todos": {
       "open": "To-dos",

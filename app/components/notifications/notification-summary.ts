@@ -11,6 +11,7 @@ export type NotificationSummary = {
       title: string;
       agentId: string;
       workspaceId: string | null;
+      workspaceName: string | null;
       lastMessageAt: string | null;
     }>;
   };

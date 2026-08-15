@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server';
-import { and, desc, eq, isNull, ne } from 'drizzle-orm';
+import { and, desc, eq, gt, inArray, isNotNull, isNull, ne, or } from 'drizzle-orm';
 
 import { jsonServerError } from '@/app/lib/api/route-helpers';
 import { auth } from '@/app/lib/auth';
@@ -10,6 +10,9 @@ import { DEFAULT_SESSION_TITLE } from '@/app/lib/pi/session-titles';
 import { getDefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
 import { listTodos, markTodoSeen } from '@/app/lib/todos/store';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
+import { listAgentAccessForUser } from '@/app/lib/agents/access';
+import { resolveWorkspaceActor } from '@/app/lib/workspaces/context';
+import { loadWorkspaceListingForActor } from '@/app/lib/workspaces/listing-action';
 
 type PatchPayload = {
   action?: 'mark_all_todos_seen' | 'mark_todo_seen';
@@ -43,8 +46,24 @@ export async function GET(request: NextRequest) {
     });
     if (!limited.ok) return limited.response;
 
-    const [sessionRows, todos] = await Promise.all([
-      db
+    const actor = resolveWorkspaceActor({
+      id: session.user.id,
+      email: session.user.email,
+      role: session.user.role,
+    });
+    const [workspaceListing, accessibleAgents] = await Promise.all([
+      loadWorkspaceListingForActor(actor),
+      listAgentAccessForUser(session.user.id),
+    ]);
+    const readableWorkspaces = workspaceListing.workspaces.filter((workspace) => (
+      workspace.status === 'active' && workspace.permissions.canRead
+    ));
+    const workspaceById = new Map(readableWorkspaces.map((workspace) => [workspace.workspaceId, workspace]));
+    const readableWorkspaceIds = Array.from(workspaceById.keys());
+    const accessibleAgentIds = Array.from(accessibleAgents.keys());
+    const sessionRows = accessibleAgentIds.length === 0
+      ? []
+      : await db
         .select({
           sessionId: piSessions.sessionId,
           title: piSessions.title,
@@ -54,11 +73,23 @@ export async function GET(request: NextRequest) {
           lastViewedAt: piSessions.lastViewedAt,
         })
         .from(piSessions)
-        .where(eq(piSessions.userId, session.user.id))
-        .orderBy(desc(piSessions.lastMessageAt), desc(piSessions.createdAt))
-        .limit(100),
-      listTodos(session.user.id, { status: 'active', limit: 200 }),
-    ]);
+        .where(and(
+          eq(piSessions.userId, session.user.id),
+          inArray(piSessions.agentId, accessibleAgentIds),
+          isNull(piSessions.archivedAt),
+          isNotNull(piSessions.lastMessageAt),
+          or(isNull(piSessions.lastViewedAt), gt(piSessions.lastMessageAt, piSessions.lastViewedAt)),
+          readableWorkspaceIds.length > 0
+            ? or(isNull(piSessions.workspaceId), inArray(piSessions.workspaceId, readableWorkspaceIds))
+            : isNull(piSessions.workspaceId),
+        ))
+        .orderBy(desc(piSessions.lastMessageAt), desc(piSessions.createdAt));
+    const todos = await listTodos(session.user.id, {
+      status: 'active',
+      limit: 200,
+      workspaceType: 'all',
+      organizationId: workspaceListing.organizationId ?? undefined,
+    });
 
     const unreadSessions = sessionRows.filter((row) => hasUnreadAssistantResponse(row.lastMessageAt, row.lastViewedAt));
     const todayCutoff = endOfToday();
@@ -79,13 +110,17 @@ export async function GET(request: NextRequest) {
         unreadCount: unreadSessions.length + unreadTodos.length,
         sessions: {
           unreadCount: unreadSessions.length,
-          items: unreadSessions.slice(0, 5).map((item) => ({
-            sessionId: item.sessionId,
-            title: item.title || DEFAULT_SESSION_TITLE,
-            agentId: item.agentId,
-            workspaceId: item.workspaceId,
-            lastMessageAt: item.lastMessageAt,
-          })),
+          items: unreadSessions.slice(0, 5).map((item) => {
+            const workspace = item.workspaceId ? workspaceById.get(item.workspaceId) : workspaceListing.defaultWorkspace;
+            return {
+              sessionId: item.sessionId,
+              title: item.title || DEFAULT_SESSION_TITLE,
+              agentId: item.agentId,
+              workspaceId: item.workspaceId,
+              workspaceName: workspace?.displayName ?? null,
+              lastMessageAt: item.lastMessageAt,
+            };
+          }),
         },
         todos: {
           unreadCount: unreadTodos.length,
