@@ -1,0 +1,331 @@
+{
+  "title": "Workspace-Automationen und E-Mail-Support V1",
+  "updatedAt": "2026-08-15",
+  "source": "docs/architecture/canvas-notebook/workspace-email-automations-plan.md",
+  "executionPolicy": {
+    "sequential": true,
+    "maxInProgress": 1,
+    "nextTaskRequiresPreviousDone": true,
+    "containerBuildRequiresExplicitUserRequest": true,
+    "playwrightRequiresExplicitUserApproval": true,
+    "localDevPort": 3000,
+    "commitEachCompletedTask": true
+  },
+  "decisions": {
+    "workspaceBoundary": "Jede Automation gehoert genau einem Workspace.",
+    "heartbeatModel": "Heartbeat ist nur eine UI-Vorlage fuer eine geplante Automation, kein eigener technischer Typ.",
+    "agentInstructions": "HEARTBEAT.md wird in eine normale Automationsanweisung migriert und danach nicht mehr benoetigt.",
+    "businessMailboxScope": "Eine Business-Mailbox ist in V1 genau einem Workspace zugeordnet.",
+    "personalMailboxFallback": "Eine unzugeordnete persoenliche Mailbox darf bei manueller Nutzung auf den persoenlichen Standard-Workspace zurueckfallen.",
+    "automationMailboxScope": "Automationen duerfen nur mit einer expliziten Workspace-Mailbox-Zuordnung arbeiten.",
+    "outboundEmail": "Automationen und Agenten duerfen niemals selbst E-Mails versenden. Jede E-Mail wird von einem Menschen in der Workspace-Outbox geprueft, bei Bedarf bearbeitet und explizit gesendet."
+  },
+  "tasks": [
+    {
+      "id": "WEA-V1-01",
+      "title": "V1-Produktentscheidungen verbindlich bestaetigen",
+      "status": "pending",
+      "dependsOn": [],
+      "deliverables": [
+        "Bestaetigte Definition des Inbox-Falls statt eines vollstaendigen Helpdesk-Systems",
+        "Bestaetigte Ownership- und Rollenregeln fuer persoenliche und Business-Mailboxen",
+        "Bestaetigte menschliche Review- und Versandregel ohne Auto-Send-Ausnahme",
+        "Bestaetigte Aufbewahrungsfristen oder eine dokumentierte fachliche Ausnahme"
+      ],
+      "acceptance": [
+        "Alle Entscheidungen im Planungsdokument sind als final oder bewusst offen markiert.",
+        "Es gibt keine widerspruechliche Aussage zu Auto-Send oder Workspace-Zuordnung.",
+        "Die V1-Abgrenzung ist vom Produktverantwortlichen freigegeben."
+      ]
+    },
+    {
+      "id": "WEA-V1-02",
+      "title": "Datenmodell und idempotente Migration detailliert planen",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-01"
+      ],
+      "deliverables": [
+        "Schemaentwurf fuer Workspace-Mailbox-Zuordnungen",
+        "Schemaentwurf fuer Inbox-Faelle, Outbox-Entwuerfe, Entwurfsversionen und Auditdaten",
+        "Erweitertes allgemeines Automationsmodell mit Ausloeser, Auftrag und Ergebnisregel",
+        "Migrationsplan fuer bestehende Heartbeat-Jobs, HEARTBEAT.md und User-Mailboxen"
+      ],
+      "acceptance": [
+        "Jeder Datensatz mit E-Mail-Inhalt oder Automation ist eindeutig einem Workspace zuordenbar.",
+        "Die Migration kann mehrfach laufen, ohne doppelte Automationen oder Entwuerfe zu erzeugen.",
+        "Bestehende User-Mailboxen bleiben ohne explizite Zuordnung funktionsfaehig und nicht automatisiert.",
+        "Bestehende Heartbeats werden ohne Verlust von Zeitplan und Auftrag migriert."
+      ]
+    },
+    {
+      "id": "WEA-V1-03",
+      "title": "Berechtigungs-, Versand- und Inhalts-Sicherheitsmodell festlegen",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-02"
+      ],
+      "deliverables": [
+        "Rechtematrix fuer Organisations-Admin, Workspace-Admin, Bearbeiter und Agent",
+        "Serverseitige Send-Policy mit menschlicher Interaktion als Pflicht",
+        "Policy fuer untrusted E-Mail-Inhalte und Anhaenge",
+        "Audit-Ereignisse fuer Zuordnung, Entwurf, Bearbeitung, Versand und Fehler"
+      ],
+      "acceptance": [
+        "Ein Agent und eine Automation besitzen keinen Versandpfad und keine Send-Berechtigung.",
+        "Die Versand-API prueft User, Workspace, Mailbox und interaktiven Aufruf serverseitig.",
+        "Berechtigungsentzug waehrend eines Laufs verhindert Speichern und Versand kritischer Ergebnisse.",
+        "E-Mail-Inhalt kann keine Systemanweisungen, Workspace-Grenzen oder Tool-Berechtigungen veraendern."
+      ]
+    },
+    {
+      "id": "WEA-V1-04",
+      "title": "Automationskern auf einen expliziten Workspace-Scope vereinheitlichen",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-03"
+      ],
+      "deliverables": [
+        "Automation-Jobs mit verpflichtendem Workspace-Kontext",
+        "Allgemeine Ausloeser fuer Zeitplan, Ereignis, Webhook und manuelle Ausfuehrung",
+        "Allgemeine Ergebnisregeln fuer Zustellung, relevante Ergebnisse und reine Protokollierung",
+        "Universelles No-op-Verhalten statt Heartbeat-Sonderpfad"
+      ],
+      "acceptance": [
+        "Eine regelmaessige Pruefung und eine eigene geplante Automation verwenden denselben Ausfuehrungspfad.",
+        "Ein No-op-Lauf erzeugt keine Chat-, Kanal- oder Mobile-Push-Benachrichtigung.",
+        "Doppelte Laeufe eines Jobs werden weiterhin verhindert und Fehler koennen sicher wiederholt werden.",
+        "Automationen koennen nicht ohne Workspace ausgefuehrt werden."
+      ]
+    },
+    {
+      "id": "WEA-V1-05",
+      "title": "Bestehende Heartbeats und HEARTBEAT.md kontrolliert migrieren",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-04"
+      ],
+      "deliverables": [
+        "Idempotente Datenmigration in den persoenlichen Standard-Workspace",
+        "Uebernahme von Zeitplan, Zustellziel und HEARTBEAT.md-Inhalt in die neue Automation",
+        "Uebergangskompatibilitaet und klare Entfernung der Heartbeat-Settings",
+        "Entfernung von HEARTBEAT.md aus den verwalteten Agent-Dateien nach erfolgreicher Migration"
+      ],
+      "acceptance": [
+        "Jede bestehende Heartbeat-Konfiguration erzeugt hoechstens eine migrierte Automation.",
+        "Kein bestehender Zeitplan oder Auftrag geht verloren.",
+        "Nach Abschluss gibt es keinen produktiven Sondercodepfad fuer Heartbeats mehr.",
+        "Die alte Heartbeat-Konfiguration ist im UI nicht mehr bearbeitbar."
+      ]
+    },
+    {
+      "id": "WEA-V1-06",
+      "title": "Workspace-Mailbox-Zuordnung und Verwaltung bereitstellen",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-03"
+      ],
+      "deliverables": [
+        "APIs fuer Zuordnung, Aufhebung und Status einer Mailbox im Workspace",
+        "UI fuer Business-Mailboxen durch Organisations-Admins und Workspace-Zuordnung durch Workspace-Admins",
+        "Persoenlicher Standard-Workspace als ausschliesslich manueller Fallback",
+        "Sichtbarer Status fuer nicht zugeordnete oder nicht erreichbare Mailboxen"
+      ],
+      "acceptance": [
+        "Eine Business-Mailbox laesst sich in V1 hoechstens einem Workspace zuordnen.",
+        "Unzugeordnete persoenliche Mailboxen bleiben fuer manuelles E-Mail-Schreiben nutzbar.",
+        "Eine Automation kann keine unzugeordnete Mailbox verwenden.",
+        "Aenderungen an Zuordnungen werden auditiert."
+      ]
+    },
+    {
+      "id": "WEA-V1-07",
+      "title": "Workspace-Automationsoberflaeche mit Vorlagen bereitstellen",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-04",
+        "WEA-V1-06"
+      ],
+      "deliverables": [
+        "Workspace-Bereich Automationen mit Liste, Status und Laufhistorie",
+        "Vorlage Regelmaessige Workspace-Pruefung mit Ergebnisregel nur bei Relevanz",
+        "Vorlage E-Mail-Triage mit Mailbox- und Agent-Auswahl",
+        "Vorlage Eigene geplante Automation"
+      ],
+      "acceptance": [
+        "Die Agent-Settings enthalten keine Heartbeat-Konfiguration mehr.",
+        "Alle Vorlagen speichern eine normale Automation ohne Heartbeat-Sondertyp.",
+        "Der User erkennt Workspace, Agent, Ausloeser, Auftrag, Zustellziel und letzten Lauf auf einen Blick.",
+        "Ungespeicherte oder ungueltige Konfigurationen werden klar erklaert."
+      ]
+    },
+    {
+      "id": "WEA-V1-08",
+      "title": "E-Mail-Eingang, Idempotenz und Klaerungswarteschlange implementieren",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-06"
+      ],
+      "deliverables": [
+        "Provider-Ereignisverarbeitung oder inkrementeller zentraler Poller fuer lesbare Mailboxen",
+        "Persistierter E-Mail-Ereignisstatus mit Message-ID, Thread-ID und Idempotenzschluessel",
+        "Klaerungswarteschlange fuer fehlende oder mehrdeutige Workspace-Zuordnungen",
+        "Sichtbare Fehlerbehandlung fuer Token-Ablauf, Provider-Ausfall und Rate Limits"
+      ],
+      "acceptance": [
+        "Dieselbe E-Mail erzeugt auch bei Wiederholung hoechstens einen Inbox-Fall.",
+        "Beim Verbinden werden nur Mails ab dem festgelegten Startzeitpunkt verarbeitet.",
+        "Unklare Zuordnungen loesen keine Agentenaktion aus.",
+        "Der technische Poller ist keine Agenten-Automation und erzeugt keine LLM-Laeufe ohne neue E-Mail."
+      ]
+    },
+    {
+      "id": "WEA-V1-09",
+      "title": "Inbox-Faelle und Workspace-Outbox implementieren",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-02",
+        "WEA-V1-08"
+      ],
+      "deliverables": [
+        "Inbox-Faelle mit Thread-Bezug, Status, Prioritaet, Bearbeiter und Auditdaten",
+        "Outbox-Entwuerfe mit Version, Zustellstatus und Bearbeitungssperre",
+        "Listen- und Detail-APIs fuer Inbox, Outbox und Klaerungswarteschlange",
+        "Statuswechsel fuer vorbereitet, pruefen, bearbeitet, versendet, verworfen und fehlgeschlagen"
+      ],
+      "acceptance": [
+        "Ein E-Mail-Thread ist eindeutig einem Inbox-Fall im Workspace zugeordnet.",
+        "Ein menschlich bearbeiteter Entwurf wird nicht still durch einen Agenten ueberschrieben.",
+        "Outbox und Inbox sind fuer nicht berechtigte Workspace-Mitglieder nicht lesbar.",
+        "Jeder Statuswechsel ist nachvollziehbar protokolliert."
+      ]
+    },
+    {
+      "id": "WEA-V1-10",
+      "title": "E-Mail-Triage-Automation fuer Inbox-Faelle und Entwuerfe implementieren",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-04",
+        "WEA-V1-08",
+        "WEA-V1-09"
+      ],
+      "deliverables": [
+        "Ereignisbasierte Automation fuer neue E-Mails im eindeutig zugeordneten Workspace",
+        "Klassifizierung, Prioritaetsvorschlag und Bearbeiterempfehlung",
+        "Antwortentwurf in der Workspace-Outbox",
+        "Erkennung von Bounces, Abwesenheitsnotizen und automatischen Antworten"
+      ],
+      "acceptance": [
+        "Die Triage sieht nur Daten, Tools und Mailboxen des zugeordneten Workspace.",
+        "Die Triage kann keinen Versand ausloesen.",
+        "Eine normale Kundenmail erstellt oder aktualisiert genau einen Inbox-Fall und optional einen Entwurf.",
+        "Automatische Antworten erzeugen keine Antwortschleife."
+      ]
+    },
+    {
+      "id": "WEA-V1-11",
+      "title": "Menschlichen Review- und Versandablauf im bestehenden E-Mail-Composer anbinden",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-03",
+        "WEA-V1-09"
+      ],
+      "deliverables": [
+        "Outbox-Liste mit Bearbeiter, Status und direktem Einstieg in den Composer",
+        "Composer-Popup mit vorausgefuelltem Entwurf und Inbox-Fall-Kontext",
+        "Explizite Send-Aktion mit serverseitiger Berechtigungspruefung",
+        "Aktualisierung von Inbox, Outbox und Auditdaten nach Versand oder Fehler"
+      ],
+      "acceptance": [
+        "Ein Klick auf einen Outbox-Eintrag oeffnet den vorhandenen Composer mit dem richtigen Entwurf.",
+        "Der User kann den Entwurf vor dem Versand vollstaendig bearbeiten.",
+        "Nur ein berechtigter menschlicher User kann senden.",
+        "Jeder Versand ist dem konkreten User, Workspace, Entwurf und der versendeten Version zuordenbar."
+      ]
+    },
+    {
+      "id": "WEA-V1-12",
+      "title": "Benachrichtigungen und regelmaessige Workspace-Pruefung integrieren",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-07",
+        "WEA-V1-09",
+        "WEA-V1-10",
+        "WEA-V1-11"
+      ],
+      "deliverables": [
+        "Benachrichtigungen fuer neue Inbox-Faelle, notwendige Freigaben und Integrationsfehler",
+        "Regelmaessige Pruefung fuer ueberfaellige Inbox-Faelle, offene Entwuerfe und Fehler",
+        "No-op-Unterdrueckung fuer alle Zustellkanaele",
+        "Laufhistorie mit relevanten Ergebnissen und Fehlerdetails"
+      ],
+      "acceptance": [
+        "Der zuständige Bearbeiter erhaelt genau eine relevante Benachrichtigung pro neuem Fall oder Freigabebedarf.",
+        "Workspace-Admins werden bei Verbindungs- und Synchronisationsfehlern informiert.",
+        "Ein Lauf ohne Ergebnis erzeugt keine Benachrichtigung.",
+        "Die regelmaessige Pruefung erkennt nur neue oder erneut handlungsrelevante Ereignisse."
+      ]
+    },
+    {
+      "id": "WEA-V1-13",
+      "title": "Automatisierte Sicherheits-, Migrations- und Integrationspruefungen abschliessen",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-05",
+        "WEA-V1-12"
+      ],
+      "deliverables": [
+        "Unit- und Integrationstests fuer Workspace-Isolation, Mailbox-Zuordnung und Idempotenz",
+        "Tests fuer die permanente Send-Sperre von Agenten und Automationen",
+        "Migrationstests fuer bestehende Heartbeats und HEARTBEAT.md",
+        "Fehler- und Retry-Tests fuer Provider, Token und Berechtigungsentzug"
+      ],
+      "acceptance": [
+        "Kein Test kann eine E-Mail durch einen Agenten oder eine Automation versenden.",
+        "Cross-Workspace-Zugriffe auf Mail, Inbox, Outbox oder Automation werden abgewiesen.",
+        "Doppelte Provider-Ereignisse erzeugen keine Duplikate.",
+        "Migrationen sind fuer SQLite und PostgreSQL reproduzierbar und idempotent."
+      ]
+    },
+    {
+      "id": "WEA-V1-14",
+      "title": "UI- und End-to-End-Abnahme mit expliziter Freigabe durchfuehren",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-13"
+      ],
+      "requiresUserApproval": "Playwright- oder Browser-Pruefung vor Start explizit anfragen.",
+      "deliverables": [
+        "Gepruefter Flow: Mailbox zuordnen, E-Mail empfangen, Entwurf erzeugen, Outbox oeffnen, bearbeiten und manuell senden",
+        "Gepruefter Flow: regelmaessige Workspace-Pruefung ohne Ergebnis",
+        "Gepruefter Fehlerflow fuer fehlende Zuordnung und abgelaufenes Token"
+      ],
+      "acceptance": [
+        "Alle UI-Texte machen klar, dass nur Menschen E-Mails versenden koennen.",
+        "Der Composer oeffnet mit richtigem Workspace- und Entwurfskontext.",
+        "Keine No-op-Pruefung erzeugt sichtbare Benachrichtigungen.",
+        "Die sichtbaren Fehler enthalten einen klaren naechsten Schritt."
+      ]
+    },
+    {
+      "id": "WEA-V1-15",
+      "title": "Produktionsreife verifizieren und V1 abschliessen",
+      "status": "pending",
+      "dependsOn": [
+        "WEA-V1-14"
+      ],
+      "deliverables": [
+        "Erfolgreicher Lint- und Production-Build",
+        "Abgeschlossene relevante Test-Suite mit dokumentierten Ergebnissen",
+        "Aktualisierte Produkt- und Betriebsdokumentation",
+        "Kurzprotokoll zu Datenmigration, Rollback und Support-Hinweisen"
+      ],
+      "acceptance": [
+        "npm run lint und npm run build sind erfolgreich.",
+        "Es wird kein Container gebaut, sofern dies nicht explizit angefordert wurde.",
+        "Alle V1-Aufgaben sind abgeschlossen oder bewusst mit externer Freigabe dokumentiert.",
+        "Die Produktionsfreigabe bestaetigt die menschliche Versandpflicht erneut."
+      ]
+    }
+  ]
+}

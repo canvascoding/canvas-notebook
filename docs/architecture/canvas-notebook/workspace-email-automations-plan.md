@@ -11,6 +11,10 @@ Das Ziel ist ein moeglichst einfaches Produktmodell: **Agenten sind wiederverwen
 
 Dieses Dokument ist eine Architekturentscheidung und keine unmittelbare Implementierungsanweisung. Die V1-Abgrenzung dient als naechster Planungsschritt.
 
+## Umsetzungstracking
+
+Die sequenzielle, abhakbare V1-Aufgabenliste steht in [workspace-email-automations-v1-todo.json](./workspace-email-automations-v1-todo.json). Sie ist die verbindliche Reihenfolge fuer die Umsetzung; pro Zeitpunkt darf nur eine Aufgabe in Arbeit sein.
+
 ## Begriffe
 
 | Begriff | Bedeutung |
