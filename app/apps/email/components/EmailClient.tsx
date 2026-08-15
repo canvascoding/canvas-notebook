@@ -136,6 +136,7 @@ function WorkspaceInboxOutboxPanel({ workspaceId, t, onOpenOutboxDraft }: {
       </div>
       <div className="rounded-lg border border-border bg-card p-3">
         <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{t('workspaceQueue.outboxTitle')}</p><Badge variant="secondary">{outboxDrafts.length}</Badge></div>
+        <p className="mt-1 text-xs text-muted-foreground">{t('workspaceQueue.humanReview')}</p>
         <div className="mt-2 space-y-1">{outboxDrafts.slice(0, 3).map((item) => <button key={item.id} type="button" className="flex w-full items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-left text-xs transition-colors hover:bg-muted" onClick={() => onOpenOutboxDraft(item)}><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></button>)}{outboxDrafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div>
       </div>
     </section>
@@ -999,6 +1000,8 @@ type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | '
   composeContextFiles: string;
   composeNoContextFiles: string;
   composeNewTitle: string;
+  composeWorkspaceOutboxDescription: string;
+  composeWorkspaceOutboxTitle: string;
   composeOriginalTitle: string;
   composeReferencePickerEmpty: string;
   composeReferencePickerHeader: string;
@@ -1586,6 +1589,7 @@ function EmailComposeDialog({
   isAddingSendPolicyRecipient,
   isGeneratingAi,
   isSubmitting,
+  isWorkspaceOutboxReview,
   labels,
   locale,
   onAddSendPolicyRecipient,
@@ -1604,6 +1608,7 @@ function EmailComposeDialog({
   isAddingSendPolicyRecipient: boolean;
   isGeneratingAi: boolean;
   isSubmitting: boolean;
+  isWorkspaceOutboxReview: boolean;
   labels: EmailComposeDialogLabels;
   locale: string;
   onAddSendPolicyRecipient(email: string): void;
@@ -1788,8 +1793,8 @@ function EmailComposeDialog({
         {draft && (
           <>
             <DialogHeader className="shrink-0 border-b border-border px-4 py-3 pr-10 sm:px-5">
-              <DialogTitle className="text-base leading-6">{composeDialogTitle(draft, labels)}</DialogTitle>
-              <DialogDescription className="text-xs leading-5 sm:text-sm">{labels.composeDescription}</DialogDescription>
+              <DialogTitle className="text-base leading-6">{isWorkspaceOutboxReview ? labels.composeWorkspaceOutboxTitle : composeDialogTitle(draft, labels)}</DialogTitle>
+              <DialogDescription className="text-xs leading-5 sm:text-sm">{isWorkspaceOutboxReview ? labels.composeWorkspaceOutboxDescription : labels.composeDescription}</DialogDescription>
             </DialogHeader>
             <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3 sm:px-5">
               <div className={cn('grid min-h-full gap-3', draft.message && 'lg:grid-cols-[minmax(300px,420px)_minmax(0,1fr)]')}>
@@ -3207,6 +3212,8 @@ export function EmailClient({
     composeContextFiles: t('composeContextFiles'),
     composeNoContextFiles: t('composeNoContextFiles'),
     composeNewTitle: t('composeNewTitle'),
+    composeWorkspaceOutboxDescription: t('composeWorkspaceOutboxDescription'),
+    composeWorkspaceOutboxTitle: t('composeWorkspaceOutboxTitle'),
     composeOriginalTitle: t('composeOriginalTitle'),
     composeReferencePickerEmpty: t('composeReferencePickerEmpty'),
     composeReferencePickerHeader: t('composeReferencePickerHeader'),
@@ -3661,6 +3668,7 @@ export function EmailClient({
         isAddingSendPolicyRecipient={isAddingSendPolicyRecipient}
         isGeneratingAi={isGeneratingComposeAi}
         isSubmitting={isSubmittingCompose}
+        isWorkspaceOutboxReview={Boolean(workspaceOutboxEditing)}
         labels={composeDialogLabels}
         locale={locale}
         onAddSendPolicyRecipient={(email) => void addRecipientToSendPolicy(email)}

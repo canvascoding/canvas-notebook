@@ -1891,6 +1891,7 @@
       "title": "Workspace inbox and outbox",
       "inboxTitle": "Inbox cases",
       "outboxTitle": "Outbox for review",
+      "humanReview": "Drafts are only sent after your review and a manual send action.",
       "emptyInbox": "No open inbox cases.",
       "emptyOutbox": "No drafts awaiting review.",
       "prepared": "Prepared"
@@ -1934,6 +1935,8 @@
     "messageSent": "Email was sent.",
     "aiReplySent": "AI reply was sent.",
     "composeNewTitle": "Compose new email",
+    "composeWorkspaceOutboxTitle": "Review outbox draft",
+    "composeWorkspaceOutboxDescription": "Review and edit this automatically prepared draft. The email is only sent after you manually select Send.",
     "composeReplyTitle": "Compose reply",
     "composeReplyAllTitle": "Compose reply all",
     "composeForwardTitle": "Compose forward",

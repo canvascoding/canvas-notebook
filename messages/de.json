@@ -1890,6 +1890,7 @@
       "title": "Workspace-Inbox und Outbox",
       "inboxTitle": "Inbox-Fälle",
       "outboxTitle": "Outbox zur Prüfung",
+      "humanReview": "Entwürfe werden erst nach deiner Prüfung und einem manuellen Versand gesendet.",
       "emptyInbox": "Keine offenen Inbox-Fälle.",
       "emptyOutbox": "Keine Entwürfe zur Prüfung.",
       "prepared": "Vorbereitet"
@@ -1933,6 +1934,8 @@
     "messageSent": "E-Mail wurde gesendet.",
     "aiReplySent": "AI-Antwort wurde gesendet.",
     "composeNewTitle": "Neue E-Mail verfassen",
+    "composeWorkspaceOutboxTitle": "Outbox-Entwurf prüfen",
+    "composeWorkspaceOutboxDescription": "Prüfe und bearbeite diesen automatisch vorbereiteten Entwurf. Erst dein manueller Klick auf „Senden“ verschickt die E-Mail.",
     "composeReplyTitle": "Antwort verfassen",
     "composeReplyAllTitle": "Allen antworten",
     "composeForwardTitle": "Weiterleitung verfassen",

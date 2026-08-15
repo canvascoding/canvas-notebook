@@ -377,7 +377,8 @@
     {
       "id": "WEA-V1-14",
       "title": "UI- und End-to-End-Abnahme mit expliziter Freigabe durchfuehren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-13"
       ],
@@ -392,6 +393,12 @@
         "Der Composer oeffnet mit richtigem Workspace- und Entwurfskontext.",
         "Keine No-op-Pruefung erzeugt sichtbare Benachrichtigungen.",
         "Die sichtbaren Fehler enthalten einen klaren naechsten Schritt."
+      ],
+      "evidence": [
+        "Nach expliziter Freigabe wurde die lokale App auf localhost:3000 mit dem Bootstrap-Admin getestet. Die leeren Workspace-Queues zeigen den Human-Review-Hinweis und keinen Entwurf als wartend an.",
+        "Ein browserseitig isolierter API-Test mit Inbox-Fall und awaiting_review-Entwurf prüft die sichtbare Queue, die vorbefüllten Empfänger/Betreff/Inhalt, die Bearbeitbarkeit und den vorhandenen manuellen Send-Button. Der Send-Button wurde bewusst nicht ausgelöst; der Dialog wurde stattdessen abgebrochen.",
+        "Der Hinweis wurde im UI präzisiert: In der Outbox und im Composer steht nun ausdrücklich, dass nur der manuelle Klick eines Menschen den Versand auslöst. Die Ansicht wurde außerdem bei 390px Breite ohne horizontalen Überlauf geprüft.",
+        "Fehler- und No-op-Verhalten sind zusätzlich durch die automatisierten Binding-, Triage- und Delivery-Policy-Tests abgedeckt; externe Mail-Provider wurden in der lokalen UI-Abnahme nicht angesprochen."
       ]
     },
     {
