@@ -58,7 +58,7 @@ Eine Automation wird immer in einem konkreten Workspace ausgefuehrt. Der Workspa
 - die les- und schreibbaren Daten, Dateien, Tickets und Integrationen;
 - die zugeordnete Mailbox;
 - Zeitplan, Arbeitszeiten und Zustellung;
-- Freigabe- und Versandregeln;
+- Freigabe- und Versandberechtigungen;
 - Audit-Protokoll, Ownership und Mitgliedschaft.
 
 Der Agent selbst bleibt wiederverwendbar. Beispielsweise kann der Agent `Support-Triage` in mehreren Workspaces eingesetzt werden, er sieht und verarbeitet aber stets nur den Kontext seiner jeweiligen Zuweisung.
@@ -90,7 +90,7 @@ flowchart LR
   M --> E["Neue E-Mail"]
   E --> T["E-Mail-Triage-Automation"]
   T --> Q["Ticket, Aufgabe oder Antwortentwurf"]
-  Q --> R["Freigabe oder Versandregel"]
+  Q --> R["Menschliche Pruefung und Versand"]
 ```
 
 Es gibt zwei verschiedene Arten proaktiver Arbeit:
@@ -182,8 +182,9 @@ Eine Automation soll keine reine Chat-Erinnerung als Zustand missbrauchen. Wiede
 3. Die Mailbox-Zuordnung bestimmt den Workspace. Ohne eindeutige Zuordnung wird die Nachricht in eine sichtbare Klaerungswarteschlange gelegt.
 4. Die Triage-Automation arbeitet ausschliesslich mit der Workspace-Agent-Zuweisung und ihren erlaubten Datenquellen.
 5. Sie erstellt oder aktualisiert ein Ticket, ordnet Prioritaet und Thema zu und erzeugt bei Bedarf einen Antwortentwurf.
-6. Ein Mensch gibt den Entwurf frei, oder eine explizite Workspace-Regel erlaubt den Versand fuer eng begrenzte Faelle.
-7. Versand, Ergebnis und alle Entscheidungen werden nachvollziehbar protokolliert.
+6. Der Entwurf wird in die Workspace-Outbox gelegt und einem menschlichen Bearbeiter zur Pruefung zugewiesen.
+7. Erst ein Mensch kann den Entwurf im UI bearbeiten und mit einem expliziten Klick senden.
+8. Versand, Ergebnis und alle Entscheidungen werden nachvollziehbar protokolliert.
 
 ### Warum verschiedene Ausloeser noetig sind
 
@@ -191,6 +192,43 @@ Eine geplante Automation ist richtig fuer regelmaessige Kontrollen wie „welche
 
 - **E-Mail-Ereignisautomation:** Neue Nachricht klassifizieren, Ticket anlegen, Entwurf vorbereiten.
 - **Geplante Workspace-Automation:** offene oder ueberfaellige Tickets, fehlende Freigaben, eskalierte Threads und fehlgeschlagene Aktionen pruefen.
+
+## Menschliche Freigabe und Workspace-Outbox
+
+### Verbindliche Versandregel
+
+**Keine Automation und kein Agent darf E-Mails selbststaendig versenden.** Das gilt nicht nur fuer V1, sondern ist die Standardarchitektur. Ein Agent darf E-Mails lesen, klassifizieren, Inbox-Faelle anlegen und Antwortentwuerfe vorbereiten. Das Senden bleibt immer eine bewusste menschliche Aktion im User Interface.
+
+Diese Regel wird mehrfach abgesichert:
+
+- Der Agent erhaelt im Automationskontext kein Send-Tool und keine Versandberechtigung.
+- Die Automation kann nur einen Entwurf in der Outbox anlegen oder aktualisieren.
+- Die Versand-API akzeptiert nur eine interaktive, berechtigte User-Aktion aus dem Workspace.
+- Auditdaten erfassen, welcher User welchen Entwurf in welcher Version versendet hat.
+
+### Outbox und Bearbeitungsablauf
+
+Jeder von einem Agenten vorbereitete Antwortentwurf erscheint als Eintrag in einer **Workspace-Outbox**. Die Outbox kann als eigener Filter der Inbox-Faelle oder als eigene Liste dargestellt werden; wichtig ist, dass ausstehende Antworten klar sichtbar bleiben.
+
+Ein Outbox-Eintrag zeigt mindestens Absender, Empfaenger, Betreff, zugehoerigen Inbox-Fall, zuständigen Bearbeiter, Erstellungszeit und Status. V1 verwendet diese Status:
+
+- `Entwurf vorbereitet`
+- `wartet auf menschliche Pruefung`
+- `wird bearbeitet`
+- `versendet`
+- `verworfen`
+- `Versand fehlgeschlagen`
+
+Der Bedienablauf ist bewusst kurz:
+
+1. Der Agent bereitet eine Antwort vor und legt sie in der Outbox ab.
+2. Der zugewiesene Bearbeiter erhaelt eine Benachrichtigung.
+3. Ein Klick auf den Outbox-Eintrag oeffnet den vorhandenen E-Mail-Composer als Popup, bereits mit Empfaenger, Betreff, Entwurf und Kontext des Inbox-Falls.
+4. Der User kann den Text pruefen und direkt bearbeiten.
+5. Nur der explizite Klick auf **Senden** versendet die E-Mail.
+6. Der Fall, die Outbox und das Audit-Protokoll werden auf `versendet` oder bei Fehler auf `Versand fehlgeschlagen` aktualisiert.
+
+Solange ein Entwurf menschlich bearbeitet wird, darf eine erneute Agenten-Triage ihn nicht still ueberschreiben. Sie erstellt stattdessen eine neue vorgeschlagene Version oder markiert den Fall fuer erneute Pruefung.
 
 ## Sicherheits-, Berechtigungs- und Betriebsregeln
 
@@ -212,9 +250,7 @@ E-Mail-Text, HTML, Anhaenge, Links und in Nachrichten enthaltene Anweisungen due
 
 ### Versand
 
-Voreinstellung ist immer: **Entwurf erstellen, nicht senden.**
-
-Eine spaetere Auto-Send-Regel ist pro Workspace, pro Mailbox und pro Fallklasse explizit zu konfigurieren. Sie benoetigt mindestens Empfaengergrenzen, Auditdaten, eine Abschaltmoeglichkeit und eine Fehler-/Bounce-Behandlung.
+Der Versand erfolgt ausschliesslich aus der Workspace-Outbox durch einen berechtigten Menschen. Es gibt keine Auto-Send-Regel, weder als Standard noch als versteckte Ausnahme einer Automation.
 
 ### Zuverlaessigkeit
 
@@ -246,12 +282,12 @@ Die erste Version soll leicht erklaerbar und sicher sein. Sie umfasst:
 2. Persoenliche Mailboxen duerfen ohne Zuordnung existieren und nutzen manuell den persoenlichen Standard-Workspace als Fallback.
 3. Automationen duerfen nur mit expliziter Workspace- und Mailbox-Zuordnung laufen.
 4. Ein Workspace kann einen Support-Triage-Agenten und geplante Workspace-Automationen konfigurieren.
-5. Neue E-Mails erzeugen Tickets bzw. Antwortentwuerfe; es gibt keinen automatischen Versand.
+5. Neue E-Mails erzeugen Inbox-Faelle und Antwortentwuerfe in einer Workspace-Outbox; nur ein Mensch kann im vorhandenen E-Mail-Composer bearbeiten und senden.
 6. Eine regelmaessige Workspace-Pruefung kann unter anderem ueberfaellige Tickets, offene Entwuerfe und Fehler bei E-Mail-Automationen pruefen.
 7. Eine unklare Zuordnung, fehlende Berechtigung oder fehlende Integration wird sichtbar gemeldet und nicht geraten.
 8. Alle Laeufe sind idempotent, auditierbar und korrekt Workspace-gescoped.
 
-Nicht Teil von V1 sind Multi-Workspace-Mailboxen, komplexes inhaltsbasiertes Routing, automatischer Versand, automatische Altdatenmigration und selbsttaetige Regelanpassungen durch Agenten.
+Nicht Teil von V1 sind Multi-Workspace-Mailboxen, komplexes inhaltsbasiertes Routing, automatische Altdatenmigration und selbsttaetige Regelanpassungen durch Agenten. Automatischer Versand ist grundsaetzlich ausgeschlossen.
 
 ## Datenmodell: Zielrichtung
 
@@ -264,7 +300,7 @@ Die konkreten Namen koennen sich bei der Umsetzung aendern. Fachlich werden mind
 | `workspace_agent_assignments` | `workspace_id`, `agent_id`, lokale Anweisungen, erlaubte Tools/Integrationen, Status. |
 | `automation_jobs` | immer explizites `workspace_id`; `trigger_type`, Zeitplan bzw. Ereigniskonfiguration, Anweisung, Ergebnisregel, Agent-Zuweisung und Zustellung. |
 | `email_events` bzw. Inbox-State | Provider-ID, Message-ID, Thread-ID, Idempotenzstatus, zugeordneter Workspace und Verarbeitungsresultat. |
-| `tickets` / `email_drafts` | Workspace, Mailbox, Thread, Status, Entwurf, Freigabe, Auditverweise. |
+| `tickets` / `email_drafts` | Workspace, Mailbox, Thread, Outbox-Status, Entwurfsversion, zuständiger Bearbeiter, menschliche Freigabe und Auditverweise. |
 
 Fuer die Migration ist zu beachten:
 
@@ -291,8 +327,10 @@ Der Bereich **Automationen** zeigt alle Automationen des Workspace. Beim Anlegen
    - zugeordnete Mailbox
    - zuständiger Triage-Agent
    - Verhalten bei neuer E-Mail
-   - Entwuerfe und Freigabe
+   - Entwuerfe in der Workspace-Outbox; Bearbeitung und Versand im vorhandenen E-Mail-Composer
    - sichtbarer Status von Verbindung und letzter Verarbeitung
+
+Zusätzlich gibt es die **Outbox** des Workspace. Sie zeigt alle vorbereiteten Antworten mit Status und oeffnet den E-Mail-Composer mit einem Klick zur menschlichen Pruefung, Bearbeitung und zum expliziten Versand.
 
 3. **Eigene Automation**
    - Ausloeser, Agent, Auftrag, Ergebnisregel und Zustellung frei konfigurieren
@@ -307,7 +345,7 @@ Der User kann eigene E-Mail-Konten verbinden und einen persoenlichen Standard-Wo
 2. Workspace-Mailbox-Zuordnung und Berechtigungschecks implementieren, inklusive Migration bestehender User-Konten als unzugeordnet.
 3. Bestehende Heartbeats zu geplanten Workspace-Automationen migrieren: Workspace zuordnen, `HEARTBEAT.md` in den Auftragsinhalt uebernehmen, No-op-Verhalten als allgemeine Ergebnisregel implementieren und die Agent-Settings bereinigen.
 4. Ereignisbasierte E-Mail-Inbox mit Idempotenz und Klaerungswarteschlange bereitstellen.
-5. Support-Triage fuer Ticket und Entwurf implementieren, zunaechst ohne Auto-Send.
+5. Support-Triage fuer Inbox-Fall, Outbox und Entwurf implementieren; Send-Berechtigung fuer Automationen technisch sperren und den vorhandenen E-Mail-Composer als menschlichen Review- und Versanddialog anbinden.
 6. Vorlage fuer regelmaessige Workspace-Pruefungen mit Ticket-/Entwurfs-/Fehlerchecks integrieren.
 7. End-to-End pruefen: Berechtigungen, Workspace-Isolation, Duplikate, Token-Ablauf, Fehlermeldungen, No-op-Benachrichtigungen und Offboarding.
 
@@ -315,7 +353,7 @@ Der User kann eigene E-Mail-Konten verbinden und einen persoenlichen Standard-Wo
 
 - Welches vorhandene oder neue Datenmodell repraesentiert ein Support-Ticket in V1?
 - Soll eine Business-Mailbox zwingend organisationsverwaltet sein, oder darf ein User sie mit expliziter Organisationsfreigabe bereitstellen?
-- Welche Rollen duerfen eine Mailbox zuordnen, einen Agenten aktivieren und spaeter Auto-Send-Regeln konfigurieren?
+- Welche Rollen duerfen eine Mailbox zuordnen, einen Agenten aktivieren und Entwuerfe aus der Outbox versenden?
 - Welcher Zustellkanal ist fuer relevante Workspace-Monitor-Hinweise die V1-Voreinstellung?
 - Welche Retention- und Datenschutzregeln gelten fuer E-Mail-Inhalt, Anhaenge, Entwuerfe und Auditdaten?
 
