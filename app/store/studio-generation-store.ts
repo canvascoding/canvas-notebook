@@ -1,5 +1,5 @@
 import { create } from 'zustand';
-import type { StudioGeneratePayload, StudioGenerationMode } from '@/app/apps/studio/types/generation';
+import type { StudioGenerationMode } from '@/app/apps/studio/types/generation';
 import type { StudioPreset } from '@/app/apps/studio/types/presets';
 import {
   BACKGROUND_OPTIONS,
@@ -26,11 +26,6 @@ export interface ReferenceTag {
   status?: 'loading' | string;
   mediaKind?: 'image' | 'video' | 'audio';
   imageCount?: number;
-}
-
-export interface PendingStudioGenerateRequest {
-  id: string;
-  payload: StudioGeneratePayload;
 }
 
 export interface StudioGenerationState {
@@ -129,10 +124,6 @@ export interface StudioGenerationState {
   endFramePath: string | null;
   setEndFramePath: (path: string | null) => void;
 
-  pendingGenerateRequest: PendingStudioGenerateRequest | null;
-  queueGenerateRequest: (payload: StudioGeneratePayload) => string;
-  clearGenerateRequest: (id?: string) => void;
-
   resetWorkspaceContext: () => void;
   resetAfterGenerate: () => void;
 }
@@ -157,13 +148,6 @@ type PersistedStudioGenerationOptions = Pick<
 >;
 
 type StoredStudioGenerationOptions = Partial<PersistedStudioGenerationOptions>;
-
-function createPendingGenerateRequestId() {
-  if (typeof crypto !== 'undefined' && 'randomUUID' in crypto) {
-    return crypto.randomUUID();
-  }
-  return `studio-generate-${Date.now()}-${Math.random().toString(36).slice(2)}`;
-}
 
 function readStoredBoolean(key: string, fallback = false) {
   if (typeof window === 'undefined') return fallback;
@@ -333,7 +317,8 @@ function persistGenerationOptionPatch(
   return patch;
 }
 
-export const useStudioGenerationStore = create<StudioGenerationState>((set) => {
+export function createStudioGenerationStore() {
+  return create<StudioGenerationState>((set) => {
   const storedOptions = readStoredGenerationOptions();
   const initialMode = storedOptions.mode ?? 'image';
   const initialProvider = storedOptions.provider ?? getDefaultProviderForMode(initialMode);
@@ -482,18 +467,6 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => {
   endFramePath: null,
   setEndFramePath: (endFramePath) => set({ endFramePath }),
 
-  pendingGenerateRequest: null,
-  queueGenerateRequest: (payload) => {
-    const id = createPendingGenerateRequestId();
-    set({ pendingGenerateRequest: { id, payload } });
-    return id;
-  },
-  clearGenerateRequest: (id) =>
-    set((state) => {
-      if (id && state.pendingGenerateRequest?.id !== id) return state;
-      return { pendingGenerateRequest: null };
-    }),
-
   resetWorkspaceContext: () =>
     set({
       productRefs: [],
@@ -506,7 +479,6 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => {
       videoExtendSourceRef: null,
       startFramePath: null,
       endFramePath: null,
-      pendingGenerateRequest: null,
     }),
 
   resetAfterGenerate: () =>
@@ -519,4 +491,7 @@ export const useStudioGenerationStore = create<StudioGenerationState>((set) => {
       endFramePath: null,
     }),
   };
-});
+  });
+}
+
+export const useStudioGenerationStore = createStudioGenerationStore();

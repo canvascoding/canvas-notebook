@@ -1,11 +1,29 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 import { auth } from '@/app/lib/auth';
-import { createStudioGeneration, type StudioGenerateRequest } from '@/app/lib/integrations/studio-generation-service';
+import {
+  createStudioGeneration,
+  findStudioGenerationByClientRequestId,
+  type StudioGenerateRequest,
+} from '@/app/lib/integrations/studio-generation-service';
 import { assertStudioGenerationQueueCapacity, enqueueStudioGeneration } from '@/app/lib/integrations/studio-generation-queue';
 import { StudioServiceError } from '@/app/lib/integrations/studio-errors';
 import { IntegrationServiceError } from '@/app/lib/integrations/integration-service-error';
 import { requireStudioRequestScope } from '@/app/lib/integrations/studio-request-scope';
+
+const MAX_CLIENT_REQUEST_ID_LENGTH = 128;
+
+function getClientRequestId(value: unknown): string | null {
+  if (value === undefined) return null;
+  if (typeof value !== 'string') return null;
+  const normalized = value.trim();
+  return normalized && normalized.length <= MAX_CLIENT_REQUEST_ID_LENGTH ? normalized : null;
+}
+
+function isUniqueConstraintError(error: unknown): boolean {
+  const message = error instanceof Error ? error.message : String(error);
+  return /unique constraint|unique violation|duplicate key/iu.test(message);
+}
 
 export async function POST(request: NextRequest) {
   const session = await auth.api.getSession({ headers: request.headers });
@@ -25,6 +43,29 @@ export async function POST(request: NextRequest) {
   if (!body.prompt || typeof body.prompt !== 'string' || body.prompt.trim().length === 0) {
     if (!body.product_ids?.length && !body.persona_ids?.length && !body.style_ids?.length && !body.source_output_id && !body.extra_reference_urls?.length && !body.video_reference_urls?.length && !body.audio_reference_urls?.length && !body.video_extend_source_path) {
       return NextResponse.json({ success: false, error: 'Prompt or reference images required' }, { status: 400 });
+    }
+  }
+
+  const clientRequestId = getClientRequestId(body.client_request_id);
+  if (body.client_request_id !== undefined && !clientRequestId) {
+    return NextResponse.json({ success: false, error: 'Invalid client request ID' }, { status: 400 });
+  }
+  if (clientRequestId) {
+    body.client_request_id = clientRequestId;
+  }
+
+  if (clientRequestId) {
+    const existing = await findStudioGenerationByClientRequestId(studioRequest.scope, clientRequestId);
+    if (existing) {
+      return NextResponse.json({
+        success: true,
+        generationId: existing.generationId,
+        status: existing.status,
+        mode: existing.mode,
+        prompt: existing.prompt,
+        outputs: [],
+        reused: true,
+      });
     }
   }
 
@@ -70,6 +111,20 @@ export async function POST(request: NextRequest) {
       queueLength: queueStatus.queueLength,
     }, { status: 201 });
   } catch (error) {
+    if (clientRequestId && isUniqueConstraintError(error)) {
+      const existing = await findStudioGenerationByClientRequestId(studioRequest.scope, clientRequestId);
+      if (existing) {
+        return NextResponse.json({
+          success: true,
+          generationId: existing.generationId,
+          status: existing.status,
+          mode: existing.mode,
+          prompt: existing.prompt,
+          outputs: [],
+          reused: true,
+        });
+      }
+    }
     if (error instanceof StudioServiceError) {
       return NextResponse.json({ success: false, error: error.userMessage }, { status: error.code === 'RATE_LIMIT' ? 429 : 400 });
     }

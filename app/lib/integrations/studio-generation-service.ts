@@ -73,6 +73,7 @@ interface LoadedReferenceImage {
 
 export interface StudioGenerateRequest {
   prompt: string;
+  client_request_id?: string;
   mode?: 'image' | 'video' | 'sound';
   product_ids?: string[];
   persona_ids?: string[];
@@ -733,6 +734,39 @@ function buildSoundContextPrompt(referenceImages: LoadedReferenceImage[]): strin
   ].join('\n');
 }
 
+export interface ExistingStudioGenerationRequest {
+  generationId: string;
+  status: string;
+  mode: string;
+  prompt: string;
+}
+
+export async function findStudioGenerationByClientRequestId(
+  scope: StudioScope,
+  clientRequestId: string,
+): Promise<ExistingStudioGenerationRequest | null> {
+  const [generation] = await db.select({
+    generationId: studioGenerations.id,
+    status: studioGenerations.status,
+    mode: studioGenerations.mode,
+    prompt: studioGenerations.prompt,
+  })
+    .from(studioGenerations)
+    .where(and(
+      eq(studioGenerations.userId, scope.actorUserId),
+      eq(studioGenerations.workspaceId, scope.workspaceId),
+      eq(studioGenerations.idempotencyKey, clientRequestId),
+      generationVisibilityCondition(scope),
+    ))
+    .limit(1);
+
+  if (!generation) return null;
+  return {
+    ...generation,
+    prompt: generation.prompt ?? '',
+  };
+}
+
 export async function createStudioGeneration(
   scope: StudioScope,
   request: StudioGenerateRequest,
@@ -893,6 +927,7 @@ export async function createStudioGeneration(
     aspectRatio,
     provider: providerId,
     model,
+    idempotencyKey: request.client_request_id ?? null,
     bulkJobId: null,
     sourceGenerationId,
     metadata: requestMetadata,

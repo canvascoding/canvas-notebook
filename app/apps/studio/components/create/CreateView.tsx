@@ -39,18 +39,22 @@ import { ImageEditSelectionView } from './ImageEditSelectionView';
 import { OutputGrid, type OutputDateFilter, type OutputMediaFilter, type OutputSortOrder } from './OutputGrid';
 import { Badge } from '@/components/ui/badge';
 import { FilterBar } from './FilterBar';
-import { PromptBar } from './PromptBar';
-import { ControlBar } from './ControlBar';
+import { StudioPromptComposer, canGenerateWithStudioState } from './StudioPromptComposer';
 import { ReferencePickerDialog } from './ReferencePickerDialog';
 import { BatchDeleteDialog } from './BatchDeleteDialog';
-import { getDefaultModelForProvider, getAspectRatiosForProvider, getVideoResolutionsForModel, getVideoDurationsForModel, getImageSizesForModel, normalizeGeminiImageModelId, type VideoResolution, type StudioVideoDuration } from '@/app/lib/integrations/image-generation-constants';
+import { getDefaultModelForProvider, normalizeGeminiImageModelId } from '@/app/lib/integrations/image-generation-constants';
 import { toPreviewUrl, toWorkspaceMediaUrl } from '@/app/lib/utils/media-url';
 import { useSetStudioChatContext } from '@/app/apps/studio/context/studio-chat-context';
 import { useStudioGenerationStore, type ReferenceTag } from '@/app/store/studio-generation-store';
+import { useWorkspaceStore } from '@/app/store/workspace-store';
 import { buildStudioGeneratePayload } from '../../utils/studio-generate-payload';
-import { clearStudioGenerateHandoff, consumeStudioGenerateHandoff } from '../../utils/studio-generate-handoff';
+import {
+  clearStudioGenerateHandoff,
+  consumeStudioGenerateHandoff,
+  type StudioGenerateHandoffDraft,
+} from '../../utils/studio-generate-handoff';
 import { getStudioUserPrompt } from '../../utils/studio-generation-prompt';
-import { getFileReferenceLimitForMode, getVideoImageReferenceBudget } from '../../utils/video-reference-limits';
+import { getVideoImageReferenceBudget } from '../../utils/video-reference-limits';
 import { EMPTY_STUDIO_PROVIDER_CONFIG, type StudioProviderConfig } from '../../types/config';
 import { StudioMediaThumbnail } from '../StudioMediaThumbnail';
 
@@ -106,12 +110,36 @@ function createModelReferenceTag(model: StudioReferenceModel): ReferenceTag {
   };
 }
 
-function upsertReferenceTag(refs: ReferenceTag[], ref: ReferenceTag): ReferenceTag[] {
-  if (!refs.some((item) => item.id === ref.id)) {
-    return [...refs, ref];
-  }
-
-  return refs.map((item) => (item.id === ref.id ? { ...item, ...ref } : item));
+function applyStudioGenerateHandoffDraft(draft: StudioGenerateHandoffDraft) {
+  useStudioGenerationStore.setState({
+    mode: draft.mode,
+    aspectRatio: draft.aspectRatio,
+    count: draft.count,
+    provider: draft.provider,
+    model: draft.model,
+    quality: draft.quality,
+    outputFormat: draft.outputFormat,
+    background: draft.background,
+    imageSize: draft.imageSize,
+    showMoreOptions: draft.showMoreOptions,
+    videoResolution: draft.videoResolution,
+    videoDuration: draft.videoDuration,
+    videoGenerateAudio: draft.videoGenerateAudio,
+    videoWebSearch: draft.videoWebSearch,
+    videoNsfwChecker: draft.videoNsfwChecker,
+    isLooping: draft.isLooping,
+    rawPrompt: draft.rawPrompt,
+    productRefs: draft.productRefs,
+    personaRefs: draft.personaRefs,
+    styleRefs: draft.styleRefs,
+    presetRef: draft.mode === 'sound' ? null : draft.presetRef,
+    fileRefs: draft.fileRefs,
+    videoReferenceRefs: draft.videoReferenceRefs,
+    audioReferenceRefs: draft.audioReferenceRefs,
+    videoExtendSourceRef: draft.videoExtendSourceRef,
+    startFramePath: draft.startFramePath,
+    endFramePath: draft.isLooping ? null : draft.endFramePath,
+  });
 }
 
 function EmptyState({ inspirationPanel }: { inspirationPanel?: ReactNode }) {
@@ -383,8 +411,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const { fetchStyles, styles, loading: stylesLoading } = stylesHook;
   const { fetchPresets, presets } = presetsHook;
   const store = useStudioGenerationStore();
-  const pendingGenerateRequest = store.pendingGenerateRequest;
-  const clearGenerateRequest = store.clearGenerateRequest;
+  const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
 
   const [picker, setPicker] = useState<{
     open: boolean;
@@ -417,6 +444,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const [promptOverlayHeight, setPromptOverlayHeight] = useState(180);
   const [providerConfig, setProviderConfig] = useState<StudioProviderConfig>(initialProviderConfig);
   const [providerConfigStatus, setProviderConfigStatus] = useState<StudioProviderConfigStatus>('checking');
+  const [handoffError, setHandoffError] = useState<string | null>(null);
   const [startingPoints, setStartingPoints] = useState<StartingPoint[]>([]);
   const [startingPointsLoading, setStartingPointsLoading] = useState(true);
 
@@ -793,7 +821,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   const initialRefSource = searchParams.get('refSource');
   const initialGenerationId = searchParams.get('generation');
   const initialOutputId = searchParams.get('output');
-  const initialGenerateRequestId = searchParams.get('generateRequest');
+  const initialGenerateRequestId = searchParams.get('handoff') ?? searchParams.get('generateRequest');
 
   useEffect(() => {
     if (!initialRefPath) return;
@@ -852,10 +880,7 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
     return () => observer.disconnect();
   }, [store.mode, store.showMoreOptions]);
 
-  const canGenerate = useMemo(() => {
-    const hasVeoExtendSource = store.mode === 'video' && store.provider === 'veo' && store.videoExtendSourceRef !== null;
-    return store.rawPrompt.trim().length > 0 || store.productRefs.length > 0 || store.personaRefs.length > 0 || store.presetRef !== null || store.fileRefs.length > 0 || store.videoReferenceRefs.length > 0 || store.audioReferenceRefs.length > 0 || hasVeoExtendSource;
-  }, [store.mode, store.provider, store.rawPrompt, store.productRefs.length, store.personaRefs.length, store.presetRef, store.fileRefs.length, store.videoReferenceRefs.length, store.audioReferenceRefs.length, store.videoExtendSourceRef]);
+  const canGenerate = canGenerateWithStudioState(store);
   const missingProviderRequirement = useMemo(
     () => getMissingProviderRequirement(providerConfig, store.mode, store.provider),
     [providerConfig, store.mode, store.provider],
@@ -909,24 +934,42 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
   };
 
   useEffect(() => {
-    const request = pendingGenerateRequest ?? consumeStudioGenerateHandoff(initialGenerateRequestId);
-    if (!request || startedPendingGenerateRequestRef.current === request.id) return;
+    if (initialGenerateRequestId && startedPendingGenerateRequestRef.current === initialGenerateRequestId) {
+      return;
+    }
+
+    const request = consumeStudioGenerateHandoff(initialGenerateRequestId, activeWorkspaceId);
+    if (!request) {
+      if (initialGenerateRequestId && activeWorkspaceId) {
+        clearStudioGenerateHandoff(initialGenerateRequestId);
+        queueMicrotask(() => {
+          setHandoffError('Die Studio-Anfrage gehört zu einem anderen Workspace, ist abgelaufen oder wurde bereits verarbeitet.');
+        });
+        router.replace('/studio');
+      }
+      return;
+    }
 
     startedPendingGenerateRequestRef.current = request.id;
-    clearStudioGenerateHandoff(request.id);
+    if (request.draft) {
+      applyStudioGenerateHandoffDraft(request.draft);
+    }
+    router.replace('/studio');
 
     (async () => {
       try {
-        const result = await generate(request.payload);
+        const result = await generate({
+          ...request.payload,
+          client_request_id: request.id,
+        });
         if (result && isMountedRef.current) {
           router.replace(`/studio?generation=${encodeURIComponent(result.id)}`);
         }
       } finally {
-        clearGenerateRequest(request.id);
         clearStudioGenerateHandoff(request.id);
       }
     })();
-  }, [clearGenerateRequest, generate, initialGenerateRequestId, pendingGenerateRequest, router]);
+  }, [activeWorkspaceId, generate, initialGenerateRequestId, router]);
 
   const handlePasteImage = useCallback(async (file: File) => {
     try {
@@ -956,15 +999,6 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
       console.error('Failed to upload pasted image', err);
     }
   }, []);
-
-  const promptBarValue = useMemo(() => ({
-    rawPrompt: store.rawPrompt,
-    productRefs: store.productRefs,
-    personaRefs: store.personaRefs,
-    styleRefs: store.styleRefs,
-    presetRef: store.presetRef,
-    fileRefs: store.fileRefs,
-  }), [store.rawPrompt, store.productRefs, store.personaRefs, store.styleRefs, store.presetRef, store.fileRefs]);
 
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
@@ -1101,94 +1135,22 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             </div>
           ) : null}
 
-          <PromptBar
-            value={promptBarValue}
-            mode={store.mode}
-            provider={store.provider}
-            videoReferenceRefs={store.videoReferenceRefs}
-            audioReferenceRefs={store.audioReferenceRefs}
-            videoExtendSourceRef={store.videoExtendSourceRef}
+          <StudioPromptComposer
+            state={store}
             products={products}
             personas={personas}
             styles={styles}
+            presets={presets}
             productsLoading={productsLoading}
             personasLoading={personasLoading}
             stylesLoading={stylesLoading}
-            presets={presets}
             fetchProducts={fetchProducts}
             fetchPersonas={fetchPersonas}
             fetchStyles={fetchStyles}
-            onRawPromptChange={store.setRawPrompt}
-            onProductAdd={(product) => {
-              const productRef = createModelReferenceTag(product);
-              const productRefs = upsertReferenceTag(store.productRefs, productRef);
-              store.setProductRefs(productRefs);
-              trimFileRefsToVideoBudget({ productRefs });
-            }}
-            onPersonaAdd={(persona) => {
-              const personaRef = createModelReferenceTag(persona);
-              const personaRefs = upsertReferenceTag(store.personaRefs, personaRef);
-              store.setPersonaRefs(personaRefs);
-              trimFileRefsToVideoBudget({ personaRefs });
-            }}
-            onStyleAdd={(style) => {
-              const styleRef = createModelReferenceTag(style);
-              const styleRefs = upsertReferenceTag(store.styleRefs, styleRef);
-              store.setStyleRefs(styleRefs);
-              trimFileRefsToVideoBudget({ styleRefs });
-            }}
-            onPresetSelect={store.setPresetRef}
-            onReferenceRemove={(type, id) => {
-              if (type === 'product') store.removeProductRef(id);
-              else if (type === 'persona') store.removePersonaRef(id);
-              else if (type === 'style') store.removeStyleRef(id);
-              else if (type === 'file') store.removeFileRef(id);
-              else if (type === 'videoReference') store.removeVideoReferenceRef(id);
-              else if (type === 'audioReference') store.removeAudioReferenceRef(id);
-              else if (type === 'videoExtendSource') store.removeVideoExtendSourceRef();
-              else if (type === 'preset') store.removePresetRef();
-            }}
-            onFileAdd={(paths) => {
-              if (store.mode === 'video') {
-                const budget = getVideoImageReferenceBudget({
-                  mode: store.mode,
-                  provider: store.provider,
-                  productRefs: store.productRefs,
-                  personaRefs: store.personaRefs,
-                  styleRefs: store.styleRefs,
-                  fileRefs: store.fileRefs,
-                });
-                for (const path of paths.slice(0, budget.remaining)) {
-                  store.addFileRef({ id: path, name: path.split('/').pop() || path, thumbnailPath: path });
-                }
-                return;
-              }
-
-              const limit = getFileReferenceLimitForMode(store.mode, store.provider);
-              const allowedPaths = typeof limit === 'number'
-                ? paths.slice(0, Math.max(limit - store.fileRefs.length, 0))
-                : paths;
-              for (const path of allowedPaths) {
-                store.addFileRef({ id: path, name: path.split('/').pop() || path, thumbnailPath: path });
-              }
-            }}
-            onVideoReferenceAdd={(paths) => {
-              for (const path of paths) {
-                store.addVideoReferenceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'video' });
-              }
-            }}
-            onAudioReferenceAdd={(paths) => {
-              for (const path of paths) {
-                store.addAudioReferenceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'audio' });
-              }
-            }}
-            onVideoExtendSourceAdd={(paths) => {
-              const path = paths[0];
-              if (path) {
-                store.setVideoExtendSourceRef({ id: path, name: path.split('/').pop() || path, mediaKind: 'video' });
-              }
-            }}
             onPasteImage={handlePasteImage}
+            onGenerate={handleGenerate}
+            isGenerating={generationHook.loading}
+            canGenerate={canGenerateWithProvider}
           />
 
           {shouldShowProviderRequirement ? (
@@ -1198,119 +1160,17 @@ export function CreateView({ initialProviderConfig = EMPTY_STUDIO_PROVIDER_CONFI
             />
           ) : null}
 
-          <ControlBar
-            mode={store.mode}
-            onModeChange={(nextMode) => {
-              store.setMode(nextMode);
-              store.setCount(1);
-              if (nextMode === 'video') {
-                store.setProvider('veo');
-                store.setModel(getDefaultModelForProvider('video', 'veo'));
-                store.setAspectRatio('16:9');
-                store.setVideoResolution('720p');
-                store.setVideoDuration(6);
-                store.setVideoGenerateAudio(true);
-                store.setVideoWebSearch(false);
-                store.setVideoNsfwChecker(false);
-                trimFileRefsToVideoBudget({ mode: 'video', provider: 'veo' });
-              } else if (nextMode === 'sound') {
-                store.setProvider('gemini');
-                store.setModel(getDefaultModelForProvider('sound', 'gemini'));
-                store.setOutputFormat('mp3');
-              } else {
-                store.setProvider('gemini');
-                store.setModel(getDefaultModelForProvider('image', 'gemini'));
-                if (store.outputFormat === 'mp3' || store.outputFormat === 'wav') {
-                  store.setOutputFormat('png');
-                }
-                const validRatios = getAspectRatiosForProvider('image', 'gemini');
-                if (!validRatios.includes(store.aspectRatio as never)) {
-                  store.setAspectRatio('1:1');
-                }
-              }
-            }}
-            presets={presets}
-            selectedPreset={store.presetRef}
-            onPresetChange={store.setPresetRef}
-            aspectRatio={store.aspectRatio}
-            onAspectRatioChange={store.setAspectRatio}
-            count={store.count}
-            onCountChange={store.setCount}
-            provider={store.provider}
-            onProviderChange={(nextProvider) => {
-              store.setProvider(nextProvider);
-              store.setModel(getDefaultModelForProvider(store.mode, nextProvider));
-              const validRatios = getAspectRatiosForProvider(store.mode, nextProvider);
-              if (!validRatios.includes(store.aspectRatio as never)) {
-                store.setAspectRatio(store.mode === 'video' ? '16:9' : '1:1');
-              }
-              if (store.mode === 'video') {
-                const nextModel = getDefaultModelForProvider(store.mode, nextProvider);
-                const validRes = getVideoResolutionsForModel(nextModel);
-                store.setVideoResolution(validRes.includes(store.videoResolution) ? store.videoResolution : validRes[0] as VideoResolution);
-                const validDur = getVideoDurationsForModel(nextModel);
-                store.setVideoDuration(validDur.includes(store.videoDuration) ? store.videoDuration : validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
-                trimFileRefsToVideoBudget({ provider: nextProvider });
-              }
-              if (store.mode === 'sound') {
-                store.setOutputFormat('mp3');
-              }
-            }}
-            model={store.model}
-            onModelChange={(nextModel) => {
-              store.setModel(nextModel);
-              const validSizes = getImageSizesForModel(nextModel);
-              if (validSizes.length > 0 && !validSizes.includes(store.imageSize)) {
-                store.setImageSize(validSizes[0]);
-              }
-              if (store.mode === 'video') {
-                const validRes = getVideoResolutionsForModel(nextModel);
-                if (!validRes.includes(store.videoResolution)) {
-                  store.setVideoResolution(validRes[0] as VideoResolution);
-                }
-                const validDur = getVideoDurationsForModel(nextModel);
-                if (!validDur.includes(store.videoDuration)) {
-                  store.setVideoDuration(validDur.includes(6) ? 6 : validDur[0] as StudioVideoDuration);
-                }
-              }
-              if (store.mode === 'sound' && nextModel !== 'lyria-3-pro-preview') {
-                store.setOutputFormat('mp3');
-              }
-            }}
-            quality={store.quality}
-            onQualityChange={store.setQuality}
-            outputFormat={store.outputFormat}
-            onOutputFormatChange={store.setOutputFormat}
-            background={store.background}
-            onBackgroundChange={store.setBackground}
-            imageSize={store.imageSize}
-            onImageSizeChange={store.setImageSize}
-            videoResolution={store.videoResolution}
-            onVideoResolutionChange={(res) => {
-              store.setVideoResolution(res);
-              if (store.provider !== 'bytedance' && (res === '1080p' || res === '4k')) {
-                store.setVideoDuration(8);
-              }
-            }}
-            videoDuration={store.videoDuration}
-            onVideoDurationChange={store.setVideoDuration}
-            videoGenerateAudio={store.videoGenerateAudio}
-            onVideoGenerateAudioChange={store.setVideoGenerateAudio}
-            videoWebSearch={store.videoWebSearch}
-            onVideoWebSearchChange={store.setVideoWebSearch}
-            videoNsfwChecker={store.videoNsfwChecker}
-            onVideoNsfwCheckerChange={store.setVideoNsfwChecker}
-            onGenerate={handleGenerate}
-            isGenerating={generationHook.loading}
-            canGenerate={canGenerateWithProvider}
-            showMoreOptions={store.showMoreOptions}
-            onShowMoreOptionsChange={store.setShowMoreOptions}
-          />
-
           {generationHook.error ? (
             <div className="flex flex-wrap items-center gap-2">
               <Badge variant="outline" className="rounded-full border-red-500/40 text-red-700 dark:text-red-300">
                 {generationHook.error}
+              </Badge>
+            </div>
+          ) : null}
+          {handoffError ? (
+            <div className="flex flex-wrap items-center gap-2">
+              <Badge variant="outline" className="rounded-full border-amber-500/40 text-amber-700 dark:text-amber-300">
+                {handoffError}
               </Badge>
             </div>
           ) : null}

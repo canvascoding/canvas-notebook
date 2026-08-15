@@ -138,6 +138,8 @@
     "test:backup:full": "tsx --conditions react-server scripts/full-backup-service-test.ts",
     "test:prompt-builder": "tsx scripts/prompt-builder-test.ts",
     "test:studio:prompt": "tsx scripts/studio-generation-prompt-test.ts",
+    "test:studio:handoff": "tsx scripts/studio-generate-handoff-test.ts",
+    "test:studio:idempotency": "tsx --conditions react-server scripts/studio-generation-idempotency-schema-test.ts",
     "test:studio:preset-preview": "tsx scripts/studio-preset-preview-test.ts",
     "test:studio:cleanup": "tsx --conditions react-server scripts/studio-orphaned-assets-cleanup-test.ts",
     "test:studio:navigation": "tsx scripts/studio-shell-navigation-test.ts",

@@ -27,9 +27,7 @@ import { getAgentDisplayName } from '@/app/lib/chat/agent-display';
 import type { AgentProfile } from '@/app/lib/chat/types';
 import { listWorkspaceFileReferences, type WorkspaceFileReferenceEntry } from '@/app/lib/files/client';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
-import { useStudioGenerationStore } from '@/app/store/studio-generation-store';
-import { persistStudioGenerateHandoff } from '@/app/apps/studio/utils/studio-generate-handoff';
-import type { StudioGeneratePayload } from '@/app/apps/studio/types/generation';
+import { HomeStudioPrompt } from './HomeStudioPrompt';
 
 type Attachment = ChatAttachment;
 type UploadProgressOptions = {
@@ -432,22 +430,11 @@ export function PromptHero() {
     if (isUploading) {
       return;
     }
-    if (!normalizedPrompt && (isStudioMode || attachments.length === 0)) {
+    if (!normalizedPrompt && attachments.length === 0) {
       return;
     }
 
     setIsSubmitting(true);
-
-    if (isStudioMode) {
-      const payload: StudioGeneratePayload = {
-        prompt: normalizedPrompt,
-        mode: 'image',
-      };
-      const id = useStudioGenerationStore.getState().queueGenerateRequest(payload);
-      persistStudioGenerateHandoff({ id, payload });
-      window.location.assign(`${studioHref}?generateRequest=${encodeURIComponent(id)}`);
-      return;
-    }
 
     try {
       clearCanvasChatActiveSessionStorage();
@@ -477,6 +464,38 @@ export function PromptHero() {
     disabled: isUploading || isStudioMode,
     onFiles: uploadFiles,
   });
+
+  if (isStudioMode) {
+    return (
+      <div id="onboarding-home-promptHero" className="mx-auto w-full max-w-5xl">
+        <div className="space-y-3">
+          <h2 className="sr-only">{tHome('focus.composer.title')}</h2>
+          <div className="inline-flex items-center gap-1 rounded-lg border border-border bg-muted/50 p-1" role="tablist" aria-label={tHome('focus.composer.modeLabel')}>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={false}
+              onClick={() => setMode('notebook')}
+              className="inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-sm font-medium text-muted-foreground transition-colors hover:text-foreground"
+            >
+              <NotebookPen className="h-3.5 w-3.5" />
+              {tHome('focus.composer.notebook')}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected
+              className="inline-flex items-center gap-1.5 rounded-md bg-background px-3 py-1.5 text-sm font-medium text-foreground shadow-sm"
+            >
+              <Sparkles className="h-3.5 w-3.5" />
+              {tHome('focus.composer.studio')}
+            </button>
+          </div>
+          <HomeStudioPrompt studioHref={studioHref} />
+        </div>
+      </div>
+    );
+  }
 
   return (
     <>

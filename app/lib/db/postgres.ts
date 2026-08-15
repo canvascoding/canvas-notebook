@@ -653,6 +653,11 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
     await pool.query(createTableSql(table));
   }
 
+  await pool.query('ALTER TABLE studio_generations ADD COLUMN IF NOT EXISTS idempotency_key text');
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_generations_idempotency ON studio_generations (user_id, workspace_id, idempotency_key)');
+  await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS trigger_kind text NOT NULL DEFAULT 'schedule'");
+  await pool.query("ALTER TABLE automation_jobs ADD COLUMN IF NOT EXISTS result_policy text NOT NULL DEFAULT 'deliver_all'");
+
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_yjs_states (
       document_id text PRIMARY KEY,

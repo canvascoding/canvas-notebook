@@ -56,6 +56,7 @@ export interface StudioGeneration {
 
 export interface StudioGeneratePayload {
   prompt: string;
+  client_request_id?: string;
   mode?: StudioGenerationMode;
   product_ids?: string[];
   persona_ids?: string[];

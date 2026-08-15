@@ -1357,6 +1357,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       job_type TEXT NOT NULL DEFAULT 'default',
+      trigger_kind TEXT NOT NULL DEFAULT 'schedule',
+      result_policy TEXT NOT NULL DEFAULT 'deliver_all',
       channel_id TEXT,
       composio_trigger_id TEXT,
       composio_trigger_slug TEXT,
@@ -1661,6 +1663,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       aspect_ratio TEXT NOT NULL DEFAULT '1:1',
       provider TEXT NOT NULL,
       model TEXT NOT NULL,
+      idempotency_key TEXT,
       bulk_job_id TEXT,
       pi_session_id TEXT,
       source_generation_id TEXT,
@@ -1860,6 +1863,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
 
   addColumns(sqlite, 'studio_generations', {
     studio_preset_name: 'TEXT',
+    idempotency_key: 'TEXT',
     organization_id: 'TEXT',
     customer_id: 'TEXT',
     project_id: 'TEXT',
@@ -2211,6 +2215,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE INDEX IF NOT EXISTS idx_studio_generations_project ON studio_generations (project_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_creator ON studio_generations (created_by_user_id, created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_workspace ON studio_generations (workspace_id, created_at);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_studio_generations_idempotency ON studio_generations (user_id, workspace_id, idempotency_key);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_status ON studio_generations (status);
     CREATE INDEX IF NOT EXISTS idx_studio_generations_created ON studio_generations (created_at);
     CREATE INDEX IF NOT EXISTS idx_studio_gen_outputs_generation ON studio_generation_outputs (generation_id);
@@ -2486,6 +2491,8 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     delivery_session_id: 'TEXT',
     delivery_channel_session_key: 'TEXT',
     job_type: "TEXT NOT NULL DEFAULT 'default'",
+    trigger_kind: "TEXT NOT NULL DEFAULT 'schedule'",
+    result_policy: "TEXT NOT NULL DEFAULT 'deliver_all'",
     channel_id: 'TEXT',
     composio_trigger_id: 'TEXT',
     composio_trigger_slug: 'TEXT',
