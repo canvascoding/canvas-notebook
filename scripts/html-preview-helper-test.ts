@@ -4,6 +4,7 @@ import {
   createHtmlPreviewDocument,
   getHtmlPreviewAssetContentType,
   HTML_PREVIEW_CSP,
+  injectHtmlPreviewViewport,
 } from '../app/lib/html-preview';
 
 const dashboardHtml = '<!doctype html><html><head><title>Dashboard</title></head><body><img src="chart.png"><script src="https://cdn.jsdelivr.net/npm/chart.js"></script></body></html>';
@@ -11,7 +12,12 @@ const previewDocument = createHtmlPreviewDocument(dashboardHtml, 'reports/q2/das
 
 assert.match(
   previewDocument,
-  /<head>\n  <base href="\/api\/media\/preview\/reports\/q2\/">/,
+  /<meta name="viewport" content="width=device-width, initial-scale=1">/,
+  'HTML preview should add a mobile viewport when one is missing'
+);
+assert.match(
+  previewDocument,
+  /<base href="\/api\/media\/preview\/reports\/q2\/">/,
   'HTML preview should inject a base URL for relative assets'
 );
 assert.match(
@@ -36,8 +42,13 @@ assert.equal(getHtmlPreviewAssetContentType('images/chart.png'), 'image/png');
 const htmlWithBase = '<html><head><base href="/custom/"><title>Keep base</title></head><body></body></html>';
 assert.equal(
   createHtmlPreviewDocument(htmlWithBase, 'dashboard.html', '/api/media/preview'),
-  htmlWithBase,
-  'Existing base tags should be preserved'
+  '<html><head>\n  <meta name="viewport" content="width=device-width, initial-scale=1"><base href="/custom/"><title>Keep base</title></head><body></body></html>',
+  'Existing base tags should be preserved while a missing viewport is added'
+);
+assert.equal(
+  injectHtmlPreviewViewport('<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head></html>'),
+  '<html><head><meta name="viewport" content="width=device-width, initial-scale=1"></head></html>',
+  'Existing viewport tags should be preserved'
 );
 
 console.log('HTML preview helper test passed');

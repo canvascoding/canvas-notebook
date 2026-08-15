@@ -118,6 +118,29 @@ export function injectHtmlPreviewBase(html: string, baseHref: string) {
   return `<head>\n  ${baseTag}\n</head>\n${html}`;
 }
 
+export function injectHtmlPreviewViewport(html: string) {
+  if (/<meta\b[^>]*\bname\s*=\s*(?:["']\s*viewport\s*["']|viewport\b)[^>]*>/i.test(html)) {
+    return html;
+  }
+
+  const viewportTag = '<meta name="viewport" content="width=device-width, initial-scale=1">';
+  const headOpenTag = /<head(\s[^>]*)?>/i;
+
+  if (headOpenTag.test(html)) {
+    return html.replace(headOpenTag, (match) => `${match}\n  ${viewportTag}`);
+  }
+
+  const htmlOpenTag = /<html(\s[^>]*)?>/i;
+  if (htmlOpenTag.test(html)) {
+    return html.replace(htmlOpenTag, (match) => `${match}\n<head>\n  ${viewportTag}\n</head>`);
+  }
+
+  return `<head>\n  ${viewportTag}\n</head>\n${html}`;
+}
+
 export function createHtmlPreviewDocument(html: string, filePath: string, routePrefix: string) {
-  return injectHtmlPreviewBase(html, createHtmlPreviewBaseHref(routePrefix, filePath));
+  return injectHtmlPreviewViewport(injectHtmlPreviewBase(
+    html,
+    createHtmlPreviewBaseHref(routePrefix, filePath),
+  ));
 }
