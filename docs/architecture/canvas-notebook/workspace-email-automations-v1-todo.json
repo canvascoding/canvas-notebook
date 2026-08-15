@@ -266,7 +266,8 @@
     {
       "id": "WEA-V1-10",
       "title": "E-Mail-Triage-Automation fuer Inbox-Faelle und Entwuerfe implementieren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-04",
         "WEA-V1-08",
@@ -283,6 +284,11 @@
         "Die Triage kann keinen Versand ausloesen.",
         "Eine normale Kundenmail erstellt oder aktualisiert genau einen Inbox-Fall und optional einen Entwurf.",
         "Automatische Antworten erzeugen keine Antwortschleife."
+      ],
+      "evidence": [
+        "Der interne Inbox-Poll-Endpunkt verarbeitet neu angelegte Ereignisse nur gegen aktive, zum Workspace passende E-Mail-Triage-Automationen. Die konkrete Nachricht wird serverseitig aus genau der gebundenen Mailbox gelesen; allgemeine E-Mail-Agent-Tools werden dafür nicht verwendet.",
+        "Die Triage legt einen eindeutigen Inbox-Fall pro Mailbox/Thread an, schlägt anhand des Inhalts eine Priorität und den verantwortlichen Automations-User als Bearbeiter vor und erzeugt ausschließlich einen Outbox-Entwurf mit Status awaiting_review. Es gibt keinen Versandpfad.",
+        "Bounces, Abwesenheitsnotizen und automatische Antworten werden als geschlossene Fälle erfasst, aber ohne Entwurf beendet. Der Binding-Test prüft die normale Entwurfserstellung und dass automatische Nachrichten keinen Entwurf erzeugen."
       ]
     },
     {

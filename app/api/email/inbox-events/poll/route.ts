@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server';
 
 import { pollWorkspaceMailboxInboxEvents } from '@/app/lib/email/inbox-events';
+import { processPendingWorkspaceEmailTriageEvents } from '@/app/lib/email/workspace-triage';
 import { isValidCanvasInternalToken } from '@/app/lib/internal-auth';
 
 export const dynamic = 'force-dynamic';
@@ -10,7 +11,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ success: false, error: 'Unauthorized' }, { status: 401 });
   }
   try {
-    return NextResponse.json({ success: true, result: await pollWorkspaceMailboxInboxEvents() });
+    const poll = await pollWorkspaceMailboxInboxEvents();
+    const triage = poll.created > 0 ? await processPendingWorkspaceEmailTriageEvents() : null;
+    return NextResponse.json({ success: true, result: { poll, triage } });
   } catch (error) {
     return NextResponse.json({ success: false, error: error instanceof Error ? error.message : 'Failed to poll workspace mailboxes.' }, { status: 500 });
   }

@@ -67,6 +67,7 @@ export async function listWorkspaceOutboxDrafts(userId: string, workspaceId: str
 export async function createWorkspaceInboxCase(input: {
   userId: string; workspaceId: string; mailboxId: string; providerThreadId: string; subject: string;
   latestProviderMessageId?: string | null; requesterAddress?: string | null; requesterName?: string | null;
+  status?: InboxCaseStatus; priority?: 'low' | 'normal' | 'high' | 'urgent'; assigneeUserId?: string | null;
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
   const mailbox = await db.query.workspaceEmailMailboxes.findFirst({
@@ -78,11 +79,19 @@ export async function createWorkspaceInboxCase(input: {
   await db.insert(emailInboxCases).values({
     id, workspaceId: input.workspaceId, mailboxId: input.mailboxId, providerThreadId: input.providerThreadId,
     latestProviderMessageId: input.latestProviderMessageId || null, requesterAddress: input.requesterAddress || null,
-    requesterName: input.requesterName || null, subject: input.subject.trim() || '(No subject)', status: 'new', priority: 'normal',
-    assigneeUserId: null, closedAt: null, createdAt: now, updatedAt: now,
+    requesterName: input.requesterName || null, subject: input.subject.trim() || '(No subject)', status: input.status || 'new', priority: input.priority || 'normal',
+    assigneeUserId: input.assigneeUserId || null, closedAt: input.status === 'closed' ? now : null, createdAt: now, updatedAt: now,
   }).onConflictDoUpdate({
     target: [emailInboxCases.mailboxId, emailInboxCases.providerThreadId],
-    set: { latestProviderMessageId: input.latestProviderMessageId || null, subject: input.subject.trim() || '(No subject)', updatedAt: now },
+    set: {
+      latestProviderMessageId: input.latestProviderMessageId || null,
+      subject: input.subject.trim() || '(No subject)',
+      status: input.status || 'new',
+      priority: input.priority || 'normal',
+      assigneeUserId: input.assigneeUserId || null,
+      closedAt: input.status === 'closed' ? now : null,
+      updatedAt: now,
+    },
   });
   const item = await db.query.emailInboxCases.findFirst({ where: and(eq(emailInboxCases.mailboxId, input.mailboxId), eq(emailInboxCases.providerThreadId, input.providerThreadId)) });
   if (!item) throw new Error('Inbox case could not be created.');
@@ -92,6 +101,7 @@ export async function createWorkspaceInboxCase(input: {
 export async function createWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; mailboxId: string; inboxCaseId?: string | null;
   subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[];
+  originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null;
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
   const [mailbox] = await db.select({ accountId: emailAccounts.id, accountOwnerId: emailAccounts.userId })
@@ -100,6 +110,12 @@ export async function createWorkspaceOutboxDraft(input: {
     .where(and(eq(workspaceEmailMailboxes.id, input.mailboxId), eq(workspaceEmailMailboxes.workspaceId, input.workspaceId), eq(workspaceEmailMailboxes.status, 'active')))
     .limit(1);
   if (!mailbox) throw new Error('Workspace mailbox not found.');
+  if (input.originRunId) {
+    const existing = await db.query.emailDrafts.findFirst({
+      where: and(eq(emailDrafts.workspaceId, input.workspaceId), eq(emailDrafts.origin, 'automation'), eq(emailDrafts.originRunId, input.originRunId)),
+    });
+    if (existing) return publicOutboxDraft(existing);
+  }
   const now = new Date();
   const id = `draft_${randomUUID()}`;
   await db.insert(emailDrafts).values({
@@ -107,7 +123,8 @@ export async function createWorkspaceOutboxDraft(input: {
     toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
     subject: input.subject.trim(), body: input.body, isHtml: true, attachmentsJson: '[]', providerDraftId: null,
     workspaceId: input.workspaceId, mailboxId: input.mailboxId, inboxCaseId: input.inboxCaseId || null,
-    origin: 'automation', originAutomationJobId: null, originRunId: null, originAgentId: null,
+    origin: 'automation', originAutomationJobId: input.originAutomationJobId || null,
+    originRunId: input.originRunId || null, originAgentId: input.originAgentId || null,
     outboxStatus: 'awaiting_review', version: 1, assignedUserId: null, editingByUserId: null, editingStartedAt: null,
     sentByUserId: null, sentAt: null, createdAt: now, updatedAt: now,
   });
