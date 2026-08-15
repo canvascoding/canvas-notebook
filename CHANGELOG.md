@@ -11,6 +11,28 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.16.1] - 2026-08-16
+
+### Added
+
+- Added workspace-scoped email automations, including mailbox bindings, inbox polling, triage drafts, approval-gated sending, and automation templates.
+- Added a built-in email agent profile and scoped workspace email tools for the automation harness.
+- Added a reusable Studio prompt handoff and a manual browser desktop architecture plan.
+
+### Changed
+
+- Migrated scheduled heartbeats to workspace automations with unified result policies and clearer human-review controls.
+- Updated mobile collaboration capability metadata for the new automation workflow.
+
+### Fixed
+
+- Corrected legacy email-account migration ordering and global chat notification summaries.
+- Prevented Composio API-key configuration details from surfacing in automation errors.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.15.3] - 2026-08-15
 
 ### Added
