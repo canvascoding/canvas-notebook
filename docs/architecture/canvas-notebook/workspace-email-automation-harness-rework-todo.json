@@ -1,0 +1,81 @@
+{
+  "title": "E-Mail-Automationen im normalen Agent-Harness",
+  "updatedAt": "2026-08-15",
+  "source": "docs/architecture/canvas-notebook/workspace-email-automation-harness-rework.md",
+  "executionPolicy": {
+    "sequential": true,
+    "maxInProgress": 1,
+    "commitEachCompletedTask": true,
+    "containerBuildRequiresExplicitUserRequest": true,
+    "playwrightRequiresExplicitUserApproval": true,
+    "localDevPort": 3000
+  },
+  "tasks": [
+    {
+      "id": "EAH-01",
+      "title": "Kurskorrektur und Rueckbaugrenzen dokumentieren",
+      "status": "completed",
+      "completedAt": "2026-08-15",
+      "deliverables": [
+        "Verbindliches Zielbild fuer den normalen Agent-Harness",
+        "Liste der zu erhaltenden und zu ersetzenden Bestandteile",
+        "Versandmodi und Session-Scope"
+      ]
+    },
+    {
+      "id": "EAH-02",
+      "title": "E-Mail-Ereignis als normalen Automation-Run ausfuehren",
+      "status": "pending",
+      "dependsOn": ["EAH-01"],
+      "deliverables": [
+        "Ereignis-Kontext fuer den Automation-Runner",
+        "Regulaere Pi-Session pro Inbox-Fall/Thread",
+        "Ablösung des direkten KI-Aufrufs aus workspace-triage.ts"
+      ]
+    },
+    {
+      "id": "EAH-03",
+      "title": "Workspace-E-Mail-Tools und serverseitige Tool-Policy einfuehren",
+      "status": "pending",
+      "dependsOn": ["EAH-02"],
+      "deliverables": [
+        "Inbox-/Thread-/Outbox-Tools im normalen Registry-Pfad",
+        "Workspace-, Mailbox- und Fall-Guards fuer jeden Tool-Call",
+        "Versandmodus-Policy fuer bestehende E-Mail-Tools und Gateway"
+      ]
+    },
+    {
+      "id": "EAH-04",
+      "title": "Eingebauten E-Mail-Agenten und Vorlagenprofil bereitstellen",
+      "status": "pending",
+      "dependsOn": ["EAH-03"],
+      "deliverables": [
+        "Nicht loeschbarer, konfigurierbarer email-agent",
+        "Voreingestellte Persona und Tool-Auswahl",
+        "Kompatibilitaetspruefung fuer eigene Agenten"
+      ]
+    },
+    {
+      "id": "EAH-05",
+      "title": "E-Mail-Triage-Vorlage in Automationen und Review-UI anbinden",
+      "status": "pending",
+      "dependsOn": ["EAH-04"],
+      "deliverables": [
+        "Vorkonfigurierte E-Mail-Triage-Vorlage",
+        "Agent-, Mailbox- und Versandmodus-Auswahl",
+        "Sichtbare Run-/Session-Verknuepfung an Inbox-Fall und Outbox"
+      ]
+    },
+    {
+      "id": "EAH-06",
+      "title": "Regressionen, Migrationen und UI-Abnahme abschliessen",
+      "status": "pending",
+      "dependsOn": ["EAH-05"],
+      "deliverables": [
+        "Migration bestehender E-Mail-Triage-Jobs",
+        "Tests fuer Tool-Policy, Session-Isolation und Versandmodi",
+        "Explizit freigegebene UI-Abnahme"
+      ]
+    }
+  ]
+}

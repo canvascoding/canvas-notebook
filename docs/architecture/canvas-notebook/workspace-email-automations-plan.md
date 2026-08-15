@@ -15,6 +15,8 @@ Dieses Dokument ist eine Architekturentscheidung und keine unmittelbare Implemen
 
 Die sequenzielle, abhakbare V1-Aufgabenliste steht in [workspace-email-automations-v1-todo.json](./workspace-email-automations-v1-todo.json). Sie ist die verbindliche Reihenfolge fuer die Umsetzung; pro Zeitpunkt darf nur eine Aufgabe in Arbeit sein. Das konkrete Schema- und Migrationsmodell steht in [workspace-email-automations-v1-data-model.md](./workspace-email-automations-v1-data-model.md); die serverseitige Sicherheitsgrenze in [workspace-email-automations-v1-security-policy.md](./workspace-email-automations-v1-security-policy.md).
 
+> **Kurskorrektur vom 2026-08-15:** Die bereits umgesetzte direkte Triage-Runtime wird in den normalen Agent-Harness zurueckgefuehrt. Fuer alle Aussagen zu Agent-Session, Tools und Versandmodus hat [workspace-email-automation-harness-rework.md](./workspace-email-automation-harness-rework.md) Vorrang; die neue sequenzielle Umsetzungsliste steht in [workspace-email-automation-harness-rework-todo.json](./workspace-email-automation-harness-rework-todo.json).
+
 ## Begriffe
 
 | Begriff | Bedeutung |
