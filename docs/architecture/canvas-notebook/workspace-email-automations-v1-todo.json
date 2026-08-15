@@ -238,10 +238,17 @@
     {
       "id": "WEA-V1-09",
       "title": "Inbox-Faelle und Workspace-Outbox implementieren",
-      "status": "pending",
+      "status": "completed",
+      "completedAt": "2026-08-15",
       "dependsOn": [
         "WEA-V1-02",
         "WEA-V1-08"
+      ],
+      "evidence": [
+        "email_inbox_cases ist über Mailbox und Provider-Thread eindeutig und vollständig workspacegebunden. Die Workspace-Inbox-API verlangt Leserecht.",
+        "Workspace-Outbox-Entwürfe erweitern die bestehende Draft-Speicherung um Ursprung, Status, Version, Zuweisung und Bearbeitungsdaten. Lesen und Schreiben sind serverseitig am Workspace-Guard gebunden.",
+        "Outbox-Änderungen verwenden expectedVersion als Compare-and-Set. Ein älterer Bearbeitungsstand wird abgewiesen und kann keinen menschlichen Entwurf überschreiben.",
+        "Die E-Mail-Oberfläche zeigt die Workspace-Inbox und die Outbox zur Prüfung. Der Binding-Test deckt Fallanlage, Outbox-Anlage, Versionswechsel und stale update ab."
       ],
       "deliverables": [
         "Inbox-Faelle mit Thread-Bezug, Status, Prioritaet, Bearbeiter und Auditdaten",

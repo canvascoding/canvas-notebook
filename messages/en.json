@@ -1887,6 +1887,14 @@
     "mainEmail": "Main email",
     "manageAccounts": "Manage accounts",
     "manageAccountsDescription": "Connect, test, and edit email accounts plus read/send policies.",
+    "workspaceQueue": {
+      "title": "Workspace inbox and outbox",
+      "inboxTitle": "Inbox cases",
+      "outboxTitle": "Outbox for review",
+      "emptyInbox": "No open inbox cases.",
+      "emptyOutbox": "No drafts awaiting review.",
+      "prepared": "Prepared"
+    },
     "refresh": "Refresh",
     "search": "Search",
     "searchPlaceholder": "Search sender, subject, or content...",

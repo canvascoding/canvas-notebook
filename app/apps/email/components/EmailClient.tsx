@@ -92,6 +92,49 @@ type EmailAccount = {
   };
 };
 
+type WorkspaceInboxCase = { id: string; subject: string; status: string; priority: string; updatedAt: string };
+type WorkspaceOutboxDraft = { id: string; subject: string; status: string | null; version: number; updatedAt: string };
+
+function WorkspaceInboxOutboxPanel({ workspaceId, t }: { workspaceId: string | null; t: ReturnType<typeof useTranslations> }) {
+  const [inboxCases, setInboxCases] = useState<WorkspaceInboxCase[]>([]);
+  const [outboxDrafts, setOutboxDrafts] = useState<WorkspaceOutboxDraft[]>([]);
+  const [isLoading, setIsLoading] = useState(false);
+
+  const load = useCallback(async () => {
+    if (!workspaceId) return;
+    setIsLoading(true);
+    try {
+      const [inboxResponse, outboxResponse] = await Promise.all([
+        fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/email/inbox`, { credentials: 'include', cache: 'no-store' }),
+        fetch(`/api/workspaces/${encodeURIComponent(workspaceId)}/email/outbox`, { credentials: 'include', cache: 'no-store' }),
+      ]);
+      const [inboxPayload, outboxPayload] = await Promise.all([inboxResponse.json(), outboxResponse.json()]);
+      if (inboxResponse.ok && inboxPayload.success) setInboxCases(Array.isArray(inboxPayload.data) ? inboxPayload.data : []);
+      if (outboxResponse.ok && outboxPayload.success) setOutboxDrafts(Array.isArray(outboxPayload.data) ? outboxPayload.data : []);
+    } finally {
+      setIsLoading(false);
+    }
+  }, [workspaceId]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => { void load(); }, 0);
+    return () => window.clearTimeout(timeout);
+  }, [load]);
+  if (!workspaceId) return null;
+  return (
+    <section className="grid shrink-0 gap-3 lg:grid-cols-2" aria-label={t('workspaceQueue.title')}>
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{t('workspaceQueue.inboxTitle')}</p><Button type="button" size="sm" variant="ghost" onClick={() => void load()} disabled={isLoading}><RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} /></Button></div>
+        <div className="mt-2 space-y-1">{inboxCases.slice(0, 3).map((item) => <div key={item.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-xs"><span className="min-w-0 truncate">{item.subject}</span><Badge variant="secondary">{item.status}</Badge></div>)}{inboxCases.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyInbox')}</p>}</div>
+      </div>
+      <div className="rounded-lg border border-border bg-card p-3">
+        <div className="flex items-center justify-between gap-2"><p className="text-sm font-semibold">{t('workspaceQueue.outboxTitle')}</p><Badge variant="secondary">{outboxDrafts.length}</Badge></div>
+        <div className="mt-2 space-y-1">{outboxDrafts.slice(0, 3).map((item) => <div key={item.id} className="flex items-center justify-between gap-2 rounded-md bg-muted/50 px-2 py-1.5 text-xs"><span className="min-w-0 truncate">{item.subject}</span><Badge variant="outline">{item.status || t('workspaceQueue.prepared')}</Badge></div>)}{outboxDrafts.length === 0 && <p className="text-xs text-muted-foreground">{t('workspaceQueue.emptyOutbox')}</p>}</div>
+      </div>
+    </section>
+  );
+}
+
 type EmailFolder = {
   id: string;
   name: string;
@@ -3174,6 +3217,7 @@ export function EmailClient({
           : 'max-w-7xl gap-3 px-3 py-3 sm:px-6 sm:py-5',
       )}
     >
+      <WorkspaceInboxOutboxPanel workspaceId={activeWorkspaceId} t={t} />
       <section className={cn(
         'shrink-0 flex flex-col gap-2 border border-border bg-card px-3 py-2 sm:px-4',
         embedded && 'border-x-0 border-t-0',
