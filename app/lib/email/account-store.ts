@@ -6,6 +6,7 @@ import { and, eq } from 'drizzle-orm';
 import { db } from '@/app/lib/db';
 import { emailAccounts } from '@/app/lib/db/schema';
 import { withEmailPolicyDefaultAddresses, type EmailPolicy } from '@/app/lib/email/policy';
+import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import {
   deleteEmailAccountSecret,
   emailAccountSecretRef,
@@ -30,6 +31,7 @@ export type PublicEmailAccount = {
   displayName: string | null;
   isPrimary: boolean;
   status: string;
+  workspaceId: string | null;
   scope: string | null;
   expiresAt: string | null;
   smtpHost: string | null;
@@ -89,6 +91,7 @@ export function publicStoredEmailAccount(account: StoredEmailAccount, secret?: E
     displayName: account.displayName || null,
     isPrimary: Boolean(account.isPrimary),
     status: account.status,
+    workspaceId: account.workspaceId || null,
     scope: secret?.authType === 'oauth' ? secret.scope || null : null,
     expiresAt: secret?.authType === 'oauth' ? secret.expiresAt || null : null,
     smtpHost: secret?.authType === 'smtp_imap' ? secret.smtp.host : null,
@@ -175,6 +178,30 @@ export async function setPrimaryStoredEmailAccount(userId: string, accountId: st
     .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, accountId), eq(emailAccounts.status, 'active')));
 
   const updated = await getEmailAccountForUser(userId, accountId);
+  const secret = await readEmailAccountSecret(updated.secretRef).catch(() => null);
+  return publicStoredEmailAccount(updated, secret);
+}
+
+export async function assignStoredEmailAccountWorkspace(
+  userId: string,
+  accountId: string,
+  workspaceId: string | null,
+): Promise<PublicEmailAccount> {
+  const account = await getEmailAccountForUser(userId, accountId);
+  const normalizedWorkspaceId = workspaceId?.trim() || null;
+  if (normalizedWorkspaceId) {
+    await resolveAgentSessionWorkspaceForUser({
+      userId,
+      workspaceId: normalizedWorkspaceId,
+      permissions: ['canRead', 'canWrite'],
+    });
+  }
+
+  await db.update(emailAccounts)
+    .set({ workspaceId: normalizedWorkspaceId, updatedAt: new Date() })
+    .where(and(eq(emailAccounts.userId, userId), eq(emailAccounts.id, account.id)));
+
+  const updated = await getEmailAccountForUser(userId, account.id);
   const secret = await readEmailAccountSecret(updated.secretRef).catch(() => null);
   return publicStoredEmailAccount(updated, secret);
 }

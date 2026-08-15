@@ -144,6 +144,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
       policy_json TEXT NOT NULL,
       secret_ref TEXT NOT NULL,
       is_primary INTEGER NOT NULL DEFAULT 0,
+      workspace_id TEXT,
       last_used_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
@@ -2121,6 +2122,7 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS session_token_unique ON session (token);
     CREATE INDEX IF NOT EXISTS idx_email_accounts_user ON email_accounts (user_id);
     CREATE INDEX IF NOT EXISTS idx_email_accounts_user_status ON email_accounts (user_id, status);
+    CREATE INDEX IF NOT EXISTS idx_email_accounts_workspace ON email_accounts (workspace_id, status);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_user_provider_email ON email_accounts (user_id, provider, email_address);
     CREATE UNIQUE INDEX IF NOT EXISTS idx_email_accounts_user_primary ON email_accounts (user_id) WHERE is_primary = 1;
     CREATE INDEX IF NOT EXISTS idx_email_drafts_user ON email_drafts (user_id);
@@ -2460,6 +2462,10 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     workspace_type: 'TEXT',
     workspace_name: 'TEXT',
     workspace_root_relative_path: 'TEXT',
+  });
+
+  addColumns(sqlite, 'email_accounts', {
+    workspace_id: 'TEXT',
   });
 
   addColumns(sqlite, 'pi_usage_events', {
