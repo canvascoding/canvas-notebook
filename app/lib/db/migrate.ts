@@ -2520,6 +2520,18 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_active_account
       ON workspace_email_mailboxes (email_account_id) WHERE status = 'active';
 
+    -- Existing workspace bindings become shared mailboxes. The account record
+    -- retains its original creator only for provider compatibility; it is no
+    -- longer exposed as that user's personal integration.
+    UPDATE email_accounts
+    SET account_scope = 'workspace',
+        is_primary = 0
+    WHERE id IN (
+      SELECT email_account_id
+      FROM workspace_email_mailboxes
+      WHERE status = 'active'
+    );
+
     CREATE TABLE IF NOT EXISTS email_inbox_events (
       id TEXT PRIMARY KEY NOT NULL,
       mailbox_id TEXT NOT NULL,

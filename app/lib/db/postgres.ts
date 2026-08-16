@@ -681,6 +681,15 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('CREATE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_account_status ON workspace_email_mailboxes (email_account_id, status)');
   await pool.query("CREATE UNIQUE INDEX IF NOT EXISTS idx_workspace_email_mailboxes_active_account ON workspace_email_mailboxes (email_account_id) WHERE status = 'active'");
   await pool.query(`
+    UPDATE email_accounts
+    SET account_scope = 'workspace', is_primary = 0
+    WHERE id IN (
+      SELECT email_account_id
+      FROM workspace_email_mailboxes
+      WHERE status = 'active'
+    )
+  `);
+  await pool.query(`
     CREATE TABLE IF NOT EXISTS email_inbox_events (
       id text PRIMARY KEY,
       mailbox_id text NOT NULL REFERENCES workspace_email_mailboxes(id) ON DELETE CASCADE,

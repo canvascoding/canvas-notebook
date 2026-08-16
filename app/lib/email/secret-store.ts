@@ -51,13 +51,22 @@ export function emailAccountSecretRef(userId: string, accountId: string): string
   return `${safePathSegment(userId)}/${safePathSegment(accountId)}.json.enc`;
 }
 
+/**
+ * Workspace mailboxes are configured by an instance administrator, but their
+ * credentials belong to the shared workspace resource rather than that user.
+ * Keep them in the instance secret scope instead of a user's private folder.
+ */
+export function workspaceEmailAccountSecretRef(accountId: string): string {
+  return `workspace/${safePathSegment(accountId)}.json.enc`;
+}
+
 function secretRefSegments(secretRef: string): string[] {
   return secretRef.split('/').map(safePathSegment).filter(Boolean);
 }
 
 function userIdFromSecretRef(secretRef: string): string | null {
   const [userId] = secretRefSegments(secretRef);
-  return userId || null;
+  return userId && userId !== 'workspace' ? userId : null;
 }
 
 function scopedSecretRoot(secretRef: string): string {

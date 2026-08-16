@@ -10,6 +10,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
+import { WorkspaceMailboxesSettingsPanel } from '@/app/components/settings/WorkspaceMailboxesSettingsPanel';
 
 type SystemEmailStatus = {
   configured: boolean;
@@ -184,6 +185,7 @@ export function SystemEmailSettingsPanel() {
   const configured = status?.configured === true;
 
   return (
+    <div className="space-y-5">
     <Card>
       <CardHeader className="gap-3">
         <div className="flex flex-wrap items-start justify-between gap-3">
@@ -272,5 +274,7 @@ export function SystemEmailSettingsPanel() {
         </div>
       </CardContent>
     </Card>
+    <WorkspaceMailboxesSettingsPanel />
+    </div>
   );
 }

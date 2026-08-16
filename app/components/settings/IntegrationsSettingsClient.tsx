@@ -177,20 +177,9 @@ type EmailAccount = {
   imapPort?: number | null;
   imapSecure?: boolean | null;
   imapUsername?: string | null;
-  workspaceId?: string | null;
   policy: {
     readFrom: string[];
     sendTo: string[];
-  };
-};
-
-type EmailAutomationWorkspace = {
-  id: string;
-  name: string;
-  permissions: {
-    canRead: boolean;
-    canWrite: boolean;
-    canManageWorkspace: boolean;
   };
 };
 
@@ -1330,7 +1319,6 @@ export function EmailAccountsCard({
   const searchParams = useSearchParams();
   const handledEmailOAuthReturn = useRef(false);
   const [accounts, setAccounts] = useState<EmailAccount[]>([]);
-  const [automationWorkspaces, setAutomationWorkspaces] = useState<EmailAutomationWorkspace[]>([]);
   const [drafts, setDrafts] = useState<Record<string, { readFrom: string; sendTo: string }>>({});
   const [emailMode, setEmailMode] = useState<EmailMode>('unknown');
   const [oauthDraft, setOauthDraft] = useState<EmailOAuthDraft>({
@@ -1461,18 +1449,6 @@ export function EmailAccountsCard({
     }
   }, [t]);
 
-  const loadAutomationWorkspaces = useCallback(async () => {
-    try {
-      const response = await fetch('/api/workspaces', { credentials: 'include', cache: 'no-store' });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.loadWorkspaces'));
-      const workspaces = Array.isArray(payload.workspaces) ? payload.workspaces as EmailAutomationWorkspace[] : [];
-      setAutomationWorkspaces(workspaces.filter((workspace) => workspace.permissions?.canManageWorkspace));
-    } catch (workspaceLoadError) {
-      setError(workspaceLoadError instanceof Error ? workspaceLoadError.message : t('errors.loadWorkspaces'));
-    }
-  }, [t]);
-
   const reloadAccountsAfterChange = useCallback(async () => {
     await loadAccounts();
     await onAccountsChanged?.();
@@ -1489,34 +1465,9 @@ export function EmailAccountsCard({
     if (!isOpen) return;
     const timeout = window.setTimeout(() => {
       void loadAccounts();
-      void loadAutomationWorkspaces();
     }, 0);
     return () => window.clearTimeout(timeout);
-  }, [isOpen, loadAccounts, loadAutomationWorkspaces]);
-
-  const saveAccountWorkspace = useCallback(async (accountId: string, workspaceId: string | null) => {
-    setActiveAction(`workspace:${accountId}`);
-    setError(null);
-    setMessage(null);
-    try {
-      const response = await fetch(`/api/email/accounts/${encodeURIComponent(accountId)}/workspace`, {
-        method: 'PUT',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ workspaceId }),
-      });
-      const payload = await response.json();
-      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.saveWorkspace'));
-      const updatedAccount = payload.data as EmailAccount;
-      setAccounts((current) => current.map((account) => account.id === accountId ? { ...account, ...updatedAccount } : account));
-      await onAccountsChanged?.();
-      setMessage(t('messages.workspaceSaved'));
-    } catch (workspaceSaveError) {
-      setError(workspaceSaveError instanceof Error ? workspaceSaveError.message : t('errors.saveWorkspace'));
-    } finally {
-      setActiveAction(null);
-    }
-  }, [onAccountsChanged, t]);
+  }, [isOpen, loadAccounts]);
 
   useEffect(() => {
     if (!isOpen) return;
@@ -2267,30 +2218,6 @@ export function EmailAccountsCard({
                             </div>
                           </div>
                         )}
-
-                        <div className="rounded-lg border border-border bg-background p-3">
-                          <Label className="text-sm font-medium" htmlFor={`email-account-workspace-${account.id}`}>{t('workspace.title')}</Label>
-                          <p className="mt-1 text-xs leading-5 text-muted-foreground">{t('workspace.description')}</p>
-                          {emailMode === 'managed' ? (
-                            <p className="mt-3 text-xs leading-5 text-muted-foreground">{t('workspace.managedHint')}</p>
-                          ) : (
-                            <div className="mt-3 flex flex-col gap-2 sm:flex-row sm:items-center">
-                              <select
-                                id={`email-account-workspace-${account.id}`}
-                                className="h-9 min-w-0 flex-1 rounded-md border border-input bg-background px-3 text-sm"
-                                value={account.workspaceId || ''}
-                                onChange={(event) => void saveAccountWorkspace(account.id, event.target.value || null)}
-                                disabled={activeAction !== null}
-                              >
-                                <option value="">{t('workspace.personalOption')}</option>
-                                {automationWorkspaces.map((workspace) => (
-                                  <option key={workspace.id} value={workspace.id}>{workspace.name}</option>
-                                ))}
-                              </select>
-                              {activeAction === `workspace:${account.id}` && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" aria-label={t('workspace.saving')} />}
-                            </div>
-                          )}
-                        </div>
 
                         <Collapsible
                           open={policyOpen}

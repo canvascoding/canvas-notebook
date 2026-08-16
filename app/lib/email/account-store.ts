@@ -144,7 +144,13 @@ export async function requireActiveWorkspaceMailboxForAutomation(input: {
 
 export async function listEmailAccountRecordsForUser(userId: string): Promise<StoredEmailAccount[]> {
   return db.query.emailAccounts.findMany({
-    where: and(eq(emailAccounts.userId, userId), eq(emailAccounts.status, 'active')),
+    // The personal integrations UI must never expose a centrally configured
+    // workspace mailbox merely because an administrator created its record.
+    where: and(
+      eq(emailAccounts.userId, userId),
+      eq(emailAccounts.status, 'active'),
+      eq(emailAccounts.accountScope, 'personal'),
+    ),
     orderBy: (table, { desc }) => [desc(table.isPrimary), desc(table.updatedAt)],
   });
 }

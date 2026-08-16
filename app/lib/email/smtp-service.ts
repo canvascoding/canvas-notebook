@@ -100,12 +100,14 @@ function normalizePassword(value: unknown, fallback: string | undefined, label: 
   throw new Error(`${label} is required.`);
 }
 
-function normalizeSmtpInput(input: SmtpAccountInput, existingSecret?: EmailAccountSmtpSecret | null): {
+export type NormalizedSmtpAccountInput = {
   emailAddress: string;
   displayName: string | null;
   policy?: Partial<EmailPolicy>;
   secret: EmailAccountSmtpSecret;
-} {
+};
+
+export function normalizeSmtpAccountInput(input: SmtpAccountInput, existingSecret?: EmailAccountSmtpSecret | null): NormalizedSmtpAccountInput {
   const emailAddress = normalizeEmailAddress(input.emailAddress);
   const smtpHost = normalizeHost(input.smtpHost, 'SMTP host');
   const smtpPort = normalizePort(input.smtpPort, 'SMTP port');
@@ -151,7 +153,7 @@ function smtpTransportConfig(secret: EmailAccountSmtpSecret): SmtpTransportConfi
   return secret.smtp;
 }
 
-async function verifySmtpSecret(secret: EmailAccountSmtpSecret): Promise<void> {
+export async function verifySmtpAccountSecret(secret: EmailAccountSmtpSecret): Promise<void> {
   const transporter = createSmtpTransport(smtpTransportConfig(secret));
   try {
     await transporter.verify();
@@ -184,9 +186,9 @@ async function readExistingSmtpSecretForInput(userId: string, input: SmtpAccount
 
 export async function saveSmtpEmailAccount(userId: string, input: SmtpAccountInput, options?: { verify?: boolean }) {
   const existingSecret = await readExistingSmtpSecretForInput(userId, input);
-  const normalized = normalizeSmtpInput(input, existingSecret);
+  const normalized = normalizeSmtpAccountInput(input, existingSecret);
   if (options?.verify) {
-    await verifySmtpSecret(normalized.secret);
+    await verifySmtpAccountSecret(normalized.secret);
     await verifyImapSecret(normalized.secret);
   }
   const account = await upsertSmtpEmailAccount({
@@ -202,8 +204,8 @@ export async function saveSmtpEmailAccount(userId: string, input: SmtpAccountInp
 
 export async function testSmtpConnection(userId: string, input: SmtpAccountInput) {
   const existingSecret = await readExistingSmtpSecretForInput(userId, input);
-  const normalized = normalizeSmtpInput(input, existingSecret);
-  await verifySmtpSecret(normalized.secret);
+  const normalized = normalizeSmtpAccountInput(input, existingSecret);
+  await verifySmtpAccountSecret(normalized.secret);
   await verifyImapSecret(normalized.secret);
   return {
     ok: true,
@@ -232,7 +234,7 @@ export async function testStoredSmtpEmailAccount(userId: string, accountId: stri
   };
 
   try {
-    await verifySmtpSecret(secret);
+    await verifySmtpAccountSecret(secret);
     smtp.ok = true;
   } catch (error) {
     smtp.error = error instanceof Error ? error.message : 'SMTP connection failed.';

@@ -2555,6 +2555,48 @@
         "remove": "System-E-Mail-Einstellungen konnten nicht entfernt werden."
       }
     },
+    "workspaceMailboxes": {
+      "title": "Gemeinsame Workspace-Postfächer",
+      "description": "Richte hier gemeinsam genutzte Postfächer für Support, Vertrieb und Team-Automationen ein.",
+      "sharedHint": "Diese Postfächer gehören dem ausgewählten Workspace – nicht der Person, die sie eingerichtet hat. Mitglieder greifen ausschließlich über ihre Workspace-Berechtigungen darauf zu.",
+      "add": "Postfach hinzufügen",
+      "edit": "Postfach bearbeiten",
+      "editorDescription": "Die Zugangsdaten werden zentral gespeichert. E-Mails werden weiterhin nur nach menschlicher Freigabe aus der Outbox versendet.",
+      "workspace": "Workspace",
+      "selectWorkspace": "Workspace auswählen",
+      "emailAddress": "E-Mail-Adresse",
+      "displayName": "Anzeigename (optional)",
+      "smtpHost": "SMTP-Host",
+      "smtpPort": "SMTP-Port",
+      "smtpUsername": "SMTP-Benutzername",
+      "smtpPassword": "SMTP-Passwort",
+      "smtpSecure": "TLS direkt beim Verbindungsaufbau verwenden",
+      "smtpSecureHint": "Für implizites TLS (häufig Port 465) aktivieren; für STARTTLS auf Port 587 deaktiviert lassen.",
+      "imapOptional": "Eingang (IMAP) konfigurieren",
+      "imapHost": "IMAP-Host",
+      "imapPort": "IMAP-Port",
+      "imapUsername": "IMAP-Benutzername",
+      "imapPassword": "IMAP-Passwort",
+      "imapSecure": "TLS für IMAP verwenden",
+      "passwordUnchanged": "Leer lassen, um das Passwort nicht zu ändern",
+      "save": "Postfach speichern",
+      "cancel": "Abbrechen",
+      "test": "Verbindung testen",
+      "remove": "Entfernen",
+      "removeConfirm": "Postfach {address} wirklich entfernen? Die gespeicherten Zugangsdaten werden gelöscht. Bereits vorhandene Inbox-Fälle und Outbox-Einträge bleiben als Verlauf erhalten.",
+      "saved": "Workspace-Postfach gespeichert.",
+      "tested": "Verbindung für {address} erfolgreich geprüft.",
+      "removed": "Workspace-Postfach {address} entfernt.",
+      "loading": "Workspace-Postfächer werden geladen…",
+      "empty": "Noch kein gemeinsames Workspace-Postfach eingerichtet.",
+      "sendOnly": "Nur Versand",
+      "errors": {
+        "load": "Workspace-Postfächer konnten nicht geladen werden.",
+        "save": "Workspace-Postfach konnte nicht gespeichert werden.",
+        "test": "Verbindung des Workspace-Postfachs konnte nicht geprüft werden.",
+        "remove": "Workspace-Postfach konnte nicht entfernt werden."
+      }
+    },
     "users": {
       "title": "Benutzerverwaltung",
       "description": "Verwalte lokale Notebook-Accounts, Rollen und Zugriffssperren.",
@@ -4896,8 +4938,8 @@
       }
     },
     "emailAccounts": {
-      "title": "E-Mail-Konten",
-      "description": "Verbinde E-Mail-Konten und steuere, welche Absender gelesen und welche Empfänger zum Senden verwendet werden dürfen.",
+      "title": "Meine E-Mail-Konten",
+      "description": "Verbinde deine persönlichen E-Mail-Konten und steuere, welche Absender gelesen und welche Empfänger zum Senden verwendet werden dürfen. Gemeinsame Team-Postfächer werden von Administratoren unter System-E-Mail eingerichtet.",
       "summary": "{count, plural, =0 {Keine Konten} one {# Konto verbunden} other {# Konten verbunden}}",
       "loadingSummary": "Lade Konten...",
       "errorSummary": "Fehler beim Laden",
@@ -4935,13 +4977,6 @@
         "collapse": "Schließen",
         "moreActions": "Weitere Kontoaktionen",
         "connectionDetails": "Verbindungsdetails"
-      },
-      "workspace": {
-        "title": "Workspace für Automationen",
-        "description": "Ordne das Konto einem Workspace zu, damit dessen Automationen das Postfach verwenden können. Ohne Zuordnung bleibt es ein persönliches Konto.",
-        "personalOption": "Nicht zugeordnet (persönlich)",
-        "managedHint": "Bei zentral verwalteten E-Mail-Konten wird die Workspace-Zuordnung vom Control Plane verwaltet.",
-        "saving": "Workspace-Zuordnung wird gespeichert"
       },
       "preview": {
         "title": "Anzeige & Datenschutz",
@@ -5411,6 +5446,19 @@
       "successful": "Erfolgreich",
       "nextRun": "Nächster Lauf",
       "lastStatus": "Letzter Status",
+      "searchPlaceholder": "Automationen durchsuchen...",
+      "filterLabel": "Nach Status filtern",
+      "sortLabel": "Sortierung",
+      "emptyFiltered": "Keine Automation entspricht der aktuellen Suche oder dem Filter.",
+      "previewDescription": "Kurzüberblick über Zeitplan, Ziel und letzten Lauf.",
+      "filters": {
+        "all": "Alle Status"
+      },
+      "sort": {
+        "nextRun": "Nächster Lauf",
+        "lastRun": "Letzte Aktivität",
+        "name": "Name (A–Z)"
+      },
       "groups": {
         "needsAttention": "Prüfen",
         "running": "Läuft gerade",

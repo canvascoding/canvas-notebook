@@ -9,7 +9,7 @@ Heute sind `email_accounts` usergebunden; `email_drafts` kennt keinen Workspace.
 V1 veraendert diese Ausgangslage schrittweise und kompatibel:
 
 - Bestehende persoenliche E-Mail-Konten bleiben usergebunden und funktionieren weiter.
-- Eine explizite Join-Tabelle ordnet eine Mailbox einem Workspace zu.
+- Eine explizite Join-Tabelle ordnet ein zentral konfiguriertes Workspace-Postfach einem Workspace zu.
 - Inbox-Fälle und Outbox-Entwürfe verwenden denselben Lifecycle für persönliche und Workspace-Mailboxen.
 - Jede neue oder migrierte Automation hat einen expliziten Workspace.
 - `heartbeat` wird nicht als neuer Typ fortgefuehrt; die alte Konfiguration wird zu einer normalen geplanten Automation migriert.
@@ -33,12 +33,18 @@ Neue Felder:
 
 | Feld | Bedeutung |
 | --- | --- |
-| `account_scope` | `personal` oder `organization`; bestehende Konten werden zu `personal`. |
-| `organization_id` | Bei `organization` verpflichtend; bei `personal` leer. |
+| `account_scope` | `personal`, `workspace` oder ein bestehender Kompatibilitätswert. Persönliche Konten erscheinen ausschließlich unter den persönlichen Integrationen; `workspace`-Konten ausschließlich unter System-E-Mail. |
+| `organization_id` | Bestehendes Feld für Organisations-Kontext; für zentral gespeicherte Workspace-Zugangsdaten nicht die Autorisierungsquelle. |
 | `connected_by_user_id` | Der User, der die Verbindung hergestellt oder zuletzt erneuert hat; wird aus dem bestehenden `user_id` migriert. |
 | `automation_enabled_at` | Zeitpunkt, an dem das Konto erstmals als Automationsquelle freigegeben wurde; ansonsten leer. |
 
-`user_id` bleibt fuer V1 der technische Connection-Owner. Bei einer Business-Mailbox muss er ein berechtigter User der zugeordneten Organisation sein. Eine vollstaendig organisationsunabhaengige Secret-Eigentuemerschaft ist kein V1-Ziel und wird erst mit dem Managed-Email-Control-Plane-Modell bewertet.
+`user_id` bleibt aus Kompatibilitätsgründen ein technischer Protokoll- und Provider-Actor. Bei `account_scope = workspace` liegt die Secret-Referenz jedoch im zentralen Instanz-Scope, das Postfach wird nicht in den persönlichen Integrationen dieses Users gezeigt und kann nur über die Admin-API verwaltet werden.
+
+### Konfigurationsoberfläche
+
+- **Einstellungen → Integrationen → Meine E-Mail-Konten:** ausschließlich persönliche Konten des aktuellen Users.
+- **Einstellungen → System-E-Mail → Gemeinsame Workspace-Postfächer:** ausschließlich Instance-Admins konfigurieren hier zentrale SMTP/IMAP-Postfächer und wählen den Ziel-Workspace.
+- System-SMTP für App-Benachrichtigungen und Workspace-Postfächer bleiben zwei getrennte Konfigurationen im selben Admin-Bereich.
 
 ### Neue Tabelle `workspace_email_mailboxes`
 
@@ -150,7 +156,7 @@ Fuer neue und migrierte V1-Automationen ist `workspace_id` im Service verpflicht
 Die Migration wird fuer SQLite und PostgreSQL in derselben fachlichen Reihenfolge umgesetzt. Jeder Schritt ist idempotent und erzeugt keine Netzwerk- oder Agentenarbeit.
 
 1. **Schema erweitern:** Neue Tabellen und additive Spalten/Indizes anlegen. Noch keine bestehenden Läufe oder Mailboxen aktiv verändern.
-2. **Konten klassifizieren:** Alle bestehenden `email_accounts` als `personal` markieren, `connected_by_user_id` aus `user_id` setzen und `automation_enabled_at` leer lassen.
+2. **Konten klassifizieren:** Alle bestehenden `email_accounts` als `personal` markieren. Konten mit bereits aktiver Workspace-Mailbox werden anschließend zu `workspace`, erscheinen nicht mehr unter persönlichen Integrationen und bleiben für laufende Automationen verfügbar.
 3. **Heartbeat vorbereiten:** Für jeden bestehenden Heartbeat den persönlichen Standard-Workspace zuverlässig auflösen. Fehlt er, Job auf `paused` lassen und einen migrationssicheren Fehlerstatus erfassen.
 4. **Heartbeat migrieren:** Genau eine normale geplante Automation je Altjob upserten; Zeitplan, Zustellung und der Inhalt von `HEARTBEAT.md` werden als `prompt` übernommen. Eine Migrationstabelle oder ein stabiler `legacy_heartbeat_job_id`-Verweis verhindert Duplikate.
 5. **Alte Heartbeats stilllegen:** Erst nachdem der Zieljob aktiv und validiert ist, den Altjob pausieren. Die alte Settings-UI bleibt während der Übergangsphase nur lesbar.

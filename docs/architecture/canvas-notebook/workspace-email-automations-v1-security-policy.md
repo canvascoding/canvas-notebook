@@ -15,10 +15,10 @@ Dieses Dokument konkretisiert `WEA-V1-03`. Es macht die menschliche Versandpflic
 
 ## Rollenmatrix für V1
 
-| Aktion | Organisations-Owner/Admin | Workspace-Owner/Admin | Workspace-Mitglied mit Schreibrecht | Agent / Scheduler |
+| Aktion | Instance-Admin | Workspace-Owner/Admin | Workspace-Mitglied mit Schreibrecht | Agent / Scheduler |
 | --- | --- | --- | --- | --- |
 | Business-Mailbox verbinden oder trennen | erlaubt | nicht erlaubt | nicht erlaubt | nicht erlaubt |
-| Business-Mailbox einem Workspace zuordnen | erlaubt | erlaubt, wenn Mailbox zur selben Organisation gehört | nicht erlaubt | nicht erlaubt |
+| Business-Mailbox einem Workspace zuordnen | erlaubt, ausschließlich unter System-E-Mail | nicht erlaubt | nicht erlaubt | nicht erlaubt |
 | Persönliche Mailbox manuell nutzen, Inbox-Fall oder Outbox-Entwurf bearbeiten | nur eigene Konten | nur eigene Konten | nur eigene Konten | nur Fall/Entwurf anlegen oder aktualisieren |
 | Automation konfigurieren oder pausieren | erlaubt | erlaubt | nicht erlaubt | nicht erlaubt |
 | Inbox und Outbox lesen | erlaubt | erlaubt | mit `canRead` | nur im Ausführungskontext |
@@ -26,7 +26,7 @@ Dieses Dokument konkretisiert `WEA-V1-03`. Es macht die menschliche Versandpflic
 | Outbox-Entwurf senden | erlaubt | erlaubt | mit `canWrite` und Mailbox-Zugriff | **nie erlaubt** |
 | Auditdaten lesen | erlaubt | nur eigener Workspace | nur eigener Workspace, sofern nicht sensibel eingeschränkt | schreibt nur eigene technische Ereignisse |
 
-Die bestehende Workspace-Permission `canManageWorkspace` ist die V1-Grundlage für Mailbox-Zuordnung und Automationsverwaltung. `canRead` und `canWrite` grenzen Inbox und Outbox ab. Falls die Produktrolle später feinere Delegation verlangt, wird ein eigener Permission-Key ergänzt; V1 führt keine neue, verdeckte Sonderrolle ein.
+Die Instance-Admin-Prüfung ist die Grenze für das Erstellen, Ändern, Testen und Entfernen zentraler Workspace-Postfächer. `canRead` und `canWrite` grenzen anschließend Inbox und Outbox innerhalb des jeweiligen Workspaces ab. Workspace-Admins dürfen Automationen verwalten, aber keine zentralen Zugangsdaten verändern.
 
 ## Serverseitige Guard-Kette
 
@@ -36,7 +36,7 @@ Jede Inbox-, Outbox-, Mailbox- und Automationsroute folgt dieser Reihenfolge:
 
 1. Session bestimmen; ohne User-Session immer `401`.
 2. Mailbox-Scope aus Pfad oder Payload normalisieren; niemals nur vom Client übernehmen.
-3. Workspace-Zugriff über die bestehende Workspace-Guard-Logik oder persönlichen Owner prüfen.
+3. Bei zentraler Mailbox-Konfiguration Instance-Admin prüfen; bei Inbox/Outbox anschließend Workspace-Zugriff über die bestehende Workspace-Guard-Logik oder persönlichen Owner prüfen.
 4. Für Mailbox und Entwurf die Datenbankzeile zusätzlich mit Workspace oder Owner abfragen.
 5. Für Business-Mailboxen die Organisationszugehörigkeit und Admin-/Managementrecht prüfen.
 6. Für schreibende Aktionen Version, Status und erwarteten Actor mit einer Compare-and-Set-Bedingung prüfen.

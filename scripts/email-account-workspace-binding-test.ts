@@ -335,6 +335,52 @@ async function main() {
       WHERE email_account_id = ? AND status = 'archived'
     `).get(created.id) as { count: number };
     assert.equal(archivedMailboxCount.count, 1);
+
+    const {
+      listAdminWorkspaceMailboxes,
+      removeAdminWorkspaceMailbox,
+      saveAdminWorkspaceMailbox,
+    } = await import('../app/lib/email/workspace-mailbox-store');
+    const sharedMailbox = await saveAdminWorkspaceMailbox('owner-user', {
+      workspaceId: ownerWorkspace.id,
+      emailAddress: 'support@example.test',
+      displayName: 'Support',
+      smtpHost: 'smtp.example.test',
+      smtpPort: 587,
+      smtpSecure: false,
+      smtpUsername: 'support@example.test',
+      smtpPassword: 'workspace-secret',
+      imapHost: 'imap.example.test',
+      imapPort: 993,
+      imapSecure: true,
+      imapUsername: 'support@example.test',
+      imapPassword: 'workspace-secret',
+    });
+    assert.equal(sharedMailbox.workspaceId, ownerWorkspace.id);
+    assert.equal(sharedMailbox.emailAddress, 'support@example.test');
+    assert.equal(sharedMailbox.imapHost, 'imap.example.test');
+    assert.equal((await listAdminWorkspaceMailboxes()).some((mailbox) => mailbox.id === sharedMailbox.id), true);
+    assert.equal(
+      (await requireActiveWorkspaceMailboxForAutomation({
+        emailAccountId: sharedMailbox.accountId,
+        workspaceId: ownerWorkspace.id,
+      })).id,
+      sharedMailbox.id,
+    );
+    const { listPublicEmailAccountsForUser } = await import('../app/lib/email/account-store');
+    assert.equal(
+      (await listPublicEmailAccountsForUser('owner-user')).some((account) => account.id === sharedMailbox.accountId),
+      false,
+    );
+    await removeAdminWorkspaceMailbox('owner-user', sharedMailbox.id);
+    assert.equal((await listAdminWorkspaceMailboxes()).some((mailbox) => mailbox.id === sharedMailbox.id), false);
+    await assert.rejects(
+      () => requireActiveWorkspaceMailboxForAutomation({
+        emailAccountId: sharedMailbox.accountId,
+        workspaceId: ownerWorkspace.id,
+      }),
+      /not actively assigned/i,
+    );
   } finally {
     sqlite.close();
     await fs.rm(tempRoot, { recursive: true, force: true });

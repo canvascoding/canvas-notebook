@@ -2556,6 +2556,48 @@
         "remove": "Could not remove system email settings."
       }
     },
+    "workspaceMailboxes": {
+      "title": "Shared workspace mailboxes",
+      "description": "Configure shared inboxes for support, sales, and team automations here.",
+      "sharedHint": "These mailboxes belong to the selected workspace, not the person who configured them. Members access them only through their workspace permissions.",
+      "add": "Add mailbox",
+      "edit": "Edit mailbox",
+      "editorDescription": "Credentials are stored centrally. Email is still sent only after human approval from the Outbox.",
+      "workspace": "Workspace",
+      "selectWorkspace": "Select workspace",
+      "emailAddress": "Email address",
+      "displayName": "Display name (optional)",
+      "smtpHost": "SMTP host",
+      "smtpPort": "SMTP port",
+      "smtpUsername": "SMTP username",
+      "smtpPassword": "SMTP password",
+      "smtpSecure": "Use TLS from connection start",
+      "smtpSecureHint": "Enable for implicit TLS (commonly port 465); leave disabled for STARTTLS on port 587.",
+      "imapOptional": "Configure inbox (IMAP)",
+      "imapHost": "IMAP host",
+      "imapPort": "IMAP port",
+      "imapUsername": "IMAP username",
+      "imapPassword": "IMAP password",
+      "imapSecure": "Use TLS for IMAP",
+      "passwordUnchanged": "Leave blank to retain the password",
+      "save": "Save mailbox",
+      "cancel": "Cancel",
+      "test": "Test connection",
+      "remove": "Remove",
+      "removeConfirm": "Remove mailbox {address}? Its stored credentials will be deleted. Existing Inbox cases and Outbox items remain as history.",
+      "saved": "Workspace mailbox saved.",
+      "tested": "Connection for {address} verified successfully.",
+      "removed": "Workspace mailbox {address} removed.",
+      "loading": "Loading workspace mailboxes…",
+      "empty": "No shared workspace mailbox has been configured yet.",
+      "sendOnly": "Send only",
+      "errors": {
+        "load": "Could not load workspace mailboxes.",
+        "save": "Could not save workspace mailbox.",
+        "test": "Could not test workspace mailbox connection.",
+        "remove": "Could not remove workspace mailbox."
+      }
+    },
     "users": {
       "title": "User Management",
       "description": "Manage local notebook accounts, roles, and access bans.",
@@ -4897,8 +4939,8 @@
       }
     },
     "emailAccounts": {
-      "title": "Email Accounts",
-      "description": "Connect email accounts and control which senders can be read or recipients can be used for sending.",
+      "title": "My email accounts",
+      "description": "Connect your personal email accounts and control which senders can be read or recipients can be used for sending. Administrators configure shared team mailboxes under System Email.",
       "summary": "{count, plural, =0 {No accounts} one {# account connected} other {# accounts connected}}",
       "loadingSummary": "Loading accounts...",
       "errorSummary": "Load error",
@@ -4936,13 +4978,6 @@
         "collapse": "Close",
         "moreActions": "More account actions",
         "connectionDetails": "Connection details"
-      },
-      "workspace": {
-        "title": "Workspace for automations",
-        "description": "Assign this account to a workspace so its automations can use the mailbox. Without an assignment, it remains a personal account.",
-        "personalOption": "Unassigned (personal)",
-        "managedHint": "For centrally managed email accounts, workspace assignment is managed by the Control Plane.",
-        "saving": "Saving workspace assignment"
       },
       "preview": {
         "title": "Display & privacy",
@@ -5412,6 +5447,19 @@
       "successful": "Successful",
       "nextRun": "Next run",
       "lastStatus": "Last status",
+      "searchPlaceholder": "Search automations...",
+      "filterLabel": "Filter by status",
+      "sortLabel": "Sort order",
+      "emptyFiltered": "No automation matches the current search or filter.",
+      "previewDescription": "A quick view of the schedule, destination, and most recent run.",
+      "filters": {
+        "all": "All statuses"
+      },
+      "sort": {
+        "nextRun": "Next run",
+        "lastRun": "Latest activity",
+        "name": "Name (A–Z)"
+      },
       "groups": {
         "needsAttention": "Needs attention",
         "running": "Running now",
