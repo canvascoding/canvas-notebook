@@ -23,7 +23,7 @@ export type WorkspaceEmailAutomationEventContext = {
   sessionId: string;
 };
 
-export type WorkspaceEmailAutomationOutboundMode = 'draft_only' | 'human_review' | 'direct_send';
+export type WorkspaceEmailAutomationOutboundMode = 'draft_only' | 'human_review';
 
 export type WorkspaceEmailAutomationQueueResult = {
   checked: number;
@@ -87,7 +87,7 @@ function emailEventMetadata(value: string | null): { folder: string; hasAttachme
 
 export function workspaceEmailAutomationOutboundMode(eventConfig: Record<string, unknown> | null | undefined): WorkspaceEmailAutomationOutboundMode {
   const mode = eventConfig?.outboundMode;
-  return mode === 'draft_only' || mode === 'direct_send' || mode === 'human_review'
+  return mode === 'draft_only' || mode === 'human_review'
     ? mode
     : 'human_review';
 }

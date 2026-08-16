@@ -60,7 +60,7 @@ export async function listWorkspaceInboxCases(userId: string, workspaceId: strin
 export async function listWorkspaceOutboxDrafts(userId: string, workspaceId: string) {
   await requireWorkspace(userId, workspaceId, 'canRead');
   const rows = await db.query.emailDrafts.findMany({
-    where: and(eq(emailDrafts.workspaceId, workspaceId), eq(emailDrafts.origin, 'automation')),
+    where: and(eq(emailDrafts.workspaceId, workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])),
     orderBy: [desc(emailDrafts.updatedAt)],
   });
   return rows.map(publicOutboxDraft);
@@ -81,7 +81,7 @@ export async function getWorkspaceEmailAttentionSummary(workspaceId: string) {
     db.query.emailDrafts.findMany({
       where: and(
         eq(emailDrafts.workspaceId, workspaceId),
-        eq(emailDrafts.origin, 'automation'),
+        inArray(emailDrafts.origin, ['automation', 'agent']),
         inArray(emailDrafts.outboxStatus, ['awaiting_review', 'editing', 'send_failed']),
       ),
       orderBy: [desc(emailDrafts.updatedAt)],
@@ -137,6 +137,7 @@ export async function createWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; mailboxId: string; inboxCaseId?: string | null;
   subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[];
   originAutomationJobId?: string | null; originRunId?: string | null; originAgentId?: string | null; assignedUserId?: string | null;
+  origin?: 'automation' | 'agent';
   initialStatus?: Extract<OutboxStatus, 'prepared' | 'awaiting_review'>;
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
@@ -170,7 +171,7 @@ export async function createWorkspaceOutboxDraft(input: {
     toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
     subject: input.subject.trim(), body: input.body, isHtml: true, attachmentsJson: '[]', providerDraftId: null,
     workspaceId: input.workspaceId, mailboxId: input.mailboxId, inboxCaseId: input.inboxCaseId || null,
-    origin: 'automation', originAutomationJobId: input.originAutomationJobId || null,
+    origin: input.origin || 'agent', originAutomationJobId: input.originAutomationJobId || null,
     originRunId: input.originRunId || null, originAgentId: input.originAgentId || null,
     outboxStatus: input.initialStatus || 'awaiting_review', version: 1, assignedUserId: input.assignedUserId || null, editingByUserId: null, editingStartedAt: null,
     sentByUserId: null, sentAt: null, createdAt: now, updatedAt: now,
@@ -185,7 +186,7 @@ export async function updateWorkspaceOutboxDraft(input: {
   to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
 }) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
-  const current = await db.query.emailDrafts.findFirst({ where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), eq(emailDrafts.origin, 'automation')) });
+  const current = await db.query.emailDrafts.findFirst({ where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])) });
   if (!current) throw new Error('Workspace outbox draft not found.');
   if (current.version !== input.expectedVersion) throw new Error('This outbox draft has changed. Reload it before saving.');
   if (current.outboxStatus === 'sent' || current.outboxStatus === 'discarded') throw new Error('This outbox draft can no longer be edited.');
@@ -217,7 +218,7 @@ export async function sendWorkspaceOutboxDraft(input: {
 }, dependencies: WorkspaceOutboxSendDependencies = {}) {
   await requireWorkspace(input.userId, input.workspaceId, 'canWrite');
   const current = await db.query.emailDrafts.findFirst({
-    where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), eq(emailDrafts.origin, 'automation')),
+    where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.workspaceId, input.workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])),
   });
   if (!current) throw new Error('Workspace outbox draft not found.');
   if (current.version !== input.expectedVersion) throw new Error('This outbox draft has changed. Reload it before sending.');

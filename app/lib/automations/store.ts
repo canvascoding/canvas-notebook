@@ -452,8 +452,8 @@ function normalizeEmailInboxEventConfig(value: unknown): Record<string, string> 
     throw new Error('Email inbox event configuration requires a mailbox.');
   }
   const outboundMode = typeof config.outboundMode === 'string' ? config.outboundMode.trim() : 'human_review';
-  if (!['draft_only', 'human_review', 'direct_send'].includes(outboundMode)) {
-    throw new Error('Email inbox automation outbound mode must be draft_only, human_review, or direct_send.');
+  if (!['draft_only', 'human_review'].includes(outboundMode)) {
+    throw new Error('Email inbox automation outbound mode must be draft_only or human_review.');
   }
   return { eventType, mailboxId, outboundMode };
 }

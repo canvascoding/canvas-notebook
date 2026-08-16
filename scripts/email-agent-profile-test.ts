@@ -60,6 +60,15 @@ async function main() {
       'email_read',
       'email_create_draft',
       'email_update_draft',
+      'workspace_email_list_mailboxes',
+      'workspace_email_search_messages',
+      'workspace_email_read_message',
+      'workspace_email_list_thread_messages',
+      'workspace_email_list_cases',
+      'workspace_email_create_or_update_case',
+      'workspace_email_create_outbox_draft',
+      'workspace_email_update_outbox_draft',
+      'workspace_email_list_outbox_drafts',
     ]);
     assert.ok((await listAgentProfiles()).some((agent) => agent.agentId === EMAIL_MANAGED_AGENT_ID));
     assert.deepEqual(await getAgentAccess('owner-user', EMAIL_MANAGED_AGENT_ID), {

@@ -2,7 +2,7 @@
 
 ## Status und Vorrang
 
-Dieses Dokument ersetzt alle widersprechenden Aussagen der bisherigen V1-Planung zu einer separaten E-Mail-Triage-Runtime und zu einem grundsaetzlichen Auto-Send-Verbot. Mailbox-Zuordnung, Workspace-Grenzen, Inbox-/Outbox-Datenmodell und Audit bleiben bestehen.
+Dieses Dokument ersetzt alle widersprechenden Aussagen der bisherigen V1-Planung zu einer separaten E-Mail-Triage-Runtime. Mailbox-Zuordnung, Workspace-Grenzen, Inbox-/Outbox-Datenmodell, menschliche Freigabe und Audit bleiben bestehen.
 
 ## Produktmodell
 
@@ -13,7 +13,7 @@ Der Nutzer richtet nur ein:
 1. Mailbox und Workspace,
 2. Agent,
 3. Verhalten bei einer neuen E-Mail,
-4. Versandmodus.
+4. menschliche Freigabe in der Outbox.
 
 Die Vorlage setzt den Ereignis-Trigger, sichere Standard-Tools, eine gute Grundanweisung und sinnvolle Zustellung voraus.
 
@@ -25,7 +25,7 @@ Mailbox-Sync / Provider-Ereignis
   -> normaler Automation-Run
   -> normale Pi-Session und Agent-Harness
   -> Tool-Calls im Workspace-Scope
-  -> Inbox-Fall, Aufgabe, Entwurf oder Versand
+  -> Inbox-Fall, Aufgabe oder Outbox-Entwurf
 ```
 
 Der Mail-Sync bleibt Infrastruktur. Er liest oder sendet nicht im Namen eines Agenten. Ab dem Ereignis nutzt die Verarbeitung ausschliesslich den bestehenden Automation-Runner mit einer normalen Pi-Session, Laufhistorie, Modellwahl, Persona, Tool-Loop und Audit-Protokoll.
@@ -51,29 +51,20 @@ Er wird wie der Canvas Agent in der normalen Agent-Registry und Runtime gefuehrt
 
 ## Tool- und Kontextmodell
 
-Der Automation-Runner erzeugt einen expliziten Ausfuehrungskontext mit `workspaceId`, `mailboxId`, `inboxEventId`, `inboxCaseId` (sobald vorhanden) und Versandmodus. Dieser Kontext wird bei jedem Tool-Call serverseitig geprueft.
+Die Workspace-E-Mail-Tools sind normale, konfigurierbare Agent-Faehigkeiten. In einer normalen Session waehlt der Agent eine aktive Mailbox des aktuellen Workspaces; jede Auswahl wird serverseitig gegen Workspace-Mitgliedschaft und Mailbox-Zuordnung geprueft. Ein Automation-Run verwendet dieselben Tools, bindet aber die ausloesende Mailbox serverseitig. Er darf dort bei Bedarf weitere relevante Nachrichten suchen und lesen.
 
 Bestehende E-Mail-Tools bleiben erhalten und koennen weiterhin fuer manuelle/interaktive Agenten genutzt werden. Fuer E-Mail-Automationen werden sie durch fachliche Workspace-Tools ergaenzt:
 
-- `email_inbox_get_case`, `email_inbox_update_case`, `email_inbox_assign_case`,
-- `email_thread_read`,
-- `email_outbox_create_draft`, `email_outbox_update_draft`,
-- `todo_create_from_inbox_case`,
+- `workspace_email_list_mailboxes`, `workspace_email_search_messages`, `workspace_email_read_message`, `workspace_email_list_thread_messages`,
+- `workspace_email_list_cases`, `workspace_email_create_or_update_case`,
+- `workspace_email_create_outbox_draft`, `workspace_email_update_outbox_draft`, `workspace_email_list_outbox_drafts`,
 - bestehende Workspace-Datei- und Wissenssuche.
 
 Der Agent erhaelt als Startkontext die eingegangene E-Mail, den zugehoerigen Thread, vorhandenen Inbox-Fall, lokale Automationsanweisung und die fuer diesen Fall relevanten Workspace-Regeln. Weiteres Wissen holt er ueber die normalen, begrenzten Tool-Calls.
 
-## Versandmodus
+## Freigabe und Versand
 
-Der Versandmodus gehoert zur E-Mail-Triage-Automation, ist standardmaessig `human_review` und wird bei jedem Tool-Call erzwungen.
-
-| Modus | Erlaubtes Ergebnis |
-| --- | --- |
-| `draft_only` | Provider-Entwurf oder Workspace-Entwurf, kein Versand |
-| `human_review` | Workspace-Outbox; nur ein berechtigter Mensch sendet im UI |
-| `direct_send` | Der Agent darf das bestehende Send-Tool benutzen |
-
-`direct_send` ist eine bewusste Workspace-Admin-Einstellung, standardmaessig deaktiviert und vollstaendig auditierbar. In diesem Modus wird `email_send_draft` nur fuer genau diese Automation und ihre gebundene Mailbox freigegeben. Es gibt keine globale, allein durch den Agenten bestimmte Send-Berechtigung.
+Automationen und Workspace-E-Mail-Tools erstellen und aendern nur Outbox-Entwuerfe. Der Versand bleibt in V1 eine explizite menschliche Aktion im Workspace-UI. `draft_only` und `human_review` bestimmen nur den sichtbaren Review-Status des Entwurfs; es gibt keinen Agenten-Sendetool und keinen automatischen Versand.
 
 ## Rueckbau des bisherigen Sonderpfads
 
@@ -89,12 +80,12 @@ Diese Bestandteile werden ersetzt oder umgebaut:
 - `app/lib/email/workspace-triage.ts` darf keinen direkten KI-Aufruf, keine feste Heuristik und keine eigene Entwurfslogik mehr enthalten;
 - der Poll-Endpunkt uebergibt neue Ereignisse an normale Automation-Runs statt sie selbst zu triagieren;
 - die direkte E-Mail-KI-Runtime mit `DEFAULT_AGENT_ID` bleibt fuer den manuellen Composer bestehen, wird aber nicht mehr fuer automatisierte Triage verwendet;
-- der bisherige pauschale Tool-Filter im Automation-Runner wird durch eine explizite, serverseitige Automation-Tool-Policy ersetzt. Der progressive `email`-Gateway darf keine Send-Operation anbieten, wenn der Versandmodus dies nicht erlaubt.
+- der Automation-Runner ersetzt allgemeine Workspace-E-Mail-Tools durch dieselben Tools mit gebundener Ausloeser-Mailbox. Der allgemeine `email`-Gateway und seine Send-Operationen stehen Automation-Runs nicht zur Verfuegung.
 
 ## Sicherheitsgrenzen
 
-- Mailbox, Thread, Fall, Entwurf und Workspace werden auf jedem Tool-Call zueinander validiert.
+- Mailbox, Thread, Fall, Entwurf und Workspace werden auf jedem Tool-Call zueinander validiert. Ein Automation-Run darf innerhalb seiner gebundenen Mailbox nach weiterem Kontext suchen, aber keine andere Mailbox auswaehlen.
 - E-Mail-Inhalte bleiben untrusted input und duerfen keine Tools, Richtlinien oder den Versandmodus aendern.
 - Der Agent bekommt keine Secrets und keine frei waehlbare fremde Mailbox.
-- Ein Berechtigungs- oder Binding-Wechsel beendet den Run vor einem kritischen Schreib- oder Sendeschritt.
-- Jede automatisierte Aenderung und jeder direkte Versand wird mit Session, Run, Agent, Workspace, Mailbox und Version auditiert.
+- Ein Berechtigungs- oder Binding-Wechsel beendet den Run vor einem kritischen Schreibschritt.
+- Jede automatisierte Aenderung sowie jeder menschliche Versand wird mit Session, Run, Agent, Workspace, Mailbox und Version auditiert.

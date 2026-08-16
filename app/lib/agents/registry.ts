@@ -11,12 +11,25 @@ import { DEFAULT_MANAGED_AGENT_ID, EMAIL_MANAGED_AGENT_ID, SYSTEM_MANAGED_AGENT_
 
 export { EMAIL_MANAGED_AGENT_ID } from './storage';
 
-const EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
+const LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
   'email_list_accounts',
   'email_search',
   'email_read',
   'email_create_draft',
   'email_update_draft',
+];
+
+const EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
+  ...LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
+  'workspace_email_list_mailboxes',
+  'workspace_email_search_messages',
+  'workspace_email_read_message',
+  'workspace_email_list_thread_messages',
+  'workspace_email_list_cases',
+  'workspace_email_create_or_update_case',
+  'workspace_email_create_outbox_draft',
+  'workspace_email_update_outbox_draft',
+  'workspace_email_list_outbox_drafts',
 ];
 
 function isSystemManagedAgentId(agentId: string): boolean {
@@ -225,6 +238,17 @@ export async function ensureEmailAgent(): Promise<AgentProfile> {
     where: eq(agents.agentId, EMAIL_MANAGED_AGENT_ID),
   });
   if (!row) throw new Error('Email Agent could not be loaded.');
+  const configuredTools = parseEnabledTools(row.enabledToolsJson);
+  const isUnmodifiedLegacyProfile = configuredTools?.length === LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS.length
+    && configuredTools.every((tool, index) => tool === LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS[index]);
+  if (isUnmodifiedLegacyProfile) {
+    await db.update(agents).set({
+      enabledToolsJson: JSON.stringify(EMAIL_AGENT_DEFAULT_ENABLED_TOOLS),
+      revision: row.revision + 1,
+      updatedAt: now,
+    }).where(eq(agents.id, row.id));
+    return mapAgent({ ...row, enabledToolsJson: JSON.stringify(EMAIL_AGENT_DEFAULT_ENABLED_TOOLS), revision: row.revision + 1, updatedAt: now });
+  }
   return mapAgent(row);
 }
 
