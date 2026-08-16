@@ -105,6 +105,13 @@ function documentFolder(path: string): string {
   return slashIndex >= 0 ? normalized.slice(0, slashIndex) : '/';
 }
 
+function documentGraphLabel(document: WorkspaceLinkDocument): string {
+  if (document.hasExplicitTitle !== false) return document.title;
+
+  const fileName = document.path.replace(/\\/g, '/').split('/').pop() ?? document.path;
+  return fileName.replace(/\.md$/iu, '');
+}
+
 function normalizeSearchText(value: string): string {
   return value
     .normalize('NFKD')
@@ -369,7 +376,7 @@ export function buildKnowledgeGraphData(
       id: entry.document.path,
       incoming: entry.incomingCount,
       kind: 'document' as const,
-      label: entry.document.title,
+      label: documentGraphLabel(entry.document),
       outgoing: entry.outgoingCount,
       path: entry.document.path,
       size: Math.min(16, 4.5 + Math.sqrt(entry.degree) * 2.2),

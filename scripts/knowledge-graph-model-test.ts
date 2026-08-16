@@ -9,7 +9,7 @@ import {
 import { buildWorkspaceLinkIndexFromDocuments } from '../app/lib/markdown/workspace-link-index-core';
 
 const index = buildWorkspaceLinkIndexFromDocuments([
-  { path: 'Research/Overview.md', content: '---\naliases: [Atlas Home, Übersicht]\ntags: [project/atlas, type/overview]\n---\n\n# Overview\n\n[[Research/Source]]\n[[Missing]]' },
+  { path: 'Research/Overview.md', content: '---\naliases: [Atlas Home, Übersicht]\ntags: [project/atlas, type/overview]\n---\n\n# Workspace overview\n\n[[Research/Source]]\n[[Missing]]' },
   { path: 'Research/Source.md', content: '---\ntags: [reference, project/atlas]\n---\n\n# Source' },
   { path: 'Archive/Orphan.md', content: '---\ntags: [archive]\n---\n\n# Orphan' },
   { path: 'Archive/Broken only.md', content: '---\ntags: [archive]\n---\n\n# Broken only\n\n[[Nowhere]]' },
@@ -25,6 +25,11 @@ assert.equal(graph.nodes.filter((node) => node.kind === 'missing').length, 2);
 assert.equal(graph.edges.length, 3);
 assert.equal(graph.nodes.find((node) => node.path === 'Research/Overview.md')?.outgoing, 2);
 assert.equal(graph.nodes.find((node) => node.path === 'Research/Source.md')?.incoming, 1);
+assert.equal(
+  graph.nodes.find((node) => node.path === 'Research/Overview.md')?.label,
+  'Overview',
+  'Documents without an explicit title property use their filename in the graph.',
+);
 assert.deepEqual(
   getConnectedKnowledgeGraphNodes(graph, 'Research/Overview.md')
     .map((node) => node.path ?? `kind:${node.kind}`)

@@ -31,6 +31,8 @@ export type WorkspaceLinkDocument = {
   aliases: string[];
   blockIds: string[];
   headings: WorkspaceLinkHeading[];
+  /** Whether the document has a title explicitly set in its frontmatter. */
+  hasExplicitTitle?: boolean;
   path: string;
   tags: string[];
   title: string;
@@ -227,6 +229,7 @@ export function buildWorkspaceLinkIndexFromDocuments(
         aliases: frontmatter?.aliases ?? [],
         blockIds: parseObsidianBlockIds(source.content).map((block) => block.id),
         headings,
+        hasExplicitTitle: Boolean(frontmatter?.title),
         path: normalizePath(source.path),
         tags: frontmatter?.tags ?? [],
         title: frontmatter?.title || headings[0]?.text || basenameWithoutExtension(source.path),
