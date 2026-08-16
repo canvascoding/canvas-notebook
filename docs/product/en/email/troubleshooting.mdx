@@ -1,0 +1,40 @@
+---
+title: Troubleshooting Email Connections
+description: Diagnose expired OAuth, SMTP or IMAP failures, missing folders, policy blocks, and AI compose errors.
+section: Email
+sectionOrder: 7
+order: 11
+locale: en
+translationKey: email.troubleshooting
+updatedAt: 2026-07-17
+---
+
+# Troubleshooting Email Connections
+
+Identify whether the failure concerns authorization, sending, mailbox reading, policy, message content, or AI runtime. These layers can fail independently.
+
+## No mailbox or folders
+
+Confirm the account is active and selected. A custom account needs IMAP settings for inbox, reading, search, and organization; SMTP alone is send-only. Verify the IMAP host, port, secure mode, username, password, and provider-side IMAP access.
+
+## Sending fails
+
+Test SMTP or reconnect OAuth. Check From identity, recipient syntax, attachment size, account quota, provider rejection, and the `sendTo` policy. A policy error identifies the address that is not allowed.
+
+## OAuth expired or revoked
+
+Reconnect the Google or Microsoft account when refresh fails, provider consent was revoked, or the required scope changed. Removing and reconnecting should be deliberate because disconnecting deletes the stored account secret.
+
+## AI drafting fails
+
+Confirm an agent provider is ready, the selected workspace is accessible, context files use supported types, and input limits are not exceeded. Remove large or irrelevant context before retrying. The email connection can be healthy even when the AI model is not.
+
+## HTML or remote content looks incomplete
+
+HTML is sanitized and remote resources are controlled for privacy. Allow remote resources only for a trusted sender when they are necessary to understand the message.
+
+## Related guides
+
+- [Gmail and SMTP/IMAP connections](/docs/email/gmail-smtp-imap)
+- [Agent health and Doctor diagnostics](/docs/agents/doctor)
+- [Sending policies and guardrails](/docs/email/policies)

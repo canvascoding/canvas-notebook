@@ -1,0 +1,38 @@
+---
+title: Connecting an Email Account
+description: Add an authorized mailbox, choose its role, and configure initial read and send boundaries.
+section: Email
+sectionOrder: 7
+order: 2
+locale: en
+translationKey: email.connect
+updatedAt: 2026-07-17
+---
+
+# Connecting an Email Account
+
+Connect email under Settings → Integrations. Each account belongs to the current user and stores its authorization separately from workspace documents and chat messages.
+
+## Choose a connection method
+
+- Use Google OAuth for Gmail or Google Workspace when the instance provides an OAuth client or managed connection.
+- Use Microsoft OAuth for Outlook or Microsoft 365 when configured.
+- Use SMTP for a custom send-capable account and add IMAP when the mailbox should be readable in Canvas.
+
+Complete the provider authorization or enter the server settings, then verify the connection. The first active personal account becomes primary unless you choose another account later.
+
+## Configure policies at setup
+
+Each account has `readFrom` and `sendTo` allowlists. New account setup can seed the account's own address as a safe initial value. Add only the addresses or domains the user and enabled agents should be able to read from or send to through that account.
+
+## Confirm the result
+
+Open Email, select the account, load its folders, and send a controlled test to an allowed recipient. For SMTP without IMAP, expect sending and policy management but no inbox, reading, or search.
+
+OAuth access can expire or be revoked. Password-based credentials are stored in the user-scoped encrypted email secret store and should never be copied into a workspace file.
+
+## Related guides
+
+- [Gmail and SMTP/IMAP connections](/docs/email/gmail-smtp-imap)
+- [Managing multiple inboxes](/docs/email/multiple-inboxes)
+- [Sending policies and guardrails](/docs/email/policies)

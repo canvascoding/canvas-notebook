@@ -1,0 +1,64 @@
+---
+title: Skills and Plugins
+description: Extend agents with reusable instructions, executable tools, connected services, and installable capability bundles.
+section: Core Features
+sectionOrder: 2
+order: 6
+locale: en
+translationKey: features.skills
+updatedAt: 2026-07-17
+---
+
+# Skills and Plugins
+
+Skills package reusable expertise for Canvas Notebook agents. A skill is a folder with a `SKILL.md` file that explains what the capability does, when it should be used, and how the agent should apply it.
+
+Plugins bundle a broader extension. They can include skills, tools, integrations, and related assets that belong together. Canvas Notebook provides settings for installing, inspecting, enabling, and assigning these capabilities.
+
+## Core capabilities
+
+- Install or upload skills.
+- Read skill documentation before enabling a capability.
+- Add reusable instructions through `SKILL.md`.
+- Expose executable skill tools when a skill includes a supported command.
+- Enable skills globally or select them for a specialized agent.
+- Install and manage plugin bundles.
+- Connect MCP servers and discover their tools.
+- Connect external apps and provider services.
+- Store required environment variables in protected integration settings.
+
+## A representative workflow
+
+Install a document-processing skill, review its documentation, and enable it only for the agent responsible for reports. Add the required provider key in Integration settings, then test the skill with a non-sensitive sample document before using it on client files.
+
+If several skills are enabled globally, a specialized agent can inherit them or use an explicit selection. Explicit selection keeps the agent focused and reduces the number of irrelevant tools presented to the model.
+
+## Anatomy of a skill
+
+The minimum skill is a folder containing `SKILL.md`:
+
+```text
+my-skill/
+└── SKILL.md
+```
+
+The document describes the skill name, purpose, triggers, instructions, and any required inputs. Skills without an executable act as context for the agent. Skills with supported executable tooling can become callable operations.
+
+## Plugins, MCP, and connected apps
+
+Skills teach and package workflows. MCP servers expose external tools through the Model Context Protocol. Connected apps provide access to third-party services. Plugins can organize several of these extension types as one installable unit.
+
+These capabilities may require credentials or grant access to external systems. Review their documentation and requested scope before enabling them.
+
+## Secrets and trust
+
+Store API keys and tokens in the protected integration settings, not in `SKILL.md`, chat prompts, or workspace files. Treat third-party skills and plugins as software: inspect the source and instructions, understand which commands or services they can reach, and test them with limited access first.
+
+## Related guides
+
+- [Quickstart](/docs/quickstart)
+- [The 24/7 AI Agent](/docs/features/ai-agent)
+- [Automations](/docs/features/automations)
+- [Markdown Knowledge Base](/docs/features/knowledge-base)
+
+[Open dashboard](/dashboard)

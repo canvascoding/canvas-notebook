@@ -1,0 +1,48 @@
+---
+title: Installing and Managing Plugins
+description: Review plugin contents, manage lifecycle state, and diagnose blocked or conflicting capabilities.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 8
+locale: en
+translationKey: integrations.manage-plugins
+updatedAt: 2026-07-17
+---
+
+# Installing and Managing Plugins
+
+Plugins can change agent instructions and introduce external connections. Review the manifest, included skills, connector requirements, and source before installation.
+
+## Installation review
+
+Confirm the plugin has a valid `.canvas-plugin/plugin.json`, a unique plugin name, a valid version, and no unexpected capability. For each included skill, inspect `SKILL.md` and supporting scripts. For each connector, identify the required account, environment variables, OAuth scopes, and tools.
+
+After installation, Canvas records package metadata and materializes the plugin's skills. A plugin can be available, disabled, blocked, conflicting, or waiting for a personal connection.
+
+## Enable and disable
+
+Enable a plugin only after its required configuration is present. Disabling a plugin removes its managed skills from effective agent availability without pretending the underlying external account has been deleted. Disconnect or revoke external accounts separately when access should end.
+
+When changing versions:
+
+1. Review the manifest and instruction diff.
+2. Check for renamed or removed skills and connectors.
+3. Update required environment variables.
+4. Test with a limited agent and workspace.
+5. Expand access after verifying expected behavior.
+
+## Troubleshooting states
+
+- **Blocked:** policy prevents the plugin or a required capability.
+- **Conflict:** another package owns the same identity or incompatible capability.
+- **Personal connection required:** the plugin is installed, but the current user has not connected the required service.
+- **Disabled:** the package is present but not contributing capabilities.
+
+Keep the original package and version information available for rollback. Removing a plugin should not be treated as automatic deletion of data created through its external services.
+
+## Related guides
+
+- [Plugins overview](/docs/integrations/plugins-overview)
+- [Integration environment variables](/docs/integrations/environment-variables)
+- [Managing API keys and secrets](/docs/integrations/secrets)
+

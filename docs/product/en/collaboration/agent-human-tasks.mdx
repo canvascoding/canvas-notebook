@@ -1,0 +1,38 @@
+---
+title: Agent-created Human Tasks
+description: Let agents hand off decisions, reviews, approvals, and offline work without losing session context.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 9
+locale: en
+translationKey: collaboration.agent-human-tasks
+updatedAt: 2026-07-17
+---
+
+# Agent-created Human Tasks
+
+Authorized agents can use the `create_human_todo` tool when their work is complete or blocked on a human decision, review, approval, missing input, or offline action. The tool creates a visible item in the To-dos surface instead of leaving an important request buried in chat history.
+
+## What an agent can provide
+
+The agent supplies a concise title and can add a description, category, priority, due date, up to 20 workspace-relative file links, and an eligible assignee. Canvas records the source agent and session so that a completed item can continue the correct conversation.
+
+Agents should create a task only when there is a concrete human action. They should not use to-dos as verbose logs or substitute every status message with a task.
+
+## Workspace behavior
+
+Inside organization or team execution context, the task is scoped to that shared workspace. Otherwise it is personal. Assignments are validated against organization membership. Workspace file links cannot be absolute paths, external URLs, or traversal paths.
+
+## Notification and response
+
+New agent tasks appear as unread to-dos and may trigger system email notification when configured. The user can inspect linked files, complete the item with a comment, and send the result back to the linked session. Canvas validates ownership and expected agent identity before continuing the runtime.
+
+## Safety boundary
+
+Agent instructions explicitly prohibit secrets, tokens, passwords, raw credentials, and large logs in human tasks. A to-do can request approval, but approval must still be interpreted within the action's real policy—for example, sending email or publishing a public file may require its own explicit confirmation.
+
+## Related guides
+
+- [To-dos, approvals, and follow-ups](/docs/collaboration/todos-approvals)
+- [Agent tools](/docs/agents/tools)
+

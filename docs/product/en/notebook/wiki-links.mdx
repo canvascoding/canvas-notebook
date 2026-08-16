@@ -1,0 +1,49 @@
+---
+title: Wiki Links and Document Relations
+description: Connect Markdown notes with Obsidian-style wiki links and navigate related workspace knowledge.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 7
+locale: en
+translationKey: notebook.wiki-links
+updatedAt: 2026-07-17
+---
+
+# Wiki Links and Document Relations
+
+Wiki links connect one Markdown document to another using a readable title or workspace path. Canvas Notebook uses these relations for navigation, backlinks, embeds, and the Document Graph.
+
+## Link a document
+
+Use double brackets around the target:
+
+```md
+See [[campaign-brief]] for the approved scope.
+```
+
+Add a display label when the sentence should use different text:
+
+```md
+Review the [[campaign-brief|approved campaign scope]].
+```
+
+When several documents have similar names, use a more specific path so the intended target is unambiguous. The editor can help select workspace documents while inserting a link.
+
+## Navigate links
+
+Open a resolved wiki link to move to its target document. A link can also point to a heading or location in a Markdown file, letting a long reference document be opened at the relevant section.
+
+An unresolved link is still useful as an explicit statement that a document should exist. The Document Graph can surface these missing targets so they can be created or corrected later.
+
+## Keep relations maintainable
+
+- Prefer stable, descriptive document names.
+- Link to source notes instead of copying facts into many files.
+- Check incoming backlinks before renaming a central document.
+- Resolve accidental spelling variants before the graph becomes fragmented.
+
+## Related guides
+
+- [Backlinks and linked references](/docs/notebook/backlinks)
+- [Embedded workspace documents](/docs/notebook/embeds)
+- [Document graph and unresolved links](/docs/notebook/document-graph)

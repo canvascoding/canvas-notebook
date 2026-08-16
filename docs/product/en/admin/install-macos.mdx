@@ -1,0 +1,58 @@
+---
+title: macOS Installation
+description: Run Canvas Notebook locally with the portable CLI, Docker Desktop, and a LaunchAgent.
+section: Administration and Security
+sectionOrder: 10
+order: 12
+locale: en
+translationKey: admin.install-macos
+updatedAt: 2026-07-17
+---
+
+# macOS Installation
+
+The macOS installer creates a local Canvas Notebook server. The desktop application, when used, is a client; the Notebook server still runs in Docker.
+
+## Install
+
+Review the remote script according to your security policy, then run:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/macos.sh | bash
+```
+
+The installer supports Apple Silicon and Intel Macs. It verifies the portable CLI archive checksum, ensures Node.js and Docker Desktop are available, installs a user-local `canvas-notebook` wrapper, pulls and starts the container, and registers a LaunchAgent by default.
+
+If `~/.local/bin` is not already on `PATH`, add it so new shells can find the command.
+
+## Optional controls
+
+Pin a release for reproducibility:
+
+```bash
+CANVAS_VERSION=v2026.7.3.2 curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/macos.sh | bash
+```
+
+Set `CANVAS_AUTO_INSTALL_DEPS=false` to require preinstalled Node.js and Docker Desktop. Set `CANVAS_INSTALL_SERVICE=false` to skip LaunchAgent registration or `CANVAS_OPEN_BROWSER=false` to keep the installer from opening the app.
+
+## Verify
+
+Canvas is available at `http://localhost:3456` by default.
+
+```bash
+canvas-notebook status
+canvas-notebook health
+canvas-notebook service status
+```
+
+Create the first admin in the browser. For access from another machine, do not expose the local port casually; deploy on a controlled server with HTTPS instead.
+
+## Data paths
+
+Manager and data files live under `~/Library/Application Support/Canvas Notebook`, and the host CLI log is under `~/Library/Logs/Canvas Notebook/manager.log` unless overridden.
+
+## Related guides
+
+- [Updates and rollback behavior](/docs/admin/updates-rollback)
+- [VM management CLI](/docs/admin/vm-cli)
+

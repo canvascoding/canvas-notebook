@@ -1,0 +1,38 @@
+---
+title: Live Document Collaboration
+description: Edit Markdown and Excalidraw documents with presence, durable state, and reviewable agent changes.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 6
+locale: en
+translationKey: collaboration.live-documents
+updatedAt: 2026-07-17
+---
+
+# Live Document Collaboration
+
+Canvas supports live collaboration for text documents through Yjs and for Excalidraw scenes. Authorized users connect to a workspace-bound document session and see presence for people and agents who are viewing or editing the same file.
+
+## Connection and access
+
+The collaboration session issues a short-lived ticket bound to the user, session, workspace, organization, document, path, provider, representation, permission, and document lifecycle. Tickets expire after 90 seconds and are used to establish the live connection; they are not reusable general workspace credentials.
+
+The editor can report connecting, live, persisting, saved, offline, reconnecting, read-only, or degraded states. Do not close the page during a persisting or degraded state without checking whether the latest change reached durable storage.
+
+## Presence
+
+Presence identifies the document, workspace, session, actor type, display name, and current activity: viewing, editing, or agent editing. Presence is awareness, not a replacement for permissions or an audit history.
+
+## Agent edits
+
+Agent changes can use direct apply or review mode. Canvas anchors proposed edits to document state, detects overlapping or semantically changed targets, and can report partial application, review requirements, conflicts, cancellation, failure, rejection, or reversion. Review proposed changes when the document changed concurrently or the operation reports uncertainty.
+
+## Working safely
+
+- Confirm the connection is live before editing.
+- Avoid duplicating the same large rewrite through multiple agents.
+- Resolve review items and semantic conflicts explicitly.
+- Wait for saved or checkpointed state before closing.
+- Use file history or operation reversion when an accepted change must be undone.
+
+For the underlying document surfaces, see the [Markdown editor](/docs/notebook/markdown-editor) and [Excalidraw canvases](/docs/notebook/excalidraw).

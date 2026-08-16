@@ -1,0 +1,54 @@
+---
+title: MCP Server Connections
+description: Connect external Model Context Protocol servers with scoped configuration, secrets, and network safeguards.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 9
+locale: en
+translationKey: integrations.mcp
+updatedAt: 2026-07-17
+---
+
+# MCP Server Connections
+
+Model Context Protocol (MCP) servers expose external tools to compatible Canvas agents. A server can run as a local command or connect over HTTP. Configuration determines how it starts, which environment values it receives, and whether it is enabled; agent policy still determines actual use.
+
+## Server configuration
+
+The MCP configuration contains a `mcpServers` object and optional settings such as a tool prefix and idle timeout. A local server can declare `command`, `args`, `cwd`, `env`, and `envPassthrough`. A remote server can declare a URL, transport, timeout, headers, bearer-token environment key, and OAuth or no-auth mode.
+
+```json
+{
+  "mcpServers": {
+    "campaign-data": {
+      "url": "https://mcp.example.com",
+      "bearerTokenEnv": "CAMPAIGN_MCP_TOKEN",
+      "enabled": true
+    }
+  }
+}
+```
+
+## Secret references
+
+Do not place literal tokens, passwords, or OAuth client secrets in MCP JSON. Secret-like configuration values must use environment references such as `${CAMPAIGN_MCP_TOKEN}`. Store the corresponding value in the appropriate integration environment.
+
+## Network policy
+
+Production HTTP connections must use HTTPS unless an administrator has deliberately enabled an override. Private, loopback, link-local, and unresolved destinations are blocked by default to reduce server-side request forgery risk. Do not weaken these controls merely to make an untrusted server reachable.
+
+## Verification
+
+1. Add the server configuration and required environment references.
+2. Enable the server.
+3. Confirm its status without exposing secret values.
+4. Assign the relevant capability to a test agent.
+5. Invoke one read-only tool and inspect the tool activity.
+
+Remove or disable a server when it is no longer trusted, then rotate any credential it received.
+
+## Related guides
+
+- [Managing API keys and secrets](/docs/integrations/secrets)
+- [Agent tools](/docs/agents/tools)
+

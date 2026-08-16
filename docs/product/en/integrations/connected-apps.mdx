@@ -1,0 +1,45 @@
+---
+title: Connected Apps
+description: Connect external toolkits, understand connection status, and control which agent capabilities use them.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 10
+locale: en
+translationKey: integrations.connected-apps
+updatedAt: 2026-07-17
+---
+
+# Connected Apps
+
+Connected Apps lets a user authorize external services that provide tools to Canvas. Available toolkits and their tool catalogs are loaded through the configured connection gateway. Each connection is associated with the current Canvas identity and secret scope.
+
+## Connect a toolkit
+
+1. Open the Connected Apps settings.
+2. Select the service you want to use.
+3. Review the requested service and expected tools.
+4. Start the connection flow.
+5. Complete authorization on the provider's page and return to Canvas.
+6. Confirm that the account status is `ACTIVE`.
+
+Some toolkits require no authentication and do not open an authorization page. Other connections may pass through initializing, initiated, failed, expired, inactive, or revoked states before they can be used.
+
+## Connection is not agent permission
+
+An active account makes provider tools technically available. A plugin or skill may declare which tools it expects, and the agent must still have the relevant skill, connector, and runtime permission. Keep capability assignments narrow, especially for tools that publish, send, delete, or modify external records.
+
+## Disconnecting
+
+Disconnecting removes the connected account through the gateway. Also remove the capability from affected agents and revoke the connection at the provider when you need an immediate, auditable cutoff. Data already created in the external service is not deleted automatically.
+
+If a plugin reports `personal connection required`, the plugin may be installed correctly while the current user still needs to connect the corresponding app.
+
+## Troubleshooting
+
+Verify the gateway API key, callback base URL, provider-side authorization, connection status, and user scope. An account that exists but is not `ACTIVE` is not treated as connected.
+
+## Related guides
+
+- [Plugins overview](/docs/integrations/plugins-overview)
+- [Enabling skills for agents](/docs/integrations/enable-skills)
+

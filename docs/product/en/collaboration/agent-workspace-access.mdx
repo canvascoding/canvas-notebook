@@ -1,0 +1,41 @@
+---
+title: Agent Access Across Workspaces
+description: Understand the separate agent-membership, workspace-permission, and session-snapshot checks.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 5
+locale: en
+translationKey: collaboration.agent-workspace-access
+updatedAt: 2026-07-17
+---
+
+# Agent Access Across Workspaces
+
+Access to an agent does not imply access to every workspace, and access to a workspace does not imply access to every agent. Canvas evaluates both boundaries before an agent session can operate.
+
+## Agent membership
+
+Agent managers can assign three independent capabilities to eligible users:
+
+- **Use** starts or continues sessions with the agent.
+- **Edit** changes the agent's configuration.
+- **Manage** controls the agent's members and higher-level settings.
+
+## Workspace capability
+
+The user must also have `canRunAgent` for the target workspace. File tools then operate inside that workspace root and respect its read, write, delete, and sharing permissions. A project-scoped user cannot use an agent session to cross into an unrelated team or organization workspace.
+
+## Session pinning
+
+When Canvas creates a session, it records the agent, user, organization, workspace, runtime policy, model selection, and system prompt snapshot. Later navigation changes do not silently widen that session. Start a new session after deliberate agent, workspace, or runtime changes when you need the new configuration.
+
+## Safe assignment pattern
+
+1. Grant the user access to the smallest workspace needed.
+2. Grant agent **Use** without **Edit** or **Manage** unless required.
+3. Enable only relevant tools and skills.
+4. Test with a read-only task in the target workspace.
+5. Review tool activity before enabling write or external actions.
+
+For agent-level details, see [Members and permissions](/docs/agents/members-permissions) and [Workspace and project access](/docs/agents/workspace-project-access).
+

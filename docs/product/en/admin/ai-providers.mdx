@@ -1,0 +1,43 @@
+---
+title: AI Provider Administration
+description: Install, credential, verify, and govern provider and model availability across Canvas workspaces and agents.
+section: Administration and Security
+sectionOrder: 10
+order: 6
+locale: en
+translationKey: admin.ai-providers
+updatedAt: 2026-07-17
+---
+
+# AI Provider Administration
+
+Administrators manage an application catalog of AI provider installations and models. Canvas supports provider choices such as OpenRouter, Anthropic, Google Gemini, Ollama, Groq, Mistral, and OpenAI, subject to the installed runtime and current catalog.
+
+## Provider installation
+
+Each installation has its own credentials, enabled state, revision, model list, and default model. Credentials should be scoped to the organization or user that owns them and stored through the provider credential interface, not in prompts or agent files.
+
+Enable only models the organization intends to use. Choose one enabled provider-default model before verification. Workspace model policy and agent preferences can narrow the catalog further; they cannot make a disabled provider available.
+
+## Verification
+
+Provider verification runs a real model probe with a 30-second time budget. Canvas rechecks the catalog and installation revision before and after model resolution so a concurrent disable or model change cannot be mistaken for a successful test.
+
+Successful verification marks the installation ready. A previously working installation can become degraded after a failed probe; a never-verified installation remains unverified. Resolve missing credentials, unavailable models, timeouts, provider errors, and catalog conflicts before assigning it broadly.
+
+## Change workflow
+
+1. Add credentials and the provider endpoint or account configuration.
+2. Enable the required models and select the provider default.
+3. Run verification.
+4. Configure organization and workspace model policy.
+5. Test a new agent session.
+6. Review usage and cost after rollout.
+
+Changing or disabling a provider does not rewrite old session snapshots. Start new sessions to validate the new selection and preserve historical attribution.
+
+## Related guides
+
+- [AI models and providers](/docs/agents/models-and-providers)
+- [Usage and cost analytics](/docs/collaboration/usage-costs)
+

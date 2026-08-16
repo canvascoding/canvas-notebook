@@ -1,0 +1,44 @@
+---
+title: Full Backups and Restore
+description: Create and protect disaster-recovery archives containing the Canvas data root and a consistent database snapshot.
+section: Administration and Security
+sectionOrder: 10
+order: 4
+locale: en
+translationKey: admin.backups
+updatedAt: 2026-07-17
+---
+
+# Full Backups and Restore
+
+A full backup is designed for disaster recovery. It includes the data root and a consistent SQLite snapshot or Postgres dump. It does not include the host operating system, Docker images, app binaries, or host configuration.
+
+## Critical security warning
+
+Full backup ZIP files are **unencrypted** and include raw secrets, public links, and public-link tokens. Anyone who obtains an archive may be able to read private workspace data or reuse credentials. Store it in encrypted, access-controlled backup storage and apply a tested retention policy.
+
+## Consistency model
+
+The database is captured as a consistent snapshot. Files are copied online on a best-effort basis while the application remains running and maintenance mode is off. For a highly active workspace, schedule the backup during a quiet period and inspect warnings.
+
+## Create and verify
+
+1. Confirm sufficient disk space at the backup destination.
+2. Start a full backup from the administrator area or run `canvas-notebook backup create` on the host.
+3. Wait for completed status and record the archive SHA-256.
+4. Download or move the archive to protected off-host storage.
+5. Inspect the manifest and test restore on an isolated instance.
+
+The manifest records the app version, source database, deployment mode, runtime capabilities, file hashes, Postgres and pgvector compatibility, restore requirements, and warnings.
+
+## Restore planning
+
+Inspect an archive against the target before applying it. A Postgres source requires Postgres, and some restores require reindexing. Full restore does not preserve the target instance and license as a migration does; confirm the reported restore risks before proceeding.
+
+After restore, rotate high-value credentials when the archive left the primary trust boundary, verify public shares, test authentication and providers, resume automations deliberately, and run health checks.
+
+## Related guides
+
+- [Data migration](/docs/admin/data-migration)
+- [VM management CLI](/docs/admin/vm-cli)
+

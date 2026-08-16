@@ -1,0 +1,41 @@
+---
+title: Plan Mode
+description: Research and design a change with read-only tools before allowing an agent to execute it.
+section: Agents and Chat
+sectionOrder: 4
+order: 10
+locale: en
+translationKey: agents.plan-mode
+updatedAt: 2026-07-17
+---
+
+# Plan Mode
+
+Plan Mode restricts the agent to read-only analysis. Use it to inspect a workspace, compare options, identify risks, and propose an implementation before any files or resources are changed.
+
+## Enter Plan Mode
+
+Toggle Planning Mode in chat or use `Shift+Tab`. The runtime filters the agent's active tools and adds an explicit read-only instruction for the turn.
+
+Available operations focus on inspection, including file reads, directory and pattern search, semantic search, web fetching, document-relation inspection, snapshot listing, and reading automation definitions. Mutating operations such as file writes, command execution, directory creation, and resource changes are blocked.
+
+## Ask for a useful plan
+
+Include the goal and decision criteria:
+
+```text
+Inspect @site/ and @brief/relaunch.md. Propose a file-by-file implementation
+plan, identify risky dependencies, and list the checks we should run.
+```
+
+A strong plan should name the files, explain the intended change, call out unknowns, and define verification. It should not pretend that a proposed edit has already been made.
+
+## Switch before execution
+
+When you approve the approach, return to Standard Mode with `Shift+Tab` and ask the agent to implement the plan. Mode is an operational guardrail, not a promise that every fact in the analysis is correct; review important assumptions before execution.
+
+## Related guides
+
+- [Agent tools and capabilities](/docs/agents/tools)
+- [Understanding tool activity](/docs/agents/tool-activity)
+- [Agent delegation and multi-agent workflows](/docs/agents/delegation)

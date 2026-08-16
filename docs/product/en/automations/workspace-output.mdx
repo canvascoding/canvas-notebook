@@ -1,0 +1,48 @@
+---
+title: Choosing a Workspace and Output Directory
+description: Bind automated work to an authorized workspace and an intentional deliverable path.
+section: Automations
+sectionOrder: 6
+order: 4
+locale: en
+translationKey: automations.workspace-output
+updatedAt: 2026-07-17
+---
+
+# Choosing a Workspace and Output Directory
+
+An automation executes inside one workspace. Its file reads, context paths, agent permissions, session, and output destination are evaluated against that workspace boundary.
+
+## Select the owning workspace
+
+Choose the workspace that contains the sources and owns the result. Personal, organization, team, and project workspace types can participate according to the user's membership and the selected agent's access.
+
+Add only the context paths the task normally needs. A short list makes the run prompt clearer and reduces the chance that similarly named files are mistaken for the intended source.
+
+## Set the target output
+
+When a job creates files, set a workspace-relative target such as:
+
+```text
+reports/daily/
+```
+
+or a specific destination:
+
+```text
+reports/current-status.md
+```
+
+The runtime creates a missing parent directory when appropriate. Logs and metadata are stored automatically in the run record, so the agent should not create separate log files in the workspace.
+
+If no output path is configured, the agent should create a file only when the prompt explicitly requires one. Its final response still remains in the run record.
+
+## Changing a workspace
+
+Canvas Notebook previews the impact before moving a job. A change may reset an unavailable skill or fixed delivery session and can be blocked by an in-flight run, missing executor access, unavailable agent or runtime, path conflict, delivery issue, or disconnected webhook integration.
+
+## Related guides
+
+- [Workspace and project access](/docs/agents/workspace-project-access)
+- [Creating a scheduled automation](/docs/automations/scheduled)
+- [Run history and failure states](/docs/automations/run-history)

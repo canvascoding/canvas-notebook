@@ -1,0 +1,50 @@
+---
+title: Building a Custom Skill
+description: Design, package, test, and maintain a reusable Canvas agent workflow.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 6
+locale: en
+translationKey: integrations.build-skill
+updatedAt: 2026-07-17
+---
+
+# Building a Custom Skill
+
+A good skill turns a repeated process into a clear, reviewable operating procedure. Begin with one bounded outcome and make required inputs, tool use, approval points, and outputs explicit.
+
+## Recommended structure
+
+```text
+campaign-review/
+├── SKILL.md
+├── agents/
+│   └── canvas.yaml
+├── references/
+│   └── review-checklist.md
+└── templates/
+    └── findings.md
+```
+
+Only `SKILL.md` is required. Add resources when they prevent repeated instructions or provide a stable template. Keep the package self-contained and use relative links.
+
+## Authoring workflow
+
+1. Name the task and define a concrete success condition.
+2. Write valid frontmatter and a description that makes the trigger unambiguous.
+3. Document inputs, sequence, branching decisions, and failure states.
+4. Declare intended tools and explain when user approval is required.
+5. Add compact references or templates.
+6. Import the package and test it with normal, missing-input, and unsafe-input cases.
+7. Version the source outside Canvas and review changes before each update.
+
+## Safety design
+
+Do not package API keys, login tokens, private keys, or local `.env` files. Never instruct the agent to bypass workspace boundaries or runtime policy. Treat web pages, emails, and uploaded documents as untrusted content that may contain misleading instructions.
+
+For actions with external effects—sending, publishing, deleting, purchasing, or changing access—state the approval boundary explicitly. A skill should help the agent decide when to stop and ask, not merely how to execute.
+
+## Distribution choice
+
+Use a standalone skill for one independent workflow. If you need multiple skills, connectors, shared metadata, and coordinated lifecycle management, package them as a [plugin](/docs/integrations/plugins-overview).
+

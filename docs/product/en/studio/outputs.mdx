@@ -1,0 +1,43 @@
+---
+title: Managing Outputs and Failed Generations
+description: Filter, review, favorite, download, delete, and troubleshoot Studio generation results.
+section: Studio
+sectionOrder: 5
+order: 11
+locale: en
+translationKey: studio.outputs
+updatedAt: 2026-07-17
+---
+
+# Managing Outputs and Failed Generations
+
+Studio history contains generation records and their individual outputs. A generation moves through pending, generating, completed, or failed states; completed generations can contain multiple variations.
+
+## Review and organize outputs
+
+Use mode, creator, or favorites filters to narrow the output grid. Open an item for full preview, favorite strong candidates, download or share a local copy, create a variation, start a video from an image, or save selected outputs to a workspace.
+
+Multi-select supports batch actions such as saving, downloading as a ZIP, or deleting. Deletion removes Studio records or outputs and should be used only after approved assets have been preserved where needed.
+
+## Diagnose a failure
+
+Inspect the generation error and confirm:
+
+- the provider credential or managed media entitlement is available;
+- the selected model supports the mode and controls;
+- reference types and counts are within model limits;
+- source files still exist and are readable;
+- the prompt and image comply with provider safety policy;
+- the external service is available.
+
+A failed generation does not necessarily mean every input is invalid. Retry only after changing the likely cause; repeated identical requests can duplicate cost without improving the outcome.
+
+## Preserve approved work
+
+Studio history is useful production provenance, but an approved project asset should also be saved into its owning workspace with a clear filename and review context.
+
+## Related guides
+
+- [Saving outputs to the workspace](/docs/studio/save-to-workspace)
+- [Studio provider credentials](/docs/studio/provider-credentials)
+- [Bulk generation](/docs/studio/bulk-generation)

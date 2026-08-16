@@ -1,0 +1,36 @@
+---
+title: Main Email and System Email
+description: Distinguish a user's primary connected mailbox from the administrator-managed sender for platform notifications.
+section: Email
+sectionOrder: 7
+order: 10
+locale: en
+translationKey: email.main-system-email
+updatedAt: 2026-07-17
+---
+
+# Main Email and System Email
+
+Canvas Notebook uses two separate email concepts: a user's primary personal account and the instance's system SMTP sender.
+
+## Primary personal account
+
+The primary account is one of the current user's active connected mailboxes. It is the default for personal compose, mailbox, agent email tools, and compatible notification fallback when no system sender is configured. Its own read and send policies remain in force.
+
+Each user can have a different primary account. Disconnecting the primary promotes another active personal account when available.
+
+## System SMTP
+
+System SMTP is configured by an administrator with host, port, secure mode, username, password, From address and name, and optional Reply-To. It sends platform-generated notification email rather than acting as a personal inbox. File and URL access are disabled for system-mail transport inputs.
+
+When no system sender exists, Canvas can use the notification recipient's primary send-capable personal account as a fallback. Once system SMTP is configured, a system send failure does not silently fall back to a personal sender. This prevents an unexpected change of identity after an administrator selected a system address.
+
+## Choose clear identities
+
+Use a recognizable system From name and a monitored Reply-To. Do not configure a person's mailbox as system SMTP unless that ownership and fallback behavior are explicitly intended.
+
+## Related guides
+
+- [Managing multiple inboxes](/docs/email/multiple-inboxes)
+- [Connecting an email account](/docs/email/connect)
+- [Troubleshooting email connections](/docs/email/troubleshooting)

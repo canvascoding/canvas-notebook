@@ -1,0 +1,41 @@
+---
+title: Bulk Generation
+description: Apply a common prompt and preset across many products while tracking each line item independently.
+section: Studio
+sectionOrder: 5
+order: 9
+locale: en
+translationKey: studio.bulk-generation
+updatedAt: 2026-07-17
+---
+
+# Bulk Generation
+
+Bulk generation creates a set of Studio line items from multiple products. It is designed for repeatable catalog or campaign production where the composition is shared but each product must remain independently reviewable.
+
+## Create a bulk job
+
+1. Select the products to process.
+2. Write the shared prompt.
+3. Choose an optional preset and aspect ratio.
+4. Set the number of versions per product.
+5. Add line-item overrides when a product needs a different preset, persona, or custom prompt.
+6. Review the planned rows and start the job.
+
+Each line item records its product, optional persona and preset, custom prompt, generation, status, and outputs. The parent job tracks totals and can finish as completed, partial, or failed depending on individual results.
+
+## Keep batches reviewable
+
+Start with a small sample before processing a large catalog. Confirm that packaging, colors, labels, crop, and background are stable across different product shapes. More versions increase review volume as well as generation cost.
+
+Do not treat a completed job as approved delivery. Review failed rows separately, compare successful assets, and move only approved outputs into the project workspace.
+
+## Recover from partial results
+
+Use per-line status and errors to distinguish a bad reference or prompt from a provider-wide failure. Correct the affected line-item setup before retrying instead of regenerating every successful product.
+
+## Related guides
+
+- [Products, personas, and styles](/docs/studio/models)
+- [Building reusable presets](/docs/studio/presets)
+- [Managing outputs and failed generations](/docs/studio/outputs)

@@ -1,0 +1,40 @@
+---
+title: Switching Workspaces
+description: Change the active Canvas context without confusing new navigation with existing session boundaries.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 3
+locale: en
+translationKey: collaboration.switching-workspaces
+updatedAt: 2026-07-17
+---
+
+# Switching Workspaces
+
+Use the workspace switcher to change the content boundary used by Notebook, Studio, new chats, and other workspace-aware surfaces. Canvas lists only workspaces that are readable by the current user and selects only active entries.
+
+## Switch safely
+
+1. Open the workspace switcher.
+2. Review the workspace name, type, and status.
+3. Select the destination.
+4. Confirm that the file tree and workspace badge have changed.
+5. Start new workspace-specific work from the updated context.
+
+Canvas remembers the preferred workspace locally and reconciles it with the server's allowed workspace list on reload. If the stored workspace is no longer available, it falls back to the server default or another active readable workspace.
+
+## Existing sessions
+
+An existing agent session retains its own workspace and runtime snapshot. Switching the global interface does not grant that session access to a newly selected workspace. Open the relevant existing session or create a new session in the intended workspace.
+
+The same caution applies to automation jobs and saved Studio destinations: inspect their explicit workspace instead of assuming they follow the current navigation state.
+
+## When switching fails
+
+The workspace may be archived, disabled, recovery-locked, removed from your access, unavailable under the current license, or temporarily unavailable during recovery. Refresh the workspace list and ask a workspace manager to verify your membership and effective read permission.
+
+## Related guides
+
+- [Agent access across workspaces](/docs/collaboration/agent-workspace-access)
+- [Workspace types](/docs/collaboration/workspace-types)
+

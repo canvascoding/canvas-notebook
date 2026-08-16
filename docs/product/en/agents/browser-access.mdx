@@ -1,0 +1,36 @@
+---
+title: Browser Access
+description: Configure and supervise the managed Chromium runtime used for interactive web tasks and browser-based exports.
+section: Agents and Chat
+sectionOrder: 4
+order: 16
+locale: en
+translationKey: agents.browser-access
+updatedAt: 2026-07-17
+---
+
+# Browser Access
+
+The managed browser gives an enabled agent controlled access to a headless Chromium session. It is useful for JavaScript-rendered pages, UI interaction, screenshots, authenticated session checks, and local application verification.
+
+## Three capability layers
+
+An administrator can enable the browser runtime, agent browser tools, and browser-based exports separately. The selected agent must also have its browser tool enabled. Status shows runtime, tool, and export availability together with blockers and warnings.
+
+Prefer normal web fetch or search for public text that does not require interaction. Chromium consumes more memory and CPU and can overload small hosts.
+
+## Session and profile behavior
+
+Browser state can be scoped to an agent, session, or user. Persistent profile data can retain necessary cookies for an intended login flow. Avoid optional tracking consent without explicit approval. Settings let authorized users close a live session, delete stored profile state, or run a launch probe.
+
+## Network and action safety
+
+Navigation is limited to absolute HTTP or HTTPS URLs. Cloud metadata, link-local, reserved, and private network targets are blocked by default, with narrowly controlled exceptions for configured environments. Localhost can support verification of the Canvas instance.
+
+Browser actions include navigation, observation, clicking, typing, keypresses, scrolling, screenshots, content extraction, dialogs, console logs, and controlled evaluation. Treat clicks, form submissions, purchases, publishing, and external messages as consequential actions that require clear user intent.
+
+## Related guides
+
+- [Agent tools and capabilities](/docs/agents/tools)
+- [Understanding tool activity](/docs/agents/tool-activity)
+- [Agent health and Doctor diagnostics](/docs/agents/doctor)

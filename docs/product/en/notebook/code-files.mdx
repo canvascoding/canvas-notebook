@@ -1,0 +1,43 @@
+---
+title: Working with Code Files
+description: Inspect and edit source code, configuration, scripts, and other text files in the Notebook.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 12
+locale: en
+translationKey: notebook.code-files
+updatedAt: 2026-07-17
+---
+
+# Working with Code Files
+
+Canvas Notebook can open source code, configuration, scripts, and other text files in its code editor. This keeps technical project material next to briefs and assets and gives the agent access to the same workspace tree.
+
+## Open and edit text files
+
+Select a supported text file in the explorer. The editor uses the file extension to provide an appropriate editing experience for formats such as JavaScript, TypeScript, CSS, Python, shell scripts, YAML, JSON, and other plain text.
+
+Save the file before running a command that depends on the latest content. When an agent edits code, review the affected files and run the project's existing checks in the terminal before relying on the result.
+
+## Keep changes scoped
+
+Tell the agent which folder, file, or function is in scope and what must remain unchanged. For example:
+
+```text
+Update workspace/site/hero.tsx to use the approved copy from
+workspace/brief/positioning.md. Do not change the page layout.
+```
+
+This connects business context in Markdown to implementation without granting an ambiguous request to rewrite the entire project.
+
+## Treat executable content carefully
+
+Code and configuration can change application behavior, access external services, or remove data. Read commands before executing them, keep secrets out of files that may be shared, and use version control or backups for important projects.
+
+Binary files are not code-edited as text. Open them in a supported preview or download them for a specialized desktop tool.
+
+## Related guides
+
+- [Notebook interface overview](/docs/notebook/overview)
+- [File previews](/docs/notebook/file-previews)
+- [The 24/7 AI Agent](/docs/features/ai-agent)

@@ -1,0 +1,55 @@
+---
+title: The 24/7 AI Agent
+description: Give a persistent AI agent controlled access to workspace files, tools, models, and recurring work.
+section: Core Features
+sectionOrder: 2
+order: 1
+locale: en
+translationKey: features.ai-agent
+updatedAt: 2026-07-17
+---
+
+# The 24/7 AI Agent
+
+The Canvas Notebook agent works inside the same persistent workspace as your files and production tools. It can read and write documents, search notes, run shell commands, use enabled skills, call connected tools, and carry context from the active Notebook surface into a conversation.
+
+“24/7” describes the availability of a hosted Notebook runtime: scheduled work and agent services can continue while the Notebook instance is online. It does not mean that every agent acts continuously or without limits. Work begins through a conversation, an explicit automation, a webhook, or a configured heartbeat.
+
+## Core capabilities
+
+- Read, create, update, move, and organize workspace files.
+- Work with Markdown, code, documents, media, and structured project folders.
+- Run commands in the Notebook runtime when command access is available.
+- Search the workspace and use the current file as task context.
+- Use model providers configured by the workspace administrator.
+- Call enabled skills, plugins, MCP tools, browser tools, and connected apps.
+- Persist chat sessions so work can continue later.
+- Create specialized agents with focused instructions and access.
+- Schedule recurring work through Automations or the dedicated Heartbeat.
+
+## A representative workflow
+
+Create a specialized campaign agent and give it access to one project workspace, a research skill, and the files needed for the campaign. Ask it to review the campaign brief, create an outline, and save the result next to the source material. After reviewing the outline, turn the recurring status check into an automation.
+
+The useful pattern is progressive access: start with a narrow goal and a small tool set, inspect the result, then add capabilities only when the workflow requires them.
+
+## Models, tools, and skills are separate controls
+
+The selected model determines how the agent reasons and produces text. Tools determine which operations it can perform. Skills add reusable instructions or callable workflows. Connected apps and MCP servers extend the systems the agent can reach.
+
+Changing one of these controls does not automatically grant the others. A powerful model cannot access an inbox or execute a skill unless the relevant connection and capability are enabled.
+
+## Access and human control
+
+Specialized agents can be associated with users, projects, and workspaces. Tool and skill selection can be inherited or restricted. Sensitive workflows should use the smallest practical scope and retain a human review step for external communication, deletion, publication, or other high-impact actions.
+
+Agent output can be wrong even when the runtime works correctly. Review important facts, commands, recipients, generated assets, and file changes. Keep credentials in the integration settings rather than prompts or workspace documents.
+
+## Related guides
+
+- [Quickstart](/docs/quickstart)
+- [Markdown Knowledge Base](/docs/features/knowledge-base)
+- [Automations](/docs/features/automations)
+- [Skills and Plugins](/docs/features/skills)
+
+[Open dashboard](/dashboard)

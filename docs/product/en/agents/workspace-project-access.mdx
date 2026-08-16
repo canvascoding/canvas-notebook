@@ -1,0 +1,36 @@
+---
+title: Workspace and Project Access
+description: Understand how the active workspace and organizational grants constrain an agent's file context.
+section: Agents and Chat
+sectionOrder: 4
+order: 14
+locale: en
+translationKey: agents.workspace-project-access
+updatedAt: 2026-07-17
+---
+
+# Workspace and Project Access
+
+Every chat runs against an active workspace. Relative file paths, searches, edits, and saved outputs resolve inside that binding rather than against one global filesystem root.
+
+## Verify context before work
+
+Check the active workspace and project before sending a request. A reference picker shows material available in that context, and the agent should use workspace-relative paths for normal operations.
+
+Switching workspaces changes the file context for new work. It does not merge files or automatically transplant the assumptions from an existing session. Start a new session when the workspace boundary is central to the task.
+
+## Organization agent grants
+
+Organization-scoped agents can receive grants targeted at the organization, role, workspace, project, or individual user. A grant can allow use, editing, or management. The executing user must also have legitimate access to the relevant organization, project, and workspace.
+
+Agent access and file access are related but distinct. Being able to select an agent does not grant access to every workspace, and membership in a workspace does not automatically grant use of every specialized agent.
+
+## Keep outputs in scope
+
+Ask the agent to save deliverables under a clear path in the active workspace. Do not use absolute runtime paths unless a trusted tool returned that exact path for a specific operation. Cross-workspace transfer should be explicit and authorized.
+
+## Related guides
+
+- [Agent members and permissions](/docs/agents/members-permissions)
+- [File and folder references in chat](/docs/agents/chat-file-references)
+- [Notebook interface overview](/docs/notebook/overview)

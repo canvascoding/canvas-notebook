@@ -1,0 +1,54 @@
+---
+title: Updates and Rollback Behavior
+description: Apply container and CLI updates with health verification, pinned-image support, and automatic image rollback.
+section: Administration and Security
+sectionOrder: 10
+order: 14
+locale: en
+translationKey: admin.updates-rollback
+updatedAt: 2026-07-17
+---
+
+# Updates and Rollback Behavior
+
+The host CLI updates Canvas by pulling an image, applying required runtime and database configuration, recreating the app container, and waiting for the health endpoint. Persistent data remains in the host-mounted data directory.
+
+## Before an update
+
+1. Read the release notes and security notices.
+2. Create and move a verified full backup off the host.
+3. Check `canvas-notebook status` and `canvas-notebook health`.
+4. Resolve pending Postgres recovery or authentication work.
+5. Schedule a user-visible maintenance window for material upgrades.
+
+Run the standard update with:
+
+```bash
+canvas-notebook update
+```
+
+For a reproducible target, pass an OCI image pinned to a SHA-256 digest:
+
+```bash
+canvas-notebook update --image ghcr.io/canvascoding/canvas-notebook@sha256:DIGEST
+```
+
+Managed and scheduled updates require a pinned digest. `--require-pinned` enforces the same rule for a manual update.
+
+## Automatic rollback
+
+Before applying the new image, Canvas records the previous configuration and running image ID. If the replacement fails to become healthy, the CLI attempts to restore the previous image, rewrites its configuration, recreates the service, and verifies health again. Output distinguishes a successful rollback from a rollback failure.
+
+Postgres credential reconciliation uses a recovery journal and reserves time for rollback. Do not delete the journal or manually alter database credentials during recovery.
+
+## CLI updates
+
+`canvas-notebook cli-update` updates the portable host CLI separately. The application image and host manager do not necessarily share the same version; `status --json` reports both.
+
+Automatic image rollback is not a substitute for a restore-tested backup. After success, verify login, workspaces, providers, collaboration, automations, email, and one representative agent task.
+
+## Related guides
+
+- [Full backups and restore](/docs/admin/backups)
+- [VM management CLI](/docs/admin/vm-cli)
+

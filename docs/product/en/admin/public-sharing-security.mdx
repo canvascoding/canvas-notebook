@@ -1,0 +1,42 @@
+---
+title: Public Sharing Security
+description: Govern anonymous file links, strict and interactive HTML, revocation, and recurring exposure reviews.
+section: Administration and Security
+sectionOrder: 10
+order: 2
+locale: en
+translationKey: admin.public-sharing-security
+updatedAt: 2026-07-17
+---
+
+# Public Sharing Security
+
+A public share is anonymously readable by anyone who has or discovers its tokenized URL. Workspace permission controls who may create the link, but the visitor does not authenticate.
+
+## Security modes
+
+Strict HTML shares run inside a sandbox with scripts, network connections, objects, forms, and framing disabled. Images, media, inline styles, and embedded data are limited by a restrictive Content Security Policy.
+
+Interactive HTML is a deliberate exception. It allows scripts, network requests, workers, popups, and downloads inside a sandbox so an exported web artifact can function. It still blocks forms and framing, but it has a much broader capability surface. Only a user can create an interactive share; agents cannot.
+
+## Administration workflow
+
+1. Limit `canCreatePublicLinks` to appropriate roles and workspace members.
+2. Require an expiration for temporary delivery.
+3. Review the file and embedded dependencies in a signed-out browser.
+4. Audit the Security → Public Shares inventory regularly.
+5. Revoke links when the audience, content, or purpose changes.
+
+The inventory reports active, expired, revoked, missing, and stale shares. File identity checks prevent an unrelated replacement at the same path from automatically inheriting an old public link.
+
+## Incident response
+
+If sensitive content was exposed, revoke the share immediately, preserve the relevant audit context, and assume recipients may have downloaded the file. Rotate any credential found in the content and follow the applicable privacy or customer-notification process.
+
+Public share tokens are included in full disaster-recovery backups but excluded from migration exports. Protect backup archives accordingly.
+
+## Related guides
+
+- [Sharing files publicly](/docs/notebook/public-sharing)
+- [Managing active public shares](/docs/notebook/public-share-management)
+

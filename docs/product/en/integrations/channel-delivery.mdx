@@ -1,0 +1,40 @@
+---
+title: Channel Delivery and Agent Sessions
+description: Understand how external messages resolve to owned, workspace-pinned sessions and how replies return safely.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 15
+locale: en
+translationKey: integrations.channel-delivery
+updatedAt: 2026-07-17
+---
+
+# Channel Delivery and Agent Sessions
+
+Canvas normalizes messages from web and external channels into one agent runtime flow. Each inbound message carries a channel identifier, channel session key, user identity, text, supported media, and optional thread or requested-session information.
+
+## Session resolution
+
+For an authenticated channel identity, Canvas first looks for an active owned session linked to that channel conversation. If none exists, it creates a session with the resolved agent and workspace context. Session creation pins a current runtime and system-prompt snapshot so that provider, capability, and workspace decisions are explicit.
+
+A requested session is activated only when it belongs to the linked user and expected agent. External channels cannot invent or claim another user's session. Concurrent resolution is locked to avoid duplicate sessions for the same conversation.
+
+## Workspace context
+
+Channel sessions use the user's accessible workspace and agent configuration. If the application AI runtime has not been configured for the organization, Canvas refuses to create the channel session. Switching a session does not grant access to a different workspace.
+
+## Outbound delivery
+
+Replies can return to the last active external channel linked to the session. Before delivery, Canvas checks channel readiness and rebuilds the delivery target with the session's organization and workspace context. If no ready external link exists, delivery is skipped rather than sent to an inferred recipient.
+
+Channel capabilities describe supported inbound and outbound text, images, video, audio, files, and typing indicators. A channel should not claim a media type it cannot safely normalize and deliver.
+
+## Operational guidance
+
+Keep external account bindings current, unlink lost accounts, and verify the destination before requesting a consequential action. Channel text and media are untrusted input subject to the same tool, workspace, sending, and approval policies as messages sent from the web app.
+
+## Related guides
+
+- [Telegram channel setup](/docs/integrations/telegram)
+- [Sessions and history](/docs/agents/sessions-history)
+

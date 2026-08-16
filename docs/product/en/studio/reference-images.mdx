@@ -1,0 +1,45 @@
+---
+title: Working with Reference Images
+description: Ground Studio generations with files, prior outputs, and reusable product, persona, or style libraries.
+section: Studio
+sectionOrder: 5
+order: 4
+locale: en
+translationKey: studio.reference-images
+updatedAt: 2026-07-17
+---
+
+# Working with Reference Images
+
+Reference images give a generation concrete visual context. They can represent a product, person, visual style, composition, starting frame, ending frame, or prior Studio output.
+
+## Choose the right reference source
+
+- Select a product, persona, or style for reusable curated references.
+- Upload a one-off image to the Studio reference library.
+- Select a prior output when creating a variation or video.
+- Choose a workspace image through the reference picker.
+- Use dedicated start and end frame controls for frame-guided video.
+
+Studio sends reference paths and IDs in the format required by the selected provider. The number and type of accepted references vary by mode and model; the interface trims or rejects references that exceed the applicable budget.
+
+## Explain the reference's role
+
+Do not assume the model knows which property to preserve. State the intended use:
+
+```text
+Keep the product shape and label layout from the product reference. Use the
+style reference only for lighting and color palette. Change the environment.
+```
+
+Use clean, high-resolution images with an unobstructed subject. Several contradictory references can reduce consistency more than they help.
+
+## Rights and identity
+
+Only use images you are entitled to process. Obtain appropriate consent for recognizable people and do not use references to impersonate or deceptively reproduce a real individual. Review outputs for unintended identity carryover.
+
+## Related guides
+
+- [Products, personas, and styles](/docs/studio/models)
+- [Generating images](/docs/studio/generate-images)
+- [Generating videos](/docs/studio/generate-videos)

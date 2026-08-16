@@ -1,0 +1,55 @@
+---
+title: Security Model and Data Storage
+description: Understand the self-hosted trust boundary, powerful agent runtime, storage layout, and required operator controls.
+section: Administration and Security
+sectionOrder: 10
+order: 9
+locale: en
+translationKey: admin.security-data
+updatedAt: 2026-07-17
+---
+
+# Security Model and Data Storage
+
+Canvas Notebook is self-hosted, but self-hosting is not automatic security. The operator owns host patching, TLS, firewalling, backups, identity administration, secrets, provider accounts, and incident response.
+
+## Powerful runtime
+
+Canvas agents can read and write permitted workspace files, run tools and shell commands, use connected services, and perform scheduled work. The browser terminal is similarly powerful. Give accounts and agents the smallest practical permissions, and treat third-party skills, plugins, MCP servers, documents, email, and web content as untrusted.
+
+Authentication protects the application by default. Public file shares are explicit anonymous exceptions. Trusted origins protect browser authentication and chat WebSocket connections; configure only real application origins.
+
+## Data layout
+
+Container deployments mount host data at `/data`. Common paths include:
+
+```text
+/data/workspace   Workspace files
+/data/sqlite.db   SQLite application database
+/data/skills      Custom skills
+/data/secrets     Integration secrets and tokens
+/data/logs        Runtime logs when file logging is enabled
+```
+
+Team deployments can use Postgres, with the data root still holding file-based content and runtime assets. Secret material may also exist in scoped environment files, OAuth stores, provider configuration, and backups.
+
+## Defense in depth
+
+Canvas applies workspace path guards, explicit permissions, rate limits, safe external-fetch and URL policies, filtered child-process environments, restrictive public-share rendering, short-lived collaboration tickets, and scoped runtime snapshots. These controls do not make unsafe host exposure or over-privileged credentials acceptable.
+
+## Operator baseline
+
+- Use HTTPS except for local development.
+- Keep Canvas, Docker, the host OS, and reverse proxy current.
+- Restrict host SSH and the Docker socket.
+- Encrypt off-host backups and rotate credentials after exposure.
+- Review public links, users, agent tools, integrations, and logs.
+- Run the currently maintained Canvas release; older images do not receive security fixes.
+
+Report vulnerabilities privately through the repository's GitHub Security Advisory process, never with secrets in a public issue.
+
+## Related guides
+
+- [Public sharing security](/docs/admin/public-sharing-security)
+- [Managing API keys and secrets](/docs/integrations/secrets)
+

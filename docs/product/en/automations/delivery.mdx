@@ -1,0 +1,40 @@
+---
+title: Automation Delivery Options
+description: Route an automation's final result to web chat, a connected channel, an active conversation, or a fixed session.
+section: Automations
+sectionOrder: 6
+order: 7
+locale: en
+translationKey: automations.delivery
+updatedAt: 2026-07-17
+---
+
+# Automation Delivery Options
+
+Delivery controls where the automation's final result message appears. It is separate from the workspace output path, which controls where files are written.
+
+## Choose a channel
+
+Web delivery keeps the result in Canvas Notebook. Connected channel delivery can target an available channel such as a configured Telegram link. Last-active delivery attempts to use a recent valid channel for the same user, agent, and workspace and falls back to web when necessary. Silent mode preserves run records without actively delivering a result message.
+
+The available channel list depends on installed, enabled, configured, and linked channel integrations.
+
+## Choose a session policy
+
+- **New session:** create a dedicated automation session for the run.
+- **Active session in selected channel:** continue the matching active channel session when it is accessible; otherwise create a new session.
+- **Fixed session:** deliver into a chosen session when ownership, agent, and workspace still match; otherwise fall back to a new session with a warning.
+
+Workspace checks prevent a result from being inserted into a session owned by another context.
+
+## Handle delivery failures
+
+An empty result needs no message. A missing session key, unregistered or disabled channel, missing configuration, or unlinked recipient can prevent delivery and may pause the job. Inspect the run record before reactivating it.
+
+For consequential workflows, save the durable result to the workspace even when delivery succeeds. A channel message is a notification and conversation surface, not the only copy of an important deliverable.
+
+## Related guides
+
+- [Run history and failure states](/docs/automations/run-history)
+- [Chat sessions and history](/docs/agents/sessions-history)
+- [Choosing a workspace and output directory](/docs/automations/workspace-output)

@@ -1,0 +1,53 @@
+---
+title: System Email Configuration
+description: Configure the administrator-owned SMTP sender used for platform notifications and test its delivery.
+section: Administration and Security
+sectionOrder: 10
+order: 5
+locale: en
+translationKey: admin.system-email
+updatedAt: 2026-07-17
+---
+
+# System Email Configuration
+
+System email sends platform notifications such as agent-created to-do alerts. It is separate from user-connected Gmail, Microsoft, or SMTP/IMAP inboxes and must not be treated as a user's primary mailbox.
+
+## Required settings
+
+Configure the SMTP host, port, secure mode, username, password, and sender address. An optional sender name and reply-to address can improve recipient handling. Enter a host name or IP address, not an `smtp://` URL; ports must be between 1 and 65535.
+
+Canvas stores these values in the integration environment under:
+
+```text
+CANVAS_SYSTEM_SMTP_HOST
+CANVAS_SYSTEM_SMTP_PORT
+CANVAS_SYSTEM_SMTP_SECURE
+CANVAS_SYSTEM_SMTP_USERNAME
+CANVAS_SYSTEM_SMTP_PASSWORD
+CANVAS_SYSTEM_EMAIL_FROM
+CANVAS_SYSTEM_EMAIL_FROM_NAME
+CANVAS_SYSTEM_EMAIL_REPLY_TO
+```
+
+If integration environment encryption is enabled, the stored values are encrypted with the integration master key. The UI reports whether a password exists without requiring it to be re-entered for every non-password change.
+
+## Configure and test
+
+1. Create a dedicated SMTP credential with sending-only access when possible.
+2. Enter settings in the administrator System Email panel.
+3. Save and confirm that the configuration is complete.
+4. Send a test message to a controlled recipient.
+5. Check provider logs, spam placement, sender authentication, and the received From and Reply-To headers.
+
+Use SPF, DKIM, and DMARC for the sending domain. Do not use a personal employee password as the long-term system credential.
+
+## Troubleshooting
+
+Verify secure mode against the port and provider requirements, outbound firewall rules, DNS, credential status, and permitted sender address. Clearing system SMTP disables this notification path but does not remove user mailbox connections.
+
+## Related guides
+
+- [Main email and system email](/docs/email/main-system-email)
+- [Managing API keys and secrets](/docs/integrations/secrets)
+

@@ -1,0 +1,40 @@
+---
+title: Choosing Models and Providers
+description: Select an agent runtime based on availability, task needs, credentials, and organizational policy.
+section: Agents and Chat
+sectionOrder: 4
+order: 3
+locale: en
+translationKey: agents.models-and-providers
+updatedAt: 2026-07-17
+---
+
+# Choosing Models and Providers
+
+The provider supplies model access; the model determines the reasoning, context, speed, and modality available to a chat. Canvas Notebook resolves choices from the runtime catalog and the applicable instance, workspace, user, and agent settings.
+
+## Use the effective runtime
+
+An agent can have a default provider, model, and thinking level. A user preference or managed policy may also influence the effective selection. The model selector shows the options currently permitted and available for the active context.
+
+If the configured provider has no valid credential or model, the agent cannot become ready. Provider setup is intentionally brief in the Quickstart because installations and organizational policies vary; use Agent Doctor to inspect the exact readiness issue.
+
+## Match the model to the work
+
+- Use a capable reasoning model for ambiguous planning, complex analysis, and multi-file changes.
+- Use a faster model for short transformations, classification, and routine drafting.
+- Confirm image input support before attaching visual material for analysis.
+- Use a local runtime such as Ollama when the installed model and host capacity match the task.
+- Use managed or remote providers only within your organization's data and cost policy.
+
+The legacy catalog includes Codex CLI, OpenRouter, and Ollama concepts, while the current runtime catalog can expose additional managed installations. Treat the catalog in your instance as authoritative.
+
+## Avoid silent model assumptions
+
+Record a required model in the agent default or state it in the workflow when reproducibility matters. A model name alone does not guarantee identical results across versions, providers, or settings.
+
+## Related guides
+
+- [Creating a specialized agent](/docs/agents/create-specialized-agent)
+- [Agent health and Doctor diagnostics](/docs/agents/doctor)
+- [Agent tools and capabilities](/docs/agents/tools)

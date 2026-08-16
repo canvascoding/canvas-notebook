@@ -1,0 +1,43 @@
+---
+title: Saving Outputs to the Workspace
+description: Copy selected Studio outputs into an intentional workspace and project folder for downstream work.
+section: Studio
+sectionOrder: 5
+order: 6
+locale: en
+translationKey: studio.save-to-workspace
+updatedAt: 2026-07-17
+---
+
+# Saving Outputs to the Workspace
+
+Studio retains generation outputs in its media history. Save approved assets into a workspace when they should become durable project files for the Notebook, agents, automations, or delivery workflows.
+
+## Save one or more outputs
+
+Select the output actions or multi-select several items, then choose Save to Workspace. Pick the target workspace and destination folder. Canvas Notebook copies the selected media and refreshes the active file explorer when the destination is the current workspace.
+
+Use a structure that separates review from delivery:
+
+```text
+campaign/
+  studio-review/
+  approved-assets/
+  delivery/
+```
+
+Move only reviewed candidates into `approved-assets/`. Give final files descriptive names after import so people and agents can distinguish them from raw generation IDs.
+
+## Save versus download
+
+Saving to the workspace keeps the asset inside Canvas Notebook and makes it addressable by workspace-relative paths. Downloading creates a copy on your local device. Use both when the project requires an internal source and an external delivery copy.
+
+## Keep context with the asset
+
+For important campaigns, add a Markdown note that links the approved output and records the prompt intent, references, review decision, usage rights, and destination. Studio generation history contains technical provenance, but a project note captures the human approval context.
+
+## Related guides
+
+- [Working with the file explorer](/docs/notebook/file-explorer)
+- [Managing outputs and failed generations](/docs/studio/outputs)
+- [Studio overview](/docs/studio/overview)

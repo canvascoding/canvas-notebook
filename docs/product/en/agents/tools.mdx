@@ -1,0 +1,36 @@
+---
+title: Agent Tools and Capabilities
+description: Control which file, web, automation, email, Studio, and integration operations an agent may use.
+section: Agents and Chat
+sectionOrder: 4
+order: 5
+locale: en
+translationKey: agents.tools
+updatedAt: 2026-07-17
+---
+
+# Agent Tools and Capabilities
+
+Tools let an agent act beyond text generation. Depending on the instance, they can read or edit files, search the workspace or web, run commands, manage automations, work with email or Studio, access connected apps, or delegate tasks.
+
+## Enable the minimum useful set
+
+Open the agent's Tools settings and search or filter by group. Each entry can show its operation name, description, parameters, default state, planning-mode support, runtime availability, and notes. Enable a tool only when it supports the agent's assigned role.
+
+A disabled tool is not available to that agent even if the instance supports it. An enabled but unavailable tool still cannot run; its availability details should explain the missing executable, service, credential, or policy.
+
+## Direct tools and gateways
+
+Common operations can be exposed directly. Larger capability catalogs, such as connected apps, MCP, email, Studio, automation management, plugins, and agent management, can be loaded through an on-demand gateway. The agent searches the gateway, reads the exact operation schema, and calls only an allowed operation.
+
+## Treat capability as authority
+
+File writes, terminal commands, browser interactions, email sends, public shares, and agent management have different consequences. Pair tool enablement with clear instructions and member permissions. Keep destructive or externally visible actions behind explicit user intent.
+
+Plan mode further restricts the active tool set to read-only inspection, regardless of the normal configuration.
+
+## Related guides
+
+- [Understanding tool activity](/docs/agents/tool-activity)
+- [Plan mode](/docs/agents/plan-mode)
+- [Browser access](/docs/agents/browser-access)

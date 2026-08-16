@@ -1,0 +1,38 @@
+---
+title: Notifications and Unread Activity
+description: Track unread agent replies, new human tasks, and due to-dos without treating the bell as an audit log.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 10
+locale: en
+translationKey: collaboration.notifications
+updatedAt: 2026-07-17
+---
+
+# Notifications and Unread Activity
+
+The notification summary brings together unread agent sessions and to-dos that need attention. It is a personal activity view, filtered to content the signed-in user can access.
+
+## Unread agent replies
+
+A session is unread when its latest assistant message is newer than the last time the user viewed that session. If a visible session receives a live update, Canvas advances its viewed time instead of creating an unread indicator. The notification menu shows recent unread sessions with their agent and workspace context.
+
+## To-do attention
+
+An open to-do is unread until it receives a `seenAt` timestamp. Open items due by the end of the current day are also included as due attention. The summary combines unread and due items, orders urgent due work first, and exposes a compact subset in the menu.
+
+Opening an item can mark it seen. You can also mark all visible personal to-do notifications as seen; this does not complete or archive the underlying work.
+
+## Email notifications
+
+Agent-created to-dos can trigger system email notifications unless the instance disables them. Email delivery depends on administrator system-mail configuration and should be treated as an additional channel, not the only record of work.
+
+## What notifications are not
+
+Unread state is a convenience indicator, not an audit trail. Viewing, marking seen, or clearing the indicator does not approve a task, confirm external delivery, or prove that an agent action succeeded. Inspect the session, to-do, tool activity, or delivery result for that evidence.
+
+## Related guides
+
+- [Sessions and history](/docs/agents/sessions-history)
+- [To-dos, approvals, and follow-ups](/docs/collaboration/todos-approvals)
+

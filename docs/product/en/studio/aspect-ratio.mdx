@@ -1,0 +1,37 @@
+---
+title: Aspect-Ratio Adaptation
+description: Reframe an image by cropping inside the source or generating pixels beyond its existing boundaries.
+section: Studio
+sectionOrder: 5
+order: 10
+locale: en
+translationKey: studio.aspect-ratio
+updatedAt: 2026-07-17
+---
+
+# Aspect-Ratio Adaptation
+
+The Aspect Ratio editor adapts a selected image for another placement. It automatically distinguishes a crop from an AI extension based on where the target frame sits relative to the source.
+
+## Choose a target frame
+
+Select a preset such as `1:1`, `4:5`, `3:4`, `4:3`, `16:9`, `9:16`, `3:2`, or `2:3`, or use a freeform frame. Move and resize the frame while zooming or panning the source. Edge snapping helps align the frame with the original image.
+
+- A frame entirely inside the source creates a crop.
+- A frame extending outside the source uses AI to invent the missing area.
+
+The target dimensions are constrained to a practical maximum and shown before processing.
+
+## Direct the extension
+
+For AI extension, state what belongs in the new space and what must not change. Choose a compatible Gemini or OpenAI provider, model, format, quality, background, and image size when those controls apply.
+
+## Verify the adapted asset
+
+Inspect boundaries between original and generated pixels, repeated textures, stretched objects, unexpected people or text, and composition at the final placement size. Save the result as a new asset; do not overwrite the only copy of the source.
+
+## Related guides
+
+- [Editing existing images](/docs/studio/edit-images)
+- [Generating images](/docs/studio/generate-images)
+- [Saving outputs to the workspace](/docs/studio/save-to-workspace)

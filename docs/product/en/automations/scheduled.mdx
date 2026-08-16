@@ -1,0 +1,48 @@
+---
+title: Creating a Scheduled Automation
+description: Configure a repeatable agent job with an explicit schedule, workspace, output, and delivery policy.
+section: Automations
+sectionOrder: 6
+order: 2
+locale: en
+translationKey: automations.scheduled
+updatedAt: 2026-07-17
+---
+
+# Creating a Scheduled Automation
+
+Create a scheduled automation when the trigger is time-based and the task can run with preselected context. The job should not depend on a human answering an unstated question at execution time.
+
+## Configure the job
+
+1. Give the automation a recognizable name.
+2. Choose personal or organization scope and the owning workspace.
+3. Select the responsible user and agent.
+4. Write the task prompt and optional preferred skill.
+5. Add specific context paths the agent should inspect.
+6. Choose an output file or directory when the run creates deliverables.
+7. Set delivery behavior for the result message.
+8. Choose once, daily, weekly, or interval scheduling and the correct timezone.
+9. Optionally restrict execution to working hours.
+10. Save as paused until a manual test succeeds.
+
+## Example: daily briefing
+
+```text
+Read reports/source-metrics.csv and notes/current-priorities.md. Write a
+concise daily briefing to reports/daily/YYYY-MM-DD.md. Separate observed
+metrics from recommendations. If the source is unavailable, report the
+failure and do not reuse yesterday's numbers.
+```
+
+Set the output directory to `reports/daily/` and schedule the job for the desired local time. The agent receives the configured task as an execution request and is instructed not to create another automation.
+
+## Activate carefully
+
+Run once manually, inspect the saved file and run record, then activate the schedule. Confirm the next-run timestamp after saving.
+
+## Related guides
+
+- [Running an automation manually](/docs/automations/manual-runs)
+- [Choosing a workspace and output directory](/docs/automations/workspace-output)
+- [Troubleshooting scheduled work and timezones](/docs/automations/troubleshooting)

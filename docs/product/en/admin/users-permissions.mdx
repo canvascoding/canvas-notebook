@@ -1,0 +1,40 @@
+---
+title: User and Permission Management
+description: Create, secure, authorize, suspend, and offboard Canvas users across instance and workspace boundaries.
+section: Administration and Security
+sectionOrder: 10
+order: 1
+locale: en
+translationKey: admin.users-permissions
+updatedAt: 2026-07-17
+---
+
+# User and Permission Management
+
+Canvas separates instance administration, organization permissions, workspace membership, and agent membership. Review all four layers when granting or removing access.
+
+## Instance users
+
+Administrators can search users, create accounts, assign the instance `admin` or regular `user` role, reset passwords, ban and unban accounts, and start an offboarding workflow. New passwords must contain at least eight characters. Share initial credentials through a secure channel and require the user to change them.
+
+The instance admin role can change server-wide settings and manage users. Grant it only to operators who need host-level control.
+
+## Organization permissions
+
+Organization roles are owner, admin, member, and external. Granular capabilities include writing team content, creating public links and team automations, sharing plugins and skills, exporting, deleting team or Studio data, managing backups, migrating databases, enabling knowledge, and recovering workspaces.
+
+Some host-level capabilities remain admin-only even when granular permissions exist. For example, a local MCP stdio server can start a process as the Canvas service account and must not be delegated casually.
+
+## Workspace and agent access
+
+Team and project workspaces add read, write, and manage membership. Agents separately grant use, edit, and manage access. A user needs both the agent and workspace capabilities required by a session.
+
+## Offboarding
+
+Run the offboarding preflight before banning or removing a user. Review blockers and warnings involving personal workspaces, shared membership, agents, automations, assignments, and ownership. Transfer or disable resources deliberately, record a reason, revoke sessions and external connections, then verify that no sole-manager or unattended-automation dependency remains.
+
+## Related guides
+
+- [Workspace members and roles](/docs/collaboration/workspace-members)
+- [Agent access across workspaces](/docs/collaboration/agent-workspace-access)
+

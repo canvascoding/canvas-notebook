@@ -1,0 +1,44 @@
+---
+title: Workspace Members and Roles
+description: Manage organization, team, and project access through effective read, write, and management capabilities.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 4
+locale: en
+translationKey: collaboration.workspace-members
+updatedAt: 2026-07-17
+---
+
+# Workspace Members and Roles
+
+Organization roles are `owner`, `admin`, `member`, and `external`. Canvas combines the role with workspace-specific grants to resolve effective read, write, delete, public-link, management, and agent-run permissions.
+
+## Where membership is managed
+
+- Personal workspaces have no members.
+- Organization workspace access is managed through organization users.
+- Team and project workspaces have dedicated member lists.
+- Project workspaces use project membership and can include restricted external participants.
+
+To add or update a team or project member, you must be able to manage that workspace. Select an eligible organization user, then grant only the required read, write, and manage capabilities.
+
+## Role behavior
+
+Owners and administrators are management-capable across organization-scoped workspaces. Members rely on their organization and workspace grants. External users receive no access outside project workspaces. Within a project, external access remains constrained by the explicit project membership.
+
+Canvas prevents removal or downgrade of the last active workspace manager. Assign another manager before changing the sole manager's access.
+
+## Review checklist
+
+- Remove inactive or no-longer-needed members.
+- Give write access only to users who must change workspace files.
+- Reserve manage access for people responsible for membership and settings.
+- Review public-link capability separately from read access.
+- Check agent membership as a second, independent boundary.
+
+Organization and workspace membership changes do not automatically revoke external provider credentials or previously published links. Handle those lifecycles separately.
+
+## Related guides
+
+- [Agent access across workspaces](/docs/collaboration/agent-workspace-access)
+- [Workspace types](/docs/collaboration/workspace-types)

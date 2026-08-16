@@ -1,0 +1,55 @@
+---
+title: Health Checks, Logs, and Troubleshooting
+description: Diagnose container, database, collaboration, authentication, provider, and resource failures in a safe order.
+section: Administration and Security
+sectionOrder: 10
+order: 16
+locale: en
+translationKey: admin.troubleshooting
+updatedAt: 2026-07-17
+---
+
+# Health Checks, Logs, and Troubleshooting
+
+Start with read-only evidence. Avoid deleting containers, databases, configuration, or the data directory while diagnosing a recoverable failure.
+
+## Health and status
+
+```bash
+canvas-notebook health --json
+canvas-notebook status --json
+```
+
+`/api/health` reports application and database-provider readiness, a database query check, deployment mode, and—when Team mode is active—collaboration capability, WebSocket, persistence, scene, and asset-store readiness. HTTP 503 means at least one required check failed.
+
+Status adds the host service, configured and running image, container state, restart count, exit code, OOM flag, app version, CLI version, and persistent paths.
+
+## Logs
+
+```bash
+canvas-notebook logs
+canvas-notebook manager-log
+```
+
+Container logs explain application startup and runtime failures. The manager log explains installer, update, Compose, service, and rollback operations. File logging, when enabled, defaults to `/data/logs/runtime.log`. Redact cookies, tokens, API keys, email content, and personal data before sharing logs.
+
+## Common failure order
+
+1. **Unreachable:** verify DNS, TLS, firewall, reverse proxy, port, container, and `BASE_URL`.
+2. **Login or WebSocket failure:** verify `BETTER_AUTH_BASE_URL`, trusted origins, server time, and auth secrets.
+3. **Database unhealthy:** inspect provider compatibility, credentials, disk space, Postgres service, and pending recovery state.
+4. **Collaboration unhealthy:** verify Team license capability, Postgres tables, and collaboration WebSocket readiness.
+5. **Provider failure:** run provider verification and check credentials, model availability, endpoint, quota, and egress.
+6. **Slow or killed work:** inspect memory, disk, CPU, OOM state, browser-export limits, and concurrent jobs.
+
+## Recovery boundary
+
+Restart only after collecting status and logs. Before database repair, migration, downgrade, or destructive cleanup, create a backup if the current state is readable. If an update already reports rollback or Postgres recovery in progress, let the CLI recovery path finish instead of making parallel manual changes.
+
+For a suspected vulnerability, preserve evidence and use private security reporting rather than posting details publicly.
+
+## Related guides
+
+- [VM management CLI](/docs/admin/vm-cli)
+- [Full backups and restore](/docs/admin/backups)
+

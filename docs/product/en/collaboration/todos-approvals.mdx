@@ -1,0 +1,36 @@
+---
+title: To-dos, Approvals, and Follow-ups
+description: Track human work, reviews, approvals, automation attention, and linked agent follow-ups.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 8
+locale: en
+translationKey: collaboration.todos-approvals
+updatedAt: 2026-07-17
+---
+
+# To-dos, Approvals, and Follow-ups
+
+Canvas To-dos collects work that needs human attention. A to-do can be personal or scoped to an accessible organization, team, or project workspace and may be created by a user or an agent.
+
+## To-do fields
+
+Each item has a title, optional description, category, low/normal/high priority, optional due date, open/done/archived status, creator, optional assignee, and up to 20 workspace-file links. Default categories are **To-do**, **Review**, **Approval**, and **Automation**; custom categories can organize additional workflows.
+
+Use **Review** when a person must inspect an output and **Approval** when work must not continue without an explicit decision. A category label is organizational metadata, not an automatic policy gate—write the required decision clearly in the title and description.
+
+## Shared assignment
+
+Shared to-dos follow workspace access. Assignees must be eligible members of the owning organization or project scope, and the creator must have write access to the target workspace. File links accept workspace-relative paths and reject traversal outside the workspace.
+
+## Complete and follow up
+
+An agent-created to-do can retain its source agent and session. When you complete it, add an optional comment and send a follow-up. Canvas marks the item done and passes the completion context back only to the linked, owned session with the expected agent.
+
+If follow-up delivery fails, the to-do remains completed and records the error so you can retry. Do not include passwords, tokens, or private credentials in to-do descriptions or completion comments.
+
+## Related guides
+
+- [Agent-created human tasks](/docs/collaboration/agent-human-tasks)
+- [Notifications and unread activity](/docs/collaboration/notifications)
+

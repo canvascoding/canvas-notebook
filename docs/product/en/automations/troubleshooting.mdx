@@ -1,0 +1,38 @@
+---
+title: Troubleshooting Scheduled Work and Timezones
+description: Diagnose missing runs, incorrect execution times, retries, permissions, output conflicts, and delivery failures.
+section: Automations
+sectionOrder: 6
+order: 11
+locale: en
+translationKey: automations.troubleshooting
+updatedAt: 2026-07-17
+---
+
+# Troubleshooting Scheduled Work and Timezones
+
+Start with the job's status, displayed timezone, next-run timestamp, and most recent run record. A missing result can mean the job never triggered, execution failed, or delivery failed after successful work.
+
+## The job did not run
+
+- Confirm the job is active rather than paused.
+- Verify that the schedule has a future next-run time.
+- Check the configured IANA timezone, local times, selected weekdays, and working-hours window.
+- For an interval job, remember that the next time is anchored to the applicable run time and then adjusted into working hours.
+- For a webhook job, expect no scheduled next-run timestamp; inspect incoming event configuration instead.
+
+Daylight-saving transitions can skip or repeat local clock times. Prefer a timezone such as `Europe/Berlin` over a fixed UTC offset when the schedule should follow local business time.
+
+## The run failed
+
+Inspect the error, event log, agent session, runtime selection, and attempt number. Check responsible-user access, agent availability, provider readiness, context paths, output conflicts, skill availability, and the ten-minute execution deadline.
+
+## Work succeeded but no message arrived
+
+Inspect delivery metadata. Confirm the selected channel is registered, enabled, configured, linked, and has a valid session key. A fixed or active session must belong to the same user, agent, and workspace. Reconnect the channel and deliberately reactivate a job that was paused after delivery failure.
+
+## Related guides
+
+- [Run history and failure states](/docs/automations/run-history)
+- [Agent health and Doctor diagnostics](/docs/agents/doctor)
+- [Automation delivery options](/docs/automations/delivery)

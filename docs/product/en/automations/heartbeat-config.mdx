@@ -1,0 +1,45 @@
+---
+title: Configuring the Agent Heartbeat
+description: Define an agent's proactive instructions, schedule, working hours, and delivery target.
+section: Automations
+sectionOrder: 6
+order: 10
+locale: en
+translationKey: automations.heartbeat-config
+updatedAt: 2026-07-17
+---
+
+# Configuring the Agent Heartbeat
+
+Heartbeat configuration lives with the selected agent in Agent Settings. It combines `HEARTBEAT.md`, an enabled state, a schedule, working hours, and delivery behavior.
+
+## Write proactive instructions
+
+Keep `HEARTBEAT.md` short and action-oriented:
+
+```md
+# Heartbeat
+
+- Review `inbox/requests.md` for unassigned urgent items.
+- Check `reports/current-status.md` for a blocker older than two days.
+- If action is needed, explain the evidence and propose the next step.
+- If nothing requires attention, return a concise no-action result.
+```
+
+Do not put passwords, broad permission grants, or a request to create more schedules in the file.
+
+## Configure timing
+
+The default is an hourly interval constrained to weekdays from 09:00 to 18:00 in the preferred server timezone. Adjust interval, daily or weekly times, timezone, and working-hours window to match the real operating rhythm. Enable the heartbeat only after `HEARTBEAT.md` contains a useful task.
+
+## Configure delivery
+
+The default delivery follows the last active channel and its active session when possible. You can select another supported delivery and session mode. The heartbeat result is stored as an automation run even when no active channel receives it.
+
+Review the first few executions for noise. A heartbeat that reports the same non-actionable state every hour should be narrowed or scheduled less frequently.
+
+## Related guides
+
+- [Heartbeat versus regular automation](/docs/automations/heartbeat-vs-automation)
+- [Automation delivery options](/docs/automations/delivery)
+- [Agent memory](/docs/agents/memory)

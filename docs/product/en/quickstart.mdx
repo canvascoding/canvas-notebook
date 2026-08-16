@@ -1,0 +1,102 @@
+---
+title: Quickstart
+description: Open your Notebook, configure a first agent, create a Markdown note, and schedule useful work in a few minutes.
+section: Getting Started
+sectionOrder: 1
+order: 2
+locale: en
+translationKey: getting-started.quickstart
+updatedAt: 2026-07-17
+---
+
+# Your first five minutes
+
+This quickstart begins with an active Canvas Notebook account. It covers the product itself, not VM provisioning or self-hosting.
+
+Before you start, open your Notebook and check the agent status shown on the home screen or in Settings. If no model is ready, add one provider credential under **Settings → AI Providers & Models**. Provider-specific setup guides will be expanded separately; you only need one working model for this walkthrough.
+
+## 1. Configure your first agent
+
+Open **Settings → Agent Settings**. Select the base agent that came with your Notebook, or create a specialized agent for a focused job.
+
+Give it a clear name and a short purpose. For example:
+
+```text
+Name: Daily Marketing Assistant
+Purpose: Organize campaign notes, prepare daily priorities, and keep project files up to date.
+```
+
+Keep the initial tool and skill selection small. You can add more capabilities after the first workflow works reliably.
+
+> Screenshot placeholder: Agent Settings with the selected agent, model, purpose, and tool controls visible.
+
+## 2. Create your first Markdown note
+
+Open **Notebook** from the app launcher. In the file explorer, create `welcome.md` and add a small working brief:
+
+```md
+# Weekly campaign
+
+## Goal
+
+Prepare three launch concepts for the new product.
+
+## Audience
+
+Independent consultants and small creative teams.
+
+## Next action
+
+- Review the product notes
+- Draft three campaign angles
+- Select one direction on Friday
+```
+
+Save the file, then mention it in chat and ask the agent to summarize the goal or propose the next action. The agent and editor operate against the same workspace file.
+
+> Screenshot placeholder: Notebook with the file explorer, `welcome.md`, the Markdown editor, and agent chat visible together.
+
+## 3. Schedule your first automation
+
+Open **Automations** and create a daily job called `Daily workspace heartbeat`. Use a prompt that is narrow enough to verify:
+
+```text
+Review welcome.md every weekday morning. Summarize the current goal,
+list unfinished actions, and write the result to reports/daily-status.md.
+Do not modify the original note.
+```
+
+Choose the active workspace, set the schedule, select the output location, and save the job. Run it once manually before relying on the schedule.
+
+This example is a regular scheduled automation with “heartbeat” in its name. Canvas Notebook also provides a dedicated agent Heartbeat under Agent Settings for ongoing agent check-ins. The two workflows have different configuration and delivery behavior.
+
+> Screenshot placeholder: Automation editor with name, schedule, prompt, workspace, and output directory.
+
+## 4. Optional: generate your first Studio image
+
+Open **Studio → Create**, select image generation, and enter a concrete prompt:
+
+```text
+Editorial product photograph of a matte black notebook on a technical
+grid desk, precise overhead lighting, restrained blue accent, 4:5 format.
+```
+
+Review the output and save the selected image to your workspace. Later, products, personas, styles, references, and presets can make repeated output more consistent.
+
+> Screenshot placeholder: Studio Create with the prompt bar, format controls, and generated output grid.
+
+## 5. Optional: connect your first email account
+
+Open **Email** and add an account. Canvas Notebook supports inbox and sending workflows through configured email connections. Verify the connection before allowing an agent to prepare email work.
+
+Start with drafting rather than autonomous sending. Review the sender, recipients, quoted content, and attachments before a message leaves the workspace.
+
+> Screenshot placeholder: Email account setup and inbox with sending policy controls visible.
+
+## You now have a working Notebook
+
+You have an agent, a real workspace document, and a recurring workflow. The optional Studio and email steps show how the same workspace can extend into production and communication without changing the underlying file-based process.
+
+Continue with [The 24/7 AI Agent](/docs/features/ai-agent), [Markdown Knowledge Base](/docs/features/knowledge-base), or [Automations](/docs/features/automations).
+
+[Open dashboard](/dashboard)

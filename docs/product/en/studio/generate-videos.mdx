@@ -1,0 +1,45 @@
+---
+title: Generating Videos
+description: Create video clips from prompts, frames, images, video references, and model-specific controls.
+section: Studio
+sectionOrder: 5
+order: 3
+locale: en
+translationKey: studio.generate-videos
+updatedAt: 2026-07-17
+---
+
+# Generating Videos
+
+Video mode produces a clip from a prompt and the reference types supported by the selected provider. Motion, camera behavior, duration, framing, and temporal continuity should be explicit.
+
+## Choose a video workflow
+
+- **Text to video:** describe the full shot without a source frame.
+- **Image to video:** use an image output or reference as visual grounding.
+- **Start and end frames:** provide strict endpoint images when the model supports frame-guided animation.
+- **Video extension:** continue a compatible source clip with a supported provider.
+- **Multimodal reference:** use model-supported image, video, or audio references for direction.
+
+Start/end frames and general multimodal references are different workflows. The selected model may reject combinations that its API does not support.
+
+## Configure the clip
+
+Choose provider, model, aspect ratio, resolution, duration, and looping where available. Some video models can generate audio, use web search, or apply an additional safety checker. A visible control is still subject to model compatibility and credential access.
+
+Describe one coherent shot before attempting a long sequence:
+
+```text
+Slow push-in toward the referenced product, subtle reflections moving across
+the surface, locked horizon, no cuts, no new text, six seconds.
+```
+
+## Review before publishing
+
+Watch the entire output for identity drift, discontinuities, unexpected text, audio issues, unsafe content, and abrupt final frames. Save approved results into the workspace so downstream editors and agents use the reviewed file.
+
+## Related guides
+
+- [Working with reference images](/docs/studio/reference-images)
+- [Saving outputs to the workspace](/docs/studio/save-to-workspace)
+- [Studio provider credentials](/docs/studio/provider-credentials)

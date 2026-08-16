@@ -1,0 +1,51 @@
+---
+title: Agent Instructions and Profiles
+description: Define a stable role, operating method, communication style, and boundaries for a specialized agent.
+section: Agents and Chat
+sectionOrder: 4
+order: 4
+locale: en
+translationKey: agents.instructions-and-profiles
+updatedAt: 2026-07-17
+---
+
+# Agent Instructions and Profiles
+
+An agent profile combines a visible identity with managed Markdown files that shape recurring behavior. The profile should explain how the agent normally works without replacing the user's current request or the fixed Canvas safety rules.
+
+## Separate role from project context
+
+Use `AGENTS.md` for purpose, workflow, boundaries, and quality checks. Use `SOUL.md` for durable tone and collaboration style. Use `TOOLS.md` for tool-selection guidance. Store client facts, current campaigns, and source material in the workspace instead of embedding them in the agent definition.
+
+```md
+# Role
+
+You are a campaign research agent.
+
+## Workflow
+
+1. Inspect the referenced brief and sources.
+2. Separate evidence from inference.
+3. Save the report in the requested project folder.
+
+## Boundaries
+
+- Do not publish or send messages without explicit approval.
+- Flag unsupported claims.
+```
+
+## Make instructions testable
+
+Prefer observable requirements such as “cite each external source” or “save drafts under `drafts/`” over vague adjectives. Put the most important constraints near the top and remove contradictory legacy rules when the workflow changes.
+
+Managed files are scoped guidance. Canvas system rules, safety boundaries, current user instructions, access grants, and actual tool availability take precedence.
+
+## Review changes
+
+After editing a profile, start a new test session and inspect Agent Doctor diagnostics. Existing session history remains useful context and may make behavior appear different from a clean run.
+
+## Related guides
+
+- [Managed prompt files](/docs/agents/managed-prompt-files)
+- [Agent memory](/docs/agents/memory)
+- [Chat sessions and history](/docs/agents/sessions-history)

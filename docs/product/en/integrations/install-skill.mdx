@@ -1,0 +1,42 @@
+---
+title: Installing a Skill
+description: Install a standalone skill safely and verify that it is ready for agent use.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 2
+locale: en
+translationKey: integrations.install-skill
+updatedAt: 2026-07-17
+---
+
+# Installing a Skill
+
+Install a skill when you want to add a reusable workflow without installing a full plugin. Review the package before enabling it: skill instructions can influence agent behavior and may reference scripts or tools.
+
+## Before installation
+
+Confirm that the package contains exactly one `SKILL.md` and that its name does not collide with a core skill or another standalone installation. A skill managed by a plugin cannot be replaced by a standalone package with the same identity.
+
+Treat skills as executable operational guidance. Read the instructions, inspect supporting files, and verify the declared tools and external dependencies.
+
+## Install and verify
+
+1. Open the skills settings.
+2. Choose the available import method and select the skill package.
+3. Review the parsed name, description, version information, and package contents.
+4. Complete the import.
+5. Confirm that the skill reports `available` rather than blocked, conflicting, or connection-required.
+6. Assign it to a test agent and run a narrow, reversible task.
+
+Imported standalone skills are enabled after a successful import. Agent-level selection still determines whether an optional skill is present in a specific session.
+
+## Updating or replacing
+
+Check the new package before replacing an existing installation. Changes to instructions can alter tool use and outputs even when the skill name remains the same. Keep custom source packages under version control so that you can review differences and restore a known version.
+
+## Related guides
+
+- [Uploading a custom skill](/docs/integrations/upload-skill)
+- [Enabling skills for agents](/docs/integrations/enable-skills)
+- [Building a custom skill](/docs/integrations/build-skill)
+

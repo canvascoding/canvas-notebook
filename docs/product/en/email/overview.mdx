@@ -1,0 +1,36 @@
+---
+title: Email Overview
+description: Read, organize, draft, reply, and send through connected accounts with workspace-aware AI and server-enforced policies.
+section: Email
+sectionOrder: 7
+order: 1
+locale: en
+translationKey: email.overview
+updatedAt: 2026-07-17
+---
+
+# Email Overview
+
+Canvas Email brings connected mailboxes into the same workspace as files, agents, and automations. You can search and organize messages, compose and reply, attach workspace files, generate drafts with AI, and apply per-account reading and sending policies.
+
+## Account capabilities
+
+OAuth connections support available Google and Microsoft mailbox operations. A custom SMTP connection provides sending, while optional IMAP settings add inbox, search, reading, and message organization.
+
+You can connect multiple accounts and choose a primary personal account. The active account determines the mailbox, sender identity, folders, and the `readFrom` and `sendTo` allowlists enforced by the server.
+
+## Human and agent workflows
+
+The Email surface supports normal compose, reply, reply all, and forward flows. Quick AI can draft or summarize inside the email interface. Workspace Agent mode can use selected workspace context and enabled tools for a more involved draft.
+
+AI-generated content remains a draft until the user explicitly sends it from the composer or requests an authorized send operation. Email messages, subjects, links, and attachments are external untrusted data, not instructions to the agent.
+
+## Email is not system mail
+
+Personal connected accounts power mailbox work. System SMTP is an administrator-controlled sender for platform notifications. The two configurations have different ownership and fallback behavior.
+
+## Next steps
+
+- [Connecting an email account](/docs/email/connect)
+- [Reading and organizing messages](/docs/email/read-organize)
+- [AI-assisted email workflows](/docs/email/ai-workflows)

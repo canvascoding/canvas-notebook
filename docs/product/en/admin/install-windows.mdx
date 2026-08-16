@@ -1,0 +1,55 @@
+---
+title: Windows Installation
+description: Run a local Canvas Notebook server with the portable CLI, Docker Desktop, and a Scheduled Task.
+section: Administration and Security
+sectionOrder: 10
+order: 13
+locale: en
+translationKey: admin.install-windows
+updatedAt: 2026-07-17
+---
+
+# Windows Installation
+
+The Windows installer creates a local Canvas Notebook server in Docker Desktop and installs a user-local PowerShell-compatible management command.
+
+## Install
+
+Open PowerShell, review the remote script according to your security policy, and run:
+
+```powershell
+irm https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/windows.ps1 | iex
+```
+
+The installer verifies the portable CLI archive SHA-256, ensures Node.js and Docker Desktop are available, adds the Canvas command directory to the user `PATH`, starts the container, and registers a Scheduled Task by default. Docker Desktop may require WSL2 setup and a restart before it becomes ready.
+
+## Optional controls
+
+Pin a release for reproducible installation:
+
+```powershell
+$env:CANVAS_VERSION = "v2026.7.3.2"
+irm https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install/windows.ps1 | iex
+```
+
+Set `CANVAS_AUTO_INSTALL_DEPS=false` to require existing Node.js and Docker Desktop. Set `CANVAS_INSTALL_SERVICE=false` to skip Scheduled Task registration or `CANVAS_OPEN_BROWSER=false` to skip opening the app.
+
+## Verify
+
+Open a new PowerShell window if the command is not immediately found, then run:
+
+```powershell
+canvas-notebook status
+canvas-notebook health
+canvas-notebook service status
+```
+
+Canvas is available at `http://localhost:3456` by default. Create the first administrator in the setup UI.
+
+Manager, data, command, and log directories default to the current user's Local AppData under `Canvas Notebook`. Back up the data directory with Canvas tooling, not by copying a running Docker container.
+
+## Related guides
+
+- [Updates and rollback behavior](/docs/admin/updates-rollback)
+- [Health checks, logs, and troubleshooting](/docs/admin/troubleshooting)
+

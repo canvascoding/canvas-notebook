@@ -1,0 +1,39 @@
+---
+title: Agent Health and Doctor Diagnostics
+description: Check provider readiness, managed prompt composition, semantic search, and derived document indexing.
+section: Agents and Chat
+sectionOrder: 4
+order: 17
+locale: en
+translationKey: agents.doctor
+updatedAt: 2026-07-17
+---
+
+# Agent Health and Doctor Diagnostics
+
+Agent Doctor performs a read-only diagnostic of the selected agent and its knowledge runtime. Run it when chat cannot start, a model is unavailable, managed instructions seem missing, or semantic search behaves unexpectedly.
+
+## What Doctor checks
+
+- Active provider and model readiness.
+- Whether required provider authentication is available.
+- Runtime issues reported by the effective agent configuration.
+- Managed prompt files that loaded, were included, were empty, or were truncated.
+- Whether fallback prompt behavior was required.
+- Semantic search enablement, binary availability, mode, and collections.
+- Recent index update and embedding status.
+- Derived Word-document indexing health, counts, warnings, and errors.
+
+Doctor returns a checked time, ready state, and error and warning counts. It does not change configuration or repair the instance automatically.
+
+## Respond to failures
+
+For provider failures, confirm that the intended installation is permitted, authenticated, and has a valid model. For prompt warnings, shorten oversized managed files and remove redundant instructions. For semantic search problems, inspect the reported binary, collection, update, embedding, or derived-index issue.
+
+After changing configuration, run Doctor again and then start a new chat session. A healthy diagnostic confirms runtime readiness, not the quality of a particular prompt or the correctness of an agent's answer.
+
+## Related guides
+
+- [Choosing models and providers](/docs/agents/models-and-providers)
+- [Managed prompt files](/docs/agents/managed-prompt-files)
+- [Understanding tool activity](/docs/agents/tool-activity)

@@ -1,0 +1,46 @@
+---
+title: Agents and Chat Overview
+description: Understand how Canvas Agent, specialized agents, sessions, tools, files, and runtime context work together.
+section: Agents and Chat
+sectionOrder: 4
+order: 1
+locale: en
+translationKey: agents.overview
+updatedAt: 2026-07-17
+---
+
+# Agents and Chat Overview
+
+Chat is the primary interface for delegating work in Canvas Notebook. An agent can discuss a task, inspect workspace context, use enabled tools, create or edit files, and return a result inside a persistent session.
+
+## Canvas Agent and specialized agents
+
+Canvas Agent is the general-purpose default. It is available across the product and provides the baseline workspace experience. Specialized agents add a focused role, tone, memory, model preference, tools, skills, connections, and access policy for recurring work such as research, coding, marketing, Studio production, automation, or support.
+
+Choose an agent before sending a task. The selected agent and workspace become part of the session context; changing agents is not the same as silently replacing the identity of an existing conversation.
+
+## What a chat turn can include
+
+- A direct request with acceptance criteria.
+- References to workspace files or folders with `@`.
+- Uploaded attachments from your computer.
+- A referenced skill with `/skill-name`.
+- Runtime context from the current Notebook, Studio, or Email surface.
+- Tool activity, delegated work, and saved workspace outputs.
+
+## Give operationally useful requests
+
+State the goal, relevant paths, required format, and boundaries. For example:
+
+```text
+Read @brief/campaign.md and @research/interviews/. Create a concise
+positioning recommendation in output/positioning.md. Preserve the sources.
+```
+
+Review files and external actions before treating an agent result as final. A fluent response can still contain an incorrect assumption or an unintended change.
+
+## Next steps
+
+- [Creating a specialized agent](/docs/agents/create-specialized-agent)
+- [File and folder references in chat](/docs/agents/chat-file-references)
+- [Understanding tool activity](/docs/agents/tool-activity)

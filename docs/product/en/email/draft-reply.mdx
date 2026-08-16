@@ -1,0 +1,36 @@
+---
+title: Drafting and Replying
+description: Compose new messages, replies, reply-all messages, and forwards with explicit recipient review.
+section: Email
+sectionOrder: 7
+order: 6
+locale: en
+translationKey: email.draft-reply
+updatedAt: 2026-07-17
+---
+
+# Drafting and Replying
+
+The composer supports new email, reply, reply all, and forward modes. It tracks the active account, recipients, subject, rich HTML and plain text body, original message, attachments, and optional AI context.
+
+## Start the correct mode
+
+Use Compose for a new thread. Reply addresses the original sender. Reply All includes the relevant original recipients while excluding addresses connected as your own accounts. Forward starts a new recipient list and includes the original message context.
+
+Review the generated To and CC fields. Provider metadata can be incomplete, and a reply-all audience may include external lists or addresses that should not receive the response.
+
+## Write and send
+
+Draft the subject and body, add attachments, and verify the account's sender identity. The composer sanitizes generated HTML and maintains a text representation for compatibility.
+
+Sending is an explicit action. For agent tools, creating or updating a draft is distinct from sending that draft. A send operation should be used only when the user clearly asked to send now and every recipient passes the server-side policy.
+
+## Keep a review checkpoint
+
+For sensitive, legal, financial, or high-audience email, use AI only to propose a draft. Verify facts, names, attachments, tone, and recipients manually before sending.
+
+## Related guides
+
+- [AI-assisted email workflows](/docs/email/ai-workflows)
+- [Working with email attachments](/docs/email/attachments)
+- [Sending policies and guardrails](/docs/email/policies)

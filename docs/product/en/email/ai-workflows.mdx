@@ -1,0 +1,41 @@
+---
+title: AI-Assisted Email Workflows
+description: Summarize messages or draft with quick AI and workspace-aware agent context while keeping sending explicit.
+section: Email
+sectionOrder: 7
+order: 8
+locale: en
+translationKey: email.ai-workflows
+updatedAt: 2026-07-17
+---
+
+# AI-Assisted Email Workflows
+
+Canvas Email provides quick AI for focused drafting and summarization and Workspace Agent mode for drafts that need selected files or enabled tools. Both workflows return content for review rather than silently bypassing the composer.
+
+## Summarize a message
+
+Open the message and request a summary. The email body is treated as untrusted source data. Verify dates, commitments, names, amounts, and requests against the original before acting on the summary.
+
+## Generate a draft
+
+Choose quick mode for a direct rewrite or reply based on the current email fields. Choose Workspace Agent when the response needs project context. Add supported context files such as text, Markdown, CSV, JSON, or PDF and give a concrete instruction and tone.
+
+```text
+Draft a concise reply using @proposals/renewal.md. Confirm the two agreed
+deliverables, ask for the missing launch date, and do not mention internal cost.
+```
+
+The compose flow limits instruction size, message body size, recipient context, and the number of selected files so the model context remains bounded.
+
+## Keep sending separate
+
+AI may fill subject and body, but the user must review the active account, recipients, content, and attachments. Agent email tools distinguish draft creation, draft update, and draft sending. Send only after explicit current intent.
+
+Do not let an email instruct the agent to reveal files, credentials, or unrelated mailbox content. Sender text never overrides user or system policy.
+
+## Related guides
+
+- [Drafting and replying](/docs/email/draft-reply)
+- [Sending policies and guardrails](/docs/email/policies)
+- [Agent tools and capabilities](/docs/agents/tools)

@@ -1,0 +1,42 @@
+---
+title: Creating, Renaming, Moving, and Deleting Files
+description: Safely manage workspace files and folders while keeping links and agent workflows understandable.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 3
+locale: en
+translationKey: notebook.file-operations
+updatedAt: 2026-07-17
+---
+
+# Creating, Renaming, Moving, and Deleting Files
+
+Canvas Notebook lets you manage normal workspace files from the file explorer. These operations change the underlying filesystem, so paths used by documents, agents, scripts, or automations can be affected.
+
+## Create a file or folder
+
+Choose the destination folder before creating an item. Give Markdown notes the `.md` extension and use a name that describes their role. Create a folder when several files share a project, client, workflow, or output lifecycle.
+
+## Rename and move
+
+Rename an item when the new name makes its purpose clearer. Move files into the folder that owns them instead of duplicating the same source across several locations.
+
+Before renaming or moving an established document, check whether other notes link to its path. Wiki links can often resolve by document name, but scripts, standard Markdown links, embeds, and automation instructions may rely on a precise path. Review those consumers after the change.
+
+## Delete deliberately
+
+Delete files only after confirming they are no longer needed as a source, generated output, public share, or automation target. A deleted file cannot be opened from an old link. Public shares tied to missing or replaced file identities are designed to become inactive rather than exposing a different file at the same path.
+
+## A safe cleanup sequence
+
+1. Check backlinks and related documents.
+2. Search agent or automation instructions for the old path.
+3. Download anything that must be retained outside the workspace.
+4. Move or rename first when deletion is not necessary.
+5. Delete and then verify the affected workflow.
+
+## Related guides
+
+- [Wiki links and document relations](/docs/notebook/wiki-links)
+- [Backlinks and linked references](/docs/notebook/backlinks)
+- [Managing active public shares](/docs/notebook/public-share-management)

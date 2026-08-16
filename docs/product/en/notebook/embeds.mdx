@@ -1,0 +1,48 @@
+---
+title: Embedded Workspace Documents
+description: Include another Markdown document inside the current note while keeping the source in one place.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 10
+locale: en
+translationKey: notebook.embeds
+updatedAt: 2026-07-17
+---
+
+# Embedded Workspace Documents
+
+An embedded workspace document displays content from another Markdown file inside the current note. The source remains a separate file, so several documents can present the same maintained material without copying it.
+
+## Embed with wiki syntax
+
+Add an exclamation mark before a wiki link:
+
+```md
+![[approved-brand-voice]]
+```
+
+Use an explicit path when two files could have the same name:
+
+```md
+![[brand/guidelines/approved-brand-voice.md]]
+```
+
+Canvas Notebook resolves the workspace target and renders the referenced Markdown in context. Open the source document when you need to change the embedded material.
+
+## When embeds help
+
+Embeds work well for approved boilerplate, product facts, audience definitions, legal language, or a shared status section. A campaign brief can embed the current brand voice while the source remains owned by the brand folder.
+
+Do not create long chains in which one note embeds another that embeds several more documents. Deep nesting makes provenance and missing references harder to understand. Prefer a small number of direct, clearly named sources.
+
+## Missing and sensitive content
+
+If the target is renamed or deleted, the embed can no longer render its source. Use the Document Graph and unresolved-link views to find broken relations.
+
+Before sharing or exporting a document, inspect the rendered result. Embedded content may expose information that is not obvious from the parent file alone.
+
+## Related guides
+
+- [Wiki links and document relations](/docs/notebook/wiki-links)
+- [Document graph and unresolved links](/docs/notebook/document-graph)
+- [Public sharing](/docs/notebook/public-sharing)

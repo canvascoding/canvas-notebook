@@ -1,0 +1,56 @@
+---
+title: VM Management CLI
+description: Operate the Canvas Notebook container, configuration, database, backups, admin access, and startup service from the host.
+section: Administration and Security
+sectionOrder: 10
+order: 15
+locale: en
+translationKey: admin.vm-cli
+updatedAt: 2026-07-17
+---
+
+# VM Management CLI
+
+`canvas-notebook` is the host-side management command installed on Linux, macOS, and Windows. Run it on the VM or local host, not inside the app container. It remembers the install directory, Compose file, data directory, and service mode.
+
+## Daily operations
+
+```bash
+canvas-notebook status
+canvas-notebook health
+canvas-notebook logs
+canvas-notebook restart
+canvas-notebook stop
+canvas-notebook start
+```
+
+Use `--json` with status and health for automation. Status includes service state, configured and running images, app and CLI versions, container restart count, exit code, and OOM state.
+
+## Configuration and environment
+
+`config-show --json --secret-state` prints masked configuration and optional secret fingerprints. Change configuration with `config-set KEY VALUE`; for secrets use `config-set KEY --stdin` so the value does not appear in shell history or process arguments.
+
+`env --render` writes managed environment files without restarting. `env --sync --timeout SECONDS` applies them, reconciles Postgres when needed, recreates the app, and waits for health.
+
+## Administrative commands
+
+```bash
+canvas-notebook admin reset-password --email admin@example.com --password-stdin
+canvas-notebook backup create --output /secure/path/canvas-backup.zip
+canvas-notebook database status --json
+canvas-notebook service status
+```
+
+The admin reset command can create or reset an administrator without storing the password in manager configuration. Database subcommands prepare Postgres, reconcile authentication, and migrate SQLite to Postgres. Use them only with a current backup and the relevant deployment plan.
+
+## Lifecycle
+
+`install` configures and starts Canvas. `update` applies an image with rollback protection. `cli-update` updates the portable manager. `service install` and `service uninstall` manage systemd, LaunchAgent, or Scheduled Task startup.
+
+If a command fails, check both `logs` and `manager-log`; they represent container runtime output and host-side orchestration respectively.
+
+## Related guides
+
+- [Updates and rollback behavior](/docs/admin/updates-rollback)
+- [Health checks, logs, and troubleshooting](/docs/admin/troubleshooting)
+

@@ -1,0 +1,42 @@
+---
+title: Heartbeat Versus Regular Automation
+description: Choose between one agent's proactive recurring check and a named task with explicit inputs and outputs.
+section: Automations
+sectionOrder: 6
+order: 9
+locale: en
+translationKey: automations.heartbeat-vs-automation
+updatedAt: 2026-07-17
+---
+
+# Heartbeat Versus Regular Automation
+
+Both features use the automation runtime, but they represent different user intentions. A regular automation is a named workflow. A heartbeat is the dedicated proactive check for one user and agent.
+
+## Use a regular automation when
+
+- the task has a business-specific name;
+- it reads defined workspace paths;
+- it writes to a predictable output destination;
+- it needs a once, daily, weekly, interval, or webhook trigger;
+- several independent recurring jobs should coexist;
+- run ownership and delivery need job-specific configuration.
+
+Examples include a daily report, weekly content plan, webhook intake, or scheduled export review.
+
+## Use a heartbeat when
+
+- the agent should periodically review its durable proactive instructions;
+- one recurring check represents that agent's background responsibility;
+- the behavior belongs in the agent's `HEARTBEAT.md`;
+- delivery should follow the agent's last active or selected channel context.
+
+An agent has a dedicated heartbeat configuration rather than an unlimited list of heartbeat jobs. The heartbeat execution reads `HEARTBEAT.md` and is explicitly told to execute those instructions, not create or reconfigure another automation.
+
+Do not call an ordinary daily job “heartbeat” merely because it repeats. In the Quickstart, the sample daily check is a normal automation so users can understand scheduling before enabling proactive agent behavior.
+
+## Related guides
+
+- [Configuring the agent heartbeat](/docs/automations/heartbeat-config)
+- [Creating a scheduled automation](/docs/automations/scheduled)
+- [Managed prompt files](/docs/agents/managed-prompt-files)

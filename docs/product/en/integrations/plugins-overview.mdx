@@ -1,0 +1,53 @@
+---
+title: Plugins Overview
+description: Package related skills and connectors as one versioned Canvas extension.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 7
+locale: en
+translationKey: integrations.plugins-overview
+updatedAt: 2026-07-17
+---
+
+# Plugins Overview
+
+A plugin groups related capabilities into one installable, versioned package. It can include skill directories, references to existing skills, interface metadata, and connector declarations for connected apps, email accounts, or MCP servers.
+
+## Manifest
+
+Every plugin uses `.canvas-plugin/plugin.json` as its manifest. The manifest identifies the plugin with a lowercase hyphenated name and a version, then declares the capabilities Canvas should register.
+
+```json
+{
+  "name": "campaign-operations",
+  "version": "1.0.0",
+  "description": "Campaign planning and delivery workflows",
+  "skills": ["skills/campaign-plan"],
+  "connectors": []
+}
+```
+
+Optional metadata includes license, author, source, interface details, skill references, and connectors. Plugin skills still require valid `SKILL.md` files.
+
+## Connectors
+
+A plugin can declare:
+
+- a Composio toolkit and its required or recommended tools;
+- a Gmail or IMAP/SMTP mailbox capability; or
+- an MCP server with a configuration path, environment requirements, and optional OAuth metadata.
+
+Connector declarations describe requirements; users may still need to authenticate or supply scoped environment variables.
+
+## Lifecycle and policy
+
+Canvas records the installed version, checksum, scope, policy, readiness, conflicts, skills, connectors, and enabled state. Enabling or disabling a plugin also changes the effective availability of its managed skills.
+
+Use plugins when capabilities belong together operationally. Keep independent workflows as standalone skills so that users can enable them without accepting unrelated connectors.
+
+## Next steps
+
+- [Installing and managing plugins](/docs/integrations/manage-plugins)
+- [MCP server connections](/docs/integrations/mcp)
+- [Connected apps](/docs/integrations/connected-apps)
+

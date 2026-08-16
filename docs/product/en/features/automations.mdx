@@ -1,0 +1,63 @@
+---
+title: Automations
+description: Run agent work on a schedule, through webhooks, or as a dedicated heartbeat with visible history and delivery controls.
+section: Core Features
+sectionOrder: 2
+order: 5
+locale: en
+translationKey: features.automations
+updatedAt: 2026-07-17
+---
+
+# Automations
+
+Automations turn a useful one-off agent task into repeatable work. A job combines a prompt with a schedule or trigger, an agent context, a workspace scope, and an output or delivery destination.
+
+Canvas Notebook keeps automation runs visible. You can run a job manually, inspect its status and history, review failures, and adjust the prompt before depending on an unattended schedule.
+
+## Core capabilities
+
+- Schedule one-time, daily, weekly, or custom recurring jobs.
+- Run an automation manually for verification.
+- Scope work to a workspace and output directory.
+- Save results as workspace files.
+- Deliver results to supported sessions or channels.
+- Trigger work through a custom webhook.
+- Inspect pending, running, completed, retrying, and failed runs.
+- Prevent overlapping execution for the same job.
+- Configure a dedicated agent Heartbeat separately.
+- Respect the configured server timezone when calculating schedules.
+
+## A representative workflow
+
+Create a weekday automation that reads the active campaign brief and writes a short status report to `reports/daily-status.md`. Run it once manually, check the source files and output, then activate the schedule.
+
+A useful automation prompt defines the inputs, desired output, destination, and boundaries:
+
+```text
+Read projects/launch/brief.md and projects/launch/tasks.md.
+Write a status summary to projects/launch/reports/daily-status.md.
+List completed work, open decisions, and the next three actions.
+Do not send messages or modify the source files.
+```
+
+## Scheduled jobs, webhooks, and heartbeat
+
+A scheduled job runs at a defined time. A webhook job reacts to an external HTTP event and can include event data in its execution context. The dedicated Heartbeat is an agent-level recurring check-in built around the managed `HEARTBEAT.md` instructions.
+
+These mechanisms solve related but different problems. Use a normal automation for a named workflow with an explicit output. Use a webhook when another system owns the trigger. Use Heartbeat for recurring agent awareness and check-in behavior.
+
+## Reliability and safety
+
+Scheduled work depends on an online Notebook runtime, a working model provider, valid tool credentials, and accessible workspace files. Test the job manually and verify delivery before treating it as operational.
+
+Keep high-impact external actions behind review unless the workflow is narrow, observable, and intentionally authorized. Timeouts, provider errors, missing files, revoked credentials, or delivery failures can stop a run even when the schedule itself is correct.
+
+## Related guides
+
+- [Quickstart](/docs/quickstart)
+- [The 24/7 AI Agent](/docs/features/ai-agent)
+- [Email](/docs/features/email)
+- [Skills and Plugins](/docs/features/skills)
+
+[Open dashboard](/dashboard)

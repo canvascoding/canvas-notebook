@@ -1,0 +1,41 @@
+---
+title: Editing Existing Images
+description: Create controlled variations, change composition, crop, or extend an existing Studio or workspace image.
+section: Studio
+sectionOrder: 5
+order: 5
+locale: en
+translationKey: studio.edit-images
+updatedAt: 2026-07-17
+---
+
+# Editing Existing Images
+
+Studio editing uses an existing image as the source for a new generated output. The source remains unchanged; each edit creates a new generation that can be reviewed independently.
+
+## Create a variation
+
+Open an image output and choose the variation or edit action. Describe what must change and what must remain stable.
+
+```text
+Keep the product, camera angle, and shadows. Replace the background with a
+clean concrete surface and remove the loose paper in the upper-left corner.
+```
+
+Specific constraints help distinguish an edit from a complete reinterpretation. Even so, generative editing may alter details you did not mention. Compare the output to the source at full resolution.
+
+## Crop or extend a canvas
+
+The Aspect Ratio editor offers two modes. A frame inside the source image performs a crop. A frame that extends beyond the source requests AI extension to fill the new area. Choose a standard ratio or freeform frame, reposition it, and preview the target dimensions before generation.
+
+Provider, model, image size, output format, quality, and background controls depend on the selected edit path. AI extension requires a compatible provider credential; a pure crop does not need to invent pixels outside the source.
+
+## Preserve provenance
+
+Keep the original output and save approved edits with clear filenames. When a visual makes a factual claim about a product or person, manually verify the changed regions before use.
+
+## Related guides
+
+- [Aspect-ratio adaptation](/docs/studio/aspect-ratio)
+- [Generating images](/docs/studio/generate-images)
+- [Managing outputs and failed generations](/docs/studio/outputs)

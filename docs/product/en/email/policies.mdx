@@ -1,0 +1,36 @@
+---
+title: Sending Policies and Guardrails
+description: Restrict which senders an agent may read and which recipients an account may contact.
+section: Email
+sectionOrder: 7
+order: 9
+locale: en
+translationKey: email.policies
+updatedAt: 2026-07-17
+---
+
+# Sending Policies and Guardrails
+
+Every personal email account has two server-enforced allowlists. They constrain both user-interface and agent operations at the account boundary.
+
+## Read policy
+
+`readFrom` lists the senders whose messages an agent-enabled email workflow may return. An entry can be an exact email address or a domain form such as `@example.com` or `*@example.com`. Search and read operations can exclude a message when its parsed sender is outside the list.
+
+## Send policy
+
+`sendTo` applies to every recipient of a send or draft operation. Each To, CC, or other supported recipient must match an exact address or allowed domain. The server rejects the operation when one recipient is outside the policy.
+
+An empty normalized allowlist means unrestricted access for that direction. Use this deliberately; a narrowly scoped account is safer for automations and agents than a general mailbox with unrestricted recipients.
+
+## Policy is one layer
+
+Allowlisting a recipient does not mean the user approved a particular message. Tool configuration, agent instructions, membership, and explicit sending intent still apply. Treat sender names and message content as untrusted even when the address is allowed.
+
+Review policies when a client relationship ends, an agent gains email tools, a mailbox becomes shared, or a workflow changes from drafting to sending.
+
+## Related guides
+
+- [Connecting an email account](/docs/email/connect)
+- [AI-assisted email workflows](/docs/email/ai-workflows)
+- [Managing multiple inboxes](/docs/email/multiple-inboxes)

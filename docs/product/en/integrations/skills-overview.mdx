@@ -1,0 +1,41 @@
+---
+title: Skills Overview
+description: Understand how reusable instruction packages give Canvas agents specialized workflows and tools.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 1
+locale: en
+translationKey: integrations.skills-overview
+updatedAt: 2026-07-17
+---
+
+# Skills Overview
+
+A skill is a reusable package of instructions that teaches an agent how to complete a specific kind of work. Skills can describe a workflow, identify supporting files, declare compatible tools, and include templates or scripts. They extend an agent without changing the agent's base prompt for every task.
+
+## Skill sources
+
+Canvas distinguishes three sources:
+
+- **Core skills** ship with Canvas and are always available.
+- **Standalone skills** are installed independently by an administrator or user.
+- **Plugin skills** are installed and managed as part of a plugin.
+
+Skills may be scoped to the system, an organization, or a user. Their effective state can be available, disabled, blocked by policy, in conflict with another package, or waiting for a personal connection.
+
+## What an agent receives
+
+An enabled skill contributes its `SKILL.md` instructions and any referenced package resources to the agent's runtime context. A skill does not automatically grant unrestricted access to the filesystem, credentials, or external services. Tool availability, workspace access, connections, and runtime policy are evaluated separately.
+
+Core skills remain enabled. Optional skills can use the default set, a selected set, or no optional skills for a particular agent.
+
+## Choose the right extension
+
+Use a skill when the extension is primarily instructions and reusable resources. Use a plugin when several skills and connectors should be installed, versioned, and managed together. Use an [MCP connection](/docs/integrations/mcp) when the agent needs tools from an external MCP server.
+
+## Next steps
+
+- [Installing a skill](/docs/integrations/install-skill)
+- [Understanding SKILL.md](/docs/integrations/skill-md)
+- [Enabling skills for agents](/docs/integrations/enable-skills)
+

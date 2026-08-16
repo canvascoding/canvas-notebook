@@ -1,0 +1,44 @@
+---
+title: Managing Active Public Shares
+description: Audit, expire, and revoke public links and understand stale or missing file states.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 18
+locale: en
+translationKey: notebook.public-share-management
+updatedAt: 2026-07-17
+---
+
+# Managing Active Public Shares
+
+Public exposure should have an owner and an end condition. Canvas Notebook records public shares so they can be audited and revoked independently from the original sharing dialog.
+
+## Review active links
+
+Open the Public Shares area under Security. Review each file, workspace, source, security mode, creation time, and expiration. Copy a URL only when you intend to redistribute it, and open the public view to verify current content.
+
+Useful share states include:
+
+- **Active:** the link currently resolves to its intended file.
+- **Expired:** its configured expiration time has passed.
+- **Revoked:** a user deliberately unpublished the link.
+- **Missing:** the source file no longer exists.
+- **Stale:** the file identity no longer matches the item that was originally shared.
+
+The missing and stale states prevent a replacement file from being exposed merely because it occupies a reused path.
+
+## Revoke access
+
+Unpublish a share when a review ends, a recipient no longer needs it, content becomes outdated, or the link was sent to the wrong audience. Revocation stops the share URL; deleting a message that contained the URL does not.
+
+Use expirations for temporary delivery and schedule a recurring review for links without an expiry. Pay special attention to interactive HTML because it has a broader capability surface than a strict read-only document.
+
+## File changes and shares
+
+Renames, moves, deletions, and writes are reconciled against active shares. Still, verify the public URL after changing a published file and revoke the old share when the intended public artifact has materially changed.
+
+## Related guides
+
+- [Sharing files publicly](/docs/notebook/public-sharing)
+- [File operations](/docs/notebook/file-operations)
+- [Markdown properties and metadata](/docs/notebook/properties)

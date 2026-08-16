@@ -1,0 +1,37 @@
+---
+title: Agent Memory
+description: Store compact long-term agent and user facts separately from chat history and project documents.
+section: Agents and Chat
+sectionOrder: 4
+order: 12
+locale: en
+translationKey: agents.memory
+updatedAt: 2026-07-17
+---
+
+# Agent Memory
+
+Persistent memory stores a small set of durable facts that should influence future sessions. It is separate from chat history, session summaries, workspace documents, and temporary task state.
+
+## Agent and user memory
+
+- **Agent memory:** `MEMORY.md` holds preferences and recurring context specific to one agent.
+- **User memory:** `USER.md` holds durable user context shared from Canvas Agent and inherited by specialized agents.
+
+Memory operations can read, add, update, or delete structured entries. Duplicate content is avoided, individual entries are length-limited, and the complete files have context budgets so memory remains compact.
+
+## Store only durable facts
+
+Appropriate memories include a stable communication preference, the user's usual timezone, a recurring report format, or a long-term brand constraint. Project decisions belong in project documents; deadlines belong in tasks or automations; logs and session summaries stay out of memory.
+
+Never store API keys, passwords, tokens, credentials, or private raw data in memory. Canvas Notebook checks common secret patterns, but users and agents remain responsible for the content.
+
+## Correct or remove stale memory
+
+When a preference changes, update the existing entry instead of adding a contradictory one. Delete facts that are no longer useful. Review memory when an agent repeatedly makes an outdated assumption across new sessions.
+
+## Related guides
+
+- [Managed prompt files](/docs/agents/managed-prompt-files)
+- [Chat sessions and history](/docs/agents/sessions-history)
+- [Agent instructions and profiles](/docs/agents/instructions-and-profiles)

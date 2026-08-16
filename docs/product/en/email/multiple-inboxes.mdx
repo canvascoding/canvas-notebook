@@ -1,0 +1,36 @@
+---
+title: Managing Multiple Inboxes
+description: Switch between connected accounts, choose a primary sender, and preserve account-specific policies.
+section: Email
+sectionOrder: 7
+order: 4
+locale: en
+translationKey: email.multiple-inboxes
+updatedAt: 2026-07-17
+---
+
+# Managing Multiple Inboxes
+
+Canvas Email can store several active accounts for one user. Each account keeps its own provider, sender identity, credentials, folders, primary state, and read and send policy.
+
+## Switch accounts intentionally
+
+Select the account before searching, reading, composing, or using an email agent tool. The selected account ID identifies the mailbox and sender. When an automation or agent workflow can access several accounts, name the intended account rather than relying on whichever one was most recently active.
+
+## Choose a primary account
+
+The primary personal account is the default when an operation does not specify another active account. Only one connected account is primary. If the primary account is disconnected, Canvas promotes another active account when available.
+
+Primary does not mean globally unrestricted. The account's send policy still applies, and a send-only SMTP account still cannot provide an inbox without IMAP.
+
+## Keep boundaries per account
+
+A client mailbox and an internal company mailbox should not share a broad implicit policy. Configure permitted senders and recipients separately. Review account display names so the composer makes the active identity obvious.
+
+Before sending, verify From, To, CC, subject, and thread. Reply-all logic excludes the user's own connected addresses, but the final recipient list still requires human review.
+
+## Related guides
+
+- [Sending policies and guardrails](/docs/email/policies)
+- [Drafting and replying](/docs/email/draft-reply)
+- [Main email and system email](/docs/email/main-system-email)

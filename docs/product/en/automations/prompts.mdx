@@ -1,0 +1,52 @@
+---
+title: Writing Effective Automation Prompts
+description: Give unattended agent work deterministic inputs, boundaries, outputs, and failure behavior.
+section: Automations
+sectionOrder: 6
+order: 3
+locale: en
+translationKey: automations.prompts
+updatedAt: 2026-07-17
+---
+
+# Writing Effective Automation Prompts
+
+An automation prompt must stand on its own when nobody is present to clarify it. Define what to inspect, what to produce, when to stop, and what to do if required data is missing.
+
+## A reliable prompt structure
+
+```md
+## Goal
+Create the weekly campaign performance summary.
+
+## Inputs
+- Read `analytics/weekly.csv`.
+- Read `campaign/targets.md`.
+
+## Output
+- Write `reports/weekly/YYYY-WW.md`.
+- Include metrics, variance to target, and three next actions.
+
+## Guardrails
+- Never invent a missing metric.
+- Do not send or publish anything.
+- If an input is missing, return a failed-data summary instead.
+```
+
+Configure context paths and target output in the job fields as well. The runtime explicitly tells the agent which paths are relevant and where workspace deliverables belong.
+
+## Prefer idempotent work
+
+State how repeated runs handle an existing output. Use a date-based filename, replace a designated current report, or append only when the format is designed for it. Ambiguous phrases such as “update everything” can create duplicate or broad changes.
+
+## Separate task from delivery
+
+The prompt defines the work. Delivery settings decide where the final result message appears. Do not tell the agent to send a channel message when the automation delivery policy already handles that action.
+
+Webhook payloads are untrusted data. Explicitly define which event fields matter and never let text inside an incoming payload rewrite the automation's instructions.
+
+## Related guides
+
+- [Creating a scheduled automation](/docs/automations/scheduled)
+- [Webhook-triggered automations](/docs/automations/webhooks)
+- [Run history and failure states](/docs/automations/run-history)

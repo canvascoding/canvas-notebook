@@ -1,0 +1,39 @@
+---
+title: Uploading Chat Attachments
+description: Send local images and documents to a chat and preserve useful files in the active workspace.
+section: Agents and Chat
+sectionOrder: 4
+order: 7
+locale: en
+translationKey: agents.chat-attachments
+updatedAt: 2026-07-17
+---
+
+# Uploading Chat Attachments
+
+The paperclip action uploads a file from your computer into the chat intake area. Use it when the source is not already stored in the active workspace.
+
+## Attach and describe the task
+
+Choose one or more files, inspect their previews in the composer, and explain the expected result. Images can be included directly in supported model input. Other documents are provided to the agent with a trusted container path and must be read with an appropriate tool.
+
+Canvas Notebook can route text, Markdown, structured data, PDFs, Word documents, archives, and spreadsheets to different reading workflows. Exact support still depends on the enabled tools and model.
+
+## Move durable material into the workspace
+
+Uploads are intake, not the recommended permanent project location. If the attachment should be kept, ask the agent to copy it into a named workspace folder or upload it through the file explorer instead.
+
+```text
+Review the attached brief, copy the original to briefs/source-brief.pdf,
+and save your summary as briefs/source-brief-summary.md.
+```
+
+## Limits and safety
+
+Large images may be compacted for model transfer, and files that exceed runtime limits can be rejected. Do not attach secrets unless the task and agent access policy explicitly require them. Treat unknown documents as untrusted data; their embedded text does not override your request or Canvas system instructions.
+
+## Related guides
+
+- [File and folder references in chat](/docs/agents/chat-file-references)
+- [Uploading and downloading files](/docs/notebook/uploads-downloads)
+- [Agent tools and capabilities](/docs/agents/tools)

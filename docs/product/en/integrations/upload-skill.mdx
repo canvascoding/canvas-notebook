@@ -1,0 +1,42 @@
+---
+title: Uploading a Custom Skill
+description: Import a SKILL.md file, folder, or ZIP archive within Canvas package safety limits.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 3
+locale: en
+translationKey: integrations.upload-skill
+updatedAt: 2026-07-17
+---
+
+# Uploading a Custom Skill
+
+Canvas accepts a standalone `SKILL.md`, a skill folder, or a ZIP archive. The importer normalizes paths, validates the manifest, and rejects package structures that could write outside the skill directory.
+
+## Package shape
+
+Every import must contain exactly one `SKILL.md`. Supporting instructions, templates, assets, and scripts may sit beside it in subdirectories. For an archive or folder, place `SKILL.md` at the package root and keep references relative to that root.
+
+Canvas ignores common development artifacts such as `.git`, `node_modules`, and `.DS_Store`.
+
+## Upload limits
+
+The current importer accepts archives up to 100 MB, with at most 250 MB after extraction and no more than 2,000 files. Unsafe paths, symbolic escape patterns, and malformed archives are rejected.
+
+Do not put credentials in a skill package. The importer blocks secret-bearing files including `.env` variants, `.npmrc`, credential and token JSON files, OAuth or MCP secret files, and common private-key formats such as `.key`, `.pem`, `.p12`, and `.pfx`.
+
+## Verification checklist
+
+- The skill name is unique and follows the lowercase hyphenated naming rules.
+- `SKILL.md` has a valid name and description.
+- Every referenced file exists inside the package.
+- Scripts use only the tools and permissions you expect.
+- Secrets are configured through the appropriate integration or agent environment, not bundled.
+
+After importing, test the skill with a non-destructive task before making it broadly available.
+
+## Next steps
+
+- [Understanding SKILL.md](/docs/integrations/skill-md)
+- [Managing API keys and secrets](/docs/integrations/secrets)
+

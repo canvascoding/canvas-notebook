@@ -1,0 +1,38 @@
+---
+title: Agent Members and Permissions
+description: Grant people permission to use, edit, or manage specialized agents without broadening unrelated workspace access.
+section: Agents and Chat
+sectionOrder: 4
+order: 15
+locale: en
+translationKey: agents.members-permissions
+updatedAt: 2026-07-17
+---
+
+# Agent Members and Permissions
+
+Specialized agents can have explicit member access. Canvas Agent is the main built-in agent and is available to every user; its membership is not managed like a specialized profile.
+
+## Permission levels
+
+- **Use:** select the agent and run permitted workflows.
+- **Edit:** change the agent profile and configuration; edit access includes use.
+- **Manage:** administer the agent and its access; manage access includes edit and use.
+
+Grant only the lowest level a person needs. Someone who runs a support workflow does not automatically need authority to change its instructions, models, tools, or membership.
+
+## Direct members and organizational grants
+
+User-scoped agents belong to their owner. Organization-scoped agents can combine direct member access with grants for an organization, role, workspace, project, or user. Effective access is evaluated in the current organization and workspace context.
+
+Member status matters: an inactive organization or agent member should not retain active access. Review permissions when roles change, a contractor leaves, or an agent gains a more powerful tool.
+
+## Access does not override runtime policy
+
+Permission to manage an agent does not create missing provider credentials or bypass instance policy. Permission to use an agent does not grant access to every file, plugin, connection, or external account. Those capabilities remain separately scoped.
+
+## Related guides
+
+- [Workspace and project access](/docs/agents/workspace-project-access)
+- [Agent tools and capabilities](/docs/agents/tools)
+- [Creating a specialized agent](/docs/agents/create-specialized-agent)

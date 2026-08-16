@@ -1,0 +1,40 @@
+---
+title: Run History and Failure States
+description: Inspect automation attempts, sessions, results, errors, retries, and delivery metadata.
+section: Automations
+sectionOrder: 6
+order: 6
+locale: en
+translationKey: automations.run-history
+updatedAt: 2026-07-17
+---
+
+# Run History and Failure States
+
+Run history is the operational record for an automation. Use it to answer when a job ran, what triggered it, which attempt executed, what it produced, and why it failed.
+
+## Run states
+
+- **Pending:** created and waiting to execute.
+- **Running:** the agent runtime owns the run.
+- **Success:** execution completed and the result was stored.
+- **Failed:** execution ended with an unrecovered error.
+- **Retry scheduled:** a transient failure will be attempted again.
+
+The runner allows a limited number of attempts with increasing backoff and enforces an execution deadline. Repeated failures become final instead of retrying forever.
+
+## Inspect a run
+
+Review trigger type, scheduled time, start and finish, attempt number, output path, result text, error message, event log, runtime selection, and delivery details. Open the persisted agent session when available to understand tool activity and the final response.
+
+Separate execution from delivery: the agent can finish its task but fail to deliver the message to a disconnected or disabled channel. Certain delivery failures pause the job to prevent repeated silent loss.
+
+## Retry with evidence
+
+Before retrying, identify whether the cause was input data, permission, provider readiness, session contention, timeout, tool failure, or channel configuration. Confirm whether any side effect completed before the failure so a retry does not duplicate it.
+
+## Related guides
+
+- [Troubleshooting scheduled work and timezones](/docs/automations/troubleshooting)
+- [Automation delivery options](/docs/automations/delivery)
+- [Understanding tool activity](/docs/agents/tool-activity)

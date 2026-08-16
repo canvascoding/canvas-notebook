@@ -1,0 +1,36 @@
+---
+title: Agent Delegation and Multi-Agent Workflows
+description: Split independent work into delegated agent tasks and review delivery back into the source session.
+section: Agents and Chat
+sectionOrder: 4
+order: 11
+locale: en
+translationKey: agents.delegation
+updatedAt: 2026-07-17
+---
+
+# Agent Delegation and Multi-Agent Workflows
+
+Delegation lets an agent assign a bounded goal to another worker while the source chat remains the coordination point. A worker can be ephemeral for one task or use a managed specialized agent.
+
+## Delegate independent work
+
+Good delegated tasks have a clear goal, limited scope, expected result, and minimal dependency on unfinished work elsewhere. Researching three independent markets or reviewing separate files can benefit from parallel workers. A single tightly coupled edit usually benefits more from one responsible agent.
+
+A delegation records the source and worker sessions, target agent, worker role, toolsets, status, result, delivery state, attempts, and timestamps. The delegation panel lets you monitor queued, running, completed, failed, and cancelled work.
+
+## Keep ownership clear
+
+The source agent is responsible for combining worker results and presenting them to the user. A completed worker result can still conflict with another result or with current workspace state. Ask the source agent to reconcile evidence, identify disagreements, and verify any shared file before finalizing.
+
+## Cancel and recover
+
+Cancel a delegation when its premise changed or it is no longer needed. Cancellation can be requested while work is active, but an external operation that already completed may not be reversible. For a failed delivery, inspect the worker result and error before retrying to avoid duplicate actions.
+
+Do not use delegation to bypass an agent's access policy, disabled tools, Plan Mode restrictions, or the need for explicit approval of external changes.
+
+## Related guides
+
+- [Creating a specialized agent](/docs/agents/create-specialized-agent)
+- [Chat sessions and history](/docs/agents/sessions-history)
+- [Understanding tool activity](/docs/agents/tool-activity)

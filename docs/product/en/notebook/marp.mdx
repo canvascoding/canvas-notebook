@@ -1,0 +1,50 @@
+---
+title: Marp Presentations
+description: Build presentations in Markdown, preview slides, and export PDF or image deliverables.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 15
+locale: en
+translationKey: notebook.marp
+updatedAt: 2026-07-17
+---
+
+# Marp Presentations
+
+Marp turns a Markdown file into a slide deck. This keeps presentation content readable as text, easy for an agent to revise, and suitable for version control while still providing a rendered slide preview.
+
+## Create a deck
+
+Use a Marp-compatible filename such as `launch.marp.md` or `launch.slides.md`. Add Marp frontmatter and separate slides with horizontal rules:
+
+```md
+---
+marp: true
+title: Product Launch
+---
+
+# Product Launch
+
+One clear message for the opening slide.
+
+---
+
+## Audience
+
+- Technical freelancers
+- Small business teams
+```
+
+Open the presentation preview after saving. Keep each slide focused on one idea and verify that text, images, and code fit the target aspect ratio.
+
+## Export the presentation
+
+Canvas Notebook can export Marp decks as PDF or as PNG or JPEG slide images when browser-based export capability is available. Use PDF for a portable deck and image exports when another publishing tool needs individual slides.
+
+The Markdown file remains the editable source. Make revisions there and generate a new export rather than editing the PDF or images as the primary version.
+
+## Related guides
+
+- [Markdown formatting reference](/docs/notebook/markdown-formatting)
+- [Exporting Markdown and PDF files](/docs/notebook/exports)
+- [Public sharing](/docs/notebook/public-sharing)

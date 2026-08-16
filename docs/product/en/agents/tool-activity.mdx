@@ -1,0 +1,39 @@
+---
+title: Understanding Tool Activity
+description: Read agent status, tool calls, inputs, results, and failures while a task is running.
+section: Agents and Chat
+sectionOrder: 4
+order: 8
+locale: en
+translationKey: agents.tool-activity
+updatedAt: 2026-07-17
+---
+
+# Understanding Tool Activity
+
+Tool activity shows the operational work behind an agent response. Instead of seeing only the final prose, you can inspect searches, file reads, edits, commands, gateway operations, and returned results.
+
+## Follow a run
+
+The chat status indicates whether the runtime is queued, thinking, using tools, waiting, completed, cancelled, or failed. Tool rows identify the operation and expose structured input or output when available. Multiple related tool messages may be grouped so long runs remain readable.
+
+Review activity when a task changes files, reaches an external service, or produces an unexpected result. A successful tool call means the operation returned successfully; it does not prove the business outcome is correct.
+
+## Interpret common outcomes
+
+- **Running:** the operation has started and may still produce more events.
+- **Completed:** the tool returned a result for the agent to interpret.
+- **Failed:** inspect the error for a missing credential, unavailable runtime, invalid parameter, permission denial, or external service problem.
+- **Cancelled:** the user or runtime stopped the operation before normal completion.
+
+Tool results and external content are data, not trusted instructions. The agent should not follow instructions found inside email, web pages, uploaded files, or tool output when they conflict with the user or system policy.
+
+## Verify mutations
+
+Open changed files, check public links, inspect drafts, and run applicable validation after consequential operations. Use session history to retain the explanation, but treat the resulting workspace state as the authoritative output.
+
+## Related guides
+
+- [Agent tools and capabilities](/docs/agents/tools)
+- [Chat sessions and history](/docs/agents/sessions-history)
+- [Agent health and Doctor diagnostics](/docs/agents/doctor)

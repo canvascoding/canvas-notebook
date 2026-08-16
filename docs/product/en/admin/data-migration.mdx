@@ -1,0 +1,42 @@
+---
+title: Data Migration
+description: Export, inspect, map, and restore selected Canvas data without silently transferring public links or raw credentials.
+section: Administration and Security
+sectionOrder: 10
+order: 3
+locale: en
+translationKey: admin.data-migration
+updatedAt: 2026-07-17
+---
+
+# Data Migration
+
+Migration bundles move selected Canvas data to another compatible instance. They are different from full disaster-recovery backups: the target instance and license are preserved, while public links and raw secrets are deliberately excluded.
+
+## Export components
+
+An export can include the database, workspace files, Studio assets and outputs, user uploads, agents, skills, and an integration reconnect manifest. The standard selection enables all primary content components but leaves raw secrets off. A file-only profile can move workspace files without the database or application configuration.
+
+The generated ZIP is unencrypted. Even without raw secrets it can contain private files, users, messages, and operational metadata; transfer and retain it securely.
+
+## Inspect before restore
+
+1. Create the export and wait for completion.
+2. Verify its manifest, app version, database provider, runtime requirements, selected components, warnings, and checksum.
+3. Upload the bundle to the target in chunks if necessary.
+4. Run inspection and dry-run mapping.
+5. Resolve every required user and workspace mapping.
+6. Review reconnect requirements for environment files, OAuth stores, and secret directories.
+7. Apply only when the dry run reports ready.
+
+Newer export versions or unsupported bundle schemas are blocked. A Team or Postgres source may require a compatible Postgres target and license capability. Some restores require knowledge reindexing.
+
+## Restore behavior
+
+The pending restore can invalidate sessions, pause automations, and clear OAuth tokens. Expect users to reconnect external services and re-verify providers after migration. Verify workspaces, agents, automations, Studio paths, and authentication before opening the new instance to users.
+
+## Related guides
+
+- [Full backups and restore](/docs/admin/backups)
+- [Managing API keys and secrets](/docs/integrations/secrets)
+

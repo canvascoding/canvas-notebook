@@ -1,0 +1,50 @@
+---
+title: Understanding SKILL.md
+description: Learn the required frontmatter, optional metadata, and instruction body of a Canvas skill.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 4
+locale: en
+translationKey: integrations.skill-md
+updatedAt: 2026-07-17
+---
+
+# Understanding SKILL.md
+
+`SKILL.md` is the required entry point for a Canvas skill. YAML frontmatter identifies the package; the Markdown body tells the agent when and how to apply it.
+
+## Required frontmatter
+
+```md
+---
+name: campaign-review
+description: Review a campaign brief for missing inputs and delivery risks.
+---
+```
+
+`name` must be lowercase letters, numbers, and single hyphens. It cannot start or end with a hyphen, contain consecutive hyphens, or exceed 64 characters. `description` must be non-empty, no longer than 1,024 characters, and cannot contain angle brackets.
+
+## Optional fields
+
+You can add `license`, `compatibility`, `allowed-tools`, and string-valued `metadata`. Compatibility text is limited to 500 characters. Use `allowed-tools` to document the intended tool surface, but remember that runtime policy remains authoritative.
+
+An optional `agents/canvas.yaml` can describe the Canvas interface with a display name, short description, icon paths, brand color, default prompt, and version.
+
+## Instruction body
+
+Write operational instructions in a predictable order:
+
+1. Define when the skill applies.
+2. List required inputs and preconditions.
+3. Describe the workflow and decision points.
+4. Explain safety boundaries and approval gates.
+5. Link only to resources included in the package.
+6. State what a successful result contains.
+
+Avoid embedding secrets, user-specific paths, or claims that a tool is always available. The same skill may run for different users, agents, and workspaces.
+
+## Related guides
+
+- [Building a custom skill](/docs/integrations/build-skill)
+- [Uploading a custom skill](/docs/integrations/upload-skill)
+

@@ -1,0 +1,39 @@
+---
+title: File and Folder References in Chat
+description: Point an agent to existing workspace material with explicit @ references.
+section: Agents and Chat
+sectionOrder: 4
+order: 6
+locale: en
+translationKey: agents.chat-file-references
+updatedAt: 2026-07-17
+---
+
+# File and Folder References in Chat
+
+Use an `@` reference when the task depends on a file or folder that already exists in the active workspace. A selected reference gives the request an explicit path instead of relying on the agent to guess which document you mean.
+
+## Add a reference
+
+Type `@` in the composer and search the available workspace entries. Select the intended file or folder, then explain what the agent should do with it.
+
+```text
+Compare @research/interviews.md with @brief/audience.md and add only
+the supported findings to @drafts/personas.md.
+```
+
+The reference picker can also surface other supported reference types, such as enabled skills. The active agent's capabilities and workspace access determine what can be selected and used.
+
+## Reference versus attachment
+
+A workspace reference points to an existing file in place. A chat attachment uploads a new copy into the user-upload intake area. Use a reference for durable project material and an attachment for a file that currently exists only on your computer.
+
+## Keep paths stable
+
+References are strongest signals, not permanent locks. If a file is moved, deleted, or replaced before the agent reads it, the task can fail or use stale context. Use precise names, keep related material in one project folder, and verify the output path after the run.
+
+## Related guides
+
+- [Uploading chat attachments](/docs/agents/chat-attachments)
+- [Working with the file explorer](/docs/notebook/file-explorer)
+- [Workspace and project access](/docs/agents/workspace-project-access)

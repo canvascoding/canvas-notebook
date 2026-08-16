@@ -1,0 +1,41 @@
+---
+title: Automations Overview
+description: Run an agent on a schedule, manual command, retry, or webhook while preserving workspace scope and run history.
+section: Automations
+sectionOrder: 6
+order: 1
+locale: en
+translationKey: automations.overview
+updatedAt: 2026-07-17
+---
+
+# Automations Overview
+
+Automations run repeatable agent work without requiring a person to open a chat at the exact execution time. A job combines a prompt, agent, workspace, context paths, output target, schedule or webhook, and delivery policy.
+
+## Job and run
+
+The **job** is the reusable definition. It can be active or paused and can belong to a personal or organization scope. The **run** is one execution caused by a schedule, manual action, retry, or webhook event.
+
+Each run records its status, trigger, scheduled time, start and finish, attempt, agent session, result, error, event log, runtime metadata, workspace, and effective output path. This separates what should happen from evidence about what actually happened.
+
+## Trigger types
+
+- Run once at a date and time.
+- Run daily at one or more times.
+- Run weekly on selected days and times.
+- Run at a minute, hour, or day interval.
+- Run when a custom or connected-app webhook arrives.
+- Run manually for testing or immediate work.
+
+Working-hours windows can constrain supported schedules to selected days and local times.
+
+## Build for safe repetition
+
+Use stable workspace paths, a deterministic output destination, and a prompt with a clear completion condition. Choose delivery separately from file output. Test manually before activating a recurring schedule, then review the first unattended runs.
+
+## Next steps
+
+- [Creating a scheduled automation](/docs/automations/scheduled)
+- [Writing effective automation prompts](/docs/automations/prompts)
+- [Run history and failure states](/docs/automations/run-history)

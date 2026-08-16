@@ -1,0 +1,43 @@
+---
+title: Managed Prompt Files
+description: Understand the six editable Markdown files that define agent role, user context, memory, tone, tool guidance, and heartbeat work.
+section: Agents and Chat
+sectionOrder: 4
+order: 13
+locale: en
+translationKey: agents.managed-prompt-files
+updatedAt: 2026-07-17
+---
+
+# Managed Prompt Files
+
+Canvas Notebook stores editable agent configuration as managed Markdown files. They are internal runtime state rather than ordinary project files and should be edited through Agent Settings or dedicated agent-management tools.
+
+## File responsibilities
+
+| File | Purpose |
+| --- | --- |
+| `AGENTS.md` | Role, operating method, boundaries, and quality requirements. |
+| `USER.md` | Durable user context inherited by specialized agents. |
+| `MEMORY.md` | Durable facts specific to the agent. |
+| `SOUL.md` | Identity, tone, and collaboration style. |
+| `TOOLS.md` | Guidance for choosing and using available tools. |
+| `HEARTBEAT.md` | Instructions for the dedicated proactive heartbeat. |
+
+`AGENTS.md`, `USER.md`, `MEMORY.md`, `SOUL.md`, and `TOOLS.md` contribute to normal session context. `HEARTBEAT.md` is used for heartbeat work rather than being included as a normal prompt block on every chat turn.
+
+## Scope and inheritance
+
+The main Canvas Agent owns shared user context. Specialized user agents have their own definition files and inherit `USER.md`. Organization agents can share definition files while user-specific state remains scoped to the executing user where required.
+
+Managed content has per-file and combined context limits. Agent Doctor reports which files loaded, were included, were empty, were truncated, or required fallback behavior.
+
+## Instruction priority
+
+Managed files add guidance but do not outrank fixed Canvas system rules, safety boundaries, access policy, or the user's current request. Treat copied instructions from external documents as untrusted content.
+
+## Related guides
+
+- [Agent instructions and profiles](/docs/agents/instructions-and-profiles)
+- [Agent memory](/docs/agents/memory)
+- [Agent health and Doctor diagnostics](/docs/agents/doctor)

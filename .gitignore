@@ -88,6 +88,8 @@ docs/*
 !/docs/architecture/**
 !/docs/security/
 !/docs/security/**
+!/docs/product/
+!/docs/product/**
 /.opencode
 
 # Sentry Config File

@@ -1,0 +1,41 @@
+---
+title: Document Graph and Unresolved Links
+description: Explore connected Markdown knowledge and identify links whose target documents do not yet exist.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 11
+locale: en
+translationKey: notebook.document-graph
+updatedAt: 2026-07-17
+---
+
+# Document Graph and Unresolved Links
+
+The Document Graph visualizes relations between Markdown files in the active workspace. Documents become nodes and their links become connections, giving you a structural view that a folder tree alone cannot provide.
+
+## Explore connected knowledge
+
+Open the Knowledge Graph from the application launcher. Use it to identify central source documents, isolated notes, and clusters that represent a project or topic. Select a node to focus on a document and move from the graph into the underlying file when you need to read or edit it.
+
+The graph is most useful as a navigation and maintenance tool. A highly connected note may be an important definition that deserves careful change control. An isolated note may be intentionally standalone or may simply be missing useful relations.
+
+## Resolve missing targets
+
+An unresolved link points to a document that the index cannot find. This can mean the target has not been created, its name is misspelled, or it was moved without updating the reference.
+
+For each unresolved target:
+
+1. Confirm whether the document should exist.
+2. Correct the link when the target already exists under another name or path.
+3. Create the intended note when the link represents planned knowledge.
+4. Remove the relation when it is obsolete.
+
+## Interpret the graph carefully
+
+The graph shows Markdown relations, not every dependency in the workspace. Code imports, terminal scripts, automation prompts, and agent configuration can depend on files without appearing as graph edges.
+
+## Related guides
+
+- [Wiki links and document relations](/docs/notebook/wiki-links)
+- [Backlinks and linked references](/docs/notebook/backlinks)
+- [Markdown Knowledge Base](/docs/features/knowledge-base)

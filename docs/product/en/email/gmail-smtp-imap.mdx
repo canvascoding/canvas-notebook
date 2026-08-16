@@ -1,0 +1,38 @@
+---
+title: Gmail and SMTP/IMAP Connections
+description: Understand OAuth mailboxes and the separate sending and reading roles of SMTP and IMAP.
+section: Email
+sectionOrder: 7
+order: 3
+locale: en
+translationKey: email.gmail-smtp-imap
+updatedAt: 2026-07-17
+---
+
+# Gmail and SMTP/IMAP Connections
+
+Canvas Notebook supports provider OAuth accounts and generic mail servers. Choose the method that matches the account and the instance's managed or self-hosted setup.
+
+## Google and Microsoft OAuth
+
+OAuth connects through a provider authorization screen instead of asking Canvas to store the mailbox password. The saved secret contains access and refresh tokens, scope, and expiry information. Managed Services can supply the OAuth application configuration, while a self-hosted instance can use locally configured provider credentials.
+
+Reconnect when the provider revokes consent, the refresh token becomes invalid, or required scopes change.
+
+## SMTP and IMAP
+
+SMTP sends messages. Configure its host, port, secure mode, username, and password, then run the connection test.
+
+IMAP reads and organizes the mailbox. Add its host, port, secure mode, username, and password when you want the account to appear with folders, inbox search, message reading, archive, move, and read-state actions.
+
+An account with SMTP but no IMAP is intentionally send-only. A failed inbox load in that setup does not mean SMTP sending is broken.
+
+## Use provider-specific credentials
+
+Some providers require an app password, OAuth, or an enabled IMAP feature rather than the normal interactive login password. Follow the mailbox provider's current security policy and avoid disabling account protections solely to connect Canvas.
+
+## Related guides
+
+- [Connecting an email account](/docs/email/connect)
+- [Troubleshooting email connections](/docs/email/troubleshooting)
+- [Reading and organizing messages](/docs/email/read-organize)

@@ -1,0 +1,47 @@
+---
+title: Telegram Channel Setup
+description: Connect the Canvas bot securely and use private Telegram chats as an agent channel.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 14
+locale: en
+translationKey: integrations.telegram
+updatedAt: 2026-07-17
+---
+
+# Telegram Channel Setup
+
+Canvas can receive and deliver agent messages through a Telegram bot. The channel uses polling and is restricted to direct private chats with the bot; group and channel conversations are rejected.
+
+## Configure the bot
+
+1. Create or select a Telegram bot and obtain its bot token.
+2. Store the token as `TELEGRAM_BOT_TOKEN` in the integration environment.
+3. Set `TELEGRAM_CHANNEL_ENABLED=true`.
+4. Check the channel status and resolve any token or startup error.
+5. Open **Settings → Channels → Telegram** and generate an account-link action.
+
+Canvas will not start the channel if the token is missing or the enabled flag is false. Treat the bot token as a production secret and rotate it if exposed.
+
+## Link a user
+
+Canvas generates a random, single-use link token that expires after 15 minutes. Open the bot with `/start TOKEN` from the Telegram account you want to bind. The token is marked used after validation and cannot be replayed.
+
+After linking, the bot resolves or creates a Canvas agent session for the private chat. A Telegram identity is mapped to the authenticated Canvas user; it does not bypass workspace or agent access checks.
+
+## Available commands
+
+- `/new` creates a new session.
+- `/stop` aborts the active agent run.
+- `/compact` compacts the active session context.
+- `/sessions` lists linked Telegram sessions.
+- `/switch ID` activates an owned session.
+- `/status` shows the active session and runtime state.
+
+Unlink the channel from Canvas and revoke the bot token when retiring the integration.
+
+## Related guides
+
+- [Channel delivery and agent sessions](/docs/integrations/channel-delivery)
+- [Managing API keys and secrets](/docs/integrations/secrets)
+

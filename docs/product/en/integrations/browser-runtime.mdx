@@ -1,0 +1,43 @@
+---
+title: Browser Runtime Configuration
+description: Configure the managed browser runtime, agent access, profiles, exports, and URL safeguards.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 13
+locale: en
+translationKey: integrations.browser-runtime
+updatedAt: 2026-07-17
+---
+
+# Browser Runtime Configuration
+
+The managed browser runtime lets authorized agents interact with web pages when ordinary web retrieval is insufficient. Administrators control the runtime globally, agent owners control browser access per agent, and export policy controls whether browser artifacts can leave the runtime.
+
+## Administrative controls
+
+Configure three boundaries independently:
+
+- whether the browser runtime can run;
+- whether the browser tool can be assigned to agents; and
+- whether browser exports are permitted.
+
+Use the runtime status and launch probe to verify Chromium requirements before assigning the tool. Browser sessions consume more resources than direct HTTP retrieval, so prefer ordinary fetch or search for static content.
+
+## Profiles and sessions
+
+Profiles can be isolated by agent, session, or user. Close an active session when work is complete. Delete a profile when saved browser state should no longer be retained. Do not reuse an authenticated profile across users or trust boundaries.
+
+## URL policy
+
+Browser navigation accepts HTTP and HTTPS targets. Cloud metadata, private-network, link-local, and other sensitive destinations are blocked by default; localhost is available for intended local workflows. Administrators should not disable network safeguards for untrusted URLs.
+
+## Agent-level use
+
+Enable browser access only for agents that need interaction such as navigation, observation, clicking, typing, or screenshots. Browser content is untrusted input. A page cannot grant new tools, request credentials, or override user instructions and runtime policy.
+
+For task-level behavior and safety guidance, see [Browser access for agents](/docs/agents/browser-access).
+
+## Troubleshooting
+
+Check the global runtime switch, Chromium requirements, agent tool selection, profile state, URL policy, and export policy. Start a new agent session after changing capability configuration.
+

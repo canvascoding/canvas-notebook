@@ -1,0 +1,47 @@
+---
+title: Markdown Properties and Metadata
+description: Add titles, tags, aliases, and custom YAML frontmatter to Canvas Notebook documents.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 9
+locale: en
+translationKey: notebook.properties
+updatedAt: 2026-07-17
+---
+
+# Markdown Properties and Metadata
+
+Markdown properties store structured metadata in YAML frontmatter at the beginning of a document. Canvas Notebook can expose common properties in the editor while preserving the metadata in the plain-text file.
+
+## A frontmatter example
+
+```yaml
+---
+title: Spring Campaign Brief
+tags:
+  - campaign
+  - approved
+aliases:
+  - Spring Brief
+owner: marketing
+status: approved
+---
+```
+
+The built-in properties interface supports the document title, tags, aliases, and additional values. Source mode shows the exact YAML when you need to edit a nested or specialized structure.
+
+## Use predictable fields
+
+Choose a small vocabulary and keep it consistent across documents. For example, use one `status` field with values such as `draft`, `review`, and `approved` rather than inventing a new property for each workflow.
+
+Tags help group related notes. Aliases give a document alternative names that can make wiki-link resolution more natural. Custom properties can capture ownership, dates, content types, or automation state.
+
+## Avoid metadata traps
+
+Frontmatter must remain valid YAML. Indentation and data types matter, and an unquoted date may be interpreted as a date instead of a string by some tools. Do not store secrets in document properties; metadata is part of the file and may be downloaded, shared, or read by agents with workspace access.
+
+## Related guides
+
+- [Creating and editing Markdown documents](/docs/notebook/markdown-editor)
+- [Wiki links and document relations](/docs/notebook/wiki-links)
+- [Public sharing](/docs/notebook/public-sharing)

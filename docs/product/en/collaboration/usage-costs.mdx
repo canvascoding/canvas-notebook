@@ -1,0 +1,38 @@
+---
+title: Usage and Cost Analytics
+description: Analyze model tokens, estimated cost, sessions, and events across time, providers, models, users, workspaces, and agents.
+section: Collaboration and Organization
+sectionOrder: 9
+order: 11
+locale: en
+translationKey: collaboration.usage-costs
+updatedAt: 2026-07-17
+---
+
+# Usage and Cost Analytics
+
+Canvas records agent usage events so authorized users can understand model activity and estimated cost. The dashboard summarizes total cost, total tokens, input tokens, output tokens, cache tokens, session count, and event count for a selected period.
+
+## Filter and group
+
+Usage can be filtered by date range, provider, model, session or session search, stop reason, organization, workspace, workspace type, agent, and—where permitted—user. Summaries can group by day, provider, model, user, session, organization, workspace, or agent.
+
+The dashboard provides a time series and a provider, model, or user breakdown. Detailed event rows retain the user, organization, workspace, agent, session title snapshot, provider, model, stop reason, timestamp, token counts, and cost.
+
+## Access
+
+Usage endpoints require authentication and apply role-aware restrictions. A user should not assume that an empty cross-user view means no usage occurred; it may mean the current role cannot access that scope.
+
+## Interpret estimates carefully
+
+Cost depends on the recorded model-pricing configuration and provider reporting. Cache tokens and provider-specific accounting can change the relationship between total tokens and billed cost. Reconcile material billing decisions with the provider invoice.
+
+Use analytics to find unexpectedly expensive models, long sessions, repeated failed runs, or agents with unusually high output. Combine cost with outcome quality; the cheapest event is not necessarily the most effective workflow.
+
+Studio media usage is tracked through its own provider and generation reporting and may not follow language-model token accounting.
+
+## Related guides
+
+- [AI models and providers](/docs/agents/models-and-providers)
+- [Studio models and providers](/docs/studio/models)
+

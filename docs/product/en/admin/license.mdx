@@ -1,0 +1,43 @@
+---
+title: License Management
+description: Register or verify a self-hosted Canvas instance and understand plan, runtime, feature, and quota gates.
+section: Administration and Security
+sectionOrder: 10
+order: 7
+locale: en
+translationKey: admin.license
+updatedAt: 2026-07-17
+---
+
+# License Management
+
+The License panel identifies the instance and verifies a signed license certificate. Status includes the plan, instance ID, deployment mode, database and vector providers, runtime capabilities, organization, feature flags, quotas, source, and expiration.
+
+## Self-hosted activation
+
+An unregistered self-hosted instance can request an activation key by email and submit it in the app. Activation uses the instance ID and email to issue a signed certificate stored locally. Workspace files, prompts, API keys, and local workspace data are not part of the activation request.
+
+Community licenses are currently valid for one year by default and do not renew automatically. Request and activate a new key before expiration. Managed installations receive their license through the configured Canvas distribution and control-plane channel.
+
+## Entitlements
+
+Plans include unregistered, community, pro, and managed. Features can also depend on explicit runtime capabilities, database and vector provider, and quotas. Team runtime requires multi-user and team-workspace capabilities plus a compatible Postgres profile. A plan label alone does not override an incompatible runtime.
+
+## Verification failures
+
+Common states include missing or unavailable public key, unreachable control plane, an untrusted public-key fingerprint, and an expired certificate. Resolve trust and network problems before retrying; do not disable signature validation.
+
+## Operational guidance
+
+- Record the instance ID and expiration in operations inventory.
+- Back up the license state according to the selected recovery strategy.
+- Verify entitlements before enabling Team, collaboration, or database-dependent features.
+- Use the exact license terms included with the installed release when evaluating permitted use.
+
+License activation does not configure AI providers or external service credentials.
+
+## Related guides
+
+- [Self-hosting overview](/docs/admin/self-hosting)
+- [Security model and data storage](/docs/admin/security-data)
+

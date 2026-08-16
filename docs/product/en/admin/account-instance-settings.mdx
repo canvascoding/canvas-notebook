@@ -1,0 +1,42 @@
+---
+title: Account and Instance Settings
+description: Manage personal login preferences separately from administrator-controlled server configuration.
+section: Administration and Security
+sectionOrder: 10
+order: 8
+locale: en
+translationKey: admin.account-instance-settings
+updatedAt: 2026-07-17
+---
+
+# Account and Instance Settings
+
+Canvas settings combine personal preferences, account credentials, workspace configuration, integrations, and administrator controls. Check the scope of a setting before changing it.
+
+## Personal account
+
+Users can select an interface language, update their login email by confirming the current password, and change their password. Password changes require at least eight characters and revoke other sessions. After an email change, Canvas returns the user to login with the new address.
+
+Use a password manager and a unique password. If you cannot authenticate, an operator can reset or create an admin account from the host CLI without writing the password to configuration files.
+
+## Instance settings
+
+Administrators control the server time zone and onboarding state. The time zone influences schedules and due-date interpretation across the instance, so review automations after changing it. Provider verification metadata records which administrator verified a catalog revision and installation.
+
+Other admin-only areas include users, organization permissions, provider catalog, system email, backup and migration, browser runtime, license, and security inventory. Workspace managers can manage their own workspace settings without receiving general server administration.
+
+## Change discipline
+
+1. Identify personal, workspace, organization, or instance scope.
+2. Record the current value for operationally important settings.
+3. Make one change.
+4. Start a new session or restart the affected runtime when required.
+5. Verify the result and relevant audit or status view.
+
+Do not paste credentials into generic settings fields. Use provider, integration, or secret-specific configuration.
+
+## Related guides
+
+- [User and permission management](/docs/admin/users-permissions)
+- [Integration environment variables](/docs/integrations/environment-variables)
+

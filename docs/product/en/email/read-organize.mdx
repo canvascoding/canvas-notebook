@@ -1,0 +1,40 @@
+---
+title: Reading and Organizing Messages
+description: Search folders, inspect messages safely, and manage read state, moves, archive, trash, and deletion.
+section: Email
+sectionOrder: 7
+order: 5
+locale: en
+translationKey: email.read-organize
+updatedAt: 2026-07-17
+---
+
+# Reading and Organizing Messages
+
+Select a readable account and folder to load messages. Search and unread filters help narrow the list, while pagination keeps large mailboxes manageable.
+
+## Open a message
+
+Canvas retrieves the message from the active account and folder. Opening an unread item can mark it as read. The message view shows sender, recipients, subject, body, and attachments and offers reply and organization actions.
+
+HTML email is sanitized before display. Remote images and other resources can reveal that a message was opened, so they remain controlled and can be allowed for a specific trusted sender. Treat displayed links and content as external data even when the sender name looks familiar.
+
+## Organize the mailbox
+
+Depending on the provider and folder, you can:
+
+- mark a message read or unread;
+- archive it;
+- move it to another folder;
+- move it to trash;
+- permanently delete it where supported.
+
+Permanent deletion is different from trash and may not be recoverable. Use batch actions only after checking the selected messages and destination.
+
+The account's `readFrom` policy also applies to agent email tools. Search results can omit messages whose sender is outside the allowed list.
+
+## Related guides
+
+- [Working with email attachments](/docs/email/attachments)
+- [AI-assisted email workflows](/docs/email/ai-workflows)
+- [Sending policies and guardrails](/docs/email/policies)

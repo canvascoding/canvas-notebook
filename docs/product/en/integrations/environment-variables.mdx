@@ -1,0 +1,48 @@
+---
+title: Integration Environment Variables
+description: Configure scoped integration and agent environments without mixing runtime settings and secrets.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 11
+locale: en
+translationKey: integrations.environment-variables
+updatedAt: 2026-07-17
+---
+
+# Integration Environment Variables
+
+Canvas maintains separate environment scopes for integrations and agents. Integration variables configure providers and channels used by server-side features. Agent variables are reserved for values intentionally supplied to agent runtimes. Keeping them separate reduces accidental credential exposure.
+
+## Scope and storage
+
+Values can be stored for a user, organization, or legacy instance scope. Canvas writes the backing files atomically with owner-only file permissions. Administrators can override the default paths with `INTEGRATIONS_ENV_PATH` and `AGENTS_ENV_PATH`.
+
+Environment keys must start with a letter or underscore and contain only letters, numbers, and underscores. Duplicate entries resolve to one value and are stored in a stable sorted order.
+
+## Common integration keys
+
+Examples currently consumed by Canvas include:
+
+```dotenv
+OPENAI_API_KEY=...
+GEMINI_API_KEY=...
+GROQ_API_KEY=...
+KIE_API_KEY=...
+TELEGRAM_BOT_TOKEN=...
+TELEGRAM_CHANNEL_ENABLED=true
+```
+
+Only add keys required by a configured feature. Provider configuration pages should be preferred over hand-editing when they are available.
+
+## Runtime isolation
+
+Sensitive process variables such as API keys, tokens, secrets, passwords, database settings, and terminal credentials are filtered from generic child-process environments. A credential should enter a runtime only through the specific capability designed to use it.
+
+After changing provider or channel settings, recheck feature status. Long-running sessions may need to be restarted before they receive a new runtime snapshot.
+
+## Related guides
+
+- [Managing API keys and secrets](/docs/integrations/secrets)
+- [AI models and providers](/docs/agents/models-and-providers)
+- [Telegram channel setup](/docs/integrations/telegram)
+

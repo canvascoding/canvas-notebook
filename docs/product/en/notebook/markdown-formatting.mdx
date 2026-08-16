@@ -1,0 +1,77 @@
+---
+title: Markdown Formatting Reference
+description: Use common Markdown structures for readable documents that remain portable outside Canvas Notebook.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 6
+locale: en
+translationKey: notebook.markdown-formatting
+updatedAt: 2026-07-17
+---
+
+# Markdown Formatting Reference
+
+Canvas Notebook supports common Markdown structures and workspace-aware extensions. Prefer simple syntax when a document must remain easy to read in other editors.
+
+## Text and headings
+
+```md
+# Page title
+## Section
+### Subsection
+
+Use **bold** for emphasis and *italic* for a secondary distinction.
+```
+
+Use one `#` heading as the document title. Organize the page with `##` sections and use `###` only when a section needs a clear subdivision.
+
+## Lists, quotes, and tasks
+
+```md
+- Unordered item
+- Another item
+
+1. First step
+2. Second step
+
+> A quoted requirement or callout.
+
+- [ ] Open task
+- [x] Completed task
+```
+
+Task lists remain plain Markdown. If a task needs ownership, approval, or active follow-up, manage that workflow separately rather than relying only on a checkbox in a note.
+
+## Links, images, and code
+
+````md
+[Canvas Notebook](https://canvasnotebook.app)
+
+![Campaign concept](./assets/concept.png)
+
+`inline code`
+
+```typescript
+const status = "ready";
+```
+````
+
+Relative paths keep workspace assets portable. Use fenced code blocks with a language name for readable syntax highlighting.
+
+## Tables and dividers
+
+```md
+| Channel | Owner |
+| --- | --- |
+| Email | Alex |
+
+---
+```
+
+For connected notes, Canvas Notebook also understands wiki-link syntax and YAML frontmatter.
+
+## Related guides
+
+- [Wiki links and document relations](/docs/notebook/wiki-links)
+- [Markdown properties and metadata](/docs/notebook/properties)
+- [Marp presentations](/docs/notebook/marp)

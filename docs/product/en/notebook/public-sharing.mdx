@@ -1,0 +1,38 @@
+---
+title: Sharing Files Publicly
+description: Publish explicit read-only file links and understand the exposure and HTML security modes involved.
+section: Notebook and Knowledge
+sectionOrder: 3
+order: 17
+locale: en
+translationKey: notebook.public-sharing
+updatedAt: 2026-07-17
+---
+
+# Sharing Files Publicly
+
+A public share creates a link that can be opened without signing in. Use it only for a specific workspace file that is ready to be seen by anyone who receives or discovers the URL.
+
+## Create a share
+
+Select one or more files and open the public sharing action. Choose an expiration when the link should not remain available indefinitely, publish the files, and copy the generated URLs. Folders cannot be shared as a public file link.
+
+The public experience is read-only. A visitor does not receive general access to the workspace, editor, agent, or neighboring files.
+
+## Strict and interactive HTML
+
+Normal public shares use the strict security mode. HTML can optionally be published in interactive mode from the user interface, but this relaxes rendering restrictions so the page can behave more like an application. Enable interactive HTML only after reviewing all scripts, forms, network requests, and embedded third-party content.
+
+Agent-created shares require an explicit confirmation of public exposure. Interactive HTML shares cannot be created by an agent.
+
+## Review the complete output
+
+Rendered Markdown can include linked or embedded workspace content. Excalidraw, Marp, images, PDFs, media, and supported Office formats may use specialized read-only views. Open the public URL in a signed-out browser and confirm that it reveals exactly what you intend.
+
+Never publicly share credentials, private client data, internal prompts, environment files, or unreviewed generated content.
+
+## Related guides
+
+- [Managing active public shares](/docs/notebook/public-share-management)
+- [Embedded workspace documents](/docs/notebook/embeds)
+- [File previews](/docs/notebook/file-previews)

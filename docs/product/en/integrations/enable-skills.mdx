@@ -1,0 +1,46 @@
+---
+title: Enabling Skills for Agents
+description: Control which optional skills are available to an agent while preserving core capabilities and policy.
+section: Skills, Plugins, and Integrations
+sectionOrder: 8
+order: 5
+locale: en
+translationKey: integrations.enable-skills
+updatedAt: 2026-07-17
+---
+
+# Enabling Skills for Agents
+
+Skill installation makes a package available to Canvas. Agent enablement decides whether an optional skill is included for a particular agent. Keeping these two decisions separate lets administrators provide a catalog without giving every agent every workflow.
+
+## Selection modes
+
+Core skills are always enabled. For optional skills, an agent can use:
+
+- the effective default set;
+- an explicit selection of relevant skills; or
+- no optional skills.
+
+The effective result also respects package readiness and policy. A selected skill is not usable if it is disabled, blocked, conflicting, missing a required personal connection, or unavailable in the current scope.
+
+## Configure an agent
+
+1. Open the agent configuration.
+2. Find the skills or capabilities section.
+3. Choose the default set or select only the skills needed by this agent.
+4. Save the configuration.
+5. Start a new test session and confirm the expected skill appears.
+
+Existing sessions may retain a runtime snapshot created before the change. Start a new session when validating capability changes.
+
+## Least-capability guidance
+
+Enable the smallest useful set. A focused research agent rarely needs publishing or system-administration skills; an email drafting agent should not receive a sending workflow unless its role requires it. Tool permissions and external connections must be configured separately.
+
+If a skill shows a personal-connection requirement, each user must complete the relevant connection before that capability can work in their session.
+
+## Related guides
+
+- [Skills overview](/docs/integrations/skills-overview)
+- [Connected apps](/docs/integrations/connected-apps)
+- [Agent tools](/docs/agents/tools)

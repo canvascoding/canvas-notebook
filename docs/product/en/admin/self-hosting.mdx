@@ -1,0 +1,44 @@
+---
+title: Self-hosting Overview
+description: Choose a supported container deployment, persistent data strategy, database profile, and public access model.
+section: Administration and Security
+sectionOrder: 10
+order: 10
+locale: en
+translationKey: admin.self-hosting
+updatedAt: 2026-07-17
+---
+
+# Self-hosting Overview
+
+Canvas Notebook is container-first. The recommended production path is a Linux VPS or server running the official pre-built image, persistent host storage, and HTTPS through Caddy or another reverse proxy. macOS and Windows installers provide a local Docker server for development or personal use.
+
+## Deployment choices
+
+- **Linux installer:** configures Docker, secrets, Compose, the host CLI, systemd, and optional Caddy.
+- **Portable macOS or Windows installer:** configures a local server on `http://localhost:3456` and a user startup service.
+- **Docker Compose:** uses the provided pre-built-image file with explicit environment configuration.
+- **Hosting platform:** uses the Postgres-oriented Compose file with platform-managed networking, volumes, and TLS.
+
+## Personal and Team runtime
+
+SQLite is the default for personal or single-user operation. Postgres is required for the compatible Team runtime and its multi-user, collaboration, and related capabilities. License entitlements, deployment mode, database, and vector provider must describe a compatible profile.
+
+## Persistent state
+
+Mount the host data directory at `/data`. Container replacement, restart, and image update should not remove that volume. Back up the data root and database with Canvas backup tooling; copying only the container is not a backup.
+
+## Required configuration
+
+Manual deployments require the public `BASE_URL`, matching `BETTER_AUTH_BASE_URL`, a random `BETTER_AUTH_SECRET`, and random `CANVAS_INTERNAL_API_KEY`. Add only intentional `BETTER_AUTH_TRUSTED_ORIGINS`. Provider API keys are configured in the running app.
+
+## Network model
+
+If Caddy is enabled, point the domain's A record to the server and open ports 80 and 443. Otherwise the app listens on host port 3456 for a reverse proxy or controlled direct access. Never expose the Docker socket, database, or data directory to the public network.
+
+## Next steps
+
+- [Linux installation](/docs/admin/install-linux)
+- [macOS installation](/docs/admin/install-macos)
+- [Windows installation](/docs/admin/install-windows)
+

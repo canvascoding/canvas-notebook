@@ -1,0 +1,54 @@
+---
+title: Linux Installation
+description: Install the official Canvas Notebook container, host CLI, systemd service, and optional HTTPS on Ubuntu or Debian.
+section: Administration and Security
+sectionOrder: 10
+order: 11
+locale: en
+translationKey: admin.install-linux
+updatedAt: 2026-07-17
+---
+
+# Linux Installation
+
+Use a fresh Ubuntu or Debian server for the recommended self-hosted deployment. Run the installer on the VM host, not inside another container.
+
+## Before you begin
+
+Choose the public domain or URL, create its DNS record, and decide whether the installer should configure Caddy. For Caddy, open inbound ports 80 and 443. Without Caddy, plan your own reverse proxy or controlled access to port 3456.
+
+Review remote installation scripts before execution when required by your security policy. The official command is:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/canvascoding/canvas-notebook/main/install.sh)
+```
+
+## What the installer does
+
+The installer checks that it is on the host, installs Docker when missing, generates `BETTER_AUTH_SECRET` and `CANVAS_INTERNAL_API_KEY`, writes local manager configuration, pulls the official image, creates the persistent data directory, starts the Compose service, installs the `canvas-notebook` CLI and systemd service, and optionally configures Caddy.
+
+Default locations include `/opt/canvas-notebook` for manager files, the installing user's `canvas-notebook-data` directory for persistent data, and `/var/log/canvas-notebook/manager.log` for host CLI logs.
+
+## Verify the installation
+
+```bash
+canvas-notebook status
+canvas-notebook health
+canvas-notebook logs
+```
+
+Open the configured HTTPS URL, or the intended port-3456 address when no proxy is installed. Create the first administrator in the setup UI and complete provider onboarding.
+
+## Production checklist
+
+- Confirm HTTPS and the exact authentication base URL.
+- Restrict SSH, Docker, database, and manager files.
+- Create an off-host full backup and test inspection.
+- Configure provider credentials inside the app.
+- Decide how updates are approved and monitored.
+
+## Related guides
+
+- [VM management CLI](/docs/admin/vm-cli)
+- [Health checks, logs, and troubleshooting](/docs/admin/troubleshooting)
+

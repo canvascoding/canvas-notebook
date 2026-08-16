@@ -1,0 +1,38 @@
+---
+title: Chat Sessions and History
+description: Continue, review, and separate persistent conversations with an agent.
+section: Agents and Chat
+sectionOrder: 4
+order: 9
+locale: en
+translationKey: agents.sessions-history
+updatedAt: 2026-07-17
+---
+
+# Chat Sessions and History
+
+A chat session preserves messages, tool activity, attachments, runtime state, and the agent association for one line of work. History lets you return to that context instead of starting every request from zero.
+
+## Continue an existing session
+
+Open Chat and select a previous conversation from the history panel. Read the recent messages and verify the active workspace before continuing. A session may contain summaries of older turns when the model context has been compacted; these summaries preserve durable task state but are not a replacement for the actual workspace files.
+
+## Start a new session deliberately
+
+Create a new session when the goal, project, agent, confidentiality boundary, or expected output changes materially. Separate sessions make history easier to search and reduce the chance that old assumptions leak into unrelated work.
+
+Use a descriptive first request so the session is recognizable later. Reference the current source files rather than relying on an old attachment or a fact mentioned many turns ago.
+
+## History is not persistent memory
+
+Session history belongs to the conversation. Agent memory stores selected durable facts for future sessions, while workspace documents hold project knowledge. Do not ask the agent to remember a one-off task permanently when a file or to-do is the appropriate record.
+
+## Review and retention
+
+Organization policy and runtime settings can affect session access and retention. Avoid putting secrets into chat messages, because removing a workspace file does not necessarily remove its prior appearance from conversation history.
+
+## Related guides
+
+- [Agent memory](/docs/agents/memory)
+- [Managed prompt files](/docs/agents/managed-prompt-files)
+- [Agents and chat overview](/docs/agents/overview)
