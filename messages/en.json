@@ -114,6 +114,10 @@
     "loginFailed": "Login failed",
     "unexpectedError": "An unexpected error occurred",
     "loginSuccessful": "Login successful",
+    "sessionCheckingTitle": "Checking your sign-in",
+    "sessionCheckingDescription": "Preparing your workspace securely.",
+    "sessionRestoredTitle": "Welcome back",
+    "sessionRestoredDescription": "Your workspace is ready to continue.",
     "oauthContinuationFailed": "The secure OAuth request could not be continued. Start the connection again."
   },
   "oauthConsent": {

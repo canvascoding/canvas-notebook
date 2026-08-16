@@ -1,6 +1,6 @@
 'use client';
 
-import { Suspense, useState } from 'react';
+import { Suspense, useEffect, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { useSearchParams } from 'next/navigation';
 import { Button } from '@/components/ui/button';
@@ -11,7 +11,7 @@ import { LanguageSwitcher } from '@/app/components/language-switcher';
 import { PublicBrandLogo } from '@/app/components/branding/PublicBrandLogo';
 import { toast } from 'sonner';
 import { routing } from '@/i18n/routing';
-import { Eye, EyeOff } from 'lucide-react';
+import { Eye, EyeOff, LoaderCircle, ShieldCheck } from 'lucide-react';
 
 function buildLocalePath(locale: string, pathname: string) {
   if (locale === routing.defaultLocale) {
@@ -64,9 +64,31 @@ function LoginForm() {
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [resuming, setResuming] = useState(false);
+  const { data: session, isPending: sessionPending } = authClient.useSession();
   const passwordToggleLabel = showPassword ? t('hidePassword') : t('showPassword');
   const isOAuthContinuation = searchParams.has('sig')
     && searchParams.getAll('ba_param').length > 0;
+
+  useEffect(() => {
+    if (!session || isOAuthContinuation || resuming) return;
+
+    let cancelled = false;
+    setResuming(true);
+
+    void resolvePreferredLocale(locale).then((preferredLocale) => {
+      if (!cancelled) {
+        // Let the server make the final decision about onboarding and the
+        // destination. Replacing the page keeps an old login screen from
+        // briefly reappearing when a mobile browser resumes from background.
+        window.location.replace(resolvePostAuthRedirect(preferredLocale, searchParams.get('from')));
+      }
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOAuthContinuation, locale, resuming, searchParams, session]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -102,6 +124,10 @@ function LoginForm() {
       setLoading(false);
     }
   };
+
+  if (!isOAuthContinuation && (sessionPending || session || resuming)) {
+    return <SessionRestoreScreen isRedirecting={Boolean(session || resuming)} />;
+  }
 
   return (
     <div className="min-h-screen flex items-center justify-center bg-background p-4">
@@ -189,6 +215,34 @@ function LoginForm() {
         </form>
       </div>
     </div>
+  );
+}
+
+function SessionRestoreScreen({ isRedirecting }: { isRedirecting: boolean }) {
+  const t = useTranslations('login');
+
+  return (
+    <main className="relative flex min-h-[100dvh] items-center justify-center overflow-hidden bg-background px-5 py-8 text-foreground">
+      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_50%_42%,color-mix(in_oklab,var(--primary)_10%,transparent),transparent_48%)]" />
+      <section
+        aria-live="polite"
+        className="relative w-full max-w-sm rounded-2xl border border-border/80 bg-card/90 p-7 text-center shadow-lg backdrop-blur-sm motion-safe:animate-in motion-safe:fade-in motion-safe:zoom-in-95"
+      >
+        <div className="mx-auto flex size-12 items-center justify-center rounded-2xl bg-primary/10 text-primary">
+          {isRedirecting
+            ? <ShieldCheck className="size-6" aria-hidden="true" />
+            : <LoaderCircle className="size-6 animate-spin" aria-hidden="true" />}
+        </div>
+        <p className="mt-5 text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">Canvas Notebook</p>
+        <h1 className="mt-2 text-xl font-semibold tracking-tight">{t(isRedirecting ? 'sessionRestoredTitle' : 'sessionCheckingTitle')}</h1>
+        <p className="mt-2 text-sm leading-6 text-muted-foreground">
+          {t(isRedirecting ? 'sessionRestoredDescription' : 'sessionCheckingDescription')}
+        </p>
+        <div className="mx-auto mt-6 h-1 w-24 overflow-hidden rounded-full bg-muted" aria-hidden="true">
+          <div className="h-full w-1/2 rounded-full bg-primary motion-safe:animate-[session-progress_1.15s_ease-in-out_infinite]" />
+        </div>
+      </section>
+    </main>
   );
 }
 

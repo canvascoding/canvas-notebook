@@ -2,6 +2,15 @@
 @import "tw-animate-css";
 @import "katex/dist/katex.min.css";
 
+@keyframes session-progress {
+  0% {
+    transform: translateX(-110%);
+  }
+  55%, 100% {
+    transform: translateX(210%);
+  }
+}
+
 .katex-display {
   max-width: 100%;
   overflow-x: auto;

@@ -114,6 +114,10 @@
     "loginFailed": "Anmeldung fehlgeschlagen",
     "unexpectedError": "Ein unerwarteter Fehler ist aufgetreten",
     "loginSuccessful": "Anmeldung erfolgreich",
+    "sessionCheckingTitle": "Anmeldung wird geprüft",
+    "sessionCheckingDescription": "Dein Workspace wird sicher vorbereitet.",
+    "sessionRestoredTitle": "Willkommen zurück",
+    "sessionRestoredDescription": "Dein Workspace ist bereit.",
     "oauthContinuationFailed": "Die sichere OAuth-Anfrage konnte nicht fortgesetzt werden. Starte die Verbindung erneut."
   },
   "oauthConsent": {
