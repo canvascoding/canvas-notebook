@@ -1,35 +1,32 @@
 'use client';
 
-import type { DefaultTodoCategoryKey } from '@/app/lib/todos/default-categories';
+export type NotificationItem = {
+  id: string;
+  type: 'chat.response' | 'todo.attention' | 'studio.completed' | 'studio.failed' | 'automation.failed';
+  title: string;
+  detail: string | null;
+  occurredAt: string;
+  unread: boolean;
+  priority: 'normal' | 'high';
+  workspaceId: string;
+  workspaceName: string | null;
+  target:
+    | { kind: 'chat'; sessionId: string }
+    | { kind: 'todo'; todoId: string }
+    | { kind: 'studio'; generationId: string }
+    | { kind: 'automation'; runId: string };
+};
 
 export type NotificationSummary = {
   unreadCount: number;
-  sessions: {
-    unreadCount: number;
-    items: Array<{
-      sessionId: string;
-      title: string;
-      agentId: string;
-      workspaceId: string | null;
-      workspaceName: string | null;
-      lastMessageAt: string | null;
-    }>;
+  counts: {
+    unread: number;
+    chat: number;
+    todos: number;
+    studio: number;
+    automation: number;
   };
-  todos: {
-    unreadCount: number;
-    dueCount: number;
-    items: Array<{
-      id: string;
-      title: string;
-      priority: 'low' | 'normal' | 'high';
-      dueAt: string | null;
-      seenAt: string | null;
-      categoryName: string | null;
-      categoryKey: DefaultTodoCategoryKey | null;
-      workspaceId: string | null;
-      isDue: boolean;
-    }>;
-  };
+  items: NotificationItem[];
 };
 
 type ApiResponse<T> = {

@@ -1,34 +1,74 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
-import { Bell, Check, CheckCircle2, Circle, Clock3, FolderKanban, MessageSquare, ListTodo } from 'lucide-react';
+import {
+  Bell,
+  Check,
+  Circle,
+  CircleAlert,
+  FolderKanban,
+  ImageIcon,
+  ListTodo,
+  MessageSquare,
+  Workflow,
+  X,
+} from 'lucide-react';
 
-import { Link } from '@/i18n/navigation';
 import { Button } from '@/components/ui/button';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
-import { patchChatSessions } from '@/app/lib/chat/session-api';
-import { readNotificationSummary, type NotificationSummary } from './notification-summary';
+import {
+  readNotificationSummary,
+  type NotificationItem,
+  type NotificationSummary,
+} from './notification-summary';
+
+type NotificationMutation = {
+  action: 'mark_all_read' | 'mark_item_read' | 'dismiss_item';
+  itemId?: string;
+  workspaceId?: string;
+};
 
 function formatBadgeCount(count: number) {
   if (count <= 0) return '';
   return count > 99 ? '99+' : String(count);
 }
 
-function formatDate(value: string | null, locale: string) {
-  if (!value) return null;
+function formatDate(value: string, locale: string) {
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return null;
   return new Intl.DateTimeFormat(locale, { dateStyle: 'short' }).format(date);
 }
 
+function notificationHref(item: NotificationItem): string {
+  switch (item.target.kind) {
+    case 'chat':
+      return buildChatSessionHref('/notebook', item.target.sessionId, item.workspaceId);
+    case 'todo':
+      return `/todos?todo=${encodeURIComponent(item.target.todoId)}&workspaceId=${encodeURIComponent(item.workspaceId)}`;
+    case 'studio':
+      return '/studio';
+    case 'automation':
+      return '/automations';
+  }
+}
+
+function notificationIcon(item: NotificationItem) {
+  if (item.target.kind === 'chat') return MessageSquare;
+  if (item.target.kind === 'todo') return ListTodo;
+  if (item.target.kind === 'studio') return ImageIcon;
+  return Workflow;
+}
+
+function isDismissible(item: NotificationItem) {
+  return item.target.kind === 'studio' || item.target.kind === 'automation';
+}
+
 export function NotificationBell() {
   const t = useTranslations('notifications');
-  const tTodos = useTranslations('todos');
   const locale = useLocale();
   const [open, setOpen] = useState(false);
   const [summary, setSummary] = useState<NotificationSummary | null>(null);
@@ -81,111 +121,85 @@ export function NotificationBell() {
     }
   }, [refresh]);
 
-  const markAllTodosSeen = useCallback(async () => {
-    setIsMutating(true);
-    try {
-      await fetch('/api/notifications/summary', {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_all_todos_seen' }),
-      });
-      window.dispatchEvent(new CustomEvent('todo_updated'));
-      await refresh();
-    } finally {
-      setIsMutating(false);
-    }
-  }, [refresh]);
-
-  const markTodoSeen = useCallback(async (todoId: string) => {
-    setIsMutating(true);
-    try {
-      await fetch('/api/notifications/summary', {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action: 'mark_todo_seen', todoId }),
-      });
-      window.dispatchEvent(new CustomEvent('todo_updated'));
-      await refresh();
-    } finally {
-      setIsMutating(false);
-    }
-  }, [refresh]);
-
-  const completeTodo = useCallback(async (todoId: string) => {
-    setIsMutating(true);
-    try {
-      await fetch(`/api/todos/${encodeURIComponent(todoId)}`, {
-        method: 'PATCH',
-        credentials: 'include',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: 'done', markSeen: true }),
-      });
-      window.dispatchEvent(new CustomEvent('todo_updated'));
-      await refresh();
-    } finally {
-      setIsMutating(false);
-    }
-  }, [refresh]);
-
-  const markSessionRead = useCallback(async (session: NotificationSummary['sessions']['items'][number]) => {
-    const data = await patchChatSessions({
-      agentId: session.agentId,
-      sessionId: session.sessionId,
-      markAsRead: true,
+  const mutateInbox = useCallback(async (payload: NotificationMutation) => {
+    const response = await fetch('/api/notifications/summary', {
+      method: 'PATCH',
+      credentials: 'include',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
+    const body = await response.json().catch(() => null) as { success?: boolean; error?: string } | null;
+    if (!response.ok || !body?.success) {
+      throw new Error(body?.error || 'Failed to update notifications.');
+    }
+    window.dispatchEvent(new CustomEvent('notification_summary_updated'));
+  }, []);
 
-    if (!data?.success) {
-      // A session can disappear after the notification summary was loaded. Refreshing
-      // removes that stale entry while retaining real notifications after a failed request.
+  const markAllRead = useCallback(async () => {
+    setIsMutating(true);
+    try {
+      await mutateInbox({ action: 'mark_all_read' });
+    } finally {
+      setIsMutating(false);
       await refresh();
+    }
+  }, [mutateInbox, refresh]);
+
+  const markItemRead = useCallback(async (item: NotificationItem) => {
+    if (!item.unread) return;
+    setIsMutating(true);
+    try {
+      await mutateInbox({
+        action: 'mark_item_read',
+        itemId: item.id,
+        workspaceId: item.workspaceId,
+      });
+    } finally {
+      setIsMutating(false);
+      await refresh();
+    }
+  }, [mutateInbox, refresh]);
+
+  const dismissItem = useCallback(async (item: NotificationItem) => {
+    setIsMutating(true);
+    try {
+      await mutateInbox({
+        action: 'dismiss_item',
+        itemId: item.id,
+        workspaceId: item.workspaceId,
+      });
+    } finally {
+      setIsMutating(false);
+      await refresh();
+    }
+  }, [mutateInbox, refresh]);
+
+  const openItem = useCallback(async (item: NotificationItem) => {
+    setOpen(false);
+    try {
+      await markItemRead(item);
+    } catch {
+      // A session can disappear after the Inbox was loaded. The refresh above clears
+      // the stale entry; navigation still gives the user a route to the related area.
+    }
+
+    if (item.target.kind !== 'chat') {
+      window.location.assign(notificationHref(item));
       return;
     }
 
-    setSummary((current) => {
-      if (!current) return current;
-      const items = current.sessions.items.filter((item) => item.sessionId !== session.sessionId);
-      if (items.length === current.sessions.items.length) return current;
-      return {
-        ...current,
-        unreadCount: Math.max(0, current.unreadCount - 1),
-        sessions: {
-          ...current.sessions,
-          unreadCount: Math.max(0, current.sessions.unreadCount - 1),
-          items,
-        },
-      };
-    });
-  }, [refresh]);
-
-  const openSessionNotification = useCallback(async (
-    event: MouseEvent<HTMLAnchorElement>,
-    session: NotificationSummary['sessions']['items'][number],
-  ) => {
-    event.preventDefault();
-    setOpen(false);
-    setIsMutating(true);
-
-    try {
-      await markSessionRead(session);
-    } finally {
-      setIsMutating(false);
-    }
-
     const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-    const nextHref = buildChatSessionHref(currentHref, session.sessionId, session.workspaceId);
+    const nextHref = buildChatSessionHref(currentHref, item.target.sessionId, item.workspaceId);
     if (nextHref !== currentHref) {
       window.history.pushState(
-        { sessionId: session.sessionId, workspaceId: session.workspaceId, chat: 'open' },
+        { sessionId: item.target.sessionId, workspaceId: item.workspaceId, chat: 'open' },
         '',
         nextHref,
       );
     }
-    if (dispatchOpenChatSession(session.sessionId, 'notification', session.workspaceId)) return;
-
-    window.location.assign(buildChatSessionHref('/notebook', session.sessionId, session.workspaceId));
-  }, [markSessionRead]);
+    if (dispatchOpenChatSession(item.target.sessionId, 'notification', item.workspaceId)) return;
+    window.location.assign(notificationHref(item));
+  }, [markItemRead]);
 
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
@@ -212,128 +226,76 @@ export function NotificationBell() {
           <div className="min-w-0">
             <p className="text-sm font-semibold">{t('title')}</p>
             <p className="text-xs text-muted-foreground">
-              {isLoading ? t('loading') : t('summary', {
-                sessions: summary?.sessions.unreadCount ?? 0,
-                todos: summary?.todos.unreadCount ?? 0,
-              })}
+              {isLoading ? t('loading') : t('summary', { count: unreadCount })}
             </p>
           </div>
-          <Button asChild variant="ghost" size="sm" onClick={() => setOpen(false)}>
-            <Link href="/todos">
-              <ListTodo className="h-4 w-4" />
-              {t('todos.open')}
-            </Link>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={() => void markAllRead()}
+            disabled={isMutating || unreadCount === 0}
+          >
+            <Check className="h-4 w-4" />
+            {t('markAllRead')}
           </Button>
         </div>
 
         <div className="max-h-[70vh] overflow-y-auto p-2">
-          {!summary || (summary.sessions.items.length === 0 && summary.todos.items.length === 0) ? (
+          {!summary || summary.items.length === 0 ? (
             <div className="flex min-h-36 flex-col items-center justify-center px-4 text-center">
               <Check className="h-7 w-7 text-muted-foreground" />
               <p className="mt-2 text-sm font-medium">{t('empty.title')}</p>
               <p className="mt-1 text-xs text-muted-foreground">{t('empty.description')}</p>
             </div>
           ) : (
-            <div className="space-y-3">
-              <section className="space-y-1">
-                <div className="flex items-center justify-between px-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    {t('sessions.title')}
-                  </h3>
-                  <span className="text-xs text-muted-foreground">{summary.sessions.unreadCount}</span>
-                </div>
-                {summary.sessions.items.length === 0 ? (
-                  <p className="px-2 py-3 text-sm text-muted-foreground">{t('sessions.empty')}</p>
-                ) : summary.sessions.items.map((session) => (
-                  <Button
-                    key={session.sessionId}
-                    asChild
-                    variant="ghost"
-                    className="h-auto w-full justify-start px-2 py-2 text-left"
-                  >
-                    <Link
-                      href={buildChatSessionHref('/notebook', session.sessionId, session.workspaceId)}
-                      onClick={(event) => void openSessionNotification(event, session)}
+            <div className="space-y-1">
+              {summary.items.map((item) => {
+                const Icon = notificationIcon(item);
+                return (
+                  <div key={`${item.workspaceId}:${item.id}`} className="group flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">
+                    <button
+                      type="button"
+                      className="flex min-w-0 flex-1 items-start gap-2 text-left"
+                      onClick={() => void openItem(item)}
                     >
-                      <MessageSquare className="h-4 w-4 shrink-0" />
+                      <span className={cn(
+                        'mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-sm',
+                        item.priority === 'high' ? 'bg-destructive/10 text-destructive' : 'bg-muted text-muted-foreground',
+                      )}>
+                        <Icon className="h-3.5 w-3.5" />
+                      </span>
                       <span className="min-w-0 flex-1">
-                        <span className="block truncate text-sm font-medium">{session.title}</span>
-                        <span className="block text-xs text-muted-foreground">
-                          {formatDate(session.lastMessageAt, locale) ?? t('sessions.newResponse')}
+                        <span className="flex items-center gap-1.5">
+                          {item.unread ? <Circle className="h-2 w-2 shrink-0 fill-primary text-primary" aria-label={t('unread')} /> : null}
+                          <span className="truncate text-sm font-medium">{item.title}</span>
+                          {item.priority === 'high' ? <CircleAlert className="h-3.5 w-3.5 shrink-0 text-destructive" aria-label={t('highPriority')} /> : null}
                         </span>
-                        {session.workspaceName ? (
-                          <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-                            <FolderKanban className="h-3 w-3 shrink-0" />
-                            {t('sessions.workspace', { workspace: session.workspaceName })}
-                          </span>
-                        ) : null}
+                        <span className="mt-0.5 block truncate text-xs text-muted-foreground">
+                          {item.detail || t(`types.${item.target.kind}`)}
+                        </span>
+                        <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
+                          <FolderKanban className="h-3 w-3 shrink-0" />
+                          <span className="truncate">{item.workspaceName || t('workspaceFallback')}</span>
+                          <span aria-hidden="true">·</span>
+                          <span>{formatDate(item.occurredAt, locale) || t('recent')}</span>
+                        </span>
                       </span>
-                    </Link>
-                  </Button>
-                ))}
-              </section>
-
-              <Separator />
-
-              <section className="space-y-1">
-                <div className="flex items-center justify-between gap-2 px-2">
-                  <h3 className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
-                    {t('todos.title')}
-                  </h3>
-                  <Button
-                    variant="ghost"
-                    size="xs"
-                    onClick={markAllTodosSeen}
-                    disabled={isMutating || summary.todos.unreadCount === 0}
-                  >
-                    <Check className="h-3 w-3" />
-                    {t('todos.markAllSeen')}
-                  </Button>
-                </div>
-                {summary.todos.items.length === 0 ? (
-                  <p className="px-2 py-3 text-sm text-muted-foreground">{t('todos.empty')}</p>
-                ) : summary.todos.items.map((todo) => (
-                  <div key={todo.id} className="flex items-start gap-2 rounded-md px-2 py-2 hover:bg-accent">
-                    <Circle className={cn('mt-1 h-2.5 w-2.5 shrink-0', todo.seenAt ? 'text-muted-foreground' : 'fill-primary text-primary')} />
-                    <Link
-                      href={`/todos?todo=${encodeURIComponent(todo.id)}${todo.workspaceId ? `&workspaceId=${encodeURIComponent(todo.workspaceId)}` : ''}`}
-                      className="min-w-0 flex-1"
-                      onClick={() => setOpen(false)}
-                    >
-                      <span className="block truncate text-sm font-medium">{todo.title}</span>
-                      <span className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
-                        {todo.categoryKey ? <span>{tTodos(`defaultCategories.${todo.categoryKey}`)}</span> : todo.categoryName ? <span>{todo.categoryName}</span> : null}
-                        {todo.isDue ? (
-                          <span className="inline-flex items-center gap-1 text-destructive">
-                            <Clock3 className="h-3 w-3" />
-                            {formatDate(todo.dueAt, locale) ?? t('todos.due')}
-                          </span>
-                        ) : null}
-                      </span>
-                    </Link>
-                    {!todo.seenAt ? (
+                    </button>
+                    {isDismissible(item) ? (
                       <Button
                         variant="ghost"
                         size="icon-xs"
-                        onClick={() => void markTodoSeen(todo.id)}
+                        className="shrink-0 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
+                        onClick={() => void dismissItem(item)}
                         disabled={isMutating}
-                        aria-label={t('todos.markSeen')}
+                        aria-label={t('dismiss')}
                       >
-                        <Check className="h-3 w-3" />
+                        <X className="h-3.5 w-3.5" />
                       </Button>
                     ) : null}
-                    <Button
-                      variant="ghost"
-                      size="icon-xs"
-                      onClick={() => void completeTodo(todo.id)}
-                      disabled={isMutating}
-                      aria-label={t('todos.complete')}
-                    >
-                      <CheckCircle2 className="h-3 w-3" />
-                    </Button>
                   </div>
-                ))}
-              </section>
+                );
+              })}
             </div>
           )}
         </div>

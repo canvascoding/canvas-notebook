@@ -2178,25 +2178,22 @@
     "open": "Benachrichtigungen öffnen, {count} ungelesen",
     "title": "Benachrichtigungen",
     "loading": "Wird aktualisiert...",
-    "summary": "{sessions} Sitzungen · {todos} To-dos",
+    "summary": "{count} ungelesen",
+    "markAllRead": "Alle gelesen",
+    "unread": "Ungelesen",
+    "highPriority": "Hohe Priorität",
+    "dismiss": "Aus Benachrichtigungen entfernen",
+    "workspaceFallback": "Workspace",
+    "recent": "Kürzlich",
+    "types": {
+      "chat": "Neue Agent-Antwort",
+      "todo": "To-do benötigt Aufmerksamkeit",
+      "studio": "Studio-Ergebnis bereit",
+      "automation": "Automation benötigt Aufmerksamkeit"
+    },
     "empty": {
       "title": "Alles gelesen",
-      "description": "Neue Antworten und To-dos erscheinen hier."
-    },
-    "sessions": {
-      "title": "Sitzungen",
-      "empty": "Keine ungelesenen Sitzungen.",
-      "newResponse": "Neue Antwort",
-      "workspace": "Workspace: {workspace}"
-    },
-    "todos": {
-      "open": "To-dos",
-      "title": "To-dos",
-      "markAllSeen": "Alle als gelesen markieren",
-      "empty": "Keine offenen To-dos, die Aufmerksamkeit benötigen.",
-      "due": "Fällig",
-      "markSeen": "To-do als gelesen markieren",
-      "complete": "To-do schnell abhaken"
+      "description": "Neue Antworten, To-dos und wichtige Ergebnisse erscheinen hier."
     }
   },
   "todos": {

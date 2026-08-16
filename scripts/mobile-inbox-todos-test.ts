@@ -226,12 +226,32 @@ async function main() {
     assert.equal(badgeResponse.headers.get('cache-control'), 'no-store, max-age=0');
     assert.deepEqual(await badgeResponse.json(), { success: true, count: 1 });
 
-    await markMobileInboxRead({
-      userId: 'mobile-attention-user',
-      workspace,
-      action: 'mark_item_read',
-      itemId: 'studio:generation-ready',
-    });
+    const notificationSummaryRoute = await import('../app/api/notifications/summary/route');
+    const notificationSummaryResponse = await notificationSummaryRoute.GET(
+      new NextRequest('http://localhost/api/notifications/summary'),
+    );
+    assert.equal(notificationSummaryResponse.status, 200);
+    const notificationSummary = await notificationSummaryResponse.json();
+    assert.equal(notificationSummary.success, true);
+    assert.equal(notificationSummary.data.unreadCount, 4);
+    assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'chat:attention-session'), true);
+    assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === `todo:${firstTodo.id}`), true);
+    assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'studio:generation-ready'), true);
+    assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'automation:run-failed'), true);
+    const studioNotification = notificationSummary.data.items.find((item: { id: string }) => item.id === 'studio:generation-ready');
+    assert.equal(typeof studioNotification?.workspaceId, 'string');
+
+    const readStudioResponse = await notificationSummaryRoute.PATCH(
+      new NextRequest('http://localhost/api/notifications/summary', {
+        method: 'PATCH',
+        body: JSON.stringify({
+          action: 'mark_item_read',
+          itemId: 'studio:generation-ready',
+          workspaceId: studioNotification.workspaceId,
+        }),
+      }),
+    );
+    assert.equal(readStudioResponse.status, 200);
     const afterStudioRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
     assert.equal(afterStudioRead.items.some((item) => item.id === 'studio:generation-ready'), false);
 
@@ -259,7 +279,13 @@ async function main() {
       ),
     );
 
-    await markMobileInboxRead({ userId: 'mobile-attention-user', workspace, action: 'mark_all_read' });
+    const readAllResponse = await notificationSummaryRoute.PATCH(
+      new NextRequest('http://localhost/api/notifications/summary', {
+        method: 'PATCH',
+        body: JSON.stringify({ action: 'mark_all_read' }),
+      }),
+    );
+    assert.equal(readAllResponse.status, 200);
     const afterAllRead = await listMobileInbox({ userId: 'mobile-attention-user', workspace, filter: 'unread' });
     assert.equal(afterAllRead.counts.unread, 0, JSON.stringify(afterAllRead));
     assert.equal(afterAllRead.items.length, 0);

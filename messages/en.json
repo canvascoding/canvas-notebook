@@ -2179,25 +2179,22 @@
     "open": "Open notifications, {count} unread",
     "title": "Notifications",
     "loading": "Updating...",
-    "summary": "{sessions} sessions · {todos} to-dos",
+    "summary": "{count} unread",
+    "markAllRead": "Mark all read",
+    "unread": "Unread",
+    "highPriority": "High priority",
+    "dismiss": "Remove from notifications",
+    "workspaceFallback": "Workspace",
+    "recent": "Recent",
+    "types": {
+      "chat": "New agent response",
+      "todo": "To-do needs attention",
+      "studio": "Studio result ready",
+      "automation": "Automation needs attention"
+    },
     "empty": {
       "title": "All read",
-      "description": "New replies and to-dos will appear here."
-    },
-    "sessions": {
-      "title": "Sessions",
-      "empty": "No unread sessions.",
-      "newResponse": "New reply",
-      "workspace": "Workspace: {workspace}"
-    },
-    "todos": {
-      "open": "To-dos",
-      "title": "To-dos",
-      "markAllSeen": "Mark all read",
-      "empty": "No open to-dos need attention.",
-      "due": "Due",
-      "markSeen": "Mark to-do as read",
-      "complete": "Quick complete to-do"
+      "description": "New replies, to-dos, and important results appear here."
     }
   },
   "todos": {
