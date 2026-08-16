@@ -590,7 +590,7 @@ export function PromptHero() {
               className="absolute bottom-full left-0 mb-1 w-full max-h-48 overflow-y-auto border border-border bg-background shadow-lg z-50"
             >
               <div className="p-2 text-xs text-muted-foreground border-b border-border">
-                {isLoadingFiles ? tChat('loadingFiles') : `${tChat('filesFound')}: ${filePickerFiles.length}`}
+                {isLoadingFiles ? tChat('loadingFiles') : tChat('filesFound', { count: filePickerFiles.length })}
               </div>
               {filePickerFiles.map((file, index) => (
                 <button
