@@ -1,6 +1,6 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type MouseEvent } from 'react';
 import { useLocale, useTranslations } from 'next-intl';
 import { Bell, Check, CheckCircle2, Circle, Clock3, FolderKanban, MessageSquare, ListTodo } from 'lucide-react';
 
@@ -11,6 +11,7 @@ import { Separator } from '@/components/ui/separator';
 import { cn } from '@/lib/utils';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
 import { dispatchOpenChatSession } from '@/app/lib/chat/open-chat-session-event';
+import { patchChatSessions } from '@/app/lib/chat/session-api';
 import { readNotificationSummary, type NotificationSummary } from './notification-summary';
 
 function formatBadgeCount(count: number) {
@@ -128,6 +129,64 @@ export function NotificationBell() {
     }
   }, [refresh]);
 
+  const markSessionRead = useCallback(async (session: NotificationSummary['sessions']['items'][number]) => {
+    const data = await patchChatSessions({
+      agentId: session.agentId,
+      sessionId: session.sessionId,
+      markAsRead: true,
+    });
+
+    if (!data?.success) {
+      // A session can disappear after the notification summary was loaded. Refreshing
+      // removes that stale entry while retaining real notifications after a failed request.
+      await refresh();
+      return;
+    }
+
+    setSummary((current) => {
+      if (!current) return current;
+      const items = current.sessions.items.filter((item) => item.sessionId !== session.sessionId);
+      if (items.length === current.sessions.items.length) return current;
+      return {
+        ...current,
+        unreadCount: Math.max(0, current.unreadCount - 1),
+        sessions: {
+          ...current.sessions,
+          unreadCount: Math.max(0, current.sessions.unreadCount - 1),
+          items,
+        },
+      };
+    });
+  }, [refresh]);
+
+  const openSessionNotification = useCallback(async (
+    event: MouseEvent<HTMLAnchorElement>,
+    session: NotificationSummary['sessions']['items'][number],
+  ) => {
+    event.preventDefault();
+    setOpen(false);
+    setIsMutating(true);
+
+    try {
+      await markSessionRead(session);
+    } finally {
+      setIsMutating(false);
+    }
+
+    const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
+    const nextHref = buildChatSessionHref(currentHref, session.sessionId, session.workspaceId);
+    if (nextHref !== currentHref) {
+      window.history.pushState(
+        { sessionId: session.sessionId, workspaceId: session.workspaceId, chat: 'open' },
+        '',
+        nextHref,
+      );
+    }
+    if (dispatchOpenChatSession(session.sessionId, 'notification', session.workspaceId)) return;
+
+    window.location.assign(buildChatSessionHref('/notebook', session.sessionId, session.workspaceId));
+  }, [markSessionRead]);
+
   return (
     <Popover open={open} onOpenChange={handleOpenChange}>
       <PopoverTrigger asChild>
@@ -194,20 +253,7 @@ export function NotificationBell() {
                   >
                     <Link
                       href={buildChatSessionHref('/notebook', session.sessionId, session.workspaceId)}
-                      onClick={(event) => {
-                        setOpen(false);
-                        const currentHref = `${window.location.pathname}${window.location.search}${window.location.hash}`;
-                        const nextHref = buildChatSessionHref(currentHref, session.sessionId, session.workspaceId);
-                        if (nextHref !== currentHref) {
-                          window.history.pushState(
-                            { sessionId: session.sessionId, workspaceId: session.workspaceId, chat: 'open' },
-                            '',
-                            nextHref,
-                          );
-                        }
-                        if (!dispatchOpenChatSession(session.sessionId, 'notification', session.workspaceId)) return;
-                        event.preventDefault();
-                      }}
+                      onClick={(event) => void openSessionNotification(event, session)}
                     >
                       <MessageSquare className="h-4 w-4 shrink-0" />
                       <span className="min-w-0 flex-1">
