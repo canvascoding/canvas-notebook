@@ -14,6 +14,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { getSupportedTimeZones, normalizeTimeZone } from '@/app/lib/time-zones';
+import { SettingsAccordionCard } from './SettingsAccordionCard';
 
 async function saveUserPreferences(payload: { locale?: string }): Promise<void> {
   const response = await fetch('/api/user-preferences', {
@@ -92,10 +93,12 @@ export function GeneralSettingsPanel({
   const [emailPassword, setEmailPassword] = useState('');
   const [isSavingEmail, setIsSavingEmail] = useState(false);
   const [emailChangeComplete, setEmailChangeComplete] = useState(false);
+  const [isLoginInfoOpen, setIsLoginInfoOpen] = useState(false);
   const [currentPassword, setCurrentPassword] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [isSavingPassword, setIsSavingPassword] = useState(false);
+  const [isPasswordOpen, setIsPasswordOpen] = useState(false);
 
   async function handleSelectLocale(locale: string) {
     if (locale === currentLocale || isSavingLocale) return;
@@ -177,15 +180,15 @@ export function GeneralSettingsPanel({
 
   return (
     <div className="space-y-4">
-      <Card>
-        <CardHeader className="px-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <User className="h-5 w-5 text-muted-foreground" />
-            <CardTitle>{t('general.loginInfoTitle')}</CardTitle>
-          </div>
-          <CardDescription>{t('general.loginInfoDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent className="space-y-4 px-4 pb-4 sm:px-6 sm:pb-6">
+      <SettingsAccordionCard
+        title={t('general.loginInfoTitle')}
+        description={t('general.loginInfoDescription')}
+        icon={User}
+        isOpen={isLoginInfoOpen}
+        onOpenChange={setIsLoginInfoOpen}
+        summaryItems={userEmail ? [userEmail] : []}
+        contentClassName="space-y-4"
+      >
           {(userName || userEmail) && (
             <div className="space-y-2">
               {userEmail && (
@@ -236,18 +239,15 @@ export function GeneralSettingsPanel({
               {emailChangeComplete ? t('general.account.emailUpdateComplete') : t('general.account.emailHint')}
             </p>
           </form>
-        </CardContent>
-      </Card>
+      </SettingsAccordionCard>
 
-      <Card>
-        <CardHeader className="px-4 sm:px-6">
-          <div className="flex items-center gap-2">
-            <KeyRound className="h-5 w-5 text-muted-foreground" />
-            <CardTitle>{t('general.account.passwordTitle')}</CardTitle>
-          </div>
-          <CardDescription>{t('general.account.passwordDescription')}</CardDescription>
-        </CardHeader>
-        <CardContent className="px-4 pb-4 sm:px-6 sm:pb-6">
+      <SettingsAccordionCard
+        title={t('general.account.passwordTitle')}
+        description={t('general.account.passwordDescription')}
+        icon={KeyRound}
+        isOpen={isPasswordOpen}
+        onOpenChange={setIsPasswordOpen}
+      >
           <form onSubmit={handlePasswordSubmit} className="grid gap-3 sm:grid-cols-2">
             <div className="space-y-2 sm:col-span-2">
               <Label htmlFor="settings-current-password">{t('general.account.currentPassword')}</Label>
@@ -294,8 +294,7 @@ export function GeneralSettingsPanel({
               </Button>
             </div>
           </form>
-        </CardContent>
-      </Card>
+      </SettingsAccordionCard>
 
       <Card>
         <CardHeader className="px-4 sm:px-6">
