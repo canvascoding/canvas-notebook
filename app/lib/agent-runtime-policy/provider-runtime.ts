@@ -11,6 +11,7 @@ import type {
 import { createAssistantMessageEventStream, streamSimple } from '@earendil-works/pi-ai/compat';
 
 import { readAppRuntimeCatalog } from '@/app/lib/agent-runtime-policy/catalog-store';
+import { omitUnsupportedTemperature } from '@/app/lib/agent-runtime-policy/request-options';
 import {
   resolveProviderInstallationRuntimeAuth,
   type ProviderInstallationRuntimeAuth,
@@ -574,7 +575,7 @@ async function materializeResolution(
           ? { ...requestedModel, baseUrl: auth.baseUrl }
           : requestedModel;
         return streamSimple(authenticatedModel, requestContext, {
-          ...options,
+          ...omitUnsupportedTemperature(authenticatedModel, options),
           ...(auth.apiKey ? { apiKey: auth.apiKey } : {}),
           ...((auth.headers || options?.headers)
             ? { headers: { ...auth.headers, ...options?.headers } }

@@ -58,6 +58,7 @@
     "test:agent:memory": "tsx scripts/agent-memory-store-test.ts",
     "test:agent:managed-files": "tsx --conditions react-server scripts/agent-managed-files-test.ts",
     "test:agent:runtime-temp": "tsx --conditions react-server scripts/agent-runtime-temp-test.ts",
+    "test:agent:temperature": "tsx --conditions react-server scripts/agent-runtime-temperature-test.ts",
     "test:agent:model-probe": "tsx --conditions react-server scripts/agent-model-probe-test.ts",
     "test:agent:provider-verification": "tsx --conditions react-server scripts/agent-runtime-provider-verification-test.ts",
     "test:agent:tools-route": "tsx --conditions react-server scripts/agent-tools-route-test.ts",
