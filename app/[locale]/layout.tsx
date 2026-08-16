@@ -11,6 +11,7 @@ import { InlineScript } from '@/app/components/InlineScript';
 import { AppThemeProvider } from "@/app/components/ThemeProvider";
 import { WorkspaceAppearanceProvider } from '@/app/components/WorkspaceAppearanceProvider';
 import { WorkspaceNavigationSync } from '@/app/components/workspaces/WorkspaceNavigationSync';
+import { workspaceAppearanceInitScript } from '@/app/lib/workspaces/appearance-theme-init';
 import { WebSocketProvider } from '@/app/components/websocket-provider';
 import {NextIntlClientProvider} from 'next-intl';
 import {getMessages, setRequestLocale} from 'next-intl/server';
@@ -83,6 +84,7 @@ export default async function LocaleLayout({
       <head>
         <InlineScript html={'window.EXCALIDRAW_ASSET_PATH="/excalidraw/";'} />
         <Script id="theme-init" src="/theme-init.js" strategy="beforeInteractive" />
+        <InlineScript html={workspaceAppearanceInitScript} />
       </head>
       <body
         className={`${geistSans.variable} ${geistMono.variable} antialiased`}
