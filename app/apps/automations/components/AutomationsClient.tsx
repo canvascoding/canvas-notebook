@@ -263,6 +263,10 @@ type TelegramDeliveryStatus = {
   linked?: boolean;
 };
 
+// Channel selection remains implemented for a future multi-channel rollout,
+// but automations currently always deliver to the web channel.
+const SHOW_AUTOMATION_CHANNEL_SELECTOR = false;
+
 const WEEKDAY_OPTIONS: AutomationWeekday[] = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun'];
 const DEFAULT_AGENT_ID = 'canvas-agent';
 const AUTOMATION_FIELD_CLASS = 'h-10 w-full min-w-0 max-w-full box-border rounded-md border border-input bg-background px-3 text-sm';
@@ -615,7 +619,8 @@ function normalizeDeliveryChannels(channels: unknown[], telegramStatus: Telegram
 
   return channels
     .map(normalizeDeliveryChannel)
-    .filter((channel: DeliveryChannelOption | null): channel is DeliveryChannelOption => Boolean(channel) && channel.id !== 'telegram')
+    .filter((channel): channel is DeliveryChannelOption => channel !== null)
+    .filter((channel) => channel.id !== 'telegram')
     .map((channel) => {
       if (channel.id !== 'telegram' || !telegramStatus) return channel;
       return {
@@ -2022,7 +2027,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   function deliverySessionModeLabel(mode: AutomationDeliverySessionMode): string {
     const isGerman = locale.startsWith('de');
     if (mode === 'new_session') return isGerman ? 'Neue Sitzung' : 'New session';
-    if (mode === 'channel_active') return isGerman ? 'Aktive Sitzung im gewählten Kanal' : 'Active session in selected channel';
+    if (mode === 'channel_active') return isGerman ? 'Aktive Sitzung' : 'Active session';
     return isGerman ? 'Bestimmte Sitzungs-ID' : 'Specific session ID';
   }
 
@@ -2067,7 +2072,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     };
 
     return (
-      <div className="grid min-w-0 max-w-full gap-3 overflow-hidden rounded-md border bg-muted/20 p-3 md:grid-cols-3">
+      <div className={`grid min-w-0 max-w-full gap-3 overflow-hidden rounded-md border bg-muted/20 p-3 ${SHOW_AUTOMATION_CHANNEL_SELECTOR ? 'md:grid-cols-3' : 'md:grid-cols-2'}`}>
         <label className="flex min-w-0 flex-col gap-1 text-sm">
           <span className="flex items-center gap-1 text-xs text-muted-foreground">
             <Bot className="h-3.5 w-3.5" />
@@ -2088,26 +2093,28 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
             </select>
           </div>
         </label>
-        <label className="flex min-w-0 flex-col gap-1 text-sm">
-          <span className="flex items-center gap-1 text-xs text-muted-foreground">
-            <Send className="h-3.5 w-3.5" />
-            {isGerman ? 'Zielkanal' : 'Delivery channel'}
-          </span>
-          <select
-            data-testid={`automation-${target}-delivery-channel`}
-            className={AUTOMATION_FIELD_CLASS}
-            value={selectedDeliveryChannel}
-            onChange={(event) => {
-              updateDeliveryChannel(event.target.value);
-            }}
-          >
-            {visibleDeliveryChannelOptions.map((channel) => (
-              <option key={channel.id} value={channel.id}>
-                {deliveryChannelDisplayLabel(channel.id)}{channel.connected ? '' : ` · ${isGerman ? 'nicht verbunden' : 'not connected'}`}
-              </option>
-            ))}
-          </select>
-        </label>
+        {SHOW_AUTOMATION_CHANNEL_SELECTOR ? (
+          <label className="flex min-w-0 flex-col gap-1 text-sm">
+            <span className="flex items-center gap-1 text-xs text-muted-foreground">
+              <Send className="h-3.5 w-3.5" />
+              {isGerman ? 'Zielkanal' : 'Delivery channel'}
+            </span>
+            <select
+              data-testid={`automation-${target}-delivery-channel`}
+              className={AUTOMATION_FIELD_CLASS}
+              value={selectedDeliveryChannel}
+              onChange={(event) => {
+                updateDeliveryChannel(event.target.value);
+              }}
+            >
+              {visibleDeliveryChannelOptions.map((channel) => (
+                <option key={channel.id} value={channel.id}>
+                  {deliveryChannelDisplayLabel(channel.id)}{channel.connected ? '' : ` · ${isGerman ? 'nicht verbunden' : 'not connected'}`}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
         <label className="flex min-w-0 flex-col gap-1 text-sm">
           <span className="text-xs text-muted-foreground">{isGerman ? 'Session' : 'Session'}</span>
           <select
