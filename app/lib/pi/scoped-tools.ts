@@ -77,9 +77,6 @@ import {
 import { getAgentExecutionContext, type AgentExecutionContext } from '@/app/lib/pi/agent-execution-context';
 import { hashAuditValue, recordAuditEvent, type AuditStatus } from '@/app/lib/audit/audit-service';
 import {
-  createEmailTools,
-} from '@/app/lib/pi/email-tools';
-import {
   createStudioGenerateImageTool,
   createStudioGenerateVideoTool,
   createStudioGenerateSoundTool,
@@ -1245,7 +1242,6 @@ export function createUserScopedTools(userId?: string, agentId?: string | null, 
     createBrowserGatewayTool({ userId, agentId: sourceAgentId, sessionId }),
     ...createAgentSkillTools(userId),
     ...createAgentPluginTools(userId),
-    ...createEmailTools(userId),
   ];
 
   if (sourceAgentId === DEFAULT_AGENT_ID) {

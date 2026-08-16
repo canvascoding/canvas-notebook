@@ -2,9 +2,9 @@ import 'server-only';
 
 import type { WorkspaceEmailAutomationEventContext } from '@/app/lib/email/workspace-email-automation-events';
 import {
-  createWorkspaceEmailTools,
-  type WorkspaceEmailToolBindings,
-  type WorkspaceEmailToolsContext,
+  createEmailAgentTools,
+  type EmailAgentToolsContext,
+  type EmailToolBindings,
 } from '@/app/lib/pi/workspace-email-tools';
 
 export type WorkspaceEmailAutomationToolContext = Pick<WorkspaceEmailAutomationEventContext,
@@ -18,9 +18,9 @@ export type WorkspaceEmailAutomationToolContext = Pick<WorkspaceEmailAutomationE
   agentId: string;
 };
 
-/** The event runner binds the triggering mailbox, but uses the standard workspace tools. */
+/** The event runner binds the triggering mailbox, but uses the standard email tools. */
 export function createWorkspaceEmailAutomationTools(context: WorkspaceEmailAutomationToolContext) {
-  const bindings: WorkspaceEmailToolBindings = {
+  const bindings: EmailToolBindings = {
     mailboxId: context.mailboxId,
     providerMessageId: context.providerMessageId,
     providerThreadId: context.providerThreadId,
@@ -30,10 +30,10 @@ export function createWorkspaceEmailAutomationTools(context: WorkspaceEmailAutom
     automationRunId: context.automationRunId,
     agentId: context.agentId,
   };
-  const sharedContext: WorkspaceEmailToolsContext = {
+  const sharedContext: EmailAgentToolsContext = {
     userId: context.userId,
     workspaceId: context.workspaceId,
     bindings,
   };
-  return createWorkspaceEmailTools(sharedContext);
+  return createEmailAgentTools(sharedContext);
 }

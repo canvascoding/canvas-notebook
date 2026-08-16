@@ -2,10 +2,11 @@ import 'server-only';
 
 import { randomUUID } from 'node:crypto';
 
-import { and, desc, eq, inArray, notInArray } from 'drizzle-orm';
+import { and, desc, eq, inArray, isNull, notInArray } from 'drizzle-orm';
 
 import { db } from '@/app/lib/db';
-import { emailAccounts, emailDrafts, emailInboxCases, workspaceEmailMailboxes } from '@/app/lib/db/schema';
+import { emailAccounts, emailDrafts, emailInboxCases, personalEmailInboxCases, workspaceEmailMailboxes } from '@/app/lib/db/schema';
+import { getEmailAccountForUser } from '@/app/lib/email/account-store';
 import { resolveAgentSessionWorkspaceForUser } from '@/app/lib/pi/session-workspace-context';
 import { recordAuditEvent } from '@/app/lib/audit/audit-service';
 
@@ -23,7 +24,8 @@ function parseRecipients(value: string): string[] {
 
 function publicOutboxDraft(draft: typeof emailDrafts.$inferSelect) {
   return {
-    id: draft.id, workspaceId: draft.workspaceId, mailboxId: draft.mailboxId, inboxCaseId: draft.inboxCaseId,
+    id: draft.id, accountId: draft.accountId, workspaceId: draft.workspaceId, mailboxId: draft.mailboxId, inboxCaseId: draft.inboxCaseId,
+    personalInboxCaseId: draft.personalInboxCaseId,
     status: draft.outboxStatus as OutboxStatus | null, version: draft.version, subject: draft.subject, body: draft.body,
     to: parseRecipients(draft.toJson), cc: parseRecipients(draft.ccJson), bcc: parseRecipients(draft.bccJson),
     isHtml: draft.isHtml, origin: draft.origin, assignedUserId: draft.assignedUserId,
@@ -37,6 +39,16 @@ function publicOutboxDraft(draft: typeof emailDrafts.$inferSelect) {
 function publicInboxCase(item: typeof emailInboxCases.$inferSelect) {
   return {
     id: item.id, workspaceId: item.workspaceId, mailboxId: item.mailboxId, providerThreadId: item.providerThreadId,
+    latestProviderMessageId: item.latestProviderMessageId, requesterAddress: item.requesterAddress,
+    requesterName: item.requesterName, subject: item.subject, status: item.status as InboxCaseStatus,
+    priority: item.priority, assigneeUserId: item.assigneeUserId, closedAt: item.closedAt?.toISOString() || null,
+    createdAt: item.createdAt.toISOString(), updatedAt: item.updatedAt.toISOString(),
+  };
+}
+
+function publicPersonalInboxCase(item: typeof personalEmailInboxCases.$inferSelect) {
+  return {
+    id: item.id, workspaceId: null, mailboxId: `account:${item.emailAccountId}`, providerThreadId: item.providerThreadId,
     latestProviderMessageId: item.latestProviderMessageId, requesterAddress: item.requesterAddress,
     requesterName: item.requesterName, subject: item.subject, status: item.status as InboxCaseStatus,
     priority: item.priority, assigneeUserId: item.assigneeUserId, closedAt: item.closedAt?.toISOString() || null,
@@ -61,6 +73,22 @@ export async function listWorkspaceOutboxDrafts(userId: string, workspaceId: str
   await requireWorkspace(userId, workspaceId, 'canRead');
   const rows = await db.query.emailDrafts.findMany({
     where: and(eq(emailDrafts.workspaceId, workspaceId), inArray(emailDrafts.origin, ['automation', 'agent'])),
+    orderBy: [desc(emailDrafts.updatedAt)],
+  });
+  return rows.map(publicOutboxDraft);
+}
+
+export async function listPersonalInboxCases(userId: string) {
+  const rows = await db.query.personalEmailInboxCases.findMany({
+    where: eq(personalEmailInboxCases.userId, userId),
+    orderBy: [desc(personalEmailInboxCases.updatedAt)],
+  });
+  return rows.map(publicPersonalInboxCase);
+}
+
+export async function listPersonalOutboxDrafts(userId: string) {
+  const rows = await db.query.emailDrafts.findMany({
+    where: and(eq(emailDrafts.userId, userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')),
     orderBy: [desc(emailDrafts.updatedAt)],
   });
   return rows.map(publicOutboxDraft);
@@ -133,6 +161,35 @@ export async function createWorkspaceInboxCase(input: {
   return publicInboxCase(item);
 }
 
+export async function createPersonalInboxCase(input: {
+  userId: string; accountId: string; providerThreadId: string; subject: string;
+  latestProviderMessageId?: string | null; requesterAddress?: string | null; requesterName?: string | null;
+  status?: InboxCaseStatus; priority?: 'low' | 'normal' | 'high' | 'urgent'; assigneeUserId?: string | null;
+}) {
+  await getEmailAccountForUser(input.userId, input.accountId);
+  const now = new Date();
+  const id = `personal-inbox-case-${randomUUID()}`;
+  await db.insert(personalEmailInboxCases).values({
+    id, userId: input.userId, emailAccountId: input.accountId, providerThreadId: input.providerThreadId,
+    latestProviderMessageId: input.latestProviderMessageId || null, requesterAddress: input.requesterAddress || null,
+    requesterName: input.requesterName || null, subject: input.subject.trim() || '(No subject)',
+    status: input.status || 'new', priority: input.priority || 'normal', assigneeUserId: input.assigneeUserId || null,
+    closedAt: input.status === 'closed' ? now : null, createdAt: now, updatedAt: now,
+  }).onConflictDoUpdate({
+    target: [personalEmailInboxCases.emailAccountId, personalEmailInboxCases.providerThreadId],
+    set: {
+      latestProviderMessageId: input.latestProviderMessageId || null,
+      subject: input.subject.trim() || '(No subject)', status: input.status || 'new', priority: input.priority || 'normal',
+      assigneeUserId: input.assigneeUserId || null, closedAt: input.status === 'closed' ? now : null, updatedAt: now,
+    },
+  });
+  const item = await db.query.personalEmailInboxCases.findFirst({
+    where: and(eq(personalEmailInboxCases.userId, input.userId), eq(personalEmailInboxCases.emailAccountId, input.accountId), eq(personalEmailInboxCases.providerThreadId, input.providerThreadId)),
+  });
+  if (!item) throw new Error('Personal inbox case could not be created.');
+  return publicPersonalInboxCase(item);
+}
+
 export async function createWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; mailboxId: string; inboxCaseId?: string | null;
   subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[];
@@ -181,6 +238,35 @@ export async function createWorkspaceOutboxDraft(input: {
   return publicOutboxDraft(draft);
 }
 
+export async function createPersonalOutboxDraft(input: {
+  userId: string; accountId: string; inboxCaseId?: string | null;
+  subject: string; body: string; to: string[]; cc?: string[]; bcc?: string[];
+  originAgentId?: string | null;
+}) {
+  await getEmailAccountForUser(input.userId, input.accountId);
+  if (input.inboxCaseId) {
+    const inboxCase = await db.query.personalEmailInboxCases.findFirst({
+      where: and(eq(personalEmailInboxCases.id, input.inboxCaseId), eq(personalEmailInboxCases.userId, input.userId), eq(personalEmailInboxCases.emailAccountId, input.accountId)),
+      columns: { id: true },
+    });
+    if (!inboxCase) throw new Error('Personal inbox case does not belong to this mailbox.');
+  }
+  const now = new Date();
+  const id = `draft_${randomUUID()}`;
+  await db.insert(emailDrafts).values({
+    id, userId: input.userId, accountId: input.accountId, status: 'draft',
+    toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
+    subject: input.subject.trim(), body: input.body, isHtml: true, attachmentsJson: '[]', providerDraftId: null,
+    workspaceId: null, mailboxId: null, inboxCaseId: null, personalInboxCaseId: input.inboxCaseId || null,
+    origin: 'agent', originAutomationJobId: null, originRunId: null, originAgentId: input.originAgentId || null,
+    outboxStatus: 'awaiting_review', version: 1, assignedUserId: input.userId, editingByUserId: null, editingStartedAt: null,
+    sentByUserId: null, sentAt: null, createdAt: now, updatedAt: now,
+  });
+  const draft = await db.query.emailDrafts.findFirst({ where: and(eq(emailDrafts.id, id), eq(emailDrafts.userId, input.userId)) });
+  if (!draft) throw new Error('Personal outbox draft could not be created.');
+  return publicOutboxDraft(draft);
+}
+
 export async function updateWorkspaceOutboxDraft(input: {
   userId: string; workspaceId: string; draftId: string; expectedVersion: number; subject: string; body: string;
   to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
@@ -198,6 +284,72 @@ export async function updateWorkspaceOutboxDraft(input: {
   }).where(and(eq(emailDrafts.id, current.id), eq(emailDrafts.version, current.version))).returning();
   if (!updated) throw new Error('This outbox draft has changed. Reload it before saving.');
   return publicOutboxDraft(updated);
+}
+
+export async function updatePersonalOutboxDraft(input: {
+  userId: string; draftId: string; expectedVersion: number; subject: string; body: string;
+  to: string[]; cc?: string[]; bcc?: string[]; status?: Extract<OutboxStatus, 'awaiting_review' | 'editing' | 'discarded'>;
+}) {
+  const current = await db.query.emailDrafts.findFirst({
+    where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.userId, input.userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')),
+  });
+  if (!current) throw new Error('Personal outbox draft not found.');
+  if (current.version !== input.expectedVersion) throw new Error('This outbox draft has changed. Reload it before saving.');
+  if (current.outboxStatus === 'sent' || current.outboxStatus === 'discarded') throw new Error('This outbox draft can no longer be edited.');
+  const now = new Date();
+  const [updated] = await db.update(emailDrafts).set({
+    subject: input.subject.trim(), body: input.body, toJson: JSON.stringify(input.to), ccJson: JSON.stringify(input.cc || []), bccJson: JSON.stringify(input.bcc || []),
+    outboxStatus: input.status || 'editing', version: current.version + 1, editingByUserId: input.userId, editingStartedAt: now, updatedAt: now,
+  }).where(and(eq(emailDrafts.id, current.id), eq(emailDrafts.version, current.version))).returning();
+  if (!updated) throw new Error('This outbox draft has changed. Reload it before saving.');
+  return publicOutboxDraft(updated);
+}
+
+export async function sendPersonalOutboxDraft(input: {
+  userId: string; draftId: string; expectedVersion: number;
+}, dependencies: WorkspaceOutboxSendDependencies = {}) {
+  const current = await db.query.emailDrafts.findFirst({
+    where: and(eq(emailDrafts.id, input.draftId), eq(emailDrafts.userId, input.userId), isNull(emailDrafts.workspaceId), eq(emailDrafts.origin, 'agent')),
+  });
+  if (!current) throw new Error('Personal outbox draft not found.');
+  if (current.version !== input.expectedVersion) throw new Error('This outbox draft has changed. Reload it before sending.');
+  if (current.outboxStatus === 'sent' || current.outboxStatus === 'discarded' || current.outboxStatus === 'sending') {
+    throw new Error('This outbox draft cannot be sent.');
+  }
+  await getEmailAccountForUser(input.userId, current.accountId);
+  const now = new Date();
+  const [reserved] = await db.update(emailDrafts).set({
+    outboxStatus: 'sending', version: current.version + 1, editingByUserId: input.userId, editingStartedAt: now, updatedAt: now,
+  }).where(and(eq(emailDrafts.id, current.id), eq(emailDrafts.version, current.version))).returning();
+  if (!reserved) throw new Error('This outbox draft has changed. Reload it before sending.');
+
+  try {
+    const sendInput = {
+      userId: input.userId, accountId: current.accountId, to: parseRecipients(current.toJson), cc: parseRecipients(current.ccJson),
+      bcc: parseRecipients(current.bccJson), subject: current.subject, body: current.body, isHtml: current.isHtml,
+    };
+    if (dependencies.sendMessage) {
+      await dependencies.sendMessage(sendInput);
+    } else {
+      const { sendEmailMessage } = await import('@/app/lib/email/service');
+      await sendEmailMessage(input.userId, {
+        accountId: current.accountId, to: sendInput.to, cc: sendInput.cc, bcc: sendInput.bcc,
+        subject: current.subject, body: current.body, is_HTML: current.isHtml,
+      });
+    }
+    const sentAt = new Date();
+    const [sent] = await db.update(emailDrafts).set({
+      status: 'sent', outboxStatus: 'sent', sentByUserId: input.userId, sentAt, version: reserved.version + 1, updatedAt: sentAt,
+    }).where(and(eq(emailDrafts.id, reserved.id), eq(emailDrafts.version, reserved.version), eq(emailDrafts.outboxStatus, 'sending'))).returning();
+    if (!sent) throw new Error('This outbox draft changed while it was being sent.');
+    return publicOutboxDraft(sent);
+  } catch (error) {
+    const failedAt = new Date();
+    await db.update(emailDrafts).set({
+      outboxStatus: 'send_failed', version: reserved.version + 1, updatedAt: failedAt,
+    }).where(and(eq(emailDrafts.id, reserved.id), eq(emailDrafts.version, reserved.version), eq(emailDrafts.outboxStatus, 'sending')));
+    throw error;
+  }
 }
 
 type WorkspaceOutboxSendDependencies = {
@@ -297,4 +449,4 @@ export async function sendWorkspaceOutboxDraft(input: {
   }
 }
 
-export { publicInboxCase, publicOutboxDraft };
+export { publicInboxCase, publicOutboxDraft, publicPersonalInboxCase };

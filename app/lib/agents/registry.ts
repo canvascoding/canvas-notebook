@@ -17,10 +17,6 @@ const LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
   'email_read',
   'email_create_draft',
   'email_update_draft',
-];
-
-const EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
-  ...LEGACY_EMAIL_AGENT_DEFAULT_ENABLED_TOOLS,
   'workspace_email_list_mailboxes',
   'workspace_email_search_messages',
   'workspace_email_read_message',
@@ -30,6 +26,18 @@ const EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
   'workspace_email_create_outbox_draft',
   'workspace_email_update_outbox_draft',
   'workspace_email_list_outbox_drafts',
+];
+
+const EMAIL_AGENT_DEFAULT_ENABLED_TOOLS = [
+  'email_list_mailboxes',
+  'email_search_messages',
+  'email_read_message',
+  'email_list_thread_messages',
+  'email_list_cases',
+  'email_create_or_update_case',
+  'email_create_outbox_draft',
+  'email_update_outbox_draft',
+  'email_list_outbox_drafts',
 ];
 
 function isSystemManagedAgentId(agentId: string): boolean {

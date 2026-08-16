@@ -17,6 +17,22 @@ const PLUGIN_MANAGEMENT_TOOL_NAMES = [
   'set_canvas_plugin_enabled',
   'update_canvas_plugin_from_workspace',
 ];
+const RENAMED_EMAIL_TOOL_NAMES: Record<string, string> = {
+  email_list_accounts: 'email_list_mailboxes',
+  email_search: 'email_search_messages',
+  email_read: 'email_read_message',
+  email_create_draft: 'email_create_outbox_draft',
+  email_update_draft: 'email_update_outbox_draft',
+  workspace_email_list_mailboxes: 'email_list_mailboxes',
+  workspace_email_search_messages: 'email_search_messages',
+  workspace_email_read_message: 'email_read_message',
+  workspace_email_list_thread_messages: 'email_list_thread_messages',
+  workspace_email_list_cases: 'email_list_cases',
+  workspace_email_create_or_update_case: 'email_create_or_update_case',
+  workspace_email_create_outbox_draft: 'email_create_outbox_draft',
+  workspace_email_update_outbox_draft: 'email_update_outbox_draft',
+  workspace_email_list_outbox_drafts: 'email_list_outbox_drafts',
+};
 
 /**
  * Tools that are disabled by default for new users.
@@ -64,9 +80,9 @@ export function resolveEnabledToolNames(
 ): Set<string> {
   const canonicalToolNames = normalizeToolNames(allToolNames);
   const canonicalToolSet = new Set(canonicalToolNames);
-  const configuredTools = normalizeEnabledToolsConfig(enabledTools).filter(
-    (toolName) => toolName !== DISABLED_ALL_TOOLS_SENTINEL,
-  );
+  const configuredTools = normalizeEnabledToolsConfig(enabledTools)
+    .filter((toolName) => toolName !== DISABLED_ALL_TOOLS_SENTINEL)
+    .map((toolName) => RENAMED_EMAIL_TOOL_NAMES[toolName] || toolName);
 
   if (configuredTools.length === 0 || isLegacyEnabledToolsValue(enabledTools)) {
     return new Set(canonicalToolNames);

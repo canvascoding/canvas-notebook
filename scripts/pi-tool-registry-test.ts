@@ -1076,9 +1076,10 @@ async function main() {
   const automationWriteMetadata = metadata.find((tool) => tool.name === 'create_automation_job');
   assert.ok(automationWriteMetadata);
   assert.equal(automationWriteMetadata.gateway?.name, 'automation_manage');
-  const emailMetadata = metadata.find((tool) => tool.name === 'email_search');
+  const emailMetadata = metadata.find((tool) => tool.name === 'email_search_messages');
   assert.ok(emailMetadata);
-  assert.equal(emailMetadata.gateway?.name, 'email');
+  assert.equal(emailMetadata.group, 'Email');
+  assert.deepEqual(emailMetadata.toolsets, ['email']);
   const studioMetadata = metadata.find((tool) => tool.name === 'studio_generate_image');
   assert.ok(studioMetadata);
   assert.equal(studioMetadata.gateway?.name, 'studio');
@@ -1107,22 +1108,14 @@ async function main() {
       ...DEFAULT_PI_CONFIG.providers,
       google: {
         ...DEFAULT_PI_CONFIG.providers.google,
-        enabledTools: ['email_search'],
+        enabledTools: ['email_search_messages'],
       },
     },
   });
   const restrictedRuntimeTools = await getPiTools();
-  const restrictedEmailGateway = restrictedRuntimeTools.find((tool) => tool.name === 'email');
-  assert.ok(restrictedEmailGateway);
-  assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'email_search'), false);
-  const restrictedEmailSearch = await restrictedEmailGateway.execute('restricted-email-search', { action: 'search' });
-  assert.match(getText(restrictedEmailSearch), /email_search/);
-  assert.doesNotMatch(getText(restrictedEmailSearch), /email_send_draft/);
-  const restrictedEmailSend = await restrictedEmailGateway.execute('restricted-email-send', {
-    action: 'describe',
-    operation: 'email_send_draft',
-  });
-  assert.match(getText(restrictedEmailSend), /not available/);
+  assert.ok(restrictedRuntimeTools.some((tool) => tool.name === 'email_search_messages'));
+  assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'email'), false);
+  assert.equal(restrictedRuntimeTools.some((tool) => tool.name === 'email_send_draft'), false);
 
   console.log('pi-tool-registry-test: ok');
 

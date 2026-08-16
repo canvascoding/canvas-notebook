@@ -8,7 +8,7 @@ Dieses Dokument konkretisiert `WEA-V1-03`. Es macht die menschliche Versandpflic
 
 1. Ein Agent oder Scheduler kann nie eine externe E-Mail senden.
 2. Ein menschlicher, berechtigter User muss einen Outbox-Entwurf interaktiv zum Versand ausloesen.
-3. E-Mail-Inhalt, Inbox-Fall, Outbox-Entwurf und Automation werden stets mit demselben Workspace abgefragt und geschrieben.
+3. E-Mail-Inhalt, Inbox-Fall und Outbox-Entwurf werden stets im selben Mailbox-Scope abgefragt und geschrieben: Workspace oder persönlicher Owner.
 4. Eine Mailbox kann als Automationsquelle nur über eine aktive Workspace-Mailbox-Zuordnung verwendet werden.
 5. Der Zugriff wird sowohl am Beginn eines Automationslaufs als auch vor jeder persistierenden oder externen Aktion erneut geprüft.
 6. Externer Mailinhalt ist untrusted input und darf weder Berechtigungen noch Agentenregeln verändern.
@@ -19,7 +19,7 @@ Dieses Dokument konkretisiert `WEA-V1-03`. Es macht die menschliche Versandpflic
 | --- | --- | --- | --- | --- |
 | Business-Mailbox verbinden oder trennen | erlaubt | nicht erlaubt | nicht erlaubt | nicht erlaubt |
 | Business-Mailbox einem Workspace zuordnen | erlaubt | erlaubt, wenn Mailbox zur selben Organisation gehört | nicht erlaubt | nicht erlaubt |
-| Persönliche Mailbox manuell nutzen | nur eigene Konten | nur eigene Konten | nur eigene Konten | nicht erlaubt |
+| Persönliche Mailbox manuell nutzen, Inbox-Fall oder Outbox-Entwurf bearbeiten | nur eigene Konten | nur eigene Konten | nur eigene Konten | nur Fall/Entwurf anlegen oder aktualisieren |
 | Automation konfigurieren oder pausieren | erlaubt | erlaubt | nicht erlaubt | nicht erlaubt |
 | Inbox und Outbox lesen | erlaubt | erlaubt | mit `canRead` | nur im Ausführungskontext |
 | Inbox-Fall bearbeiten und Entwurf ändern | erlaubt | erlaubt | mit `canWrite` | nur Entwurf anlegen/aktualisieren |
@@ -35,9 +35,9 @@ Die bestehende Workspace-Permission `canManageWorkspace` ist die V1-Grundlage f�
 Jede Inbox-, Outbox-, Mailbox- und Automationsroute folgt dieser Reihenfolge:
 
 1. Session bestimmen; ohne User-Session immer `401`.
-2. Ziel-Workspace aus Pfad oder Payload normalisieren; niemals nur vom Client übernehmen.
-3. Workspace-Zugriff über die bestehende Workspace-Guard-Logik prüfen.
-4. Für Mailbox und Entwurf die Datenbankzeile zusätzlich mit `workspace_id` abfragen.
+2. Mailbox-Scope aus Pfad oder Payload normalisieren; niemals nur vom Client übernehmen.
+3. Workspace-Zugriff über die bestehende Workspace-Guard-Logik oder persönlichen Owner prüfen.
+4. Für Mailbox und Entwurf die Datenbankzeile zusätzlich mit Workspace oder Owner abfragen.
 5. Für Business-Mailboxen die Organisationszugehörigkeit und Admin-/Managementrecht prüfen.
 6. Für schreibende Aktionen Version, Status und erwarteten Actor mit einer Compare-and-Set-Bedingung prüfen.
 7. Erst danach persistieren oder eine Provider-Aktion ausführen.

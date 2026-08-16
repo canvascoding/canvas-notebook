@@ -51,20 +51,22 @@ Er wird wie der Canvas Agent in der normalen Agent-Registry und Runtime gefuehrt
 
 ## Tool- und Kontextmodell
 
-Die Workspace-E-Mail-Tools sind normale, konfigurierbare Agent-Faehigkeiten. In einer normalen Session waehlt der Agent eine aktive Mailbox des aktuellen Workspaces; jede Auswahl wird serverseitig gegen Workspace-Mitgliedschaft und Mailbox-Zuordnung geprueft. Ein Automation-Run verwendet dieselben Tools, bindet aber die ausloesende Mailbox serverseitig. Er darf dort bei Bedarf weitere relevante Nachrichten suchen und lesen.
+Die E-Mail-Tools sind normale, konfigurierbare Agent-Faehigkeiten. In einer normalen Session waehlt der Agent eine persönliche oder aktive Workspace-Mailbox; jede Auswahl wird serverseitig gegen Eigentum beziehungsweise Workspace-Mitgliedschaft geprueft. Ein Automation-Run verwendet dieselben Tools, bindet aber die ausloesende Workspace-Mailbox serverseitig. Er darf dort bei Bedarf weitere relevante Nachrichten suchen und lesen.
 
-Bestehende E-Mail-Tools bleiben erhalten und koennen weiterhin fuer manuelle/interaktive Agenten genutzt werden. Fuer E-Mail-Automationen werden sie durch fachliche Workspace-Tools ergaenzt:
+Es gibt nur eine sichtbare E-Mail-Tool-Familie:
 
-- `workspace_email_list_mailboxes`, `workspace_email_search_messages`, `workspace_email_read_message`, `workspace_email_list_thread_messages`,
-- `workspace_email_list_cases`, `workspace_email_create_or_update_case`,
-- `workspace_email_create_outbox_draft`, `workspace_email_update_outbox_draft`, `workspace_email_list_outbox_drafts`,
+- `email_list_mailboxes`, `email_search_messages`, `email_read_message`, `email_list_thread_messages`,
+- `email_list_cases`, `email_create_or_update_case`,
+- `email_create_outbox_draft`, `email_update_outbox_draft`, `email_list_outbox_drafts`.
+
+Alle Tools nehmen eine `mailboxId`. Persönliche Mailboxen sind User-eigen und verwenden eine `account:`-Mailbox-ID; Workspace-Mailboxen werden über ihre Workspace-Zuordnung aufgelöst. In einer E-Mail-Automation bleibt die Mailbox serverseitig fest gebunden.
 - bestehende Workspace-Datei- und Wissenssuche.
 
 Der Agent erhaelt als Startkontext die eingegangene E-Mail, den zugehoerigen Thread, vorhandenen Inbox-Fall, lokale Automationsanweisung und die fuer diesen Fall relevanten Workspace-Regeln. Weiteres Wissen holt er ueber die normalen, begrenzten Tool-Calls.
 
 ## Freigabe und Versand
 
-Automationen und Workspace-E-Mail-Tools erstellen und aendern nur Outbox-Entwuerfe. Der Versand bleibt in V1 eine explizite menschliche Aktion im Workspace-UI. `draft_only` und `human_review` bestimmen nur den sichtbaren Review-Status des Entwurfs; es gibt keinen Agenten-Sendetool und keinen automatischen Versand.
+Automationen und E-Mail-Tools erstellen und aendern nur Outbox-Entwuerfe. Der Versand bleibt in V1 eine explizite menschliche Aktion im E-Mail-UI. `draft_only` und `human_review` bestimmen nur den sichtbaren Review-Status des Entwurfs; es gibt keinen Agenten-Sendetool und keinen automatischen Versand.
 
 ## Rueckbau des bisherigen Sonderpfads
 

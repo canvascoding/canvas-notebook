@@ -1007,7 +1007,7 @@ class LivePiRuntime {
       lines.push(`Selected message read: ${this.emailContext.selectedMessageIsRead ? 'yes' : 'no'}`);
     }
 
-    lines.push('This context contains only mailbox metadata. Use email_read before making claims about the selected email body.');
+    lines.push('This context contains only mailbox metadata. Use email_read_message before making claims about the selected email body.');
     return lines.join('\n');
   }
 

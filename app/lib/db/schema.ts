@@ -192,6 +192,28 @@ export const emailInboxCases = sqliteTable("email_inbox_cases", {
   workspaceStatusIdx: index("idx_email_inbox_cases_workspace_status").on(table.workspaceId, table.status, table.updatedAt),
 }));
 
+// Personal mailboxes use the same Inbox-case lifecycle as workspace mailboxes,
+// but deliberately have no implicit workspace assignment.
+export const personalEmailInboxCases = sqliteTable("personal_email_inbox_cases", {
+  id: text("id").primaryKey(),
+  userId: text("user_id").notNull().references(() => user.id, { onDelete: 'cascade' }),
+  emailAccountId: text("email_account_id").notNull().references(() => emailAccounts.id, { onDelete: 'cascade' }),
+  providerThreadId: text("provider_thread_id").notNull(),
+  latestProviderMessageId: text("latest_provider_message_id"),
+  requesterAddress: text("requester_address"),
+  requesterName: text("requester_name"),
+  subject: text("subject").notNull(),
+  status: text("status").notNull().default('new'),
+  priority: text("priority").notNull().default('normal'),
+  assigneeUserId: text("assignee_user_id").references(() => user.id, { onDelete: 'set null' }),
+  closedAt: integer("closed_at", { mode: "timestamp" }),
+  createdAt: integer("created_at", { mode: "timestamp" }).notNull(),
+  updatedAt: integer("updated_at", { mode: "timestamp" }).notNull(),
+}, (table) => ({
+  accountThreadIdx: uniqueIndex("idx_personal_email_inbox_cases_account_thread").on(table.emailAccountId, table.providerThreadId),
+  userStatusIdx: index("idx_personal_email_inbox_cases_user_status").on(table.userId, table.status, table.updatedAt),
+}));
+
 export const emailDrafts = sqliteTable("email_drafts", {
   id: text("id").primaryKey(),
   userId: text("user_id").notNull().references(() => user.id),
@@ -208,6 +230,7 @@ export const emailDrafts = sqliteTable("email_drafts", {
   workspaceId: text("workspace_id"),
   mailboxId: text("mailbox_id").references(() => workspaceEmailMailboxes.id, { onDelete: 'set null' }),
   inboxCaseId: text("inbox_case_id").references(() => emailInboxCases.id, { onDelete: 'set null' }),
+  personalInboxCaseId: text("personal_inbox_case_id").references(() => personalEmailInboxCases.id, { onDelete: 'set null' }),
   origin: text("origin").notNull().default('manual'),
   originAutomationJobId: text("origin_automation_job_id"),
   originRunId: text("origin_run_id"),

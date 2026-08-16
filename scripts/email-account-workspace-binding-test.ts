@@ -280,6 +280,37 @@ async function main() {
 
     const cleared = await assignStoredEmailAccountWorkspace('owner-user', created.id, null);
     assert.equal(cleared.workspaceId, null);
+    const {
+      createPersonalInboxCase,
+      createPersonalOutboxDraft,
+      listPersonalInboxCases,
+      listPersonalOutboxDrafts,
+      sendPersonalOutboxDraft,
+      updatePersonalOutboxDraft,
+    } = await import('../app/lib/email/workspace-inbox-outbox');
+    const personalCase = await createPersonalInboxCase({
+      userId: 'owner-user', accountId: created.id, providerThreadId: 'personal-thread-1',
+      latestProviderMessageId: 'personal-message-1', requesterAddress: 'friend@example.test', subject: 'Private request',
+    });
+    assert.equal(personalCase.workspaceId, null);
+    assert.equal(personalCase.mailboxId, `account:${created.id}`);
+    assert.equal((await listPersonalInboxCases('owner-user')).find((item) => item.id === personalCase.id)?.subject, 'Private request');
+    const personalDraft = await createPersonalOutboxDraft({
+      userId: 'owner-user', accountId: created.id, inboxCaseId: personalCase.id,
+      subject: 'Re: Private request', body: '<p>Happy to help.</p>', to: ['friend@example.test'],
+    });
+    assert.equal(personalDraft.status, 'awaiting_review');
+    const editedPersonalDraft = await updatePersonalOutboxDraft({
+      userId: 'owner-user', draftId: personalDraft.id, expectedVersion: personalDraft.version,
+      subject: 'Re: Private request', body: '<p>Happy to help shortly.</p>', to: ['friend@example.test'], status: 'editing',
+    });
+    const sentPersonal = await sendPersonalOutboxDraft({
+      userId: 'owner-user', draftId: personalDraft.id, expectedVersion: editedPersonalDraft.version,
+    }, {
+      sendMessage: async () => undefined,
+    });
+    assert.equal(sentPersonal.status, 'sent');
+    assert.ok((await listPersonalOutboxDrafts('owner-user')).some((draft) => draft.id === personalDraft.id));
     await assert.rejects(
       () => requireActiveWorkspaceMailboxForAutomation({
         emailAccountId: created.id,

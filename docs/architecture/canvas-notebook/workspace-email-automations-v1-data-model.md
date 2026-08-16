@@ -10,13 +10,13 @@ V1 veraendert diese Ausgangslage schrittweise und kompatibel:
 
 - Bestehende persoenliche E-Mail-Konten bleiben usergebunden und funktionieren weiter.
 - Eine explizite Join-Tabelle ordnet eine Mailbox einem Workspace zu.
-- Ein Inbox-Fall und ein Outbox-Entwurf sind immer workspacegebunden.
+- Inbox-Fälle und Outbox-Entwürfe verwenden denselben Lifecycle für persönliche und Workspace-Mailboxen.
 - Jede neue oder migrierte Automation hat einen expliziten Workspace.
 - `heartbeat` wird nicht als neuer Typ fortgefuehrt; die alte Konfiguration wird zu einer normalen geplanten Automation migriert.
 
 ## Leitregeln fuer das Schema
 
-1. Kein E-Mail-Ereignis, Inbox-Fall, Outbox-Entwurf oder Automation darf ohne `workspace_id` verarbeitet werden.
+1. Provider-Ereignisse und Automationen benötigen einen Workspace; persönliche Inbox-Fälle und Outbox-Entwürfe gehören dagegen direkt dem User und dürfen unzugeordnet bleiben.
 2. Eine Business-Mailbox hat in V1 genau eine aktive Workspace-Zuordnung.
 3. Eine unzugeordnete persoenliche Mailbox bleibt fuer manuelles Schreiben verfuegbar, ist aber keine Automationsquelle.
 4. Provider-Ereignisse und Sendevorgaenge sind idempotent.
@@ -62,7 +62,7 @@ Indizes und Constraints:
 - In V1 darf es hoechstens eine aktive Zuordnung je `email_account_id` geben. SQLite und PostgreSQL erhalten dazu einen partiellen Unique-Index auf aktive Zeilen.
 - Service und API pruefen zusaetzlich, dass eine `organization`-Mailbox nur in einen Workspace derselben Organisation gebunden werden kann.
 
-### Neue Tabelle `email_inbox_cases`
+### Tabelle `email_inbox_cases` und persönliche Fälle
 
 Ein Inbox-Fall ist die schlanke V1-Repräsentation eines Support-Vorgangs, kein vollstaendiges CRM-Ticket.
 
@@ -81,6 +81,8 @@ Ein Inbox-Fall ist die schlanke V1-Repräsentation eines Support-Vorgangs, kein 
 | `created_at`, `updated_at`, `closed_at` | Lifecycle. |
 
 Der eindeutige Schlüssel `(mailbox_id, provider_thread_id)` verhindert neue Faelle fuer bereits bekannte Threads. Ist kein Provider-Thread vorhanden, wird ein dokumentierter Fallback-Schluessel aus normalisiertem Absender, Betreff und Conversation-Headers verwendet.
+
+Für persönliche, nicht zugeordnete Mailboxen gibt es parallel `personal_email_inbox_cases`. Sie verwendet `user_id`, `email_account_id` und denselben Thread-, Status-, Prioritäts- und Bearbeiter-Lifecycle. Dadurch wird keine versteckte Default-Workspace-Zuordnung erzeugt.
 
 ### Neue Tabelle `email_inbox_events`
 
@@ -109,9 +111,9 @@ Die vorhandene Tabelle `email_drafts` wird erweitert, nicht parallel ersetzt. Si
 
 | Feld | Bedeutung |
 | --- | --- |
-| `workspace_id` | In V1 fuer Outbox-Entwuerfe verpflichtend; persoenliche Altentwuerfe duerfen leer bleiben. |
-| `mailbox_id` | Verweis auf `workspace_email_mailboxes`; fuer Outbox-Entwuerfe verpflichtend. |
-| `inbox_case_id` | Optionaler, meist vorhandener Fallbezug. |
+| `workspace_id` | Für Workspace-Outbox-Entwürfe verpflichtend; bei persönlichen Entwürfen leer. |
+| `mailbox_id` | Verweis auf `workspace_email_mailboxes` für Workspace-Entwürfe. |
+| `inbox_case_id`, `personal_inbox_case_id` | Optionaler Fallbezug, passend zum Mailbox-Scope. |
 | `origin` | `manual` oder `automation`. |
 | `origin_automation_job_id`, `origin_run_id`, `origin_agent_id` | Herkunft eines Agent-Entwurfs; optional. |
 | `outbox_status` | `prepared`, `awaiting_review`, `editing`, `sent`, `discarded`, `send_failed`. |
@@ -125,7 +127,7 @@ Constraints und Service-Regeln:
 
 - `origin = automation` darf nie direkt `outbox_status = sent` setzen.
 - Ein automatischer Entwurf wird bei aktiver menschlicher Bearbeitung nicht überschrieben. Stattdessen entsteht eine neue Version oder ein Review-Hinweis.
-- Der Send-Service verlangt `workspace_id`, `mailbox_id`, `assigned_user_id` bzw. berechtigten User sowie die erwartete `version`.
+- Der Send-Service verlangt entweder Workspace- und Mailbox-Zugriff oder den persönlichen Owner sowie die erwartete `version`.
 - `sent_by_user_id` ist bei jedem versendeten Workspace-Entwurf nicht null.
 
 ### Erweiterung von `automation_jobs`
@@ -166,7 +168,7 @@ Die Migration wird fuer SQLite und PostgreSQL in derselben fachlichen Reihenfolg
 
 - Eine Mailbox hat in V1 nie zwei aktive Workspace-Zuordnungen.
 - Dieselbe Provider-Nachricht führt höchstens zu einem Inbox-Ereignis und einem Fall-Update.
-- Alle Outbox-Entwürfe und Inbox-Fälle sind strikt workspace-isoliert.
+- Workspace-Inbox-Fälle und -Outboxen sind strikt workspace-isoliert; persönliche Fälle und Entwürfe sind strikt user-isoliert.
 - Kein `sent`-Outbox-Eintrag kann ohne menschliche User-ID entstehen.
 - Ein No-op einer geplanten Automation kann keine externe Benachrichtigung erzeugen.
 - Die Heartbeat-Migration ist bei zwei Durchläufen stabil und verliert weder Zeitplan noch Anweisung.

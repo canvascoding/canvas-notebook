@@ -2564,6 +2564,31 @@ export function runMigrations(sqlite: InstanceType<typeof Database>): void {
     editing_started_at: 'INTEGER', sent_by_user_id: 'TEXT',
   });
   sqlite.exec('CREATE INDEX IF NOT EXISTS idx_email_drafts_workspace_outbox ON email_drafts (workspace_id, outbox_status, updated_at)');
+  addColumns(sqlite, 'email_drafts', { personal_inbox_case_id: 'TEXT' });
+  sqlite.exec(`
+    CREATE TABLE IF NOT EXISTS personal_email_inbox_cases (
+      id TEXT PRIMARY KEY NOT NULL,
+      user_id TEXT NOT NULL,
+      email_account_id TEXT NOT NULL,
+      provider_thread_id TEXT NOT NULL,
+      latest_provider_message_id TEXT,
+      requester_address TEXT,
+      requester_name TEXT,
+      subject TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'new',
+      priority TEXT NOT NULL DEFAULT 'normal',
+      assignee_user_id TEXT,
+      closed_at INTEGER,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL,
+      FOREIGN KEY (user_id) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (email_account_id) REFERENCES email_accounts(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_personal_email_inbox_cases_account_thread
+      ON personal_email_inbox_cases (email_account_id, provider_thread_id);
+    CREATE INDEX IF NOT EXISTS idx_personal_email_inbox_cases_user_status
+      ON personal_email_inbox_cases (user_id, status, updated_at);
+  `);
 
   addColumns(sqlite, 'pi_usage_events', {
     organization_id: 'TEXT',

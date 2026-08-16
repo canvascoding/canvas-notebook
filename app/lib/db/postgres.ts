@@ -729,6 +729,7 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS workspace_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS mailbox_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS inbox_case_id text');
+  await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS personal_inbox_case_id text');
   await pool.query("ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin text NOT NULL DEFAULT 'manual'");
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin_automation_job_id text');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS origin_run_id text');
@@ -740,6 +741,26 @@ export async function runPostgresMigrations(pool: PgQueryable): Promise<void> {
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS editing_started_at bigint');
   await pool.query('ALTER TABLE email_drafts ADD COLUMN IF NOT EXISTS sent_by_user_id text');
   await pool.query('CREATE INDEX IF NOT EXISTS idx_email_drafts_workspace_outbox ON email_drafts (workspace_id, outbox_status, updated_at)');
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS personal_email_inbox_cases (
+      id text PRIMARY KEY,
+      user_id text NOT NULL REFERENCES "user"(id) ON DELETE CASCADE,
+      email_account_id text NOT NULL REFERENCES email_accounts(id) ON DELETE CASCADE,
+      provider_thread_id text NOT NULL,
+      latest_provider_message_id text,
+      requester_address text,
+      requester_name text,
+      subject text NOT NULL,
+      status text NOT NULL DEFAULT 'new',
+      priority text NOT NULL DEFAULT 'normal',
+      assignee_user_id text REFERENCES "user"(id) ON DELETE SET NULL,
+      closed_at bigint,
+      created_at bigint NOT NULL,
+      updated_at bigint NOT NULL
+    )
+  `);
+  await pool.query('CREATE UNIQUE INDEX IF NOT EXISTS idx_personal_email_inbox_cases_account_thread ON personal_email_inbox_cases (email_account_id, provider_thread_id)');
+  await pool.query('CREATE INDEX IF NOT EXISTS idx_personal_email_inbox_cases_user_status ON personal_email_inbox_cases (user_id, status, updated_at)');
 
   await pool.query(`
     CREATE TABLE IF NOT EXISTS collaboration_yjs_states (

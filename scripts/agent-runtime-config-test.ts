@@ -281,11 +281,10 @@ async function main() {
 
   const restrictedEmailAgent = await createAgentProfile({
     name: 'Restricted Email Agent',
-    enabledTools: ['email_search'],
+    enabledTools: ['email_search_messages'],
   });
   const restrictedEmailPrompt = await loadManagedAgentSystemPrompt(restrictedEmailAgent.agentId);
-  assert.match(restrictedEmailPrompt.systemPrompt, /`email` \(Managing email\) \[on-demand\]/);
-  assert.match(restrictedEmailPrompt.systemPrompt, /email_search/);
+  assert.match(restrictedEmailPrompt.systemPrompt, /`email_search_messages`/);
   assert.doesNotMatch(restrictedEmailPrompt.systemPrompt, /email_send_draft/);
 
   const legacyAgent = await createAgentProfile({

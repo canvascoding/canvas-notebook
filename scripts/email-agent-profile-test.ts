@@ -55,20 +55,15 @@ async function main() {
     assert.equal(emailAgent.removable, false);
     assert.equal(emailAgent.scopeType, 'system');
     assert.deepEqual(emailAgent.enabledTools, [
-      'email_list_accounts',
-      'email_search',
-      'email_read',
-      'email_create_draft',
-      'email_update_draft',
-      'workspace_email_list_mailboxes',
-      'workspace_email_search_messages',
-      'workspace_email_read_message',
-      'workspace_email_list_thread_messages',
-      'workspace_email_list_cases',
-      'workspace_email_create_or_update_case',
-      'workspace_email_create_outbox_draft',
-      'workspace_email_update_outbox_draft',
-      'workspace_email_list_outbox_drafts',
+      'email_list_mailboxes',
+      'email_search_messages',
+      'email_read_message',
+      'email_list_thread_messages',
+      'email_list_cases',
+      'email_create_or_update_case',
+      'email_create_outbox_draft',
+      'email_update_outbox_draft',
+      'email_list_outbox_drafts',
     ]);
     assert.ok((await listAgentProfiles()).some((agent) => agent.agentId === EMAIL_MANAGED_AGENT_ID));
     assert.deepEqual(await getAgentAccess('owner-user', EMAIL_MANAGED_AGENT_ID), {

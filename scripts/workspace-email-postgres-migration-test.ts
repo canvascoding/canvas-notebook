@@ -15,7 +15,7 @@ async function main() {
       SELECT table_name, column_name
       FROM information_schema.columns
       WHERE table_schema = 'public'
-        AND table_name IN ('workspace_email_mailboxes', 'email_inbox_events', 'email_inbox_cases', 'email_drafts')
+        AND table_name IN ('workspace_email_mailboxes', 'email_inbox_events', 'email_inbox_cases', 'personal_email_inbox_cases', 'email_drafts')
       ORDER BY table_name, ordinal_position
     `);
     const columns = new Map<string, string[]>();
@@ -28,6 +28,8 @@ async function main() {
       'closed_at', 'created_at', 'updated_at',
     ]);
     assert.ok(columns.get('email_drafts')?.includes('outbox_status'));
+    assert.ok(columns.get('email_drafts')?.includes('personal_inbox_case_id'));
+    assert.ok(columns.get('personal_email_inbox_cases')?.includes('email_account_id'));
 
     const indexes = await postgres.query<{ indexname: string }>(`
       SELECT indexname FROM pg_indexes
@@ -43,7 +45,7 @@ async function main() {
       SELECT table_name, column_name
       FROM information_schema.columns
       WHERE table_schema = 'public'
-        AND table_name IN ('workspace_email_mailboxes', 'email_inbox_events', 'email_inbox_cases', 'email_drafts')
+        AND table_name IN ('workspace_email_mailboxes', 'email_inbox_events', 'email_inbox_cases', 'personal_email_inbox_cases', 'email_drafts')
       ORDER BY table_name, ordinal_position
     `);
     const repeatedIndexes = await postgres.query<{ indexname: string }>(`
