@@ -133,6 +133,7 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
   const isDirty = Boolean(draft && savedDraft && !draftsEqual(draft, savedDraft));
   const availableCapabilities = status?.capabilities.filter((capability) => capability.available) ?? [];
   const enabledCapabilityCount = draft?.tools.length ?? 0;
+  const serverIsEnabled = draft?.enabled ?? status?.desiredEnabled ?? false;
   const serverIsActive = Boolean(status?.runtimeEnabled && !status.configurationError);
   const connectionConfig = serverIsActive && status?.endpoint
     ? JSON.stringify({
@@ -331,94 +332,98 @@ export function McpServerSettingsPanel({ isAdmin }: { isAdmin: boolean }) {
           </ol>
         </section>
 
-        <section aria-labelledby="mcp-capabilities-title" className="space-y-3 border-t pt-6">
-          <div className="flex flex-wrap items-end justify-between gap-2">
-            <div>
-              <h3 id="mcp-capabilities-title" className="font-semibold">{t('capabilities.title')}</h3>
-              <p className="mt-1 text-sm text-muted-foreground">{t('capabilities.description')}</p>
-            </div>
-            <Badge variant="secondary">{t('capabilities.enabledCount', { count: enabledCapabilityCount })}</Badge>
-          </div>
-          <div className="divide-y overflow-hidden rounded-lg border">
-            {availableCapabilities.map((capability) => (
-              <div key={capability.id} className="flex items-start justify-between gap-4 p-4">
-                <div className="min-w-0">
-                  <div className="flex flex-wrap items-center gap-2">
-                    <p className="font-medium">{t(`capabilities.items.${capability.id}.title`)}</p>
+        {serverIsEnabled ? (
+          <>
+            <section aria-labelledby="mcp-capabilities-title" className="space-y-3 border-t pt-6">
+              <div className="flex flex-wrap items-end justify-between gap-2">
+                <div>
+                  <h3 id="mcp-capabilities-title" className="font-semibold">{t('capabilities.title')}</h3>
+                  <p className="mt-1 text-sm text-muted-foreground">{t('capabilities.description')}</p>
+                </div>
+                <Badge variant="secondary">{t('capabilities.enabledCount', { count: enabledCapabilityCount })}</Badge>
+              </div>
+              <div className="divide-y overflow-hidden rounded-lg border">
+                {availableCapabilities.map((capability) => (
+                  <div key={capability.id} className="flex items-start justify-between gap-4 p-4">
+                    <div className="min-w-0">
+                      <div className="flex flex-wrap items-center gap-2">
+                        <p className="font-medium">{t(`capabilities.items.${capability.id}.title`)}</p>
+                      </div>
+                      <p className="mt-1 text-sm leading-5 text-muted-foreground">
+                        {t(`capabilities.items.${capability.id}.description`)}
+                      </p>
+                    </div>
+                    <Switch
+                      checked={draft?.tools.includes(capability.id) ?? false}
+                      onCheckedChange={(enabled) => toggleCapability(capability.id, enabled)}
+                      disabled={!isAdmin || isSaving || status?.capabilitiesManagedByEnvironment}
+                      aria-label={t(`capabilities.items.${capability.id}.title`)}
+                    />
                   </div>
-                  <p className="mt-1 text-sm leading-5 text-muted-foreground">
-                    {t(`capabilities.items.${capability.id}.description`)}
-                  </p>
-                </div>
-                <Switch
-                  checked={draft?.tools.includes(capability.id) ?? false}
-                  onCheckedChange={(enabled) => toggleCapability(capability.id, enabled)}
-                  disabled={!isAdmin || isSaving || status?.capabilitiesManagedByEnvironment}
-                  aria-label={t(`capabilities.items.${capability.id}.title`)}
-                />
-              </div>
-            ))}
-          </div>
-          {enabledCapabilityCount === 0 ? (
-            <p className="text-sm text-amber-700 dark:text-amber-300">{t('capabilities.noneEnabled')}</p>
-          ) : null}
-        </section>
-
-        <details className="group overflow-hidden rounded-lg border">
-          <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-medium marker:hidden [&::-webkit-details-marker]:hidden">
-            <span>{t('developer.title')}</span>
-            <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
-          </summary>
-          <div className="space-y-4 border-t bg-muted/20 p-4">
-            <p className="text-sm leading-5 text-muted-foreground">{t('developer.description')}</p>
-            <div className="overflow-hidden rounded-lg border bg-slate-950 text-slate-100 dark:bg-black">
-              <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
-                <div className="flex items-center gap-2 text-xs text-slate-300">
-                  <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
-                  {t('developer.example')}
-                </div>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  className="text-slate-200 hover:bg-white/10 hover:text-white"
-                  disabled={!connectionConfig}
-                  onClick={() => connectionConfig && void copyText('config', connectionConfig)}
-                >
-                  {copied === 'config' ? <Check /> : <Copy />}
-                  {copied === 'config' ? t('copied') : t('copy')}
-                </Button>
-              </div>
-              <pre className="overflow-x-auto p-4 text-xs leading-5"><code>{connectionConfig ?? t('endpoint.notConfigured')}</code></pre>
-            </div>
-            <dl className="grid gap-3 text-sm sm:grid-cols-2">
-              <div>
-                <dt className="text-muted-foreground">{t('developer.endpoint')}</dt>
-                <dd className="mt-1 break-all font-mono text-xs">{status?.endpoint ?? t('endpoint.notConfigured')}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('developer.issuer')}</dt>
-                <dd className="mt-1 break-all font-mono text-xs">{status?.issuer ?? t('endpoint.notConfigured')}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('developer.protocol')}</dt>
-                <dd className="mt-1 font-mono text-xs">MCP {status?.protocolVersion}</dd>
-              </div>
-              <div>
-                <dt className="text-muted-foreground">{t('developer.authentication')}</dt>
-                <dd className="mt-1 font-mono text-xs">OAuth 2.1 + PKCE · {status?.transport}</dd>
-              </div>
-            </dl>
-            <div>
-              <p className="text-xs font-medium text-muted-foreground">{t('developer.scopes')}</p>
-              <div className="mt-2 flex flex-wrap gap-1.5">
-                {availableCapabilities.flatMap((capability) => capability.scopes).filter((scope, index, scopes) => scopes.indexOf(scope) === index).map((scope) => (
-                  <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
                 ))}
               </div>
-            </div>
-          </div>
-        </details>
+              {enabledCapabilityCount === 0 ? (
+                <p className="text-sm text-amber-700 dark:text-amber-300">{t('capabilities.noneEnabled')}</p>
+              ) : null}
+            </section>
+
+            <details className="group overflow-hidden rounded-lg border">
+              <summary className="flex cursor-pointer list-none items-center justify-between gap-3 px-4 py-3 font-medium marker:hidden [&::-webkit-details-marker]:hidden">
+                <span>{t('developer.title')}</span>
+                <ArrowRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" aria-hidden="true" />
+              </summary>
+              <div className="space-y-4 border-t bg-muted/20 p-4">
+                <p className="text-sm leading-5 text-muted-foreground">{t('developer.description')}</p>
+                <div className="overflow-hidden rounded-lg border bg-slate-950 text-slate-100 dark:bg-black">
+                  <div className="flex items-center justify-between border-b border-white/10 px-4 py-2.5">
+                    <div className="flex items-center gap-2 text-xs text-slate-300">
+                      <KeyRound className="h-3.5 w-3.5" aria-hidden="true" />
+                      {t('developer.example')}
+                    </div>
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="xs"
+                      className="text-slate-200 hover:bg-white/10 hover:text-white"
+                      disabled={!connectionConfig}
+                      onClick={() => connectionConfig && void copyText('config', connectionConfig)}
+                    >
+                      {copied === 'config' ? <Check /> : <Copy />}
+                      {copied === 'config' ? t('copied') : t('copy')}
+                    </Button>
+                  </div>
+                  <pre className="overflow-x-auto p-4 text-xs leading-5"><code>{connectionConfig ?? t('endpoint.notConfigured')}</code></pre>
+                </div>
+                <dl className="grid gap-3 text-sm sm:grid-cols-2">
+                  <div>
+                    <dt className="text-muted-foreground">{t('developer.endpoint')}</dt>
+                    <dd className="mt-1 break-all font-mono text-xs">{status?.endpoint ?? t('endpoint.notConfigured')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('developer.issuer')}</dt>
+                    <dd className="mt-1 break-all font-mono text-xs">{status?.issuer ?? t('endpoint.notConfigured')}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('developer.protocol')}</dt>
+                    <dd className="mt-1 font-mono text-xs">MCP {status?.protocolVersion}</dd>
+                  </div>
+                  <div>
+                    <dt className="text-muted-foreground">{t('developer.authentication')}</dt>
+                    <dd className="mt-1 font-mono text-xs">OAuth 2.1 + PKCE · {status?.transport}</dd>
+                  </div>
+                </dl>
+                <div>
+                  <p className="text-xs font-medium text-muted-foreground">{t('developer.scopes')}</p>
+                  <div className="mt-2 flex flex-wrap gap-1.5">
+                    {availableCapabilities.flatMap((capability) => capability.scopes).filter((scope, index, scopes) => scopes.indexOf(scope) === index).map((scope) => (
+                      <Badge key={scope} variant="outline" className="font-mono font-normal">{scope}</Badge>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            </details>
+          </>
+        ) : null}
 
         {error ? <p role="alert" className="text-sm text-destructive">{error}</p> : null}
         {success ? <p className="text-sm text-primary">{success}</p> : null}

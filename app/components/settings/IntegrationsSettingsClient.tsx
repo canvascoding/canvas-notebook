@@ -3265,21 +3265,29 @@ export function IntegrationsSettingsClient({
           )}
 
           {renderLazyTabContent('mcp',
-            <>
-              <McpServerSettingsPanel isAdmin={isAdmin} />
-              <McpConfigCard
-                isOpen={integrationsSectionOpenById.mcpConfig}
-                onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
-                editor={mcpEditor}
-                onLoad={loadMcpConfig}
-                onLoadStatus={loadMcpStatus}
-                onServerAction={runMcpServerAction}
-                onSaveServer={saveMcpServer}
-                onDeleteServer={deleteMcpServer}
-                onRawChange={setMcpRawContent}
-                onSave={saveMcpConfig}
-              />
-            </>,
+            <Tabs defaultValue="canvas-server" className="space-y-5">
+              <TabsList aria-label={t('mcpTabs.ariaLabel')}>
+                <TabsTrigger value="canvas-server">{t('mcpTabs.canvasServer')}</TabsTrigger>
+                <TabsTrigger value="external-servers">{t('mcpTabs.externalServers')}</TabsTrigger>
+              </TabsList>
+              <TabsContent value="canvas-server" className="mt-0">
+                <McpServerSettingsPanel isAdmin={isAdmin} />
+              </TabsContent>
+              <TabsContent value="external-servers" className="mt-0">
+                <McpConfigCard
+                  isOpen={integrationsSectionOpenById.mcpConfig}
+                  onOpenChange={(isOpen) => setIntegrationsSectionOpen('mcpConfig', isOpen)}
+                  editor={mcpEditor}
+                  onLoad={loadMcpConfig}
+                  onLoadStatus={loadMcpStatus}
+                  onServerAction={runMcpServerAction}
+                  onSaveServer={saveMcpServer}
+                  onDeleteServer={deleteMcpServer}
+                  onRawChange={setMcpRawContent}
+                  onSave={saveMcpConfig}
+                />
+              </TabsContent>
+            </Tabs>,
             { id: 'onboarding-settings-mcp' },
           )}
 

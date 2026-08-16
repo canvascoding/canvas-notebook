@@ -3236,6 +3236,11 @@
         "copy": "Could not copy the text to the clipboard."
       }
     },
+    "mcpTabs": {
+      "ariaLabel": "Select an MCP area",
+      "canvasServer": "MCP Server",
+      "externalServers": "External MCP Servers"
+    },
     "mcpConfig": {
       "title": "External MCP servers",
       "description": "Connect Canvas as a client to external MCP servers.",

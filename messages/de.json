@@ -3235,6 +3235,11 @@
         "copy": "Der Text konnte nicht in die Zwischenablage kopiert werden."
       }
     },
+    "mcpTabs": {
+      "ariaLabel": "MCP-Bereich auswählen",
+      "canvasServer": "MCP-Server",
+      "externalServers": "Externe MCP-Server"
+    },
     "mcpConfig": {
       "title": "Externe MCP-Server",
       "description": "Verbinde Canvas als Client mit externen MCP-Servern.",
