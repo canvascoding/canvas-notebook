@@ -615,7 +615,7 @@ function normalizeDeliveryChannels(channels: unknown[], telegramStatus: Telegram
 
   return channels
     .map(normalizeDeliveryChannel)
-    .filter((channel: DeliveryChannelOption | null): channel is DeliveryChannelOption => Boolean(channel))
+    .filter((channel: DeliveryChannelOption | null): channel is DeliveryChannelOption => Boolean(channel) && channel.id !== 'telegram')
     .map((channel) => {
       if (channel.id !== 'telegram' || !telegramStatus) return channel;
       return {
@@ -636,7 +636,7 @@ function mergeDeliveryChannelOptions(
     byId.set(channel.id, channel);
   }
 
-  for (const id of currentChannelIds.map((entry) => entry.trim()).filter(Boolean)) {
+  for (const id of currentChannelIds.map((entry) => entry.trim()).filter((id) => id && id !== 'telegram')) {
     if (!byId.has(id)) {
       byId.set(id, { id, label: id, connected: false, running: false });
     }

@@ -455,6 +455,11 @@ export async function getKieApiKeyFromIntegrations(storageScope?: EnvStorageScop
   }
 }
 
+// Telegram remains in the codebase for a possible future revival, but is not an
+// available product channel. Keep this separate from the persisted environment
+// value so an old TELEGRAM_CHANNEL_ENABLED=true cannot restart the bot.
+const TELEGRAM_CHANNEL_AVAILABLE = false;
+
 export async function getTelegramConfigFromIntegrations(storageScope?: EnvStorageScope | null): Promise<{
   botToken: string | null;
   channelEnabled: boolean;
@@ -465,7 +470,7 @@ export async function getTelegramConfigFromIntegrations(storageScope?: EnvStorag
 
     const botToken = byKey.get('TELEGRAM_BOT_TOKEN') || process.env.TELEGRAM_BOT_TOKEN || null;
     const enabledRaw = byKey.get('TELEGRAM_CHANNEL_ENABLED') || process.env.TELEGRAM_CHANNEL_ENABLED || 'false';
-    const channelEnabled = enabledRaw.toLowerCase() === 'true';
+    const channelEnabled = TELEGRAM_CHANNEL_AVAILABLE && enabledRaw.toLowerCase() === 'true';
 
     if (botToken) {
       console.log('[EnvConfig] Found TELEGRAM_BOT_TOKEN in integrations env file');
@@ -478,7 +483,8 @@ export async function getTelegramConfigFromIntegrations(storageScope?: EnvStorag
     console.error('[EnvConfig] Error loading Telegram config:', error);
     return {
       botToken: process.env.TELEGRAM_BOT_TOKEN || null,
-      channelEnabled: (process.env.TELEGRAM_CHANNEL_ENABLED || 'false').toLowerCase() === 'true',
+      channelEnabled: TELEGRAM_CHANNEL_AVAILABLE
+        && (process.env.TELEGRAM_CHANNEL_ENABLED || 'false').toLowerCase() === 'true',
     };
   }
 }

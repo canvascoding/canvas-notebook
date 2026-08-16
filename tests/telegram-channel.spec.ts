@@ -30,10 +30,7 @@ test.describe('Telegram Channel API', () => {
     const body = await response.json();
     expect(body.success).toBe(true);
     expect(body).toHaveProperty('channels');
-    expect(body).toHaveProperty('telegram');
-    expect(body.telegram).toHaveProperty('configured');
-    expect(body.telegram).toHaveProperty('enabled');
-    expect(body.telegram).toHaveProperty('linked');
+    expect(body.channels).not.toContainEqual(expect.objectContaining({ id: 'telegram' }));
   });
 
   test('channels/link-token returns 401 without auth', async ({ page }) => {

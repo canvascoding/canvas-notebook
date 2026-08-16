@@ -17,7 +17,6 @@ import {
   Palette,
   Plug,
   Puzzle,
-  Radio,
   Settings2,
   UserRound,
   Users,
@@ -55,7 +54,6 @@ export type SettingsTab =
   | 'data-migration'
   | 'ai-providers'
   | 'system-email'
-  | 'channels'
   | 'usage'
   | 'skills'
   | 'license'
@@ -137,13 +135,6 @@ export const SETTINGS_TAB_ITEMS: ReadonlyArray<SettingsNavigationItem> = [
     descriptionKey: 'navigation.descriptions.mcp',
     group: 'connections',
     icon: Waypoints,
-  },
-  {
-    value: 'channels',
-    labelKey: 'tabs.channels',
-    descriptionKey: 'navigation.descriptions.channels',
-    group: 'connections',
-    icon: Radio,
   },
   {
     value: 'ai-providers',

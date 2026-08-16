@@ -392,11 +392,6 @@ const UserManagementPanel = dynamic<UserManagementPanelProps>(
   { loading: SettingsTabLoader },
 );
 
-const ChannelsPanel = dynamic(
-  () => import('@/app/components/settings/ChannelsPanel').then((module) => module.ChannelsPanel),
-  { loading: SettingsTabLoader },
-);
-
 const ConnectedAppsPanel = dynamic<ConnectedAppsPanelProps>(
   () => import('@/app/components/settings/ConnectedAppsPanel').then((module) => module.ConnectedAppsPanel),
   { loading: SettingsTabLoader },
@@ -486,7 +481,7 @@ function getStoredIntegrationsSectionOpenState(): IntegrationsSectionOpenState {
 }
 
 const DEFAULT_SCOPE_KEYS: Record<EnvScope, string[]> = {
-  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY', 'COMPOSIO_API_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MICROSOFT_OAUTH_CLIENT_ID', 'MICROSOFT_OAUTH_CLIENT_SECRET', 'TELEGRAM_BOT_TOKEN', 'TELEGRAM_CHANNEL_ENABLED'],
+  integrations: ['GEMINI_API_KEY', 'OPENAI_API_KEY', 'KIE_API_KEY', 'BRAVE_API_KEY', 'GROQ_API_KEY', 'COMPOSIO_API_KEY', 'GOOGLE_OAUTH_CLIENT_ID', 'GOOGLE_OAUTH_CLIENT_SECRET', 'MICROSOFT_OAUTH_CLIENT_ID', 'MICROSOFT_OAUTH_CLIENT_SECRET'],
   agents: ['OPENROUTER_API_KEY', 'OLLAMA_API_KEY', 'OPENAI_API_KEY', 'ANTHROPIC_API_KEY'],
 };
 
@@ -3330,8 +3325,6 @@ export function IntegrationsSettingsClient({
           {renderLazyTabContent('system-email', <SystemEmailSettingsPanel />)}
 
           {renderLazyTabContent('data-migration', <SystemMigrationPanel isAdmin={isAdmin} />)}
-
-          {renderLazyTabContent('channels', <ChannelsPanel isAdmin={isAdmin} />)}
 
           {renderLazyTabContent('usage', <UsageAnalyticsClient isAdmin={isAdmin} />, { id: 'onboarding-settings-usage' })}
 
