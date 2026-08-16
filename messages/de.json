@@ -2950,12 +2950,12 @@
     },
     "scopes": {
       "integrations": {
-        "title": "Micro-SaaS Integrationen",
-        "description": "Keys für VEO, Nano Banana und weitere Micro-SaaS-Apps. Gemini-basierte Apps können hier denselben GEMINI_API_KEY teilen."
+        "title": "Schlüssel für Integrationen",
+        "description": "Speichere hier die API-Schlüssel für deine Integrationen. Sie werden verwendet, sobald du die passende Integration verbindest."
       },
       "agents": {
-        "title": "Agent-Umgebung",
-        "description": "Keys und Agent-Env-Werte für OpenRouter, Ollama und die Agent-Runtime."
+        "title": "Agent-Laufzeit",
+        "description": "Zusätzliche Schlüssel und Einstellungen für die Laufzeit deines Agents."
       }
     },
     "channels": {
@@ -3096,6 +3096,10 @@
       "reload": "Neu laden",
       "saved": "Einstellungen gespeichert.",
       "rawSaved": "Raw-Env gespeichert.",
+      "developerSectionTitle": "Für Entwickler",
+      "developerSectionDescription": "Erweiterte Einstellungen für die technische Agent-Laufzeit.",
+      "developerDetails": "Erweiterte Dateiansicht",
+      "developerDetailsDescription": "Bearbeite die Konfiguration direkt im .env-Format.",
       "errors": {
         "loadEnvFile": "Env-Datei konnte nicht geladen werden.",
         "saveEnvFile": "Env-Datei konnte nicht gespeichert werden."

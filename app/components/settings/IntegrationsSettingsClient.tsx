@@ -278,8 +278,6 @@ function emptyEmailSmtpDraft(): EmailSmtpDraft {
 
 type ScopeCardConfig = {
   scope: EnvScope;
-  emptyPath: string;
-  keyHint: string;
 };
 
 const SETTINGS_TAB_STORAGE_KEY = 'canvas-settings-active-tab';
@@ -512,13 +510,9 @@ const INITIAL_MCP_STATE: McpEditorState = {
 const SCOPE_CARDS: ScopeCardConfig[] = [
   {
     scope: 'integrations',
-    emptyPath: '/data/secrets/Canvas-Integrations.env',
-    keyHint: 'Canvas-Integrations.env',
   },
   {
     scope: 'agents',
-    emptyPath: '/data/secrets/Canvas-Agents.env',
-    keyHint: 'Canvas-Agents.env',
   },
 ];
 
@@ -622,8 +616,7 @@ function EnvEditorCard(props: {
                 <div className="min-w-0 space-y-1">
                   <CardTitle>{t(`scopes.${card.scope}.title`)}</CardTitle>
                   <CardDescription>
-                    {t(`scopes.${card.scope}.description`)} {t('envCard.fileLocatedAt')}{' '}
-                    <span className="break-all font-mono">{editor.state?.path || card.emptyPath}</span>.
+                    {t(`scopes.${card.scope}.description`)}
                   </CardDescription>
                 </div>
                 <div className="flex shrink-0 items-center gap-2 text-sm font-medium text-muted-foreground">
@@ -633,17 +626,12 @@ function EnvEditorCard(props: {
               </div>
               <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
                 <span className="rounded-md bg-muted px-2 py-1">{t('envCard.configuredSummary', { count: configuredCount })}</span>
-                <span className="rounded-md bg-muted px-2 py-1">{t('envCard.fileLabel')}: {card.keyHint}</span>
                 {editor.isLoading ? (
                   <span className="inline-flex items-center rounded-md bg-muted px-2 py-1">
                     <Loader2 className="mr-1.5 h-3 w-3 animate-spin" />
                     {t('envCard.loadingConfig')}
                   </span>
-                ) : (
-                  <span className="rounded-md bg-muted px-2 py-1">
-                    {editor.state?.encryptionEnabled ? t('envCard.encryptionActive') : t('envCard.encryptionInactive')}
-                  </span>
-                )}
+                ) : null}
                 {editor.error && (
                   <span className="rounded-md bg-destructive/10 px-2 py-1 text-destructive">
                     {t('envCard.errorSummary')}
@@ -662,16 +650,6 @@ function EnvEditorCard(props: {
               </div>
             ) : (
               <>
-                <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-                  <span>{t('envCard.fileLabel')}: {card.keyHint}</span>
-                  <span>•</span>
-                  <span>{t('envCard.formatLabel')}: .env</span>
-                  <span>•</span>
-                  <span>{t('envCard.permissionsLabel')}: 0600</span>
-                  <span>•</span>
-                  <span>{editor.state?.encryptionEnabled ? t('envCard.encryptionActive') : t('envCard.encryptionInactive')}</span>
-                </div>
-
                 {editor.error && <p className="text-sm text-destructive">{editor.error}</p>}
                 {editor.success && <p className="text-sm text-primary">{editor.success}</p>}
 
@@ -679,9 +657,8 @@ function EnvEditorCard(props: {
                   value={editor.activeTab}
                   onValueChange={(value) => onActiveTabChange(card.scope, value as 'kv' | 'raw')}
                 >
-                  <TabsList className="grid h-auto w-full grid-cols-2">
+                  <TabsList className="h-auto">
                     <TabsTrigger value="kv">{t('envCard.tabKeyValue')}</TabsTrigger>
-                    <TabsTrigger value="raw">{t('envCard.tabRaw')}</TabsTrigger>
                   </TabsList>
 
                   <TabsContent value="kv" className="space-y-3">
@@ -761,9 +738,14 @@ function EnvEditorCard(props: {
                     </div>
                   </TabsContent>
 
-                  <TabsContent value="raw" className="space-y-2">
+                </Tabs>
+
+                <details className="rounded-lg border border-border/70 bg-muted/20 px-4 py-3">
+                  <summary className="cursor-pointer text-sm font-medium">{t('envCard.developerDetails')}</summary>
+                  <p className="mt-2 text-sm text-muted-foreground">{t('envCard.developerDetailsDescription')}</p>
+                  <div className="mt-3 space-y-2">
                     <textarea
-                      className="min-h-[360px] w-full rounded-md border border-input bg-background p-3 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
+                      className="min-h-[240px] w-full rounded-md border border-input bg-background p-3 font-mono text-sm outline-none focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/50"
                       value={editor.rawContent}
                       onChange={(event) => onRawChange(card.scope, event.target.value)}
                       spellCheck={false}
@@ -779,8 +761,8 @@ function EnvEditorCard(props: {
                         {t('envCard.reload')}
                       </Button>
                     </div>
-                  </TabsContent>
-                </Tabs>
+                  </div>
+                </details>
               </>
             )}
           </CardContent>
@@ -3242,7 +3224,7 @@ export function IntegrationsSettingsClient({
                 isOpen={integrationsSectionOpenById.emailAccounts}
                 onOpenChange={(isOpen) => setIntegrationsSectionOpen('emailAccounts', isOpen)}
               />
-              {SCOPE_CARDS.map((card) => (
+              {SCOPE_CARDS.filter((card) => card.scope === 'integrations').map((card) => (
                 <EnvEditorCard
                   key={card.scope}
                   card={card}
@@ -3260,6 +3242,32 @@ export function IntegrationsSettingsClient({
                   onSaveRaw={saveRaw}
                 />
               ))}
+              <section className="space-y-3 pt-3" aria-labelledby="developer-settings-heading">
+                <div className="border-t border-border/70 pt-5">
+                  <p id="developer-settings-heading" className="text-xs font-semibold uppercase tracking-[0.16em] text-muted-foreground">
+                    {t('envCard.developerSectionTitle')}
+                  </p>
+                  <p className="mt-1 text-sm text-muted-foreground">{t('envCard.developerSectionDescription')}</p>
+                </div>
+                {SCOPE_CARDS.filter((card) => card.scope === 'agents').map((card) => (
+                  <EnvEditorCard
+                    key={card.scope}
+                    card={card}
+                    editor={editors[card.scope]}
+                    isOpen={envCardOpenByScope[card.scope]}
+                    onOpenChange={setEnvCardOpen}
+                    onActiveTabChange={setActiveTab}
+                    onLoad={loadState}
+                    onAddEntry={addDraftEntry}
+                    onRemoveEntry={removeDraftEntry}
+                    onUpdateEntry={updateDraftEntry}
+                    onToggleSecret={toggleSecretVisibility}
+                    onRawChange={setRawContent}
+                    onSaveKeyValue={saveKeyValue}
+                    onSaveRaw={saveRaw}
+                  />
+                ))}
+              </section>
             </>,
             { id: 'onboarding-settings-integrations' },
           )}
