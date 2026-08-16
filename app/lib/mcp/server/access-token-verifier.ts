@@ -11,7 +11,7 @@ import {
 } from '@/app/lib/license/seat-limit';
 import {
   type DirectMcpResourceScope,
-  resolveDirectMcpServerConfig,
+  resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
 
 const MAX_BEARER_TOKEN_LENGTH = 16 * 1024;
@@ -55,7 +55,7 @@ function buildChallenge(
   error?: Exclude<DirectMcpAuthorizationErrorCode, 'authorization_unavailable'>,
   scope?: string,
 ): string {
-  const config = resolveDirectMcpServerConfig();
+  const config = resolveDirectMcpOAuthConfig();
   const parameters = [
     `resource_metadata="${escapeChallengeValue(config.protectedResourceMetadataUrl)}"`,
   ];
@@ -154,7 +154,7 @@ async function getLocalJwks(): Promise<JSONWebKeySet | undefined> {
 }
 
 function parseRequiredClaims(payload: JWTPayload): DirectMcpJwtClaims {
-  const config = resolveDirectMcpServerConfig();
+  const config = resolveDirectMcpOAuthConfig();
   const subject = typeof payload.sub === 'string' ? payload.sub.trim() : '';
   const clientId = typeof payload.azp === 'string' ? payload.azp.trim() : '';
   const sessionId = typeof payload.sid === 'string' ? payload.sid.trim() : '';
@@ -208,7 +208,7 @@ export async function verifyDirectMcpJwtClaims(
     throw invalidToken();
   }
 
-  const config = resolveDirectMcpServerConfig();
+  const config = resolveDirectMcpOAuthConfig();
   let jwksUnavailable = false;
   let payload: JWTPayload;
   try {

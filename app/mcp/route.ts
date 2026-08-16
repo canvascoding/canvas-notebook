@@ -11,14 +11,14 @@ export async function POST(request: Request): Promise<Response> {
   return handleDirectMcpPost(request);
 }
 
-export function GET(request: Request): Response {
+export async function GET(request: Request): Promise<Response> {
   return handleDirectMcpUnsupportedMethod(request);
 }
 
-export function DELETE(request: Request): Response {
+export async function DELETE(request: Request): Promise<Response> {
   return handleDirectMcpUnsupportedMethod(request);
 }
 
-export function OPTIONS(request: Request): Response {
+export async function OPTIONS(request: Request): Promise<Response> {
   return handleDirectMcpOptions(request);
 }

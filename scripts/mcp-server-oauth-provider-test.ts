@@ -350,6 +350,13 @@ async function main(): Promise<void> {
     ]);
 
     await assertMetadata(getAuthorizationServerMetadata);
+    const previousFeatureFlag = process.env.CANVAS_MCP_DIRECT_ENABLED;
+    process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
+    const disabledResponse = await enforceDirectMcpOAuthRequestPolicy(new Request(`${ISSUER}/oauth2/register`, {
+      method: 'POST',
+    }));
+    assert.equal(disabledResponse?.status, 404);
+    process.env.CANVAS_MCP_DIRECT_ENABLED = previousFeatureFlag;
     const clientId = await assertRegistrationPolicy(
       auth,
       enforceDirectMcpOAuthRequestPolicy,

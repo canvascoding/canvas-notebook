@@ -54,10 +54,6 @@ const DIRECT_MCP_CAPABILITIES: ReadonlyArray<Omit<DirectMcpCapabilityStatus, 'en
   { id: 'read_knowledge_source', available: true, scopes: ['knowledge:read'] },
 ];
 
-function arraysEqual(left: readonly string[], right: readonly string[]): boolean {
-  return left.length === right.length && left.every((value, index) => value === right[index]);
-}
-
 function settingsSource(
   environment: DirectMcpEnvironment,
   valueEnvironmentKey: string,
@@ -95,8 +91,16 @@ export function buildDirectMcpServerSettingsStatus(
   let origin: string | null = null;
 
   try {
-    runtimeEnabled = isDirectMcpEnabled(environment);
-    runtimeTools = getDirectMcpEnabledTools(environment);
+    // Environment variables intentionally take precedence for deployments.
+    // Otherwise settings are the runtime source of truth: the OAuth provider
+    // is initialized at startup regardless of this flag, so toggling needs no
+    // process restart and must survive a settings-page reload.
+    runtimeEnabled = source === 'environment'
+      ? isDirectMcpEnabled(environment)
+      : preferences?.enabled ?? isDirectMcpEnabled(environment);
+    runtimeTools = toolsSource === 'environment'
+      ? getDirectMcpEnabledTools(environment)
+      : preferences?.tools ?? getDirectMcpEnabledTools(environment);
   } catch (error) {
     configurationError = error instanceof Error ? error.message : 'Invalid Direct MCP runtime configuration.';
   }
@@ -113,13 +117,10 @@ export function buildDirectMcpServerSettingsStatus(
   const desiredTools = toolsSource === 'environment'
     ? runtimeTools
     : preferences?.tools ?? runtimeTools;
-  const runtimeDiffers = desiredEnabled !== runtimeEnabled
-    || !arraysEqual(desiredTools, runtimeTools);
-
   return {
     desiredEnabled,
     runtimeEnabled,
-    restartRequired: (desiredEnabled || runtimeEnabled) && runtimeDiffers,
+    restartRequired: false,
     activationManagedByEnvironment: source === 'environment',
     capabilitiesManagedByEnvironment: toolsSource === 'environment',
     settingsSource: source,

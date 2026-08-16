@@ -8,7 +8,7 @@ import {
   type OAuthPageSearchParams,
   resolveDirectMcpConsentPresentation,
 } from '@/app/lib/mcp/server/oauth-page-query';
-import { isDirectMcpEnabled } from '@/app/lib/mcp/server/config';
+import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 
 import { OAuthConsentClient } from './oauth-consent-client';
 
@@ -21,7 +21,7 @@ type OAuthConsentPageProps = {
 export default async function OAuthConsentPage({
   searchParams,
 }: OAuthConsentPageProps) {
-  if (!isDirectMcpEnabled()) notFound();
+  if (!(await getDirectMcpRuntimeSettings()).enabled) notFound();
 
   const params = await searchParams;
   const presentation = await resolveDirectMcpConsentPresentation(params);

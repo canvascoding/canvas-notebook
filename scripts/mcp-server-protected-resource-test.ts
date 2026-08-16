@@ -259,12 +259,12 @@ async function main(): Promise<void> {
       scopes_supported: [...DIRECT_MCP_RESOURCE_SCOPES],
       bearer_methods_supported: ['header'],
     };
-    assert.deepEqual(getDirectMcpProtectedResourceMetadata(), expectedMetadata);
-    for (const response of [
+    assert.deepEqual(await getDirectMcpProtectedResourceMetadata(), expectedMetadata);
+    for (const response of await Promise.all([
       directMcpProtectedResourceMetadataResponse(),
       canonicalMetadataRoute.GET(),
       aliasMetadataRoute.GET(),
-    ]) {
+    ])) {
       assert.equal(response.status, 200);
       assert.equal(response.headers.get('access-control-allow-origin'), '*');
       assert.deepEqual(await readJson(response), expectedMetadata);
@@ -272,7 +272,7 @@ async function main(): Promise<void> {
 
     const originalFeatureFlag = process.env.CANVAS_MCP_DIRECT_ENABLED;
     process.env.CANVAS_MCP_DIRECT_ENABLED = 'false';
-    assert.equal(directMcpProtectedResourceMetadataResponse().status, 404);
+    assert.equal((await directMcpProtectedResourceMetadataResponse()).status, 404);
     process.env.CANVAS_MCP_DIRECT_ENABLED = originalFeatureFlag;
 
     const tokenSet = await issueTokenSet(

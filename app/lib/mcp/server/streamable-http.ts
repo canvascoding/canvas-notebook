@@ -13,9 +13,9 @@ import {
 } from '@/app/lib/mcp/server/access-token-verifier';
 import { createDirectMcpServer } from '@/app/lib/mcp/server/direct-server';
 import {
-  isDirectMcpEnabled,
-  resolveDirectMcpServerConfig,
+  resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
+import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 import { isConfiguredTrustedOrigin } from '@/app/lib/security/trusted-origins';
 
 const MCP_ALLOWED_METHODS = 'POST, OPTIONS';
@@ -35,22 +35,28 @@ const MCP_EXPOSED_HEADERS = [
   'www-authenticate',
 ].join(', ');
 
-const directModernMcpHandler = createMcpHandler(
-  () => createDirectMcpServer(),
-  {
+function createModernMcpHandler(enabledTools: readonly import('@/app/lib/mcp/server/config').DirectMcpToolId[]) {
+  return createMcpHandler(
+    () => createDirectMcpServer(enabledTools),
+    {
     legacy: 'reject',
     onerror: (error) => {
       console.error('[MCP] Direct server request failed', error);
     },
-  },
-);
+    },
+  );
+}
 
-async function handleProtocolRequest(request: Request, authInfo?: AuthInfo): Promise<Response> {
+async function handleProtocolRequest(
+  request: Request,
+  enabledTools: readonly import('@/app/lib/mcp/server/config').DirectMcpToolId[],
+  authInfo?: AuthInfo,
+): Promise<Response> {
   if (!await isLegacyRequest(request)) {
-    return directModernMcpHandler.fetch(request, { authInfo });
+    return createModernMcpHandler(enabledTools).fetch(request, { authInfo });
   }
 
-  const server = createDirectMcpServer();
+  const server = createDirectMcpServer(enabledTools);
   const transport = new WebStandardStreamableHTTPServerTransport({
     sessionIdGenerator: undefined,
     enableJsonResponse: true,
@@ -120,7 +126,7 @@ async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> 
   if (!request.headers.has('authorization')) return undefined;
 
   const principal = await verifyDirectMcpRequest(request);
-  const { resource } = resolveDirectMcpServerConfig();
+  const { resource } = resolveDirectMcpOAuthConfig();
   const authorization = request.headers.get('authorization') || '';
   const token = authorization.replace(/^Bearer\s+/iu, '');
   return {
@@ -137,7 +143,8 @@ async function resolveAuthInfo(request: Request): Promise<AuthInfo | undefined> 
 }
 
 export async function handleDirectMcpPost(request: Request): Promise<Response> {
-  if (!isDirectMcpEnabled()) return directMcpNotFound();
+  const runtimeSettings = await getDirectMcpRuntimeSettings();
+  if (!runtimeSettings.enabled) return directMcpNotFound();
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
 
@@ -151,17 +158,17 @@ export async function handleDirectMcpPost(request: Request): Promise<Response> {
     throw error;
   }
 
-  const response = await handleProtocolRequest(request, authInfo);
+  const response = await handleProtocolRequest(request, runtimeSettings.tools, authInfo);
   return withDirectMcpHeaders(response, request);
 }
 
-export function handleDirectMcpUnsupportedMethod(request: Request): Response {
-  if (!isDirectMcpEnabled()) return directMcpNotFound();
+export async function handleDirectMcpUnsupportedMethod(request: Request): Promise<Response> {
+  if (!(await getDirectMcpRuntimeSettings()).enabled) return directMcpNotFound();
   return rejectUntrustedOrigin(request) || methodNotAllowed(request);
 }
 
-export function handleDirectMcpOptions(request: Request): Response {
-  if (!isDirectMcpEnabled()) return directMcpNotFound();
+export async function handleDirectMcpOptions(request: Request): Promise<Response> {
+  if (!(await getDirectMcpRuntimeSettings()).enabled) return directMcpNotFound();
   const originRejection = rejectUntrustedOrigin(request);
   if (originRejection) return originRejection;
   const origin = request.headers.get('origin');

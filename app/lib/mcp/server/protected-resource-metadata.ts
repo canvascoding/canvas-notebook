@@ -1,8 +1,8 @@
 import {
   DIRECT_MCP_RESOURCE_SCOPES,
-  isDirectMcpEnabled,
-  resolveDirectMcpServerConfig,
+  resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
+import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 
 export type DirectMcpProtectedResourceMetadata = {
   resource: string;
@@ -11,11 +11,11 @@ export type DirectMcpProtectedResourceMetadata = {
   bearer_methods_supported: ['header'];
 };
 
-export function getDirectMcpProtectedResourceMetadata():
-DirectMcpProtectedResourceMetadata | null {
-  if (!isDirectMcpEnabled()) return null;
+export async function getDirectMcpProtectedResourceMetadata():
+Promise<DirectMcpProtectedResourceMetadata | null> {
+  if (!(await getDirectMcpRuntimeSettings()).enabled) return null;
 
-  const config = resolveDirectMcpServerConfig();
+  const config = resolveDirectMcpOAuthConfig();
   return {
     resource: config.resource,
     authorization_servers: [config.issuer],
@@ -24,8 +24,8 @@ DirectMcpProtectedResourceMetadata | null {
   };
 }
 
-export function directMcpProtectedResourceMetadataResponse(): Response {
-  const metadata = getDirectMcpProtectedResourceMetadata();
+export async function directMcpProtectedResourceMetadataResponse(): Promise<Response> {
+  const metadata = await getDirectMcpProtectedResourceMetadata();
   if (!metadata) {
     return new Response(null, {
       status: 404,
@@ -43,8 +43,8 @@ export function directMcpProtectedResourceMetadataResponse(): Response {
   });
 }
 
-export function directMcpProtectedResourceMetadataOptionsResponse(): Response {
-  if (!isDirectMcpEnabled()) {
+export async function directMcpProtectedResourceMetadataOptionsResponse(): Promise<Response> {
+  if (!(await getDirectMcpRuntimeSettings()).enabled) {
     return new Response(null, {
       status: 404,
       headers: {

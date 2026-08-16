@@ -30,6 +30,9 @@ async function main(): Promise<void> {
     const { applyDirectMcpSettingsToRuntime } = await import(
       '../app/lib/mcp/server/runtime-settings'
     );
+    const { getDirectMcpRuntimeSettings } = await import(
+      '../app/lib/mcp/server/runtime-settings'
+    );
 
     assert.equal(await getDirectMcpServerPreferences(), null);
     await setServerPreferredTimeZone('admin-1', 'Europe/Berlin');
@@ -118,7 +121,7 @@ async function main(): Promise<void> {
     assert.equal(immediateDisableStatus.runtimeEnabled, false);
     assert.equal(immediateDisableStatus.restartRequired, false);
 
-    const pendingRestartStatus = buildDirectMcpServerSettingsStatus(preferences, {
+    const settingsManagedStatus = buildDirectMcpServerSettingsStatus(preferences, {
       NODE_ENV: 'production',
       BASE_URL: 'https://canvas.example.test',
       BETTER_AUTH_BASE_URL: 'https://canvas.example.test',
@@ -127,21 +130,15 @@ async function main(): Promise<void> {
       CANVAS_MCP_DIRECT_TOOLS: 'auth_probe',
       CANVAS_MCP_DIRECT_TOOLS_SOURCE: 'settings',
     });
-    assert.equal(pendingRestartStatus.desiredEnabled, true);
-    assert.equal(pendingRestartStatus.restartRequired, true);
-
-    const settingsManagedStatus = buildDirectMcpServerSettingsStatus(preferences, {
-      NODE_ENV: 'production',
-      BASE_URL: 'https://canvas.example.test',
-      BETTER_AUTH_BASE_URL: 'https://canvas.example.test',
-      CANVAS_MCP_DIRECT_ENABLED: 'true',
-      CANVAS_MCP_DIRECT_SETTINGS_SOURCE: 'settings',
-      CANVAS_MCP_DIRECT_TOOLS: 'auth_probe',
-      CANVAS_MCP_DIRECT_TOOLS_SOURCE: 'settings',
-    });
+    assert.equal(settingsManagedStatus.desiredEnabled, true);
+    assert.equal(settingsManagedStatus.runtimeEnabled, true);
     assert.equal(settingsManagedStatus.restartRequired, false);
     assert.equal(settingsManagedStatus.activationManagedByEnvironment, false);
     assert.equal(settingsManagedStatus.settingsSource, 'settings');
+    assert.deepEqual(await getDirectMcpRuntimeSettings(), {
+      enabled: true,
+      tools: ['auth_probe'],
+    });
 
     console.log('mcp-server-settings-test: ok');
   } finally {

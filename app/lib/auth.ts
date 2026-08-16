@@ -14,8 +14,7 @@ import { getConfiguredTrustedOrigins } from '@/app/lib/security/trusted-origins'
 import { TEAM_MEMBERSHIP_SUSPENSION_BAN_PREFIX } from '@/app/lib/organization/membership-ban-reasons';
 import {
   DIRECT_MCP_OAUTH_SCOPES,
-  isDirectMcpEnabled,
-  resolveDirectMcpServerConfig,
+  resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
 import {
   assertUserSeatAccess,
@@ -38,10 +37,18 @@ const emailAndPasswordConfig = {
 };
 
 const trustedOrigins = getConfiguredTrustedOrigins();
-const directMcpEnabled = isDirectMcpEnabled();
-const directMcpConfig = directMcpEnabled
-  ? resolveDirectMcpServerConfig()
-  : null;
+// Keep the OAuth provider prepared even while the Canvas MCP server is
+// disabled. The MCP routes enforce the feature flag, so enabling it from
+// Settings does not require recreating Better Auth and restarting Canvas.
+let directMcpConfig: ReturnType<typeof resolveDirectMcpOAuthConfig> | null = null;
+try {
+  directMcpConfig = resolveDirectMcpOAuthConfig();
+} catch (error) {
+  // Instances without a valid public URL cannot expose a remote MCP server.
+  // Preserve the normal Canvas login flow and surface the configuration error
+  // in the MCP settings instead of preventing the app from starting.
+  console.warn('[Auth] Direct MCP OAuth provider is not prepared:', error);
+}
 
 const directMcpOAuthPlugins = directMcpConfig
   ? [

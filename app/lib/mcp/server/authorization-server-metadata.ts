@@ -1,7 +1,7 @@
 import { oauthProviderAuthServerMetadata } from '@better-auth/oauth-provider';
 
 import { auth } from '@/app/lib/auth';
-import { isDirectMcpEnabled } from '@/app/lib/mcp/server/config';
+import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 
 const metadataHandler = oauthProviderAuthServerMetadata(auth, {
   headers: {
@@ -26,7 +26,7 @@ function disabledResponse(): Response {
 }
 
 export async function getAuthorizationServerMetadata(request: Request): Promise<Response> {
-  if (!isDirectMcpEnabled()) return disabledResponse();
+  if (!(await getDirectMcpRuntimeSettings()).enabled) return disabledResponse();
   return metadataHandler(request);
 }
 

@@ -26,8 +26,10 @@ type DirectMcpToolHandler = {
   execute: (args: unknown, authInfo?: AuthInfo) => Promise<CallToolResult>;
 };
 
-export function createDirectMcpServer(): Server {
-  const enabledTools = new Set(getDirectMcpEnabledTools());
+export function createDirectMcpServer(
+  configuredTools: readonly DirectMcpToolId[] = getDirectMcpEnabledTools(),
+): Server {
+  const enabledTools = new Set(configuredTools);
   const tools: DirectMcpToolHandler[] = [];
   if (enabledTools.has(DIRECT_MCP_AUTH_PROBE_TOOL)) {
     tools.push({

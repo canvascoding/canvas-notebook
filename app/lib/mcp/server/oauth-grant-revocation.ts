@@ -12,7 +12,7 @@ import {
   assertUserSeatAccess,
   SeatLimitGuardError,
 } from '@/app/lib/license/seat-limit';
-import { isDirectMcpEnabled } from '@/app/lib/mcp/server/config';
+import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 
 type DirectMcpRefreshGrantRow = {
   id: string;
@@ -184,7 +184,7 @@ async function prepareRefreshTokenCandidate(
 export async function prepareDirectMcpRevocation(
   request: Request,
 ): Promise<DirectMcpRevocationCandidate | null> {
-  if (!isDirectMcpEnabled()) return null;
+  if (!(await getDirectMcpRuntimeSettings()).enabled) return null;
 
   const url = new URL(request.url);
   if (

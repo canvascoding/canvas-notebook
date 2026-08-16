@@ -7,7 +7,7 @@ import { oauthClient } from '@/app/lib/db/schema';
 import {
   DIRECT_MCP_OAUTH_SCOPES,
   type DirectMcpOAuthScope,
-  resolveDirectMcpServerConfig,
+  resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
 import { resolveAuthSecret } from '@/app/lib/security/auth-secret';
 import { eq } from 'drizzle-orm';
@@ -203,6 +203,6 @@ export async function resolveDirectMcpConsentPresentation(
   return {
     ...verified,
     clientName: safeClientName(client.name),
-    instanceHost: new URL(resolveDirectMcpServerConfig().origin).host,
+    instanceHost: new URL(resolveDirectMcpOAuthConfig().origin).host,
   };
 }

@@ -147,6 +147,18 @@ export function resolveDirectMcpServerConfig(
     throw new Error(`${DIRECT_MCP_FEATURE_ENV} is not enabled.`);
   }
 
+  return resolveDirectMcpOAuthConfig(environment);
+}
+
+/**
+ * Resolves the stable OAuth configuration used to prepare the Direct MCP
+ * provider during application startup. Availability remains controlled by the
+ * Direct MCP feature flag at the public MCP and OAuth route boundaries.
+ */
+export function resolveDirectMcpOAuthConfig(
+  environment: DirectMcpEnvironment = process.env,
+): DirectMcpServerConfig {
+
   const origin = resolveDirectMcpOrigin(environment);
   const issuer = `${origin}/api/auth`;
   const resource = `${origin}/mcp`;

@@ -1,9 +1,9 @@
 import {
   DIRECT_MCP_OAUTH_SCOPES,
-  isDirectMcpEnabled,
-  resolveDirectMcpServerConfig,
+  resolveDirectMcpOAuthConfig,
 } from '@/app/lib/mcp/server/config';
 import { directMcpRefreshGrantIsActive } from '@/app/lib/mcp/server/oauth-grant-revocation';
+import { getDirectMcpRuntimeSettings } from '@/app/lib/mcp/server/runtime-settings';
 
 function oauthError(error: string, description: string): Response {
   return Response.json(
@@ -21,8 +21,33 @@ function oauthError(error: string, description: string): Response {
   );
 }
 
+function disabledResponse(): Response {
+  return Response.json(
+    {
+      error: 'not_found',
+      error_description: 'Direct MCP OAuth is not enabled.',
+    },
+    {
+      status: 404,
+      headers: {
+        'cache-control': 'no-store',
+      },
+    },
+  );
+}
+
+function isDirectMcpOAuthPath(pathname: string): boolean {
+  return [
+    '/api/auth/oauth2/register',
+    '/api/auth/oauth2/authorize',
+    '/api/auth/oauth2/token',
+    '/api/auth/oauth2/revoke',
+    '/api/auth/oauth2/introspect',
+  ].includes(pathname);
+}
+
 function validateResourceValues(values: string[]): Response | null {
-  const { resource } = resolveDirectMcpServerConfig();
+  const { resource } = resolveDirectMcpOAuthConfig();
   if (values.length !== 1 || values[0] !== resource) {
     return oauthError('invalid_target', `The OAuth resource must be exactly ${resource}.`);
   }
@@ -73,9 +98,13 @@ function validateRegistrationBody(body: unknown): Response | null {
 export async function enforceDirectMcpOAuthRequestPolicy(
   request: Request,
 ): Promise<Response | null> {
-  if (!isDirectMcpEnabled()) return null;
-
   const url = new URL(request.url);
+  const runtimeSettings = await getDirectMcpRuntimeSettings();
+  if (isDirectMcpOAuthPath(url.pathname) && !runtimeSettings.enabled) {
+    return disabledResponse();
+  }
+  if (!runtimeSettings.enabled) return null;
+
   if (
     request.method === 'POST'
     && url.pathname === '/api/auth/oauth2/register'

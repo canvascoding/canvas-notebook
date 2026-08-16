@@ -5,10 +5,10 @@ import {
 
 export const dynamic = 'force-dynamic';
 
-export function GET(): Response {
+export async function GET(): Promise<Response> {
   return directMcpProtectedResourceMetadataResponse();
 }
 
-export function OPTIONS(): Response {
+export async function OPTIONS(): Promise<Response> {
   return directMcpProtectedResourceMetadataOptionsResponse();
 }
