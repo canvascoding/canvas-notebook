@@ -227,12 +227,21 @@ assert.equal(
 assert.equal(
   nativeBuildWorkflow.includes('action-gh-release'),
   false,
-  'the native workflow must not publish a GitHub Release before the complete workflow succeeds',
+  'the native workflow must not publish a GitHub Release through a third-party action',
 );
-assert.equal(
+assert(
   nativeBuildWorkflow.includes('gh release create'),
-  false,
-  'GitHub Release creation belongs to the release publisher after the remote workflow succeeds',
+  'the native workflow must publish the GitHub Release after all assets and compliance evidence are ready',
+);
+assert(
+  nativeBuildWorkflow.indexOf('gh release create')
+    > nativeBuildWorkflow.indexOf('Verify multi-architecture native compliance'),
+  'the GitHub Release must be created only after multi-architecture native compliance succeeds',
+);
+assert(
+  nativeBuildWorkflow.indexOf('gh release create')
+    > nativeBuildWorkflow.indexOf('Create multi-arch manifest'),
+  'the GitHub Release must be created only after the multi-arch image manifest is published',
 );
 assert(
   nativeBuildWorkflow.indexOf('Upload gated release bundle')

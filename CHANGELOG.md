@@ -11,6 +11,18 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.18.4] - 2026-08-18
+
+### Changed
+
+- Release workflow now creates the GitHub Release and uploads host CLI, portable CLI, and native compliance assets automatically as part of the tag-triggered build. This ensures the Control Plane release notification runs only after all release assets are available.
+
+### Verification
+
+- `npm run build`
+- Tag-triggered `Build and Push (Both Arch)` workflow succeeded
+- `Notify Control Plane Release` workflow succeeded after CI-created release
+
 ## [2026.8.18.3] - 2026-08-18
 
 ### Fixed
