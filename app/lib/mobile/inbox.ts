@@ -347,7 +347,6 @@ async function collectInboxItems(input: { userId: string; workspace: WorkspaceCo
   for (const row of sessionRows) {
     const unread = Boolean(
       row.lastMessageAt
-      && row.lastMessageAt > state.baseline
       && hasUnreadAssistantResponse(row.lastMessageAt, row.lastViewedAt),
     );
     if (!row.lastMessageAt || !unread) continue;
@@ -695,20 +694,9 @@ export async function countMobileUnreadMessages(input: {
       : personalWorkspace;
     return workspace && row.lastMessageAt ? [{ ...row, workspace }] : [];
   });
-  const workspaceIds = [...new Set(sessions.map((session) => session.workspace.workspaceId))];
-  const states = new Map(await Promise.all(workspaceIds.map(async (workspaceId) => {
-    const state = await readState({ userId: input.userId, workspaceId });
-    return [workspaceId, state] as const;
-  })));
-  return sessions.filter((session) => {
-    const state = states.get(session.workspace.workspaceId);
-    const lastMessageAt = session.lastMessageAt;
-    if (!state || !lastMessageAt) return false;
-    return (
-      lastMessageAt > state.baseline
-      && hasUnreadAssistantResponse(lastMessageAt, session.lastViewedAt)
-    );
-  }).length;
+  return sessions.filter((session) => (
+    hasUnreadAssistantResponse(session.lastMessageAt, session.lastViewedAt)
+  )).length;
 }
 
 async function upsertReadState(userId: string, workspaceId: string, itemKey: string, readAt: Date) {

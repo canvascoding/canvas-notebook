@@ -106,10 +106,10 @@ async function main() {
     await createTodo('mobile-attention-user', { title: 'Prepare screenshots', seenAt: new Date() });
 
     const inbox = await listMobileInbox({ userId: 'mobile-attention-user', workspace, limit: 20 });
-    assert.equal(inbox.counts.unread, 4);
-    assert.equal(await countMobileUnreadMessages({ userId: 'mobile-attention-user', workspaces: [workspace] }), 1);
+    assert.equal(inbox.counts.unread, 5);
+    assert.equal(await countMobileUnreadMessages({ userId: 'mobile-attention-user', workspaces: [workspace] }), 2);
     assert.equal(inbox.items.some((item) => item.id === 'chat:attention-session'), true);
-    assert.equal(inbox.items.some((item) => item.id === 'chat:historic-unread-session'), false);
+    assert.equal(inbox.items.some((item) => item.id === 'chat:historic-unread-session'), true);
     assert.equal(inbox.items.some((item) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(inbox.items.some((item) => item.id === 'studio:generation-ready'), true);
     assert.equal(inbox.items.some((item) => item.id === 'automation:run-failed'), true);
@@ -224,7 +224,7 @@ async function main() {
     );
     assert.equal(badgeResponse.status, 200);
     assert.equal(badgeResponse.headers.get('cache-control'), 'no-store, max-age=0');
-    assert.deepEqual(await badgeResponse.json(), { success: true, count: 1 });
+    assert.deepEqual(await badgeResponse.json(), { success: true, count: 2 });
 
     const notificationSummaryRoute = await import('../app/api/notifications/summary/route');
     const notificationSummaryResponse = await notificationSummaryRoute.GET(
@@ -233,8 +233,9 @@ async function main() {
     assert.equal(notificationSummaryResponse.status, 200);
     const notificationSummary = await notificationSummaryResponse.json();
     assert.equal(notificationSummary.success, true);
-    assert.equal(notificationSummary.data.unreadCount, 4);
+    assert.equal(notificationSummary.data.unreadCount, 5);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'chat:attention-session'), true);
+    assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'chat:historic-unread-session'), true);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === `todo:${firstTodo.id}`), true);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'studio:generation-ready'), true);
     assert.equal(notificationSummary.data.items.some((item: { id: string }) => item.id === 'automation:run-failed'), true);
