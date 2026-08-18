@@ -323,6 +323,21 @@ async function main() {
     subject: 'Blocked direct',
     body: 'Blocked',
   }), /not allowed/i);
+  await assert.rejects(() => sendEmailMessage('owner-user', {
+    accountId: smtpAccount.id,
+    to: ['blocked@outside.test'],
+    subject: 'Blocked automation',
+    body: 'Blocked',
+  }, { deliveryOrigin: 'automation' }), /not allowed/i);
+  const humanSendResult = await sendEmailMessage('owner-user', {
+    accountId: smtpAccount.id,
+    to: ['blocked@outside.test'],
+    subject: 'Human UI send',
+    body: 'Human send body',
+  }, { deliveryOrigin: 'human' });
+  assert.equal((humanSendResult as { sent?: boolean }).sent, true);
+  assert.equal(sentMessages.length, 3);
+  assert.deepEqual((sentMessages[2] as { to?: string[] }).to, ['blocked@outside.test']);
 
   const restrictiveSelfAccount = await saveEmailSmtpAccount('owner-user', {
     emailAddress: 'smtp-self@outside.test',
@@ -343,8 +358,8 @@ async function main() {
     body: 'Self send body',
   });
   assert.equal((selfSendResult as { sent?: boolean }).sent, true);
-  assert.equal(sentMessages.length, 3);
-  assert.deepEqual((sentMessages[2] as { to?: string[] }).to, ['smtp-self@outside.test']);
+  assert.equal(sentMessages.length, 4);
+  assert.deepEqual((sentMessages[3] as { to?: string[] }).to, ['smtp-self@outside.test']);
 
   let imapConnectCalls = 0;
   let imapLogoutCalls = 0;

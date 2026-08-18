@@ -137,7 +137,7 @@ export async function sendNotificationThroughRoute(
     body: message.body,
     is_HTML: message.isHtml,
     headers: message.headers,
-  });
+  }, { deliveryOrigin: 'automation' });
   const messageId = (response as { messageId?: unknown }).messageId;
   return { messageId: typeof messageId === 'string' && messageId.trim() ? messageId.trim() : null };
 }

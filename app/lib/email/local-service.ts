@@ -41,6 +41,7 @@ import {
   assertEmailSenderAllowed,
   isEmailAddressAllowed,
   withEmailPolicyDefaultAddresses,
+  type EmailDeliveryOrigin,
   type EmailPolicy,
 } from '@/app/lib/email/policy';
 import { emailCustomHeaderEntries, type EmailCustomHeaders } from '@/app/lib/email/headers';
@@ -599,9 +600,13 @@ function assertSenderAllowed(account: StoredEmailAccount, from: string) {
   assertEmailSenderAllowed(from, policyForAccount(account).readFrom);
 }
 
-function assertRecipientsAllowed(account: StoredEmailAccount, input: EmailDraftInput) {
+function assertRecipientsAllowed(
+  account: StoredEmailAccount,
+  input: EmailDraftInput,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
-  assertEmailRecipientsAllowed(recipients, policyForAccount(account).sendTo);
+  assertEmailRecipientsAllowed(recipients, policyForAccount(account).sendTo, origin);
 }
 
 function gmailHeader(headers: Array<{ name?: string; value?: string }> | undefined, name: string) {
@@ -1273,7 +1278,7 @@ export async function createLocalEmailDerivedDraft(
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
   overrides?: EmailDerivedDraftOverrides,
-  options?: EmailReadPolicyOptions,
+  options?: EmailReadPolicyOptions & { deliveryOrigin?: EmailDeliveryOrigin },
 ) {
   const account = await findLocalEmailAccount(userId, accountId);
   const result = await readLocalEmailMessage(userId, account.id, messageId, folder, options);
@@ -1290,7 +1295,7 @@ export async function createLocalEmailDerivedDraft(
   return {
     mode,
     originalMessageId: messageId,
-    ...(await createLocalEmailDraft(userId, draftInput)),
+    ...(await createLocalEmailDraft(userId, draftInput, options?.deliveryOrigin)),
   };
 }
 
@@ -1389,12 +1394,16 @@ export async function createLocalEmailAiReplyDraft(userId: string, accountId: st
   }, options);
 }
 
-export async function createLocalEmailDraft(userId: string, input: EmailDraftInput) {
+export async function createLocalEmailDraft(
+  userId: string,
+  input: EmailDraftInput,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const account = await findLocalEmailAccount(userId, input.accountId);
   const normalizedInput = { ...input, accountId: account.id };
-  assertRecipientsAllowed(account, normalizedInput);
+  assertRecipientsAllowed(account, normalizedInput, origin);
   if (account.authType === 'smtp_imap') {
-    return createSmtpEmailDraft(userId, normalizedInput);
+    return createSmtpEmailDraft(userId, normalizedInput, origin);
   }
   const token = await validAccessToken(account);
   let draft: Record<string, unknown>;
@@ -1414,12 +1423,17 @@ export async function createLocalEmailDraft(userId: string, input: EmailDraftInp
   return { account: await publicLocalEmailAccount(account), draft };
 }
 
-export async function updateLocalEmailDraft(userId: string, draftId: string, input: EmailDraftInput) {
+export async function updateLocalEmailDraft(
+  userId: string,
+  draftId: string,
+  input: EmailDraftInput,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const account = await findLocalEmailAccount(userId, input.accountId);
   const normalizedInput = { ...input, accountId: account.id };
-  assertRecipientsAllowed(account, normalizedInput);
+  assertRecipientsAllowed(account, normalizedInput, origin);
   if (account.authType === 'smtp_imap') {
-    return updateSmtpEmailDraft(userId, draftId, normalizedInput);
+    return updateSmtpEmailDraft(userId, draftId, normalizedInput, origin);
   }
   const token = await validAccessToken(account);
   if (account.provider === 'google') {
@@ -1436,12 +1450,16 @@ export async function updateLocalEmailDraft(userId: string, draftId: string, inp
   return { account: await publicLocalEmailAccount(account), draft: { id: draftId } };
 }
 
-export async function sendLocalEmailMessage(userId: string, input: EmailDraftInput) {
+export async function sendLocalEmailMessage(
+  userId: string,
+  input: EmailDraftInput,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const account = await findLocalEmailAccount(userId, input.accountId);
   const normalizedInput = { ...input, accountId: account.id };
-  assertRecipientsAllowed(account, normalizedInput);
+  assertRecipientsAllowed(account, normalizedInput, origin);
   if (account.authType === 'smtp_imap') {
-    return sendSmtpEmail(userId, normalizedInput);
+    return sendSmtpEmail(userId, normalizedInput, origin);
   }
 
   await assertOAuthSendScope(account);
@@ -1474,7 +1492,7 @@ export async function sendLocalEmailDerivedMessage(
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
   overrides?: EmailDerivedDraftOverrides,
-  options?: EmailReadPolicyOptions,
+  options?: EmailReadPolicyOptions & { deliveryOrigin?: EmailDeliveryOrigin },
 ) {
   const account = await findLocalEmailAccount(userId, accountId);
   const result = await readLocalEmailMessage(userId, account.id, messageId, folder, options);
@@ -1491,14 +1509,19 @@ export async function sendLocalEmailDerivedMessage(
   return {
     mode,
     originalMessageId: messageId,
-    ...(await sendLocalEmailMessage(userId, draftInput)),
+    ...(await sendLocalEmailMessage(userId, draftInput, options?.deliveryOrigin)),
   };
 }
 
-export async function sendLocalEmailDraft(userId: string, accountId: string, draftId: string) {
+export async function sendLocalEmailDraft(
+  userId: string,
+  accountId: string,
+  draftId: string,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const account = await findLocalEmailAccount(userId, accountId);
   if (account.authType === 'smtp_imap') {
-    return sendSmtpEmailDraft(userId, accountId, draftId);
+    return sendSmtpEmailDraft(userId, accountId, draftId, origin);
   }
   const token = await validAccessToken(account);
   await assertOAuthSendScope(account);
@@ -1509,7 +1532,7 @@ export async function sendLocalEmailDraft(userId: string, accountId: string, dra
     const headers = payload?.headers as Array<{ name?: string; value?: string }> | undefined;
     const recipients = [gmailHeader(headers, 'To'), gmailHeader(headers, 'Cc'), gmailHeader(headers, 'Bcc')]
       .flatMap((value) => value.split(',').map((entry) => entry.trim()).filter(Boolean));
-    assertRecipientsAllowed(account, { accountId, to: recipients, subject: '', body: '' });
+    assertRecipientsAllowed(account, { accountId, to: recipients, subject: '', body: '' }, origin);
     await gmailFetch('drafts/send', token, { method: 'POST', body: JSON.stringify({ id: draftId }) });
   } else {
     const raw = await microsoftFetch(`messages/${encodeURIComponent(draftId)}?$select=toRecipients,ccRecipients,bccRecipients`, token);
@@ -1517,7 +1540,7 @@ export async function sendLocalEmailDraft(userId: string, accountId: string, dra
       const values = Array.isArray(raw[key]) ? raw[key] as Array<{ emailAddress?: { address?: string } }> : [];
       return values.map((item) => item.emailAddress?.address || '').filter(Boolean);
     });
-    assertRecipientsAllowed(account, { accountId, to: recipients, subject: '', body: '' });
+    assertRecipientsAllowed(account, { accountId, to: recipients, subject: '', body: '' }, origin);
     await microsoftFetch(`messages/${encodeURIComponent(draftId)}/send`, token, { method: 'POST' });
   }
   return { account: await publicLocalEmailAccount(account), sent: true, draftId };

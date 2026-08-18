@@ -5,7 +5,6 @@ import DOMPurify from 'dompurify';
 import {
   Archive,
   Check,
-  CheckCircle2,
   ChevronDown,
   ChevronLeft,
   ChevronRight,
@@ -255,7 +254,6 @@ type EmailComposeDraft = {
 
 const MESSAGE_PAGE_SIZE = 20;
 const COMPACT_VIEWPORT_QUERY = '(max-width: 1023px)';
-const SEND_POLICY_ERROR_PATTERN = /send policy:\s*([^\s,;]+)/iu;
 const EMAIL_CONTEXT_FILE_EXTENSIONS = new Set(['txt', 'md', 'markdown', 'csv', 'json', 'pdf']);
 const EMAIL_HTML_SANITIZE_CONFIG = {
   ALLOWED_TAGS: [
@@ -469,22 +467,6 @@ function forwardSubjectForCompose(subject: string) {
   const normalized = subject.trim();
   if (!normalized) return 'Fwd:';
   return /^(fwd|fw):/iu.test(normalized) ? normalized : `Fwd: ${normalized}`;
-}
-
-function extractBlockedSendPolicyRecipient(error: string | null): string | null {
-  const match = error?.match(SEND_POLICY_ERROR_PATTERN);
-  const email = match?.[1]?.trim().toLowerCase();
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/u.test(email)) return null;
-  return email;
-}
-
-function sendPolicyAllowsEmail(email: string, sendTo: string[]): boolean {
-  if (sendTo.length === 0) return true;
-  const normalizedEmail = email.toLowerCase();
-  return sendTo.some((entry) => {
-    const normalizedEntry = entry.trim().toLowerCase();
-    return normalizedEntry === normalizedEmail || (normalizedEntry.startsWith('@') && normalizedEmail.endsWith(normalizedEntry));
-  });
 }
 
 function isFetchNetworkError(error: unknown): boolean {
@@ -1013,7 +995,6 @@ type EmailMessageViewerLabels = {
 };
 
 type EmailComposeDialogLabels = Pick<EmailMessageViewerLabels, 'cc' | 'date' | 'emptyBody' | 'from' | 'noSubject' | 'remoteImagesBlocked' | 'showRemoteImages' | 'to'> & {
-  addRecipientToSendPolicy(email: string): string;
   attachmentsAdd: string;
   attachmentsAttached: string;
   attachmentsCancel: string;
@@ -1715,13 +1696,11 @@ function EmailComposeDialog({
   allowedRemoteResourceSenders,
   draft,
   error,
-  isAddingSendPolicyRecipient,
   isGeneratingAi,
   isSubmitting,
   isWorkspaceOutboxReview,
   labels,
   locale,
-  onAddSendPolicyRecipient,
   onAllowRemoteResourcesForSender,
   onClose,
   onGenerateAi,
@@ -1734,13 +1713,11 @@ function EmailComposeDialog({
   allowedRemoteResourceSenders: string[];
   draft: EmailComposeDraft | null;
   error: string | null;
-  isAddingSendPolicyRecipient: boolean;
   isGeneratingAi: boolean;
   isSubmitting: boolean;
   isWorkspaceOutboxReview: boolean;
   labels: EmailComposeDialogLabels;
   locale: string;
-  onAddSendPolicyRecipient(email: string): void;
   onAllowRemoteResourcesForSender(sender: string): void;
   onClose(): void;
   onGenerateAi(): void;
@@ -1748,7 +1725,6 @@ function EmailComposeDialog({
   onUpdate(updates: Partial<Pick<EmailComposeDraft, 'aiMode' | 'aiPrompt' | 'aiTone' | 'attachments' | 'body' | 'bodyHtml' | 'ccText' | 'contextFiles' | 'subject' | 'toText' | 'usedContext'>>): void;
 }) {
   const activeWorkspaceId = useWorkspaceStore((state) => state.activeWorkspaceId);
-  const blockedRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
   const [isReferencePickerOpen, setIsReferencePickerOpen] = useState(false);
   const [activeReferenceMatch, setActiveReferenceMatch] = useState<ComposerReferenceMatch | null>(null);
   const [referencePickerItems, setReferencePickerItems] = useState<ComposerReferencePickerItem<FilePickerFile>[]>([]);
@@ -2107,21 +2083,8 @@ function EmailComposeDialog({
                     onChange={updateDisplayedAttachments}
                   />
                   {error && (
-                    <div className="space-y-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
+                    <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                       <p className="break-words">{error}</p>
-                      {blockedRecipient && (
-                        <Button
-                          type="button"
-                          variant="outline"
-                          size="sm"
-                          className="w-full border-destructive/40 bg-background text-foreground hover:bg-destructive/10 sm:w-auto"
-                          onClick={() => onAddSendPolicyRecipient(blockedRecipient)}
-                          disabled={isAddingSendPolicyRecipient}
-                        >
-                          {isAddingSendPolicyRecipient ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-                          {labels.addRecipientToSendPolicy(blockedRecipient)}
-                        </Button>
-                      )}
                     </div>
                   )}
                 </section>
@@ -2205,7 +2168,6 @@ export function EmailClient({
   const [activeMessageAction, setActiveMessageAction] = useState<EmailMessageActionName | null>(null);
   const [activeMessageListAction, setActiveMessageListAction] = useState<EmailMessageListActionState>(null);
   const [messageContextMenu, setMessageContextMenu] = useState<(EmailMessageContextMenuPosition & { messageId: string }) | null>(null);
-  const [isAddingSendPolicyRecipient, setIsAddingSendPolicyRecipient] = useState(false);
   const [composeDraft, setComposeDraft] = useState<EmailComposeDraft | null>(null);
   const [workspaceOutboxEditing, setWorkspaceOutboxEditing] = useState<{ id: string; version: number; scope: 'personal' | 'workspace'; workspaceId?: string } | null>(null);
   const [composeError, setComposeError] = useState<string | null>(null);
@@ -2231,12 +2193,6 @@ export function EmailClient({
     [activeFolder, folders],
   );
   const canReadActiveAccount = Boolean(activeAccount && (activeAccount.authType !== 'smtp_imap' || activeAccount.imapHost));
-  const blockedSendPolicyRecipient = useMemo(() => extractBlockedSendPolicyRecipient(error), [error]);
-  const canAddBlockedSendPolicyRecipient = Boolean(
-    activeAccount
-    && blockedSendPolicyRecipient
-    && !sendPolicyAllowsEmail(blockedSendPolicyRecipient, activeAccount.policy?.sendTo || []),
-  );
   const isStreamingSelectedMessageSummary = Boolean(selectedMessage && streamingSummaryMessageId === selectedMessage.id);
 
   const stopMessageSummaryStream = useCallback(() => {
@@ -2639,45 +2595,6 @@ export function EmailClient({
     setMessagePage(0);
     setMessageFilter((current) => current === 'unread' ? 'all' : 'unread');
   };
-
-  const addRecipientToSendPolicy = useCallback(async (email: string) => {
-    if (!activeAccount || !email) return;
-    const normalizedEmail = email.trim().toLowerCase();
-    if (!normalizedEmail) return;
-    const currentSendTo = activeAccount.policy?.sendTo || [];
-    const nextSendTo = Array.from(new Set([...currentSendTo, normalizedEmail]));
-    setIsAddingSendPolicyRecipient(true);
-    setMessageActionNotice(null);
-
-    try {
-      const response = await fetch(`/api/email/accounts/${encodeURIComponent(activeAccount.id)}/policy`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        credentials: 'include',
-        body: JSON.stringify({ sendTo: nextSendTo }),
-      });
-      const payload = await response.json().catch(() => ({}));
-      if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.updatePolicy'));
-      const updatedAccount = payload.data as EmailAccount | undefined;
-      setAccounts((current) => current.map((account) => (
-        account.id === activeAccount.id
-          ? updatedAccount || { ...account, policy: { ...account.policy, sendTo: nextSendTo } }
-          : account
-      )));
-      setError((current) => extractBlockedSendPolicyRecipient(current) === normalizedEmail ? null : current);
-      setComposeError((current) => extractBlockedSendPolicyRecipient(current) === normalizedEmail ? null : current);
-      setMessageActionNotice(t('sendPolicyRecipientAdded', { email: normalizedEmail }));
-    } catch (policyError) {
-      setError(policyError instanceof Error ? policyError.message : t('errors.updatePolicy'));
-    } finally {
-      setIsAddingSendPolicyRecipient(false);
-    }
-  }, [activeAccount, t]);
-
-  const addBlockedRecipientToSendPolicy = useCallback(async () => {
-    if (!blockedSendPolicyRecipient) return;
-    await addRecipientToSendPolicy(blockedSendPolicyRecipient);
-  }, [addRecipientToSendPolicy, blockedSendPolicyRecipient]);
 
   const buildComposeDraft = useCallback((mode: EmailComposeMode, message: EmailMessageDetail, body = '', aiGenerated = false): EmailComposeDraft => {
     const bodyValues = composeEmailEditorBodyValues(body);
@@ -3316,7 +3233,6 @@ export function EmailClient({
     unknownAttachmentType: t('unknownAttachmentType'),
   };
   const composeDialogLabels: EmailComposeDialogLabels = {
-    addRecipientToSendPolicy: (email: string) => t('addRecipientToSendPolicy', { email }),
     attachmentsAdd: t('attachmentsAdd'),
     attachmentsAttached: t('attachmentsAttached'),
     attachmentsCancel: t('attachmentsCancel'),
@@ -3503,21 +3419,8 @@ export function EmailClient({
       </section>
 
       {error && (
-        <div className="flex flex-col gap-2 border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:flex-row sm:items-center sm:justify-between">
+        <div className="border border-destructive/40 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           <span className="min-w-0 break-words">{error}</span>
-          {canAddBlockedSendPolicyRecipient && blockedSendPolicyRecipient && (
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className="w-full border-destructive/40 bg-background text-foreground hover:bg-destructive/10 sm:w-auto"
-              onClick={() => void addBlockedRecipientToSendPolicy()}
-              disabled={isAddingSendPolicyRecipient}
-            >
-              {isAddingSendPolicyRecipient ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <CheckCircle2 className="mr-2 h-4 w-4" />}
-              {t('addRecipientToSendPolicy', { email: blockedSendPolicyRecipient })}
-            </Button>
-          )}
         </div>
       )}
 
@@ -3820,13 +3723,11 @@ export function EmailClient({
         allowedRemoteResourceSenders={emailRemoteImageAllowedSenders}
         draft={composeDraft}
         error={composeError}
-        isAddingSendPolicyRecipient={isAddingSendPolicyRecipient}
         isGeneratingAi={isGeneratingComposeAi}
         isSubmitting={isSubmittingCompose}
         isWorkspaceOutboxReview={Boolean(workspaceOutboxEditing)}
         labels={composeDialogLabels}
         locale={locale}
-        onAddSendPolicyRecipient={(email) => void addRecipientToSendPolicy(email)}
         onAllowRemoteResourcesForSender={allowRemoteImagesForSender}
         onClose={closeComposeDialog}
         onGenerateAi={() => void generateComposeAiBody()}

@@ -317,7 +317,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         is_HTML: Boolean((body as { is_HTML?: unknown }).is_HTML),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
         to: stringListValue((body as { to?: unknown }).to),
-      }, { enforceReadPolicy: false });
+      }, { enforceReadPolicy: false, deliveryOrigin: 'human' });
     }
 
     if (operation === 'send') {
@@ -330,7 +330,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         is_HTML: Boolean((body as { is_HTML?: unknown }).is_HTML),
         subject: optionalStringValue((body as { subject?: unknown }).subject),
         to: stringListValue((body as { to?: unknown }).to),
-      }, { enforceReadPolicy: false });
+      }, { enforceReadPolicy: false, deliveryOrigin: 'human' });
     }
 
     if (operation === 'action') {

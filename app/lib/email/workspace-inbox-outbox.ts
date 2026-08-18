@@ -384,7 +384,7 @@ export async function sendPersonalOutboxDraft(input: {
       await sendEmailMessage(input.userId, {
         accountId: current.accountId, to: sendInput.to, cc: sendInput.cc, bcc: sendInput.bcc,
         subject: current.subject, body: current.body, is_HTML: current.isHtml,
-      });
+      }, { deliveryOrigin: 'human' });
     }
     const sentAt = new Date();
     const [sent] = await db.update(emailDrafts).set({
@@ -467,7 +467,7 @@ export async function sendWorkspaceOutboxDraft(input: {
         subject: sendInput.subject,
         body: sendInput.body,
         is_HTML: sendInput.isHtml,
-      });
+      }, { deliveryOrigin: 'human' });
     }
     const sentAt = new Date();
     const [sent] = await db.update(emailDrafts).set({

@@ -18,7 +18,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   try {
     const { draftId } = await params;
     const body = await request.json().catch(() => ({}));
-    const data = await updateEmailDraft(session.user.id, draftId, body);
+    const data = await updateEmailDraft(session.user.id, draftId, body, { deliveryOrigin: 'human' });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to update email draft';

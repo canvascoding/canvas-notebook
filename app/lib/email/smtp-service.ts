@@ -19,6 +19,7 @@ import {
   assertEmailRecipientsAllowed,
   normalizeEmailPolicyList,
   withEmailPolicyDefaultAddresses,
+  type EmailDeliveryOrigin,
   type EmailPolicy,
 } from '@/app/lib/email/policy';
 import { normalizeEmailCustomHeaders, type EmailCustomHeaders } from '@/app/lib/email/headers';
@@ -257,20 +258,29 @@ export async function testStoredSmtpEmailAccount(userId: string, accountId: stri
   };
 }
 
-export async function createSmtpEmailDraft(userId: string, input: LocalEmailDraftInput) {
+export async function createSmtpEmailDraft(
+  userId: string,
+  input: LocalEmailDraftInput,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const account = await getEmailAccountForUser(userId, input.accountId);
   const policy = policyForAccount(account);
   const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
-  assertEmailRecipientsAllowed(recipients, policy.sendTo);
+  assertEmailRecipientsAllowed(recipients, policy.sendTo, origin);
   const draft = await createStoredEmailDraft(userId, input);
   return { account: await publicStoredEmailAccount(account, await readStoredEmailAccountSecret(account)), draft: publicEmailDraft(draft) };
 }
 
-export async function updateSmtpEmailDraft(userId: string, draftId: string, input: LocalEmailDraftInput) {
+export async function updateSmtpEmailDraft(
+  userId: string,
+  draftId: string,
+  input: LocalEmailDraftInput,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const account = await getEmailAccountForUser(userId, input.accountId);
   const policy = policyForAccount(account);
   const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
-  assertEmailRecipientsAllowed(recipients, policy.sendTo);
+  assertEmailRecipientsAllowed(recipients, policy.sendTo, origin);
   const draft = await updateStoredEmailDraft(userId, draftId, input);
   return { account: await publicStoredEmailAccount(account, await readStoredEmailAccountSecret(account)), draft: publicEmailDraft(draft) };
 }
@@ -306,13 +316,17 @@ async function sendSmtpMessage(secret: EmailAccountSmtpSecret, from: { name?: st
   }
 }
 
-export async function sendSmtpEmail(userId: string, input: LocalEmailDraftInput) {
+export async function sendSmtpEmail(
+  userId: string,
+  input: LocalEmailDraftInput,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const account = await getEmailAccountForUser(userId, input.accountId);
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP account.');
   const policy = policyForAccount(account);
   const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
-  assertEmailRecipientsAllowed(recipients, policy.sendTo);
+  assertEmailRecipientsAllowed(recipients, policy.sendTo, origin);
 
   const result = await sendSmtpMessage(secret, { name: account.displayName, address: account.emailAddress }, input);
   return {
@@ -322,7 +336,12 @@ export async function sendSmtpEmail(userId: string, input: LocalEmailDraftInput)
   };
 }
 
-export async function sendSmtpEmailDraft(userId: string, accountId: string, draftId: string) {
+export async function sendSmtpEmailDraft(
+  userId: string,
+  accountId: string,
+  draftId: string,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
   const account = await getEmailAccountForUser(userId, accountId);
   const secret = await readStoredEmailAccountSecret(account);
   if (secret.authType !== 'smtp_imap') throw new Error('Email account is not an SMTP account.');
@@ -331,7 +350,7 @@ export async function sendSmtpEmailDraft(userId: string, accountId: string, draf
   const input = draftInputFromStored(draft);
   const policy = policyForAccount(account);
   const recipients = [...input.to, ...(input.cc || []), ...(input.bcc || [])];
-  assertEmailRecipientsAllowed(recipients, policy.sendTo);
+  assertEmailRecipientsAllowed(recipients, policy.sendTo, origin);
 
   await sendSmtpMessage(secret, { name: account.displayName, address: account.emailAddress }, input);
 

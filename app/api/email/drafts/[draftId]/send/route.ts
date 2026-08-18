@@ -19,7 +19,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     const { draftId } = await params;
     const body = await request.json().catch(() => ({})) as { accountId?: string };
     if (!body.accountId) throw new Error('accountId is required to send an email draft.');
-    const data = await sendEmailDraft(session.user.id, body.accountId, draftId);
+    const data = await sendEmailDraft(session.user.id, body.accountId, draftId, { deliveryOrigin: 'human' });
     return NextResponse.json({ success: true, data });
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Failed to send email draft';

@@ -37,6 +37,7 @@ import {
   type EmailPolicy,
 } from '@/app/lib/email/local-service';
 import { resolveEmailAttachments } from '@/app/lib/email/attachments';
+import type { EmailDeliveryOrigin } from '@/app/lib/email/policy';
 import { logEmailClientEvent } from '@/app/lib/email/logging';
 import {
   getManagedEmailOAuthRedirectUri,
@@ -63,6 +64,11 @@ type EmailMessageListInput = EmailSearchInput & {
 type EmailReadPolicyOptions = {
   enforceReadPolicy?: boolean;
   workspaceId?: string | null;
+};
+
+export type EmailDeliveryOptions = {
+  /** Defaults to tool so new programmatic callers remain allowlist-restricted. */
+  deliveryOrigin?: EmailDeliveryOrigin;
 };
 
 type EmailAccountsResponse = {
@@ -484,7 +490,7 @@ export async function createEmailDerivedDraft(
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
   overrides?: EmailDerivedDraftOverrides,
-  options?: EmailReadPolicyOptions,
+  options?: EmailReadPolicyOptions & EmailDeliveryOptions,
 ) {
   return createLocalEmailDerivedDraft(userId, accountId, messageId, folder, mode, overrides, options);
 }
@@ -496,7 +502,7 @@ export async function sendEmailDerivedMessage(
   folder: string | undefined,
   mode: EmailDerivedDraftMode,
   overrides?: EmailDerivedDraftOverrides,
-  options?: EmailReadPolicyOptions,
+  options?: EmailReadPolicyOptions & EmailDeliveryOptions,
 ) {
   return sendLocalEmailDerivedMessage(userId, accountId, messageId, folder, mode, overrides, options);
 }
@@ -532,44 +538,44 @@ export async function createEmailAiReplyDraft(userId: string, accountId: string,
   return createLocalEmailAiReplyDraft(userId, accountId, messageId, folder, instruction, options);
 }
 
-export async function createEmailDraft(userId: string, input: EmailDraftInput) {
+export async function createEmailDraft(userId: string, input: EmailDraftInput, options?: EmailDeliveryOptions) {
   if (await findManagedEmailAccount(userId, input.accountId)) {
     return managedEmailRequest('/v1/managed/email/drafts', {
       method: 'POST',
       body: JSON.stringify(await managedDraftInput(input)),
     }, managedEmailScope(userId));
   }
-  return createLocalEmailDraft(userId, input);
+  return createLocalEmailDraft(userId, input, options?.deliveryOrigin);
 }
 
-export async function updateEmailDraft(userId: string, draftId: string, input: EmailDraftInput) {
+export async function updateEmailDraft(userId: string, draftId: string, input: EmailDraftInput, options?: EmailDeliveryOptions) {
   if (await findManagedEmailAccount(userId, input.accountId)) {
     return managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(draftId)}`, {
       method: 'PATCH',
       body: JSON.stringify(await managedDraftInput(input)),
     }, managedEmailScope(userId));
   }
-  return updateLocalEmailDraft(userId, draftId, input);
+  return updateLocalEmailDraft(userId, draftId, input, options?.deliveryOrigin);
 }
 
-export async function sendEmailMessage(userId: string, input: EmailDraftInput) {
+export async function sendEmailMessage(userId: string, input: EmailDraftInput, options?: EmailDeliveryOptions) {
   const managedAccount = await findManagedEmailAccount(userId, input.accountId);
   if (managedAccount) {
     const accountId = managedAccount.id;
-    const created = await createEmailDraft(userId, { ...input, accountId }) as { draft?: { id?: unknown } };
+    const created = await createEmailDraft(userId, { ...input, accountId }, options) as { draft?: { id?: unknown } };
     const draftId = typeof created.draft?.id === 'string' ? created.draft.id : '';
     if (!draftId) throw new Error('Managed email draft response did not include a draft ID.');
-    return sendEmailDraft(userId, accountId, draftId);
+    return sendEmailDraft(userId, accountId, draftId, options);
   }
-  return sendLocalEmailMessage(userId, input);
+  return sendLocalEmailMessage(userId, input, options?.deliveryOrigin);
 }
 
-export async function sendEmailDraft(userId: string, accountId: string, draftId: string) {
+export async function sendEmailDraft(userId: string, accountId: string, draftId: string, options?: EmailDeliveryOptions) {
   if (await findManagedEmailAccount(userId, accountId)) {
     return managedEmailRequest(`/v1/managed/email/drafts/${encodeURIComponent(draftId)}/send`, {
       method: 'POST',
       body: JSON.stringify({ accountId }),
     }, managedEmailScope(userId));
   }
-  return sendLocalEmailDraft(userId, accountId, draftId);
+  return sendLocalEmailDraft(userId, accountId, draftId, options?.deliveryOrigin);
 }

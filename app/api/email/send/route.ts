@@ -33,7 +33,7 @@ export async function POST(request: NextRequest) {
       userId: session.user.id,
     });
 
-    const data = await sendEmailMessage(session.user.id, body);
+    const data = await sendEmailMessage(session.user.id, body, { deliveryOrigin: 'human' });
     logEmailClientEvent('info', 'compose_send_succeeded', {
       accountId,
       durationMs: Date.now() - startedAt,

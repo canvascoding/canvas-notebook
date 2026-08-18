@@ -5,6 +5,13 @@ export type EmailPolicy = {
   sendTo: string[];
 };
 
+/**
+ * Recipient policies protect messages initiated by tools or automations. A
+ * signed-in person composing or explicitly confirming a message in the UI is
+ * allowed to choose any recipient.
+ */
+export type EmailDeliveryOrigin = 'human' | 'tool' | 'automation';
+
 export function normalizeEmailPolicyList(value: unknown): string[] {
   if (!Array.isArray(value)) return [];
   const seen = new Set<string>();
@@ -81,7 +88,12 @@ export function assertEmailSenderAllowed(from: string, readFrom: unknown) {
   }
 }
 
-export function assertEmailRecipientsAllowed(recipients: string[], sendTo: unknown) {
+export function assertEmailRecipientsAllowed(
+  recipients: string[],
+  sendTo: unknown,
+  origin: EmailDeliveryOrigin = 'tool',
+) {
+  if (origin === 'human') return;
   const allowlist = normalizeEmailPolicyList(sendTo);
   for (const recipient of recipients) {
     if (!isEmailAddressAllowed(recipient, allowlist)) {
