@@ -883,6 +883,7 @@ function EmailMessageBody({
   emptyText: string;
 }) {
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  const iframeResizeObserverRef = useRef<ResizeObserver | null>(null);
   const htmlForPreview = useMemo(() => emailHtmlForPreview(message.bodyHtml, message.body), [message.body, message.bodyHtml]);
   const messageKey = `${message.id}:${htmlForPreview.length}:${message.body?.length || 0}`;
   const senderEmail = extractEmailAddressForCompose(message.from);
@@ -903,9 +904,34 @@ function EmailMessageBody({
     const doc = iframeRef.current?.contentDocument;
     if (!doc) return;
     const contentHeight = Math.max(doc.documentElement.scrollHeight, doc.body?.scrollHeight || 0);
-    const nextHeight = Math.max(240, Math.min(2400, contentHeight));
-    setIframeLayout({ height: nextHeight, messageKey });
+    const nextHeight = Math.max(240, Math.ceil(contentHeight));
+    setIframeLayout((current) => (
+      current.messageKey === messageKey && current.height === nextHeight
+        ? current
+        : { height: nextHeight, messageKey }
+    ));
   }, [messageKey, setIframeLayout]);
+
+  const handleIframeLoad = useCallback(() => {
+    const doc = iframeRef.current?.contentDocument;
+    if (!doc) return;
+
+    iframeResizeObserverRef.current?.disconnect();
+    resizeIframe();
+
+    const ResizeObserverConstructor = doc.defaultView?.ResizeObserver;
+    if (!ResizeObserverConstructor || !doc.body) return;
+
+    const observer = new ResizeObserverConstructor(resizeIframe);
+    observer.observe(doc.documentElement);
+    observer.observe(doc.body);
+    iframeResizeObserverRef.current = observer;
+  }, [resizeIframe]);
+
+  useEffect(() => () => {
+    iframeResizeObserverRef.current?.disconnect();
+    iframeResizeObserverRef.current = null;
+  }, [srcDoc]);
 
   const allowRemoteResourcesForMessage = useCallback(() => {
     setRemoteResourceState({ allow: true, messageKey });
@@ -939,7 +965,7 @@ function EmailMessageBody({
           srcDoc={srcDoc}
           style={{ height: iframeHeight }}
           title={message.subject || 'Email content'}
-          onLoad={resizeIframe}
+          onLoad={handleIframeLoad}
         />
       </div>
     );
