@@ -2556,12 +2556,12 @@
       }
     },
     "workspaceMailboxes": {
-      "title": "Gemeinsame Workspace-Postfächer",
+      "title": "Business-Postfächer",
       "description": "Richte hier gemeinsam genutzte Postfächer für Support, Vertrieb und Team-Automationen ein.",
-      "sharedHint": "Diese Postfächer gehören dem ausgewählten Workspace – nicht der Person, die sie eingerichtet hat. Mitglieder greifen ausschließlich über ihre Workspace-Berechtigungen darauf zu.",
+      "sharedHint": "Die Zugangsdaten werden zentral unter System-E-Mail verwaltet. Ein Workspace-Admin ordnet ein verbundenes Postfach genau einem Workspace zu.",
       "add": "Postfach hinzufügen",
       "edit": "Postfach bearbeiten",
-      "editorDescription": "Die Zugangsdaten werden zentral gespeichert. E-Mails werden weiterhin nur nach menschlicher Freigabe aus der Outbox versendet.",
+      "editorDescription": "Die Zugangsdaten werden zentral gespeichert. Die Zuordnung erfolgt im jeweiligen Workspace; E-Mails werden weiterhin nur nach menschlicher Freigabe aus der Outbox versendet.",
       "workspace": "Workspace",
       "selectWorkspace": "Workspace auswählen",
       "emailAddress": "E-Mail-Adresse",
@@ -2590,6 +2590,7 @@
       "loading": "Workspace-Postfächer werden geladen…",
       "empty": "Noch kein gemeinsames Workspace-Postfach eingerichtet.",
       "sendOnly": "Nur Versand",
+      "unassigned": "Nicht zugeordnet",
       "errors": {
         "load": "Workspace-Postfächer konnten nicht geladen werden.",
         "save": "Workspace-Postfach konnte nicht gespeichert werden.",
@@ -3831,6 +3832,20 @@
           "read": "Lesen",
           "write": "Schreiben",
           "manage": "Verwalten"
+        },
+        "mailbox": {
+          "action": "Business-Postfach",
+          "title": "Business-Postfach",
+          "description": "Wähle das zentral verbundene Postfach für {workspace}.",
+          "select": "Verbundenes Postfach",
+          "none": "Kein Postfach zugeordnet",
+          "empty": "Kein nicht zugeordnetes Business-Postfach verfügbar. Richte zuerst eines unter Einstellungen → System-E-Mail ein.",
+          "loading": "Postfächer werden geladen…",
+          "assign": "Postfach zuordnen",
+          "unassign": "Zuordnung entfernen",
+          "cancel": "Abbrechen",
+          "loadError": "Business-Postfächer konnten nicht geladen werden.",
+          "saveError": "Postfach-Zuordnung konnte nicht aktualisiert werden."
         },
         "members": {
           "title": "Zugriff verwalten: {name}",

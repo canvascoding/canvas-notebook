@@ -1,7 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { ArrowLeftRight, Loader2, Lock, Pencil, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react';
+import { ArrowLeftRight, Inbox, Loader2, Lock, Pencil, Plus, RefreshCw, Star, Trash2, Users } from 'lucide-react';
 import { useTranslations } from 'next-intl';
 
 import {
@@ -27,6 +27,7 @@ import { CreateWorkspaceDialog } from '@/app/components/settings/CreateWorkspace
 import { EditWorkspaceDialog } from '@/app/components/settings/EditWorkspaceDialog';
 import { WorkspaceMembersDialog } from '@/app/components/settings/WorkspaceMembersDialog';
 import { WorkspaceTypeChangeDialog } from '@/app/components/settings/WorkspaceTypeChangeDialog';
+import { WorkspaceMailboxAssignmentDialog } from '@/app/components/settings/WorkspaceMailboxAssignmentDialog';
 import type { ClientWorkspaceSummary } from '@/app/lib/workspaces/client-types';
 import {
   getWorkspaceKindLabel,
@@ -71,6 +72,7 @@ export function WorkspaceManagementCard({
   const [editTarget, setEditTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [membersTarget, setMembersTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [typeChangeTarget, setTypeChangeTarget] = useState<ClientWorkspaceSummary | null>(null);
+  const [mailboxTarget, setMailboxTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<ClientWorkspaceSummary | null>(null);
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [isDeleting, setIsDeleting] = useState(false);
@@ -285,6 +287,18 @@ export function WorkspaceManagementCard({
                             {t('members.manageAccess')}
                           </Button>
                         ) : null}
+                        {workspace.permissions.canManageWorkspace ? (
+                          <Button
+                            type="button"
+                            variant="ghost"
+                            size="sm"
+                            className="shrink-0"
+                            onClick={() => setMailboxTarget(workspace)}
+                          >
+                            <Inbox data-icon="inline-start" />
+                            {t('mailbox.action')}
+                          </Button>
+                        ) : null}
                         {isAdmin && !workspace.isDefault && workspace.type !== 'organization' && workspace.permissions.canManageWorkspace ? (
                           <Button
                             type="button"
@@ -353,6 +367,14 @@ export function WorkspaceManagementCard({
         teamFeaturesEnabled={effectiveTeamFeaturesEnabled}
         projectFeaturesEnabled={projectFeaturesEnabled}
         onChanged={handleTypeChanged}
+      />
+
+      <WorkspaceMailboxAssignmentDialog
+        open={Boolean(mailboxTarget)}
+        onOpenChange={(open) => {
+          if (!open) setMailboxTarget(null);
+        }}
+        workspace={mailboxTarget ? { id: mailboxTarget.id, name: mailboxTarget.name } : null}
       />
 
       <AlertDialog open={Boolean(deleteTarget)} onOpenChange={(open) => {

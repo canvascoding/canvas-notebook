@@ -41,10 +41,10 @@ export async function POST(request: NextRequest) {
     const mailbox = await saveAdminWorkspaceMailbox(admin.session.user.id, payload as WorkspaceMailboxSmtpInput, { verify: Boolean((payload as { verifyConnection?: unknown }).verifyConnection) });
     await recordAuditEvent({
       userId: admin.session.user.id,
-      workspaceId: mailbox.workspaceId,
+      workspaceId: mailbox.workspaceId || undefined,
       source: 'system_email', eventType: 'workspace_mailbox', entityType: 'workspace_email_mailbox', entityId: mailbox.id,
       action: 'workspace_email_mailbox.create', status: 'success',
-      summary: `Workspace mailbox ${mailbox.emailAddress} configured for ${mailbox.workspaceName}.`,
+      summary: `Business mailbox ${mailbox.emailAddress} connected in System Email.`,
       metadata: { accountId: mailbox.accountId, provider: mailbox.provider, authType: mailbox.authType },
     });
     return NextResponse.json({ success: true, data: mailbox }, { status: 201 });

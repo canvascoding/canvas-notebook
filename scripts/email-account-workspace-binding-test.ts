@@ -344,12 +344,12 @@ async function main() {
     assert.equal(archivedMailboxCount.count, 1);
 
     const {
+      assignAdminWorkspaceMailbox,
       listAdminWorkspaceMailboxes,
       removeAdminWorkspaceMailbox,
       saveAdminWorkspaceMailbox,
     } = await import('../app/lib/email/workspace-mailbox-store');
     const sharedMailbox = await saveAdminWorkspaceMailbox('owner-user', {
-      workspaceId: ownerWorkspace.id,
       emailAddress: 'support@example.test',
       displayName: 'Support',
       smtpHost: 'smtp.example.test',
@@ -363,16 +363,21 @@ async function main() {
       imapUsername: 'support@example.test',
       imapPassword: 'workspace-secret',
     });
-    assert.equal(sharedMailbox.workspaceId, ownerWorkspace.id);
+    assert.equal(sharedMailbox.workspaceId, null);
     assert.equal(sharedMailbox.emailAddress, 'support@example.test');
     assert.equal(sharedMailbox.imapHost, 'imap.example.test');
     assert.equal((await listAdminWorkspaceMailboxes()).some((mailbox) => mailbox.id === sharedMailbox.id), true);
+    const assignedSharedMailbox = await assignAdminWorkspaceMailbox({
+      actorUserId: 'owner-user', accountId: sharedMailbox.id, workspaceId: ownerWorkspace.id,
+    });
+    assert.equal(assignedSharedMailbox.workspaceId, ownerWorkspace.id);
+    assert.ok(assignedSharedMailbox.mailboxId);
     assert.equal(
       (await requireActiveWorkspaceMailboxForAutomation({
         emailAccountId: sharedMailbox.accountId,
         workspaceId: ownerWorkspace.id,
       })).id,
-      sharedMailbox.id,
+      assignedSharedMailbox.mailboxId,
     );
     const { listPublicEmailAccountsForUser } = await import('../app/lib/email/account-store');
     assert.equal(

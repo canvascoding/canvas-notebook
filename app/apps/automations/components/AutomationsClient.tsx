@@ -142,6 +142,7 @@ type SkillOption = CanvasSkillIconSource & {
 
 type WorkspaceMailboxAccount = {
   id: string;
+  mailboxId: string | null;
   emailAddress: string;
   displayName: string | null;
   workspaceId: string | null;
@@ -1016,7 +1017,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
     ? workspaceById.get(workspaceChangeTargetId) || null
     : null;
   const workspaceMailboxAccounts = useMemo(
-    () => emailAccounts.filter((account) => account.workspaceId === draftWorkspaceId && Boolean(account.imapHost)),
+    () => emailAccounts.filter((account) => account.workspaceId === draftWorkspaceId && Boolean(account.mailboxId) && Boolean(account.imapHost)),
     [draftWorkspaceId, emailAccounts],
   );
   const scheduledWorkspaceReady = Boolean(draft.id) || (workspaceInitialized && Boolean(draftWorkspaceId));
@@ -1310,17 +1311,21 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
   }, [hydrateWorkspaces]);
 
   useEffect(() => {
+    if (!workspaceInitialized || !draftWorkspaceId) {
+      setEmailAccounts([]);
+      return;
+    }
     let cancelled = false;
-    void fetch('/api/email/accounts', { credentials: 'include', cache: 'no-store' })
+    void fetch(`/api/workspaces/${encodeURIComponent(draftWorkspaceId)}/email/mailbox`, { credentials: 'include', cache: 'no-store' })
       .then(async (response) => ({ response, payload: await response.json() }))
       .then(({ response, payload }) => {
         if (cancelled || !response.ok || !payload.success) return;
-        const accounts = Array.isArray(payload.data?.accounts) ? payload.data.accounts as WorkspaceMailboxAccount[] : [];
+        const accounts = Array.isArray(payload.data?.mailboxes) ? payload.data.mailboxes as WorkspaceMailboxAccount[] : [];
         setEmailAccounts(accounts);
       })
       .catch(() => undefined);
     return () => { cancelled = true; };
-  }, []);
+  }, [draftWorkspaceId, workspaceInitialized]);
 
   useEffect(() => {
     if (!workspaceInitialized || !defaultAutomationWorkspaceId || selectedJobId) return;
@@ -1860,7 +1865,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               >
                 <option value="">{t('trigger.selectMailbox')}</option>
                 {workspaceMailboxAccounts.map((account) => (
-                  <option key={account.id} value={account.id}>
+                  <option key={account.mailboxId} value={account.mailboxId || ''}>
                     {account.displayName ? `${account.displayName} · ${account.emailAddress}` : account.emailAddress}
                   </option>
                 ))}

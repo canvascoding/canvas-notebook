@@ -2557,12 +2557,12 @@
       }
     },
     "workspaceMailboxes": {
-      "title": "Shared workspace mailboxes",
-      "description": "Configure shared inboxes for support, sales, and team automations here.",
-      "sharedHint": "These mailboxes belong to the selected workspace, not the person who configured them. Members access them only through their workspace permissions.",
+      "title": "Business mailboxes",
+      "description": "Connect shared inboxes for support, sales, and team automations here.",
+      "sharedHint": "These credentials are centrally managed in System Email. A workspace administrator assigns a connected mailbox to exactly one workspace.",
       "add": "Add mailbox",
       "edit": "Edit mailbox",
-      "editorDescription": "Credentials are stored centrally. Email is still sent only after human approval from the Outbox.",
+      "editorDescription": "Credentials are stored centrally. Assign the mailbox from its workspace; email is still sent only after human approval from the Outbox.",
       "workspace": "Workspace",
       "selectWorkspace": "Select workspace",
       "emailAddress": "Email address",
@@ -2591,6 +2591,7 @@
       "loading": "Loading workspace mailboxes…",
       "empty": "No shared workspace mailbox has been configured yet.",
       "sendOnly": "Send only",
+      "unassigned": "Not assigned",
       "errors": {
         "load": "Could not load workspace mailboxes.",
         "save": "Could not save workspace mailbox.",
@@ -3832,6 +3833,20 @@
           "read": "Read",
           "write": "Write",
           "manage": "Manage"
+        },
+        "mailbox": {
+          "action": "Business mailbox",
+          "title": "Business mailbox",
+          "description": "Choose the centrally connected mailbox for {workspace}.",
+          "select": "Connected mailbox",
+          "none": "No mailbox assigned",
+          "empty": "No unassigned business mailbox is available. Connect one first in Settings → System Email.",
+          "loading": "Loading mailboxes…",
+          "assign": "Assign mailbox",
+          "unassign": "Remove assignment",
+          "cancel": "Cancel",
+          "loadError": "Could not load business mailboxes.",
+          "saveError": "Could not update the mailbox assignment."
         },
         "members": {
           "title": "Manage access: {name}",

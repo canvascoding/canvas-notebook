@@ -24,10 +24,10 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ m
     if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
       return NextResponse.json({ success: false, error: 'Invalid workspace mailbox configuration.' }, { status: 400 });
     }
-    const mailbox = await saveAdminWorkspaceMailbox(admin.session.user.id, { ...(payload as WorkspaceMailboxSmtpInput), mailboxId }, { verify: Boolean((payload as { verifyConnection?: unknown }).verifyConnection) });
+    const mailbox = await saveAdminWorkspaceMailbox(admin.session.user.id, { ...(payload as WorkspaceMailboxSmtpInput), accountId: mailboxId }, { verify: Boolean((payload as { verifyConnection?: unknown }).verifyConnection) });
     await recordAuditEvent({
       userId: admin.session.user.id,
-      workspaceId: mailbox.workspaceId,
+      workspaceId: mailbox.workspaceId || undefined,
       source: 'system_email', eventType: 'workspace_mailbox', entityType: 'workspace_email_mailbox', entityId: mailbox.id,
       action: 'workspace_email_mailbox.update', status: 'success',
       summary: `Workspace mailbox ${mailbox.emailAddress} updated.`,

@@ -234,25 +234,19 @@ export async function assignStoredEmailAccountWorkspace(
   workspaceId: string | null,
 ): Promise<PublicEmailAccount> {
   const account = await getEmailAccountForUser(userId, accountId);
+  if (account.accountScope !== 'personal') {
+    throw new Error('Only personal mailboxes can be assigned through personal integrations.');
+  }
   const normalizedWorkspaceId = workspaceId?.trim() || null;
   const activeMailbox = await getActiveWorkspaceMailboxForEmailAccount(account.id);
   const protectedWorkspaceIds = [activeMailbox?.workspaceId || null, normalizedWorkspaceId]
     .filter((value): value is string => Boolean(value));
-  const authorizedWorkspaces = new Map<string, Awaited<ReturnType<typeof resolveAgentSessionWorkspaceForUser>>>();
   for (const protectedWorkspaceId of new Set(protectedWorkspaceIds)) {
-    const workspace = await resolveAgentSessionWorkspaceForUser({
+    await resolveAgentSessionWorkspaceForUser({
       userId,
       workspaceId: protectedWorkspaceId,
       permissions: ['canManageWorkspace'],
     });
-    authorizedWorkspaces.set(protectedWorkspaceId, workspace);
-  }
-
-  if (normalizedWorkspaceId) {
-    const workspace = authorizedWorkspaces.get(normalizedWorkspaceId);
-    if (account.accountScope === 'organization' && account.organizationId && workspace?.organizationId !== account.organizationId) {
-      throw new Error('Organization mailboxes can only be assigned to a workspace in the same organization.');
-    }
   }
 
   const now = new Date();

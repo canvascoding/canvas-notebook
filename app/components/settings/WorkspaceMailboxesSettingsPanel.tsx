@@ -12,13 +12,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 
-type Workspace = { id: string; name: string; type: string };
-
 type WorkspaceMailbox = {
   id: string;
-  workspaceId: string;
-  workspaceName: string;
-  status: string;
+  mailboxId: string | null;
+  workspaceId: string | null;
+  workspaceName: string | null;
+  status: string | null;
   accountId: string;
   emailAddress: string;
   displayName: string | null;
@@ -33,7 +32,6 @@ type WorkspaceMailbox = {
 };
 
 type MailboxForm = {
-  workspaceId: string;
   emailAddress: string;
   displayName: string;
   smtpHost: string;
@@ -49,13 +47,12 @@ type MailboxForm = {
 };
 
 const EMPTY_FORM: MailboxForm = {
-  workspaceId: '', emailAddress: '', displayName: '', smtpHost: '', smtpPort: '587', smtpSecure: false,
+  emailAddress: '', displayName: '', smtpHost: '', smtpPort: '587', smtpSecure: false,
   smtpUsername: '', smtpPassword: '', imapHost: '', imapPort: '993', imapSecure: true, imapUsername: '', imapPassword: '',
 };
 
 function formFromMailbox(mailbox: WorkspaceMailbox): MailboxForm {
   return {
-    workspaceId: mailbox.workspaceId,
     emailAddress: mailbox.emailAddress,
     displayName: mailbox.displayName || '',
     smtpHost: mailbox.smtpHost || '',
@@ -74,7 +71,6 @@ function formFromMailbox(mailbox: WorkspaceMailbox): MailboxForm {
 export function WorkspaceMailboxesSettingsPanel() {
   const t = useTranslations('settings.workspaceMailboxes');
   const [mailboxes, setMailboxes] = useState<WorkspaceMailbox[]>([]);
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [form, setForm] = useState<MailboxForm>(EMPTY_FORM);
   const [editingMailbox, setEditingMailbox] = useState<WorkspaceMailbox | null>(null);
   const [isEditorOpen, setIsEditorOpen] = useState(false);
@@ -91,7 +87,6 @@ export function WorkspaceMailboxesSettingsPanel() {
       const payload = await response.json();
       if (!response.ok || !payload.success) throw new Error(payload.error || t('errors.load'));
       setMailboxes(Array.isArray(payload.data?.mailboxes) ? payload.data.mailboxes : []);
-      setWorkspaces(Array.isArray(payload.data?.workspaces) ? payload.data.workspaces : []);
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : t('errors.load'));
     } finally {
@@ -214,7 +209,6 @@ export function WorkspaceMailboxesSettingsPanel() {
               <Button type="button" variant="ghost" size="sm" onClick={() => setIsEditorOpen(false)} disabled={isBusy}>{t('cancel')}</Button>
             </div>
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="space-y-2 md:col-span-2"><Label htmlFor="workspace-mailbox-workspace">{t('workspace')}</Label><select id="workspace-mailbox-workspace" className="h-9 w-full rounded-md border border-input bg-background px-3 text-sm" value={form.workspaceId} onChange={(event) => update('workspaceId', event.target.value)} disabled={isBusy}><option value="">{t('selectWorkspace')}</option>{workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}</select></div>
               <div className="space-y-2"><Label htmlFor="workspace-mailbox-address">{t('emailAddress')}</Label><Input id="workspace-mailbox-address" type="email" value={form.emailAddress} onChange={(event) => update('emailAddress', event.target.value)} disabled={isBusy} placeholder="support@example.com" /></div>
               <div className="space-y-2"><Label htmlFor="workspace-mailbox-name">{t('displayName')}</Label><Input id="workspace-mailbox-name" value={form.displayName} onChange={(event) => update('displayName', event.target.value)} disabled={isBusy} placeholder="Support" /></div>
               <div className="space-y-2"><Label htmlFor="workspace-mailbox-smtp-host">{t('smtpHost')}</Label><Input id="workspace-mailbox-smtp-host" value={form.smtpHost} onChange={(event) => update('smtpHost', event.target.value)} disabled={isBusy} placeholder="smtp.example.com" /></div>
@@ -241,7 +235,7 @@ export function WorkspaceMailboxesSettingsPanel() {
           : mailboxes.length === 0 ? <div className="rounded-lg border border-dashed border-border px-4 py-8 text-center text-sm leading-6 text-muted-foreground">{t('empty')}</div>
           : <div className="space-y-3">{mailboxes.map((mailbox) => (
             <article key={mailbox.id} className="rounded-xl border border-border bg-card p-4 shadow-xs sm:p-5">
-              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-medium">{mailbox.emailAddress}</h3><Badge variant="outline">{mailbox.workspaceName}</Badge>{mailbox.imapHost ? <Badge variant="secondary">IMAP</Badge> : <Badge variant="secondary">{t('sendOnly')}</Badge>}</div>{mailbox.displayName && <p className="mt-1 text-sm text-muted-foreground">{mailbox.displayName}</p>}<p className="mt-3 text-xs text-muted-foreground">SMTP · {mailbox.smtpHost}:{mailbox.smtpPort}</p></div>
+              <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between"><div className="min-w-0"><div className="flex flex-wrap items-center gap-2"><h3 className="truncate font-medium">{mailbox.emailAddress}</h3><Badge variant="outline">{mailbox.workspaceName || t('unassigned')}</Badge>{mailbox.imapHost ? <Badge variant="secondary">IMAP</Badge> : <Badge variant="secondary">{t('sendOnly')}</Badge>}</div>{mailbox.displayName && <p className="mt-1 text-sm text-muted-foreground">{mailbox.displayName}</p>}<p className="mt-3 text-xs text-muted-foreground">SMTP · {mailbox.smtpHost}:{mailbox.smtpPort}</p></div>
                 <div className="flex shrink-0 flex-wrap gap-2"><Button type="button" size="sm" variant="outline" onClick={() => void test(mailbox)} disabled={isBusy}>{action === `test:${mailbox.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <RefreshCw className="mr-2 h-4 w-4" />}{t('test')}</Button><Button type="button" size="sm" variant="outline" onClick={() => openEdit(mailbox)} disabled={isBusy}><Pencil className="mr-2 h-4 w-4" />{t('edit')}</Button><Button type="button" size="sm" variant="outline" className="text-destructive hover:text-destructive" onClick={() => void remove(mailbox)} disabled={isBusy}>{action === `remove:${mailbox.id}` ? <Loader2 className="mr-2 h-4 w-4 animate-spin" /> : <Trash2 className="mr-2 h-4 w-4" />}{t('remove')}</Button></div></div>
             </article>
           ))}</div>}
