@@ -11,6 +11,25 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.18.2] - 2026-08-18
+
+### Added
+
+- Added a workspace outbox review queue for email activity.
+
+### Changed
+
+- Run image builds alongside safety tests in the release workflow.
+
+### Fixed
+
+- Corrected historic unread-chat handling in the inbox.
+- Fixed the Better Auth JWKS schema migration.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.18.1] - 2026-08-18
 
 ### Added
