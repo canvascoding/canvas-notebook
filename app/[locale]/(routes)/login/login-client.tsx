@@ -74,10 +74,10 @@ function LoginForm() {
     if (!session || isOAuthContinuation || resuming) return;
 
     let cancelled = false;
-    setResuming(true);
 
     void resolvePreferredLocale(locale).then((preferredLocale) => {
       if (!cancelled) {
+        setResuming(true);
         // Let the server make the final decision about onboarding and the
         // destination. Replacing the page keeps an old login screen from
         // briefly reappearing when a mobile browser resumes from background.
@@ -88,7 +88,7 @@ function LoginForm() {
     return () => {
       cancelled = true;
     };
-  }, [isOAuthContinuation, locale, resuming, searchParams, session]);
+  }, [isOAuthContinuation, locale, searchParams, session]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();

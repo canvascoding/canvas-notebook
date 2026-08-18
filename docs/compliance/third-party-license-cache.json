@@ -1,6 +1,6 @@
 {
   "schemaVersion": 6,
-  "lockfileSha256": "fadaac7c7b2c6a8fef519c369df987a8fe8a2bac65002e87a11bbfd516c741b6",
+  "lockfileSha256": "f80d7199b578ce12d10f60844fc38c20487e0aa6fbc8f39a7aa3ef15c90fbdd2",
   "entries": {
     "node_modules/@aws-sdk/credential-provider-http@3.972.70": {
       "packagePath": "node_modules/@aws-sdk/credential-provider-http",
@@ -5479,22 +5479,6 @@
       ],
       "packageResolved": "https://registry.npmjs.org/language-tags/-/language-tags-1.0.9.tgz",
       "packageIntegrity": "sha512-MbjN408fEndfiQXbFQ1vnd+1NoLDsnQW41410oQBXiyXDMYH5z505juWa4KUE1LqxRC7DgOgZDbKLxHIwm27hA==",
-      "lookupCompleted": true
-    },
-    "node_modules/lazy-val@1.0.5": {
-      "packagePath": "node_modules/lazy-val",
-      "name": "lazy-val",
-      "version": "1.0.5",
-      "sourceUrl": "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
-      "sourceRevision": "b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
-      "verificationSource": null,
-      "verificationNote": null,
-      "licenseFileName": null,
-      "licenseText": null,
-      "noticeTexts": [],
-      "copyrightNotices": [],
-      "packageResolved": "https://registry.npmjs.org/lazy-val/-/lazy-val-1.0.5.tgz",
-      "packageIntegrity": "sha512-0/BnGCCfyUMkBpeDgWihanIAF9JmZhHBgUhEqzvf+adhNGLoP6TaiI5oF8oyb3I45P+PcnrqihSf01M0l0G5+Q==",
       "lookupCompleted": true
     },
     "node_modules/lazystream/node_modules/isarray@1.0.0": {

@@ -1,8 +1,8 @@
 {
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
-  "packageVersion": "2026.8.16.1",
-  "lockfileSha256": "fadaac7c7b2c6a8fef519c369df987a8fe8a2bac65002e87a11bbfd516c741b6",
+  "packageVersion": "2026.8.18.1",
+  "lockfileSha256": "f80d7199b578ce12d10f60844fc38c20487e0aa6fbc8f39a7aa3ef15c90fbdd2",
   "summary": {
     "totalComponents": 2034,
     "npmComponents": 2011,
@@ -33708,7 +33708,7 @@
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "The exact npm release declares MIT, identifies author Vladimir Krivosheev and publishes gitHead b69ad4119f1b19bdab13c61ee2fcc88d46b89071, but the tarball and matching source revision omit the full license text and copyright line. Canvas retains the canonical MIT terms and uses the exact package author with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://registry.npmjs.org/lazy-val/1.0.5 Published source revision: b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+      "reviewNotes": "The exact npm release declares MIT, identifies author Vladimir Krivosheev and publishes gitHead b69ad4119f1b19bdab13c61ee2fcc88d46b89071, but the tarball and matching source revision omit the full license text and copyright line. Canvas retains the canonical MIT terms and uses the exact package author with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://registry.npmjs.org/lazy-val/1.0.5",
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-08-16"
     },

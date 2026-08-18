@@ -11,6 +11,27 @@ This project uses calendar-style release versions, currently `YYYY.M.D.N`.
 
 - Nothing yet.
 
+## [2026.8.18.1] - 2026-08-18
+
+### Added
+
+- Added workspace-scoped mailbox assignment and a unified workspace email tool surface for automations and agents.
+- Added managed system email sending, expanded product documentation sources, and macOS desktop auto-updates.
+
+### Changed
+
+- Improved MCP server settings and activation without restart, workspace appearance restoration, mobile session recovery, notifications, and workspace navigation.
+- Refined email automation policies, draft review transitions, mailbox loading states, browser-tool placement, and HTML workspace previews.
+
+### Fixed
+
+- Hardened email automation tool boundaries and triage conflict handling, retried transient email event failures, and stabilized collaborative CodeMirror state restoration.
+- Fixed notification summaries, file-picker labels, graph document names, provider verification handling, and nested email-preview scrolling.
+
+### Verification
+
+- `npm run verify:release`
+
 ## [2026.8.16.1] - 2026-08-16
 
 ### Added
