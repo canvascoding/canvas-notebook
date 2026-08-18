@@ -305,10 +305,9 @@ async function main() {
   assert.equal(JSON.stringify(await unexpectedBody.json()).includes(ORGANIZATION_SECRET), false);
   assert.equal(probeCalls.length, 0);
 
-  const verifiedResponse = await verifyRoute.POST(
-    new NextRequest(routeUrl, { method: 'POST' }),
-    routeContext,
-  );
+  const emptyBodyRequest = new NextRequest(routeUrl, { method: 'POST', body: '' });
+  assert.notEqual(emptyBodyRequest.body, null);
+  const verifiedResponse = await verifyRoute.POST(emptyBodyRequest, routeContext);
   assert.equal(verifiedResponse.status, 200);
   const verifiedPayload = await verifiedResponse.json();
   assert.equal(verifiedPayload.success, true);

@@ -14,6 +14,7 @@ import {
   isOrganizationAdminLike,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
+import { hasRequestPayload } from '@/app/lib/api/request-body';
 import { markInstanceProviderVerified } from '@/app/lib/server-settings';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
@@ -53,7 +54,7 @@ export async function POST(request: NextRequest) {
   });
   if (!limited.ok) return limited.response;
 
-  if (request.body !== null) {
+  if (await hasRequestPayload(request)) {
     await recordAuditEvent({
       organizationId: organizationState.organizationId,
       userId: session.user.id,

@@ -12,6 +12,7 @@ import {
   isOrganizationAdminLike,
   readOrganizationPermissionForUser,
 } from '@/app/lib/organization/permissions';
+import { hasRequestPayload } from '@/app/lib/api/request-body';
 import { rateLimit } from '@/app/lib/utils/rate-limit';
 
 const INSTALLATION_ID_PATTERN = /^aip_[a-f0-9]{24}$/u;
@@ -103,7 +104,7 @@ export async function POST(
   const installationId = rawInstallationId.trim();
   // Verification credentials are resolved only from the installation's
   // server-side scope. This endpoint intentionally accepts no request body.
-  if (request.body !== null) {
+  if (await hasRequestPayload(request)) {
     await recordVerificationAudit({
       organizationId: admin.organizationId,
       actorUserId: admin.session.user.id,
