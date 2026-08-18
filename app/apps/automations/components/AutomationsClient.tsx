@@ -80,7 +80,6 @@ import { cn } from '@/lib/utils';
 type ScheduleKind = 'once' | 'daily' | 'weekly' | 'monthly' | 'interval';
 type ComposerMode = 'scheduled' | 'trigger';
 type TriggerSource = 'custom' | 'composio';
-type EmailAutomationOutboundMode = 'draft_only' | 'human_review';
 
 type JobDraft = {
   id: string | null;
@@ -111,7 +110,6 @@ type JobDraft = {
   resultPolicy: AutomationResultPolicy;
   triggerKind: 'schedule' | 'event';
   emailMailboxId: string;
-  emailOutboundMode: EmailAutomationOutboundMode;
 };
 
 type PersistedAutomationSessionMessage = {
@@ -133,7 +131,6 @@ type AutomationTemplate = {
   resultPolicy?: AutomationResultPolicy;
   triggerKind?: 'schedule' | 'event';
   agentId?: string;
-  emailOutboundMode?: EmailAutomationOutboundMode;
 };
 
 type SkillOption = CanvasSkillIconSource & {
@@ -384,7 +381,6 @@ function defaultDraft(defaultTimeZone?: string, workspaceId = ''): JobDraft {
     resultPolicy: 'deliver_all',
     triggerKind: 'schedule',
     emailMailboxId: '',
-    emailOutboundMode: 'human_review',
   };
 }
 
@@ -438,7 +434,6 @@ function getAutomationTemplates(locale: string): AutomationTemplate[] {
           triggerKind: 'event',
           resultPolicy: 'record_only',
           agentId: 'email-agent',
-          emailOutboundMode: 'human_review',
         },
         {
           id: 'regular-workspace-check',
@@ -492,7 +487,6 @@ function getAutomationTemplates(locale: string): AutomationTemplate[] {
           triggerKind: 'event',
           resultPolicy: 'record_only',
           agentId: 'email-agent',
-          emailOutboundMode: 'human_review',
         },
         {
           id: 'regular-workspace-check',
@@ -755,7 +749,7 @@ function buildPayload(
     resultPolicy: draft.resultPolicy,
     triggerKind: draft.triggerKind,
     eventConfig: draft.triggerKind === 'event'
-      ? { eventType: 'email_inbox_event', mailboxId: draft.emailMailboxId, outboundMode: draft.emailOutboundMode }
+      ? { eventType: 'email_inbox_event', mailboxId: draft.emailMailboxId }
       : null,
     schedule,
   };
@@ -900,9 +894,6 @@ function mapJobToDraft(job: AutomationJobRecord): JobDraft {
   draft.resultPolicy = job.resultPolicy;
   draft.triggerKind = job.triggerKind === 'event' ? 'event' : 'schedule';
   draft.emailMailboxId = typeof job.eventConfig?.mailboxId === 'string' ? job.eventConfig.mailboxId : '';
-  draft.emailOutboundMode = job.eventConfig?.outboundMode === 'draft_only'
-    ? job.eventConfig.outboundMode
-    : 'human_review';
   draft.scheduleKind = job.schedule.kind === 'webhook' ? 'interval' : job.schedule.kind;
   draft.timeZone = jobTimeZone;
 
@@ -1800,7 +1791,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
       triggerKind: template.triggerKind || 'schedule',
       emailMailboxId: template.triggerKind === 'event' ? current.emailMailboxId : '',
       agentId: template.agentId || current.agentId,
-      emailOutboundMode: template.emailOutboundMode || current.emailOutboundMode,
     }));
   }
 
@@ -1854,7 +1844,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
           <span className="text-xs leading-5 text-muted-foreground">{t(`trigger.description.${draft.triggerKind}`)}</span>
         </label>
         {draft.triggerKind === 'event' ? (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3">
             <label className="flex min-w-0 flex-col gap-1 text-sm">
               <span className="text-xs text-muted-foreground">{t('trigger.mailbox')}</span>
               <select
@@ -1865,7 +1855,7 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               >
                 <option value="">{t('trigger.selectMailbox')}</option>
                 {workspaceMailboxAccounts.map((account) => (
-                  <option key={account.mailboxId} value={account.mailboxId || ''}>
+                  <option key={account.id} value={account.id}>
                     {account.displayName ? `${account.displayName} · ${account.emailAddress}` : account.emailAddress}
                   </option>
                 ))}
@@ -1873,23 +1863,6 @@ export function AutomationsClient({ initialJobId = null, initialTimeZone }: Auto
               {workspaceMailboxAccounts.length === 0 ? (
                 <span className="text-xs leading-5 text-muted-foreground">{t('trigger.noMailbox')}</span>
               ) : null}
-            </label>
-            <label className="flex min-w-0 flex-col gap-1 text-sm">
-              <span className="text-xs text-muted-foreground">{locale.startsWith('de') ? 'Versandmodus' : 'Outbound mode'}</span>
-              <select
-                className={AUTOMATION_FIELD_CLASS}
-                value={draft.emailOutboundMode}
-                onChange={(event) => setDraft((current) => ({ ...current, emailOutboundMode: event.target.value as EmailAutomationOutboundMode }))}
-                data-testid="automation-email-outbound-mode"
-              >
-                <option value="human_review">{locale.startsWith('de') ? 'Menschliche Freigabe (empfohlen)' : 'Human review (recommended)'}</option>
-                <option value="draft_only">{locale.startsWith('de') ? 'Nur Entwurf' : 'Draft only'}</option>
-              </select>
-              <span className="text-xs leading-5 text-muted-foreground">
-                {draft.emailOutboundMode === 'draft_only'
-                    ? (locale.startsWith('de') ? 'Der Agent speichert nur einen Entwurf in der Outbox.' : 'The agent only saves a draft in the Outbox.')
-                    : (locale.startsWith('de') ? 'Jede E-Mail bleibt in der Outbox, bis ein Mensch sie prüft und versendet.' : 'Every email stays in the Outbox until a person reviews and sends it.')}
-              </span>
             </label>
           </div>
         ) : null}

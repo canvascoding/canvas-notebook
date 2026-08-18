@@ -25,7 +25,6 @@ type BuildAutomationPromptInput = Pick<
     folder: string;
     receivedAt: string;
     hasAttachments: boolean;
-    outboundMode: 'draft_only' | 'human_review';
   } | null;
   workspaceEmailAttention?: {
     openCaseCount: number;
@@ -102,7 +101,7 @@ export function buildAutomationPrompt(input: BuildAutomationPromptInput): string
       `**Folder:** ${input.emailInboxEventContext.folder}`,
       `**Received at:** ${input.emailInboxEventContext.receivedAt}`,
       `**Has attachments:** ${input.emailInboxEventContext.hasAttachments ? 'yes' : 'no'}`,
-      `**Outbound mode:** ${input.emailInboxEventContext.outboundMode}`,
+      '**Reply policy:** Create or update Inbox cases and prepare Outbox drafts only. A person reviews and sends every email in the UI.',
     ].join('\n'));
   }
 

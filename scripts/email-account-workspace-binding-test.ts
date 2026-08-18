@@ -133,7 +133,7 @@ async function main() {
       schedule: { kind: 'daily', times: ['09:00'], timeZone: 'UTC' },
     }, { id: 'owner-user', email: 'owner@example.test', role: 'admin' });
     assert.equal(eventAutomation.triggerKind, 'event');
-    assert.deepEqual(eventAutomation.eventConfig, { eventType: 'email_inbox_event', mailboxId: created.id, outboundMode: 'human_review' });
+    assert.deepEqual(eventAutomation.eventConfig, { eventType: 'email_inbox_event', mailboxId: created.id });
     assert.equal(eventAutomation.nextRunAt, null);
     assert.equal((await listDueAutomationJobs(new Date(Date.now() + 86_400_000))).some((job) => job.id === eventAutomation.id), false);
     const { pollWorkspaceMailboxInboxEvents } = await import('../app/lib/email/inbox-events');
@@ -186,12 +186,12 @@ async function main() {
       queuePendingWorkspaceEmailAutomationRuns,
     } = await import('../app/lib/email/workspace-email-automation-events');
     sqlite.prepare(`UPDATE automation_jobs SET event_config_json = ? WHERE id = ?`).run(
-      JSON.stringify({ eventType: 'email_inbox_event', mailboxId: created.id }),
+      JSON.stringify({ eventType: 'email_inbox_event', mailboxId: created.id, outboundMode: 'draft_only' }),
       eventAutomation.id,
     );
     assert.equal(await migrateWorkspaceEmailAutomationJobs(), 1);
     const migratedEventConfig = sqlite.prepare(`SELECT event_config_json FROM automation_jobs WHERE id = ?`).get(eventAutomation.id) as { event_config_json: string };
-    assert.equal(JSON.parse(migratedEventConfig.event_config_json).outboundMode, 'human_review');
+    assert.deepEqual(JSON.parse(migratedEventConfig.event_config_json), { eventType: 'email_inbox_event', mailboxId: created.id });
     const queued = await queuePendingWorkspaceEmailAutomationRuns();
     assert.deepEqual(queued, { checked: 1, queued: 1, deferred: 0, ignored: 0, failed: 0 });
     const queuedEvent = sqlite.prepare(`SELECT status FROM email_inbox_events WHERE provider_message_id = 'new-message'`).get() as { status: string };
@@ -211,7 +211,6 @@ async function main() {
       providerThreadId: eventContext.providerThreadId,
       folder: eventContext.folder,
       hasAttachments: eventContext.hasAttachments,
-      outboundMode: eventContext.outboundMode,
     }, {
       eventId: eventContext?.eventId,
       mailboxId: activeMailbox?.id,
@@ -219,7 +218,6 @@ async function main() {
       providerThreadId: 'thread-1',
       folder: 'INBOX',
       hasAttachments: false,
-      outboundMode: 'human_review',
     });
     assert.match(eventContext?.sessionId || '', /^automation-email:/);
     await markWorkspaceEmailAutomationEventRunFinished({ run: queuedRun, status: 'success' });

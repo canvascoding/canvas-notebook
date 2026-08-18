@@ -441,7 +441,7 @@ function parseOptionalJsonObject(value: string | null | undefined): Record<strin
   }
 }
 
-function normalizeEmailInboxEventConfig(value: unknown): Record<string, string> {
+function normalizeEmailInboxEventConfig(value: unknown): { eventType: 'email_inbox_event'; mailboxId: string } {
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
     throw new Error('Email inbox event configuration is required.');
   }
@@ -451,11 +451,7 @@ function normalizeEmailInboxEventConfig(value: unknown): Record<string, string> 
   if (eventType !== 'email_inbox_event' || !mailboxId) {
     throw new Error('Email inbox event configuration requires a mailbox.');
   }
-  const outboundMode = typeof config.outboundMode === 'string' ? config.outboundMode.trim() : 'human_review';
-  if (!['draft_only', 'human_review'].includes(outboundMode)) {
-    throw new Error('Email inbox automation outbound mode must be draft_only or human_review.');
-  }
-  return { eventType, mailboxId, outboundMode };
+  return { eventType: 'email_inbox_event', mailboxId };
 }
 
 function applyDefaultScheduleTimeZone(input: unknown, timeZone: string): unknown {

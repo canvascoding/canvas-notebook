@@ -19,11 +19,8 @@ export type WorkspaceEmailAutomationEventContext = {
   folder: string;
   receivedAt: string;
   hasAttachments: boolean;
-  outboundMode: WorkspaceEmailAutomationOutboundMode;
   sessionId: string;
 };
-
-export type WorkspaceEmailAutomationOutboundMode = 'draft_only' | 'human_review';
 
 export type WorkspaceEmailAutomationQueueResult = {
   checked: number;
@@ -34,9 +31,8 @@ export type WorkspaceEmailAutomationQueueResult = {
 };
 
 /**
- * Safely upgrades event jobs created before outboundMode was introduced. The
- * runtime also defaults to human_review, but persisting that default makes the
- * approval policy explicit for people reviewing an existing automation.
+ * Removes the retired outboundMode field. Email event automations always
+ * prepare drafts for human review; no configuration can enable auto-send.
  */
 export async function migrateWorkspaceEmailAutomationJobs(): Promise<number> {
   const jobs = await db.select({ id: automationJobs.id, eventConfigJson: automationJobs.eventConfigJson })
@@ -48,10 +44,10 @@ export async function migrateWorkspaceEmailAutomationJobs(): Promise<number> {
     if (!job.eventConfigJson) continue;
     try {
       const config = JSON.parse(job.eventConfigJson) as Record<string, unknown>;
-      if (config.eventType !== 'email_inbox_event' || workspaceEmailAutomationOutboundMode(config) !== 'human_review'
-        || config.outboundMode === 'human_review') continue;
+      if (config.eventType !== 'email_inbox_event' || !Object.hasOwn(config, 'outboundMode')) continue;
+      const { outboundMode: _retiredOutboundMode, ...normalized } = config;
       await db.update(automationJobs).set({
-        eventConfigJson: JSON.stringify({ ...config, outboundMode: 'human_review' }),
+        eventConfigJson: JSON.stringify(normalized),
         updatedAt: new Date(),
       }).where(eq(automationJobs.id, job.id));
       migrated += 1;
@@ -83,13 +79,6 @@ function emailEventMetadata(value: string | null): { folder: string; hasAttachme
   } catch {
     return { folder: 'INBOX', hasAttachments: false };
   }
-}
-
-export function workspaceEmailAutomationOutboundMode(eventConfig: Record<string, unknown> | null | undefined): WorkspaceEmailAutomationOutboundMode {
-  const mode = eventConfig?.outboundMode;
-  return mode === 'draft_only' || mode === 'human_review'
-    ? mode
-    : 'human_review';
 }
 
 function emailThreadSessionId(input: { jobId: string; mailboxId: string; providerThreadId: string | null; providerMessageId: string }): string {
@@ -233,7 +222,6 @@ export async function getWorkspaceEmailAutomationEventContext(input: {
     folder: metadata.folder,
     receivedAt: event.receivedAt.toISOString(),
     hasAttachments: metadata.hasAttachments,
-    outboundMode: workspaceEmailAutomationOutboundMode(input.job.eventConfig),
     sessionId: emailThreadSessionId({
       jobId: input.job.id,
       mailboxId: event.mailboxId,
