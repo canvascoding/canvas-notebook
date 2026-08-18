@@ -941,6 +941,21 @@ try {
   );
   archivedDoc.destroy();
 
+  // A restored active file may request its collaboration state before the
+  // asynchronous restore path has reactivated Postgres. Reuse the archived
+  // state in that narrow case rather than preventing the editor from opening.
+  const reactivated = await ensureCollaborationState({
+    documentId: archivedDocumentId,
+    workspaceId,
+    organizationId: workspace.organizationId || null,
+    path: beforeArchive.path,
+    representation: 'plain_text',
+    initialContent: 'Archived content',
+  });
+  assert.equal(reactivated.status, 'active');
+  assert.equal(reactivated.lifecycleGeneration, beforeArchive.lifecycleGeneration + 2);
+  assert.equal(await persistedText(archivedDocumentId), 'Archived content');
+
   state = await loadCollaborationState(documentId);
   const staleReview = await applyPersistedAgentTextOperation({
     documentId,

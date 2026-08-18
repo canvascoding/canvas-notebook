@@ -181,7 +181,19 @@ export async function ensureCollaborationState(input: {
         ON CONFLICT(document_id) DO UPDATE SET
           path = excluded.path,
           workspace_id = excluded.workspace_id,
-          organization_id = excluded.organization_id
+          organization_id = excluded.organization_id,
+          status = CASE
+            WHEN collaboration_yjs_states.status = 'archived' THEN 'active'
+            ELSE collaboration_yjs_states.status
+          END,
+          lifecycle_generation = CASE
+            WHEN collaboration_yjs_states.status = 'archived' THEN collaboration_yjs_states.lifecycle_generation + 1
+            ELSE collaboration_yjs_states.lifecycle_generation
+          END,
+          degraded = CASE
+            WHEN collaboration_yjs_states.status = 'archived' THEN 0
+            ELSE collaboration_yjs_states.degraded
+          END
         RETURNING *
       `,
       [
