@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import CodeMirror from '@uiw/react-codemirror';
 import { javascript } from '@codemirror/lang-javascript';
 import { python } from '@codemirror/lang-python';
@@ -316,6 +316,20 @@ export function CodeEditor({
   const performanceProfile = useMemo(() => getTextEditorPerformanceProfile(value), [value]);
   const [editorView, setEditorView] = useState<EditorView | null>(null);
   const [documentPreview, setDocumentPreview] = useState<WorkspaceDocumentReference | null>(null);
+  const onChangeRef = useRef(onChange);
+
+  // `@uiw/react-codemirror` reconfigures its extensions whenever its onChange
+  // prop changes. Source-mode Markdown recreates that callback as its draft is
+  // updated, which can tear down yCollab while Yjs is applying an update.
+  // Keep the callback supplied to CodeMirror stable for the lifetime of this
+  // editor and forward to the latest parent handler instead.
+  useEffect(() => {
+    onChangeRef.current = onChange;
+  }, [onChange]);
+
+  const handleChange = useCallback((nextValue: string) => {
+    onChangeRef.current(nextValue);
+  }, []);
 
   const extensions = useMemo(() => {
     const nextExtensions: CodeMirrorExtension[] = [];
@@ -410,7 +424,7 @@ export function CodeEditor({
         height="100%"
         theme={resolvedTheme === 'light' ? 'light' : 'dark'}
         extensions={extensions}
-        onChange={onChange}
+        onChange={handleChange}
         onCreateEditor={(view) => setEditorView(view)}
         editable={!effectiveReadOnly}
         basicSetup={performanceProfile.disableLanguageExtension ? LIGHTWEIGHT_CODE_MIRROR_BASIC_SETUP : CODE_MIRROR_BASIC_SETUP}
