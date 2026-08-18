@@ -13,7 +13,6 @@ import {
 } from '@/components/ui/dialog';
 import { toast } from 'sonner';
 import { toHtmlPreviewUrl } from '@/app/lib/utils/media-url';
-import { HtmlPreviewBlocked, HtmlPreviewConsent } from '@/app/components/editor/HtmlPreviewConsent';
 import { WORKSPACE_ID_HEADER } from '@/app/lib/workspaces/constants';
 import { useWorkspaceStore } from '@/app/store/workspace-store';
 
@@ -70,8 +69,6 @@ export function ShareMarkdownDialog({
   const [browserExportsAvailable, setBrowserExportsAvailable] = useState<boolean | null>(null);
   const [htmlContent, setHtmlContent] = useState<string>('');
   const [error, setError] = useState<string>('');
-  const [htmlPreviewAllowed, setHtmlPreviewAllowed] = useState(false);
-  const [htmlPreviewDeclined, setHtmlPreviewDeclined] = useState(false);
   const iframeRef = useRef<HTMLIFrameElement>(null);
 
   const internalHeaders = useCallback((contentType?: string): HeadersInit | undefined => {
@@ -163,15 +160,11 @@ export function ShareMarkdownDialog({
       // eslint-disable-next-line react-hooks/set-state-in-effect
       loadHtmlExport();
       void loadBrowserExportAvailability();
-      setHtmlPreviewAllowed(kind !== 'html');
-      setHtmlPreviewDeclined(false);
     } else {
       setHtmlContent('');
       setError('');
       setBrowserExportsAvailable(null);
       setBrowserStatusLoading(false);
-      setHtmlPreviewAllowed(false);
-      setHtmlPreviewDeclined(false);
     }
   }, [open, filePath, kind, loadBrowserExportAvailability, loadHtmlExport]);
 
@@ -256,31 +249,13 @@ export function ShareMarkdownDialog({
           ) : (
             <div className="border rounded-md sm:rounded-lg overflow-hidden bg-white h-full">
               {kind === 'html' ? (
-                htmlPreviewAllowed ? (
-                  <iframe
-                    ref={iframeRef}
-                    src={internalUrl(toHtmlPreviewUrl(filePath))}
-                    className="w-full h-full"
-                    sandbox="allow-scripts allow-same-origin"
-                    title={t('previewTitle', { fileName })}
-                  />
-                ) : (
-                  <>
-                    <HtmlPreviewBlocked
-                      fileName={fileName}
-                      onOpen={() => {
-                        setHtmlPreviewDeclined(false);
-                        setHtmlPreviewAllowed(true);
-                      }}
-                    />
-                    <HtmlPreviewConsent
-                      open={!htmlPreviewDeclined}
-                      fileName={fileName}
-                      onAccept={() => setHtmlPreviewAllowed(true)}
-                      onDecline={() => setHtmlPreviewDeclined(true)}
-                    />
-                  </>
-                )
+                <iframe
+                  ref={iframeRef}
+                  src={internalUrl(toHtmlPreviewUrl(filePath))}
+                  className="w-full h-full"
+                  sandbox="allow-scripts allow-same-origin"
+                  title={t('previewTitle', { fileName })}
+                />
               ) : htmlContent ? (
                 <iframe
                   ref={iframeRef}

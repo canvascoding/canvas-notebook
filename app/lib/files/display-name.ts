@@ -6,9 +6,9 @@ type FileDisplayNode = {
 export function getFileDisplayName(node: FileDisplayNode): string {
   if (node.type !== 'file') return node.name;
 
-  const markdownExtensions = ['.markdown', '.mdx', '.md'];
+  const hiddenExtensions = ['.markdown', '.mdx', '.html', '.htm', '.md'];
   const lowerName = node.name.toLowerCase();
-  const extension = markdownExtensions.find((item) => (
+  const extension = hiddenExtensions.find((item) => (
     node.name.length > item.length && lowerName.endsWith(item)
   ));
 

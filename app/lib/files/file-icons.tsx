@@ -13,6 +13,7 @@ import {
   PenTool,
   Presentation,
   Notebook,
+  Globe2,
 } from 'lucide-react';
 import { getAppOutputFolderKind } from '../filesystem/app-output-folders';
 import { hasMarpFileName } from '../marp/detect';
@@ -83,9 +84,13 @@ export function getFileIconComponent({
     return <PenTool className={`${className} text-chart-5`} />;
   }
 
+  if (['html', 'htm'].includes(ext)) {
+    return <Globe2 className={`${className} text-chart-2`} />;
+  }
+
   // Code & Scripts
   if (
-    ['js', 'jsx', 'ts', 'tsx', 'html', 'css', 'scss', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'php', 'sh', 'bash', 'zsh', 'yml', 'yaml', 'toml'].includes(ext)
+    ['js', 'jsx', 'ts', 'tsx', 'css', 'scss', 'py', 'rb', 'go', 'rs', 'java', 'kt', 'php', 'sh', 'bash', 'zsh', 'yml', 'yaml', 'toml'].includes(ext)
   ) {
     return <FileCode className={`${className} text-chart-2`} />;
   }
