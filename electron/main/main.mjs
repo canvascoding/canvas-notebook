@@ -1,4 +1,5 @@
 import { app, BrowserWindow, dialog, ipcMain, shell } from 'electron';
+import { autoUpdater } from 'electron-updater';
 import path from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 import {
@@ -12,6 +13,7 @@ import { checkServerHealth } from './health-check.mjs';
 import { classifyServerLoadFailure } from './connection-errors.mjs';
 import { createAppMenu } from './menu.mjs';
 import { showChatNotification } from './notifications.mjs';
+import { createDesktopUpdater } from './updater.mjs';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const ICON_PATH = path.join(__dirname, '../assets/icon.png');
@@ -22,6 +24,12 @@ const SETUP_FILE_URL = pathToFileURL(SETUP_FILE_PATH).href;
 let mainWindow = null;
 let loadingSetup = false;
 const configuredServerLoads = new WeakMap();
+const desktopUpdater = createDesktopUpdater({
+  app,
+  autoUpdater,
+  dialog,
+  getParentWindow: getMainWindow,
+});
 
 app.setName('Canvas Notebook');
 app.setAppUserModelId?.('io.canvasstudios.notebook');
@@ -364,9 +372,13 @@ app.whenReady().then(() => {
     resetServerUrl: resetServerUrlFromMenu,
     getNotificationsEnabled: () => readDesktopConfig(app).notifications.enabled,
     setNotificationsEnabled: setNativeNotificationsEnabled,
+    checkForUpdates: () => desktopUpdater.checkForUpdates(),
   });
 
   createMainWindow();
+  if (desktopUpdater.configure()) {
+    desktopUpdater.scheduleInitialCheck();
+  }
 
   app.on('activate', () => {
     if (BrowserWindow.getAllWindows().length === 0) {

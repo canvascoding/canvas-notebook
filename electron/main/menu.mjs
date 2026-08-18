@@ -24,6 +24,7 @@ export function createAppMenu(options) {
     resetServerUrl,
     getNotificationsEnabled,
     setNotificationsEnabled,
+    checkForUpdates,
   } = options;
 
   const isMac = process.platform === 'darwin';
@@ -34,6 +35,12 @@ export function createAppMenu(options) {
             label: app.getName(),
             submenu: [
               { role: 'about' },
+              {
+                label: 'Check for Updates…',
+                click: () => {
+                  void checkForUpdates?.();
+                },
+              },
               { type: 'separator' },
               { role: 'services' },
               { type: 'separator' },
@@ -71,6 +78,12 @@ export function createAppMenu(options) {
         {
           label: 'Reset Server URL',
           click: resetServerUrl,
+        },
+        {
+          label: 'Check for Updates…',
+          click: () => {
+            void checkForUpdates?.();
+          },
         },
         { type: 'separator' },
         {

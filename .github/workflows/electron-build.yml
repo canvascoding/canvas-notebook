@@ -1,6 +1,9 @@
 name: Electron Desktop Build
 
 on:
+  push:
+    tags:
+      - "v*"
   workflow_dispatch:
 
 permissions:
@@ -22,10 +25,6 @@ jobs:
         include:
           - platform: macos
             os: macos-15
-          - platform: windows
-            os: windows-latest
-          - platform: linux
-            os: ubuntu-latest
 
     steps:
       - name: Checkout
@@ -110,21 +109,10 @@ jobs:
 
           echo "macOS signing credentials are configured."
 
-      - name: Install Linux packaging dependencies
-        if: matrix.platform == 'linux'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y libarchive-tools rpm
-
       - name: Install dependencies
         run: npm ci
 
-      - name: Build production web application
-        if: matrix.platform == 'linux'
-        run: npm run build
-
       - name: Verify release compliance
-        if: matrix.platform == 'linux'
         run: npm run test:licenses:release
 
       - name: Build Electron desktop artifacts
@@ -155,33 +143,38 @@ jobs:
           if-no-files-found: error
           retention-days: 30
           path: |
-            dist-electron/*.AppImage
             dist-electron/*.blockmap
-            dist-electron/*.deb
             dist-electron/*.dmg
-            dist-electron/*.exe
-            dist-electron/*.msi
-            dist-electron/*.rpm
             dist-electron/*.zip
-            dist-electron/latest*.yml
+            dist-electron/latest-mac.yml
 
-      - name: Upload desktop artifacts to release
-        if: startsWith(github.ref, 'refs/tags/v')
+  release:
+    name: Publish desktop release
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: desktop
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download desktop artifacts
+        uses: actions/download-artifact@v8
+        with:
+          pattern: canvas-notebook-desktop-*
+          path: release-artifacts
+          merge-multiple: true
+
+      - name: Publish complete desktop release
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          set -euo pipefail
           shopt -s nullglob
           files=(
-            dist-electron/*.AppImage
-            dist-electron/*.blockmap
-            dist-electron/*.deb
-            dist-electron/*.dmg
-            dist-electron/*.exe
-            dist-electron/*.msi
-            dist-electron/*.rpm
-            dist-electron/*.zip
-            dist-electron/latest*.yml
+            release-artifacts/*.blockmap
+            release-artifacts/*.dmg
+            release-artifacts/*.zip
+            release-artifacts/latest-mac.yml
           )
 
           if (( ${#files[@]} == 0 )); then
@@ -191,7 +184,6 @@ jobs:
 
           if ! gh release view "$GITHUB_REF_NAME" >/dev/null 2>&1; then
             gh release create "$GITHUB_REF_NAME" \
-              --draft \
               --title "$GITHUB_REF_NAME" \
               --notes "Desktop artifacts for $GITHUB_REF_NAME."
           fi

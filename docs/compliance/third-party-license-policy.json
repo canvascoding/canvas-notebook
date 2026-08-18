@@ -359,6 +359,19 @@
       "reviewedBy": "Frank Alexander Weber",
       "reviewedAt": "2026-07-17"
     },
+    "lazy-val@1.0.5": {
+      "verifiedLicense": "MIT",
+      "licenseTextPath": "docs/compliance/license-texts/MIT.txt",
+      "sourceUrl": "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+      "verificationSource": "https://registry.npmjs.org/lazy-val/1.0.5",
+      "reason": "The exact npm release declares MIT, identifies author Vladimir Krivosheev and publishes gitHead b69ad4119f1b19bdab13c61ee2fcc88d46b89071, but the tarball and matching source revision omit the full license text and copyright line. Canvas retains the canonical MIT terms and uses the exact package author with a contributors qualifier as the best available attribution. Any version change requires a new review.",
+      "copyrightNotices": [
+        "Copyright (c) Vladimir Krivosheev and contributors"
+      ],
+      "policyDecision": "allowed",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-08-16"
+    },
     "minimist@1.2.8": {
       "verifiedLicense": "MIT",
       "licenseTextPath": "node_modules/minimist/LICENSE",

@@ -4,8 +4,8 @@ This file is generated from `package-lock.json`, installed package license files
 versioned overrides, and the bundled non-npm component inventory.
 
 - Canvas Notebook version: 2026.8.16.1
-- Lockfile SHA-256: `55a7fe0d8efb8529242d0fac5bcb6e5184c255a691d2f74b9eadd415b9a2338a`
-- Distributed components: 1498
+- Lockfile SHA-256: `988eb2da52c9e02e8d4ab7855b8d7ecc4142faf0b9b34a72754e16e6c1379e0e`
+- Distributed components: 1508
 - Release gate: **approved**
 
 Canvas Notebook itself is licensed separately under the root `LICENSE` file.
@@ -89,15 +89,15 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | @babel/template | 7.29.7 | runtime | MIT | allowed |
 | @babel/traverse | 7.29.7 | runtime | MIT | allowed |
 | @babel/types | 7.29.7 | runtime | MIT | allowed |
-| @better-auth/core | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/drizzle-adapter | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/expo | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/kysely-adapter | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/memory-adapter | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/mongo-adapter | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/oauth-provider | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/prisma-adapter | 1.6.23 | runtime | MIT | allowed |
-| @better-auth/telemetry | 1.6.23 | runtime | MIT | allowed |
+| @better-auth/core | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/drizzle-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/expo | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/kysely-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/memory-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/mongo-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/oauth-provider | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/prisma-adapter | 1.7.0-rc.6 | runtime | MIT | allowed |
+| @better-auth/telemetry | 1.7.0-rc.6 | runtime | MIT | allowed |
 | @better-auth/utils | 0.4.2 | runtime | MIT | allowed |
 | @better-fetch/fetch | 1.3.1 | runtime | MIT | allowed |
 | @borewit/text-codec | 0.2.2 | runtime | MIT | allowed |
@@ -668,8 +668,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | basic-ftp | 5.3.1 | runtime | MIT | allowed |
 | batch | 0.6.1 | runtime | MIT | allowed |
 | bcryptjs | 3.0.3 | runtime | BSD-3-Clause | allowed |
-| better-auth | 1.6.23 | runtime | MIT | allowed |
-| better-call | 1.3.7 | runtime | MIT | allowed |
+| better-auth | 1.7.0-rc.6 | runtime | MIT | allowed |
+| better-call | 1.4.0 | runtime | MIT | allowed |
 | better-sqlite3 | 12.11.1 | runtime | MIT | allowed |
 | bidi-js | 1.0.3 | runtime | MIT | allowed |
 | bignumber.js | 9.3.1 | runtime | MIT | allowed |
@@ -689,6 +689,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | buffer-from | 1.1.2 | runtime | MIT | allowed |
 | buffer | 5.7.1 | runtime | MIT | allowed |
 | buffer | 6.0.3 | runtime | MIT | allowed |
+| builder-util-runtime | 9.7.0 | runtime | MIT | allowed |
 | bytes | 3.1.2 | runtime | MIT | allowed |
 | call-bind-apply-helpers | 1.0.2 | runtime | MIT | allowed |
 | call-bound | 1.0.4 | runtime | MIT | allowed |
@@ -833,6 +834,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | ecdsa-sig-formatter | 1.0.11 | runtime | Apache-2.0 | allowed |
 | ee-first | 1.1.1 | runtime | MIT | allowed |
 | electron-to-chromium | 1.5.389 | runtime | ISC | allowed |
+| electron-updater | 6.8.9 | runtime | MIT | allowed |
 | emoji-regex | 10.6.0 | runtime | MIT | allowed |
 | emoji-regex | 8.0.0 | runtime | MIT | allowed |
 | encodeurl | 2.0.0 | runtime | MIT | allowed |
@@ -899,6 +901,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | fractional-indexing | 3.2.0 | runtime | CC0-1.0 | allowed |
 | fresh | 2.0.0 | runtime | MIT | allowed |
 | fs-constants | 1.0.0 | runtime | MIT | allowed |
+| fs-extra | 10.1.0 | runtime | MIT | allowed |
 | fsevents | 2.3.2 | runtime | MIT | allowed |
 | fsevents | 2.3.3 | runtime | MIT | allowed |
 | function-bind | 1.1.2 | runtime | MIT | allowed |
@@ -1017,6 +1020,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | json-schema-traverse | 1.0.0 | runtime | MIT | allowed |
 | json-schema-typed | 8.0.2 | runtime | BSD-2-Clause | allowed |
 | json5 | 2.2.3 | runtime | MIT | allowed |
+| jsonfile | 6.2.1 | runtime | MIT | allowed |
 | jspreadsheet-ce | 5.0.4 | runtime | MIT | allowed |
 | jsuites | 5.13.5 | runtime | MIT | allowed |
 | jsuites | 6.4.2 | runtime | MIT | allowed |
@@ -1033,6 +1037,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | langium | 3.3.1 | runtime | MIT | allowed |
 | layout-base | 1.0.2 | runtime | MIT | allowed |
 | layout-base | 2.0.1 | runtime | MIT | allowed |
+| lazy-val | 1.0.5 | runtime | MIT | allowed |
 | lazystream | 1.0.1 | runtime | MIT | allowed |
 | leac | 0.7.0 | runtime | MIT | allowed |
 | lemonadejs | 5.3.6 | runtime | MIT | allowed |
@@ -1047,6 +1052,8 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | locate-path | 6.0.0 | runtime | MIT | allowed |
 | lodash-es | 4.18.1 | runtime | MIT | allowed |
 | lodash.debounce | 4.0.8 | runtime | MIT | allowed |
+| lodash.escaperegexp | 4.1.2 | runtime | MIT | allowed |
+| lodash.isequal | 4.5.0 | runtime | MIT | allowed |
 | lodash.kebabcase | 4.1.1 | runtime | MIT | allowed |
 | lodash.throttle | 4.1.1 | runtime | MIT | allowed |
 | long | 5.3.2 | runtime | Apache-2.0 | allowed |
@@ -1321,7 +1328,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | robust-predicates | 3.0.3 | runtime | Unlicense | allowed |
 | rollup | 4.62.2 | runtime | MIT | allowed |
 | rope-sequence | 1.3.4 | runtime | MIT | allowed |
-| rou3 | 0.7.12 | runtime | MIT | allowed |
+| rou3 | 0.9.2 | runtime | MIT | allowed |
 | roughjs | 4.6.4 | runtime | MIT | allowed |
 | roughjs | 4.6.6 | runtime | MIT | allowed |
 | router | 2.2.0 | runtime | MIT | allowed |
@@ -1339,6 +1346,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | semifies | 1.0.0 | runtime | Apache-2.0 | allowed |
 | semver | 6.3.1 | runtime | ISC | allowed |
 | semver | 6.3.1 | runtime | ISC | allowed |
+| semver | 7.7.4 | runtime | ISC | allowed |
 | semver | 7.8.5 | runtime | ISC | allowed |
 | send | 1.2.1 | runtime | MIT | allowed |
 | serve-index | 1.9.2 | runtime | MIT | allowed |
@@ -1403,6 +1411,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | text-decoder | 1.2.7 | runtime | Apache-2.0 | allowed |
 | thread-stream | 4.2.0 | runtime | MIT | allowed |
 | tiny-invariant | 1.3.3 | runtime | MIT | allowed |
+| tiny-typed-emitter | 2.1.0 | runtime | MIT | allowed |
 | tinyexec | 1.2.4 | runtime | MIT | allowed |
 | tlds | 1.261.0 | runtime | MIT | allowed |
 | tldts-core | 7.4.8 | runtime | MIT | allowed |
@@ -1445,6 +1454,7 @@ Third-party trademarks and branding are not granted by the software licenses bel
 | unist-util-stringify-position | 4.0.0 | runtime | MIT | allowed |
 | unist-util-visit-parents | 6.0.2 | runtime | MIT | allowed |
 | unist-util-visit | 5.1.0 | runtime | MIT | allowed |
+| universalify | 2.0.1 | runtime | MIT | allowed |
 | unpipe | 1.0.0 | runtime | MIT | allowed |
 | update-browserslist-db | 1.2.3 | runtime | MIT | allowed |
 | use-callback-ref | 1.3.3 | runtime | MIT | allowed |
@@ -3569,10 +3579,6 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 Applies to estraverse@4.3.0, estraverse@5.3.0, esutils@2.0.3.
 
-Copyright notices:
-
-- Copyright (C) 2012-2016 [Yusuke Suzuki](http://github.com/Constellation)
-
 ```text
 Redistribution and use in source and binary forms, with or without
 modification, are permitted provided that the following conditions are met:
@@ -4945,6 +4951,32 @@ Permission is hereby granted, free of charge, to any person obtaining a copy of 
 The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
 
 THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
+### License text 1e76029602ae
+
+Applies to fs-extra@10.1.0.
+
+Copyright notices:
+
+- Copyright (c) 2011-2017 JP Richardson
+
+```text
+(The MIT License)
+
+Copyright (c) 2011-2017 JP Richardson
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files
+(the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify,
+ merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
 ### License text 2034cce3b6fa
@@ -7478,6 +7510,69 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 ```
 
+### License text 3f13dd7700ec
+
+Applies to builder-util-runtime@9.7.0, electron-updater@6.8.9.
+
+Copyright notices:
+
+- Copyright (c) 2015 Loopline Systems
+
+```text
+The MIT License (MIT)
+
+Copyright (c) 2015 Loopline Systems
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
+```
+
+### License text 3fda5977c090
+
+Applies to universalify@2.0.1.
+
+Copyright notices:
+
+- Copyright (c) 2017, Ryan Zimmerman <opensrc@ryanzim.com>
+
+```text
+(The MIT License)
+
+Copyright (c) 2017, Ryan Zimmerman <opensrc@ryanzim.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of
+this software and associated documentation files (the 'Software'), to deal in
+the Software without restriction, including without limitation the rights to
+use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of
+the Software, and to permit persons to whom the Software is furnished to do so,
+subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS
+FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR
+COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER
+IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN
+CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ### License text 40ed7588fd8d
 
 Applies to decimal.js-light@2.5.1.
@@ -8275,7 +8370,7 @@ CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 46231df5a773
 
-Applies to defu@6.1.7, rou3@0.7.12, uncrypto@0.1.3.
+Applies to defu@6.1.7, rou3@0.9.2, uncrypto@0.1.3.
 
 Copyright notices:
 
@@ -8654,6 +8749,38 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
 FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS
 IN THE SOFTWARE.
+```
+
+### License text 4b3faf884ee7
+
+Applies to tiny-typed-emitter@2.1.0.
+
+Copyright notices:
+
+- Copyright (c) 2020 Zurab Benashvili (binier) <zura.bena@gmail.com>
+
+```text
+MIT License
+
+Copyright (c) 2020 Zurab Benashvili (binier) <zura.bena@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 ```
 
 ### License text 4b74d4b7b5ec
@@ -9050,7 +9177,7 @@ PERFORMANCE OF THIS SOFTWARE.
 
 ### License text 4ec3d4c66cd8
 
-Applies to chownr@1.1.4, ini@1.3.8, isexe@2.0.0, lru-cache@5.1.1, once@1.4.0, semver@6.3.1, semver@6.3.1, semver@7.8.5, which@2.0.2, wrappy@1.0.2, yallist@3.1.1.
+Applies to chownr@1.1.4, ini@1.3.8, isexe@2.0.0, lru-cache@5.1.1, once@1.4.0, semver@6.3.1, semver@6.3.1, semver@7.7.4, semver@7.8.5, which@2.0.2, wrappy@1.0.2, yallist@3.1.1.
 
 Copyright notices:
 
@@ -12838,7 +12965,6 @@ Applies to @xtuc/ieee754@1.2.0.
 
 Copyright notices:
 
-- BSD 3 Clause. Copyright (c) 2008, Fair Oaks Labs, Inc.
 - Copyright (c) 2008, Fair Oaks Labs, Inc.
 
 ```text
@@ -13974,7 +14100,7 @@ OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text 7a07f7d9085c
 
-Applies to @better-auth/core@1.6.23, @better-auth/drizzle-adapter@1.6.23, @better-auth/expo@1.6.23, @better-auth/kysely-adapter@1.6.23, @better-auth/memory-adapter@1.6.23, @better-auth/mongo-adapter@1.6.23, @better-auth/oauth-provider@1.6.23, @better-auth/prisma-adapter@1.6.23, @better-auth/telemetry@1.6.23, better-auth@1.6.23.
+Applies to @better-auth/core@1.7.0-rc.6, @better-auth/drizzle-adapter@1.7.0-rc.6, @better-auth/expo@1.7.0-rc.6, @better-auth/kysely-adapter@1.7.0-rc.6, @better-auth/memory-adapter@1.7.0-rc.6, @better-auth/mongo-adapter@1.7.0-rc.6, @better-auth/oauth-provider@1.7.0-rc.6, @better-auth/prisma-adapter@1.7.0-rc.6, @better-auth/telemetry@1.7.0-rc.6, better-auth@1.7.0-rc.6.
 
 Copyright notices:
 
@@ -16760,8 +16886,6 @@ Applies to enhanced-resolve@5.24.5, minimizer-webpack-plugin@5.6.1, schema-utils
 
 Copyright notices:
 
-- > The `extractComments` option is not supported, and all legal comments (i.e. copyright, licenses and etc) will be preserved.
-- Copyright (c) 2012-2019 JS Foundation and other contributors
 - Copyright JS Foundation and other contributors
 
 ```text
@@ -21202,6 +21326,32 @@ TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE
 SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 ```
 
+### License text a9801fb52ba2
+
+Applies to jsonfile@6.2.1.
+
+Copyright notices:
+
+- Copyright (c) 2012-2015, JP Richardson <jprichardson@gmail.com>
+
+```text
+(The MIT License)
+
+Copyright (c) 2012-2015, JP Richardson <jprichardson@gmail.com>
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files
+(the 'Software'), to deal in the Software without restriction, including without limitation the rights to use, copy, modify,
+ merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is
+ furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS
+OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE,
+ ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+```
+
 ### License text aaa78451b6fe
 
 Applies to cross-spawn@7.0.6.
@@ -22410,7 +22560,7 @@ Copyright notices:
 
 ### License text ad800a5024c6
 
-Applies to better-call@1.3.7.
+Applies to better-call@1.4.0.
 
 Copyright notices:
 
@@ -25132,7 +25282,6 @@ Applies to aria-query@5.3.0.
 Copyright notices:
 
 - (c) You must retain, in the Source form of any Derivative Works
-- Copyright (c) 2021 A11yance
 - Copyright 2020 A11yance
 - that You distribute, all copyright, patent, trademark, and
 
@@ -28419,6 +28568,65 @@ TORTIOUS ACTION, ARISING OUT OF OR IN CONNECTION WITH THE USE OR PERFORMANCE OF
 THIS SOFTWARE.
 ```
 
+### License text e159c6d48c98
+
+Applies to lodash.isequal@4.5.0.
+
+Copyright notices:
+
+- Based on Underscore.js, copyright Jeremy Ashkenas,
+- Copyright JS Foundation and other contributors <https://js.foundation/>
+
+```text
+Copyright JS Foundation and other contributors <https://js.foundation/>
+
+Based on Underscore.js, copyright Jeremy Ashkenas,
+DocumentCloud and Investigative Reporters & Editors <http://underscorejs.org/>
+
+This software consists of voluntary contributions made by many
+individuals. For exact contribution history, see the revision history
+available at https://github.com/lodash/lodash
+
+The following license applies to all parts of this software except as
+documented below:
+
+====
+
+Permission is hereby granted, free of charge, to any person obtaining
+a copy of this software and associated documentation files (the
+"Software"), to deal in the Software without restriction, including
+without limitation the rights to use, copy, modify, merge, publish,
+distribute, sublicense, and/or sell copies of the Software, and to
+permit persons to whom the Software is furnished to do so, subject to
+the following conditions:
+
+The above copyright notice and this permission notice shall be
+included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND,
+EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF
+MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND
+NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE
+LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION
+OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION
+WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+
+====
+
+Copyright and related rights for sample code are waived via CC0. Sample
+code is defined as all source code displayed within the prose of the
+documentation.
+
+CC0: http://creativecommons.org/publicdomain/zero/1.0/
+
+====
+
+Files located in the node_modules and vendor directories are externally
+maintained libraries used by this software which have their own
+licenses; we recommend you read them, as their terms may differ from the
+terms above.
+```
+
 ### License text e17120ad3def
 
 Applies to deep-extend@0.6.0.
@@ -30090,7 +30298,7 @@ SOFTWARE.
 
 ### License text f0112ade926a
 
-Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
+Applies to @excalidraw/excalidraw-font-assets@0.18.1 / a2ec2889babf7d2295469c6d90ebe77fae57df84, docker-global-npm:err-code@2.0.3 / 92511d41a6a926c94c9d11493404867b1e92a77a, docker-global-npm:imurmurhash@0.1.4 / 9f40361c7e2835a9b7b8eaa1cbab2a9f94ee22a2, docker-python:markitdown@0.1.6 / e144e0a2be95b34df17433bac904e635f2c5e551, @apm-js-collab/code-transformer-bundler-plugins@0.5.0, @better-auth/utils@0.4.2, @eigenpal/docx-js-editor@0.5.3, @excalidraw/excalidraw@0.18.1, client-only@0.0.1, format@0.2.2, is-reference@1.2.1, jszip@3.10.1, lazy-val@1.0.5, react-remove-scroll-bar@2.3.8, server-only@0.0.1.
 
 Copyright notices:
 
@@ -30106,6 +30314,7 @@ Copyright notices:
 - Copyright (c) Rich Harris and contributors
 - Copyright (c) Sami Samhuri
 - Copyright (c) Sebastian Markbåge and contributors
+- Copyright (c) Vladimir Krivosheev and contributors
 
 ```text
 MIT License
@@ -31085,7 +31294,7 @@ SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
 
 ### License text ffd8b33b3545
 
-Applies to lodash.debounce@4.0.8, lodash.kebabcase@4.1.1, lodash.throttle@4.1.1.
+Applies to lodash.debounce@4.0.8, lodash.escaperegexp@4.1.2, lodash.kebabcase@4.1.1, lodash.throttle@4.1.1.
 
 Copyright notices:
 

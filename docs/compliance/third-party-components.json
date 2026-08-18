@@ -2,14 +2,14 @@
   "schemaVersion": 1,
   "generator": "scripts/generate-third-party-notices.ts",
   "packageVersion": "2026.8.16.1",
-  "lockfileSha256": "55a7fe0d8efb8529242d0fac5bcb6e5184c255a691d2f74b9eadd415b9a2338a",
+  "lockfileSha256": "988eb2da52c9e02e8d4ab7855b8d7ecc4142faf0b9b34a72754e16e6c1379e0e",
   "summary": {
-    "totalComponents": 2028,
-    "npmComponents": 2005,
+    "totalComponents": 2033,
+    "npmComponents": 2010,
     "nonNpmComponents": 23,
-    "runtimeComponents": 1498,
-    "developmentOnlyComponents": 530,
-    "allowed": 1978,
+    "runtimeComponents": 1508,
+    "developmentOnlyComponents": 525,
+    "allowed": 1983,
     "reviewRequired": 50,
     "blocked": 0,
     "distributedReviewRequired": 0,
@@ -4166,25 +4166,6 @@
       "reviewNotes": "License text source: https://registry.npmjs.org/boolean/-/boolean-3.2.0.tgz#LICENSE.txt Published source revision: 919d80f7c987e809270671bbfa99e14da8bdc477"
     },
     {
-      "name": "builder-util-runtime",
-      "versionOrCommit": "9.7.0",
-      "sourceUrl": "https://github.com/electron-userland/electron-builder",
-      "packagePathOrArtifact": "node_modules/builder-util-runtime",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/builder-util-runtime/LICENSE",
-      "licenseTextSha256": "3f13dd7700ec33a0af7df671aa19452b3a3d9034f16621d72544d6a2821624a1",
-      "copyrightNotices": [
-        "Copyright (c) 2015 Loopline Systems"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
       "name": "builder-util",
       "versionOrCommit": "26.15.3",
       "sourceUrl": "https://github.com/electron-userland/electron-builder",
@@ -4929,14 +4910,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/electron-builder-squirrel-windows@26.15.3",
+      "licenseTextRef": "node_modules/electron-builder-squirrel-windows/LICENSE",
       "licenseTextSha256": "3f13dd7700ec33a0af7df671aa19452b3a3d9034f16621d72544d6a2821624a1",
       "copyrightNotices": [
         "Copyright (c) 2015 Loopline Systems"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/electron-builder-squirrel-windows/-/electron-builder-squirrel-windows-26.15.3.tgz#LICENSE"
+      "policyDecision": "allowed"
     },
     {
       "name": "electron-builder",
@@ -4979,7 +4959,7 @@
     {
       "name": "electron-winstaller",
       "versionOrCommit": "5.4.0",
-      "sourceUrl": "https://github.com/electron/windows-installer/tree/a18e3c6df4387973d2773d8bbd493c74b9b79801",
+      "sourceUrl": "https://github.com/electron/windows-installer",
       "packagePathOrArtifact": "node_modules/electron-winstaller",
       "usage": "development-only",
       "distributedIn": [
@@ -4987,14 +4967,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/electron-winstaller@5.4.0",
+      "licenseTextRef": "node_modules/electron-winstaller/LICENSE",
       "licenseTextSha256": "379ecb81d11a2c2a72225e0cf8cd04803b220da64e1668042ddd0d04bd1c8666",
       "copyrightNotices": [
         "Copyright (c) 2015 GitHub Inc."
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/electron-winstaller/-/electron-winstaller-5.4.0.tgz#LICENSE Published source revision: a18e3c6df4387973d2773d8bbd493c74b9b79801"
+      "policyDecision": "allowed"
     },
     {
       "name": "electron",
@@ -5755,25 +5734,6 @@
     },
     {
       "name": "fs-extra",
-      "versionOrCommit": "10.1.0",
-      "sourceUrl": "https://github.com/jprichardson/node-fs-extra",
-      "packagePathOrArtifact": "node_modules/fs-extra",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/fs-extra/LICENSE",
-      "licenseTextSha256": "1e76029602ae9b21cc4e612db2496d92febed882ba13ba745f8b3309e85f9d39",
-      "copyrightNotices": [
-        "Copyright (c) 2011-2017 JP Richardson"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
-    },
-    {
-      "name": "fs-extra",
       "versionOrCommit": "11.3.1",
       "sourceUrl": "https://github.com/jprichardson/node-fs-extra",
       "packagePathOrArtifact": "node_modules/unzipper/node_modules/fs-extra",
@@ -5836,7 +5796,7 @@
     {
       "name": "fs-extra",
       "versionOrCommit": "7.0.1",
-      "sourceUrl": "https://github.com/jprichardson/node-fs-extra/tree/a32c85282185aa008759890cce059594e4348262",
+      "sourceUrl": "https://github.com/jprichardson/node-fs-extra",
       "packagePathOrArtifact": "node_modules/electron-winstaller/node_modules/fs-extra",
       "usage": "development-only",
       "distributedIn": [
@@ -5844,15 +5804,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/electron-winstaller/node_modules/fs-extra@7.0.1",
+      "licenseTextRef": "node_modules/electron-winstaller/node_modules/fs-extra/LICENSE",
       "licenseTextSha256": "1e76029602ae9b21cc4e612db2496d92febed882ba13ba745f8b3309e85f9d39",
       "copyrightNotices": [
-        "Copyright (c) 2011-2017 [JP Richardson](https://github.com/jprichardson)",
         "Copyright (c) 2011-2017 JP Richardson"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from electron-winstaller. License text source: https://registry.npmjs.org/fs-extra/-/fs-extra-7.0.1.tgz#LICENSE Published source revision: a32c85282185aa008759890cce059594e4348262"
+      "reviewNotes": "Inherited development-only classification from electron-winstaller."
     },
     {
       "name": "fs-extra",
@@ -6111,7 +6070,7 @@
     {
       "name": "glob",
       "versionOrCommit": "7.2.3",
-      "sourceUrl": "https://github.com/isaacs/node-glob/tree/c3cd57ae128faa0e9190492acc743bb779ac4054",
+      "sourceUrl": "https://github.com/isaacs/node-glob",
       "packagePathOrArtifact": "node_modules/rimraf/node_modules/glob",
       "usage": "development-only",
       "distributedIn": [
@@ -6119,14 +6078,14 @@
       ],
       "declaredLicense": "ISC",
       "verifiedLicense": "ISC",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/rimraf/node_modules/glob@7.2.3",
+      "licenseTextRef": "node_modules/rimraf/node_modules/glob/LICENSE",
       "licenseTextSha256": "6236fa0b88a4a0cce3dda0367979491b2052b3c8d6b1c10b3668de083e86a7f0",
       "copyrightNotices": [
         "Copyright (c) Isaac Z. Schlueter and Contributors"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from rimraf. License text source: https://registry.npmjs.org/glob/-/glob-7.2.3.tgz#LICENSE Published source revision: c3cd57ae128faa0e9190492acc743bb779ac4054"
+      "reviewNotes": "Inherited development-only classification from rimraf."
     },
     {
       "name": "global-agent",
@@ -7353,34 +7312,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/electron-winstaller/node_modules/jsonfile@4.0.0",
-      "licenseTextSha256": "a9801fb52ba22ef808682a094da8a7a480584b7ed0dfd0d888ab543616335031",
-      "copyrightNotices": [
-        "Copyright (c) 2012-2015, JP Richardson <jprichardson@gmail.com>",
-        "Copyright 2012-2016, JP Richardson  <jprichardson@gmail.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from electron-winstaller. License text source: https://registry.npmjs.org/jsonfile/-/jsonfile-4.0.0.tgz#LICENSE Published source revision: 840bcc77f4e0bfcdf44c32895af42de97e80e3a8"
-    },
-    {
-      "name": "jsonfile",
-      "versionOrCommit": "6.2.1",
-      "sourceUrl": "git@github.com:jprichardson/node-jsonfile",
-      "packagePathOrArtifact": "node_modules/jsonfile",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/jsonfile/LICENSE",
+      "licenseTextRef": "node_modules/electron-winstaller/node_modules/jsonfile/LICENSE",
       "licenseTextSha256": "a9801fb52ba22ef808682a094da8a7a480584b7ed0dfd0d888ab543616335031",
       "copyrightNotices": [
         "Copyright (c) 2012-2015, JP Richardson <jprichardson@gmail.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed"
+      "policyDecision": "allowed",
+      "reviewNotes": "Inherited development-only classification from electron-winstaller."
     },
     {
       "name": "jsonify",
@@ -7495,24 +7434,6 @@
       "modified": false,
       "policyDecision": "allowed",
       "reviewNotes": "Published source revision: ea5aa61e53ced2a18e35783ff00bb2a533f6c77d No verified license text was found in the installed package or a versioned override."
-    },
-    {
-      "name": "lazy-val",
-      "versionOrCommit": "1.0.5",
-      "sourceUrl": "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
-      "packagePathOrArtifact": "node_modules/lazy-val",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": null,
-      "licenseTextSha256": null,
-      "copyrightNotices": [],
-      "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "Published source revision: b69ad4119f1b19bdab13c61ee2fcc88d46b89071 No verified license text was found in the installed package or a versioned override. The MIT copyright notice could not be attributed automatically."
     },
     {
       "name": "levn",
@@ -8033,7 +7954,7 @@
     {
       "name": "mkdirp",
       "versionOrCommit": "0.5.6",
-      "sourceUrl": "https://github.com/substack/node-mkdirp/tree/92f086d2e28c6848951776fbe8ecadcf54c80c29",
+      "sourceUrl": "https://github.com/substack/node-mkdirp",
       "packagePathOrArtifact": "node_modules/mkdirp",
       "usage": "development-only",
       "distributedIn": [
@@ -8041,14 +7962,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/mkdirp@0.5.6",
+      "licenseTextRef": "node_modules/mkdirp/LICENSE",
       "licenseTextSha256": "05991c2e8f070b69ec5b656c2c12fd07cd0153dd157d39b050b82af59b319a01",
       "copyrightNotices": [
         "Copyright 2010 James Halliday (mail@substack.net)"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/mkdirp/-/mkdirp-0.5.6.tgz#LICENSE Published source revision: 92f086d2e28c6848951776fbe8ecadcf54c80c29"
+      "policyDecision": "allowed"
     },
     {
       "name": "napi-postinstall",
@@ -8995,7 +8915,7 @@
     {
       "name": "rimraf",
       "versionOrCommit": "2.6.3",
-      "sourceUrl": "https://github.com/isaacs/rimraf/tree/9442819908e52f2c32620e8fa609d7a5d472cc2c",
+      "sourceUrl": "https://github.com/isaacs/rimraf",
       "packagePathOrArtifact": "node_modules/rimraf",
       "usage": "development-only",
       "distributedIn": [
@@ -9003,14 +8923,13 @@
       ],
       "declaredLicense": "ISC",
       "verifiedLicense": "ISC",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/rimraf@2.6.3",
+      "licenseTextRef": "node_modules/rimraf/LICENSE",
       "licenseTextSha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b",
       "copyrightNotices": [
         "Copyright (c) Isaac Z. Schlueter and Contributors"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/rimraf/-/rimraf-2.6.3.tgz#LICENSE Published source revision: 9442819908e52f2c32620e8fa609d7a5d472cc2c"
+      "policyDecision": "allowed"
     },
     {
       "name": "roarr",
@@ -9806,7 +9725,7 @@
     {
       "name": "temp",
       "versionOrCommit": "0.9.4",
-      "sourceUrl": "https://github.com/bruce/node-temp/tree/6448b77bb187a6bd72cb9e592d49a587fa6c5639",
+      "sourceUrl": "https://github.com/bruce/node-temp",
       "packagePathOrArtifact": "node_modules/temp",
       "usage": "development-only",
       "distributedIn": [
@@ -9814,16 +9733,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/temp@0.9.4",
+      "licenseTextRef": "node_modules/temp/LICENSE",
       "licenseTextSha256": "63053a2fc2b06fe2138fa128ab29c487e28e38be8a7b9c16a4ef7209e945c0b0",
       "copyrightNotices": [
-        "Copyright",
-        "Copyright (c) 2010-2014 Bruce Williams",
-        "Copyright (c) 2010-2014 Bruce Williams. This software is licensed"
+        "Copyright (c) 2010-2014 Bruce Williams"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/temp/-/temp-0.9.4.tgz#LICENSE Published source revision: 6448b77bb187a6bd72cb9e592d49a587fa6c5639"
+      "policyDecision": "allowed"
     },
     {
       "name": "tiny-async-pool",
@@ -10208,7 +10124,7 @@
     {
       "name": "universalify",
       "versionOrCommit": "0.1.2",
-      "sourceUrl": "https://github.com/RyanZim/universalify/tree/ab4b5cd7e962c4915da68bdf0e5b8f9aa677f8f6",
+      "sourceUrl": "https://github.com/RyanZim/universalify",
       "packagePathOrArtifact": "node_modules/electron-winstaller/node_modules/universalify",
       "usage": "development-only",
       "distributedIn": [
@@ -10216,33 +10132,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/electron-winstaller/node_modules/universalify@0.1.2",
+      "licenseTextRef": "node_modules/electron-winstaller/node_modules/universalify/LICENSE",
       "licenseTextSha256": "3fda5977c0904e226190b4e21d64340c1731e2142d6fe5f3dee0090a216b8b63",
       "copyrightNotices": [
         "Copyright (c) 2017, Ryan Zimmerman <opensrc@ryanzim.com>"
       ],
       "modified": false,
       "policyDecision": "allowed",
-      "reviewNotes": "Inherited development-only classification from electron-winstaller. License text source: https://registry.npmjs.org/universalify/-/universalify-0.1.2.tgz#LICENSE Published source revision: ab4b5cd7e962c4915da68bdf0e5b8f9aa677f8f6"
-    },
-    {
-      "name": "universalify",
-      "versionOrCommit": "2.0.1",
-      "sourceUrl": "https://github.com/RyanZim/universalify",
-      "packagePathOrArtifact": "node_modules/universalify",
-      "usage": "development-only",
-      "distributedIn": [
-        "source-development-install"
-      ],
-      "declaredLicense": "MIT",
-      "verifiedLicense": "MIT",
-      "licenseTextRef": "node_modules/universalify/LICENSE",
-      "licenseTextSha256": "3fda5977c0904e226190b4e21d64340c1731e2142d6fe5f3dee0090a216b8b63",
-      "copyrightNotices": [
-        "Copyright (c) 2017, Ryan Zimmerman <opensrc@ryanzim.com>"
-      ],
-      "modified": false,
-      "policyDecision": "allowed"
+      "reviewNotes": "Inherited development-only classification from electron-winstaller."
     },
     {
       "name": "unrs-resolver",
@@ -11985,7 +11882,7 @@
     },
     {
       "name": "@better-auth/core",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/core",
       "usage": "runtime",
@@ -12007,7 +11904,7 @@
     },
     {
       "name": "@better-auth/drizzle-adapter",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/drizzle-adapter",
       "usage": "runtime",
@@ -12029,7 +11926,7 @@
     },
     {
       "name": "@better-auth/expo",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/expo",
       "usage": "runtime",
@@ -12051,7 +11948,7 @@
     },
     {
       "name": "@better-auth/kysely-adapter",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/kysely-adapter",
       "usage": "runtime",
@@ -12073,7 +11970,7 @@
     },
     {
       "name": "@better-auth/memory-adapter",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/memory-adapter",
       "usage": "runtime",
@@ -12095,7 +11992,7 @@
     },
     {
       "name": "@better-auth/mongo-adapter",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/mongo-adapter",
       "usage": "runtime",
@@ -12117,7 +12014,7 @@
     },
     {
       "name": "@better-auth/oauth-provider",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/oauth-provider",
       "usage": "runtime",
@@ -12139,7 +12036,7 @@
     },
     {
       "name": "@better-auth/prisma-adapter",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/prisma-adapter",
       "usage": "runtime",
@@ -12161,7 +12058,7 @@
     },
     {
       "name": "@better-auth/telemetry",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/@better-auth/telemetry",
       "usage": "runtime",
@@ -14524,7 +14421,7 @@
     {
       "name": "@jridgewell/source-map",
       "versionOrCommit": "0.3.11",
-      "sourceUrl": "https://github.com/jridgewell/sourcemaps/tree/095a5825c482003597a30aa380b50159219f3618",
+      "sourceUrl": "https://github.com/jridgewell/sourcemaps",
       "packagePathOrArtifact": "node_modules/@jridgewell/source-map",
       "usage": "runtime",
       "distributedIn": [
@@ -14535,14 +14432,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@jridgewell/source-map@0.3.11",
+      "licenseTextRef": "node_modules/@jridgewell/source-map/LICENSE",
       "licenseTextSha256": "769d154fbde32a915af110b1123650bc79f4cbe675acc66e005265bf069c6c6c",
       "copyrightNotices": [
         "Copyright 2024 Justin Ridgewell <justin@ridgewell.name>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@jridgewell/source-map/-/source-map-0.3.11.tgz#LICENSE Published source revision: 095a5825c482003597a30aa380b50159219f3618"
+      "policyDecision": "allowed"
     },
     {
       "name": "@jridgewell/sourcemap-codec",
@@ -21728,7 +21624,7 @@
     {
       "name": "@testing-library/dom",
       "versionOrCommit": "10.4.1",
-      "sourceUrl": "https://github.com/testing-library/dom-testing-library/tree/225a3e4cfaa8f8046989d51b9051df507354b644",
+      "sourceUrl": "https://github.com/testing-library/dom-testing-library",
       "packagePathOrArtifact": "node_modules/@testing-library/dom",
       "usage": "runtime",
       "distributedIn": [
@@ -21739,14 +21635,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@testing-library/dom@10.4.1",
+      "licenseTextRef": "node_modules/@testing-library/dom/LICENSE",
       "licenseTextSha256": "bf8fd38056b7606deccfcadb4d8ca1c210082d8ef5513426d2650daedc30bed3",
       "copyrightNotices": [
         "Copyright (c) 2017 Kent C. Dodds"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@testing-library/dom/-/dom-10.4.1.tgz#LICENSE Published source revision: 225a3e4cfaa8f8046989d51b9051df507354b644"
+      "policyDecision": "allowed"
     },
     {
       "name": "@testing-library/react",
@@ -22822,14 +22717,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@types/aria-query@5.0.4",
+      "licenseTextRef": "node_modules/@types/aria-query/LICENSE",
       "licenseTextSha256": "c2cfccb812fe482101a8f04597dfc5a9991a6b2748266c47ac91b6a5aae15383",
       "copyrightNotices": [
         "Copyright (c) Microsoft Corporation."
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@types/aria-query/-/aria-query-5.0.4.tgz#LICENSE"
+      "policyDecision": "allowed"
     },
     {
       "name": "@types/better-sqlite3",
@@ -24181,7 +24075,7 @@
     {
       "name": "@webassemblyjs/ast",
       "versionOrCommit": "1.14.1",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/25d52b1296e151ac56244a7c3886661e6b4a69ea",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/ast",
       "usage": "runtime",
       "distributedIn": [
@@ -24192,19 +24086,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/ast@1.14.1",
+      "licenseTextRef": "node_modules/@webassemblyjs/ast/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/ast/-/ast-1.14.1.tgz#LICENSE Published source revision: 25d52b1296e151ac56244a7c3886661e6b4a69ea"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/floating-point-hex-parser",
       "versionOrCommit": "1.13.2",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/897aeb784f042a46a00626f1d1cca96159aa5db3",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/floating-point-hex-parser",
       "usage": "runtime",
       "distributedIn": [
@@ -24215,19 +24108,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/floating-point-hex-parser@1.13.2",
+      "licenseTextRef": "node_modules/@webassemblyjs/floating-point-hex-parser/LICENSE",
       "licenseTextSha256": "c8c02a7638804efe4f063a913b7d880d023a8caefe7f3472e5952d6766c46a78",
       "copyrightNotices": [
         "Copyright (c) 2017 Mauro Bringolf"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/floating-point-hex-parser/-/floating-point-hex-parser-1.13.2.tgz#LICENSE Published source revision: 897aeb784f042a46a00626f1d1cca96159aa5db3"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/helper-api-error",
       "versionOrCommit": "1.13.2",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/897aeb784f042a46a00626f1d1cca96159aa5db3",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/helper-api-error",
       "usage": "runtime",
       "distributedIn": [
@@ -24238,19 +24130,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/helper-api-error@1.13.2",
+      "licenseTextRef": "node_modules/@webassemblyjs/helper-api-error/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/helper-api-error/-/helper-api-error-1.13.2.tgz#LICENSE Published source revision: 897aeb784f042a46a00626f1d1cca96159aa5db3"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/helper-buffer",
       "versionOrCommit": "1.14.1",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/25d52b1296e151ac56244a7c3886661e6b4a69ea",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/helper-buffer",
       "usage": "runtime",
       "distributedIn": [
@@ -24261,19 +24152,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/helper-buffer@1.14.1",
+      "licenseTextRef": "node_modules/@webassemblyjs/helper-buffer/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/helper-buffer/-/helper-buffer-1.14.1.tgz#LICENSE Published source revision: 25d52b1296e151ac56244a7c3886661e6b4a69ea"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/helper-numbers",
       "versionOrCommit": "1.13.2",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/897aeb784f042a46a00626f1d1cca96159aa5db3",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/helper-numbers",
       "usage": "runtime",
       "distributedIn": [
@@ -24284,19 +24174,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/helper-numbers@1.13.2",
+      "licenseTextRef": "node_modules/@webassemblyjs/helper-numbers/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/helper-numbers/-/helper-numbers-1.13.2.tgz#LICENSE Published source revision: 897aeb784f042a46a00626f1d1cca96159aa5db3"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/helper-wasm-bytecode",
       "versionOrCommit": "1.13.2",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/897aeb784f042a46a00626f1d1cca96159aa5db3",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/helper-wasm-bytecode",
       "usage": "runtime",
       "distributedIn": [
@@ -24307,19 +24196,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/helper-wasm-bytecode@1.13.2",
+      "licenseTextRef": "node_modules/@webassemblyjs/helper-wasm-bytecode/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/helper-wasm-bytecode/-/helper-wasm-bytecode-1.13.2.tgz#LICENSE Published source revision: 897aeb784f042a46a00626f1d1cca96159aa5db3"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/helper-wasm-section",
       "versionOrCommit": "1.14.1",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/25d52b1296e151ac56244a7c3886661e6b4a69ea",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/helper-wasm-section",
       "usage": "runtime",
       "distributedIn": [
@@ -24330,19 +24218,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/helper-wasm-section@1.14.1",
+      "licenseTextRef": "node_modules/@webassemblyjs/helper-wasm-section/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/helper-wasm-section/-/helper-wasm-section-1.14.1.tgz#LICENSE Published source revision: 25d52b1296e151ac56244a7c3886661e6b4a69ea"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/ieee754",
       "versionOrCommit": "1.13.2",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/897aeb784f042a46a00626f1d1cca96159aa5db3",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/ieee754",
       "usage": "runtime",
       "distributedIn": [
@@ -24353,19 +24240,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/ieee754@1.13.2",
+      "licenseTextRef": "node_modules/@webassemblyjs/ieee754/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/ieee754/-/ieee754-1.13.2.tgz#LICENSE Published source revision: 897aeb784f042a46a00626f1d1cca96159aa5db3"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/leb128",
       "versionOrCommit": "1.13.2",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/897aeb784f042a46a00626f1d1cca96159aa5db3",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/leb128",
       "usage": "runtime",
       "distributedIn": [
@@ -24376,7 +24262,7 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/leb128@1.13.2",
+      "licenseTextRef": "node_modules/@webassemblyjs/leb128/LICENSE.txt",
       "licenseTextSha256": "d1933b0432a1e0f27baf23df3b655330b0a6571bd846d4bfc6f1902cbe0ffb16",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
@@ -24384,13 +24270,12 @@
         "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/leb128/-/leb128-1.13.2.tgz#LICENSE.txt Published source revision: 897aeb784f042a46a00626f1d1cca96159aa5db3"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/utf8",
       "versionOrCommit": "1.13.2",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/897aeb784f042a46a00626f1d1cca96159aa5db3",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/utf8",
       "usage": "runtime",
       "distributedIn": [
@@ -24401,19 +24286,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/utf8@1.13.2",
+      "licenseTextRef": "node_modules/@webassemblyjs/utf8/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/utf8/-/utf8-1.13.2.tgz#LICENSE Published source revision: 897aeb784f042a46a00626f1d1cca96159aa5db3"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/wasm-edit",
       "versionOrCommit": "1.14.1",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/25d52b1296e151ac56244a7c3886661e6b4a69ea",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/wasm-edit",
       "usage": "runtime",
       "distributedIn": [
@@ -24424,19 +24308,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/wasm-edit@1.14.1",
+      "licenseTextRef": "node_modules/@webassemblyjs/wasm-edit/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/wasm-edit/-/wasm-edit-1.14.1.tgz#LICENSE Published source revision: 25d52b1296e151ac56244a7c3886661e6b4a69ea"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/wasm-gen",
       "versionOrCommit": "1.14.1",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/25d52b1296e151ac56244a7c3886661e6b4a69ea",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/wasm-gen",
       "usage": "runtime",
       "distributedIn": [
@@ -24447,19 +24330,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/wasm-gen@1.14.1",
+      "licenseTextRef": "node_modules/@webassemblyjs/wasm-gen/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/wasm-gen/-/wasm-gen-1.14.1.tgz#LICENSE Published source revision: 25d52b1296e151ac56244a7c3886661e6b4a69ea"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/wasm-opt",
       "versionOrCommit": "1.14.1",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/25d52b1296e151ac56244a7c3886661e6b4a69ea",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/wasm-opt",
       "usage": "runtime",
       "distributedIn": [
@@ -24470,19 +24352,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/wasm-opt@1.14.1",
+      "licenseTextRef": "node_modules/@webassemblyjs/wasm-opt/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/wasm-opt/-/wasm-opt-1.14.1.tgz#LICENSE Published source revision: 25d52b1296e151ac56244a7c3886661e6b4a69ea"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/wasm-parser",
       "versionOrCommit": "1.14.1",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/25d52b1296e151ac56244a7c3886661e6b4a69ea",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/wasm-parser",
       "usage": "runtime",
       "distributedIn": [
@@ -24493,19 +24374,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/wasm-parser@1.14.1",
+      "licenseTextRef": "node_modules/@webassemblyjs/wasm-parser/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/wasm-parser/-/wasm-parser-1.14.1.tgz#LICENSE Published source revision: 25d52b1296e151ac56244a7c3886661e6b4a69ea"
+      "policyDecision": "allowed"
     },
     {
       "name": "@webassemblyjs/wast-printer",
       "versionOrCommit": "1.14.1",
-      "sourceUrl": "https://github.com/xtuc/webassemblyjs/tree/25d52b1296e151ac56244a7c3886661e6b4a69ea",
+      "sourceUrl": "https://github.com/xtuc/webassemblyjs",
       "packagePathOrArtifact": "node_modules/@webassemblyjs/wast-printer",
       "usage": "runtime",
       "distributedIn": [
@@ -24516,14 +24396,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@webassemblyjs/wast-printer@1.14.1",
+      "licenseTextRef": "node_modules/@webassemblyjs/wast-printer/LICENSE",
       "licenseTextSha256": "6d651b5b749b483278531be91623014bdfc12951278a33d6e43477db60a620ef",
       "copyrightNotices": [
         "Copyright (c) 2018 Sven Sauleau <sven@sauleau.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@webassemblyjs/wast-printer/-/wast-printer-1.14.1.tgz#LICENSE Published source revision: 25d52b1296e151ac56244a7c3886661e6b4a69ea"
+      "policyDecision": "allowed"
     },
     {
       "name": "@xmldom/xmldom",
@@ -24664,7 +24543,7 @@
     {
       "name": "@xtuc/ieee754",
       "versionOrCommit": "1.2.0",
-      "sourceUrl": "https://github.com/feross/ieee754/tree/25da4f98d46eb47072792e23adfd92d02c16c6d7",
+      "sourceUrl": "https://github.com/feross/ieee754",
       "packagePathOrArtifact": "node_modules/@xtuc/ieee754",
       "usage": "runtime",
       "distributedIn": [
@@ -24675,20 +24554,18 @@
       ],
       "declaredLicense": "BSD-3-Clause",
       "verifiedLicense": "BSD-3-Clause",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@xtuc/ieee754@1.2.0",
+      "licenseTextRef": "node_modules/@xtuc/ieee754/LICENSE",
       "licenseTextSha256": "6d5ef6dcbcc2d08589c716a674536afe8a23ac2499a814afb5b14b39cc415126",
       "copyrightNotices": [
-        "BSD 3 Clause. Copyright (c) 2008, Fair Oaks Labs, Inc.",
         "Copyright (c) 2008, Fair Oaks Labs, Inc."
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@xtuc/ieee754/-/ieee754-1.2.0.tgz#LICENSE Published source revision: 25da4f98d46eb47072792e23adfd92d02c16c6d7"
+      "policyDecision": "allowed"
     },
     {
       "name": "@xtuc/long",
       "versionOrCommit": "4.2.2",
-      "sourceUrl": "https://github.com/dcodeIO/long.js/tree/8181a6b50a2a230f0b2a1e4c4093f9b9d19c8b69",
+      "sourceUrl": "https://github.com/dcodeIO/long.js",
       "packagePathOrArtifact": "node_modules/@xtuc/long",
       "usage": "runtime",
       "distributedIn": [
@@ -24699,15 +24576,14 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/@xtuc/long@4.2.2",
+      "licenseTextRef": "node_modules/@xtuc/long/LICENSE",
       "licenseTextSha256": "cfc7749b96f63bd31c3c42b5c471bf756814053e847c10f3eb003417bc523d30",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
         "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/@xtuc/long/-/long-4.2.2.tgz#LICENSE Published source revision: 8181a6b50a2a230f0b2a1e4c4093f9b9d19c8b69"
+      "policyDecision": "allowed"
     },
     {
       "name": "@zone-eu/mailsplit",
@@ -24847,7 +24723,7 @@
     {
       "name": "ajv-formats",
       "versionOrCommit": "2.1.1",
-      "sourceUrl": "https://github.com/ajv-validator/ajv-formats/tree/c1cb46cad79f984020a9a0ef569e9c091ce24400",
+      "sourceUrl": "https://github.com/ajv-validator/ajv-formats",
       "packagePathOrArtifact": "node_modules/schema-utils/node_modules/ajv-formats",
       "usage": "runtime",
       "distributedIn": [
@@ -24858,14 +24734,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/schema-utils/node_modules/ajv-formats@2.1.1",
+      "licenseTextRef": "node_modules/schema-utils/node_modules/ajv-formats/LICENSE",
       "licenseTextSha256": "9df3bb69929a3b650ed73b3bfa1756725aaff0ac296461605753547004eafeaf",
       "copyrightNotices": [
         "Copyright (c) 2020 Evgeny Poberezkin"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/ajv-formats/-/ajv-formats-2.1.1.tgz#LICENSE Published source revision: c1cb46cad79f984020a9a0ef569e9c091ce24400"
+      "policyDecision": "allowed"
     },
     {
       "name": "ajv-formats",
@@ -24892,7 +24767,7 @@
     {
       "name": "ajv-keywords",
       "versionOrCommit": "5.1.0",
-      "sourceUrl": "https://github.com/epoberezkin/ajv-keywords/tree/7703b7826a284b851edb6f0004d997e8bbe2581c",
+      "sourceUrl": "https://github.com/epoberezkin/ajv-keywords",
       "packagePathOrArtifact": "node_modules/ajv-keywords",
       "usage": "runtime",
       "distributedIn": [
@@ -24903,14 +24778,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/ajv-keywords@5.1.0",
+      "licenseTextRef": "node_modules/ajv-keywords/LICENSE",
       "licenseTextSha256": "a25dce9c94c3ad622574cffbefd4b8845b418aa65df966d97e3204ad276ed240",
       "copyrightNotices": [
         "Copyright (c) 2016 Evgeny Poberezkin"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/ajv-keywords/-/ajv-keywords-5.1.0.tgz#LICENSE Published source revision: 7703b7826a284b851edb6f0004d997e8bbe2581c"
+      "policyDecision": "allowed"
     },
     {
       "name": "ajv",
@@ -25003,7 +24877,7 @@
     {
       "name": "ansi-styles",
       "versionOrCommit": "5.2.0",
-      "sourceUrl": "https://github.com/chalk/ansi-styles/tree/4d30b90085fb5a971d7cb0f4dca0920ff4dbc955",
+      "sourceUrl": "chalk/ansi-styles",
       "packagePathOrArtifact": "node_modules/pretty-format/node_modules/ansi-styles",
       "usage": "runtime",
       "distributedIn": [
@@ -25014,14 +24888,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/pretty-format/node_modules/ansi-styles@5.2.0",
+      "licenseTextRef": "node_modules/pretty-format/node_modules/ansi-styles/license",
       "licenseTextSha256": "48da2f39e100d4085767e94966b43f4fa95ff6a0698fba57ed460914e35f94a0",
       "copyrightNotices": [
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (sindresorhus.com)"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/ansi-styles/-/ansi-styles-5.2.0.tgz#license Published source revision: 4d30b90085fb5a971d7cb0f4dca0920ff4dbc955"
+      "policyDecision": "allowed"
     },
     {
       "name": "ansi-styles",
@@ -25161,7 +25034,7 @@
     {
       "name": "aria-query",
       "versionOrCommit": "5.3.0",
-      "sourceUrl": "https://github.com/A11yance/aria-query/tree/fff6f07c714e8048f4fe084cec74f24248e5673d",
+      "sourceUrl": "https://github.com/A11yance/aria-query",
       "packagePathOrArtifact": "node_modules/aria-query",
       "usage": "runtime",
       "distributedIn": [
@@ -25172,17 +25045,15 @@
       ],
       "declaredLicense": "Apache-2.0",
       "verifiedLicense": "Apache-2.0",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/aria-query@5.3.0",
+      "licenseTextRef": "node_modules/aria-query/LICENSE",
       "licenseTextSha256": "c8df456c7ccba74b959087dff494d4ac2a12dfb0400c08b46b2494a08a000567",
       "copyrightNotices": [
         "(c) You must retain, in the Source form of any Derivative Works",
-        "Copyright (c) 2021 A11yance",
         "Copyright 2020 A11yance",
         "that You distribute, all copyright, patent, trademark, and"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/aria-query/-/aria-query-5.3.0.tgz#LICENSE Published source revision: fff6f07c714e8048f4fe084cec74f24248e5673d"
+      "policyDecision": "allowed"
     },
     {
       "name": "ast-types",
@@ -25594,7 +25465,7 @@
     },
     {
       "name": "better-auth",
-      "versionOrCommit": "1.6.23",
+      "versionOrCommit": "1.7.0-rc.6",
       "sourceUrl": "https://github.com/better-auth/better-auth",
       "packagePathOrArtifact": "node_modules/better-auth",
       "usage": "runtime",
@@ -25616,7 +25487,7 @@
     },
     {
       "name": "better-call",
-      "versionOrCommit": "1.3.7",
+      "versionOrCommit": "1.4.0",
       "sourceUrl": "https://github.com/better-auth/better-call",
       "packagePathOrArtifact": "node_modules/better-call",
       "usage": "runtime",
@@ -26059,6 +25930,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "builder-util-runtime",
+      "versionOrCommit": "9.7.0",
+      "sourceUrl": "https://github.com/electron-userland/electron-builder",
+      "packagePathOrArtifact": "node_modules/builder-util-runtime",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/builder-util-runtime/LICENSE",
+      "licenseTextSha256": "3f13dd7700ec33a0af7df671aa19452b3a3d9034f16621d72544d6a2821624a1",
+      "copyrightNotices": [
+        "Copyright (c) 2015 Loopline Systems"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "bytes",
       "versionOrCommit": "3.1.2",
       "sourceUrl": "visionmedia/bytes.js",
@@ -26449,7 +26342,7 @@
     {
       "name": "chrome-trace-event",
       "versionOrCommit": "1.0.4",
-      "sourceUrl": "https://github.com/samccone/chrome-trace-event/tree/7b70e7ea882647bebfdcf7dbddecd568eef0389c",
+      "sourceUrl": "github:samccone/chrome-trace-event",
       "packagePathOrArtifact": "node_modules/chrome-trace-event",
       "usage": "runtime",
       "distributedIn": [
@@ -26460,14 +26353,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/chrome-trace-event@1.0.4",
+      "licenseTextRef": "node_modules/chrome-trace-event/LICENSE.txt",
       "licenseTextSha256": "2256a67ab7f56ec435994acc35477e8636a89d3f1d223abfbcfcfe135da50141",
       "copyrightNotices": [
         "Copyright (c) 2015 Joyent Inc. All rights reserved."
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/chrome-trace-event/-/chrome-trace-event-1.0.4.tgz#LICENSE.txt Published source revision: 7b70e7ea882647bebfdcf7dbddecd568eef0389c"
+      "policyDecision": "allowed"
     },
     {
       "name": "chromium-bidi",
@@ -26809,7 +26701,7 @@
     {
       "name": "commander",
       "versionOrCommit": "2.20.3",
-      "sourceUrl": "https://github.com/tj/commander.js/tree/6b8499b24f4f6498ad630c50c8a00c9579a8536b",
+      "sourceUrl": "https://github.com/tj/commander.js",
       "packagePathOrArtifact": "node_modules/terser/node_modules/commander",
       "usage": "runtime",
       "distributedIn": [
@@ -26820,14 +26712,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/terser/node_modules/commander@2.20.3",
+      "licenseTextRef": "node_modules/terser/node_modules/commander/LICENSE",
       "licenseTextSha256": "04512a63dce4d2d506ad612dc0bd7681ccf6e3655f7b6eaef7dfac8323d1ec0b",
       "copyrightNotices": [
         "Copyright (c) 2011 TJ Holowaychuk <tj@vision-media.ca>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/commander/-/commander-2.20.3.tgz#LICENSE Published source revision: 6b8499b24f4f6498ad630c50c8a00c9579a8536b"
+      "policyDecision": "allowed"
     },
     {
       "name": "commander",
@@ -28970,7 +28861,7 @@
     {
       "name": "dom-accessibility-api",
       "versionOrCommit": "0.5.16",
-      "sourceUrl": "https://github.com/eps1lon/dom-accessibility-api/tree/386719bd7171e078da3bde7556433c824ccc45d0",
+      "sourceUrl": "https://github.com/eps1lon/dom-accessibility-api",
       "packagePathOrArtifact": "node_modules/dom-accessibility-api",
       "usage": "runtime",
       "distributedIn": [
@@ -28981,14 +28872,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/dom-accessibility-api@0.5.16",
+      "licenseTextRef": "node_modules/dom-accessibility-api/LICENSE.md",
       "licenseTextSha256": "0ffe67fe630169de46df2d29dc18f5857b4c98f0f95b0cd9e3c21fef51f9a9b8",
       "copyrightNotices": [
         "Copyright (c) 2020 Sebastian Silbermann"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/dom-accessibility-api/-/dom-accessibility-api-0.5.16.tgz#LICENSE.md Published source revision: 386719bd7171e078da3bde7556433c824ccc45d0"
+      "policyDecision": "allowed"
     },
     {
       "name": "dom-serializer",
@@ -29282,6 +29172,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "electron-updater",
+      "versionOrCommit": "6.8.9",
+      "sourceUrl": "https://github.com/electron-userland/electron-builder",
+      "packagePathOrArtifact": "node_modules/electron-updater",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/electron-updater/LICENSE",
+      "licenseTextSha256": "3f13dd7700ec33a0af7df671aa19452b3a3d9034f16621d72544d6a2821624a1",
+      "copyrightNotices": [
+        "Copyright (c) 2015 Loopline Systems"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "emoji-regex",
       "versionOrCommit": "10.6.0",
       "sourceUrl": "https://github.com/mathiasbynens/emoji-regex",
@@ -29394,7 +29306,7 @@
     {
       "name": "enhanced-resolve",
       "versionOrCommit": "5.24.5",
-      "sourceUrl": "https://github.com/webpack/enhanced-resolve/tree/aefeac310a824190502425fc89f0b72d0237dd18",
+      "sourceUrl": "https://github.com/webpack/enhanced-resolve",
       "packagePathOrArtifact": "node_modules/webpack/node_modules/enhanced-resolve",
       "usage": "runtime",
       "distributedIn": [
@@ -29405,15 +29317,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/webpack/node_modules/enhanced-resolve@5.24.5",
+      "licenseTextRef": "node_modules/webpack/node_modules/enhanced-resolve/LICENSE",
       "licenseTextSha256": "9068a8782d2fb4c6e432cfa25334efa56f722822180570802bf86e71b6003b1e",
       "copyrightNotices": [
-        "Copyright (c) 2012-2019 JS Foundation and other contributors",
         "Copyright JS Foundation and other contributors"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/enhanced-resolve/-/enhanced-resolve-5.24.5.tgz#LICENSE Published source revision: aefeac310a824190502425fc89f0b72d0237dd18"
+      "policyDecision": "allowed"
     },
     {
       "name": "entities",
@@ -29816,7 +29726,7 @@
     {
       "name": "eslint-scope",
       "versionOrCommit": "5.1.1",
-      "sourceUrl": "https://github.com/eslint/eslint-scope/tree/8a7a21cce3a4bf17753d588f6444742235566a92",
+      "sourceUrl": "eslint/eslint-scope",
       "packagePathOrArtifact": "node_modules/webpack/node_modules/eslint-scope",
       "usage": "runtime",
       "distributedIn": [
@@ -29827,15 +29737,14 @@
       ],
       "declaredLicense": "BSD-2-Clause",
       "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/webpack/node_modules/eslint-scope@5.1.1",
+      "licenseTextRef": "node_modules/webpack/node_modules/eslint-scope/LICENSE",
       "licenseTextSha256": "d3a724e2ed749f172ff70b62a1d0631b7d4b0ea273782365a3464d4e2d6b6dbd",
       "copyrightNotices": [
         "Copyright (C) 2012-2013 Yusuke Suzuki (twitter: @Constellation) and other contributors.",
         "Copyright JS Foundation and other contributors, https://js.foundation"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/eslint-scope/-/eslint-scope-5.1.1.tgz#LICENSE Published source revision: 8a7a21cce3a4bf17753d588f6444742235566a92"
+      "policyDecision": "allowed"
     },
     {
       "name": "esm",
@@ -29941,14 +29850,11 @@
       ],
       "declaredLicense": "BSD-2-Clause",
       "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/webpack/node_modules/estraverse@4.3.0",
+      "licenseTextRef": "node_modules/webpack/node_modules/estraverse/LICENSE.BSD",
       "licenseTextSha256": "0e74697a68cebdcd61502c30fe80ab7f9e341d995dcd452023654d57133534b1",
-      "copyrightNotices": [
-        "Copyright (C) 2012-2016 [Yusuke Suzuki](http://github.com/Constellation)"
-      ],
+      "copyrightNotices": [],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/estraverse/-/estraverse-4.3.0.tgz#LICENSE.BSD Published source revision: 54d608c4ce0eb36d9bade685edcc3177e90e9f3c"
+      "policyDecision": "allowed"
     },
     {
       "name": "estraverse",
@@ -30747,6 +30653,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "fs-extra",
+      "versionOrCommit": "10.1.0",
+      "sourceUrl": "https://github.com/jprichardson/node-fs-extra",
+      "packagePathOrArtifact": "node_modules/fs-extra",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/fs-extra/LICENSE",
+      "licenseTextSha256": "1e76029602ae9b21cc4e612db2496d92febed882ba13ba745f8b3309e85f9d39",
+      "copyrightNotices": [
+        "Copyright (c) 2011-2017 JP Richardson"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "fsevents",
       "versionOrCommit": "2.3.2",
       "sourceUrl": "https://github.com/fsevents/fsevents/tree/a7f5d00939b74e141a73131468c4ce48ee0f2197",
@@ -31290,7 +31218,7 @@
     {
       "name": "graphology-types",
       "versionOrCommit": "0.24.8",
-      "sourceUrl": "https://github.com/graphology/graphology/tree/3c71b9976e5a733d398a1c5f8008eff059bc17f5",
+      "sourceUrl": "https://github.com/graphology/graphology",
       "packagePathOrArtifact": "node_modules/graphology-types",
       "usage": "runtime",
       "distributedIn": [
@@ -31301,14 +31229,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/graphology-types@0.24.8",
+      "licenseTextRef": "node_modules/graphology-types/LICENSE.txt",
       "licenseTextSha256": "ccd21f75fe569cc7c87f7b5c34c3263bfa123d565bfae1ac475814e0dcbf9f9c",
       "copyrightNotices": [
         "Copyright (c) 2020-2021 Guillaume Plique (Yomguithereal)"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/graphology-types/-/graphology-types-0.24.8.tgz#LICENSE.txt Published source revision: 3c71b9976e5a733d398a1c5f8008eff059bc17f5"
+      "policyDecision": "allowed"
     },
     {
       "name": "graphology-utils",
@@ -33047,7 +32974,7 @@
     {
       "name": "jest-worker",
       "versionOrCommit": "27.5.1",
-      "sourceUrl": "https://github.com/facebook/jest/tree/67c1aa20c5fec31366d733e901fee2b981cb1850",
+      "sourceUrl": "https://github.com/facebook/jest",
       "packagePathOrArtifact": "node_modules/jest-worker",
       "usage": "runtime",
       "distributedIn": [
@@ -33058,14 +32985,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/jest-worker@27.5.1",
+      "licenseTextRef": "node_modules/jest-worker/LICENSE",
       "licenseTextSha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85",
       "copyrightNotices": [
         "Copyright (c) Facebook, Inc. and its affiliates."
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/jest-worker/-/jest-worker-27.5.1.tgz#LICENSE Published source revision: 67c1aa20c5fec31366d733e901fee2b981cb1850"
+      "policyDecision": "allowed"
     },
     {
       "name": "jose",
@@ -33373,6 +33299,28 @@
       "licenseTextSha256": "53e59feb13058722d977c699eb0407c7bce2f93c949b681bbd2ff31698535927",
       "copyrightNotices": [
         "Copyright (c) 2012-2018 Aseem Kishore, and [others]."
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "jsonfile",
+      "versionOrCommit": "6.2.1",
+      "sourceUrl": "git@github.com:jprichardson/node-jsonfile",
+      "packagePathOrArtifact": "node_modules/jsonfile",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/jsonfile/LICENSE",
+      "licenseTextSha256": "a9801fb52ba22ef808682a094da8a7a480584b7ed0dfd0d888ab543616335031",
+      "copyrightNotices": [
+        "Copyright (c) 2012-2015, JP Richardson <jprichardson@gmail.com>"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -33735,6 +33683,31 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "lazy-val",
+      "versionOrCommit": "1.0.5",
+      "sourceUrl": "https://github.com/develar/lazy-val/tree/b69ad4119f1b19bdab13c61ee2fcc88d46b89071",
+      "packagePathOrArtifact": "node_modules/lazy-val",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "docs/compliance/license-texts/MIT.txt",
+      "licenseTextSha256": "f0112ade926a42aae49b533c7588b6410861cbde7f0c3b8d130ed2c779fbe589",
+      "copyrightNotices": [
+        "Copyright (c) Vladimir Krivosheev and contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed",
+      "reviewNotes": "The exact npm release declares MIT, identifies author Vladimir Krivosheev and publishes gitHead b69ad4119f1b19bdab13c61ee2fcc88d46b89071, but the tarball and matching source revision omit the full license text and copyright line. Canvas retains the canonical MIT terms and uses the exact package author with a contributors qualifier as the best available attribution. Any version change requires a new review. Verification source: https://registry.npmjs.org/lazy-val/1.0.5",
+      "reviewedBy": "Frank Alexander Weber",
+      "reviewedAt": "2026-08-16"
+    },
+    {
       "name": "lazystream",
       "versionOrCommit": "1.0.1",
       "sourceUrl": "https://github.com/jpommerening/node-lazystream",
@@ -34046,6 +34019,52 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "lodash.escaperegexp",
+      "versionOrCommit": "4.1.2",
+      "sourceUrl": "lodash/lodash",
+      "packagePathOrArtifact": "node_modules/lodash.escaperegexp",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/lodash.escaperegexp/LICENSE",
+      "licenseTextSha256": "ffd8b33b354585f4ce119f19c53728281e48a97b074491eb6bf6d5c5ff305272",
+      "copyrightNotices": [
+        "Based on Underscore.js, copyright Jeremy Ashkenas,",
+        "Copyright jQuery Foundation and other contributors <https://jquery.org/>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "lodash.isequal",
+      "versionOrCommit": "4.5.0",
+      "sourceUrl": "lodash/lodash",
+      "packagePathOrArtifact": "node_modules/lodash.isequal",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/lodash.isequal/LICENSE",
+      "licenseTextSha256": "e159c6d48c989185448658f276375bfb2300362ec6d4ae5525a2d49c4bcb947d",
+      "copyrightNotices": [
+        "Based on Underscore.js, copyright Jeremy Ashkenas,",
+        "Copyright JS Foundation and other contributors <https://js.foundation/>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "lodash.kebabcase",
       "versionOrCommit": "4.1.1",
       "sourceUrl": "lodash/lodash",
@@ -34318,7 +34337,7 @@
     {
       "name": "lz-string",
       "versionOrCommit": "1.5.0",
-      "sourceUrl": "https://github.com/pieroxy/lz-string/tree/4a94308c1e684fb98866f7ba1288f3db6d9f8801",
+      "sourceUrl": "https://github.com/pieroxy/lz-string",
       "packagePathOrArtifact": "node_modules/lz-string",
       "usage": "runtime",
       "distributedIn": [
@@ -34329,14 +34348,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/lz-string@1.5.0",
+      "licenseTextRef": "node_modules/lz-string/LICENSE",
       "licenseTextSha256": "433fc9dfe659dbfb1e91eed8351f13651e97bfa3ac6d03394c3d63f61d4bbc80",
       "copyrightNotices": [
         "Copyright (c) 2013 pieroxy"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/lz-string/-/lz-string-1.5.0.tgz#LICENSE Published source revision: 4a94308c1e684fb98866f7ba1288f3db6d9f8801"
+      "policyDecision": "allowed"
     },
     {
       "name": "magic-string",
@@ -35080,7 +35098,7 @@
     {
       "name": "merge-stream",
       "versionOrCommit": "2.0.0",
-      "sourceUrl": "https://github.com/grncdr/merge-stream/tree/cf3b957fe7937f09c0c95f714b6076436f8516b3",
+      "sourceUrl": "grncdr/merge-stream",
       "packagePathOrArtifact": "node_modules/merge-stream",
       "usage": "runtime",
       "distributedIn": [
@@ -35091,14 +35109,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/merge-stream@2.0.0",
+      "licenseTextRef": "node_modules/merge-stream/LICENSE",
       "licenseTextSha256": "2cee71bf4612fc2efe1c6261e3f2b21f3c7259ef8a4f3593b095ae7a7bd65ad9",
       "copyrightNotices": [
         "Copyright (c) Stephen Sugden <me@stephensugden.com> (stephensugden.com)"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/merge-stream/-/merge-stream-2.0.0.tgz#LICENSE Published source revision: cf3b957fe7937f09c0c95f714b6076436f8516b3"
+      "policyDecision": "allowed"
     },
     {
       "name": "meriyah",
@@ -35990,7 +36007,7 @@
     {
       "name": "minimizer-webpack-plugin",
       "versionOrCommit": "5.6.1",
-      "sourceUrl": "https://github.com/webpack/minimizer-webpack-plugin/tree/5207f9415bc0592d7a2d49a84fb5b1ee33cf5e9d",
+      "sourceUrl": "webpack/minimizer-webpack-plugin",
       "packagePathOrArtifact": "node_modules/minimizer-webpack-plugin",
       "usage": "runtime",
       "distributedIn": [
@@ -36001,15 +36018,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/minimizer-webpack-plugin@5.6.1",
+      "licenseTextRef": "node_modules/minimizer-webpack-plugin/LICENSE",
       "licenseTextSha256": "9068a8782d2fb4c6e432cfa25334efa56f722822180570802bf86e71b6003b1e",
       "copyrightNotices": [
-        "> The `extractComments` option is not supported, and all legal comments (i.e. copyright, licenses and etc) will be preserved.",
         "Copyright JS Foundation and other contributors"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/minimizer-webpack-plugin/-/minimizer-webpack-plugin-5.6.1.tgz#LICENSE Published source revision: 5207f9415bc0592d7a2d49a84fb5b1ee33cf5e9d"
+      "policyDecision": "allowed"
     },
     {
       "name": "minipass",
@@ -36362,15 +36377,14 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/neo-async@2.6.2",
+      "licenseTextRef": "node_modules/neo-async/LICENSE",
       "licenseTextSha256": "811238ba7d85f6fe6b820703a32f92705bcf77bc352ddc3476783491c64a129a",
       "copyrightNotices": [
         "Based on Async.js, Copyright Caolan McMahon",
         "Copyright (c) 2014-2018 Suguru Motegi"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/neo-async/-/neo-async-2.6.2.tgz#LICENSE"
+      "policyDecision": "allowed"
     },
     {
       "name": "netmask",
@@ -38404,7 +38418,7 @@
     {
       "name": "pretty-format",
       "versionOrCommit": "27.5.1",
-      "sourceUrl": "https://github.com/facebook/jest/tree/67c1aa20c5fec31366d733e901fee2b981cb1850",
+      "sourceUrl": "https://github.com/facebook/jest",
       "packagePathOrArtifact": "node_modules/pretty-format",
       "usage": "runtime",
       "distributedIn": [
@@ -38415,14 +38429,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/pretty-format@27.5.1",
+      "licenseTextRef": "node_modules/pretty-format/LICENSE",
       "licenseTextSha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85",
       "copyrightNotices": [
         "Copyright (c) Facebook, Inc. and its affiliates."
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/pretty-format/-/pretty-format-27.5.1.tgz#LICENSE Published source revision: 67c1aa20c5fec31366d733e901fee2b981cb1850"
+      "policyDecision": "allowed"
     },
     {
       "name": "prismjs",
@@ -39284,14 +39297,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/pretty-format/node_modules/react-is@17.0.2",
+      "licenseTextRef": "node_modules/pretty-format/node_modules/react-is/LICENSE",
       "licenseTextSha256": "52412d7bc7ce4157ea628bbaacb8829e0a9cb3c58f57f99176126bc8cf2bfc85",
       "copyrightNotices": [
         "Copyright (c) Facebook, Inc. and its affiliates."
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/react-is/-/react-is-17.0.2.tgz#LICENSE"
+      "policyDecision": "allowed"
     },
     {
       "name": "react-is",
@@ -40187,7 +40199,7 @@
     },
     {
       "name": "rou3",
-      "versionOrCommit": "0.7.12",
+      "versionOrCommit": "0.9.2",
       "sourceUrl": "h3js/rou3",
       "packagePathOrArtifact": "node_modules/rou3",
       "usage": "runtime",
@@ -40508,7 +40520,7 @@
     {
       "name": "schema-utils",
       "versionOrCommit": "4.3.3",
-      "sourceUrl": "https://github.com/webpack/schema-utils/tree/b9ca275df9cf39b16e5ee5b7fe165481e0491612",
+      "sourceUrl": "webpack/schema-utils",
       "packagePathOrArtifact": "node_modules/schema-utils",
       "usage": "runtime",
       "distributedIn": [
@@ -40519,14 +40531,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/schema-utils@4.3.3",
+      "licenseTextRef": "node_modules/schema-utils/LICENSE",
       "licenseTextSha256": "9068a8782d2fb4c6e432cfa25334efa56f722822180570802bf86e71b6003b1e",
       "copyrightNotices": [
         "Copyright JS Foundation and other contributors"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/schema-utils/-/schema-utils-4.3.3.tgz#LICENSE Published source revision: b9ca275df9cf39b16e5ee5b7fe165481e0491612"
+      "policyDecision": "allowed"
     },
     {
       "name": "selderee",
@@ -40610,6 +40621,28 @@
       "declaredLicense": "ISC",
       "verifiedLicense": "ISC",
       "licenseTextRef": "node_modules/@babel/helper-compilation-targets/node_modules/semver/LICENSE",
+      "licenseTextSha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b",
+      "copyrightNotices": [
+        "Copyright (c) Isaac Z. Schlueter and Contributors"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "semver",
+      "versionOrCommit": "7.7.4",
+      "sourceUrl": "https://github.com/npm/node-semver",
+      "packagePathOrArtifact": "node_modules/electron-updater/node_modules/semver",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "ISC",
+      "verifiedLicense": "ISC",
+      "licenseTextRef": "node_modules/electron-updater/node_modules/semver/LICENSE",
       "licenseTextSha256": "4ec3d4c66cd87f5c8d8ad911b10f99bf27cb00cdfcff82621956e379186b016b",
       "copyrightNotices": [
         "Copyright (c) Isaac Z. Schlueter and Contributors"
@@ -41757,7 +41790,7 @@
     {
       "name": "supports-color",
       "versionOrCommit": "8.1.1",
-      "sourceUrl": "https://github.com/chalk/supports-color/tree/1e7f117cda1284e741c3cbcd661c21412bf169eb",
+      "sourceUrl": "chalk/supports-color",
       "packagePathOrArtifact": "node_modules/jest-worker/node_modules/supports-color",
       "usage": "runtime",
       "distributedIn": [
@@ -41768,14 +41801,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/jest-worker/node_modules/supports-color@8.1.1",
+      "licenseTextRef": "node_modules/jest-worker/node_modules/supports-color/license",
       "licenseTextSha256": "5c932d88256b4ab958f64a856fa48e8bd1f55bc1d96b8149c65689e0c61789d3",
       "copyrightNotices": [
         "Copyright (c) Sindre Sorhus <sindresorhus@gmail.com> (https://sindresorhus.com)"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/supports-color/-/supports-color-8.1.1.tgz#license Published source revision: 1e7f117cda1284e741c3cbcd661c21412bf169eb"
+      "policyDecision": "allowed"
     },
     {
       "name": "symbol-tree",
@@ -41956,7 +41988,7 @@
     {
       "name": "terser",
       "versionOrCommit": "5.50.0",
-      "sourceUrl": "https://github.com/terser/terser/tree/08682636bae345b7b5ad6b22c46b6ce19280e1c4",
+      "sourceUrl": "https://github.com/terser/terser",
       "packagePathOrArtifact": "node_modules/terser",
       "usage": "runtime",
       "distributedIn": [
@@ -41967,14 +41999,13 @@
       ],
       "declaredLicense": "BSD-2-Clause",
       "verifiedLicense": "BSD-2-Clause",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/terser@5.50.0",
+      "licenseTextRef": "node_modules/terser/LICENSE",
       "licenseTextSha256": "901d0a7fcaccaae9917d165039c0473c354e5da2e0e94140dde67aad9ffb19da",
       "copyrightNotices": [
         "Copyright 2012-2018 (c) Mihai Bazon <mihai.bazon@gmail.com>"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/terser/-/terser-5.50.0.tgz#LICENSE Published source revision: 08682636bae345b7b5ad6b22c46b6ce19280e1c4"
+      "policyDecision": "allowed"
     },
     {
       "name": "text-decoder",
@@ -42039,6 +42070,28 @@
       "licenseTextSha256": "f4e18aba04bb3e39a492dd49ee4843c33318bbd6dcb397853c6d42238f4329f6",
       "copyrightNotices": [
         "Copyright (c) 2019 Alexander Reardon"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
+      "name": "tiny-typed-emitter",
+      "versionOrCommit": "2.1.0",
+      "sourceUrl": "https://github.com/binier/tiny-typed-emitter",
+      "packagePathOrArtifact": "node_modules/tiny-typed-emitter",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/tiny-typed-emitter/LICENSE",
+      "licenseTextSha256": "4b3faf884ee71eec3df920b66c98fc6618af28e824cf3a32ef3d8774048cc76d",
+      "copyrightNotices": [
+        "Copyright (c) 2020 Zurab Benashvili (binier) <zura.bena@gmail.com>"
       ],
       "modified": false,
       "policyDecision": "allowed"
@@ -42967,6 +43020,28 @@
       "policyDecision": "allowed"
     },
     {
+      "name": "universalify",
+      "versionOrCommit": "2.0.1",
+      "sourceUrl": "https://github.com/RyanZim/universalify",
+      "packagePathOrArtifact": "node_modules/universalify",
+      "usage": "runtime",
+      "distributedIn": [
+        "source-release",
+        "next-server",
+        "docker-image",
+        "electron-web-app"
+      ],
+      "declaredLicense": "MIT",
+      "verifiedLicense": "MIT",
+      "licenseTextRef": "node_modules/universalify/LICENSE",
+      "licenseTextSha256": "3fda5977c0904e226190b4e21d64340c1731e2142d6fe5f3dee0090a216b8b63",
+      "copyrightNotices": [
+        "Copyright (c) 2017, Ryan Zimmerman <opensrc@ryanzim.com>"
+      ],
+      "modified": false,
+      "policyDecision": "allowed"
+    },
+    {
       "name": "unpipe",
       "versionOrCommit": "1.0.0",
       "sourceUrl": "stream-utils/unpipe",
@@ -43433,7 +43508,7 @@
     {
       "name": "watchpack",
       "versionOrCommit": "2.5.2",
-      "sourceUrl": "https://github.com/webpack/watchpack/tree/6891a40951723d17f7478a810850e33f2facd7f9",
+      "sourceUrl": "https://github.com/webpack/watchpack",
       "packagePathOrArtifact": "node_modules/watchpack",
       "usage": "runtime",
       "distributedIn": [
@@ -43444,14 +43519,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/watchpack@2.5.2",
+      "licenseTextRef": "node_modules/watchpack/LICENSE",
       "licenseTextSha256": "9068a8782d2fb4c6e432cfa25334efa56f722822180570802bf86e71b6003b1e",
       "copyrightNotices": [
         "Copyright JS Foundation and other contributors"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/watchpack/-/watchpack-2.5.2.tgz#LICENSE Published source revision: 6891a40951723d17f7478a810850e33f2facd7f9"
+      "policyDecision": "allowed"
     },
     {
       "name": "web-namespaces",
@@ -43593,7 +43667,7 @@
     {
       "name": "webpack-sources",
       "versionOrCommit": "3.5.1",
-      "sourceUrl": "https://github.com/webpack/webpack-sources/tree/210e0a4142719ec75896903c39ef91d7834743a7",
+      "sourceUrl": "https://github.com/webpack/webpack-sources",
       "packagePathOrArtifact": "node_modules/webpack-sources",
       "usage": "runtime",
       "distributedIn": [
@@ -43604,19 +43678,18 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/webpack-sources@3.5.1",
+      "licenseTextRef": "node_modules/webpack-sources/LICENSE",
       "licenseTextSha256": "214d0ac13edb475ec426df1979d96fd46b443debc466c0fb592e32152ae5a940",
       "copyrightNotices": [
         "Copyright (c) 2017 JS Foundation and other contributors"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/webpack-sources/-/webpack-sources-3.5.1.tgz#LICENSE Published source revision: 210e0a4142719ec75896903c39ef91d7834743a7"
+      "policyDecision": "allowed"
     },
     {
       "name": "webpack",
       "versionOrCommit": "5.109.2",
-      "sourceUrl": "https://github.com/webpack/webpack/tree/6a24bd65b72c43207c36ce61b54e1f5833486906",
+      "sourceUrl": "https://github.com/webpack/webpack",
       "packagePathOrArtifact": "node_modules/webpack",
       "usage": "runtime",
       "distributedIn": [
@@ -43627,14 +43700,13 @@
       ],
       "declaredLicense": "MIT",
       "verifiedLicense": "MIT",
-      "licenseTextRef": "docs/compliance/third-party-license-cache.json#node_modules/webpack@5.109.2",
+      "licenseTextRef": "node_modules/webpack/LICENSE",
       "licenseTextSha256": "9068a8782d2fb4c6e432cfa25334efa56f722822180570802bf86e71b6003b1e",
       "copyrightNotices": [
         "Copyright JS Foundation and other contributors"
       ],
       "modified": false,
-      "policyDecision": "allowed",
-      "reviewNotes": "License text source: https://registry.npmjs.org/webpack/-/webpack-5.109.2.tgz#LICENSE Published source revision: 6a24bd65b72c43207c36ce61b54e1f5833486906"
+      "policyDecision": "allowed"
     },
     {
       "name": "webworkify",
