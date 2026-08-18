@@ -1,10 +1,10 @@
 import assert from 'node:assert/strict';
 
-import type { Model } from '@earendil-works/pi-ai';
+import type { Api, Model } from '@earendil-works/pi-ai';
 
 import { omitUnsupportedTemperature } from '../app/lib/agent-runtime-policy/request-options';
 
-function model(overrides: Partial<Model> = {}): Model {
+function model(overrides: Partial<Model<Api>> = {}): Model<Api> {
   return {
     id: 'test-model',
     name: 'Test model',
@@ -17,7 +17,7 @@ function model(overrides: Partial<Model> = {}): Model {
     contextWindow: 16_000,
     maxTokens: 1_000,
     ...overrides,
-  } as Model;
+  } as Model<Api>;
 }
 
 const requested = { temperature: 0.2, maxTokens: 128, sessionId: 'email-harness' };

@@ -5,12 +5,30 @@ import { useLocale, useTranslations } from 'next-intl';
 
 import { Link } from '@/i18n/navigation';
 import { buildChatSessionHref } from '@/app/lib/chat/chat-navigation-intent';
-import type { NotificationSummary } from '@/app/components/notifications/notification-summary';
+import type { NotificationItem, NotificationSummary } from '@/app/components/notifications/notification-summary';
 
 type HomeAttentionPanelProps = {
   summary: NotificationSummary | null;
   isLoading: boolean;
 };
+
+type ChatNotificationItem = NotificationItem & {
+  type: 'chat.response';
+  target: { kind: 'chat'; sessionId: string };
+};
+
+type TodoNotificationItem = NotificationItem & {
+  type: 'todo.attention';
+  target: { kind: 'todo'; todoId: string };
+};
+
+function isChatNotification(item: NotificationItem): item is ChatNotificationItem {
+  return item.type === 'chat.response' && item.target.kind === 'chat';
+}
+
+function isTodoNotification(item: NotificationItem): item is TodoNotificationItem {
+  return item.type === 'todo.attention' && item.target.kind === 'todo';
+}
 
 function formatDate(value: string | null, locale: string) {
   if (!value) return null;
@@ -22,9 +40,9 @@ function formatDate(value: string | null, locale: string) {
 export function HomeAttentionPanel({ summary, isLoading }: HomeAttentionPanelProps) {
   const t = useTranslations('home.focus.attention');
   const locale = useLocale();
-  const sessionItems = summary?.sessions.items.slice(0, 3) ?? [];
-  const todoItems = summary?.todos.items.filter((todo) => todo.isDue || !todo.seenAt).slice(0, 3) ?? [];
-  const attentionCount = (summary?.sessions.unreadCount ?? 0) + todoItems.length;
+  const sessionItems = summary?.items.filter(isChatNotification).slice(0, 3) ?? [];
+  const todoItems = summary?.items.filter(isTodoNotification).slice(0, 3) ?? [];
+  const attentionCount = (summary?.counts.chat ?? 0) + (summary?.counts.todos ?? 0);
 
   return (
     <aside className="hidden xl:sticky xl:top-6 xl:block xl:self-start" aria-label={t('title')}>
@@ -54,21 +72,21 @@ export function HomeAttentionPanel({ summary, isLoading }: HomeAttentionPanelPro
               <h3 id="home-attention-sessions" className="text-[10px] font-bold tracking-[0.16em] text-muted-foreground uppercase">
                 {t('sessions.title')}
               </h3>
-              <span className="text-xs text-muted-foreground">{summary?.sessions.unreadCount ?? 0}</span>
+              <span className="text-xs text-muted-foreground">{summary?.counts.chat ?? 0}</span>
             </div>
             {sessionItems.length === 0 ? (
               <p className="px-2 py-2 text-sm text-muted-foreground">{t('sessions.empty')}</p>
             ) : sessionItems.map((session) => (
               <Link
-                key={session.sessionId}
-                href={buildChatSessionHref('/notebook', session.sessionId, session.workspaceId)}
+                key={session.id}
+                href={buildChatSessionHref('/notebook', session.target.sessionId, session.workspaceId)}
                 className="flex items-start gap-2.5 px-2 py-2 transition-colors hover:bg-accent"
               >
                 <MessageSquare className="mt-0.5 h-4 w-4 shrink-0 text-primary" />
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{session.title}</span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {formatDate(session.lastMessageAt, locale) ?? t('sessions.newResponse')}
+                    {formatDate(session.occurredAt, locale) ?? t('sessions.newResponse')}
                   </span>
                   {session.workspaceName ? (
                     <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
@@ -86,21 +104,21 @@ export function HomeAttentionPanel({ summary, isLoading }: HomeAttentionPanelPro
               <h3 id="home-attention-todos" className="text-[10px] font-bold tracking-[0.16em] text-muted-foreground uppercase">
                 {t('todos.title')}
               </h3>
-              <span className="text-xs text-muted-foreground">{summary?.todos.dueCount ?? 0}</span>
+              <span className="text-xs text-muted-foreground">{summary?.counts.todos ?? 0}</span>
             </div>
             {todoItems.length === 0 ? (
               <p className="px-2 py-2 text-sm text-muted-foreground">{t('todos.empty')}</p>
             ) : todoItems.map((todo) => (
               <Link
                 key={todo.id}
-                href={`/todos?todo=${encodeURIComponent(todo.id)}${todo.workspaceId ? `&workspaceId=${encodeURIComponent(todo.workspaceId)}` : ''}`}
+                href={`/todos?todo=${encodeURIComponent(todo.target.todoId)}${todo.workspaceId ? `&workspaceId=${encodeURIComponent(todo.workspaceId)}` : ''}`}
                 className="flex items-start gap-2.5 px-2 py-2 transition-colors hover:bg-accent"
               >
-                {todo.isDue ? <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-destructive" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
+                {todo.priority === 'high' ? <Clock3 className="mt-0.5 h-4 w-4 shrink-0 text-destructive" /> : <CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-primary" />}
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm font-medium">{todo.title}</span>
                   <span className="mt-0.5 block text-xs text-muted-foreground">
-                    {todo.isDue ? (formatDate(todo.dueAt, locale) ?? t('todos.due')) : t('todos.unread')}
+                    {todo.detail ?? (todo.priority === 'high' ? t('todos.due') : t('todos.unread'))}
                   </span>
                 </span>
               </Link>

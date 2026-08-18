@@ -5,7 +5,7 @@ import { Circle, Clock3, Inbox, ListTodo, type LucideIcon } from 'lucide-react';
 import { useLocale, useTranslations } from 'next-intl';
 
 import { Link } from '@/i18n/navigation';
-import type { NotificationSummary } from '@/app/components/notifications/notification-summary';
+import type { NotificationItem, NotificationSummary } from '@/app/components/notifications/notification-summary';
 
 type EmailAccount = {
   id: string;
@@ -31,6 +31,15 @@ type ApiResponse<T> = {
   success: boolean;
   data?: T;
 };
+
+type TodoNotificationItem = NotificationItem & {
+  type: 'todo.attention';
+  target: { kind: 'todo'; todoId: string };
+};
+
+function isTodoNotification(item: NotificationItem): item is TodoNotificationItem {
+  return item.type === 'todo.attention' && item.target.kind === 'todo';
+}
 
 function formatDate(value: string | null | undefined, locale: string) {
   if (!value) return null;
@@ -170,7 +179,7 @@ function HomeEmailFocusCard() {
 function HomeTodoFocusCard({ summary }: { summary: NotificationSummary | null }) {
   const t = useTranslations('home.focus.todos');
   const locale = useLocale();
-  const items = (summary?.todos.items ?? []).filter((todo) => todo.isDue || !todo.seenAt).slice(0, 3);
+  const items = summary?.items.filter(isTodoNotification).slice(0, 3) ?? [];
 
   return (
     <HomeCard
@@ -185,15 +194,15 @@ function HomeTodoFocusCard({ summary }: { summary: NotificationSummary | null })
       ) : items.map((todo) => (
         <Link
           key={todo.id}
-          href={`/todos?todo=${encodeURIComponent(todo.id)}${todo.workspaceId ? `&workspaceId=${encodeURIComponent(todo.workspaceId)}` : ''}`}
+          href={`/todos?todo=${encodeURIComponent(todo.target.todoId)}${todo.workspaceId ? `&workspaceId=${encodeURIComponent(todo.workspaceId)}` : ''}`}
           className="flex min-w-0 items-start gap-2.5 px-2 py-2.5 transition-colors hover:bg-accent"
         >
           <Circle className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
           <span className="min-w-0 flex-1">
             <span className="block truncate text-sm font-medium">{todo.title}</span>
             <span className="mt-0.5 flex items-center gap-1 text-xs text-muted-foreground">
-              {todo.isDue ? <Clock3 className="h-3 w-3 text-destructive" /> : null}
-              {todo.isDue ? (formatDate(todo.dueAt, locale) ?? t('due')) : t('unread')}
+              {todo.priority === 'high' ? <Clock3 className="h-3 w-3 text-destructive" /> : null}
+              {todo.detail ?? (todo.priority === 'high' ? (formatDate(todo.occurredAt, locale) ?? t('due')) : t('unread'))}
             </span>
           </span>
         </Link>
