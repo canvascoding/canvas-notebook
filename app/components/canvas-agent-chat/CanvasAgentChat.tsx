@@ -1295,6 +1295,7 @@ export default function CanvasAgentChat({
 
             <ChatMessageList
               messages={messages}
+              assistantName={activeAgentDisplayName}
               runtimePhase={runtimeStatus?.phase}
               expandedRunKeys={expandedRunKeys}
               toolVerbosity={toolVerbosity}

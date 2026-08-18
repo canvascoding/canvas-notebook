@@ -226,6 +226,7 @@ function MessageActionBar({
 
 export function ChatMessageList({
   messages,
+  assistantName,
   runtimePhase,
   expandedRunKeys,
   toolVerbosity,
@@ -234,6 +235,7 @@ export function ChatMessageList({
   onAttachmentOpen,
 }: {
   messages: ChatMessage[];
+  assistantName: string;
   runtimePhase: RuntimeStatus['phase'] | null | undefined;
   expandedRunKeys: Set<string>;
   toolVerbosity: ToolVerbosity;
@@ -351,7 +353,7 @@ export function ChatMessageList({
                   ? 'border-destructive/40 bg-destructive/10 text-destructive'
                   : 'border-border bg-background/80 text-muted-foreground';
 
-        const title = isUser ? t('you') : isAssistant ? t('assistant') : t('system');
+        const title = isUser ? t('you') : isAssistant ? assistantName : t('system');
         const bodyContent =
           rawBodyContent ||
           (isAbortedAssistant
